@@ -90,7 +90,7 @@ export class GLVolume {
 
   constructor(buffer: ModelObjectBuffer) {
     this.buffer = buffer;
-    this.id = `${buffer.objectIdx}:${buffer.volumeIdx}:${buffer.instanceIdx}`;
+    this.id = `${buffer.objectId}:${buffer.volumeId}:${buffer.instanceId}`;
     // Drop a redundant matrix from the bridge on clean transforms so the TRS
     // gizmo path stays cheap; sheared transforms keep the authoritative matrix.
     this.instanceTransform = normalizeTransform(structuredClone(buffer.instanceTransform));
@@ -141,11 +141,31 @@ export class GLVolume {
 export const glVolumeCollection = {
   volumes: [] as GLVolume[],
   revision: 0,
+  listeners: new Set<(volumes: readonly GLVolume[]) => void>(),
+  publish() {
+    for (const listener of this.listeners) listener(this.volumes);
+  },
+  subscribe(listener: (volumes: readonly GLVolume[]) => void) {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  },
   replace(volumes: GLVolume[], revision?: number) {
     this.volumes.forEach((v) => v.dispose());
     this.volumes = volumes;
     this.revision = revision ?? glVolumeCollection.revision + 1;
     settleRevisionWaiters(this.revision);
+    this.publish();
+  },
+  /** Publish one validated stable-ID patch while retaining untouched meshes. */
+  patch(volumes: GLVolume[], revision: number) {
+    const retained = new Set(volumes);
+    this.volumes.forEach((volume) => {
+      if (!retained.has(volume)) volume.dispose();
+    });
+    this.volumes = volumes;
+    this.revision = revision;
+    settleRevisionWaiters(revision);
+    this.publish();
   },
   clear(revision?: number) { this.replace([], revision); },
 };

@@ -19,6 +19,7 @@ function object(role?: string): THREE.Object3D {
 describe('filterBuildPlateOccludedIntersections', () => {
   it('resolves a model volume from a mesh hit through its tagged parent group', () => {
     const volume = new GLVolume({
+      objectId: 3, volumeId: 4, instanceId: 5,
       objectIdx: 2, volumeIdx: 0, instanceIdx: 0,
       positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       vertexCount: 3, indices: new Uint32Array([0, 1, 2]), indexCount: 3,

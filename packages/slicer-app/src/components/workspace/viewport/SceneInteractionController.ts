@@ -289,19 +289,23 @@ export class SceneInteractionController {
     if (selectedSet.size === 0) return 'empty';
 
     const perInstance = new Map<string, number>(); // total volumes per (obj, inst)
+    const volumesById = new Map<string, GLVolume>();
     for (const volume of this.getVolumes()) {
       const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
       perInstance.set(key, (perInstance.get(key) ?? 0) + 1);
+      volumesById.set(volume.id, volume);
     }
 
     const touched = new Map<string, number>(); // selected count per (obj, inst)
     const touchedObjects = new Set<number>();
     for (const id of selectedSet) {
-      const [oiStr, , iiStr] = id.split(':');
-      const key = `${oiStr}:${iiStr}`;
+      const volume = volumesById.get(id);
+      if (!volume) continue;
+      const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
       touched.set(key, (touched.get(key) ?? 0) + 1);
-      touchedObjects.add(Number(oiStr));
+      touchedObjects.add(volume.buffer.objectIdx);
     }
+    if (touched.size === 0) return 'empty';
 
     // Mode homogeneity: a partial instance is the only thing that can be part-
     // scoped. It is valid only as a lone part set (one object, one instance).
@@ -729,13 +733,13 @@ export class SceneInteractionController {
       for (const volume of object.volumes) {
         if (objectSelected || partIds.has(volume.id)) {
           for (const instance of object.instances)
-            selected.add(`${object.index}:${volume.index}:${instance.index}`);
+            selected.add(`${object.id}:${volume.id}:${instance.id}`);
         }
       }
       for (const instance of object.instances) {
         if (!instanceIds.has(instance.id)) continue;
         for (const volume of object.volumes)
-          selected.add(`${object.index}:${volume.index}:${instance.index}`);
+          selected.add(`${object.id}:${volume.id}:${instance.id}`);
       }
     }
     // Sparse Move history frames carry transforms and the normalized native
@@ -748,7 +752,7 @@ export class SceneInteractionController {
       for (const object of structure.objects)
         for (const volume of object.volumes)
           for (const instance of object.instances)
-            renderedIds.add(`${object.index}:${volume.index}:${instance.index}`);
+            renderedIds.add(`${object.id}:${volume.id}:${instance.id}`);
       for (const id of fallbackSelectionIds)
         if (renderedIds.has(id)) selected.add(id);
     }

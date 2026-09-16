@@ -1,4 +1,4 @@
-import type { HistoryContext, PlateSessionInstanceTransform, PrimeTowerRestoreReceipt, RestoreImpact, RestoreResult, SlicerClient, TransformRestoreReceipt } from '@slicer/client';
+import type { HistoryContext, RestoreImpact, RestoreResult, SceneDelta, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
@@ -29,10 +29,8 @@ export interface HistoryRestoreCoordinatorOptions {
   refreshModel: (
     context: HistoryContext,
     impact: RestoreImpact,
+    sceneDelta: SceneDelta,
     revision: number,
-    primeTowerReceipt?: PrimeTowerRestoreReceipt,
-    instanceTransforms?: readonly PlateSessionInstanceTransform[],
-    transformReceipt?: TransformRestoreReceipt,
   ) => Promise<HistoryRestorePath | void>;
   /** Best-effort preference mirror after a successful native restore. */
   publishRestoredFilamentRack?: (revision: number) => Promise<void>;
@@ -77,16 +75,9 @@ export function createHistoryRestoreCoordinator({
       const projectionStartedAt = historyDiagnosticNow();
       let projectionPath: HistoryRestorePath = historyRestorePath(restored.impact);
       try {
-        if (restored.instanceTransforms) {
-          if (restored.transformReceipt)
-            projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, restored.instanceTransforms, restored.transformReceipt) ?? projectionPath;
-          else
-            projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, restored.instanceTransforms) ?? projectionPath;
-        } else if (restored.transformReceipt) {
-          projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, undefined, restored.transformReceipt) ?? projectionPath;
-        } else {
-          projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt) ?? projectionPath;
-        }
+        projectionPath = await refreshModel(
+          restored.context, restored.impact, restored.sceneDelta, revision,
+        ) ?? projectionPath;
       } finally {
         useHistoryDiagnosticsStore.getState().recordProjection(
           projectionPath, historyDiagnosticNow() - projectionStartedAt,

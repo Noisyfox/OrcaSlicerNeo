@@ -387,9 +387,22 @@ json restore_timestamped_result(const Runtime& runtime,
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     HistoryMetadata::advance_history_epoch(state());
     json response_context = state().history_live_context;
+    json scene_delta{{"version", 1},
+                     {"object_ids", restored.scene_delta.object_ids},
+                     {"volume_ids", restored.scene_delta.volume_ids},
+                     {"instance_ids", restored.scene_delta.instance_ids},
+                     {"plate_ids", restored.scene_delta.plate_ids}};
+    if (restored.scene_delta.object_order.empty()) {
+        scene_delta["object_order"] = json::array();
+        for (const auto& object : restored.roots.model.mutable_objects)
+            scene_delta["object_order"].push_back(object.id);
+    } else {
+        scene_delta["object_order"] = restored.scene_delta.object_order;
+    }
     json result{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
                 {"entryId", history_entry_id(entry_id)},
-                {"impact", {{"version", 1}, {"model", "full"}, {"plateSession", true},
+                {"scene_delta", std::move(scene_delta)},
+                {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
                             {"filamentRack", true}, {"projectOverlay", true}, {"selectionContext", true},
                             {"primeTower", true}, {"preview", "all"}}}};
     Neo::Bridge::Performance::record("history_restore", {
@@ -888,8 +901,11 @@ History::TimestampedRoots capture_history_roots(BridgeState& state, const json& 
     // normalize these counters out of timestamp identity. A successful
     // restore allocates fresh live stamps for every restored plate.
     plate_session["input_revisions"] = json::object();
-    for (const auto& plate : plate_session["plates"])
-        plate_session["input_revisions"][plate["plate_id"].get<std::string>()] = 0;
+    for (const auto& plate : plate_session["plates"]) {
+        const auto plate_id = plate["plate_id"].get<std::string>();
+        plate_session["input_revisions"][plate_id] = 0;
+        roots.session.scene_plate_ids.push_back(plate_id);
+    }
     roots.session.plate_session = HistoryRuntime::json_bytes(plate_session);
     json editing_context = context;
     editing_context.erase("plateSession");
@@ -910,7 +926,8 @@ bool begin_timestamped_operation(BridgeState& state, const std::string& label, c
 
 bool commit_timestamped_operation(BridgeState& state, const json& after_context)
 {
-    if (!state.history.commit_operation()) return false;
+    auto successor = capture_history_roots(state, after_context);
+    if (!state.history.commit_operation(successor)) return false;
     state.history_live_context = after_context;
     advance_history_epoch(state);
     return true;
@@ -1114,7 +1131,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             return duplicate_json(history_status_json().dump());
         }
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
-        if (!state().history.commit_operation()) return error_json("history commit rejected");
+        if (!state().history.commit_operation(after_roots)) return error_json("history commit rejected");
         HistoryMetadata::advance_history_epoch(state());
         state().history_live_context = after_context;
         const double commit_finished_at = Neo::Bridge::Performance::now_ms();

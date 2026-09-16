@@ -274,8 +274,10 @@ describe('worker protocol', () => {
     expect(observed).toMatchObject({ version: 1 });
     expect(observed.worker.mutation.count).toBe(1);
     expect(observed.client.mutation.count).toBe(1);
-    expect(observed.worker.fullRestore.count).toBe(1);
-    expect(observed.client.fullRestore.count).toBe(1);
+    expect(observed.worker.directRestore.count).toBe(1);
+    expect(observed.client.directRestore.count).toBe(1);
+    expect(observed.worker.fullRestore.count).toBe(0);
+    expect(observed.client.fullRestore.count).toBe(0);
     expect(observed.worker.reads).toMatchObject({
       plateSessionSnapshot: { count: 1 }, primeTowerProjection: { count: 1 }, filamentSessionSnapshot: { count: 1 },
     });
@@ -285,7 +287,7 @@ describe('worker protocol', () => {
 
     // The direct path is a Worker event rather than a renderer-side guess.
     channel.post({ type: 'history-diagnostic', diagnostic: { kind: 'restore', path: 'direct', durationMs: 1 } });
-    expect(workerClient.getHistoryDiagnostics().worker.directRestore).toMatchObject({ count: 1, lastMs: 1 });
+    expect(workerClient.getHistoryDiagnostics().worker.directRestore).toMatchObject({ count: 2, lastMs: 1 });
   });
 
   it('round-trips a direct Prime Tower restore receipt without an all-plate projection read', async () => {

@@ -436,6 +436,10 @@ export interface ProjectLoadResult {
 }
 
 export interface ModelObjectBuffer {
+  /** Stable native identities used for React/Three reconciliation. */
+  objectId: number;
+  volumeId: number;
+  instanceId: number;
   objectIdx: number;
   volumeIdx: number;
   instanceIdx: number;
@@ -473,6 +477,15 @@ export interface ModelTransform {
 export interface ModelMeshResult {
   ok: boolean;
   objects: ModelObjectBuffer[];
+  error?: string;
+}
+
+/** Targeted projection for the stable object IDs in one history SceneDelta. */
+export interface ModelScenePatchResult {
+  ok: boolean;
+  objectOrder: number[];
+  objects: ModelObjectStructure[];
+  meshes: ModelObjectBuffer[];
   error?: string;
 }
 
@@ -1178,6 +1191,8 @@ export interface SlicerClient {
     transforms: readonly ModelTransformMutation[],
   ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
   getModelMesh(): Promise<ModelMeshResult>;
+  /** Materialize only objects touched by a native history SceneDelta. */
+  getModelScenePatch(objectIds: readonly number[]): Promise<ModelScenePatchResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
   getModelStructure(): Promise<ModelStructureResult>;
   /** Delete whole objects by their stable ObjectIDs. */

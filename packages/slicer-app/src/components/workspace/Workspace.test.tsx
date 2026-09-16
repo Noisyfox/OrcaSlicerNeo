@@ -199,19 +199,23 @@ describe('Workspace ownership', () => {
     expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toEqual(frameRequest);
   });
 
-  it('patches a direct Prime Tower receipt without reading a projection, falls back on mismatch, then still refreshes for a real renderer input change', async () => {
+  it('projects ordinary history through one targeted SceneDelta read and never uses the full model route', async () => {
     const getModelStructure = vi.fn(async () => ({ ok: true as const, objects: [] }));
+    const getModelMesh = vi.fn(async () => ({ ok: true as const, objects: [] }));
+    const getModelScenePatch = vi.fn(async () => ({
+      ok: true as const, objectOrder: [], objects: [], meshes: [],
+    }));
     const restore = {
       ok: true as const,
-      context: { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: 'plate-a', gizmo: null, projectConfigOverlay: {} },
+      context: { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: 'plate-a', gizmo: null, projectConfigOverlay: {}, plateSession: twoPlateSnapshot },
       status: { canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0, byteBudget: 1, optionalBytesReleased: 0, evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false, disabled: false, activeTransactionId: null, revision: 1 },
-      impact: { version: 1 as const, model: 'none' as const, plateSession: true, filamentRack: false, projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate' as const },
-      primeTowerReceipt: { version: 1 as const, state: 'available' as const, plateId: 'plate-a', revision: 1,
-        position: { x: 42, y: 55 }, footprint: { minX: 42, maxX: 62, minY: 55, maxY: 71 } },
+      sceneDelta: { version: 1 as const, objectIds: [], volumeIds: [], instanceIds: [], plateIds: ['plate-a', 'plate-b'], objectOrder: [] },
+      impact: { version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: false, projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const },
     };
     const runtime = {
       undoHistory: vi.fn(async () => restore), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(),
-      getModelStructure, getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      getModelStructure, getModelMesh, getModelScenePatch,
+      getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getPlateSessionSnapshot: vi.fn(async () => ({ ...twoPlateSnapshot, inputRevisions: { ...twoPlateSnapshot.inputRevisions } })),
       getPrimeTowerProjection: vi.fn(async () => ({
         ok: true as const, version: 1 as const, currentPlateId: 'plate-a',
@@ -236,25 +240,14 @@ describe('Workspace ownership', () => {
     const plateReadsBeforeRestore = runtime.getPlateSessionSnapshot.mock.calls.length;
     const projectionReadsBeforeRestore = runtime.getPrimeTowerProjection.mock.calls.length;
     await act(async () => { await coordinator?.restore('undo'); });
+    expect(getModelScenePatch).toHaveBeenCalledOnce();
+    expect(getModelScenePatch).toHaveBeenCalledWith([]);
     expect(getModelStructure).not.toHaveBeenCalled();
-    expect(runtime.getPlateSessionSnapshot).toHaveBeenCalledTimes(plateReadsBeforeRestore + 1);
-    // The direct restore updates the retained all-plate projection from its
-    // exact native receipt. The idle-phase reactive effect sees the same
-    // identity, so neither path sends an expensive full Worker request.
-    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(projectionReadsBeforeRestore);
+    expect(getModelMesh).not.toHaveBeenCalled();
+    expect(runtime.getPlateSessionSnapshot).toHaveBeenCalledTimes(plateReadsBeforeRestore);
+    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(projectionReadsBeforeRestore + 1);
     expect(useHistoryDiagnosticsStore.getState().app).toMatchObject({
       directRestore: { count: 1 }, projection: { count: 1 }, directPrimeTowerModelReloads: 0,
     });
-
-    restore.primeTowerReceipt = { ...restore.primeTowerReceipt, revision: 2 };
-    await act(async () => { await coordinator?.restore('undo'); });
-    // A stale receipt cannot alter a renderer snapshot. It is deliberately
-    // sent through the existing authoritative full-projection fallback.
-    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(projectionReadsBeforeRestore + 1);
-
-    await act(async () => {
-      useSettingsStore.getState().setOverlay({ project: { wipe_tower_x: '42' }, objects: {}, parts: {}, plates: {} });
-    });
-    await vi.waitFor(() => expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(projectionReadsBeforeRestore + 2));
   });
 });

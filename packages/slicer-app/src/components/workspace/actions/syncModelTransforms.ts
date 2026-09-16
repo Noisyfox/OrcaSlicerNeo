@@ -5,6 +5,10 @@ type TransformableVolume = Pick<GLVolume, 'instanceTransform' | 'volumeTransform
   buffer: Pick<GLVolume['buffer'], 'objectIdx' | 'volumeIdx' | 'instanceIdx'>;
 };
 
+type StableTransformableVolume = TransformableVolume & {
+  buffer: Pick<GLVolume['buffer'], 'objectId' | 'instanceId' | 'objectIdx' | 'volumeIdx' | 'instanceIdx'>;
+};
+
 /** Synchronize a stable snapshot of every rendered CompositeID. */
 export async function syncModelTransforms(
   client: Pick<SlicerClient, 'setModelTransform'> & Partial<Pick<SlicerClient, 'recomputePlateMembership'>>,
@@ -55,18 +59,18 @@ export async function syncModelTransformsAtomically(
 }
 
 /** Apply authoritative world transforms returned by a plate mutation.
- * Membership is global, so updates are matched by the stable positional
- * identity in the bridge response and never filtered to the current selection.
+ * Membership is global, so updates are matched by stable native identity and
+ * never filtered to the current selection or dependent on positional indexes.
  */
 export function applyPlateSessionTransforms(
   mutation: Pick<PlateSessionMutation, 'instanceTransforms'> | undefined,
-  volumes: readonly TransformableVolume[],
+  volumes: readonly StableTransformableVolume[],
 ): void {
   const transformsByInstance = new Map<string, PlateSessionMutation['instanceTransforms'][number]['worldTransform']>();
   for (const changed of mutation?.instanceTransforms ?? [])
-    transformsByInstance.set(`${changed.objectIndex}:${changed.instanceIndex}`, changed.worldTransform);
+    transformsByInstance.set(`${changed.objectId}:${changed.instanceId}`, changed.worldTransform);
   for (const volume of volumes) {
-    const transform = transformsByInstance.get(`${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`);
+    const transform = transformsByInstance.get(`${volume.buffer.objectId}:${volume.buffer.instanceId}`);
     if (transform) volume.instanceTransform = structuredClone(transform);
   }
 }

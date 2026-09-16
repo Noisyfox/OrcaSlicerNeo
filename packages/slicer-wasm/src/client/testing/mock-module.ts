@@ -448,13 +448,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function historyRestore(entry: MockHistoryEntry, narrowPrimeTower = false, primeTowerPlateId?: string) {
     restoreHistoryState(entry);
     historyRevision++;
+    const states = [...historyEntries, entry];
+    const sceneDelta = {
+      version: 1,
+      object_ids: [...new Set(states.flatMap((state) => state.objectMeta.map((object) => object.id)))].sort((a, b) => a - b),
+      volume_ids: [...new Set(states.flatMap((state) => state.volumeMeta.flatMap((volumes) => volumes.map((volume) => volume.id))))].sort((a, b) => a - b),
+      instance_ids: [...new Set(states.flatMap((state) => state.instanceMeta.flatMap((instances) => instances.map((instance) => instance.id))))].sort((a, b) => a - b),
+      plate_ids: [...new Set(states.flatMap((state) => state.plateIds))].sort(),
+      object_order: entry.objectMeta.map((object) => object.id),
+    };
     return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id,
+      scene_delta: sceneDelta,
       ...(narrowPrimeTower && primeTowerPlateId
         ? { narrow: true, prime_tower_receipt: primeTowerRestoreReceipt(primeTowerPlateId) } : {}),
       impact: narrowPrimeTower
         ? { version: 1, model: 'none', plateSession: true, filamentRack: false, projectOverlay: true,
           selectionContext: true, primeTower: true, preview: 'current-plate' }
-        : { version: 1, model: 'full', plateSession: true, filamentRack: true, projectOverlay: true,
+        : { version: 1, model: 'delta', plateSession: true, filamentRack: true, projectOverlay: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function plateStride(): number {
@@ -1184,7 +1194,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         restoreHistoryState(nested.before);
         historyNestedTransactions.pop();
         historyRevision++;
-        return { ok: true, context: clone(nested.beforeContext), status: historyStatus() };
+        return { ok: true, context: clone(nested.beforeContext), status: historyStatus(), scene_delta: {
+          version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
+          object_order: objectMeta.map((object) => object.id),
+        } };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
@@ -1192,7 +1205,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const context = historyTransaction.beforeContext;
       historyTransaction = null;
       if (modelChanged) historyRevision++;
-      return { ok: true, context: clone(context), status: historyStatus() };
+      return { ok: true, context: clone(context), status: historyStatus(), scene_delta: {
+        version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
+        object_order: objectMeta.map((object) => object.id),
+      } };
     },
     orc_history_undo() {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -1877,6 +1893,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           verts.forEach((v, i) => HEAPF32.set(v, vo + i * 3));
           tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
           return {
+            object_id: objectMeta[object_idx].id,
+            volume_id: volumeMeta[object_idx][volume_idx].id,
+            instance_id: instanceMeta[object_idx][instance_idx].id,
             object_idx,
             volume_idx,
             instance_idx,
@@ -1891,6 +1910,39 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           })),
         ),
       };
+    },
+    orc_get_model_scene_patch(objectIdsJson: string) {
+      const requested = JSON.parse(objectIdsJson) as number[];
+      if (!Array.isArray(requested) || requested.some((id) => !Number.isSafeInteger(id) || id <= 0))
+        return { error: 'scene patch object ids must be positive integers' };
+      const requestedIds = new Set(requested);
+      const meshes = objectTransforms.flatMap((instances, object_idx) => {
+        if (!requestedIds.has(objectMeta[object_idx].id)) return [];
+        return instances.flatMap((instanceTransform, instance_idx) =>
+          objectVolumeTransforms[object_idx].map((_volumeTransform, volume_idx) => {
+            const { verts, tris } = primitiveMesh(objectMeta[object_idx]?.primitive);
+            const vptr = malloc(verts.length * 3 * 4);
+            const iptr = malloc(tris.length * 3 * 4);
+            const vo = vptr / 4;
+            const io = iptr / 4;
+            verts.forEach((v, i) => HEAPF32.set(v, vo + i * 3));
+            tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
+            return {
+              object_id: objectMeta[object_idx].id,
+              volume_id: volumeMeta[object_idx][volume_idx].id,
+              instance_id: instanceMeta[object_idx][instance_idx].id,
+              object_idx, volume_idx, instance_idx,
+              vertex_ptr: vptr, vertex_count: verts.length,
+              index_ptr: iptr, index_count: tris.length * 3,
+              offset: instanceTransform.offset,
+              instance_transform: instanceTransform,
+              volume_transform: objectVolumeTransforms[object_idx][volume_idx],
+            };
+          }));
+      });
+      const structure = buildStructure();
+      return { ok: true, object_order: structure.map((object) => object.id),
+        objects: structure.filter((object) => requestedIds.has(object.id)), meshes };
     },
     orc_get_model_structure() {
       return {
@@ -2257,6 +2309,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_set_model_transforms: { ret: 'number', args: ['string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
+    orc_get_model_scene_patch: { ret: 'number', args: ['string'] },
     orc_get_model_structure: { ret: 'number', args: [] },
     orc_set_async_task_callback: { ret: 'void', args: ['pointer'] },
     orc_get_threading_info: { ret: 'number', args: [] },

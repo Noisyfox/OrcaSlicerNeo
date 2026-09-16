@@ -39,6 +39,7 @@ static TimestampedRoots roots(std::uint8_t marker, std::vector<MutableObject> ob
     result.model.mutable_objects = std::move(objects);
     result.session.plate_session = bytes(plate);
     result.session.history_context = bytes(context);
+    if (plate != 0) result.session.scene_plate_ids = {"plate-" + std::to_string(plate)};
     result.project_config_overlay = bytes(project);
     return result;
 }
@@ -60,14 +61,21 @@ int main()
     const auto compound = roots(11, { object(10, 2, 12), object(30, 1, 30) }, 2, 12, 22);
     const auto final = roots(12, { object(10, 2, 12), object(30, 2, 32) }, 3, 13, 23);
     CHECK(sequence.begin_operation("compound add/move/delete", initial));
-    CHECK(sequence.commit_operation());
+    CHECK(sequence.begin_operation("nested edits join outer", initial));
+    CHECK(sequence.commit_operation(compound));
+    CHECK(sequence.entries().empty());
+    CHECK(sequence.commit_operation(compound));
     CHECK(sequence.begin_operation("move added object", compound));
-    CHECK(sequence.commit_operation());
+    CHECK(sequence.commit_operation(final));
     CHECK(sequence.entries().size() == 2);
     CHECK(sequence.entries()[0].before_timestamp == 0);
     CHECK(sequence.entries()[0].after_timestamp == 1);
     CHECK(sequence.entries()[1].before_timestamp == 1);
     CHECK(sequence.entries()[1].after_timestamp == 2);
+    CHECK(sequence.entries()[0].scene_delta.object_ids == std::vector<ObjectID>({10, 20, 30}));
+    CHECK(sequence.entries()[0].scene_delta.volume_ids == std::vector<ObjectID>({1010, 1020, 1030}));
+    CHECK(sequence.entries()[0].scene_delta.instance_ids == std::vector<ObjectID>({2010, 2020, 2030}));
+    CHECK(sequence.entries()[0].scene_delta.plate_ids == std::vector<std::string>({"plate-1", "plate-2"}));
 
     TimestampedRestore restored;
     CHECK(sequence.undo(final, restored));
@@ -75,10 +83,18 @@ int main()
     CHECK(restored.roots.model.mutable_objects.size() == 2);
     CHECK(object_is(restored, 0, 10, 2, 12));
     CHECK(object_is(restored, 1, 30, 1, 30));
+    CHECK(sequence.redo(restored));
+    CHECK(restored.timestamp == 2);
     CHECK(sequence.restore_before(sequence.entries()[0].id, nullptr, restored));
     CHECK(restored.timestamp == 0);
     CHECK(object_is(restored, 0, 10, 1, 10));
     CHECK(object_is(restored, 1, 20, 1, 20));
+    CHECK(restored.scene_delta.object_ids == std::vector<ObjectID>({10, 20, 30}));
+    CHECK(restored.scene_delta.volume_ids == std::vector<ObjectID>({1010, 1020, 1030}));
+    CHECK(restored.scene_delta.instance_ids == std::vector<ObjectID>({2010, 2020, 2030}));
+    CHECK(restored.scene_delta.object_order == std::vector<ObjectID>({10, 20}));
+    CHECK(restored.scene_delta.plate_ids ==
+          std::vector<std::string>({"plate-1", "plate-2", "plate-3"}));
     CHECK(sequence.restore_after(sequence.entries()[1].id, nullptr, restored));
     CHECK(restored.timestamp == 2);
     CHECK(object_is(restored, 0, 10, 2, 12));
@@ -101,7 +117,7 @@ int main()
     const auto shared_before = roots(1, { object(1, 7, 1), object(2, 8, 2) });
     const auto shared_after = roots(2, { object(1, 7, 1), object(2, 9, 3) });
     CHECK(sharing.begin_operation("edit object 2", shared_before));
-    CHECK(sharing.commit_operation());
+    CHECK(sharing.commit_operation(shared_after));
     CHECK(sharing.begin_operation("next operation", shared_after));
     const auto object_1_before = sharing.object_archive(0, 1);
     const auto object_1_after = sharing.object_archive(1, 1);
@@ -131,7 +147,7 @@ int main()
     const auto lazy_before = roots(1, { object(1, 1, 1) });
     const auto lazy_after = roots(2, { object(1, 2, 2) });
     CHECK(lazy.begin_operation("move", lazy_before));
-    CHECK(lazy.commit_operation());
+    CHECK(lazy.commit_operation(lazy_after));
     CHECK(lazy.snapshot_count() == 1);
     CHECK(lazy.object_archive_count() == 1);
     lazy.mark_current_as_saved();
@@ -161,11 +177,13 @@ int main()
     const auto hint_before = roots(1, { object(1, 5, 1) });
     const auto hint_after = roots(2, { object(1, 5, 2) });
     CHECK(timestamp_hint.begin_operation("timestamp hint", hint_before));
-    CHECK(timestamp_hint.commit_operation());
+    CHECK(timestamp_hint.commit_operation(hint_after));
     CHECK(timestamp_hint.undo(hint_after, restored));
+    CHECK(restored.scene_delta.object_ids == std::vector<ObjectID>({1}));
     CHECK(timestamp_hint.object_archive_count() == 2);
     CHECK(timestamp_hint.redo(restored));
     CHECK(object_is(restored, 0, 1, 5, 2));
+    CHECK(restored.scene_delta.object_ids == std::vector<ObjectID>({1}));
 
     // Committing from an earlier timestamp discards the old Redo future.
     TimestampedHistory branch;
@@ -173,21 +191,21 @@ int main()
     const auto branch_1 = roots(2, { object(1, 2, 2) });
     const auto branch_2 = roots(3, { object(1, 3, 3) });
     CHECK(branch.begin_operation("first", branch_0));
-    CHECK(branch.commit_operation());
+    CHECK(branch.commit_operation(branch_1));
     CHECK(branch.begin_operation("old future", branch_1));
-    CHECK(branch.commit_operation());
+    CHECK(branch.commit_operation(branch_2));
     CHECK(branch.undo(branch_2, restored));
     CHECK(branch.can_redo());
     auto branch_predecessor = branch_1;
     branch_predecessor.session.history_context = bytes(9);
     CHECK(branch.begin_operation("new branch", branch_predecessor));
-    CHECK(branch.commit_operation());
+    const auto branch_3 = roots(4, { object(1, 4, 4) });
+    CHECK(branch.commit_operation(branch_3));
     CHECK(branch.entries().size() == 2);
     CHECK(branch.entries()[1].before_timestamp == 1);
     CHECK(branch.entries()[1].after_timestamp == 3);
     CHECK(!branch.can_redo());
     CHECK(!branch.object_archive(2, 1));
-    const auto branch_3 = roots(4, { object(1, 4, 4) });
     CHECK(branch.undo(branch_3, restored));
     CHECK(restored.roots.session.history_context == bytes(9));
 
@@ -201,7 +219,7 @@ int main()
     optional_mesh.optional = true;
     optional_roots.model.immutable_meshes.push_back(optional_mesh);
     CHECK(optional_data.begin_operation("mesh", optional_roots));
-    CHECK(optional_data.commit_operation());
+    CHECK(optional_data.commit_operation(optional_roots));
     const auto optional_bytes_before = optional_data.bytes_used();
     optional_data.set_byte_budget(optional_bytes_before - 128);
     CHECK(optional_data.snapshot_count() == 1);
@@ -216,16 +234,16 @@ int main()
     const auto budget_1 = roots(2, { object(1, 2, 2, 1024) });
     const auto budget_2 = roots(3, { object(1, 3, 3, 1024) });
     CHECK(budget.begin_operation("one", budget_0));
-    CHECK(budget.commit_operation());
+    CHECK(budget.commit_operation(budget_1));
     budget.mark_current_as_saved();
     const auto saved_snapshot_count = budget.snapshot_count();
     const auto saved_archive_count = budget.object_archive_count();
     CHECK(budget.begin_operation("two", budget_1));
     CHECK(budget.snapshot_count() == saved_snapshot_count + 1);
     CHECK(budget.object_archive_count() == saved_archive_count + 1);
-    CHECK(budget.commit_operation());
+    CHECK(budget.commit_operation(budget_2));
     CHECK(budget.begin_operation("three", budget_2));
-    CHECK(budget.commit_operation());
+    CHECK(budget.commit_operation(budget_2));
     budget.set_byte_budget(1);
     CHECK(budget.snapshot_count() == 1);
     CHECK(budget.object_archive(2, 1));

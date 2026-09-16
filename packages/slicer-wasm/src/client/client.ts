@@ -16,7 +16,7 @@ import type {
   ConfigurationStatus,
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
-  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
+  ModelMeshResult, ModelScenePatchResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
@@ -989,6 +989,8 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
   const impact = normalizeRestoreImpact(value.impact);
+  const sceneDelta = normalizeSceneDelta(value.scene_delta);
+  if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
   const primeTowerReceipt = normalizePrimeTowerRestoreReceipt(value.prime_tower_receipt, impact, value.narrow);
   const transformReceipt = normalizeTransformRestoreReceipt(value.transform_receipt, impact, value.direct, value.narrow);
   let instanceTransforms: import('./types').PlateSessionInstanceTransform[] | undefined;
@@ -1014,6 +1016,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     status: normalizeHistoryStatus(value.status),
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
+    sceneDelta,
     ...(primeTowerReceipt ? { primeTowerReceipt } : {}),
     ...(transformReceipt ? { transformReceipt } : {}),
     ...(instanceTransforms ? { instanceTransforms } : {}),
@@ -1033,7 +1036,7 @@ export function normalizeTransformRestoreReceipt(
   direct: unknown,
   narrow: unknown,
 ): import('./history').TransformRestoreReceipt | undefined {
-  if (direct !== true || narrow !== true || impact.model !== 'full' || !impact.plateSession ||
+  if (direct !== true || narrow !== true || impact.model !== 'delta' || !impact.plateSession ||
       !impact.projectOverlay || !impact.selectionContext || impact.filamentRack || impact.preview !== 'all' ||
       !raw || typeof raw !== 'object') return undefined;
   const value = raw as Record<string, unknown>;
@@ -1117,17 +1120,38 @@ export function normalizePrimeTowerRestoreReceipt(
 
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
   const fallback: import('./history').RestoreImpact = {
-    version: 1, model: 'full', plateSession: true, filamentRack: true,
+    version: 1, model: 'delta', plateSession: true, filamentRack: true,
     projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const value = raw as Record<string, unknown>;
-  if (value.version !== 1 || (value.model !== 'full' && value.model !== 'none') ||
+  if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
       typeof value.projectOverlay !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
       (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
   return value as unknown as import('./history').RestoreImpact;
+}
+
+export function normalizeSceneDelta(raw: unknown): import('./history').SceneDelta | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const nativeIds = (key: string): number[] | undefined => {
+    const ids = value[key];
+    if (!Array.isArray(ids) || !ids.every((id) => Number.isSafeInteger(id) && (id as number) > 0)) return undefined;
+    const normalized = ids as number[];
+    return new Set(normalized).size === normalized.length ? normalized : undefined;
+  };
+  const objectIds = nativeIds('object_ids');
+  const volumeIds = nativeIds('volume_ids');
+  const instanceIds = nativeIds('instance_ids');
+  const objectOrder = nativeIds('object_order');
+  if (value.version !== 1 || !objectIds || !volumeIds || !instanceIds || !objectOrder ||
+      !Array.isArray(value.plate_ids) ||
+      !value.plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(value.plate_ids).size !== value.plate_ids.length) return undefined;
+  return { version: 1, objectIds, volumeIds, instanceIds,
+    plateIds: value.plate_ids as string[], objectOrder };
 }
 
 const clientAdmissionChecks = new WeakMap<SlicerClient,
@@ -1792,6 +1816,7 @@ export function createClient(
       const m = await module();
       const r = callJson(m, 'orc_get_model_mesh', [], []) as {
         ok: boolean; error?: string; objects?: Array<{
+          object_id: number; volume_id: number; instance_id: number;
           object_idx: number; volume_idx: number; instance_idx: number;
           vertex_ptr: number; vertex_count: number;
           index_ptr: number; index_count: number; offset: number[];
@@ -1803,6 +1828,7 @@ export function createClient(
         const positions = new Float32Array(readBytes(m, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
         const indices = new Uint32Array(readBytes(m, Number(o.index_ptr), o.index_count * 4).buffer);
         return {
+          objectId: o.object_id, volumeId: o.volume_id, instanceId: o.instance_id,
           objectIdx: o.object_idx,
           volumeIdx: o.volume_idx,
           instanceIdx: o.instance_idx,
@@ -1814,6 +1840,34 @@ export function createClient(
         };
       });
       return { ok: true, objects };
+    },
+
+    async getModelScenePatch(objectIds: readonly number[]): Promise<ModelScenePatchResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_get_model_scene_patch', ['string'], [JSON.stringify(objectIds)]) as {
+        ok: boolean; error?: string; object_order?: number[]; objects?: ModelStructureResult['objects'];
+        meshes?: Array<{
+          object_id: number; volume_id: number; instance_id: number;
+          object_idx: number; volume_idx: number; instance_idx: number;
+          vertex_ptr: number; vertex_count: number;
+          index_ptr: number; index_count: number; offset: number[];
+          instance_transform: ModelTransform; volume_transform: ModelTransform;
+        }>;
+      };
+      if (!r.ok || !r.object_order || !r.objects || !r.meshes)
+        return { ok: false, objectOrder: [], objects: [], meshes: [], error: r.error ?? 'invalid model scene patch' };
+      const meshes: ModelObjectBuffer[] = r.meshes.map((entry) => ({
+        objectId: entry.object_id, volumeId: entry.volume_id, instanceId: entry.instance_id,
+        objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
+        positions: new Float32Array(readBytes(m, Number(entry.vertex_ptr), entry.vertex_count * 3 * 4).buffer),
+        vertexCount: entry.vertex_count,
+        indices: new Uint32Array(readBytes(m, Number(entry.index_ptr), entry.index_count * 4).buffer),
+        indexCount: entry.index_count,
+        offset: [entry.offset[0], entry.offset[1], entry.offset[2]] as [number, number, number],
+        instanceTransform: entry.instance_transform,
+        volumeTransform: entry.volume_transform,
+      }));
+      return { ok: true, objectOrder: r.object_order, objects: r.objects, meshes };
     },
 
     async getModelStructure(): Promise<ModelStructureResult> {

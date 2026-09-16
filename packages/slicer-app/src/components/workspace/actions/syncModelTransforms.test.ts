@@ -12,8 +12,8 @@ const transform = (offset: [number, number, number]): ModelTransform => ({
 describe('syncModelTransforms', () => {
   it('applies a shared-configuration reflow to members on every plate', () => {
     const volumes = [
-      { buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
-      { buffer: { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1000, instanceId: 3000, objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1001, instanceId: 3001, objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
     ];
     applyPlateSessionTransforms({ instanceTransforms: [{
       instanceId: 3001, objectId: 1001, objectIndex: 1, instanceIndex: 0,
@@ -25,9 +25,9 @@ describe('syncModelTransforms', () => {
 
   it('applies changed plate transforms by instance identity without touching unrelated volumes', () => {
     const volumes = [
-      { buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
-      { buffer: { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
-      { buffer: { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1001, instanceId: 3001, objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1001, instanceId: 3001, objectIdx: 0, volumeIdx: 1, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1002, instanceId: 3002, objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
     ];
 
     applyPlateSessionTransforms({ instanceTransforms: [{

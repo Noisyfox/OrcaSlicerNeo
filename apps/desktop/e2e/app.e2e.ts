@@ -620,14 +620,39 @@ test('undoes the first Cube added after an empty-scene Add Plate', async () => {
     await page.getByTestId('btn-add-model').click();
     await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
 
+    const restoreCounts = () => page.evaluate(() => {
+      const diagnostics = (window as unknown as {
+        __orcaE2e?: { historyDiagnostics?: () => {
+          app: { directRestore: { count: number }; fullRestore: { count: number }; fullRestoreModelReloads: number };
+        } };
+      }).__orcaE2e?.historyDiagnostics?.();
+      return diagnostics ? {
+        direct: diagnostics.app.directRestore.count,
+        full: diagnostics.app.fullRestore.count,
+        fullModelReloads: diagnostics.app.fullRestoreModelReloads,
+      } : null;
+    });
+    const beforeUndo = await restoreCounts();
+    expect(beforeUndo).not.toBeNull();
+
     await page.getByTestId('history-undo').click();
     await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
     await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+    await expect.poll(restoreCounts).toEqual({
+      direct: beforeUndo!.direct + 1,
+      full: beforeUndo!.full,
+      fullModelReloads: beforeUndo!.fullModelReloads,
+    });
 
     await page.getByTestId('history-redo').click();
     await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect.poll(restoreCounts).toEqual({
+      direct: beforeUndo!.direct + 2,
+      full: beforeUndo!.full,
+      fullModelReloads: beforeUndo!.fullModelReloads,
+    });
   } finally {
     await app.close();
   }

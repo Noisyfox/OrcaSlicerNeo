@@ -12,7 +12,8 @@ const receipt: TransformRestoreReceipt = { version: 1, state: 'before', beforeRe
     instanceTransform: transform(7), volumeTransform: transform(2) }] };
 
 function volume(): GLVolume {
-  const buffer: ModelObjectBuffer = { objectIdx: 0, volumeIdx: 0, instanceIdx: 0,
+  const buffer: ModelObjectBuffer = { objectId: 11, volumeId: 21, instanceId: 31,
+    objectIdx: 0, volumeIdx: 0, instanceIdx: 0,
     positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), vertexCount: 3,
     indices: new Uint32Array([0, 1, 2]), indexCount: 3, offset: [0, 0, 0],
     instanceTransform: transform(0), volumeTransform: transform(0) };

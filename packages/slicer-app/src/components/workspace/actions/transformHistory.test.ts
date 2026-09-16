@@ -13,6 +13,9 @@ import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationS
 
 function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): GLVolume {
   const buffer: ModelObjectBuffer = {
+    objectId: 100 + objectIdx,
+    volumeId: 200 + volumeIdx,
+    instanceId: 300 + instanceIdx,
     objectIdx,
     volumeIdx,
     instanceIdx,

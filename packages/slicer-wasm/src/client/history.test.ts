@@ -58,8 +58,11 @@ describe('history contracts', () => {
   });
 
   it('allows future callers to type a mock runtime without enabling history', async () => {
-    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1', impact: {
-      version: 1, model: 'full', plateSession: true, filamentRack: true,
+    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1', sceneDelta: {
+      version: 1, objectIds: [101], volumeIds: [202], instanceIds: [303],
+      plateIds: ['plate-session-1-plate-1'], objectOrder: [101],
+    }, impact: {
+      version: 1, model: 'delta', plateSession: true, filamentRack: true,
       projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
     } };
     const mock: MockHistoryRuntime = {
@@ -92,7 +95,7 @@ describe('history contracts', () => {
     }, narrowImpact, true)).toBeUndefined();
     expect(normalizePrimeTowerRestoreReceipt({
       version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
-    }, { ...narrowImpact, model: 'full' }, true)).toBeUndefined();
+    }, { ...narrowImpact, model: 'delta' }, true)).toBeUndefined();
     expect(normalizePrimeTowerRestoreReceipt({
       version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
     }, narrowImpact, false)).toBeUndefined();
@@ -100,7 +103,7 @@ describe('history contracts', () => {
 
   it('normalizes a complete direct Move receipt and rejects malformed transforms', () => {
     const impact = {
-      version: 1 as const, model: 'full' as const, plateSession: true, filamentRack: false,
+      version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: false,
       projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
     };
     const transform = { offset: [1, 2, 3], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1], matrix: [

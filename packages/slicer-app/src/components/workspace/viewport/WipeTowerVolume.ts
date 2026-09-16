@@ -32,6 +32,9 @@ export class WipeTowerVolume extends GLVolume {
     ]);
     super({
       // Negative IDs reserve this scene-only object outside Worker model IDs.
+      objectId: -1001 - ordinal,
+      volumeId: 0,
+      instanceId: 0,
       objectIdx: -1001 - ordinal,
       volumeIdx: 0,
       instanceIdx: 0,

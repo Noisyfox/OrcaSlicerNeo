@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <set>
@@ -56,6 +57,11 @@ std::string sanitized_model_basename(const char* filename, const char* ext) {
     return name;
 }
 }
+
+extern "C" {
+static json transform_json(const Slic3r::Geometry::Transformation& transformation);
+}
+
 namespace Slic3r::Neo::Bridge::ModelOperations {
 std::size_t model_instance_count(const Model& model) {
     std::size_t count = 0;
@@ -129,10 +135,11 @@ std::optional<ModelVolumeType> volume_type_from_string(const std::string& value)
     if (value == "support_enforcer") return ModelVolumeType::SUPPORT_ENFORCER;
     return std::nullopt;
 }
-json model_structure_json() {
+json model_structure_json_filtered(const std::set<std::size_t>* object_ids) {
     json objects = json::array();
     for (size_t oi = 0; oi < state().model.objects.size(); ++oi) {
         const auto& object = state().model.objects[oi];
+        if (object_ids != nullptr && object_ids->find(object->id().id) == object_ids->end()) continue;
         json volumes = json::array();
         for (size_t vi = 0; vi < object->volumes.size(); ++vi) {
             const auto& volume = object->volumes[vi];
@@ -147,6 +154,55 @@ json model_structure_json() {
         objects.push_back(json{{"id", object->id().id}, {"index", oi}, {"name", object->name},
             {"printable", object->printable}, {"instanceCount", object->instances.size()},
             {"volumes", std::move(volumes)}, {"instances", std::move(instances)}});
+    }
+    return objects;
+}
+
+json model_structure_json() {
+    return model_structure_json_filtered(nullptr);
+}
+
+json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr) {
+    json objects = json::array();
+    auto& model = state().model;
+    for (size_t oi = 0; oi < model.objects.size(); ++oi) {
+        const auto& object = model.objects[oi];
+        if (object_ids != nullptr && object_ids->find(object->id().id) == object_ids->end()) continue;
+        // LOCAL (volume-transformed, instance-untouched) vertices: the
+        // instance transform is reported separately and applied by Three.
+        for (size_t vi = 0; vi < object->volumes.size(); ++vi) {
+            const auto& volume_object = object->volumes[vi];
+            const auto& its = volume_object->mesh().its;
+            for (size_t ii = 0; ii < object->instances.size(); ++ii) {
+                MallocBuffer vbuf;
+                MallocBuffer ibuf;
+                for (const auto& vertex : its.vertices) {
+                    vbuf.appendF32(vertex.x());
+                    vbuf.appendF32(vertex.y());
+                    vbuf.appendF32(vertex.z());
+                }
+                for (const auto& triangle : its.indices) {
+                    ibuf.appendU32(static_cast<std::uint32_t>(triangle[0]));
+                    ibuf.appendU32(static_cast<std::uint32_t>(triangle[1]));
+                    ibuf.appendU32(static_cast<std::uint32_t>(triangle[2]));
+                }
+                const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
+                const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
+                vbuf.release();
+                ibuf.release();
+                const auto& instance_object = object->instances[ii];
+                const auto& instance = instance_object->get_transformation();
+                const auto& volume = volume_object->get_transformation();
+                objects.push_back(json{{"object_id", object->id().id},
+                    {"volume_id", volume_object->id().id}, {"instance_id", instance_object->id().id},
+                    {"object_idx", oi}, {"volume_idx", vi}, {"instance_idx", ii},
+                    {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
+                    {"index_ptr", iptr}, {"index_count", its.indices.size() * 3},
+                    {"offset", {instance.get_offset().x(), instance.get_offset().y(), instance.get_offset().z()}},
+                    {"instance_transform", transform_json(instance)},
+                    {"volume_transform", transform_json(volume)}});
+            }
+        }
     }
     return objects;
 }
@@ -1236,49 +1292,43 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
 
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     try {
-        auto& model = state().model;
-        json arr = json::array();
-        for (size_t oi = 0; oi < model.objects.size(); ++oi) {
-            const auto& obj = model.objects[oi];
-            // LOCAL (volume-transformed, instance-untouched) vertices: the
-            // instance offset is reported separately below and the renderer
-            // applies it as the group position. Baking instance transforms
-            // here (ModelObject::mesh()) double-offsets the model after any
-            // committed move + reload — a zero offset hid it at load time
-            // (see the mock-module contract comment).
-            for (size_t vi = 0; vi < obj->volumes.size(); ++vi) {
-                const auto& its = obj->volumes[vi]->mesh().its;
-                for (size_t ii = 0; ii < obj->instances.size(); ++ii) {
-                    MallocBuffer vbuf;
-                    MallocBuffer ibuf;
-                    for (const auto& v : its.vertices) {
-                        vbuf.appendF32(v.x()); vbuf.appendF32(v.y()); vbuf.appendF32(v.z());
-                    }
-                    for (const auto& tri : its.indices) {
-                        ibuf.appendU32(static_cast<std::uint32_t>(tri[0]));
-                        ibuf.appendU32(static_cast<std::uint32_t>(tri[1]));
-                        ibuf.appendU32(static_cast<std::uint32_t>(tri[2]));
-                    }
-                    const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
-                    const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
-                    vbuf.release(); ibuf.release();
-                    const auto& instance = obj->instances[ii]->get_transformation();
-                    const auto& volume = obj->volumes[vi]->get_transformation();
-                    arr.push_back(json{{"object_idx", oi}, {"volume_idx", vi}, {"instance_idx", ii},
-                        {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
-                        {"index_ptr", iptr}, {"index_count", its.indices.size() * 3},
-                        {"offset", {instance.get_offset().x(), instance.get_offset().y(), instance.get_offset().z()}},
-                        {"instance_transform", transform_json(instance)},
-                        {"volume_transform", transform_json(volume)}});
-                }
-            }
-        }
-        return dup_json(json{{"ok", true}, {"objects", std::move(arr)}}.dump());
+        return dup_json(json{{"ok", true}, {"objects", model_mesh_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Targeted history projection. The timestamped restore remains authoritative;
+// this read materializes only the stable object IDs named by its SceneDelta.
+EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_ids_cstr) {
+    try {
+        const json requested = json::parse(object_ids_cstr ? object_ids_cstr : "[]");
+        if (!requested.is_array()) return error_json("scene patch object ids must be an array");
+        std::set<std::size_t> object_ids;
+        for (const auto& value : requested) {
+            std::uint64_t id = 0;
+            if (value.is_number_unsigned()) {
+                id = value.get<std::uint64_t>();
+            } else if (value.is_number_integer()) {
+                const auto signed_id = value.get<std::int64_t>();
+                if (signed_id > 0) id = static_cast<std::uint64_t>(signed_id);
+            }
+            if (id == 0 || id > std::numeric_limits<std::size_t>::max())
+                return error_json("scene patch object ids must be positive integers");
+            object_ids.insert(static_cast<std::size_t>(id));
+        }
+        json object_order = json::array();
+        for (const auto* object : state().model.objects) object_order.push_back(object->id().id);
+        return dup_json(json{{"ok", true}, {"object_order", std::move(object_order)},
+                             {"objects", model_structure_json_filtered(&object_ids)},
+                             {"meshes", model_mesh_json(&object_ids)}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }

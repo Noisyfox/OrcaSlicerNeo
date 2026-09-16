@@ -20,6 +20,7 @@ function tower() {
 
 function model() {
   return new GLVolume({
+    objectId: 1, volumeId: 2, instanceId: 3,
     objectIdx: 0, volumeIdx: 0, instanceIdx: 0, positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), vertexCount: 3,
     indices: new Uint32Array([0, 1, 2]), indexCount: 3, offset: [0, 0, 0],
     instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },

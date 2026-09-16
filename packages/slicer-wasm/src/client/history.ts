@@ -119,18 +119,33 @@ export interface HistoryError {
 
 /**
  * Worker-authored projection domains changed by one atomic restore commit.
- * Missing or malformed descriptors deliberately normalize to the conservative
- * full-model path in the typed client for the current session.
+ * Missing or malformed descriptors normalize to the broad SceneDelta path;
+ * they never authorize a full renderer projection during history navigation.
  */
 export interface RestoreImpact {
   readonly version: 1;
-  readonly model: 'full' | 'none';
+  readonly model: 'delta' | 'none';
   readonly plateSession: boolean;
   readonly filamentRack: boolean;
   readonly projectOverlay: boolean;
   readonly selectionContext: boolean;
   readonly primeTower: boolean;
   readonly preview: 'all' | 'current-plate';
+}
+
+/**
+ * Worker-authored, non-authoritative acceleration for one completed restore.
+ * Every ID is a stable native/session identity. `objectOrder` is the final
+ * target order needed to merge retained React/Three objects without reading
+ * or rebuilding the complete model projection.
+ */
+export interface SceneDelta {
+  readonly version: 1;
+  readonly objectIds: readonly StableObjectId[];
+  readonly volumeIds: readonly StablePartId[];
+  readonly instanceIds: readonly StableInstanceId[];
+  readonly plateIds: readonly StablePlateId[];
+  readonly objectOrder: readonly StableObjectId[];
 }
 
 /**
@@ -224,6 +239,7 @@ export interface RestoreSuccess {
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
+  readonly sceneDelta: SceneDelta;
   /** Omitted for non-direct restores and malformed receipts. */
   readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
   /** Omitted for non-direct restores and malformed receipts. */

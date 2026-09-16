@@ -115,7 +115,7 @@ export type HighlightLevel = 'object' | 'instances' | 'instance' | 'part';
 export interface SelectableRow {
   key: string;
   kind: 'object' | 'part' | 'instance';
-  /** The GLVolume ID strings (`objectIdx:volumeIdx:instanceIdx`) this row selects.
+  /** The GLVolume stable-ID strings (`objectId:volumeId:instanceId`) this row selects.
    *  Part rows use instance 0; the caller re-anchors them with the selection's
    *  single instance (Orca anchors a part to one instance). */
   volumeIds: string[];
@@ -130,8 +130,8 @@ export function buildSelectableRows(structure: ModelObjectStructure[]): Selectab
     const volCount = obj.volumes.length;
     const instCount = obj.instances.length;
     const objectIds: string[] = [];
-    for (let vi = 0; vi < volCount; vi++)
-      for (let ii = 0; ii < instCount; ii++) objectIds.push(`${oi}:${vi}:${ii}`);
+    for (const volume of obj.volumes)
+      for (const instance of obj.instances) objectIds.push(`${obj.id}:${volume.id}:${instance.id}`);
     rows.push({ key: `obj:${oi}`, kind: 'object', volumeIds: objectIds, target: { objectIdx: oi } });
     if (volCount > 1) {
       for (let vi = 0; vi < volCount; vi++)
@@ -140,7 +140,7 @@ export function buildSelectableRows(structure: ModelObjectStructure[]): Selectab
           kind: 'part',
           // Instance 0 as the static fallback; the caller re-anchors to the
           // current selection's single instance.
-          volumeIds: [`${oi}:${vi}:0`],
+          volumeIds: [`${obj.id}:${obj.volumes[vi].id}:${obj.instances[0].id}`],
           target: { objectIdx: oi, volumeIdx: vi },
         });
     }
@@ -149,7 +149,7 @@ export function buildSelectableRows(structure: ModelObjectStructure[]): Selectab
         rows.push({
           key: `inst:${oi}:${ii}`,
           kind: 'instance',
-          volumeIds: Array.from({ length: volCount }, (_, vi) => `${oi}:${vi}:${ii}`),
+          volumeIds: obj.volumes.map((volume) => `${obj.id}:${volume.id}:${obj.instances[ii].id}`),
           target: { objectIdx: oi, instanceIdx: ii },
         });
     }

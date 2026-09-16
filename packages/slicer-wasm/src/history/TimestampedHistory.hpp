@@ -17,6 +17,22 @@ using LogicalTimestamp = std::uint64_t;
 struct SessionHistoryRoot {
     Bytes plate_session;
     Bytes history_context;
+    // Stable runtime plate identities used only to derive renderer deltas.
+    // The serialized plate_session remains the authoritative history root.
+    std::vector<std::string> scene_plate_ids;
+};
+
+// Non-authoritative renderer acceleration retained beside one timestamp edge.
+// The object-version snapshots remain the sole restore authority. IDs are
+// stable native/session identities; positional indices never enter history.
+struct SceneDelta {
+    std::vector<ObjectID> object_ids;
+    std::vector<ObjectID> volume_ids;
+    std::vector<ObjectID> instance_ids;
+    std::vector<std::string> plate_ids;
+    // Populated only on a completed restore so the renderer can reorder
+    // retained objects without projecting the complete model again.
+    std::vector<ObjectID> object_order;
 };
 
 // The three Worker-owned roots restored by one history operation. ModelState::
@@ -33,11 +49,13 @@ struct TimestampedEntryInfo {
     std::string label;
     LogicalTimestamp before_timestamp { 0 };
     LogicalTimestamp after_timestamp { 0 };
+    SceneDelta scene_delta;
 };
 
 struct TimestampedRestore {
     LogicalTimestamp timestamp { 0 };
     TimestampedRoots roots;
+    SceneDelta scene_delta;
 };
 
 struct TimestampedObjectVersionInterval {
@@ -76,7 +94,7 @@ public:
     // named before/after timestamp pair; its resulting topmost state remains
     // uncaptured until a later operation or the first Undo needs it.
     bool begin_operation(std::string label, const TimestampedRoots& predecessor);
-    bool commit_operation();
+    bool commit_operation(const TimestampedRoots& successor);
     bool abort_operation(TimestampedRestore* predecessor = nullptr);
     bool operation_active() const;
 

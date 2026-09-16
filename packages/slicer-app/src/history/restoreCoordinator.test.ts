@@ -20,15 +20,19 @@ const status: HistoryStatus = {
   oversizedEntryRetained: false, disabled: false,
   activeTransactionId: null, revision: 1,
 };
-const fullImpact = {
-  version: 1 as const, model: 'full' as const, plateSession: true, filamentRack: true,
+const deltaImpact = {
+  version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: true,
   projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
 };
 const directImpact = {
-  ...fullImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,
+  ...deltaImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,
+};
+const sceneDelta = {
+  version: 1 as const, objectIds: [] as const, volumeIds: [] as const,
+  instanceIds: [] as const, plateIds: ['plate-1'] as const, objectOrder: [] as const,
 };
 const success = (revision = 1): RestoreResult => ({ ok: true, context,
-  status: { ...status, revision }, impact: fullImpact });
+  status: { ...status, revision }, impact: deltaImpact, sceneDelta });
 
 function fakeScene(activeDrag = false) {
   return {
@@ -171,8 +175,8 @@ describe('history restore coordinator', () => {
     });
   });
 
-  it('reports split full/direct restore projection counters without retaining history data', async () => {
-    const direct: RestoreResult = { ok: true, context, status, impact: directImpact };
+  it('reports SceneDelta restores as direct projections without retaining history data', async () => {
+    const direct: RestoreResult = { ok: true, context, status, impact: directImpact, sceneDelta };
     const coordinator = createHistoryRestoreCoordinator({
       runtime: {
         undoHistory: vi.fn(async () => direct), redoHistory: vi.fn(async () => success(2)), jumpHistory: vi.fn(),
@@ -192,8 +196,9 @@ describe('history restore coordinator', () => {
 
     await expect(coordinator.restore('redo')).resolves.toBe(true);
     diagnostics = useHistoryDiagnosticsStore.getState().app;
-    expect(diagnostics.fullRestore.count).toBe(1);
-    expect(diagnostics.fullRestoreModelReloads).toBe(1);
+    expect(diagnostics.directRestore.count).toBe(2);
+    expect(diagnostics.fullRestore.count).toBe(0);
+    expect(diagnostics.fullRestoreModelReloads).toBe(0);
     expect(diagnostics.filamentRefresh.count).toBe(2);
   });
 
@@ -210,7 +215,7 @@ describe('history restore coordinator', () => {
   });
 
   it('passes a narrow Prime Tower receipt through without publishing a filament rack', async () => {
-    const narrow: RestoreResult = { ok: true, context, status, impact: {
+    const narrow: RestoreResult = { ok: true, context, status, sceneDelta, impact: {
       version: 1, model: 'none', plateSession: true, filamentRack: false,
       projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate',
     }, primeTowerReceipt: { version: 1, state: 'available', plateId: 'plate-1', revision: 7,
@@ -222,7 +227,8 @@ describe('history restore coordinator', () => {
       sceneInteraction: fakeScene(), refreshModel, publishRestoredFilamentRack,
     });
     await expect(coordinator.restore('undo')).resolves.toBe(true);
-    expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, expect.any(Number), narrow.primeTowerReceipt);
+    if (!narrow.ok) throw new Error('expected successful restore fixture');
+    expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, sceneDelta, expect.any(Number));
     expect(publishRestoredFilamentRack).not.toHaveBeenCalled();
   });
 

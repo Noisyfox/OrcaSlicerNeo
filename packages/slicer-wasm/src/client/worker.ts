@@ -78,7 +78,7 @@ function isRestoreOperation(operation: string): boolean {
 function restorePath(result: unknown): 'direct' | 'full' {
   const impact = (result as RestoreResult | undefined)?.ok
     ? (result as Extract<RestoreResult, { ok: true }>).impact : undefined;
-  return impact?.model === 'none' ? 'direct' : 'full';
+  return impact?.model === 'delta' || impact?.model === 'none' ? 'direct' : 'full';
 }
 
 function historyReadForOperation(operation: string): keyof HistoryReadDiagnosticLayer | null {

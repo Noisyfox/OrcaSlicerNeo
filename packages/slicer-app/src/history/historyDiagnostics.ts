@@ -28,7 +28,7 @@ export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
   readonly fullRestoreModelReloads: number;
   /** Count of validated direct Move receipts consumed by the renderer. */
   readonly transformReceiptApplied: number;
-  /** Count of Move receipts that conservatively fell back to full projection. */
+  /** Legacy diagnostic retained for already-recorded Move receipt failures. */
   readonly transformReceiptFallbacks: number;
   /** Last bounded reason a same-session Move proof was rejected. */
   readonly transformReceiptProofFailures: number;
@@ -104,7 +104,7 @@ function emptyApp(): HistoryAppDiagnostics {
 }
 
 function restorePath(impact: RestoreImpact): HistoryRestorePath {
-  return impact.model === 'none' ? 'direct' : 'full';
+  return impact.model === 'delta' || impact.model === 'none' ? 'direct' : 'full';
 }
 
 function addRestore(app: HistoryAppDiagnostics, path: HistoryRestorePath, durationMs: number): HistoryAppDiagnostics {

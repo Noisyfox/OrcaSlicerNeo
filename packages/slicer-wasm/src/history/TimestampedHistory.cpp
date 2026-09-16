@@ -42,6 +42,91 @@ template <class T> std::size_t vector_bytes(const std::vector<T>& value)
     return value.capacity() * sizeof(T);
 }
 
+template <class T> void sort_unique(std::vector<T>& values)
+{
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+}
+
+template <class T> void append_unique(std::vector<T>& target, const std::vector<T>& source)
+{
+    target.insert(target.end(), source.begin(), source.end());
+    sort_unique(target);
+}
+
+struct SceneObjectState {
+    ObjectID id { 0 };
+    std::uint64_t timestamp { 0 };
+    Bytes data;
+    std::vector<ObjectID> volume_ids;
+    std::vector<ObjectID> instance_ids;
+};
+
+struct SceneState {
+    std::vector<SceneObjectState> objects;
+    std::vector<std::string> plate_ids;
+};
+
+SceneState scene_state(const TimestampedRoots& roots)
+{
+    SceneState result;
+    result.objects.reserve(roots.model.mutable_objects.size());
+    for (const MutableObject& object : roots.model.mutable_objects)
+        result.objects.push_back({object.id, object.timestamp, object.data, object.volume_ids, object.instance_ids});
+    result.plate_ids = roots.session.scene_plate_ids;
+    sort_unique(result.plate_ids);
+    return result;
+}
+
+SceneDelta scene_delta(const SceneState& before, const SceneState& after)
+{
+    SceneDelta result;
+    std::unordered_map<ObjectID, const SceneObjectState*> before_by_id;
+    std::unordered_map<ObjectID, const SceneObjectState*> after_by_id;
+    for (const auto& object : before.objects) before_by_id.emplace(object.id, &object);
+    for (const auto& object : after.objects) after_by_id.emplace(object.id, &object);
+
+    std::unordered_set<ObjectID> ids;
+    for (const auto& object : before.objects) ids.insert(object.id);
+    for (const auto& object : after.objects) ids.insert(object.id);
+    for (ObjectID id : ids) {
+        const auto old_object = before_by_id.find(id);
+        const auto new_object = after_by_id.find(id);
+        const bool changed = old_object == before_by_id.end() || new_object == after_by_id.end() ||
+            old_object->second->timestamp != new_object->second->timestamp ||
+            old_object->second->data != new_object->second->data ||
+            old_object->second->volume_ids != new_object->second->volume_ids ||
+            old_object->second->instance_ids != new_object->second->instance_ids;
+        if (!changed) continue;
+        result.object_ids.push_back(id);
+        if (old_object != before_by_id.end()) {
+            append_unique(result.volume_ids, old_object->second->volume_ids);
+            append_unique(result.instance_ids, old_object->second->instance_ids);
+        }
+        if (new_object != after_by_id.end()) {
+            append_unique(result.volume_ids, new_object->second->volume_ids);
+            append_unique(result.instance_ids, new_object->second->instance_ids);
+        }
+    }
+    sort_unique(result.object_ids);
+
+    // PlateSession remains authoritative. Conservatively touch every stable
+    // plate participating in the transaction; this covers membership,
+    // topology, configuration, and current-plate context without retaining a
+    // second parsed session representation.
+    result.plate_ids = before.plate_ids;
+    append_unique(result.plate_ids, after.plate_ids);
+    return result;
+}
+
+void merge_scene_delta(SceneDelta& target, const SceneDelta& source)
+{
+    append_unique(target.object_ids, source.object_ids);
+    append_unique(target.volume_ids, source.volume_ids);
+    append_unique(target.instance_ids, source.instance_ids);
+    append_unique(target.plate_ids, source.plate_ids);
+}
+
 } // namespace
 
 struct TimestampedHistory::Impl {
@@ -70,6 +155,7 @@ struct TimestampedHistory::Impl {
         LogicalTimestamp before_timestamp { 0 };
         std::size_t depth { 1 };
         std::shared_ptr<Snapshot> prior_snapshot;
+        SceneState before_scene;
     };
 
     static constexpr std::size_t kImplBytes = 256;
@@ -287,6 +373,29 @@ struct TimestampedHistory::Impl {
                (timestamp == current_timestamp && snapshots.find(timestamp) == snapshots.end());
     }
 
+    bool collect_scene_delta(LogicalTimestamp target, SceneDelta& result) const
+    {
+        auto cursor = current_timestamp;
+        while (cursor != target) {
+            if (target < cursor) {
+                const auto found = std::find_if(entries.rbegin(), entries.rend(), [cursor](const auto& entry) {
+                    return entry.after_timestamp == cursor;
+                });
+                if (found == entries.rend()) return false;
+                merge_scene_delta(result, found->scene_delta);
+                cursor = found->before_timestamp;
+            } else {
+                const auto found = std::find_if(entries.begin(), entries.end(), [cursor](const auto& entry) {
+                    return entry.before_timestamp == cursor;
+                });
+                if (found == entries.end()) return false;
+                merge_scene_delta(result, found->scene_delta);
+                cursor = found->after_timestamp;
+            }
+        }
+        return true;
+    }
+
     void note_checkpoint_loss(LogicalTimestamp timestamp)
     {
         if (saved_timestamp && *saved_timestamp == timestamp) {
@@ -392,8 +501,19 @@ struct TimestampedHistory::Impl {
                     result += std::max(mesh->native_bytes, std::size_t(64));
             }
         }
-        for (const auto& entry : entries) result += string_bytes(entry.label);
-        if (operation) result += kEntryBytes + string_bytes(operation->label);
+        for (const auto& entry : entries) {
+            result += string_bytes(entry.label) + vector_bytes(entry.scene_delta.object_ids) +
+                      vector_bytes(entry.scene_delta.volume_ids) + vector_bytes(entry.scene_delta.instance_ids) +
+                      vector_bytes(entry.scene_delta.plate_ids);
+            for (const auto& plate_id : entry.scene_delta.plate_ids) result += string_bytes(plate_id);
+        }
+        if (operation) {
+            result += kEntryBytes + string_bytes(operation->label) + vector_bytes(operation->before_scene.objects) +
+                      vector_bytes(operation->before_scene.plate_ids);
+            for (const auto& object : operation->before_scene.objects)
+                result += vector_bytes(object.data) + vector_bytes(object.volume_ids) + vector_bytes(object.instance_ids);
+            for (const auto& plate_id : operation->before_scene.plate_ids) result += string_bytes(plate_id);
+        }
         return result;
     }
 
@@ -483,11 +603,12 @@ bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoo
     } else if (!m_impl->refresh_restored_context(m_impl->current_timestamp, predecessor)) {
         return false;
     }
-    m_impl->operation = Impl::Operation { std::move(label), m_impl->current_timestamp, 1, prior_snapshot };
+    m_impl->operation = Impl::Operation {
+        std::move(label), m_impl->current_timestamp, 1, prior_snapshot, scene_state(predecessor)};
     return true;
 }
 
-bool TimestampedHistory::commit_operation()
+bool TimestampedHistory::commit_operation(const TimestampedRoots& successor)
 {
     if (!m_impl->operation) return false;
     if (m_impl->operation->depth > 1) {
@@ -498,7 +619,8 @@ bool TimestampedHistory::commit_operation()
     m_impl->operation.reset();
     m_impl->truncate_redo_branch();
     const LogicalTimestamp after = m_impl->next_timestamp++;
-    m_impl->entries.push_back({ m_impl->next_entry_id++, operation.label, operation.before_timestamp, after });
+    m_impl->entries.push_back({m_impl->next_entry_id++, operation.label, operation.before_timestamp, after,
+                               scene_delta(operation.before_scene, scene_state(successor))});
     m_impl->current_timestamp = after;
     m_impl->rebuild_intervals();
     m_impl->enforce_budget();
@@ -537,20 +659,14 @@ bool TimestampedHistory::undo(const TimestampedRoots& live_current, TimestampedR
     if (m_impl->snapshots.find(m_impl->current_timestamp) == m_impl->snapshots.end() &&
         !m_impl->capture(m_impl->current_timestamp, live_current))
         return false;
-    if (!m_impl->load(target, result)) return false;
-    m_impl->current_timestamp = target;
-    m_impl->enforce_budget();
-    return true;
+    return restore(target, &live_current, result);
 }
 
 bool TimestampedHistory::redo(TimestampedRestore& result)
 {
     if (m_impl->operation) return false;
     const auto* entry = m_impl->redo_entry();
-    if (!entry || !m_impl->load(entry->after_timestamp, result)) return false;
-    m_impl->current_timestamp = entry->after_timestamp;
-    m_impl->enforce_budget();
-    return true;
+    return entry && restore(entry->after_timestamp, nullptr, result);
 }
 
 bool TimestampedHistory::restore(LogicalTimestamp target, const TimestampedRoots* live_current,
@@ -560,7 +676,11 @@ bool TimestampedHistory::restore(LogicalTimestamp target, const TimestampedRoots
     if (m_impl->snapshots.find(m_impl->current_timestamp) == m_impl->snapshots.end()) {
         if (!live_current || !m_impl->capture(m_impl->current_timestamp, *live_current)) return false;
     }
-    if (!m_impl->load(target, result)) return false;
+    SceneDelta delta;
+    if (!m_impl->collect_scene_delta(target, delta) || !m_impl->load(target, result)) return false;
+    delta.object_order.reserve(result.roots.model.mutable_objects.size());
+    for (const MutableObject& object : result.roots.model.mutable_objects) delta.object_order.push_back(object.id);
+    result.scene_delta = std::move(delta);
     m_impl->current_timestamp = target;
     m_impl->enforce_budget();
     return true;
