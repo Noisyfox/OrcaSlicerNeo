@@ -492,12 +492,22 @@ scope.
   ID-less-upstream `ModelInstance` archive. New identities continue to be
   allocated only by native construction APIs; no sidecar ID namespace or new
   global generator is introduced.
+- The object graph has two additional Worker-owned roots. `PlateSession`
+  contains plate topology, membership, and plate-scoped configuration; the
+  project-scoped portion of `ProjectConfigOverlay` is a Neo-specific third
+  root. Object and part overrides belong to `Model`, while plate overrides
+  belong to `PlateSession`, so no scope is serialized twice. The project root
+  is intentionally history-tracked even though Orca keeps its `PresetBundle`
+  project configuration outside `UndoRedo`; preset selection remains outside.
 - An outer transaction captures its predecessor before the first model write.
   It commits one named snapshot and leaves the resulting topmost state
   unarchived. The first Undo captures that topmost state only when required as
   the Redo endpoint, matching Orca's `take_snapshot()` and lazy topmost
   capture. Nested operations join the outer transaction. A failed transaction
   restores its predecessor and leaves no entry.
+- A successful Save marks the active logical timestamp as the saved checkpoint
+  without serializing an unarchived topmost state. Later lazy capture preserves
+  that checkpoint. If eviction removes it, the project is conservatively dirty.
 - Restore follows Orca's reusable-object path. It is proportional to retained
   object versions and topology changes, not to a full temporary copy of the
   project. Same-session history corruption is an invariant failure; there is
@@ -526,3 +536,7 @@ scope.
   scene reconstruction. The per-entry `SceneDelta` is a non-authoritative
   acceleration record; multi-entry jumps merge its stable IDs and publish one
   final patch, while the object-version history remains the restore authority.
+- Every visible action entry records an explicit `beforeTimestamp` and
+  `afterTimestamp`. Undo-menu navigation loads the former; Redo-menu navigation
+  loads the latter. Direct jumps never infer adjacency, replay intervening
+  commands, or apply sparse restore receipts.

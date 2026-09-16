@@ -805,3 +805,13 @@ outputs, and requests cancellation without awaiting job completion. A plate
 plate does not modify that Print or race its slice thread. Only deletion of a
 plate relies on the already accepted Print tombstone to preserve its Print
 until the associated job reaches a terminal state.
+
+Configuration has three non-overlapping history roots: native `Model` owns
+object and part overrides, `PlateSession` owns plate overrides, and the
+project-only portion of `ProjectConfigOverlay` is a Neo-specific root. The
+last remains Undoable even though Orca leaves `PresetBundle::project_config`
+outside its Undo stack; global preset selection remains outside Neo history.
+Save only marks the current logical timestamp as its checkpoint and never
+forces lazy topmost serialization. History menu entries carry explicit before
+and after timestamps, so both directional menus load their selected target in
+one restore rather than traversing sparse adjacent receipts.
