@@ -9,7 +9,19 @@ import { performance as nodePerformance } from 'node:perf_hooks';
 
 type Timing = { count: number; totalMs: number; lastMs: number };
 type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRestore: Timing };
-type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & { queue: Timing; projection: Timing } };
+type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & {
+  queue: Timing;
+  projection: Timing;
+  filamentRefresh: Timing;
+  primeTowerProjectionRead: Timing;
+  transformReceiptApplication: Timing;
+  selectionRestore: Timing;
+  fullRestoreModelReloads: number;
+  transformReceiptApplied: number;
+  transformReceiptFallbacks: number;
+  transformReceiptProofFailures: number;
+  transformReceiptProofLastFailure: string | null;
+} };
 type NativeSample = { operation: string; stagesMs: Record<string, number>; perPlateStagesMs?: Array<Record<string, number>> };
 type NativeProfile = { version: 1; samples: NativeSample[] };
 type Point = { x: number; y: number };
@@ -56,6 +68,11 @@ type RendererMemory = {
   perPlate: Array<{ plateId: string; reactTypedArrayBytes: number; gpuProjectionEstimatedBytes: number; volumeCount: number }>;
 };
 type Attribution = { native: NativeMemory; renderer: RendererMemory };
+type BoundsProfile = {
+  identity: 'ORCA_REAL_PROJECT_BOUNDS_PROFILE_V1';
+  durationMs: number;
+  centers: Array<[number, number, number]>;
+};
 
 const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
 const PROJECT_PATH = resolve(process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim() || EXPECTED_PROJECT_PATH);
@@ -69,6 +86,10 @@ test.skip(!ENABLED, 'requires the dedicated visible real-project profile runner 
 function timingDelta(before: Timing, after: Timing, label: string): number {
   expect(after.count, `${label} must record exactly one operation`).toBe(before.count + 1);
   return after.lastMs;
+}
+
+function optionalTimingDelta(before: Timing, after: Timing): number {
+  return after.count === before.count ? 0 : after.lastMs;
 }
 
 function expectFiniteNonNegative(value: number, label: string): void {
@@ -189,6 +210,13 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       (window as unknown as { __orcaE2e?: { modelWorldCenters?: () => Array<[number, number, number]> } })
         .__orcaE2e?.modelWorldCenters?.() ?? [],
     );
+    const readProfiledCenters = () => page.evaluate(() => {
+      const sample = (window as unknown as { __orcaE2e?: {
+        realProjectModelWorldCentersProfile?: () => BoundsProfile;
+      } }).__orcaE2e?.realProjectModelWorldCentersProfile?.();
+      if (!sample) throw new Error('dedicated renderer bounds profile hook was compiled out of the enabled build');
+      return sample;
+    });
     const readBounds = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { selectionBoundsWorld?: () => Bounds } })
         .__orcaE2e?.selectionBoundsWorld?.() ?? null,
@@ -300,6 +328,7 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     expectCalls(moveMemory.native, ['orc_history_begin', 'orc_set_model_transforms', 'orc_history_commit']);
     const moveVisibleMs = moveUndoAt - pointerUpAt;
     expect(moveVisibleMs, 'Move must expose Undo within the accepted 100 ms boundary').toBeLessThan(100);
+    const movedCenters = await readCenters();
 
     // The Undo fence is the restored model projection plus consumed Undo Move
     // and enabled Redo Move, not merely the native history call returning.
@@ -307,8 +336,11 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     const undoClickAt = nodePerformance.now();
     await page.getByTestId('history-undo').click();
     let restoredAt = 0;
+    const rendererBoundsSamples: BoundsProfile[] = [];
     await expect.poll(async () => {
-      const restored = await readCenters();
+      const sample = await readProfiledCenters();
+      rendererBoundsSamples.push(sample);
+      const restored = sample.centers;
       const projectionEqual = restored.length === beforeMoveCenters.length && restored.every((center, index) =>
         center.every((value, axis) => Math.abs(value - beforeMoveCenters[index][axis]) <= 1e-6));
       const redo = page.getByTestId('history-redo');
@@ -327,6 +359,25 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     const undoMemory = await takeAttribution();
     expectAttribution(undoMemory, 12);
     expectCalls(undoMemory.native, ['orc_history_undo']);
+    expect(undoAfter.app.transformReceiptApplied - undoBefore.app.transformReceiptApplied,
+      'real-project Move Undo must use the sparse transform receipt').toBe(1);
+    expect(undoAfter.app.transformReceiptFallbacks - undoBefore.app.transformReceiptFallbacks,
+      'real-project Move Undo must not fall back to a full projection reload').toBe(0);
+    expect(undoAfter.app.fullRestoreModelReloads - undoBefore.app.fullRestoreModelReloads,
+      'real-project Move Undo must not reload the full model projection').toBe(0);
+    expect(undoAfter.app.transformReceiptProofFailures - undoBefore.app.transformReceiptProofFailures,
+      'real-project Move Undo receipt proof must remain valid').toBe(0);
+    expect(restoredAt - undoClickAt,
+      'real-project Move Undo restore fence must remain below the 500 ms regression boundary').toBeLessThan(500);
+
+    await page.getByTestId('history-redo').click();
+    await expect.poll(async () => {
+      const redone = await readCenters();
+      return redone.length === movedCenters.length && redone.every((center, index) =>
+        center.every((value, axis) => Math.abs(value - movedCenters[index][axis]) <= 1e-6));
+    }, { timeout: 30_000, intervals: [10] }).toBe(true);
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
+    await expect(page.getByTestId('history-undo')).toBeEnabled();
 
     const report = {
       fixture: { name: basename(PROJECT_PATH), bytes: statSync(PROJECT_PATH).size, nativePlates: 11 },
@@ -353,6 +404,27 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
         workerMs: timingDelta(undoBefore.worker!.restore, undoAfter.worker.restore, 'Undo Worker'),
         jsWasmCalls: undoMemory.native.js_wasm_calls,
         nativeStages: undoNative.samples,
+        application: {
+          restoreMs: timingDelta(undoBefore.app.restore, undoAfter.app.restore, 'Undo application restore'),
+          projectionMs: timingDelta(undoBefore.app.projection, undoAfter.app.projection, 'Undo application projection'),
+          filamentRefreshMs: timingDelta(undoBefore.app.filamentRefresh, undoAfter.app.filamentRefresh, 'Undo filament refresh'),
+          primeTowerProjectionReadMs: timingDelta(undoBefore.app.primeTowerProjectionRead,
+            undoAfter.app.primeTowerProjectionRead, 'Undo Prime Tower projection read'),
+          transformReceiptApplicationMs: optionalTimingDelta(undoBefore.app.transformReceiptApplication,
+            undoAfter.app.transformReceiptApplication),
+          selectionRestoreMs: optionalTimingDelta(undoBefore.app.selectionRestore,
+            undoAfter.app.selectionRestore),
+          fullRestoreModelReloads: undoAfter.app.fullRestoreModelReloads - undoBefore.app.fullRestoreModelReloads,
+          transformReceiptApplied: undoAfter.app.transformReceiptApplied - undoBefore.app.transformReceiptApplied,
+          transformReceiptFallbacks: undoAfter.app.transformReceiptFallbacks - undoBefore.app.transformReceiptFallbacks,
+          transformReceiptProofFailures: undoAfter.app.transformReceiptProofFailures - undoBefore.app.transformReceiptProofFailures,
+          transformReceiptProofLastFailure: undoAfter.app.transformReceiptProofLastFailure,
+        },
+        rendererBounds: {
+          samples: rendererBoundsSamples.map(({ identity, durationMs }) => ({ identity, durationMs })),
+          totalMs: rendererBoundsSamples.reduce((sum, sample) => sum + sample.durationMs, 0),
+          maxMs: Math.max(...rendererBoundsSamples.map((sample) => sample.durationMs)),
+        },
       },
       attribution: { baseline, afterAddPlate: addMemory, afterMove: moveMemory, afterUndo: undoMemory },
       deltas: {
@@ -371,6 +443,10 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       addPlateVisibleUndoMs: report.addPlate.clickToVisibleUndoMs,
       moveVisibleUndoMs: report.move.pointerUpToVisibleUndoMs,
       undoRestoredModelMs: report.undo.clickToRestoredModelMs,
+      undoProjectionMs: report.undo.application.projectionMs,
+      undoTransformReceiptApplied: report.undo.application.transformReceiptApplied,
+      undoTransformReceiptFallbacks: report.undo.application.transformReceiptFallbacks,
+      undoTransformReceiptProofLastFailure: report.undo.application.transformReceiptProofLastFailure,
       wasmHeapBytes: undoMemory.native.wasm_heap_bytes,
       historyRetainedBytes: undoMemory.native.history.retained_estimated_bytes,
       sharedSourceMeshBytes: undoMemory.native.shared_source_mesh.total_bytes,

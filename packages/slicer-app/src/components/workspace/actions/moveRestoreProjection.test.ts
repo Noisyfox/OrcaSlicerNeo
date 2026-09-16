@@ -28,6 +28,12 @@ describe('move restore session proof', () => {
     expect(moveRestoreSessionProof(context(session()), retained, {}, receipt)).toEqual(session());
   });
 
+  it('accepts a forward jump from the global plate input stamp allocator', () => {
+    expect(moveRestoreSessionProof(context(session({ inputRevisions: { 'plate-1': 11 } })),
+      session({ inputRevisions: { 'plate-1': 4 } }), {}, receipt)).toEqual(
+      session({ inputRevisions: { 'plate-1': 11 } }));
+  });
+
   it.each([
     ['plate geometry', { plates: [{ ...session().plates[0]!, origin: [1, 0, 0] as [number, number, number] }] } as Partial<PlateSessionSnapshot>],
   ])('rejects a changed %s', (_label, changes) => {
@@ -52,8 +58,8 @@ describe('move restore session proof', () => {
     expect(moveRestoreSessionProof(context(target), session(), {}, receipt)).toEqual(target);
   });
 
-  it('rejects an unexpected affected revision jump', () => {
-    expect(moveRestoreSessionProof(context(session({ inputRevisions: { 'plate-1': 6 } })), session(), {}, receipt)).toBeNull();
+  it('rejects a non-forward affected revision stamp', () => {
+    expect(moveRestoreSessionProof(context(session({ inputRevisions: { 'plate-1': 3 } })), session(), {}, receipt)).toBeNull();
   });
 
   it('reports a bounded first field for a changed plate without exposing payload', () => {
@@ -70,6 +76,44 @@ describe('move restore session proof', () => {
     })).toEqual(session());
   });
 
+  it('accepts revision advances on another plate containing the same transformed object', () => {
+    const secondPlate = { plateId: 'plate-2', displayIndex: 1, origin: [264, 0, 0] as [number, number, number],
+      name: 'Plate 2', locked: false, settings: {}, opaqueMetadata: [], futureMetadata: {},
+      instanceIds: [6], outOfBoundsInstanceIds: [], valid: true };
+    const secondInstance = { ...session().instances![0]!, instanceId: 6, instanceIndex: 1, plateId: 'plate-2' };
+    const retained = session({
+      plates: [...session().plates, secondPlate],
+      instances: [...session().instances!, secondInstance],
+      inputRevisions: { 'plate-1': 4, 'plate-2': 8 },
+    });
+    const target = session({
+      plates: [...session().plates, secondPlate],
+      instances: [...session().instances!, secondInstance],
+      inputRevisions: { 'plate-1': 5, 'plate-2': 9 },
+    });
+    expect(moveRestoreSessionProof(context(target), retained, {}, receipt)).toEqual(target);
+  });
+
+  it('rejects a revision advance on a plate containing only another object', () => {
+    const secondPlate = { plateId: 'plate-2', displayIndex: 1, origin: [264, 0, 0] as [number, number, number],
+      name: 'Plate 2', locked: false, settings: {}, opaqueMetadata: [], futureMetadata: {},
+      instanceIds: [6], outOfBoundsInstanceIds: [], valid: true };
+    const otherObject = { ...session().instances![0]!, instanceId: 6, objectId: 9, objectIndex: 1,
+      instanceIndex: 0, plateId: 'plate-2' };
+    const retained = session({
+      plates: [...session().plates, secondPlate],
+      instances: [...session().instances!, otherObject],
+      inputRevisions: { 'plate-1': 4, 'plate-2': 8 },
+    });
+    const target = session({
+      plates: [...session().plates, secondPlate],
+      instances: [...session().instances!, otherObject],
+      inputRevisions: { 'plate-1': 5, 'plate-2': 9 },
+    });
+    expect(moveRestoreSessionProofResult(context(target), retained, {}, receipt).failure)
+      .toBe('input-revisions-mismatch:changed=2:unexpected=1');
+  });
+
   it('falls back for malformed receipt or retained session data', () => {
     expect(moveRestoreSessionProofResult(context(session()), session(), {}, {
       ...receipt, records: null as never,
@@ -79,5 +123,9 @@ describe('move restore session proof', () => {
   });
 
   it('rejects missing session proof', () => expect(moveRestoreSessionProof(context(), session())).toBeNull());
-  it('rejects a changed project overlay', () => expect(moveRestoreSessionProof(context(session()), session(), { changed: true })).toBeNull());
+  it('rejects a changed project overlay with a bounded field reason', () => {
+    const result = moveRestoreSessionProofResult(context(session()), session(), { changed: true }, receipt);
+    expect(result.session).toBeNull();
+    expect(result.failure).toBe('project-overlay.changed-presence');
+  });
 });

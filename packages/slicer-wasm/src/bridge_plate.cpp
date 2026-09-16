@@ -673,6 +673,11 @@ json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_pla
     result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
     result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
     result["dirty_reasons"] = {"plate-structure"};
+    // Plate insertion normalizes the per-plate wipe-tower coordinate arrays.
+    // Publish that same authoritative overlay with the structural receipt so
+    // the renderer cannot retain a pre-insertion overlay and unnecessarily
+    // reject a later adjacent Move restore receipt.
+    result["project_config_overlay"] = state().project_config_overlay;
     state().pending_membership_instance_ids.clear();
     return result;
 }
@@ -693,6 +698,7 @@ json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_
     result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
     result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
     result["dirty_reasons"] = {"plate-structure"};
+    result["project_config_overlay"] = state().project_config_overlay;
     state().pending_membership_instance_ids.clear();
     return result;
 }

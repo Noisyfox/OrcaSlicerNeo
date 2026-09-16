@@ -47,7 +47,10 @@ export function moveRestoreSessionProofResult(
   if (!Array.isArray(receipt.records)) return fail('transform-receipt-records-not-array');
   if (!validSessionEntries(retained) || !validSessionEntries(target)) return fail('session-entry-malformed');
   if (!receipt.records.every(validReceiptRecord)) return fail('transform-receipt-record-malformed');
-  if (retainedOverlay !== undefined && stableJson(retainedOverlay) !== stableJson(context.projectConfigOverlay)) return fail('project-overlay-mismatch');
+  if (retainedOverlay !== undefined) {
+    const overlayMismatch = boundedMismatch('project-overlay', retainedOverlay, context.projectConfigOverlay);
+    if (overlayMismatch) return fail(overlayMismatch);
+  }
   if (context.activePlateId !== target.currentPlateId) return fail('active-plate-mismatch');
   const transformKey = (entry: { objectIndex: number; instanceIndex: number }): string =>
     `${entry.objectIndex}:${entry.instanceIndex}`;
@@ -63,6 +66,7 @@ export function moveRestoreSessionProofResult(
   if (receipt.records.length === 0) return fail('transform-receipt-empty');
   if (new Set(receiptIdentities).size !== receiptIdentities.length) return fail('transform-receipt-duplicate-target');
   const receiptInstanceKeys = new Set(receipt.records.map(transformKey));
+  const receiptObjectIds = new Set(receipt.records.map((record) => record.objectId));
   // A set_model_transforms rebuild can change the target instance's plate
   // membership, parked flag, and out-of-bounds flag. Those are not stale
   // session data: they are the native result of the transform being restored.
@@ -89,6 +93,16 @@ export function moveRestoreSessionProofResult(
     if (retainedInstance.plateId) affectedPlateIds.add(retainedInstance.plateId);
     if (targetInstance.plateId) affectedPlateIds.add(targetInstance.plateId);
   }
+  // Native history invalidates every plate containing the transformed object,
+  // not only the one explicit instance in the volume-granular receipt. This
+  // is intentionally conservative for multi-instance objects whose derived
+  // Print state is object-scoped. Accept revision-only advances on precisely
+  // that same bounded plate set; session data for the other instances is
+  // still required to remain byte-for-byte unchanged below.
+  for (const instances of [retained.instances!, target.instances!])
+    for (const instance of instances)
+      if (receiptObjectIds.has(instance.objectId) && instance.plateId)
+        affectedPlateIds.add(instance.plateId);
   for (const [plateId, retainedPlate] of retainedPlates) {
     const targetPlate = targetPlates.get(plateId)!;
     const staticPlate = (plate: typeof retainedPlate) => ({
@@ -128,7 +142,11 @@ export function moveRestoreSessionProofResult(
     const targetRevision = targetRevisions[plateId];
     if (retainedRevision === targetRevision) continue;
     changedRevisionCount += 1;
-    if (!affectedPlateIds.has(plateId) || targetRevision === undefined || Math.abs(retainedRevision - targetRevision) !== 1)
+    // Plate input revisions are values from one global monotonic allocator,
+    // not per-plate counters. Restoring two affected plates therefore skips
+    // values for each individual plate. Require a fresh forward stamp on the
+    // exact native-affected plate set; never require a numeric delta of one.
+    if (!affectedPlateIds.has(plateId) || targetRevision === undefined || targetRevision <= retainedRevision)
       unexpectedRevisionCount += 1;
   }
   if (unexpectedRevisionCount > 0)

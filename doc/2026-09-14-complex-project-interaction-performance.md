@@ -54,6 +54,11 @@ used by the desktop plate-switch performance coverage.
   plus only the instance transforms actually changed by reflow. If an added
   plate leaves existing origins unchanged, neither transform receipt is
   allocated or serialized.
+- Add/Delete Plate receipts also publish the authoritative project overlay
+  produced when native code normalizes the wipe-tower X/Y arrays. This keeps
+  the retained renderer overlay identical to the history context and prevents
+  the next adjacent Move Undo from failing its direct-receipt proof solely
+  because React retained the pre-structure-change array lengths.
 - Adjacent Add Plate Undo/Redo applies only its sparse transform receipt and
   plate/session context. Crossing between an Add Plate frame and an ordinary
   model edit restores the complete predecessor model before applying the
@@ -299,9 +304,38 @@ typed arrays, and estimated GPU geometry buffers. Shared mesh storage is
 charged once at the authoritative-model level and each per-plate mesh-byte
 attribution is explicitly zero.
 
-The latest accepted visible run measured 69.33 ms from Add Plate click to
-visible Undo, 58.38 ms from Move pointer-up to visible Undo, and 1,518.31 ms
-from Undo click to the restored renderer/model fence. The post-Undo snapshot
+The Step 16 baseline reproduced 1,494.93 ms from Undo click to the restored
+renderer/model fence. Native restore itself was 6.50 ms, the complete
+JS-to-WASM call 13.45 ms, Worker 13.97 ms, client 14.50 ms, and renderer bounds
+polling only 0.64 ms. The application projection stage consumed 1,418.81 ms
+because the sparse native transform receipt was rejected and the application
+reloaded the complete 57,317,544-byte mesh projection. The proof failed for
+two independent reasons: Add Plate had normalized native wipe-tower coordinate
+arrays without publishing the resulting overlay, and the proof treated each
+plate input revision as a per-plate counter even though revisions come from a
+single global monotonic allocator. Native transform restore also advances every
+plate containing the transformed object, not only the explicit instance's
+plate.
+
+The optimized path carries the normalized overlay in structural plate
+receipts, atomically publishes it with the plate session, and validates Move
+restore revisions as strictly forward stamps on exactly the plates containing
+the transformed object. Unrelated plates, non-forward stamps, malformed
+receipts, overlay changes, and non-adjacent/full-history crossings still use
+the existing conservative full restore. No internal-state compatibility path
+was added.
+
+The final accepted visible run measured 68.56 ms from Add Plate click to
+visible Undo, 60.72 ms from Move pointer-up to visible Undo, and 104.09 ms from
+Undo click to the restored renderer/model plus enabled Redo fence. The Undo
+call was 14.19 ms end-to-end across JS/WASM, including 6.66 ms native history
+restore; Worker and client boundaries were 14.72 ms and 15.20 ms. Application
+restore was 15.23 ms, sparse receipt application 0.15 ms, selection restore
+2.57 ms, the authoritative narrow Prime Tower read 25.84 ms (11.94 ms native),
+and total application projection 30.53 ms. The receipt applied once with zero
+proof failures, zero fallbacks, and zero full model reloads; Redo restored the
+exact moved renderer projection. This is a 93.0% reduction of the measured
+Undo recovery fence. The post-Undo snapshot
 reported a 1,873,543,168-byte WASM heap, 11,069,344 retained history bytes,
 57,317,544 shared-mesh bytes, 4,896 aggregate per-plate structural bytes,
 239,712 aggregate derived-cache bytes, 57,317,544 renderer typed-array bytes,
@@ -332,15 +366,28 @@ both inclusion/exclusion scans.
 - `pnpm --filter @orca/slicer-runtime typecheck` — passed.
 - `pnpm --filter @orca/desktop test` — 67 tests passed.
 - `pnpm --filter @orca/desktop typecheck` — passed.
-- `pnpm --filter @orca/slicer-app test` — 575 tests passed.
+- `pnpm --filter @orca/slicer-app test` — 579 tests passed, including the
+  structural-overlay publication and bounded Move receipt proof/fallback
+  cases.
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
 - `cmd /c scripts\build-windows.bat quick --variant both` — threaded and
   serial WASM artifacts built and validated.
-- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js` — passed, including sparse Move begin/commit/Undo/Redo, normal-edit crossing, Add Plate delta, and redo-branch checks.
-- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same sparse Move coverage.
+- `node packages/slicer-wasm/harness/history-smoke.mjs` against serial and
+  threaded artifacts — the Step 16 sparse Move restore checks passed, then
+  both runs reached the pre-existing later Add Plate stable-ID/revision
+  assertion and failed there. Step 16 does not change native history storage
+  or Add Plate restore.
+- `node packages/slicer-wasm/harness/history-plate-runtime-smoke.mjs` against
+  both serial and threaded artifacts — passed.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` — passed; verifies cache hits have zero plate-local used-slot/Print work, Z translation invalidation, and configuration/history invalidation.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same cache and invalidation coverage.
-- `node packages/slicer-wasm/harness/multi-filament-prime-tower-move-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; Prime Tower Undo/Redo repopulates the target plate projection after its targeted cache invalidation while retaining the narrow frame and unaffected preview contract.
+- `node packages/slicer-wasm/harness/multi-filament-prime-tower-move-smoke.mjs
+  --module packages/slicer-wasm/out/serial/orca_slice.js` — passed; Prime Tower
+  Undo/Redo repopulates the target plate projection after its targeted cache
+  invalidation while retaining the narrow frame and unaffected preview
+  contract. The same Node-only threaded harness hit its existing WASM
+  out-of-bounds failure; the headed threaded Electron acceptance above passed
+  the real Move/Undo/Redo path.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-native-input-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; painted volume slots, custom plate toolchanges, routing, and hidden-object filtering retain the exact slot sets.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-projection-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; rectangle, Rib, Smooth timelapse, and multifilament cases use the direct estimator and record zero Print fallback.
 - `pnpm stage:assets` from the repository root, then `pnpm exec electron-vite
@@ -362,8 +409,9 @@ both inclusion/exclusion scans.
   `orca_slice.wasm` was 34,104,592 bytes and exported the profile ABI only in
   `out/profile-threaded`.
 - `$env:ORCA_REAL_PROJECT_PROFILE_SKIP_WASM_BUILD='1'; pnpm --filter
-  @orca/desktop test:e2e:real-project-profile` — passed twice after the final
-  test fixes. Each run staged the real profile artifact, built with
+  @orca/desktop test:e2e:real-project-profile` — passed after the final direct
+  receipt assertions and exact Redo projection check. The run staged the real
+  profile artifact, built with
   `VITE_USE_MOCK=0`, ran one headed/visible exact-u1 acceptance test, restored
   the normal threaded artifact, rebuilt the production Electron renderer, and
   verified that production retained no profile sentinel or call site.

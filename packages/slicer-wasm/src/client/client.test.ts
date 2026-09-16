@@ -544,6 +544,7 @@ describe('SlicerClient bridge contract', () => {
     expect(added.plates).toHaveLength(2);
     expect(added.currentPlateId).toBe(added.plates[1].plateId);
     expect(added.instanceTransforms).toEqual([]);
+    expect(added.projectConfigOverlay).toEqual({ project: {}, objects: {}, parts: {}, plates: {} });
 
     const restored = await c.selectPlate(initial.currentPlateId);
     expect(restored.ok).toBe(true);
@@ -556,6 +557,7 @@ describe('SlicerClient bridge contract', () => {
     expect(deleted.plates).toHaveLength(1);
     expect(deleted.currentPlateId).toBe(initial.currentPlateId);
     expect(deleted.instanceTransforms).toEqual([]);
+    expect(deleted.projectConfigOverlay).toEqual({ project: {}, objects: {}, parts: {}, plates: {} });
 
     const beforeRejectedDelete = await c.getPlateSessionSnapshot();
     const rejected = await c.deletePlate(initial.currentPlateId);

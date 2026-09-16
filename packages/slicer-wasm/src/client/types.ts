@@ -102,6 +102,9 @@ export interface PlateSessionSnapshot {
   affectedPlateIdsAfter?: readonly string[];
   affectedPlateIds?: readonly string[];
   dirtyReasons?: readonly string[];
+  /** Present on structural plate mutations that normalize native per-plate
+   * configuration arrays. Ordinary snapshots and transform mutations omit it. */
+  projectConfigOverlay?: ProjectConfigOverlay;
 }
 
 /** Narrow authoritative receipt returned by pure plate navigation. */

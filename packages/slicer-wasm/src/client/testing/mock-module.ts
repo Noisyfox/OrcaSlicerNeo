@@ -1376,6 +1376,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const changed = reflowMockPlateOrigins();
       const result = plateSessionSnapshot(true) as Record<string, unknown>;
       result.instance_transforms = changed;
+      result.project_config_overlay = overlayProjection();
       return result;
     },
     orc_delete_plate(plateId: string) {
@@ -1388,7 +1389,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       delete plateInputRevisions[plateId];
       if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
       const changed = reflowMockPlateOrigins();
-      return plateMutation('plate-delete', [plateId], plateIds, changed);
+      const result = plateMutation('plate-delete', [plateId], plateIds, changed) as Record<string, unknown>;
+      result.project_config_overlay = overlayProjection();
+      return result;
     },
     orc_recompute_plate_membership() {
       return plateSessionSnapshot(true);

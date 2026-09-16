@@ -129,6 +129,11 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             volumeCount: number;
           }>;
         };
+        realProjectModelWorldCentersProfile?: () => {
+          identity: 'ORCA_REAL_PROJECT_BOUNDS_PROFILE_V1';
+          durationMs: number;
+          centers: Array<[number, number, number]>;
+        };
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -259,6 +264,18 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         };
       },
       ...(import.meta.env.VITE_REAL_PROJECT_PROFILE === '1' ? {
+        realProjectModelWorldCentersProfile: () => {
+          const startedAt = performance.now();
+          const centers = previewVolumes.map((volume) => {
+            const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
+            return [center.x, center.y, center.z] as [number, number, number];
+          });
+          return {
+            identity: 'ORCA_REAL_PROJECT_BOUNDS_PROFILE_V1' as const,
+            durationMs: performance.now() - startedAt,
+            centers,
+          };
+        },
         realProjectRendererMemorySnapshot: () => {
           const instancePlates = new Map((plateSession?.instances ?? []).map((instance) =>
             [`${instance.objectIndex}:${instance.instanceIndex}`, instance.plateId]));
@@ -314,6 +331,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             bedPlateStates: _beds,
             modelWorldCenters: _models,
             previewToolpathWorldBounds: _toolpathBounds,
+            realProjectModelWorldCentersProfile: _realProjectBounds,
             realProjectRendererMemorySnapshot: _realProjectMemory,
             ...rest
           } = w.__orcaE2e;

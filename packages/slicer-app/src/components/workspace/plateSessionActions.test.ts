@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
+import { emptyProjectConfigOverlay, useSettingsStore } from '../../stores/useSettingsStore';
+import { applyPlateSessionResponse, applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
 
 const plateA: PlateSessionSnapshot = {
   ok: true,
@@ -28,6 +29,7 @@ describe('plate selection actions', () => {
     usePlateSessionStore.getState().reset();
     useProjectStore.getState().reset();
     useSlicerStore.getState().clearPlateResults();
+    useSettingsStore.getState().setOverlay(emptyProjectConfigOverlay());
   });
 
   it('clears selection only after an authoritative switch succeeds and records plate context', async () => {
@@ -85,5 +87,22 @@ describe('plate selection actions', () => {
       plates: [{ plateId: 'a' }, { plateId: 'b' }],
     });
     expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('publishes the authoritative overlay carried by a structural plate receipt', () => {
+    usePlateSessionStore.getState().setSnapshot(plateA);
+    const projectConfigOverlay = {
+      project: { wipe_tower_x: '15,15,15', wipe_tower_y: '220,220,220' },
+      objects: {}, parts: {}, plates: {},
+    };
+    const result = {
+      ...plateA,
+      instanceTransforms: [],
+      dirtyReasons: ['plate-structure'],
+      projectConfigOverlay,
+    };
+
+    expect(applyPlateSessionResponse({ runtime: {} } as unknown as PlatformCapabilities, result)).toBe(true);
+    expect(useSettingsStore.getState().overlay).toEqual(projectConfigOverlay);
   });
 });

@@ -13,6 +13,7 @@ const sentinels = [
   'ORCA_REAL_PROJECT_PROFILE_JS_V1',
   'takeRealProjectProfileSnapshot',
   'ORCA_REAL_PROJECT_PROFILE_RENDERER_V1',
+  'ORCA_REAL_PROJECT_BOUNDS_PROFILE_V1',
   'profile-threaded',
 ];
 

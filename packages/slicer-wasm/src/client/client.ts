@@ -689,6 +689,11 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (after) result.affectedPlateIdsAfter = after;
   if (affected) result.affectedPlateIds = affected;
   if (reasons) result.dirtyReasons = reasons;
+  if (value.project_config_overlay !== undefined) {
+    const overlay = normalizeProjectConfigOverlay({ ok: true, overlay: value.project_config_overlay });
+    if (!overlay.ok) return { ok: false, error: 'invalid plate session project configuration overlay' };
+    result.projectConfigOverlay = overlay.overlay;
+  }
   return result;
 }
 

@@ -41,6 +41,11 @@ export function applyPlateSessionResponse(
       void platform.runtime.cancel().catch(() => undefined);
     }
   }
+  // Add/Delete Plate may normalize the native wipe-tower coordinate arrays.
+  // Publish the overlay carried by that same atomic receipt before any later
+  // Move restore proof compares the retained renderer state with history.
+  if (result.projectConfigOverlay)
+    useSettingsStore.getState().setOverlay(result.projectConfigOverlay);
   usePlateSessionStore.getState().setSnapshot(result);
   if (result.instanceTransforms) {
     applyPlateSessionTransforms({ instanceTransforms: result.instanceTransforms }, glVolumeCollection.volumes);
