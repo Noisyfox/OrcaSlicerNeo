@@ -1225,38 +1225,6 @@ json canonical_history_context(const Runtime& runtime, json context)
         state(), std::move(context), plate_session_snapshot_json(), runtime.filament_history_state());
 }
 
-void record_active_plate_context(const Runtime& runtime, json requested)
-{
-    if (state().history.entries().empty()) {
-        const auto model_state = capture_model_state(
-            state().model, state().mesh_capture_cache, state().mutable_object_capture_cache);
-        Neo::Bridge::HistoryMetadata::record_active_plate_context(
-            state(), plate_session_snapshot_json(), runtime.filament_history_state(), model_state);
-        return;
-    }
-    json context;
-    try {
-        const auto& current = state().history.current();
-        context = json::parse(std::string(current.context.begin(), current.context.end()));
-    } catch (...) {
-        context = current_context(runtime);
-    }
-    if (requested.is_object()) {
-        for (const char* key : {"selection", "gizmo"})
-            if (requested.contains(key)) context[key] = requested[key];
-    }
-    context["activePlateId"] = state().current_plate_id.empty()
-        ? json(nullptr) : json(state().current_plate_id);
-    if (!context.contains("plateSession") || !context["plateSession"].is_object())
-        context["plateSession"] = plate_session_snapshot_json();
-    else
-        context["plateSession"]["current_plate_id"] = state().current_plate_id;
-    context["projectConfigOverlay"] = state().project_config_overlay;
-    context["filamentState"] = runtime.filament_history_state();
-    Neo::Bridge::HistoryMetadata::record_history_context_reusing_current_model(
-        state(), "Active Plate", context);
-}
-
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime
 
 namespace {
@@ -1715,56 +1683,6 @@ json canonical_history_context(const BridgeState& state,
     return context;
 }
 
-void record_history_context(BridgeState& state,
-                            const std::string& label,
-                            const json& requested,
-                            const json& plate_session,
-                            const json& filament_state,
-                            const History::ModelState& model_state)
-{
-    if (state.active_history_transaction) return;
-    const json context = canonical_history_context(state, requested, plate_session, filament_state);
-    if (state.history.entries().empty()) {
-        const json baseline = default_history_context(state, plate_session, filament_state);
-        const std::string encoded = baseline.dump();
-        const History::Bytes context_bytes(encoded.begin(), encoded.end());
-        state.history.commit("", History::Category::Project, model_state, context_bytes);
-        state.history.mark_current_as_saved();
-    }
-    const std::string encoded = context.dump();
-    const History::Bytes context_bytes(encoded.begin(), encoded.end());
-    // Context-only records intentionally do not advance history_revision: the
-    // model, filament rack, and slice inputs remain unchanged.
-    state.history.commit(label, History::Category::Context, model_state, context_bytes);
-}
-
-void record_history_context_reusing_current_model(BridgeState& state,
-                                                  const std::string& label,
-                                                  const json& context)
-{
-    if (state.active_history_transaction || state.history.entries().empty()) return;
-    const std::string encoded = context.dump();
-    const History::Bytes context_bytes(encoded.begin(), encoded.end());
-    state.history.commit_reusing_current_model(label, History::Category::Context, context_bytes);
-}
-
-void record_active_plate_context(BridgeState& state,
-                                 const json& plate_session,
-                                 const json& filament_state,
-                                 const History::ModelState& model_state)
-{
-    json context = default_history_context(state, plate_session, filament_state);
-    if (!state.history.entries().empty()) {
-        try {
-            const auto& current = state.history.current();
-            context = json::parse(std::string(current.context.begin(), current.context.end()));
-        } catch (...) { context = default_history_context(state, plate_session, filament_state); }
-    }
-    context["activePlateId"] = state.current_plate_id.empty()
-        ? json(nullptr) : json(state.current_plate_id);
-    record_history_context(state, "Active Plate", context, plate_session, filament_state, model_state);
-}
-
 json history_status_json(const BridgeState& state)
 {
     const auto entries = state.history.entries();
@@ -1773,15 +1691,15 @@ json history_status_json(const BridgeState& state)
     json redo = json::array();
     for (std::size_t i = cursor; i > 0; --i) {
         const auto& entry = entries[i];
-        if (entry.category != History::Category::Project || entry.id == 0) continue;
+        if (entry.id == 0) continue;
         undo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
-                            {"category", entry.category == History::Category::Project ? "project" : "context"}});
+                            {"category", "project"}});
     }
     for (std::size_t i = cursor + 1; i < entries.size(); ++i) {
         const auto& entry = entries[i];
-        if (entry.category != History::Category::Project || entry.id == 0) continue;
+        if (entry.id == 0) continue;
         redo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
-                            {"category", entry.category == History::Category::Project ? "project" : "context"}});
+                            {"category", "project"}});
     }
     const auto* undo_entry = state.history.undo_entry();
     const auto* redo_entry = state.history.redo_entry();
@@ -1876,7 +1794,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         const std::string label = label_cstr ? label_cstr : "";
         const std::string category = category_cstr ? category_cstr : "";
         if (label.empty()) return error_json("history label is required");
-        if (category != "project" && category != "context") return error_json("history category must be project or context");
+        if (category != "project") return error_json("history category must be project");
         const json before_context = canonical_history_context(runtime, parse_history_context(before_context_cstr));
         json options = json::object();
         if (options_cstr && *options_cstr) options = json::parse(options_cstr);
@@ -1889,7 +1807,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             if (!coalesce || parent_id != parent_target) return error_json("history transaction is already active");
             const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
             state().nested_history_transactions.push_back({id, label,
-                category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
+                Neo::History::Category::Project,
                 before_context, capture_model_state(
                     state().model, state().mesh_capture_cache, state().mutable_object_capture_cache), true, parent_target,
             state().history_revision, false, false, std::nullopt, std::nullopt,
@@ -1925,7 +1843,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         }
         const double capture_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction = BridgeState::HistoryTransaction{
-            id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
+            id, label, Neo::History::Category::Project,
             before_context, std::move(before_model), false, {}, state().history_revision,
             add_plate_delta};
         state().active_history_transaction->transform_delta_candidate = transform_delta;
@@ -1975,6 +1893,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const auto tx = *state().active_history_transaction;
         const std::string text = after_context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
+        const std::string before_text = tx.before_context.dump();
+        const Neo::History::Bytes before_bytes(before_text.begin(), before_text.end());
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
         Neo::History::Codec::CaptureTimings capture_timings;
         std::optional<Neo::History::RestoreState::DirectFrame> add_plate_frame;
@@ -2018,16 +1938,19 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         if (tx.add_plate_delta) {
             committed = HistoryMetadata::commit_history_entry(state(), [&]() {
                 return state().history.commit_reusing_current_model(tx.label, tx.category, bytes,
-                                                                    std::move(add_plate_frame));
+                                                                    std::move(add_plate_frame), std::nullopt,
+                                                                    before_bytes);
             });
         } else if (transform_frame) {
             committed = HistoryMetadata::commit_history_entry(state(), [&]() {
                 return state().history.commit_reusing_current_model(tx.label, tx.category, bytes,
-                                                                    std::move(transform_frame));
+                                                                    std::move(transform_frame), std::nullopt,
+                                                                    before_bytes);
             });
         } else {
             committed = HistoryMetadata::commit_history_entry(state(), [&]() {
-                return state().history.commit(tx.label, tx.category, after_model, bytes);
+                return state().history.commit(tx.label, tx.category, after_model, bytes,
+                                              std::nullopt, std::nullopt, before_bytes);
             });
         }
         if (!committed) return error_json("history commit rejected");
@@ -2245,28 +2168,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr
                 return error_json("could not establish history baseline");
         }
         state().history.mark_current_as_saved();
-        return duplicate_json(history_status_json().dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
-}
-
-EMSCRIPTEN_KEEPALIVE const char* orc_history_record_context(const char* label_cstr, const char* context_cstr)
-{
-    try {
-        const Runtime runtime = HistoryRuntime::runtime();
-        if (state().history_disabled) return error_json("history is disabled");
-        if (state().active_history_transaction) return error_json("history transaction is active");
-        const std::string label = label_cstr ? label_cstr : "";
-        if (label.empty()) return error_json("history label is required");
-        const json requested = parse_history_context(context_cstr);
-        if (label == "Active Plate") {
-            HistoryRuntime::record_active_plate_context(runtime, requested);
-            return duplicate_json(history_status_json().dump());
-        }
-        const json context = canonical_history_context(runtime, requested);
-        const auto model_state = capture_model_state(state().model, state().mesh_capture_cache, state().mutable_object_capture_cache);
-        Neo::Bridge::HistoryMetadata::record_history_context(
-            state(), label, context, plate_session_snapshot_json(), runtime.filament_history_state(), model_state);
         return duplicate_json(history_status_json().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }

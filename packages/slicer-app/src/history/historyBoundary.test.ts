@@ -9,7 +9,7 @@ describe('application history boundary', () => {
     const files = import.meta.glob('../**/*.{ts,tsx}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
     const bypasses: string[] = [];
     const nativeHistoryCall = /\b(?:runtime|platform\.runtime)\.(?:runProjectHistoryTransaction|beginHistory|commitHistory|abortHistory|undoHistory|redoHistory|jumpHistory)\s*\(/;
-    const manualFence = /\b(?:runtime|platform\.runtime)\.(?:getHistoryStatus|markHistorySaved|recordHistoryContext|resetHistory)\s*\(/;
+    const manualFence = /\b(?:runtime|platform\.runtime)\.(?:getHistoryStatus|markHistorySaved|resetHistory)\s*\(/;
     const gateImport = /from\s+['"][^'"]*history\/projectMutationGate['"]/;
     const gateCall = /\b(?:acquireProjectMutationLease|enqueueProjectMutationOperation)\s*\(/;
     const gateOwners = /(?:\/components\/workspace\/actions\/historyMutation\.ts|\/stores\/useFilamentSessionStore\.ts|(?:\/|\.)projectMutationGate\.ts)$/;
@@ -26,5 +26,14 @@ describe('application history boundary', () => {
     const toolbar = Object.values(files)[0] ?? '';
     expect(toolbar).not.toMatch(/setInterval\s*\(/);
     expect(toolbar).not.toMatch(/syncHistoryStatus\s*\(/);
+  });
+
+  it('keeps selection and active-plate UI context out of standalone history calls', () => {
+    const files = import.meta.glob('../**/*.{ts,tsx}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+    const contextRecorders = Object.entries(files)
+      .filter(([file]) => !/\.test\.[tj]sx?$/.test(file))
+      .filter(([, source]) => /\brecord(?:Project)?HistoryContext\s*\(/.test(source))
+      .map(([file]) => file);
+    expect(contextRecorders).toEqual([]);
   });
 });

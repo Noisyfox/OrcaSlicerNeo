@@ -159,31 +159,51 @@ const beforeEdit = callJson('orc_get_model_structure', [], []);
 if (!beforeEdit.ok || beforeEdit.objects.length !== 2)
   throw new Error(`two-object baseline was not restored: ${JSON.stringify(beforeEdit)}`);
 
-// Standalone selection records are retained in the linear branch but one
-// ordinary Undo must skip all of them and restore the preceding project
-// frame. Redo must symmetrically restore the project frame and its context.
-const selectionOne = { ...context,
-  selection: { ...context.selection, mode: 'part', objectIds: [1] } };
-const selectionTwo = { ...selectionOne,
-  selection: { ...selectionOne.selection, partIds: [2] } };
-const contextOne = callJson('orc_history_record_context',
-  ['string', 'string'], ['Selection 1', JSON.stringify(selectionOne)]);
-if (contextOne.dirty !== true || contextOne.undoEntries.length !== 1)
-  throw new Error(`first context record changed project navigation unexpectedly: ${JSON.stringify(contextOne)}`);
-const contextTwo = callJson('orc_history_record_context',
-  ['string', 'string'], ['Selection 2', JSON.stringify(selectionTwo)]);
-if (contextTwo.dirty !== true || contextTwo.undoEntries.length !== 1)
-  throw new Error(`second context record changed project navigation unexpectedly: ${JSON.stringify(contextTwo)}`);
+// UI-only selection/plate changes never call history. They preserve Redo, and
+// the next genuine mutation attaches the then-current context to its retained
+// predecessor before truncating the branch.
 const contextUndo = callJson('orc_history_undo', [], []);
 const contextUndoModel = callJson('orc_get_model_structure', [], []);
 if (!contextUndo.ok || !contextUndoModel.ok || contextUndoModel.objects.length !== 0 ||
-    contextUndo.context.selection.objectIds.length !== 0)
-  throw new Error(`context-only records were not skipped by Undo: ${JSON.stringify({ contextUndo, contextUndoModel })}`);
+    contextUndo.status.canRedo !== true)
+  throw new Error(`mutation A Undo did not expose Redo: ${JSON.stringify({ contextUndo, contextUndoModel })}`);
+const statusBeforeUiContext = callJson('orc_history_status', [], []);
+const plateDuringUiContext = callJson('orc_get_plate_session_snapshot', [], []);
+const selectSamePlate = callJson('orc_select_plate', ['string'], [plateDuringUiContext.current_plate_id]);
+const selectionBeforeB = { ...context,
+  activePlateId: plateDuringUiContext.current_plate_id,
+  selection: { ...context.selection, mode: 'part', objectIds: [101], partIds: [202] } };
+const statusAfterUiContext = callJson('orc_history_status', [], []);
+if (!selectSamePlate.ok || statusAfterUiContext.canRedo !== true ||
+    statusAfterUiContext.cursor !== statusBeforeUiContext.cursor ||
+    statusAfterUiContext.revision !== statusBeforeUiContext.revision)
+  throw new Error(`UI context changed history: ${JSON.stringify({ statusBeforeUiContext, statusAfterUiContext })}`);
 const contextRedo = callJson('orc_history_redo', [], []);
 const contextRedoModel = callJson('orc_get_model_structure', [], []);
-if (!contextRedo.ok || !contextRedoModel.ok || contextRedoModel.objects.length !== 2 ||
-    contextRedo.context.selection.objectIds.length !== 0)
-  throw new Error(`context-only records were not skipped by Redo: ${JSON.stringify({ contextRedo, contextRedoModel })}`);
+if (!contextRedo.ok || !contextRedoModel.ok || contextRedoModel.objects.length !== 2)
+  throw new Error(`mutation A Redo was lost after UI context: ${JSON.stringify({ contextRedo, contextRedoModel })}`);
+const uiBranchUndo = callJson('orc_history_undo', [], []);
+if (!uiBranchUndo.ok) throw new Error(`mutation A second Undo failed: ${JSON.stringify(uiBranchUndo)}`);
+const uiBranchTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Mutation B', 'project', JSON.stringify(selectionBeforeB), '']);
+if (!uiBranchTx.ok || typeof uiBranchTx.transactionId !== 'string') throw new Error(JSON.stringify(uiBranchTx));
+for (const name of ['Branched history Cube A', 'Branched history Cube B']) {
+  const branchAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', name]);
+  if (!branchAdded.ok) throw new Error(JSON.stringify(branchAdded));
+}
+const uiBranchCommit = callJson('orc_history_commit', ['string', 'string'],
+  [uiBranchTx.transactionId, JSON.stringify(selectionBeforeB)]);
+if (uiBranchCommit.canRedo !== false)
+  throw new Error(`mutation B did not truncate Redo: ${JSON.stringify(uiBranchCommit)}`);
+const branchMutationUndo = callJson('orc_history_undo', [], []);
+if (!branchMutationUndo.ok || branchMutationUndo.context.selection.objectIds[0] !== 101 ||
+    branchMutationUndo.context.selection.partIds[0] !== 202)
+  throw new Error(`mutation B predecessor context was not restored: ${JSON.stringify(branchMutationUndo)}`);
+const branchMutationRedo = callJson('orc_history_redo', [], []);
+if (!branchMutationRedo.ok) throw new Error(`mutation B Redo failed: ${JSON.stringify(branchMutationRedo)}`);
+const activeBeforeEdit = callJson('orc_get_model_structure', [], []);
+if (!activeBeforeEdit.ok || activeBeforeEdit.objects.length !== 2)
+  throw new Error(`mutation B model was not restored: ${JSON.stringify(activeBeforeEdit)}`);
 
 // Plate-session state is part of the same history frame as the model.  This
 // is intentionally exercised before the model-only edits below: the old
@@ -256,13 +276,13 @@ const projectHistoryCountBeforeCoalesced = configRedo.status.undoEntries.length;
 const outer = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Coalesced edit', 'project', JSON.stringify(context), '']);
 if (!outer.ok || typeof outer.transactionId !== 'string') throw new Error(JSON.stringify(outer));
-const outerEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[0].id, 0]);
+const outerEdit = callJson('orc_set_object_printable', ['number', 'number'], [activeBeforeEdit.objects[0].id, 0]);
 if (!outerEdit.ok) throw new Error(JSON.stringify(outerEdit));
 const child = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Coalesced child', 'project', JSON.stringify(context),
     JSON.stringify({ coalesce: true, parentTransactionId: outer.transactionId })]);
 if (!child.ok || typeof child.transactionId !== 'string') throw new Error(JSON.stringify(child));
-const childEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[1].id, 0]);
+const childEdit = callJson('orc_set_object_printable', ['number', 'number'], [activeBeforeEdit.objects[1].id, 0]);
 if (!childEdit.ok) throw new Error(JSON.stringify(childEdit));
 const childCommit = callJson('orc_history_commit', ['string', 'string'], [child.transactionId, JSON.stringify(context)]);
 if (childCommit.activeTransactionId !== outer.transactionId)
@@ -284,7 +304,7 @@ if (!coalescedReset.ok) throw new Error(`coalesced reset failed: ${JSON.stringif
 
 const editTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], ['Toggle One Cube', 'project', JSON.stringify(context), '']);
 if (!editTx.ok || typeof editTx.transactionId !== 'string') throw new Error(JSON.stringify(editTx));
-const targetId = beforeEdit.objects[0].id;
+const targetId = activeBeforeEdit.objects[0].id;
 const edited = callJson('orc_set_object_printable', ['number', 'number'], [targetId, 0]);
 if (!edited.ok) throw new Error(JSON.stringify(edited));
 const editedCommit = callJson('orc_history_commit', ['string', 'string'], [editTx.transactionId, JSON.stringify(context)]);
@@ -837,12 +857,6 @@ const jumpFirstCommit = commitHistory('Jump First', jumpFirstTransaction);
 const jumpFirstId = jumpFirstCommit.undoEntries[0]?.id;
 historyCheck('capture first directional jump ID', typeof jumpFirstId === 'string', JSON.stringify(jumpFirstCommit));
 
-const jumpContext = callJson('orc_history_record_context',
-  ['string', 'string'], ['Jump selection', JSON.stringify({ ...context,
-    selection: { ...context.selection, mode: 'object', objectIds: [jumpFirstAdded.objectId ?? 1] } })]);
-historyCheck('interleave context record', jumpContext.dirty === true && jumpContext.undoEntries.length === 1,
-  JSON.stringify(jumpContext));
-
 const jumpSecondTransaction = beginHistory('Jump Second');
 const jumpSecondAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump second']);
 historyCheck('directional jump second edit applies', jumpSecondAdded.ok === true, JSON.stringify(jumpSecondAdded));
@@ -887,46 +901,44 @@ historyCheck('restore directional fixture baseline',
   callJson('orc_clear_model', [], []).ok === true &&
   callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
 
-// Repair 6 real-bridge accounting diagnostic.  The long context and label
-// must increase the same retained-resource status that the restore path uses;
-// the delta must exceed the context payload itself, proving that canonical
-// entry/container metadata is included.  Native fixture tests cover budget
-// eviction and oversized retention deterministically; this real-WASM check
-// keeps its focus on accounting and a valid retained restore.
+// Repair 6 real-bridge accounting diagnostic. A genuine project mutation with
+// a long context and label must increase the retained-resource status used by
+// restore. Native fixture tests cover budget eviction deterministically.
 const accountingTransaction = beginHistory('Accounting restore');
 const accountingAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Accounting restore']);
 historyCheck('accounting restore fixture edit applies', accountingAdded.ok === true,
   JSON.stringify(accountingAdded));
 commitHistory('Accounting restore', accountingTransaction);
 const accountingBaseline = callJson('orc_history_status', [], []);
-const accountingShort = callJson('orc_history_record_context',
-  ['string', 'string'], ['Accounting short', JSON.stringify(context)]);
 const accountingLabel = 'Accounting long label '.repeat(16);
 const accountingContext = { ...context,
   selection: { ...context.selection,
     objectIds: Array.from({ length: 512 }, (_, index) => index) } };
 const accountingContextJson = JSON.stringify(accountingContext);
-const accountingLong = callJson('orc_history_record_context',
-  ['string', 'string'], [accountingLabel, accountingContextJson]);
+const accountingLongBegin = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  [accountingLabel, 'project', accountingContextJson, '']);
+const accountingLongAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Accounting long']);
+const accountingLong = callJson('orc_history_commit', ['string', 'string'],
+  [accountingLongBegin.transactionId, accountingContextJson]);
 historyCheck('history accounting exposes deterministic bridge diagnostics',
   Number.isSafeInteger(accountingBaseline.bytesUsed) &&
-  Number.isSafeInteger(accountingShort.bytesUsed) &&
+  accountingLongBegin.ok === true && accountingLongAdded.ok === true &&
   Number.isSafeInteger(accountingLong.bytesUsed),
-  JSON.stringify({ accountingBaseline, accountingShort, accountingLong }));
-const accountingDelta = accountingLong.bytesUsed - accountingShort.bytesUsed;
-historyCheck('long label/context growth includes canonical metadata overhead',
-  accountingDelta > accountingContextJson.length && accountingLong.bytesUsed > accountingShort.bytesUsed,
+  JSON.stringify({ accountingBaseline, accountingLongBegin, accountingLongAdded, accountingLong }));
+const accountingDelta = accountingLong.bytesUsed - accountingBaseline.bytesUsed;
+historyCheck('long project label/context growth is retained',
+  accountingDelta > accountingContextJson.length && accountingLong.bytesUsed > accountingBaseline.bytesUsed,
   JSON.stringify({ accountingDelta, contextBytes: accountingContextJson.length,
-    labelBytes: accountingLabel.length, accountingShort, accountingLong }));
+    labelBytes: accountingLabel.length, accountingBaseline, accountingLong }));
 const accountingUndo = callJson('orc_history_undo', [], []);
 const accountingUndoModel = callJson('orc_get_model_structure', [], []);
 historyCheck('accounting status remains valid through retained restore',
   accountingUndo.ok === true && accountingUndo.status?.bytesUsed === accountingLong.bytesUsed &&
-  accountingUndoModel.ok === true && accountingUndoModel.objects.length === 0,
+  accountingUndoModel.ok === true && accountingUndoModel.objects.length === 1,
   JSON.stringify({ accountingUndo, accountingUndoModel }));
 const accountingRedo = callJson('orc_history_redo', [], []);
 historyCheck('accounting diagnostic restore redoes successfully',
   accountingRedo.ok === true && accountingRedo.status?.bytesUsed === accountingLong.bytesUsed &&
-  callJson('orc_get_model_structure', [], []).objects.length === 1,
+  callJson('orc_get_model_structure', [], []).objects.length === 2,
   JSON.stringify({ accountingRedo, model: callJson('orc_get_model_structure', [], []) }));
 console.log(`history smoke passed (${moduleArg})`);

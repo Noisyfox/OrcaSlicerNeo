@@ -22,7 +22,7 @@ type TransactionMock = ReturnType<typeof vi.fn> & SlicerRuntime['runProjectHisto
 function transactionRuntime() {
   const implementation = async <T>(
     _label: string,
-    _category: 'project' | 'context',
+    _category: 'project',
     before: HistoryContext,
     mutation: (id: string) => Promise<T>,
     after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),

@@ -21,7 +21,7 @@ const mutation = {
 
 function runProjectHistoryTransaction<T>(
   _label: string,
-  _category: 'project' | 'context',
+  _category: 'project',
   _before: unknown,
   mutationCallback: (transactionId: string) => Promise<T>,
   _after: unknown | (() => unknown | Promise<unknown>),

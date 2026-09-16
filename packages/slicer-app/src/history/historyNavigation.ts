@@ -3,9 +3,9 @@ import type { HistoryStatus } from '@slicer/client';
 export type HistoryNavigationDirection = 'undo' | 'redo';
 
 /**
- * Worker history is the only source of truth for navigation.  Context records
- * are retained by the Worker so a project restore can recover selection and
- * plate state, but they are not user-visible operations in these menus.
+ * Worker history is the only source of truth for navigation. Every entry is a
+ * genuine project mutation whose frame also carries its selection/plate
+ * context; UI-only context changes never enter these menus.
  */
 export function projectHistoryEntries(
   status: HistoryStatus | null | undefined,

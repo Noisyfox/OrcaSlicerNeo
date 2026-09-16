@@ -69,7 +69,7 @@ function historyRuntime() {
     getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
     runProjectHistoryTransaction: vi.fn(async (
       _label: string,
-      _category: 'project' | 'context',
+      _category: 'project',
       _before: unknown,
       mutation: (tx: string) => Promise<unknown>,
       _after: unknown | (() => unknown),
@@ -96,7 +96,7 @@ describe('TransformHistoryCoordinator', () => {
       ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
-        _category: 'project' | 'context',
+        _category: 'project',
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
         after: unknown | (() => unknown),
@@ -143,7 +143,7 @@ describe('TransformHistoryCoordinator', () => {
       ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
-        _category: 'project' | 'context',
+        _category: 'project',
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
         _after: unknown | (() => unknown),
@@ -167,7 +167,7 @@ describe('TransformHistoryCoordinator', () => {
       ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(async (
         label: string,
-        _category: 'project' | 'context',
+        _category: 'project',
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
         _after: unknown | (() => unknown),
@@ -206,7 +206,7 @@ describe('TransformHistoryCoordinator', () => {
       setModelTransforms: vi.fn(async () => ({ ok: true })),
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
-        _category: 'project' | 'context',
+        _category: 'project',
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
       ) => {
@@ -304,7 +304,7 @@ describe('TransformHistoryCoordinator', () => {
       ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
-        _category: 'project' | 'context',
+        _category: 'project',
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
         _after: unknown | (() => unknown),
@@ -345,7 +345,7 @@ describe('TransformHistoryCoordinator', () => {
       }),
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
-        _category: 'project' | 'context',
+        _category: 'project',
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
         _after: unknown | (() => unknown),

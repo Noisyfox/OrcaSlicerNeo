@@ -344,20 +344,6 @@ export async function resetProjectHistory(
   });
 }
 
-export async function recordProjectHistoryContext(
-  runtime: Pick<SlicerRuntime, 'recordHistoryContext'>,
-  label: string,
-  context: HistoryContext,
-): Promise<HistoryStatus> {
-  return enqueueHistoryOperation(async () => {
-    const lease = acquireProjectMutationLease();
-    try {
-      const status = await runtime.recordHistoryContext(label, context);
-      return projectHistoryStatus(status);
-    } finally { lease.release(); }
-  });
-}
-
 /** Read and project the Worker's current checkpoint state. */
 export async function syncHistoryStatus(runtime: Pick<SlicerRuntime, 'getHistoryStatus'>): Promise<HistoryStatus | null> {
   return enqueueProjectMutationOperation(async () => {

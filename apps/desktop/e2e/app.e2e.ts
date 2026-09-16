@@ -535,10 +535,60 @@ test('shared history toolbar supports buttons, shortcuts, menu jumps, and native
     await page.keyboard.press('Control+y');
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
-    // Two project actions create a directional menu; context-only records are
-    // never rendered as normal navigation entries.
+    // Build a branch whose retained predecessor still has two models and two
+    // plates. Selection, blank deselection, and plate switching are real
+    // Prepare interactions; none may consume the redo for the third model.
     await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('add-plate').click();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await page.getByTestId('btn-add-model').click();
+    const objectRows = page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
     await expect(undo).toBeEnabled({ timeout: 30_000 });
+    await undo.click();
+    await expect(objectRows).toHaveCount(2, { timeout: 30_000 });
+    await expect(redo).toBeEnabled();
+
+    const selectedInstances = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { selectionInstanceCount?: () => number } })
+        .__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    );
+    const clickWorld = async (point: [number, number, number]) => {
+      const projected = await page.evaluate((p) =>
+        (window as unknown as {
+          __orcaE2e?: { projectWorldToScreen?: (q: [number, number, number]) => { x: number; y: number } | null };
+        }).__orcaE2e?.projectWorldToScreen?.(p) ?? null,
+        point,
+      );
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box || !projected) throw new Error('viewport projection is unavailable');
+      await page.mouse.click(box.x + projected.x, box.y + projected.y);
+    };
+
+    await objectRows.first().click();
+    await expect.poll(selectedInstances).toBeGreaterThan(0);
+    await expect(redo).toBeEnabled();
+
+    await clickWorld([350, 110, 0]);
+    await expect.poll(selectedInstances).toBe(0);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect(redo).toBeEnabled();
+
+    await clickWorld([110, 110, 0]);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 1 (2/36)');
+    // The plate button is disabled while the authoritative switch is pending.
+    // Waiting for it flushes the old selection/plate history queue as well, so
+    // this assertion deterministically fails if context navigation killed Redo.
+    await expect(page.getByTestId('add-plate')).toBeEnabled();
+    await expect(redo).toBeEnabled();
+
+    await redo.click();
+    await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+
+    // The restored branch remains available to the directional menu.
     await page.getByTestId('history-undo-menu-trigger').click();
     await expect(page.getByTestId(/history-undo-entry-/).first()).toBeVisible();
     await page.getByTestId(/history-undo-entry-/).first().click();

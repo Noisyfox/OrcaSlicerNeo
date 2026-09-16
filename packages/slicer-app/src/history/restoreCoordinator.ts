@@ -114,7 +114,6 @@ export function createHistoryRestoreCoordinator({
       }
       state.setPhase('restoring');
       revision = state.advanceRevision();
-      useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
     }).then((result) => {
       const activeRevision = revision;
       if (!result.ok) {
@@ -122,7 +121,6 @@ export function createHistoryRestoreCoordinator({
         if (result.status) useHistoryNavigationStore.getState().setStatus(result.status);
         if (activeRevision !== null && useHistoryRestoreStore.getState().revision === activeRevision) {
           useHistoryRestoreStore.getState().setError(restoreError(result));
-          useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
           useHistoryRestoreStore.getState().setPhase('idle');
         }
         return false;
@@ -135,7 +133,6 @@ export function createHistoryRestoreCoordinator({
     }).catch((error) => {
       if (revision !== null && useHistoryRestoreStore.getState().revision === revision) {
         useHistoryRestoreStore.getState().setError(error instanceof Error ? error.message : String(error));
-        useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
         useHistoryRestoreStore.getState().setPhase('idle');
       }
       return false;

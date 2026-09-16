@@ -939,7 +939,7 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
       if (!entry || typeof entry !== 'object') return [];
       const item = entry as Record<string, unknown>;
       return typeof item.id === 'string' && typeof item.label === 'string' &&
-        (item.category === 'project' || item.category === 'context')
+        item.category === 'project'
         ? [{ id: item.id, label: item.label, category: item.category }] : [];
     });
   };
@@ -1397,11 +1397,6 @@ export function createClient(
     return normalizeHistoryStatus(callJson(m, 'orc_history_mark_saved', ['string'], [context ? JSON.stringify(context) : '']));
   }
 
-  async function recordHistoryContext(label: HistoryLabel, context: HistoryContext): Promise<HistoryStatus> {
-    const m = await module();
-    return normalizeHistoryStatus(callJson(m, 'orc_history_record_context', ['string', 'string'], [label, JSON.stringify(context)]));
-  }
-
   async function resetHistory(context: HistoryContext): Promise<HistoryStatus> {
     const m = await module();
     return normalizeHistoryStatus(callJson(m, 'orc_history_reset', ['string'], [JSON.stringify(context)]));
@@ -1506,7 +1501,6 @@ export function createClient(
     jumpHistory,
     getHistoryStatus,
     markHistorySaved,
-    recordHistoryContext,
     resetHistory,
     getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
     async takeNativePerformanceProfile(): Promise<NativePerformanceProfile> {

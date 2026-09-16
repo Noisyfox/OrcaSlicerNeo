@@ -54,7 +54,7 @@ const restrictedWhileSerialSlicing = new Set([
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
   'assignFilament', 'setFilamentRouting', 'beginHistory', 'commitHistory',
   'abortHistory', 'undoHistory', 'redoHistory', 'jumpHistory', 'markHistorySaved',
-  'recordHistoryContext', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
+  'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
   'markSharedConfigurationMutation', 'setProjectConfigOverride',
   'revalidateProjectConfigOverlay', 'selectProfile', 'addModel', 'closeProject',
@@ -358,7 +358,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       }
       if (prop === 'runProjectHistoryTransaction') {
         return async (
-          label: string, category: 'project' | 'context', beforeContext: unknown,
+          label: string, category: 'project', beforeContext: unknown,
           mutation: (transactionId: string) => Promise<unknown>,
           afterContext: unknown | (() => unknown | Promise<unknown>),
         ) => {

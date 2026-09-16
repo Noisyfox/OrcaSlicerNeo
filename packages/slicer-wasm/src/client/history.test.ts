@@ -51,10 +51,8 @@ describe('history contracts', () => {
     expect(copy.activePlateId).toBe('plate-session-1-plate-1');
   });
 
-  it('separates project and context history categories in status entries', () => {
-    const contextEntry = { id: 'entry-2', label: 'Selection', category: 'context' as const };
+  it('reports only project history categories in status entries', () => {
     expect(status.undoEntries[0]?.category).toBe('project');
-    expect(contextEntry.category).toBe('context');
     expect(status.canUndo).toBe(true);
     expect(status.canRedo).toBe(false);
   });

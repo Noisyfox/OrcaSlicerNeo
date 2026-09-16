@@ -47,7 +47,7 @@ history core belongs in Neo-owned `packages/slicer-wasm/src/history/`.
 - Capture a reproducible baseline for the existing project/session, Worker,
   transform, settings, ObjectList, multi-plate, and E2E suites.
 - Add dependency-free TypeScript contract types for `HistoryContext`, stable
-  selection/plate IDs, history labels/categories, `HistoryStatus`, transaction
+  selection/plate IDs, history labels/project category, `HistoryStatus`, transaction
   IDs, restore results, and history errors.
 - Extend mock-runtime types only enough to compile future callers; do not expose
   an enabled Undo/Redo UI or change production mutation behaviour yet.
@@ -59,7 +59,7 @@ exactly as before; no project mutation is yet routed through history.
 
 **Agent self-verification**
 
-- Contract and mock-unit tests prove stable IDs, project-vs-context categories,
+- Contract and mock-unit tests prove stable IDs, the project-only category,
   and serialization-safe context shapes.
 - Existing store/project/action tests remain unchanged in behaviour.
 - Full required pnpm/typecheck/Desktop E2E baseline passes.
@@ -113,7 +113,7 @@ context without wx dependencies.
 
 - Expose explicit `begin`, `commit`, `abort`, `undo`, `redo`, `jump`, and
   `status` bridge operations backed by `ProjectHistory`.
-- Carry `transactionId`, labels, project/context category, before/after
+- Carry `transactionId`, labels, the project category, before/after
   `HistoryContext`, cursor, saved-checkpoint relation, byte usage, and disabled
   state through the typed client and Worker RPC.
 - Enforce one active history transaction in the Worker and reject malformed,
@@ -153,9 +153,9 @@ then Undo/Redo it. Existing product actions continue on their existing paths.
 - Integrate Save/Save As checkpoint marking without clearing history.
 - Integrate New/Open/Reload hard boundaries that clear history and establish a
   clean baseline. Keep Add Model and Clear Scene out of this boundary.
-- Record selection and active-plate changes as internal, non-dirty context
-  snapshots; regular one-step traversal skips them while a new context change
-  after Undo still truncates Redo.
+- Keep selection and active-plate changes outside history. The next genuine
+  project mutation samples the current context for its predecessor and
+  successor frames; UI-only context changes after Undo preserve Redo.
 
 **Functional boundary**
 
@@ -165,7 +165,8 @@ before ordinary model-editing actions are migrated.
 **Agent self-verification**
 
 - Tests cover save → Undo → clean/dirty transitions, Save As, checkpoint
-  eviction, New/Open/Reload reset, context-only records, and redo truncation.
+  eviction, New/Open/Reload reset, UI-context Redo preservation, and genuine
+  mutation Redo truncation.
 - Existing 3MF persistence tests prove history itself is not serialized.
 - Required full host checks pass.
 
@@ -248,8 +249,8 @@ WASM traffic and no per-frame history growth.
 - Route Add Model/Cube/Handy Model, Clear Scene, and every ObjectList mutation
   through the transaction helper.
 - Route the currently exposed multi-plate add/delete and shared configuration
-  actions through the same path; active-plate switching remains only an
-  internal context record. Plate reorder and lock APIs/UI call sites do not
+  actions through the same path; active-plate switching remains UI context
+  only. Plate reorder and lock APIs/UI call sites do not
   exist in this milestone and are not part of this migration.
 - Ensure restored model entities keep stable IDs and that ObjectList/viewport
   projections refresh from the restored structure instead of stale indices.
@@ -266,8 +267,9 @@ undoable, while New/Open/Reload remain hard boundaries.
   add/delete, and shared project configuration through Worker history.
 - Added focused transaction/context coverage and stable-ID selection fallback
   coverage. Post-mutation contexts now filter deleted IDs and read the
-  authoritative active plate identity; active-plate navigation records a
-  context-only history entry. Real dual-variant WASM smoke passed.
+  authoritative active plate identity. The original active-plate context entry
+  described here was removed by the accepted §14 correction. Real dual-variant
+  WASM smoke passed.
 - `pnpm test`, `pnpm typecheck`, slicer-app tests (401 passed), Electron E2E
   (29 passed, 3 existing skips), threaded Web E2E (4 passed), and serial Web
   E2E (4 passed) all passed. The dual-variant quick WASM build also passed.
@@ -344,7 +346,7 @@ project save/load; changing a system preset never becomes a project Undo item.
 - Add shared primary-toolbar Undo/Redo buttons, accessible disabled state,
   next-operation labels, directional menus, and direct jump.
 - Populate menus from Worker `HistoryStatus`; display only project-modifying
-  entries and omit internal selection/plate context records.
+  entries. Selection/plate changes never create entries.
 - Add focus-aware shortcuts: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl+Y; editable
   controls retain native text Undo/Redo.
 - Respect restoring/cancelling-slice state and operation errors.
@@ -358,8 +360,8 @@ without intercepting text-field Undo/Redo.
 
 - Added the shared primary-toolbar Undo/Redo controls and directional menus.
   Labels, disabled state, menu contents, and direct jumps are projected from
-  the latest Worker `HistoryStatus`; context-only selection/plate entries are
-  filtered at the UI boundary and no frontend history list is retained.
+  the latest Worker `HistoryStatus`; selection/plate changes create no history
+  entries and no frontend history list is retained.
 - Routed one-step and menu navigation through the existing restore
   coordinator so drag cancellation, slice cancellation, atomic restore,
   revision fencing, and retryable errors remain shared by Electron and Web.
@@ -476,8 +478,8 @@ root review and focused verification before the next step begins.
 1. Restore the complete Worker-owned plate session in every history frame:
    plate collection, stable IDs, active plate, memberships, ordering, locks,
    revisions, and project-owned plate configuration.
-2. Make one-step Undo/Redo skip context-only entries while restoring the
-   adjacent project frame and preserving correct redo branching.
+2. Keep context-only UI changes completely outside history so one-step
+   Undo/Redo traverses genuine project frames and UI navigation preserves Redo.
 3. Project Worker history dirty state into the canonical project store after
    every restore so save-point navigation and close protection agree.
 4. Keep restore fencing active until structure, mesh, selection, active plate,
@@ -539,19 +541,12 @@ repair sequence is complete prematurely.
 - This supplemental harness-only commit does not change the C++ implementation
   or the root acceptance status.
 
-### Repair 2 execution record — context-only traversal
+### Repair 2 execution record — superseded context-only traversal
 
-- Changed the headless `ProjectHistory` traversal so one-step Undo first skips
-  any trailing context records, then moves from the current project frame to
-  its preceding project frame. Redo uses the symmetric next-project-frame
-  traversal. `canUndo`, `canRedo`, toolbar labels, and returned contexts now
-  describe the same project-frame targets.
-- Updated the mock Worker protocol and added regression coverage for multiple
-  consecutive context records, baseline-only context records, saved-checkpoint
-  dirty behavior, symmetric Undo/Redo, and context-branch redo truncation.
-- Added the same regression to `history-smoke.mjs`; it passed against both the
-  serial and threaded real WASM artifacts. The existing native ProjectHistory
-  fixture also passed after rebuilding its serial test target.
+- The original context-record traversal described here was removed by the
+  accepted §14 correction. `ProjectHistory`, the bridge ABI, and the typed
+  client now retain only genuine project mutations; renderer context is
+  sampled onto those frames.
 - Focused Worker/client tests passed 10/10. Full `pnpm test` passed (workspace:
   8 packages; 109 slicer-wasm tests; 409 slicer-app tests), and `pnpm typecheck`
   passed. `scripts\\build-windows.bat quick --variant both` and the dual
@@ -612,12 +607,11 @@ repair sequence is complete prematurely.
 
 - Added an explicit `undo`/`redo` direction to the Worker jump contract. The
   renderer now passes the menu direction with the opaque entry ID; it no longer
-  performs adjacent-entry arithmetic that could cross context records or stale
-  evictions.
+  performs adjacent-entry arithmetic across stale evictions.
 - Core Undo jumps resolve the selected project operation to the nearest prior
   project frame, while Redo jumps restore the selected operation's after-state.
   Both directions require a retained, non-baseline project operation and
-  reject opposite-side IDs, context IDs, and unknown/evicted IDs. The public
+  reject opposite-side and unknown/evicted IDs. The public
   Worker/client jump method requires its direction; the legacy headless
   exact-jump helper remains available only for native fixture diagnostics, and
   the bridge requires an explicit direction.
@@ -637,7 +631,7 @@ repair sequence is complete prematurely.
   prepare/jump calls reject that evicted ID while a retained ID still jumps.
   The real bridge smoke now exercises the complete directional matrix in both
   serial and threaded WASM artifacts: top Undo changes the model, an older
-  Undo crosses an interleaved context record, Redo restores the selected
+  Undo reaches the preceding project state, Redo restores the selected
   after-state, and opposite-direction plus branched stale IDs are rejected.
 - Root acceptance is intentionally not recorded in this execution record.
 
@@ -695,3 +689,24 @@ repair sequence is complete prematurely.
   shared TypeScript dirty projection and does not touch the bridge or WASM
   sources.
 - Root acceptance is intentionally not recorded in this execution record.
+
+## 14. 2026-09-16 correction — context without standalone revisions
+
+The accepted context policy is stricter than the original Step 3 delivery:
+
+- selecting another object, clearing selection, switching the current plate,
+  and equivalent UI-only operations never enter the history coordinator or
+  Worker mutation API;
+- these operations do not create a revision, move the history cursor, affect
+  dirty state, or truncate Redo;
+- a genuine project transaction reads the current renderer context when it
+  starts, atomically attaches that `beforeContext` to the retained predecessor,
+  and stores its `afterContext` with the new project frame;
+- Undo/Redo restores context only from genuine project frames, and a new
+  project mutation after Undo remains the sole branch-truncation boundary.
+
+The correction removes the Object List selection and plate-navigation context
+writers, removes their restore-only snapshot-suppression choreography, and
+extends the headless commit boundary so predecessor context refresh and branch
+append succeed or roll back together. The public profile-selection boundary is
+unchanged.

@@ -82,6 +82,10 @@ Each committed history frame includes:
   restore the editing context;
 - project-owned configuration overrides (object, part, or plate settings).
 
+Selection, active plate, and gizmo values are sampled when a genuine project
+mutation begins and completes. The mutation's predecessor and successor frames
+therefore carry the editing context that existed on each side of that action.
+
 Restore uses stable identities. If a referenced entity no longer exists, Neo
 keeps the valid subset of the selection or clears it when no valid selection
 remains.
@@ -128,20 +132,25 @@ Opening/closing a gizmo alone has no history entry. When Undo/Redo restores an
 editing command, it restores that command's saved gizmo context only after any
 active gesture has ended; restoration must not interrupt a drag in progress.
 
-### 5.1 Standalone context history
+### 5.1 Editing context is attached to project mutations
 
-Selection changes and active-plate switches each create a lightweight internal
-context record even when no project data changes. These records preserve the
-editing context that will accompany a later project-state restore, but regular
-one-step Undo/Redo deliberately skips them. A new selection or plate change
-after Undo still discards the redo branch. Context records never mark the
-project modified.
+Selection changes, clearing selection, active-plate switches, and isolated
+gizmo open/close are renderer editing context only. They do not call the
+history mutation API, create a history revision, move the cursor, mark the
+project dirty, or discard a Redo branch.
 
-This matches OrcaSlicer's `SnapshotType::Selection` records and its separate,
-non-dirty current-plate snapshots: its standard Undo/Redo loop advances to the
-next project-modifying snapshot. Gizmo open/close remains the intentionally
-chosen Neo exception: it only accompanies an editing frame and is never a
-standalone history entry.
+The next genuine project mutation samples the then-current context. Its
+`beforeContext` atomically refreshes the retained predecessor frame while its
+`afterContext` accompanies the new project frame. Undo/Redo consequently
+restores the context on the appropriate side of a real action without needing
+standalone context records. After Undo, any number of context-only UI changes
+leave Redo available; only a successfully committed project mutation creates a
+new branch and truncates Redo.
+
+Native Orca's `SnapshotType::Selection` and `!`-prefixed snapshots are not
+copied here: although ordinary traversal/dirty handling may skip those records,
+taking such a snapshot still truncates native Redo. Neo requires the stricter
+non-mutating behaviour above.
 
 ### 5.2 Project replacement boundary
 
@@ -169,7 +178,7 @@ boundary. The initial release covers:
   assemble, reorder, add/remove instance, part-type change, and printable
   change;
 - multi-plate add/remove/reorder/lock actions and project-owned plate
-  configuration; active-plate switching remains an internal context record;
+  configuration; active-plate switching remains UI context only;
 - object-, part-, and plate-owned temporary project-configuration overrides.
 
 An unintegrated project mutation must not silently bypass history. It must be
@@ -243,6 +252,9 @@ undoHistory() / redoHistory() -> RestoreResult
 getHistoryStatus() -> HistoryStatus
 jumpHistory(targetId) -> RestoreResult
 ```
+
+There is no application operation for recording standalone selection or plate
+context. Only project transactions update the retained timeline.
 
 The shared TypeScript client exposes one `runProjectHistoryTransaction()`
 entrypoint that serializes begin, model mutation, and commit, aborting on
@@ -388,7 +400,8 @@ entry.
 
 - Undoing to the saved checkpoint clears dirty; Redoing away from it restores
   dirty.
-- Selection and plate-only context entries preserve the existing dirty state.
+- Selection and plate-only UI changes preserve the existing dirty state because
+  they do not touch history.
 - Preset selection and system preferences remain outside this calculation.
 - If eviction removes the saved checkpoint, Neo conservatively reports dirty.
 - All project mutations must enter through the history transaction boundary;
@@ -417,15 +430,15 @@ remain visible but disabled, and the shared app neither consumes nor dispatches
 project Undo/Redo shortcuts. Returning to Prepare re-enables them solely from
 the current Worker `HistoryStatus`; navigating away never discards history.
 
-Selection and plate context records are intentionally omitted from the default
-history menus and one-step navigation, while their saved state is restored with
-the selected project-modifying frame.
+Selection and plate context are restored with project-modifying frames. They do
+not appear in history menus because no standalone entries are created.
 
 ## 10. Verification and Performance Gates
 
 Verification is layered across the shared application:
 
-- unit tests cover transactions, redo truncation, context restoration, saved
+- unit tests cover transactions, Redo preservation across UI-only context
+  changes, Redo truncation on the next genuine mutation, context restoration, saved
   checkpoints, dirty calculation, and saved-checkpoint eviction;
 - Worker/WASM integration covers every exposed mutation category and confirms
   history remains usable after 3MF save;

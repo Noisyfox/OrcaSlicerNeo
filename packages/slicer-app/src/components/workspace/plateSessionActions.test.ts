@@ -32,17 +32,12 @@ describe('plate selection actions', () => {
     useSettingsStore.getState().setOverlay(emptyProjectConfigOverlay());
   });
 
-  it('clears selection only after an authoritative switch succeeds and records plate context', async () => {
+  it('clears selection after an authoritative switch without touching history', async () => {
     usePlateSessionStore.getState().setSnapshot(plateA);
     const clearSelection = vi.fn();
-    const recordHistoryContext = vi.fn(async () => ({ dirty: false }));
     const getPlateSessionSnapshot = vi.fn();
     useProjectStore.getState().setProject({ hasContent: true, dirty: false, dirtyReasons: [] });
     const platform = platformFor(plateB);
-    (platform.runtime as unknown as {
-      recordHistoryContext: typeof recordHistoryContext;
-      getPlateSessionSnapshot: typeof getPlateSessionSnapshot;
-    }).recordHistoryContext = recordHistoryContext;
     (platform.runtime as unknown as { getPlateSessionSnapshot: typeof getPlateSessionSnapshot }).getPlateSessionSnapshot = getPlateSessionSnapshot;
 
     await expect(selectPlateSessionAndClearSelection(platform, 'b', clearSelection)).resolves.toBe(true);
@@ -51,8 +46,6 @@ describe('plate selection actions', () => {
     expect(usePlateSessionStore.getState().snapshot).toMatchObject({
       currentPlateId: 'b', plates: plateA.plates, inputRevisions: plateA.inputRevisions,
     });
-    expect(recordHistoryContext).toHaveBeenCalledWith('Active Plate', expect.objectContaining({ activePlateId: 'b' }));
-    expect(recordHistoryContext).toHaveBeenCalledOnce();
     expect(getPlateSessionSnapshot).not.toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ hasContent: true, dirty: false, dirtyReasons: [] });
   });

@@ -44,12 +44,10 @@ function makePlatform() {
 const navigationStatus: HistoryStatus = {
   canUndo: true, canRedo: true, undoLabel: 'Move', redoLabel: 'Delete',
   undoEntries: [
-    { id: 'undo-context', label: 'Selection', category: 'context' },
     { id: 'undo-move', label: 'Move', category: 'project' },
   ],
   redoEntries: [
     { id: 'redo-delete', label: 'Delete', category: 'project' },
-    { id: 'redo-context', label: 'Active Plate', category: 'context' },
   ],
   cursor: 2, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
   bytesUsed: 1, byteBudget: 256, optionalBytesReleased: 0, evictedEntryCount: 0,
@@ -188,7 +186,7 @@ describe('Toolbar send navigation', () => {
       expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('opens directional project-only menus and jumps directly to the Worker entry', async () => {
+  it('opens directional menus and jumps directly to the Worker entry', async () => {
     const { platform } = makePlatform();
     const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
     useHistoryNavigationStore.getState().setStatus(navigationStatus);
@@ -202,7 +200,6 @@ describe('Toolbar send navigation', () => {
       (container.querySelector('[data-testid="history-undo-menu-trigger"]') as HTMLButtonElement).click();
     });
     expect(document.querySelector('[data-testid="history-undo-entry-undo-move"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="history-undo-entry-undo-context"]')).toBeNull();
     await act(async () => {
       (document.querySelector('[data-testid="history-undo-entry-undo-move"]') as HTMLElement).click();
     });

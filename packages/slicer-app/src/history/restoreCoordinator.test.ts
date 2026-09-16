@@ -132,7 +132,6 @@ describe('history restore coordinator', () => {
     const restore = coordinator.restore('undo');
     await vi.waitFor(() => expect(refreshModel).toHaveBeenCalledOnce());
     expect(useHistoryRestoreStore.getState().phase).toBe('restoring');
-    expect(useHistoryRestoreStore.getState().snapshotSuppressed).toBe(true);
     const redo = coordinator.restore('redo');
     expect(redo).not.toBe(restore);
 
@@ -168,7 +167,7 @@ describe('history restore coordinator', () => {
 
     await expect(coordinator.restore('undo')).resolves.toBe(false);
     expect(useHistoryRestoreStore.getState()).toMatchObject({
-      phase: 'idle', error: 'mesh projection failed', snapshotSuppressed: false,
+      phase: 'idle', error: 'mesh projection failed',
     });
   });
 

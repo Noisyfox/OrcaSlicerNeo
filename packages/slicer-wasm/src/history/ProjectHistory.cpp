@@ -255,7 +255,8 @@ void ProjectHistory::clear()
 
 bool ProjectHistory::commit(std::string label, Category category, const ModelState& model, const Bytes& context,
                             std::optional<RestoreState::DirectFrame> direct_frame,
-                            std::optional<RestoreState::DirectFrame> predecessor_direct_frame)
+                            std::optional<RestoreState::DirectFrame> predecessor_direct_frame,
+                            std::optional<Bytes> predecessor_context)
 {
     if (m_impl->states.empty()) {
         m_impl->states.push_back({ { 0, {}, Category::Project },
@@ -283,6 +284,12 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
     backup.m_object_intervals = m_object_intervals;
 
     try {
+        // UI-only context changes do not own history frames. Attach the
+        // context observed at the start of this genuine mutation to its
+        // retained predecessor, atomically with the branch append, so Undo
+        // restores the editing context that actually preceded the command.
+        if (predecessor_context)
+            m_impl->states[m_cursor].state.context = std::move(*predecessor_context);
         // A fast frame describes the currently retained predecessor.  Attach
         // it only as part of the same transactional branch append so a failed
         // commit cannot leave a newly charged side payload behind.
@@ -361,7 +368,8 @@ bool ProjectHistory::commit_with_baseline(std::string label, Category category,
 
 bool ProjectHistory::commit_reusing_current_model(std::string label, Category category, const Bytes& context,
                                                   std::optional<RestoreState::DirectFrame> direct_frame,
-                                                  std::optional<RestoreState::DirectFrame> predecessor_direct_frame)
+                                                  std::optional<RestoreState::DirectFrame> predecessor_direct_frame,
+                                                  std::optional<Bytes> predecessor_context)
 {
     if (m_impl->states.empty()) return false;
     const auto& current = m_impl->states[m_cursor].state;
@@ -378,6 +386,8 @@ bool ProjectHistory::commit_reusing_current_model(std::string label, Category ca
     backup.m_last_evicted_entry_id = m_last_evicted_entry_id;
     backup.m_object_intervals = m_object_intervals;
     try {
+        if (predecessor_context)
+            m_impl->states[m_cursor].state.context = std::move(*predecessor_context);
         // A narrow edit may follow a different narrow edit.  The supplied
         // predecessor frame describes this command's exact restore boundary;
         // retaining an unrelated frame would route Undo through the wrong

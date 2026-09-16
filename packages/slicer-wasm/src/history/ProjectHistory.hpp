@@ -59,7 +59,7 @@ struct ModelState {
     std::vector<ImmutableMesh> immutable_meshes;
 };
 
-enum class Category : std::uint8_t { Project, Context };
+enum class Category : std::uint8_t { Project };
 
 // A menu jump is directional: Undo selects an operation and restores the
 // project frame immediately before it; Redo selects an operation and restores
@@ -167,7 +167,8 @@ public:
     // and context bytes is a no-op and does not consume a history entry.
     bool commit(std::string label, Category category, const ModelState& model, const Bytes& context,
                 std::optional<RestoreState::DirectFrame> direct_frame = std::nullopt,
-                std::optional<RestoreState::DirectFrame> predecessor_direct_frame = std::nullopt);
+                std::optional<RestoreState::DirectFrame> predecessor_direct_frame = std::nullopt,
+                std::optional<Bytes> predecessor_context = std::nullopt);
     // Publish the initial baseline and its first project mutation as one
     // history operation.  The bridge uses this when a freshly initialized
     // session receives its first atomic command; a failed command must not
@@ -182,7 +183,8 @@ public:
     // must not serialize or copy the complete model state.
     bool commit_reusing_current_model(std::string label, Category category, const Bytes& context,
                                       std::optional<RestoreState::DirectFrame> direct_frame = std::nullopt,
-                                      std::optional<RestoreState::DirectFrame> predecessor_direct_frame = std::nullopt);
+                                      std::optional<RestoreState::DirectFrame> predecessor_direct_frame = std::nullopt,
+                                      std::optional<Bytes> predecessor_context = std::nullopt);
     // Refresh the current retained model from a transaction's exact
     // pre-mutation capture while preserving its context and direct frame.
     // This closes the boundary between a live model load and its first
@@ -208,10 +210,8 @@ public:
     bool can_commit_restore(const RestorePlan& plan) const;
     bool commit_restore(const RestorePlan& plan);
 
-    // Standard navigation deliberately skips internal context records.  The
-    // records remain retained (and therefore still truncate redo when a new
-    // context is committed), but one-step Undo/Redo only lands on project
-    // modifying frames.
+    // Every retained non-baseline frame is a project mutation, so standard
+    // navigation moves exactly one genuine action in either direction.
     bool can_undo() const;
     bool can_redo() const;
     std::size_t cursor() const { return m_cursor; }

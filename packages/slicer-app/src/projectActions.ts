@@ -15,7 +15,6 @@ import {
   readProjectHistoryStatus,
   markProjectHistorySaved,
   resetProjectHistory,
-  recordProjectHistoryContext,
 } from './components/workspace/actions/historyMutation';
 import { applyRememberedFilamentRackFromRepository } from './preferences';
 
@@ -56,7 +55,7 @@ export interface ProjectActionResult {
   loadReceipt?: ProjectLoadReceipt;
 }
 type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
-  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'>;
+  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'resetHistory'>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -111,14 +110,6 @@ async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus> {
 }
 async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
   return resetProjectHistory(runtime, projectedHistoryContext());
-}
-export async function recordHistoryContext(
-  platform: PlatformCapabilities,
-  label: string,
-  context: HistoryContext,
-): Promise<HistoryStatus> {
-  const runtime = runtimeOf(platform);
-  return recordProjectHistoryContext(runtime, label, context);
 }
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;

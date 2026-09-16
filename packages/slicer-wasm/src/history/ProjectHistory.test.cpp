@@ -46,12 +46,11 @@ int main()
     ProjectHistory history(4096);
     CHECK(history.commit("baseline", Category::Project, model(1), bytes(9)));
     CHECK(history.commit("move", Category::Project, model(2), bytes(8)));
-    CHECK(history.commit("selection", Category::Context, model(2), bytes(7)));
-    CHECK(history.entry_count() == 2);
+    CHECK(history.entry_count() == 1);
     CHECK(history.object_intervals().size() == 2);
     CHECK(history.object_intervals()[0].id == 42);
     CHECK(history.object_intervals()[0].begin == 0 && history.object_intervals()[0].end == 1);
-    CHECK(history.object_intervals()[1].begin == 1 && history.object_intervals()[1].end == 3);
+    CHECK(history.object_intervals()[1].begin == 1 && history.object_intervals()[1].end == 2);
 
     // Preparation is non-mutating: an adapter can reject the staged bytes
     // without advancing the cursor, then retry the same target.
@@ -60,8 +59,7 @@ int main()
     CHECK(history.prepare_undo(prepared));
     CHECK(history.cursor() == before_cursor);
     CHECK(prepared.from_cursor == before_cursor);
-    // The current state is a context-only record after `move`; one Undo must
-    // skip it and restore the preceding project frame's predecessor.
+    // One Undo restores the preceding project frame's predecessor.
     CHECK(prepared.target_cursor == 0);
     ProjectHistory restore_commit;
     CHECK(restore_commit.commit("baseline", Category::Project, model(1), bytes(1)));
@@ -86,84 +84,35 @@ int main()
     CHECK(restored.context == bytes(8));
     CHECK(!history.can_redo());
 
-    // Multiple consecutive context records after a project operation are
-    // skipped as one navigation unit. Redo is symmetric and restores the
-    // next project frame, not the context records themselves.
-    ProjectHistory consecutive_context;
-    CHECK(consecutive_context.commit("baseline", Category::Project, model(1), bytes(10)));
-    CHECK(consecutive_context.commit("edit", Category::Project, model(2), bytes(11)));
-    CHECK(consecutive_context.commit("selection 1", Category::Context, model(2), bytes(12)));
-    CHECK(consecutive_context.commit("selection 2", Category::Context, model(2), bytes(13)));
-    CHECK(consecutive_context.can_undo());
-    CHECK(consecutive_context.undo(restored));
-    CHECK(consecutive_context.cursor() == 0);
-    CHECK(restored.model.serialized == bytes(1));
-    CHECK(restored.context == bytes(10));
-    CHECK(consecutive_context.can_redo());
-    CHECK(consecutive_context.redo(restored));
-    CHECK(consecutive_context.cursor() == 1);
-    CHECK(restored.model.serialized == bytes(2));
-    CHECK(restored.context == bytes(11));
-    CHECK(!consecutive_context.can_redo());
-
-    // A context-only branch after Undo still discards all redo project
-    // entries, while context-only history at the baseline remains non-dirty
-    // and non-navigable.
-    ProjectHistory context_branch;
-    CHECK(context_branch.commit("baseline", Category::Project, model(1), bytes(20)));
-    context_branch.mark_current_as_saved();
-    CHECK(context_branch.commit("edit", Category::Project, model(2), bytes(21)));
-    CHECK(context_branch.commit("selection 1", Category::Context, model(2), bytes(22)));
-    CHECK(context_branch.commit("selection 2", Category::Context, model(2), bytes(23)));
-    CHECK(context_branch.undo(restored));
-    CHECK(!context_branch.project_modified());
-    CHECK(context_branch.commit("new selection", Category::Context, model(1), bytes(24)));
-    CHECK(!context_branch.can_redo());
-    CHECK(!context_branch.project_modified());
-    ProjectHistory baseline_context;
-    CHECK(baseline_context.commit("baseline", Category::Project, model(1), bytes(30)));
-    baseline_context.mark_current_as_saved();
-    CHECK(baseline_context.commit("selection", Category::Context, model(1), bytes(31)));
-    CHECK(!baseline_context.can_undo());
-    CHECK(!baseline_context.can_redo());
-    CHECK(!baseline_context.project_modified());
-
-    // Context-only records remain in the retained timeline and truncate a
-    // redo branch, but standard one-step navigation skips them.  A session
-    // containing only a context change does not become undoable.
-    ProjectHistory context_only;
-    CHECK(context_only.commit("baseline", Category::Project, model(1), bytes(1)));
-    context_only.mark_current_as_saved();
-    CHECK(context_only.commit("selection", Category::Context, model(1), bytes(2)));
-    CHECK(!context_only.can_undo());
-    CHECK(!context_only.can_redo());
-    CHECK(!context_only.project_modified());
-    CHECK(context_only.commit("edit", Category::Project, model(2), bytes(3)));
-    CHECK(context_only.undo(restored));
-    CHECK(restored.model.serialized == bytes(1));
-    CHECK(!context_only.project_modified());
-    CHECK(context_only.redo(restored));
-    CHECK(restored.model.serialized == bytes(2));
-    CHECK(context_only.project_modified());
-    CHECK(context_only.undo(restored));
-    CHECK(context_only.commit("new selection", Category::Context, model(1), bytes(4)));
-    CHECK(!context_only.can_redo());
+    // UI-only selection/plate changes do not call ProjectHistory at all. A
+    // pending Redo therefore survives, and the next genuine mutation attaches
+    // the then-current UI context to its predecessor before truncating Redo.
+    ProjectHistory ui_context_branch;
+    CHECK(ui_context_branch.commit("baseline", Category::Project, model(1), bytes(40)));
+    CHECK(ui_context_branch.commit("edit A", Category::Project, model(2), bytes(41)));
+    CHECK(ui_context_branch.undo(restored));
+    CHECK(ui_context_branch.can_redo());
+    CHECK(ui_context_branch.redo(restored));
+    CHECK(restored.context == bytes(41));
+    CHECK(ui_context_branch.undo(restored));
+    CHECK(ui_context_branch.commit("edit B", Category::Project, model(3), bytes(43),
+                                   std::nullopt, std::nullopt, bytes(42)));
+    CHECK(!ui_context_branch.can_redo());
+    CHECK(ui_context_branch.undo(restored));
+    CHECK(restored.context == bytes(42));
 
     // Directional menu jumps resolve the selected operation, not the entry
     // itself: Undo lands before the named project operation, while Redo lands
-    // on its after-state. Context records between project frames are skipped,
-    // and a stale/opposite-direction menu item is rejected by the core.
+    // on its after-state. A stale/opposite-direction item is rejected.
     ProjectHistory directional;
     CHECK(directional.commit("baseline", Category::Project, model(1), bytes(40)));
     CHECK(directional.commit("first", Category::Project, model(2), bytes(41)));
-    CHECK(directional.commit("selection", Category::Context, model(2), bytes(42)));
     CHECK(directional.commit("second", Category::Project, model(3), bytes(43)));
     const auto directional_entries = directional.entries();
-    CHECK(directional_entries.size() == 4);
+    CHECK(directional_entries.size() == 3);
     const auto baseline_id = directional_entries[0].id;
     const auto first_id = directional_entries[1].id;
-    const auto context_id = directional_entries[2].id;
-    const auto second_id = directional_entries[3].id;
+    const auto second_id = directional_entries[2].id;
     CHECK(directional.jump(second_id, JumpDirection::Undo, restored));
     CHECK(restored.model.serialized == bytes(2));
     CHECK(directional.cursor() == 1);
@@ -175,11 +124,8 @@ int main()
     CHECK(directional.cursor() == 1);
     CHECK(directional.jump(second_id, JumpDirection::Redo, restored));
     CHECK(restored.model.serialized == bytes(3));
-    CHECK(directional.cursor() == 3);
+    CHECK(directional.cursor() == 2);
     CHECK(!directional.jump(second_id, JumpDirection::Redo, restored));
-    CHECK(!directional.jump(context_id, JumpDirection::Undo, restored));
-    CHECK(directional.jump(first_id, JumpDirection::Undo, restored));
-    CHECK(!directional.jump(context_id, JumpDirection::Redo, restored));
     CHECK(!directional.jump(999999, JumpDirection::Undo, restored));
     CHECK(!directional.jump(baseline_id, JumpDirection::Undo, restored));
 
@@ -400,7 +346,8 @@ int main()
     bool rollback_threw = false;
     try {
         exception_rollback.commit_reusing_current_model("failing prime move", Category::Project,
-                                                        bytes(0x53, 8), prime_after, prime_before);
+                                                        bytes(0x53, 8), prime_after, prime_before,
+                                                        bytes(0x54, 8));
     } catch (...) {
         rollback_threw = true;
     }

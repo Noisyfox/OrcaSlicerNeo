@@ -54,12 +54,11 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     applyRememberedFilamentRack: vi.fn(async () => filamentSnapshot(1)),
     getHistoryStatus: vi.fn(async () => ({ dirty: useProjectStore.getState().dirty } as never)),
     markHistorySaved: vi.fn(async () => ({ dirty: false } as never)),
-    recordHistoryContext: vi.fn(async () => ({ dirty: false } as never)),
     resetHistory: vi.fn(async () => ({ dirty: false } as never)),
     cancel: vi.fn(async () => ({ ok: true })),
     runProjectHistoryTransaction: vi.fn(async <T>(
       _label: string,
-      _category: 'project' | 'context',
+      _category: 'project',
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),

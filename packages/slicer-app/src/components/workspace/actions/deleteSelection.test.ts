@@ -27,7 +27,7 @@ function makeRuntime(): SlicerRuntime {
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
     runProjectHistoryTransaction: vi.fn(async <T>(
       _label: string,
-      _category: 'project' | 'context',
+      _category: 'project',
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),

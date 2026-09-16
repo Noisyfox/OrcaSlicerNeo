@@ -125,15 +125,6 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
-  /**
-   * A selected body may still turn the current pointer press into a drag.
-   * Context-only history must not take the project lease during this short
-   * arbitration window, or it rejects the same gesture's transform draft.
-   */
-  get bodySelectionHistoryState(): 'idle' | 'pending' | 'dragging' {
-    if (this.pointerOwner === 'body') return 'dragging';
-    return this.pendingBodyDragHit === null ? 'idle' : 'pending';
-  }
   get selectionMode(): SelectionMode { return this.selectionModeState; }
   /** Distinct selected instances — the panels' multi-selection display rule. */
   get selectionInstanceCount(): number {

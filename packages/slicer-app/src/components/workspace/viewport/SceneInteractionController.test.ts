@@ -527,16 +527,13 @@ describe('SceneInteractionController', () => {
     controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
 
     expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
-    expect(controller.bodySelectionHistoryState).toBe('pending');
     const start = controller.selectionPivot()!;
     // Deliberately do not await or publish React selection between these
     // calls: this is the same pointerdown -> thresholded pointermove turn.
     expect(controller.tryBeginBodyDrag(volumes[0])).toBe(false);
     expect(controller.tryBeginBodyDrag(volumes[2])).toBe(true);
-    expect(controller.bodySelectionHistoryState).toBe('dragging');
     expect(controller.updateDragPivot(start.clone().add(new THREE.Vector3(3, -2, 0)))).toBe(true);
     expect(controller.endDrag()).toBe(true);
-    expect(controller.bodySelectionHistoryState).toBe('idle');
     await Promise.resolve();
 
     expect(volumes.map((volume) => volume.instanceTransform.offset)).toEqual([

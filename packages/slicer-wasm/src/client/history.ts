@@ -53,8 +53,8 @@ export interface HistoryContext {
   readonly plateSession?: PlateSessionSnapshot;
 }
 
-/** Project entries are navigable; context entries accompany a project frame. */
-export type HistoryCategory = 'project' | 'context';
+/** Every retained history entry is a genuine project mutation. */
+export type HistoryCategory = 'project';
 export type HistoryEntryCategory = HistoryCategory;
 /** Alias matching the Worker API's `beginHistory(..., kind, ...)` wording. */
 export type HistoryKind = HistoryCategory;
@@ -274,8 +274,6 @@ export interface HistoryRuntimeMethods {
   jumpHistory: (entryId: HistoryEntryId, direction: HistoryJumpDirection) => Promise<RestoreResult>;
   /** Advance the saved checkpoint without releasing history frames. */
   markHistorySaved: (context?: HistoryContext) => Promise<HistoryStatus>;
-  /** Record a renderer-projected selection/plate context without a model edit. */
-  recordHistoryContext: (label: HistoryLabel, context: HistoryContext) => Promise<HistoryStatus>;
   /** Replace the project session with a clean, one-frame history baseline. */
   resetHistory: (context: HistoryContext) => Promise<HistoryStatus>;
 }

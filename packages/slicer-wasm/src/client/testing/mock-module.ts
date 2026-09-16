@@ -348,10 +348,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     projectConfigOverlay: MockOverlay;
     primeTowerProjection?: unknown;
   };
-  type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project' | 'context'; context: any };
+  type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project'; context: any };
   let historyEntries: MockHistoryEntry[] = [];
   let historyCursor = 0;
-  let historyTransaction: { id: string; label: string; category: 'project' | 'context'; before: MockHistoryState; beforeContext: any } | null = null;
+  let historyTransaction: { id: string; label: string; category: 'project'; before: MockHistoryState; beforeContext: any } | null = null;
   const historyNestedTransactions: Array<{ id: string; before: MockHistoryState; beforeContext: any }> = [];
   let nextHistoryTransactionId = 1;
   let nextHistoryEntryId = 1;
@@ -387,7 +387,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = false;
   }
   function historyStatus() {
-    const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
+    const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0';
     const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse()
       .filter(project).map(({ id, label, category }) => ({ id, label, category }));
     const redoEntries = historyEntries.slice(historyCursor + 1)
@@ -457,25 +457,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         : { version: 1, model: 'full', plateSession: true, filamentRack: true, projectOverlay: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
   }
-  function recordHistoryContext(label: string, context: any): void {
-    if (historyTransaction) throw new Error('history transaction is active');
-    if (historyEntries.length === 0) {
-      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
-      historyCursor = 0;
-      savedHistoryCursor = 0;
-    }
-    const previous = historyEntries[historyCursor];
-    if (JSON.stringify(previous.context) === JSON.stringify(context)) return;
-    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
-      savedHistoryCheckpointEvicted = true;
-    historyEntries.splice(historyCursor + 1);
-    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
-      label, category: 'context', context: clone(context) });
-    historyCursor = historyEntries.length - 1;
-    // Context-only history does not change the native project or filament
-    // session. Keep the command fence stable after selection/plate updates.
-  }
-
   function plateStride(): number {
     const area = presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area;
     const width = area && area.length > 1 ? Math.max(...area.map((point) => point[0])) - Math.min(...area.map((point) => point[0])) : 200;
@@ -1136,7 +1117,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_begin(label: string, category: string, beforeContextJson: string, optionsJson?: string) {
       if (historyDisabled) return { error: 'history is disabled' };
       if (typeof label !== 'string' || !label) return { error: 'history label is required' };
-      if (category !== 'project' && category !== 'context') return { error: 'history category must be project or context' };
+      if (category !== 'project') return { error: 'history category must be project' };
       let beforeContext: any;
       try { beforeContext = JSON.parse(beforeContextJson); validateHistoryContext(beforeContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
       let options: any = {};
@@ -1155,7 +1136,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         savedHistoryCursor = 0;
       }
       const id = `tx-${nextHistoryTransactionId++}`;
-      historyTransaction = { id, label, category: category as 'project' | 'context', before: captureHistoryState(), beforeContext: clone(beforeContext) };
+      historyTransaction = { id, label, category: 'project', before: captureHistoryState(), beforeContext: clone(beforeContext) };
       return { ok: true, transactionId: id, status: historyStatus() };
     },
     orc_history_commit(transactionId: string, afterContextJson: string) {
@@ -1180,6 +1161,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
       if (changed) {
+        if (previous) Object.assign(previous, clone(historyTransaction.before), {
+          context: clone(historyTransaction.beforeContext),
+        });
         if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
           savedHistoryCheckpointEvicted = true;
         historyEntries.splice(historyCursor + 1);
@@ -1281,13 +1265,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         savedHistoryCursor = historyCursor;
         savedHistoryCheckpointEvicted = false;
       }
-      return historyStatus();
-    },
-    orc_history_record_context(label: string, contextJson: string) {
-      if (!label) return { error: 'history label is required' };
-      let context: any;
-      try { context = JSON.parse(contextJson); validateHistoryContext(context); recordHistoryContext(label, context); }
-      catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
       return historyStatus();
     },
     orc_history_reset(contextJson: string) {
@@ -2226,7 +2203,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_jump: { ret: 'number', args: ['string', 'string'] },
     orc_history_status: { ret: 'number', args: [] },
     orc_history_mark_saved: { ret: 'number', args: ['string'] },
-    orc_history_record_context: { ret: 'number', args: ['string', 'string'] },
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },

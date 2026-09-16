@@ -564,11 +564,9 @@ assert.deepEqual(noMultiplierFixture.min_flush_volumes, flushFixture.min_flush_v
   'flush multiplier must not alter native minimum-volume inputs');
 markStage('fixed-nozzle-flush');
 
-// A renderer selection/context record is a history entry for navigation only;
-// it does not change the native model or filament session. Reproduce the UI
-// sequence against the real bridge: add slots, add Cube inside a project
-// transaction, record the ObjectList selection context, then assign Slot 2.
-// The assignment must use the pre-context filament revision successfully.
+// Renderer selection stays outside history and cannot advance the native model
+// or filament session revision. Add a Cube inside a project transaction, then
+// assign Slot 2 against the resulting authoritative filament revision.
 function contextForRevisionFence() {
   return {
     selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
@@ -590,11 +588,6 @@ const fenceCommit = callJson('orc_history_commit', ['string', 'string'],
 assert.equal(fenceCommit.revision, snapshot.revisions.session + 1, JSON.stringify(fenceCommit));
 const fenceBeforeContext = callJson('orc_get_filament_session_snapshot');
 assert.equal(fenceBeforeContext.assignments.objects.length, 1, JSON.stringify(fenceBeforeContext));
-const fenceRecord = callJson('orc_history_record_context', ['string', 'string'],
-  ['Selection', JSON.stringify({ ...contextForRevisionFence(), selection: {
-    mode: 'object', objectIds: [fenceBeforeContext.assignments.objects[0].id], partIds: [], instanceIds: [],
-  } })]);
-assert.equal(fenceRecord.revision, fenceBeforeContext.revisions.session, JSON.stringify(fenceRecord));
 const fenceAfterContext = callJson('orc_get_filament_session_snapshot');
 assert.equal(fenceAfterContext.revisions.session, fenceBeforeContext.revisions.session);
 const fenceAssignment = request('orc_assign_filament', {
@@ -602,7 +595,7 @@ const fenceAssignment = request('orc_assign_filament', {
   targets: [{ kind: 'object', id: fenceBeforeContext.assignments.objects[0].id }],
 });
 assert.equal(fenceAssignment.ok, true, JSON.stringify(fenceAssignment));
-markStage('context-revision-fence');
+markStage('history-revision-fence');
 console.log(JSON.stringify({ commandSmokeDurationMs: Math.round(performance.now() - startedAt), stageTimes,
   slotHistoryLatencies,
   filamentHistoryLatencyBudgetMs: FILAMENT_HISTORY_LATENCY_BUDGET_MS,
