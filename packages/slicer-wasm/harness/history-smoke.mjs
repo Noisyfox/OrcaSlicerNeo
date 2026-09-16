@@ -105,6 +105,8 @@ historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transfo
 const freshMoveCommit = callJson('orc_history_commit', ['string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify(context)]);
 if (!freshMoveCommit.canUndo) throw new Error(`fresh Cube move commit failed: ${JSON.stringify(freshMoveCommit)}`);
+const freshMoveId = freshMoveCommit.undoEntries?.[0]?.id;
+if (typeof freshMoveId !== 'string') throw new Error(`fresh Cube move ID missing: ${JSON.stringify(freshMoveCommit)}`);
 // Drain the mutation profile so this assertion isolates the ordinary full
 // model restore performed by the real Undo operation below.
 callJson('orc_take_performance_profile', [], []);
@@ -135,6 +137,25 @@ historyCheck('fresh-project move Undo keeps filament routing contract valid',
     ? route.id === 0 && route.object_id === 0
     : Number.isSafeInteger(route.id) && route.id > 0 && Number.isSafeInteger(route.object_id) && route.object_id > 0),
   JSON.stringify({ freshFilament, freshStructure, freshBeforeMoveStructure }));
+const freshCubeUndo = callJson('orc_history_undo', [], []);
+historyCheck('second Undo removes the fresh-project Cube', freshCubeUndo.ok === true &&
+  callJson('orc_get_model_structure', [], []).objects.length === 0, JSON.stringify(freshCubeUndo));
+const freshCubeRedo = callJson('orc_history_redo', [], []);
+historyCheck('first Redo fully restores the fresh-project Cube', freshCubeRedo.ok === true &&
+  callJson('orc_get_model_structure', [], []).objects.length === 1, JSON.stringify(freshCubeRedo));
+const freshMoveRedo = callJson('orc_history_redo', [], []);
+const freshMoveRedoMesh = callJson('orc_get_model_mesh', [], []);
+historyCheck('second Redo rebases and reapplies the Move receipt', freshMoveRedo.ok === true &&
+  freshMoveRedoMesh.objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0],
+  JSON.stringify({ freshMoveRedo, freshMoveRedoMesh }));
+const freshMoveJumpUndo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'undo']);
+historyCheck('adjacent Undo jump rebases the rematerialized Move target', freshMoveJumpUndo.ok === true &&
+  callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] ===
+    freshBody.instance_transform.offset[0], JSON.stringify(freshMoveJumpUndo));
+const freshMoveJumpRedo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'redo']);
+historyCheck('adjacent Redo jump reapplies the rematerialized Move target', freshMoveJumpRedo.ok === true &&
+  callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0],
+  JSON.stringify(freshMoveJumpRedo));
 historyCheck('reset fresh-project filament history fixture after regression',
   callJson('orc_clear_model', [], []).ok === true &&
   callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);

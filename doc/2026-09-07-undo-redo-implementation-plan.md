@@ -748,3 +748,16 @@ multi-entry jump, preserving the existing runtime-ID and rollback rules. Native
 history coverage fixes the empty-state distinction, the typed client covers the
 single-step contract, the real WASM harness covers the native bridge failure,
 and the visible Electron flow covers the user-facing sequence.
+
+## 17. 2026-09-16 correction — sparse Move after a full single-step restore
+
+Ordinary Undo, Redo, and adjacent directional jumps preserve the sparse Move
+fast path while its retained object, volume, and instance IDs still match the
+live model. A preceding full-model restore may rematerialize instances with new
+runtime IDs; before applying a model-less Transform receipt, the bridge now
+checks those identities and rebases only a stale receipt on its authoritative
+retained target model. This keeps normal adjacent Move navigation narrow while
+making Add Cube → Move → Undo twice → Redo twice deterministic. The native
+history fixture covers rebasing each single-step plan shape, the typed client
+covers the sequence, the serial/threaded real-WASM harness reproduces the
+runtime-ID boundary, and Electron exercises the visible controls.

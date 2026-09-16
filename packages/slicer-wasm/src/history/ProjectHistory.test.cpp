@@ -365,6 +365,36 @@ int main()
     CHECK(empty_plate_undo.state.model.mutable_objects.empty());
     CHECK(empty_plate_undo.state.model.immutable_meshes.empty());
 
+    // Ordinary button navigation and an adjacent directional jump may need
+    // the same archive rebase as a compound jump when a prior full restore
+    // rematerialized runtime instance IDs. The core must allow every sparse
+    // plan shape to acquire its authoritative target model before commit.
+    ProjectHistory single_sparse(1u << 20);
+    CHECK(single_sparse.commit("baseline", Category::Project, model(1), bytes(0x6b, 8)));
+    CHECK(single_sparse.commit_reusing_current_model("Move", Category::Project,
+                                                     bytes(0x6c, 8), transform_frame));
+    const auto single_sparse_entries = single_sparse.entries();
+    RestorePlan single_undo;
+    CHECK(single_sparse.prepare_undo(single_undo));
+    CHECK(!single_undo.model_state_present);
+    CHECK(single_sparse.rebase_sparse_restore(single_undo));
+    CHECK(single_undo.model_state_present);
+    CHECK(single_undo.state.model.serialized == bytes(1));
+    CHECK(single_sparse.commit_restore(single_undo));
+    RestorePlan single_redo;
+    CHECK(single_sparse.prepare_redo(single_redo));
+    CHECK(!single_redo.model_state_present);
+    CHECK(single_sparse.rebase_sparse_restore(single_redo));
+    CHECK(single_redo.model_state_present);
+    CHECK(single_redo.state.model.serialized == bytes(1));
+    CHECK(single_sparse.commit_restore(single_redo));
+    RestorePlan single_jump;
+    CHECK(single_sparse.prepare_jump(single_sparse_entries[1].id, JumpDirection::Undo, single_jump));
+    CHECK(!single_jump.model_state_present);
+    CHECK(single_sparse.rebase_sparse_restore(single_jump));
+    CHECK(single_jump.model_state_present);
+    CHECK(single_jump.state.model.serialized == bytes(1));
+
     ProjectHistory sparse_path(1u << 20);
     CHECK(sparse_path.commit("baseline", Category::Project, model(1), bytes(0x70, 8)));
     CHECK(sparse_path.commit_reusing_current_model("Move", Category::Project,

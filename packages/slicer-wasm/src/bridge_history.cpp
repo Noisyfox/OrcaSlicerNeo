@@ -598,6 +598,43 @@ static bool transform_geometry_changed(const Slic3r::Geometry::Transformation& b
     return before_matrix(2, 3) != after_matrix(2, 3);
 }
 
+bool sparse_restore(const Neo::History::RestorePlan& plan)
+{
+    if (!plan.direct_frame_transition || !plan.state.direct_frame) return false;
+    const auto kind = plan.state.direct_frame->kind;
+    return kind == Neo::History::RestoreState::DirectFrame::Kind::AddPlate ||
+        kind == Neo::History::RestoreState::DirectFrame::Kind::Transform;
+}
+
+bool transform_restore_targets_live_model(const Neo::History::RestorePlan& plan)
+{
+    if (plan.model_state_present || !plan.state.direct_frame ||
+        plan.state.direct_frame->kind != Neo::History::RestoreState::DirectFrame::Kind::Transform ||
+        !plan.state.direct_frame->payload)
+        return true;
+    const auto frame =
+        std::static_pointer_cast<const TransformHistoryFrame>(plan.state.direct_frame->payload);
+    if (!frame) return true;
+    for (const auto& record : frame->records) {
+        const auto object = std::find_if(state().model.objects.begin(), state().model.objects.end(),
+            [&record](const ModelObject* candidate) { return candidate->id().id == record.object_id; });
+        if (object == state().model.objects.end()) return false;
+        const auto volume = std::find_if((*object)->volumes.begin(), (*object)->volumes.end(),
+            [&record](const ModelVolume* candidate) { return candidate->id().id == record.volume_id; });
+        const auto instance = std::find_if((*object)->instances.begin(), (*object)->instances.end(),
+            [&record](const ModelInstance* candidate) { return candidate->id().id == record.instance_id; });
+        if (volume == (*object)->volumes.end() || instance == (*object)->instances.end()) return false;
+    }
+    return true;
+}
+
+void rebase_stale_sparse_restore(Neo::History::RestorePlan& plan)
+{
+    if (!sparse_restore(plan) || transform_restore_targets_live_model(plan)) return;
+    if (!state().history.rebase_sparse_restore(plan))
+        throw std::runtime_error("sparse history restore became stale");
+}
+
 json restore_transform_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan,
                              const TransformHistoryFrame& frame, const json& context)
 {
@@ -2079,6 +2116,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_undo()
         if (state().active_history_transaction) return error_json("history transaction is active");
         Neo::History::RestorePlan plan;
         if (!state().history.prepare_undo(plan)) return error_json("no undo history");
+        rebase_stale_sparse_restore(plan);
         std::optional<std::string> serialized_full_response;
         const json result = restore_result(runtime, plan, &serialized_full_response);
         return duplicate_json(serialized_full_response ? *serialized_full_response : result.dump());
@@ -2094,6 +2132,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_redo()
         if (state().active_history_transaction) return error_json("history transaction is active");
         Neo::History::RestorePlan plan;
         if (!state().history.prepare_redo(plan)) return error_json("no redo history");
+        rebase_stale_sparse_restore(plan);
         std::optional<std::string> serialized_full_response;
         const json result = restore_result(runtime, plan, &serialized_full_response);
         return duplicate_json(serialized_full_response ? *serialized_full_response : result.dump());
@@ -2113,6 +2152,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
         if (!parse_history_jump_direction(direction_cstr, direction)) return error_json("invalid history jump direction");
         Neo::History::RestorePlan plan;
         if (state().history.prepare_jump(entry_id, direction, plan)) {
+            rebase_stale_sparse_restore(plan);
             std::optional<std::string> serialized_full_response;
             const json result = restore_result(runtime, plan, &serialized_full_response);
             return duplicate_json(serialized_full_response ? *serialized_full_response : result.dump());
@@ -2149,12 +2189,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
         const auto original_registry_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const auto original_prime_tower_cache = state().prime_tower_projection_cache;
         const std::uint64_t original_minimal_restore_count = state().history_minimal_mutable_restore_count;
-        const auto sparse_restore = [](const Neo::History::RestorePlan& candidate) {
-            if (!candidate.direct_frame_transition || !candidate.state.direct_frame) return false;
-            const auto kind = candidate.state.direct_frame->kind;
-            return kind == Neo::History::RestoreState::DirectFrame::Kind::AddPlate ||
-                kind == Neo::History::RestoreState::DirectFrame::Kind::Transform;
-        };
         json result;
         std::size_t completed = 0;
         bool runtime_ids_stable = true;
@@ -2165,6 +2199,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
                     ? state().history.prepare_undo(step) : state().history.prepare_redo(step);
                 if (!prepared || step.target_cursor != target_cursor)
                     throw std::runtime_error("multi-step history jump became stale");
+                if (runtime_ids_stable) rebase_stale_sparse_restore(step);
                 if (!runtime_ids_stable && sparse_restore(step) &&
                     !state().history.rebase_sparse_restore(step))
                     throw std::runtime_error("multi-step sparse history restore became stale");

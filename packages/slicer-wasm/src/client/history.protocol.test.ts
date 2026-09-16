@@ -134,6 +134,33 @@ describe('Worker-owned project history protocol', () => {
     expect((await client.getModelStructure()).objects).toHaveLength(1);
   });
 
+  it('redoes a Move after Add Cube was fully restored', async () => {
+    const client = createClient(async () => createMockModule());
+    const editingContext = context('plate-session-1-plate-1');
+    await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    const move = await client.beginHistory('Move', 'project', editingContext);
+    const moved = {
+      offset: [25, 0, 0] as [number, number, number],
+      rotation: [0, 0, 0] as [number, number, number],
+      scale: [1, 1, 1] as [number, number, number],
+      mirror: [1, 1, 1] as [number, number, number],
+    };
+    const identity = { ...moved, offset: [0, 0, 0] as [number, number, number] };
+    expect((await client.setModelTransforms(move, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
+    ])).ok).toBe(true);
+    await client.commitHistory(move, editingContext);
+
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset[0]).toBe(25);
+  });
+
   it('does not create a no-op entry and abort restores the model', async () => {
     const client = createClient(async () => createMockModule());
     const before = context();

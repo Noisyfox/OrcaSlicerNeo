@@ -633,6 +633,55 @@ test('undoes the first Cube added after an empty-scene Add Plate', async () => {
   }
 });
 
+test('redoes a moved Cube after undoing both Move and Add Cube', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const objectRows = page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+
+    await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+    await expect(page.getByTestId('ctx-menu')).toBeVisible();
+    await page.getByTestId('btn-add-primitive').click();
+    await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
+    await page.getByTestId('btn-add-cube').click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+
+    await objectRows.first().click();
+    await page.getByTestId('gizmo-btn-move').click();
+    const beforeMoveX = await page.getByTestId('move-x').inputValue();
+    const movedX = (Number(beforeMoveX) + 15).toFixed(3);
+    await page.getByTestId('move-x').fill(movedX);
+    await page.getByTestId('move-x').press('Enter');
+    await expect(page.getByTestId('move-x')).toHaveValue(movedX);
+    const undo = page.getByTestId('history-undo');
+    const redo = page.getByTestId('history-redo');
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
+
+    await undo.click();
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    await expect(page.getByTestId('move-x')).toHaveValue(beforeMoveX);
+    await undo.click();
+    await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
+
+    await redo.click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    await redo.click();
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+    await objectRows.first().click();
+    await page.getByTestId('gizmo-btn-move').click();
+    await expect(page.getByTestId('move-x')).toHaveValue(movedX);
+  } finally {
+    await app.close();
+  }
+});
+
 test('preview overlay: legend, layer range, move end, marker, and theme tokens', async () => {
   const { app } = await launchApp();
   try {
