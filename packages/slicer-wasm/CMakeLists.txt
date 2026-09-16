@@ -349,6 +349,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_performance.cpp"
@@ -394,6 +395,16 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_compile_options(project_history_core_test PRIVATE -fexceptions)
   target_link_options(project_history_core_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
     -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  set_target_properties(project_history_core_test PROPERTIES SUFFIX ".cjs")
+
+  add_executable(timestamped_history_core_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.test.cpp")
+  target_compile_definitions(timestamped_history_core_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(timestamped_history_core_test PRIVATE -fexceptions)
+  target_link_options(timestamped_history_core_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  set_target_properties(timestamped_history_core_test PROPERTIES SUFFIX ".cjs")
 
   add_executable(history_mesh_capture_test
     ${ORCA_BRIDGE_SRC}
@@ -403,6 +414,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_link_options(history_mesh_capture_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
     -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(history_mesh_capture_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+  set_target_properties(history_mesh_capture_test PROPERTIES SUFFIX ".cjs")
 
   add_executable(history_instance_identity_test
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"

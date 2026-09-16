@@ -849,3 +849,32 @@ one restore rather than traversing sparse adjacent receipts.
 - This stage does not begin the timestamped history-core migration. The pinned
   C++ submodule remains untouched with its pre-existing dirty state, and root
   acceptance is intentionally not recorded here.
+
+### Stage 3 execution record — timestamped object-version core
+
+- Added the independent Neo-owned `TimestampedHistory` core without changing
+  bridge RPC, restore coordination, or UI behavior. Named entries retain
+  explicit before/after logical timestamps; an outer operation captures its
+  predecessor, the committed topmost state stays uncaptured until Undo needs
+  its Redo endpoint, and a new branch discards its former future.
+- Snapshot manifests retain stable ordered object IDs while shared object
+  archives carry native object timestamps and half-open lifetime intervals.
+  Unchanged mutable objects, root byte payloads, and immutable meshes reuse
+  their retained allocations; no command receipt, sparse rebase, or legacy
+  compatibility path exists in the new core.
+- One restore returns the model, plate-session/history context, and
+  project-only configuration root together. Save marks only the active logical
+  timestamp. Budget pressure releases reconstructable immutable data first,
+  then oldest unprotected timestamps, while retaining the current and nearest
+  usable navigation state and conservatively invalidating an evicted saved
+  checkpoint.
+- The deterministic native fixture covers multi-object add/move/delete and a
+  non-adjacent direct restore, archive sharing, atomic three-root restore, lazy
+  topmost capture, allocation-free Save, branch truncation, and budget/checkpoint
+  behavior. The new target and the existing ProjectHistory, mesh-capture, and
+  identity targets pass as actual serial and threaded wasm64 executables. Both
+  production variants build, both existing bridge-history smokes pass, and all
+  158 `@orca/slicer-wasm` tests plus its typecheck pass.
+- The legacy bridge remains on `ProjectHistory`; migration is intentionally
+  deferred. The pinned C++ submodule remains untouched with its pre-existing
+  dirty state, and root acceptance is intentionally not recorded here.
