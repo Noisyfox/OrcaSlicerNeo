@@ -158,13 +158,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     presetEvidence: [],
     ...opts.embeddedPresetWarnings,
   };
-  // A project preflight describes whether replacing the current session needs
-  // user confirmation.  The default mock project is a plain synthetic archive
-  // and has no embedded safety warning; warning-focused tests opt in through
-  // embeddedPresetWarnings.  Keeping this derived value separate from the
-  // direct-load fixture prevents the app E2E project picker from being
-  // blocked by a warning that the fixture does not contain.
-  const hasProjectPreflightWarning = Boolean(
+  // The default mock project is a plain synthetic archive and has no embedded
+  // safety warning; warning-focused tests opt in through this fixture.
+  const hasProjectWarning = Boolean(
     projectWarningFixture.modifiedPrinterGcode ||
     projectWarningFixture.modifiedFilamentGcode ||
     projectWarningFixture.missingSystemPreset ||
@@ -1484,22 +1480,31 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // runtime plate session or change its current identity.
       return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), plate_session: plateMutation('model-import') };
     },
-    orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string) {
+    orc_close_project() {
+      objectTransforms = [];
+      objectVolumeTransforms = [];
+      objectPlateIds = [];
+      objectMeta = [];
+      volumeMeta = [];
+      instanceMeta = [];
+      projectConfigOverlay = emptyOverlay();
+      modelLoaded = false;
+      sliced = false;
+      resetPlateSession();
+      return { ok: true, plate_session: plateSessionSnapshot(true) };
+    },
+    orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string, closeBeforeLoad = true) {
+      if (!geometryOnly && closeBeforeLoad) bridge.orc_close_project();
       if (len <= 0) return { error: 'no project bytes' };
       publishProgress(0, geometryOnly ? 'Preparing geometry import' : 'Preparing project load');
       publishProgress(10, 'Reading project metadata');
       if (!geometryOnly) {
-        objectTransforms = [];
-        objectVolumeTransforms = [];
-        objectMeta = [];
-        volumeMeta = [];
-        instanceMeta = [];
         projectConfigOverlay = emptyOverlay();
         projectConfigOverlay = clone(exportedProjectConfigOverlay);
       }
       appendMockObject(displayName || undefined);
       publishProgress(55, geometryOnly ? 'Preparing imported geometry' : 'Reading project settings');
-      resetPlateSession();
+      if (!geometryOnly) resetPlateSession();
       publishProgress(75, geometryOnly ? 'Finalizing geometry import' : 'Applying project settings');
       publishProgress(90, 'Finalizing project');
       publishProgress(100, geometryOnly ? 'Geometry import complete' : 'Project load complete');
@@ -1511,68 +1516,26 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         project_settings_available: !geometryOnly, is_bbl_3mf: true, is_orca_3mf: false,
         file_version: '1.0.0', multi_plate: false, plate_count: 1,
         embedded_preset_warnings: {
-          present: !geometryOnly, count: geometryOnly ? 0 : 1,
-          printer_count: geometryOnly ? 0 : 1, process_count: geometryOnly ? 0 : 1,
-          filament_count: geometryOnly ? 0 : 1,
+          present: !geometryOnly && hasProjectWarning, count: !geometryOnly && hasProjectWarning ? 1 : 0,
+          printer_count: !geometryOnly && hasProjectWarning ? 1 : 0,
+          process_count: !geometryOnly && hasProjectWarning ? 1 : 0,
+          filament_count: !geometryOnly && hasProjectWarning ? 1 : 0,
           modified_printer_gcode: projectWarningFixture.modifiedPrinterGcode,
           modified_filament_gcode: projectWarningFixture.modifiedFilamentGcode,
           missing_system_preset: projectWarningFixture.missingSystemPreset,
           modified_gcode_keys: projectWarningFixture.modifiedGcodeKeys,
           missing_system_preset_types: projectWarningFixture.missingSystemPresetTypes,
           preset_evidence: projectWarningFixture.presetEvidence,
-          requires_confirmation: !geometryOnly,
+          requires_confirmation: !geometryOnly && hasProjectWarning,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
         project_config_overlay: geometryOnly ? undefined : overlayProjection(),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
-    orc_preflight_project(_ptr: number, len: number, displayName: string) {
-      if (len <= 0) return { error: 'no project bytes' };
-      return {
-        ok: true, preflight: true, preflight_token: 'mock-preflight', objects: objectTransforms.length,
-        instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), mode: 'project',
-        display_name: displayName || '', compatibility: 'bambu', project_settings_available: true,
-        is_bbl_3mf: true, is_orca_3mf: false, file_version: '1.0.0', multi_plate: false, plate_count: 1,
-        embedded_preset_warnings: { present: hasProjectPreflightWarning, count: hasProjectPreflightWarning ? 1 : 0,
-          printer_count: hasProjectPreflightWarning ? 1 : 0, process_count: hasProjectPreflightWarning ? 1 : 0,
-          filament_count: hasProjectPreflightWarning ? 1 : 0,
-          modified_printer_gcode: projectWarningFixture.modifiedPrinterGcode,
-          modified_filament_gcode: projectWarningFixture.modifiedFilamentGcode,
-          missing_system_preset: projectWarningFixture.missingSystemPreset,
-          modified_gcode_keys: projectWarningFixture.modifiedGcodeKeys,
-          missing_system_preset_types: projectWarningFixture.missingSystemPresetTypes,
-          preset_evidence: projectWarningFixture.presetEvidence,
-          requires_confirmation: hasProjectPreflightWarning,
-          filament_slot_changes: [] },
-      };
+    orc_load_project_after_close(_ptr: number, len: number, displayName: string) {
+      return bridge.orc_load_project(_ptr, len, 0, displayName, false);
     },
-    orc_commit_project_preflight(_token: string) {
-      const committed = bridge.orc_load_project(0, 2, 0, 'preflight.3mf') as Record<string, unknown>;
-      // Keep the commit response consistent with the preflight response. The
-      // synthetic default project has no embedded warning; otherwise the
-      // shared app would finish a clean preflight by creating a second,
-      // spurious post-load notice.
-      if (!hasProjectPreflightWarning) {
-        committed.embedded_preset_warnings = {
-          present: false,
-          count: 0,
-          printer_count: 0,
-          process_count: 0,
-          filament_count: 0,
-          modified_printer_gcode: false,
-          modified_filament_gcode: false,
-          missing_system_preset: false,
-          modified_gcode_keys: [],
-          missing_system_preset_types: [],
-          preset_evidence: [],
-          requires_confirmation: false,
-          filament_slot_changes: [],
-        };
-      }
-      return committed;
-    },
-    orc_cancel_project_preflight(_token: string) { return { ok: true }; },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
       return bridge.orc_load_project(_ptr, len, 1, displayName);
     },
@@ -2205,9 +2168,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string', 'string'] },
     orc_load_project: { ret: 'number', args: ['pointer', 'number', 'number', 'string'] },
-    orc_preflight_project: { ret: 'number', args: ['pointer', 'number', 'string'] },
-    orc_commit_project_preflight: { ret: 'number', args: ['string'] },
-    orc_cancel_project_preflight: { ret: 'number', args: ['string'] },
+    orc_close_project: { ret: 'number', args: [] },
+    orc_load_project_after_close: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_import_project_geometry: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },

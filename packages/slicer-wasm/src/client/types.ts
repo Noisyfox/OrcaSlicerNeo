@@ -378,6 +378,13 @@ export interface ClearModelResult {
 export type ProjectLoadMode = 'project' | 'geometry-only';
 
 export type ProjectProgressCallback = (percent: number, text: string) => void;
+export type ProjectClosedCallback = (plateSession: PlateSessionMutation) => void;
+
+export interface ProjectCloseResult {
+  ok: boolean;
+  error?: string;
+  plateSession?: PlateSessionMutation;
+}
 
 export interface EmbeddedPresetEvidence {
   type: 'printer' | 'filament';
@@ -397,7 +404,6 @@ export interface FilamentSlotChange {
 /** Result metadata from the native BBS 3MF reader. */
 export interface ProjectLoadResult {
   ok: boolean;
-  preflightToken?: string;
   objects: number;
   instances: number;
   mode?: ProjectLoadMode;
@@ -1121,14 +1127,10 @@ export interface SlicerClient {
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
+  /** Close the current project/session and construct one fresh empty session. */
+  closeProject(): Promise<ProjectCloseResult>;
   /** Load a BBS 3MF as a project (replace) or geometry-only append. */
-  loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
-  /** Parse and stage a project without changing the live Worker session. */
-  preflightProject(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
-  /** Commit a previously accepted project preflight. */
-  commitProjectPreflight(token: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
-  /** Discard a staged project preflight without changing the live session. */
-  cancelProjectPreflight(token: string): Promise<{ ok: boolean; error?: string }>;
+  loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback, onProjectClosed?: ProjectClosedCallback): Promise<ProjectLoadResult>;
   /** Explicit geometry-only alias used by Add Model/project fallback callers. */
   importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
   /** Add an OrcaSlicer primitive to the current scene, exactly like its

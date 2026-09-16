@@ -85,6 +85,49 @@ json project_history_context()
     return default_history_context(state(), plate_session_snapshot_json(), history_state_json(state().presets));
 }
 
+void establish_clean_history_baseline()
+{
+    state().history.clear();
+    state().mesh_capture_cache.clear();
+    state().mutable_object_capture_cache.clear();
+    state().active_history_transaction.reset();
+    state().nested_history_transactions.clear();
+    state().history_disabled = false;
+    const std::string context_text = project_history_context().dump();
+    const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+    if (!HistoryMetadata::commit_history_entry(state(), [&]() {
+        return state().history.commit("", Neo::History::Category::Project,
+            Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache,
+                                                      state().mutable_object_capture_cache),
+            context_bytes);
+    }))
+        throw Slic3r::RuntimeError("could not establish project history baseline");
+    state().history.mark_current_as_saved();
+}
+
+json close_project_session()
+{
+    auto& bridge_state = state();
+
+    // Release every runtime-only result owner before constructing the fresh
+    // empty session. The project-load replacement boundary intentionally does
+    // not keep the old registry alive while the new archive is parsed.
+    bridge_state.plate_runtime_registry.clear();
+    bridge_state.print.clear();
+    if (!bridge_state.preview_gcode_path.empty())
+        std::remove(bridge_state.preview_gcode_path.c_str());
+    invalidate_preview_source();
+
+    bridge_state.model = Model{};
+    bridge_state.project_config_overlay = empty_project_config_overlay();
+    bridge_state.pending_membership_instance_ids.clear();
+    bridge_state.presets.reset_project_embedded_presets();
+    reset_plate_session_state();
+    establish_clean_history_baseline();
+
+    return json{{"ok", true}, {"plate_session", plate_session_snapshot_json()}};
+}
+
 std::vector<std::string> requested_filament_slots_from_import(
     const DynamicPrintConfig& config, const std::vector<std::string>& fallback)
 {
@@ -568,14 +611,14 @@ ProjectPresetWarningDetails inspect_project_preset_warnings(
 extern "C" {
 
 // Load a BBS 3MF into either a replacement project or an appended,
-// geometry-only import.  Parsing and all candidate preset work happen against
-// temporary objects first.  The live model/preset bundle is touched only
-// after every required step succeeds, so malformed archives and future
-// cancellation paths cannot leave a half-loaded session behind.
+// geometry-only import. A replacement closes the old session before parsing;
+// parsing and all candidate preset work then happen against temporary objects.
+// Publication stays atomic within the new session, so failures leave the fresh
+// empty baseline rather than a half-loaded candidate or a revived old project.
 static const char* orc_load_project_impl(const char* data, int len,
                                           int geometry_only,
                                           const char* display_name,
-                                          bool commit) {
+                                          bool close_before_load) {
     const std::string path = next_project_temp_path(".3mf");
     std::string load_path = path;
     const std::string project_name = display_name && *display_name ? display_name : load_path;
@@ -590,6 +633,8 @@ static const char* orc_load_project_impl(const char* data, int len,
         if (load_path != path) remove_project_temp_path(load_path);
     };
     try {
+        if (!geometry_only && close_before_load)
+            close_project_session();
         if (!data || len <= 0) {
             cleanup_paths();
             return project_error_json("no project bytes");
@@ -832,66 +877,11 @@ static const char* orc_load_project_impl(const char* data, int len,
         // Complete candidate validation is still inside the staging phase.
         // In particular, a project carrying an explicit extruder or mapping
         // beyond the compatible rack must be rejected before replacing the
-        // live model, PresetBundle, or history baseline.
+        // fresh empty model, PresetBundle, or history baseline.
         if (!geometry_only)
             validate_filament_candidate(candidate, imported, staged_plates,
                                         staged_overlay,
                                         false, filament_state_metadata.has_value());
-
-        if (!geometry_only && !commit) {
-            json warning_metadata{
-                {"present", !project_presets.empty()},
-                {"count", project_presets.size()},
-                {"printer_count", printer_preset_count},
-                {"process_count", process_preset_count},
-                {"filament_count", filament_preset_count},
-                {"modified_printer_gcode", warning_details.modified_printer_gcode},
-                {"modified_filament_gcode", warning_details.modified_filament_gcode},
-                {"missing_system_preset", warning_details.missing_system_preset},
-                {"modified_gcode_keys", warning_details.modified_gcode_keys},
-                {"missing_system_preset_types", std::move(warning_details.missing_system_preset_types)},
-                {"preset_evidence", std::move(warning_details.preset_evidence)},
-                {"requires_confirmation", !project_presets.empty()},
-            };
-            json slot_changes = json::array();
-            const auto& after_slots = candidate.filament_presets;
-            const std::size_t max_slots = std::max(requested_filament_slots.size(), after_slots.size());
-            for (std::size_t index = 0; index < max_slots; ++index) {
-                const std::string before = index < requested_filament_slots.size() ? requested_filament_slots[index] : std::string{};
-                const std::string after = index < after_slots.size() ? after_slots[index] : std::string{};
-                if (before != after)
-                    slot_changes.push_back({{"slot", index + 1}, {"before", before}, {"after", after},
-                                            {"reason", "native-compatibility"}});
-            }
-            warning_metadata["filament_slot_changes"] = std::move(slot_changes);
-            warning_metadata["requires_confirmation"] =
-                warning_metadata["requires_confirmation"].get<bool>() ||
-                !warning_metadata["filament_slot_changes"].empty();
-            const std::string token = std::string("project-preflight-") + std::to_string(++state().next_history_transaction_id);
-            state().pending_project_restore = BridgeState::PendingProjectRestore{
-                token, std::vector<unsigned char>(reinterpret_cast<const unsigned char*>(data),
-                                                  reinterpret_cast<const unsigned char*>(data) + len), project_name,
-                state().history_revision, state().history.cursor(),
-                history_state_json(state().presets).dump(),
-                model_structure_json().dump(), state().project_config_overlay.dump()};
-            json out{
-                {"ok", true}, {"preflight", true}, {"preflight_token", token},
-                {"objects", imported.objects.size()}, {"instances", model_instance_count(imported)},
-                {"mode", "project"}, {"display_name", display_name ? display_name : ""},
-                {"compatibility", is_orca_3mf ? "orca" : (is_bbl_3mf ? "bambu" : "generic")},
-                {"project_settings_available", is_bbl_3mf || is_orca_3mf},
-                {"is_bbl_3mf", is_bbl_3mf}, {"is_orca_3mf", is_orca_3mf},
-                {"file_version", file_version.to_string()}, {"multi_plate", plate_data.size() > 1},
-                {"plate_count", plate_data.size()}, {"embedded_preset_warnings", std::move(warning_metadata)},
-                {"project_config_overlay", overlay_metadata.value_or(empty_project_config_overlay())},
-            };
-            finish_progress("Project preflight complete");
-            progress_scope.completed = true;
-            release_PlateData_list(plate_data);
-            release_presets();
-            cleanup_paths();
-            return duplicate_json(out.dump());
-        }
 
         if (geometry_only) {
             for (const ModelObject* object : imported.objects) {
@@ -903,10 +893,10 @@ static const char* orc_load_project_impl(const char* data, int len,
                 }
             }
         } else {
-            // Publication is guarded by a complete move-based rollback.  The
-            // staged model/presets/history are all replaceable values; plate
-            // identity and revision maps are captured alongside them so a
-            // late failure cannot leave a hybrid project session.
+            // Publication is guarded by a complete move-based rollback to the
+            // already-closed empty session. A late failure may not leave a
+            // partially published new project, but it never revives the old
+            // project that was released before parsing began.
             struct ProjectCommitRollback {
                 Model model;
                 PresetBundle presets;
@@ -973,21 +963,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 // history baseline only after that normalization so no dirty
                 // entry is created. A later explicit save persists it.
                 Neo::Bridge::PrimeTower::normalize_coordinate_positions();
-                state().history.clear();
-                state().mesh_capture_cache.clear();
-                state().mutable_object_capture_cache.clear();
-                state().active_history_transaction.reset();
-                state().nested_history_transactions.clear();
-                state().history_disabled = false;
-                const json context = project_history_context();
-                const std::string context_text = context.dump();
-                const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
-                if (!HistoryMetadata::commit_history_entry(state(), [&]() {
-                    return state().history.commit("", Neo::History::Category::Project,
-                        Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache, state().mutable_object_capture_cache), context_bytes);
-                }))
-                    throw Slic3r::RuntimeError("could not establish project history baseline");
-                state().history.mark_current_as_saved();
+                establish_clean_history_baseline();
                 if (state().inject_project_commit_failure) {
                     state().inject_project_commit_failure = false;
                     throw Slic3r::RuntimeError("injected project commit failure after publication");
@@ -1114,54 +1090,29 @@ static const char* orc_load_project_impl(const char* data, int len,
 EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
                                                    int geometry_only,
                                                    const char* display_name) {
-    return orc_load_project_impl(data, len, geometry_only, display_name, true);
+    return orc_load_project_impl(data, len, geometry_only, display_name, !geometry_only);
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_preflight_project(const char* data, int len,
-                                                        const char* display_name) {
-    return orc_load_project_impl(data, len, 0, display_name, false);
-}
-
-EMSCRIPTEN_KEEPALIVE const char* orc_commit_project_preflight(const char* token) {
+EMSCRIPTEN_KEEPALIVE const char* orc_close_project() {
     try {
-        if (!token || !state().pending_project_restore || state().pending_project_restore->token != token)
-            return project_error_json("project preflight is missing or stale");
-        const auto pending = *state().pending_project_restore;
-        if (pending.base_history_revision != state().history_revision ||
-            pending.base_history_cursor != state().history.cursor() ||
-            pending.base_filament_state != history_state_json(state().presets).dump() ||
-            pending.base_model_state != model_structure_json().dump() ||
-            pending.base_overlay != state().project_config_overlay.dump()) {
-            state().pending_project_restore.reset();
-            return project_error_json("project preflight is stale; the live project changed");
-        }
-        const char* result = orc_load_project_impl(
-            reinterpret_cast<const char*>(pending.bytes.data()), static_cast<int>(pending.bytes.size()),
-            0, pending.display_name.c_str(), true);
-        // A failed commit is terminal for this token.  Never allow a caller
-        // to retry a partially executed or otherwise obsolete plan.
-        state().pending_project_restore.reset();
-        return result;
+        return duplicate_json(close_project_session().dump());
     } catch (const std::exception& e) {
-        state().pending_project_restore.reset();
         return project_error_json(e.what());
     } catch (...) {
-        state().pending_project_restore.reset();
         return project_error_json("unknown C++ exception");
     }
 }
 
-// Harness-only fault injection for proving post-publication project rollback.
+EMSCRIPTEN_KEEPALIVE const char* orc_load_project_after_close(const char* data, int len,
+                                                               const char* display_name) {
+    return orc_load_project_impl(data, len, 0, display_name, false);
+}
+
+// Harness-only fault injection for proving post-publication rollback to the
+// already-closed empty project session.
 // It is one-shot and has no application/client surface.
 EMSCRIPTEN_KEEPALIVE const char* orc_test_inject_project_commit_failure() {
     state().inject_project_commit_failure = true;
-    return duplicate_json(json{{"ok", true}}.dump());
-}
-
-EMSCRIPTEN_KEEPALIVE const char* orc_cancel_project_preflight(const char* token) {
-    if (!token || !state().pending_project_restore || state().pending_project_restore->token != token)
-        return project_error_json("project preflight is missing or stale");
-    state().pending_project_restore.reset();
     return duplicate_json(json{{"ok", true}}.dump());
 }
 

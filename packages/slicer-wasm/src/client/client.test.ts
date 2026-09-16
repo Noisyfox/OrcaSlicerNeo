@@ -1620,12 +1620,16 @@ describe('SlicerClient bridge contract', () => {
   it('loads BBS projects with typed compatibility and warning metadata', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
-    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf');
+    const closed: string[] = [];
+    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf', undefined,
+      (plateSession) => closed.push(plateSession.currentPlateId));
     expect(r).toMatchObject({
       ok: true, mode: 'project', compatibility: 'bambu',
       projectSettingsAvailable: true, multiPlate: false, plateCount: 1,
     });
-    expect(r.embeddedPresetWarnings?.requiresConfirmation).toBe(true);
+    expect(r.embeddedPresetWarnings?.requiresConfirmation).toBe(false);
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).not.toBe(r.plateSession?.currentPlateId);
   });
 
   it('preserves independent embedded preset warning evidence', async () => {

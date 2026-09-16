@@ -115,13 +115,16 @@ describe('worker protocol', () => {
     expect(transfer).toBeDefined();
   });
 
-  it('preserves the client receiver for composed project preflight operations', async () => {
+  it('delivers project-closed before replacement load progress', async () => {
     const { workerClient } = setup();
     await workerClient.init();
-    const preflight = await workerClient.preflightProject(new Uint8Array([0x50, 0x4b]), 'clean.3mf');
-    expect(preflight.ok).toBe(true);
-    expect(preflight.preflightToken).toBe('mock-preflight');
-    expect(preflight.embeddedPresetWarnings?.requiresConfirmation).toBe(false);
+    const events: string[] = [];
+    const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'clean.3mf',
+      (percent) => events.push(`progress:${percent}`),
+      (plateSession) => events.push(`closed:${plateSession.currentPlateId}`));
+    expect(loaded.ok).toBe(true);
+    expect(events[0]).toMatch(/^closed:/);
+    expect(events).toContain('progress:0');
   });
 
   it('forwards geometry-only project load progress through the threaded mailbox', async () => {

@@ -19,7 +19,7 @@ type ProjectLoadEvidence = {
   receipt: {
     sourceDisplayName: string;
     sourceByteLength: number;
-    commitRoute: 'load-project' | 'preflight-commit';
+    commitRoute: 'load-project';
     nativeResult: {
       ok: boolean;
       mode?: string;
@@ -66,7 +66,7 @@ test('commits the requested multi-plate project before dependent E2E assertions'
       receipt: {
         sourceDisplayName: PROJECT_FILE_NAME,
         sourceByteLength: statSync(PROJECT_PATH).size,
-        commitRoute: 'preflight-commit',
+        commitRoute: 'load-project',
         nativeResult: {
           ok: true,
           mode: 'project',

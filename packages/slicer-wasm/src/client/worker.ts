@@ -10,7 +10,7 @@
 //   worker → main: {type:'response', id, ok, result}
 //   worker → main: {type:'progress', percent, text}   (no id)
 // ----------------------------------------------------------------
-import type { SlicerClient, OrcaModuleFactory, ProgressMailbox } from './types';
+import type { SlicerClient, OrcaModuleFactory, ProgressMailbox, PlateSessionMutation, ProjectClosedCallback } from './types';
 import type {
   HistoryDiagnosticLayer,
   HistoryReadDiagnosticLayer,
@@ -24,6 +24,7 @@ export type WorkerMessage =
   | { type: 'request'; id: number; op: string; args: unknown[] }
   | { type: 'response'; id: number; ok: boolean; result: unknown; error?: string }
   | { type: 'history-diagnostic'; diagnostic: HistoryWorkerDiagnostic }
+  | { type: 'project-closed'; plateSession: PlateSessionMutation }
   | { type: 'progress'; percent: number; text: string }
   | { type: 'progress-mailbox'; mailbox: ProgressMailbox };
 
@@ -145,7 +146,9 @@ export function startWorker(
     post({ type: 'progress', percent: pct, text });
   }, (mailbox) => {
     post({ type: 'progress-mailbox', mailbox });
-  }, beforeInit);
+  }, beforeInit, (plateSession) => {
+    post({ type: 'project-closed', plateSession });
+  });
 
   // The default remains one writer.  A coalesced child may be nested under
   // the active writer and is popped only after its commit/abort.
@@ -195,11 +198,9 @@ export function startWorker(
           throw new Error('malformed history jump request');
       }
       await beforeRequest?.(op, callArgs);
-      // Preserve the client receiver for composed operations such as
-      // preflightProject(), which delegates to this.loadProject(). The
-      // dispatcher previously invoked a detached method and made `this`
-      // undefined in the worker even though the public client contract was
-      // otherwise valid.
+      // Preserve the client receiver for composed operations. The dispatcher
+      // previously invoked a detached method and made `this` undefined in the
+      // worker even though the public client contract was otherwise valid.
       const result = await method.apply(client, callArgs);
       if (op === 'beginHistory') {
         if (typeof result !== 'string' || result.length === 0) throw new Error('malformed history transaction id');
@@ -247,6 +248,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     startedAt: number;
   }>();
   const progressListeners = new Set<(pct: number, text: string) => void>();
+  const projectClosedListeners = new Set<ProjectClosedCallback>();
   let mailbox: ProgressMailbox | undefined;
   let mailboxTimer: ReturnType<typeof setInterval> | undefined;
   let lastMailboxSequence = -1;
@@ -315,6 +317,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       updateMailboxPolling();
       return;
     }
+    if (msg.type === 'project-closed') {
+      for (const listener of projectClosedListeners) listener(msg.plateSession);
+      return;
+    }
     if (msg.type !== 'response') return;
     const p = pending.get(msg.id);
     if (!p) return;
@@ -378,16 +384,33 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
           }
         };
       }
-      if (prop === 'loadProject' || prop === 'importProjectGeometry' || prop === 'preflightProject' || prop === 'commitProjectPreflight') {
-        const progressIndex = prop === 'loadProject' ? 3 : prop === 'commitProjectPreflight' ? 1 : 2;
+      if (prop === 'loadProject') {
         return (...args: unknown[]) => {
-          const onProgress = args[progressIndex];
-          const callArgs = typeof onProgress === 'function' ? args.slice(0, progressIndex) : args;
-          if (typeof onProgress !== 'function') return call(prop, callArgs);
+          const onProgress = args[3];
+          const onProjectClosed = args[4];
+          const progressListener = typeof onProgress === 'function'
+            ? onProgress as (pct: number, text: string) => void : undefined;
+          const closedListener = typeof onProjectClosed === 'function'
+            ? onProjectClosed as ProjectClosedCallback : undefined;
+          if (progressListener) progressListeners.add(progressListener);
+          if (closedListener) projectClosedListeners.add(closedListener);
+          updateMailboxPolling();
+          return call(prop, args.slice(0, 3)).finally(() => {
+            emitMailboxProgress();
+            if (progressListener) progressListeners.delete(progressListener);
+            if (closedListener) projectClosedListeners.delete(closedListener);
+            updateMailboxPolling();
+          });
+        };
+      }
+      if (prop === 'importProjectGeometry') {
+        return (...args: unknown[]) => {
+          const onProgress = args[2];
+          if (typeof onProgress !== 'function') return call(prop, args);
           const listener = onProgress as (pct: number, text: string) => void;
           progressListeners.add(listener);
           updateMailboxPolling();
-          return call(prop, callArgs).finally(() => {
+          return call(prop, args.slice(0, 2)).finally(() => {
             emitMailboxProgress();
             progressListeners.delete(listener);
             updateMailboxPolling();

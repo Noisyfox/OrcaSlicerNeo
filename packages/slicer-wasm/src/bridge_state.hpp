@@ -169,19 +169,9 @@ struct BridgeState {
     std::map<std::size_t, std::string> instance_plate_ids;
     std::map<std::string, std::set<std::size_t>> plate_out_of_bounds_ids;
     std::set<std::size_t> parked_instance_ids;
-    struct PendingProjectRestore {
-        std::string token;
-        std::vector<unsigned char> bytes;
-        std::string display_name;
-        std::uint64_t base_history_revision { 0 };
-        std::size_t base_history_cursor { 0 };
-        std::string base_filament_state;
-        std::string base_model_state;
-        std::string base_overlay;
-    };
-    std::optional<PendingProjectRestore> pending_project_restore;
-    // Test-only fault injection used by the native atomic-commit fixture. It
-    // is deliberately one-shot and is never set by application code.
+    // Test-only fault injection used to prove that publication rollback keeps
+    // the already-closed, empty replacement session atomic. It is deliberately
+    // one-shot and is never set by application code.
     bool inject_project_commit_failure = false;
     // Instances touched by a pending committed transform. The renderer may
     // send one setModelTransform call per composite, but recomputation is

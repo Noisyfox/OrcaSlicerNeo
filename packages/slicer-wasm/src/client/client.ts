@@ -14,7 +14,7 @@ import type {
   PrimeTowerMoveResultOrError,
   ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
   ConfigurationStatus,
-  ClearModelResult,
+  ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
@@ -1099,6 +1099,7 @@ export function createClient(
   onBridgeProgress?: (percent: number, text: string) => void,
   onProgressMailbox?: (mailbox: ProgressMailbox) => void,
   beforeInit?: (module: OrcaModule) => Promise<void>,
+  onBridgeProjectClosed?: ProjectClosedCallback,
 ): SlicerClient {
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
@@ -1408,14 +1409,38 @@ export function createClient(
       }
     },
 
-    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string, onProgress?: ProjectProgressCallback, nativeName = 'orc_load_project'): Promise<ProjectLoadResult> {
+    async closeProject(): Promise<ProjectCloseResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_close_project', [], []) as Record<string, unknown>;
+      if (!r.ok) return { ok: false, error: typeof r.error === 'string' ? r.error : 'project close failed' };
+      const plateSession = normalizePlateMutationResult(r.plate_session);
+      if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'invalid closed project session' };
+      onBridgeProjectClosed?.(plateSession);
+      return { ok: true, plateSession };
+    },
+
+    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string, onProgress?: ProjectProgressCallback, onProjectClosed?: ProjectClosedCallback): Promise<ProjectLoadResult> {
       const m = await module();
       const ptr = writeBytes(m, bytes);
       if (onProgress) progressListeners.add(onProgress);
       try {
-        const preflight = nativeName === 'orc_preflight_project';
-        const r = callJson(m, nativeName, preflight ? ['pointer', 'number', 'string'] : ['pointer', 'number', 'number', 'string'],
-          preflight ? [ptr, bytes.length, displayName ?? ''] : [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? '']) as Record<string, unknown>;
+        let nativeName = 'orc_load_project';
+        let argumentTypes: ('pointer' | 'number' | 'string')[] = ['pointer', 'number', 'number', 'string'];
+        let args: unknown[] = [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? ''];
+        if (mode === 'project') {
+          const closed = callJson(m, 'orc_close_project', [], []) as Record<string, unknown>;
+          if (!closed.ok) return { ok: false, objects: 0, instances: 0,
+            error: typeof closed.error === 'string' ? closed.error : 'project close failed' };
+          const plateSession = normalizePlateMutationResult(closed.plate_session);
+          if (!plateSession.ok) return { ok: false, objects: 0, instances: 0,
+            error: plateSession.error ?? 'invalid closed project session' };
+          onBridgeProjectClosed?.(plateSession);
+          if (onProjectClosed !== onBridgeProjectClosed) onProjectClosed?.(plateSession);
+          nativeName = 'orc_load_project_after_close';
+          argumentTypes = ['pointer', 'number', 'string'];
+          args = [ptr, bytes.length, displayName ?? ''];
+        }
+        const r = callJson(m, nativeName, argumentTypes, args) as Record<string, unknown>;
         if (!r.ok) return r as unknown as ProjectLoadResult;
         const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
         return {
@@ -1423,7 +1448,6 @@ export function createClient(
           objects: Number(r.objects ?? 0),
           instances: Number(r.instances ?? 0),
           mode: r.mode as ProjectLoadMode | undefined,
-          preflightToken: typeof r.preflight_token === 'string' ? r.preflight_token : undefined,
           displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
           compatibility: r.compatibility as ProjectLoadResult['compatibility'],
           projectSettingsAvailable: r.project_settings_available === true,
@@ -1481,66 +1505,6 @@ export function createClient(
         m._free(ptr);
         if (onProgress) progressListeners.delete(onProgress);
       }
-    },
-
-    async preflightProject(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
-      return (this.loadProject as unknown as (bytes: Uint8Array, mode: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback, nativeName?: string) => Promise<ProjectLoadResult>)(bytes, 'project', displayName, onProgress, 'orc_preflight_project');
-    },
-
-    async commitProjectPreflight(token: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
-      const m = await module();
-      if (onProgress) progressListeners.add(onProgress);
-      try {
-        const r = callJson(m, 'orc_commit_project_preflight', ['string'], [token]) as Record<string, unknown>;
-        if (!r.ok) return r as unknown as ProjectLoadResult;
-        // The committed result uses the exact same native response shape as
-        // loadProject; route it through the normal parser without re-reading
-        // project bytes.
-        const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
-        return {
-          ok: true,
-          objects: Number(r.objects ?? 0), instances: Number(r.instances ?? 0), mode: r.mode as ProjectLoadMode | undefined,
-          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
-          compatibility: r.compatibility as ProjectLoadResult['compatibility'], projectSettingsAvailable: r.project_settings_available === true,
-          isBbl3mf: r.is_bbl_3mf === true, isOrca3mf: r.is_orca_3mf === true,
-          fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined, multiPlate: r.multi_plate === true,
-          plateCount: Number(r.plate_count ?? 0),
-          embeddedPresetWarnings: warnings ? {
-            present: warnings.present === true, count: Number(warnings.count ?? 0), printerCount: Number(warnings.printer_count ?? 0),
-            processCount: Number(warnings.process_count ?? 0), filamentCount: Number(warnings.filament_count ?? 0),
-            modifiedPrinterGcode: warnings.modified_printer_gcode === true, modifiedFilamentGcode: warnings.modified_filament_gcode === true,
-            missingSystemPreset: warnings.missing_system_preset === true, requiresConfirmation: warnings.requires_confirmation === true,
-            modifiedGcodeKeys: Array.isArray(warnings.modified_gcode_keys) ? warnings.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : undefined,
-            missingSystemPresetTypes: Array.isArray(warnings.missing_system_preset_types)
-              ? warnings.missing_system_preset_types.filter((type): type is 'printer' | 'filament' => type === 'printer' || type === 'filament') : undefined,
-            presetEvidence: Array.isArray(warnings.preset_evidence) ? warnings.preset_evidence.flatMap((evidence) => {
-              if (!evidence || typeof evidence !== 'object') return [];
-              const item = evidence as Record<string, unknown>;
-              const type = item.type === 'printer' || item.type === 'filament' ? item.type : undefined;
-              if (!type || typeof item.name !== 'string' || typeof item.inherits !== 'string') return [];
-              return [{ type, name: item.name, inherits: item.inherits, hasMatchingSystemPreset: item.has_matching_system_preset === true,
-                modifiedGcodeKeys: Array.isArray(item.modified_gcode_keys) ? item.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : [] }];
-            }) : undefined,
-            filamentSlotChanges: Array.isArray(warnings.filament_slot_changes) ? warnings.filament_slot_changes.flatMap((change) => {
-              if (!change || typeof change !== 'object') return [];
-              const item = change as Record<string, unknown>;
-              return Number.isInteger(item.slot) && (item.slot as number) >= 1 && typeof item.before === 'string' && typeof item.after === 'string' && item.reason === 'native-compatibility'
-                ? [{ slot: item.slot as number, before: item.before, after: item.after, reason: 'native-compatibility' as const }] : [];
-            }) : undefined,
-          } : undefined,
-          presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object' && (r.preset_snapshot as Record<string, unknown>).ok === true
-            ? normalizeProfileSnapshot(r.preset_snapshot as Record<string, unknown>) as ProfileSnapshot : undefined,
-          ...(r.plate_session ? (() => { const plateSession = normalizePlateMutationResult(r.plate_session); return plateSession.ok ? { plateSession } : {}; })() : {}),
-          ...(r.project_config_overlay && typeof r.project_config_overlay === 'object' ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
-        };
-      } finally {
-        if (onProgress) progressListeners.delete(onProgress);
-      }
-    },
-
-    async cancelProjectPreflight(token: string): Promise<{ ok: boolean; error?: string }> {
-      const m = await module();
-      return callJson(m, 'orc_cancel_project_preflight', ['string'], [token]) as { ok: boolean; error?: string };
     },
 
     async importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {

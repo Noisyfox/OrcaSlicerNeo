@@ -1,5 +1,5 @@
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
-import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
+import type { PlateSessionMutation, ProjectLoadResult, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
@@ -26,7 +26,7 @@ export interface ProjectActionOptions {
   preserveSessionIdentity?: boolean;
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
-  /** Explicit acceptance after native project preflight warnings are shown. */
+  /** Explicit acceptance after the closed-session project load reports warnings. */
   confirmProjectLoad?: (load: ProjectLoadResult) => Promise<boolean> | boolean;
   decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
   /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
@@ -35,7 +35,7 @@ export interface ProjectActionOptions {
   /** Renderer cleanup hook used after a successful New Project runtime reset. */
   sceneResetTarget?: SceneResetTarget | null;
 }
-export type ProjectLoadCommitRoute = 'load-project' | 'preflight-commit';
+export type ProjectLoadCommitRoute = 'load-project';
 
 /**
  * A completed project replacement receipt. It is deliberately limited to the
@@ -55,9 +55,8 @@ export interface ProjectActionResult {
   load?: ProjectLoadResult;
   loadReceipt?: ProjectLoadReceipt;
 }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
-  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'> &
-  Partial<Pick<SlicerClient, 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
+type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -229,41 +228,37 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
     const runtime = runtimeOf(platform);
-    let load: ProjectLoadResult;
-    let commitRoute: ProjectLoadCommitRoute;
-    if (runtime.preflightProject && runtime.commitProjectPreflight && runtime.cancelProjectPreflight) {
-      const preflight = await runtime.preflightProject(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message));
-      if (!preflight.ok || !preflight.preflightToken) throw new Error(preflight.error ?? 'project preflight failed');
-      const warning = preflight.embeddedPresetWarnings;
-      const needsConfirmation = warning?.requiresConfirmation === true ||
-        (warning?.filamentSlotChanges?.length ?? 0) > 0;
+    const publishClosedProject = (plateSession: PlateSessionMutation) => {
+      resetSceneState(options.sceneResetTarget, { clearSettings: true });
+      usePlateSessionStore.getState().setSnapshot(plateSession);
+      useProjectStore.getState().reset();
+      useProjectStore.getState().setProject({ systemPresets: system, hasContent: false });
+    };
+    const load = await runtime.loadProject(input.bytes, 'project', input.displayName,
+      (percent, message) => setOperation('loading', percent, message), publishClosedProject);
+    const commitRoute: ProjectLoadCommitRoute = 'load-project';
+    if (!load.ok) throw new Error(load.error ?? 'project load failed');
+    const warning = load.embeddedPresetWarnings;
+    const needsConfirmation = warning?.requiresConfirmation === true ||
+      (warning?.filamentSlotChanges?.length ?? 0) > 0;
+    if (needsConfirmation) {
+      setOperation('waiting-for-project-confirmation', 100, 'Review project compatibility');
+      let accepted = false;
       try {
-        if (options.signal?.aborted) throw new DOMException('project load aborted', 'AbortError');
-        let accepted = true;
-        if (needsConfirmation) {
-          setOperation('waiting-for-project-confirmation', 100, 'Review project compatibility');
-          accepted = await options.confirmProjectLoad?.(preflight) ?? false;
-        }
-        if (!accepted || options.signal?.aborted) {
-          await runtime.cancelProjectPreflight(preflight.preflightToken);
-          setOperation('cancelled');
-          return { status: 'cancelled', load: preflight };
-        }
-        load = await runtime.commitProjectPreflight(preflight.preflightToken, (percent, message) => setOperation('loading', percent, message));
-        commitRoute = 'preflight-commit';
-        if (!load.ok) throw new Error(load.error ?? 'project load failed');
+        accepted = await options.confirmProjectLoad?.(load) ?? false;
       } catch (error) {
-        // Confirmation cancellation, UI teardown, aborts, and commit errors
-        // all consume the native token.  Cleanup is best effort because the
-        // native commit path also clears a token after any terminal failure.
-        try { await runtime.cancelProjectPreflight(preflight.preflightToken); } catch { /* already consumed */ }
+        const closed = await runtime.closeProject();
+        if (closed.ok && closed.plateSession) publishClosedProject(closed.plateSession);
         throw error;
       }
-    } else {
-      load = await runtime.loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message));
-      commitRoute = 'load-project';
+      if (!accepted) {
+        const closed = await runtime.closeProject();
+        if (!closed.ok) throw new Error(closed.error ?? 'project close failed');
+        if (closed.plateSession) publishClosedProject(closed.plateSession);
+        setOperation('cancelled');
+        return { status: 'cancelled', load };
+      }
     }
-    if (!load.ok) throw new Error(load.error ?? 'project load failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from

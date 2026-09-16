@@ -24,7 +24,7 @@ type ProjectLoadEvidence = {
   receipt: {
     sourceDisplayName: string;
     sourceByteLength: number;
-    commitRoute: 'load-project' | 'preflight-commit';
+    commitRoute: 'load-project';
     nativeResult: {
       ok: boolean; mode?: string; displayName?: string; objects: number; instances: number;
       projectSettingsAvailable?: boolean; multiPlate?: boolean; plateCount?: number;
@@ -127,7 +127,7 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
       receipt: {
         sourceDisplayName: PROJECT_FILE_NAME,
         sourceByteLength: statSync(PROJECT_PATH).size,
-        commitRoute: 'preflight-commit',
+        commitRoute: 'load-project',
         nativeResult: {
           ok: true, mode: 'project', displayName: PROJECT_FILE_NAME,
           projectSettingsAvailable: true, multiPlate: true,

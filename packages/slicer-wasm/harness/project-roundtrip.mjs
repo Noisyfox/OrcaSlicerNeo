@@ -201,6 +201,16 @@ check('capture complete multi-plate session', beforeExportSession.ok === true &&
       && beforeExportSession.instances?.some((instance) => instance.plate_id === beforeExportSession.plates[0].plate_id)
       && beforeExportSession.instances?.some((instance) => instance.plate_id === beforeExportSession.plates[1].plate_id),
       JSON.stringify(beforeExportSession));
+const oldPlateIds = beforeExportSession.plates?.map((plate) => plate.plate_id) ?? [];
+const oldCurrentPlateId = beforeExportSession.current_plate_id;
+const oldCurrentRevision = beforeExportSession.input_revisions?.[oldCurrentPlateId] ?? 0;
+const seededSlice = callJson('orc_slice_plate', ['string', 'string', 'number'],
+                             ['{}', oldCurrentPlateId, oldCurrentRevision]);
+check('materialize an old-session result before replacement', seededSlice.ok === true,
+      JSON.stringify(seededSlice));
+const seededResult = callJson('orc_get_slice_result', [], []);
+check('old-session result is publishable before replacement', seededResult.ok === true,
+      JSON.stringify(seededResult));
 
 const exported = callJson('orc_export_project', [], []);
 check('export native BBS 3MF', exported.ok === true && exported.bytes_ptr > 0 && exported.bytes_length > 4,
@@ -211,19 +221,23 @@ check('export returns a ZIP payload', project[0] === 0x50 && project[1] === 0x4b
 
 if (exported.ok) {
   const corruptProject = tamperNeoPlateMetadata(project);
-  const beforeCorruptStructure = callJson('orc_get_model_structure', [], []);
-  const beforeCorruptSession = callJson('orc_get_plate_session_snapshot', [], []);
   const corruptPtr = writeBytes(corruptProject);
   const corrupt = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
                            [corruptPtr, corruptProject.length, 0, 'duplicate-plate-index.3mf']);
   Module._free(corruptPtr);
   const afterCorruptStructure = callJson('orc_get_model_structure', [], []);
   const afterCorruptSession = callJson('orc_get_plate_session_snapshot', [], []);
-  check('reject duplicate Neo plate index without disturbing active model/session',
-        corrupt.ok !== true && JSON.stringify(afterCorruptStructure) === JSON.stringify(beforeCorruptStructure)
-        && JSON.stringify(afterCorruptSession) === JSON.stringify(beforeCorruptSession),
+  const afterCorruptResult = callJson('orc_get_slice_result', [], []);
+  const staleOldExport = callJson('orc_export_gcode_plate', ['string', 'number'],
+                                  [oldCurrentPlateId, oldCurrentRevision]);
+  check('invalid replacement leaves only a fresh empty project session',
+        corrupt.ok !== true && afterCorruptStructure.ok === true && afterCorruptStructure.objects?.length === 0
+        && afterCorruptSession.ok === true && afterCorruptSession.plates?.length === 1
+        && !oldPlateIds.includes(afterCorruptSession.current_plate_id)
+        && afterCorruptResult.ok !== true && staleOldExport.ok !== true,
         JSON.stringify({ corrupt, active_objects: afterCorruptStructure.objects?.length,
-          active_plates: afterCorruptSession.plates?.length }));
+          active_plates: afterCorruptSession.plates?.length, result: afterCorruptResult,
+          stale_old_export: staleOldExport }));
 }
 
 const cleared = callJson('orc_clear_model', [], []);
@@ -274,6 +288,10 @@ check('reload preserves plate order and current identity', afterSession.ok === t
       && afterSession.current_plate_id === afterSession.plates[1].plate_id
       && afterSession.plates.every((plate, index) => plate.display_index === index),
       JSON.stringify(afterSession));
+check('reload allocates fresh session-only IDs and empty input stamps',
+      afterSession.plates?.every((plate) => !oldPlateIds.includes(plate.plate_id)
+        && afterSession.input_revisions?.[plate.plate_id] === 0),
+      JSON.stringify({ oldPlateIds, loaded: afterSession.plates, revisions: afterSession.input_revisions }));
 check('reload preserves plate membership', afterSession.instances?.some((instance) => instance.plate_id === afterSession.plates[0].plate_id)
       && afterSession.instances?.some((instance) => instance.plate_id === afterSession.plates[1].plate_id),
       JSON.stringify(afterSession.instances));
@@ -293,10 +311,15 @@ const invalid = callJson('orc_load_project', ['pointer', 'number', 'number', 'st
                          [invalidPtr, 3, 0, 'invalid.3mf']);
 Module._free(invalidPtr);
 const afterInvalid = callJson('orc_get_model_structure', [], []);
-check('reject invalid project without disturbing the active session',
-      invalid.ok !== true && afterInvalid.objects?.length === after.objects?.length
-      && afterInvalid.objects?.[0]?.volumes?.length === afterObject?.volumes?.length,
-      JSON.stringify({ invalid, objects: afterInvalid.objects?.length }));
+const afterInvalidSession = callJson('orc_get_plate_session_snapshot', [], []);
+const afterInvalidResult = callJson('orc_get_slice_result', [], []);
+check('invalid bytes close the loaded project and retain the new empty baseline',
+      invalid.ok !== true && afterInvalid.objects?.length === 0
+      && afterInvalidSession.plates?.length === 1
+      && !afterSession.plates.some((plate) => plate.plate_id === afterInvalidSession.current_plate_id)
+      && afterInvalidResult.ok !== true,
+      JSON.stringify({ invalid, objects: afterInvalid.objects?.length,
+        session: afterInvalidSession, result: afterInvalidResult }));
 
 if (failures) {
   console.error(`project round-trip failed: ${failures} check(s)`);
