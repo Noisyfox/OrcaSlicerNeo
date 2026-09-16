@@ -10,6 +10,9 @@ const opts = {};
 for (let i = 2; i < argv.length; i += 2) opts[argv[i]?.replace(/^--/, '')] = argv[i + 1];
 if (!opts.module) throw new Error('usage: node multi-filament-prime-tower-move-smoke.mjs --module out/threaded/orca_slice.js');
 const root = resolve(import.meta.dirname, '../../..');
+const trace = (phase) => {
+  if (process.env.ORCA_HARNESS_TRACE === '1') console.error(`[prime-tower-move] ${phase}`);
+};
 const Module = await (await loadModuleFactory(resolve(opts.module)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(resolve(opts['profile-root'] ?? `${root}/packages/profile-resources/dist`)));
 
@@ -53,6 +56,7 @@ function modelShape() {
 }
 
 assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
+trace('initialized');
 for (let index = 0; index < 12; index++)
   assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', `prime tower object ${index}`]).ok, true);
 setProject('enable_prime_tower', '1'); setProject('timelapse_type', '1');
@@ -105,6 +109,7 @@ assert.equal(multifilamentMove.result.mutation.history_entry_delta, 1);
 assert.equal(callJson('orc_history_status').undoEntries.length, multifilamentHistory.undoEntries.length + 1);
 const multifilamentAfter = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
 assert.notDeepEqual(multifilamentAfter, multifilamentBefore, 'released tower coordinates must persist');
+trace('initial prime tower move committed');
 // Populate the moved target projection so Undo must prove that its own cache
 // entry is invalidated rather than returning the moved JSON unchanged.
 callJson('orc_take_performance_profile');
@@ -151,11 +156,14 @@ assert.ok(redoProjectionSample.per_plate_stages_ms[0].total > 0, JSON.stringify(
 assert.equal(redoProjectionSample.stages_ms.used_slot_full_scan_fallback, 0, JSON.stringify(redoProjectionSample));
 assert.ok(redoProjectionSample.stages_ms.used_slot_summary_hit > 0 ||
   redoProjectionSample.stages_ms.used_slot_summary_delta > 0, JSON.stringify(redoProjectionSample));
+trace('initial prime tower undo/redo projections complete');
 
 const thirdRevision = session().input_revisions[thirdPlate];
+trace('third plate slice starting');
 const thirdSlice = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
 assert.equal(thirdSlice.ok, true, JSON.stringify(thirdSlice));
+trace('third plate slice complete');
 assert.equal(callJson('orc_get_slice_result').ok, true);
 const previewBefore = callJson('orc_history_restore_diagnostics');
 assert.equal(previewBefore.previewPlateId, thirdPlate); assert.ok(previewBefore.previewResultId > 0);
@@ -204,6 +212,7 @@ assert.equal(callJson('orc_history_status').undoEntries.length, beforeHistory.un
 
 assert.equal(callJson('orc_history_undo').ok, true); assert.deepEqual(projectArray('wipe_tower_x'), before); assert.deepEqual(projectArray('wipe_tower_y'), beforeY);
 assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPlate);
+trace('selected plate move undo/redo complete');
 assert.equal(callJson('orc_history_redo').ok, true); assert.deepEqual(projectArray('wipe_tower_x'), after); assert.deepEqual(projectArray('wipe_tower_y'), afterY);
 assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPlate);
 
@@ -277,10 +286,13 @@ assert.equal(jumpToStructural.ok, true, JSON.stringify(jumpToStructural));
 assert.notEqual(jumpToStructural.direct, true, JSON.stringify(jumpToStructural));
 assert.deepEqual(modelShape(), mixedModelAfter);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
+trace('mixed history navigation complete');
 
 const targetRevision = session().input_revisions[secondPlate];
+trace('second plate slice starting');
 assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   ['{}', secondPlate, targetRevision])).ok, true);
+trace('second plate slice complete');
 assert.equal(callJson('orc_get_slice_result').ok, true);
 assert.ok(callJson('orc_history_restore_diagnostics').previewResultId > 0);
 assert.equal(request('orc_move_prime_tower', { version: 1, plate_id: secondPlate, revision: targetRevision, x: 30, y: 30 }).ok, true);
@@ -292,6 +304,7 @@ assert.equal(callJson('orc_delete_plate', ['string'], [firstPlate]).ok, true);
 assert.equal(projectArray('wipe_tower_x').length, 2); assert.equal(projectArray('wipe_tower_y').length, 2);
 assert.equal(session().plates.find((plate) => plate.plate_id === secondPlate).display_index, 0);
 assert.equal(session().plates.find((plate) => plate.plate_id === thirdPlate).display_index, 1); assertNoPlateCoordinates(session());
+trace('complete');
 
 console.log(JSON.stringify({ ok: true, plateId: secondPlate, moveDurationMs: Number(moveDurationMs.toFixed(2)),
   narrowFrameBytes: afterDiagnostics.currentDirectFrameBytes, retainedModelBytes: afterDiagnostics.currentModelBytes,

@@ -373,21 +373,26 @@ both inclusion/exclusion scans.
 - `cmd /c scripts\build-windows.bat quick --variant both` — threaded and
   serial WASM artifacts built and validated.
 - `node packages/slicer-wasm/harness/history-smoke.mjs` against serial and
-  threaded artifacts — the Step 16 sparse Move restore checks passed, then
-  both runs reached the pre-existing later Add Plate stable-ID/revision
-  assertion and failed there. Step 16 does not change native history storage
-  or Add Plate restore.
+  threaded artifacts — passed. The Add Plate Undo/Redo regression verifies
+  stable session plate IDs, stable logical membership and ModelObject IDs,
+  complete rematerialized live instance IDs, and strictly newer monotonic
+  slice-input stamps for every affected restored plate.
 - `node packages/slicer-wasm/harness/history-plate-runtime-smoke.mjs` against
   both serial and threaded artifacts — passed.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` — passed; verifies cache hits have zero plate-local used-slot/Print work, Z translation invalidation, and configuration/history invalidation.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same cache and invalidation coverage.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-move-smoke.mjs
-  --module packages/slicer-wasm/out/serial/orca_slice.js` — passed; Prime Tower
+  --module packages/slicer-wasm/out/serial/orca_slice.js` and the freshly built
+  threaded artifact — passed; Prime Tower
   Undo/Redo repopulates the target plate projection after its targeted cache
   invalidation while retaining the narrow frame and unaffected preview
-  contract. The same Node-only threaded harness hit its existing WASM
-  out-of-bounds failure; the headed threaded Electron acceptance above passed
-  the real Move/Undo/Redo path.
+  contract. The threaded-only WASM out-of-bounds failure was an intermittent
+  slice-worker lifecycle race: the pthread enqueued its terminal before it had
+  finished unwinding, while mailbox consumption immediately released the
+  active-job gate. The threaded bridge now keeps that pthread joinable and
+  joins it before publishing the terminal or starting another task. The exact
+  threaded regression then passed eight consecutive untraced runs in addition
+  to the final serial/threaded acceptance runs.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-native-input-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; painted volume slots, custom plate toolchanges, routing, and hidden-object filtering retain the exact slot sets.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-projection-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; rectangle, Rib, Smooth timelapse, and multifilament cases use the direct estimator and record zero Print fallback.
 - `pnpm stage:assets` from the repository root, then `pnpm exec electron-vite

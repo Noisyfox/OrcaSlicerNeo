@@ -360,6 +360,14 @@ std::mutex g_slice_job_mutex;
 std::shared_ptr<SliceTask> g_active_slice_task;
 std::optional<PendingSliceRequest> g_pending_slice_request;
 std::uint64_t g_serial_terminal_epoch = 0;
+#ifdef ORCA_WASM_THREADING
+// Keep the dedicated slice pthread joinable until its native terminal reaches
+// the stateful Worker. The terminal is enqueued from inside the pthread, so it
+// can otherwise be observed while the pthread is still unwinding. Clearing
+// g_active_slice_task in that gap permits history edits or a second slice to
+// overlap Emscripten/oneTBB thread teardown and corrupt the shared WASM heap.
+std::thread g_slice_worker_thread;
+#endif
 
 void start_pending_slice_if_any();
 
@@ -485,6 +493,13 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_drain_async_task_mailbox()
     bool released_slice_job = false;
     for (auto& message : messages) {
         if (message.payload.value("type", "") == "native-task-terminal") {
+#ifdef ORCA_WASM_THREADING
+            // The terminal message proves run_slice_process has finished all
+            // Print access. Join before publishing the terminal and releasing
+            // the active-job gate so no subsequent bridge mutation or slice
+            // can race the pthread runtime's final teardown.
+            if (g_slice_worker_thread.joinable()) g_slice_worker_thread.join();
+#endif
             std::shared_ptr<SliceTask> task;
             {
                 std::lock_guard<std::mutex> lock(g_slice_job_mutex);
@@ -835,7 +850,9 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // The dedicated job pthread shares the module heap and participates in
         // the same oneTBB arena.  The stateful Worker remains available for
         // edits, cancellation, stamps, and mailbox draining.
-        std::thread([task] { run_slice_process(task); }).detach();
+        if (g_slice_worker_thread.joinable())
+            throw std::runtime_error("slice worker terminal was not consumed");
+        g_slice_worker_thread = std::thread([task] { run_slice_process(task); });
         return dup_json(slice_task_acceptance(task->task_id, task->plate_id,
                                               task->incarnation_id).dump());
 #else

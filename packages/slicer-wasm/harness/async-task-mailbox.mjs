@@ -3,6 +3,11 @@ export async function awaitAsyncTask(callJson, accepted, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const drained = callJson('orc_drain_async_task_mailbox', [], []);
+    if (process.env.ORCA_HARNESS_TRACE === '1') {
+      for (const message of drained.messages ?? [])
+        if (message.task_id === accepted.task_id)
+          console.error(`[async-task ${accepted.task_id}] ${message.type} ${message.percent ?? ''} ${message.text ?? message.terminal ?? ''}`.trim());
+    }
     const terminal = drained.messages?.find((message) =>
       message.type === 'task-terminal' && message.task_id === accepted.task_id);
     if (terminal) return terminal.result;

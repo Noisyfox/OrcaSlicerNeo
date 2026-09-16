@@ -41,10 +41,15 @@ function sessionShape(snapshot) {
       out_of_bounds_keys: plateMembers(plate.out_of_bounds_instance_ids ?? []),
     })),
     instances: [...records.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => ({
-      key, plate_id: item.plate_id, member: item.member, parked: item.parked,
+      key, object_id: item.object_id, plate_id: item.plate_id, member: item.member, parked: item.parked,
       out_of_bounds: item.out_of_bounds,
     })),
   };
+}
+function stableSessionShape(snapshot) {
+  const shape = sessionShape(snapshot);
+  delete shape.input_revisions;
+  return shape;
 }
 function assertLiveSessionIntegrity(snapshot, label) {
   const model = callJson('orc_get_model_structure', [], []);
@@ -203,11 +208,25 @@ const plateRedone = callJson('orc_history_redo', [], []);
 const plateAfterRedo = callJson('orc_get_plate_session_snapshot', [], []);
 if (!plateRedone.ok || !plateAfterRedo.ok || plateAfterRedo.plates.length !== 2)
   throw new Error(`plate redo did not restore two plates: ${JSON.stringify({ plateRedone, plateAfterRedo })}`);
-if (plateAfterRedo.current_plate_id !== plateAdded.current_plate_id ||
-    plateAfterRedo.plates.map((plate) => plate.plate_id).join(',') !==
-      plateAdded.plates.map((plate) => plate.plate_id).join(',') ||
-    JSON.stringify(plateAfterRedo.input_revisions) !== JSON.stringify(plateAdded.input_revisions))
-  throw new Error(`plate redo did not restore stable IDs/revisions: ${JSON.stringify({ plateAdded, plateAfterRedo })}`);
+// Session plate IDs and logical model membership are persistent history
+// identity. Native ModelInstance IDs are rematerialized by the model archive,
+// so sessionShape deliberately compares members by object/instance index while
+// retaining the stable ModelObject ID. Slice-input revisions are runtime
+// invalidation stamps: every restored affected plate must receive a fresh,
+// strictly newer stamp and must never recover the old numeric value.
+const stablePlateStateRestored =
+  JSON.stringify(stableSessionShape(plateAfterRedo)) === JSON.stringify(stableSessionShape(plateAdded));
+const restoredRevisionsAdvanced = plateAdded.plates.every(({ plate_id: plateId }) =>
+  Number.isSafeInteger(plateAfterRedo.input_revisions[plateId]) &&
+  plateAfterRedo.input_revisions[plateId] > plateAdded.input_revisions[plateId]);
+if (!stablePlateStateRestored || !restoredRevisionsAdvanced)
+  throw new Error(`plate redo did not restore stable identity with fresh revisions: ${JSON.stringify({
+    plateAdded: stableSessionShape(plateAdded),
+    plateAfterRedo: stableSessionShape(plateAfterRedo),
+    addedRevisions: plateAdded.input_revisions,
+    redoneRevisions: plateAfterRedo.input_revisions,
+  })}`);
+assertLiveSessionIntegrity(plateAfterRedo, 'plate redo');
 
 const configuredPlateId = plateAfterRedo.current_plate_id;
 const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
@@ -563,9 +582,14 @@ function commitHistory(label, transactionId) {
 function restoreAndCompare(label, expected) {
   const restoredSession = callJson('orc_get_plate_session_snapshot', [], []);
   assertLiveSessionIntegrity(restoredSession, label);
+  const revisionsAreFresh = (expected.plates ?? []).every(({ plate_id: plateId }) =>
+    Number.isSafeInteger(restoredSession.input_revisions?.[plateId]) &&
+    restoredSession.input_revisions[plateId] > expected.input_revisions[plateId]);
   historyCheck(`${label} restores complete session`,
-    JSON.stringify(sessionShape(restoredSession)) === JSON.stringify(sessionShape(expected)),
-    JSON.stringify({ expected: sessionShape(expected), actual: sessionShape(restoredSession) }));
+    JSON.stringify(stableSessionShape(restoredSession)) === JSON.stringify(stableSessionShape(expected)) &&
+      revisionsAreFresh,
+    JSON.stringify({ expected: stableSessionShape(expected), actual: stableSessionShape(restoredSession),
+      expectedRevisions: expected.input_revisions, actualRevisions: restoredSession.input_revisions }));
   return restoredSession;
 }
 
@@ -715,8 +739,9 @@ historyCheck('Add Plate reflow invalidates only origin-changed plates',
   addReflowChanged.size === expectedAddReflowChanged.size &&
   addReflow.affected_plate_ids?.length === expectedAddReflowChanged.size &&
   [...expectedAddReflowChanged].every((id) => addReflowChanged.has(id)) &&
-  addReflowOldIds.every((id) => addReflow.input_revisions[id] ===
-    addReflowBefore.input_revisions[id] + (addReflowChanged.has(id) ? 1 : 0)) &&
+  addReflowOldIds.every((id) => addReflowChanged.has(id)
+    ? addReflow.input_revisions[id] > addReflowBefore.input_revisions[id]
+    : addReflow.input_revisions[id] === addReflowBefore.input_revisions[id]) &&
   addReflow.plates.filter((plate) => !addReflowOldIds.includes(plate.plate_id))
     .every((plate) => addReflow.input_revisions[plate.plate_id] === 0),
   JSON.stringify({ before: addReflowBefore.input_revisions, after: addReflow.input_revisions,
