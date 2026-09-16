@@ -5,6 +5,9 @@
 // task transport; renderer-facing client results remain promise-compatible.
 // ----------------------------------------------------------------
 #include <emscripten/emscripten.h>
+#ifdef ORCA_WASM_THREADING
+#include <emscripten/threading.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -218,7 +221,14 @@ void signal_async_task_mailbox(const std::uint64_t task_id)
             static_cast<std::uint32_t>(task_id >> 32), std::memory_order_relaxed);
         g_async_task_wake_mailbox.sequence.store(odd + 1, std::memory_order_release);
     }
-#ifndef ORCA_WASM_THREADING
+    // Every message is first committed to the same ordered FIFO. Producers on
+    // the main runtime thread may then synchronously ask JavaScript to drain
+    // that FIFO. A pthread cannot enter the JS function table, so it stops at
+    // the shared wake above and the stateful Worker drains it on its timer.
+#ifdef ORCA_WASM_THREADING
+    if (emscripten_is_main_runtime_thread() && g_async_task_notify != nullptr)
+        g_async_task_notify();
+#else
     if (g_async_task_notify != nullptr) g_async_task_notify();
 #endif
 }
@@ -532,13 +542,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_async_task_mailbox()
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE void orc_set_async_task_callback(async_task_notify_fn cb) {
-#ifdef ORCA_WASM_THREADING
-    // Pthreads never call a JavaScript function-table entry. They only update
-    // the shared wake mailbox after appending to the C++ FIFO.
-    (void)cb;
-#else
+    // signal_async_task_mailbox invokes this callback only from the main
+    // runtime thread. Threaded job pthreads retain wake-only delivery.
     g_async_task_notify = cb;
-#endif
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_drain_async_task_mailbox()

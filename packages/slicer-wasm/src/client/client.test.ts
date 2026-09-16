@@ -1486,7 +1486,7 @@ describe('SlicerClient bridge contract', () => {
     expect(reordered.inputRevisions?.[plateB]).toBe(before.inputRevisions?.[plateB]);
   });
 
-  it('threaded client publishes FIFO progress after a shared wake, never addFunction', async () => {
+  it('threaded client registers the generic notifier while pthread progress retains shared wake', async () => {
     const module = createMockModule({ threaded: true });
     const c = createClient(async () => module);
     await c.init();
@@ -1496,7 +1496,7 @@ describe('SlicerClient bridge contract', () => {
     expect(Atomics.load(words, 0)).toBeGreaterThan(0);
     expect(Atomics.load(words, 0) % 2).toBe(0);
     expect(Atomics.load(words, 1)).toBeGreaterThan(0);
-    expect(module._functionRegistrations).toBe(0);
+    expect(module._functionRegistrations).toBe(1);
   });
 
   it('allocates non-reused monotonically increasing slice task ids', async () => {

@@ -895,7 +895,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let foregroundProgressTaskId: string | undefined;
   const taskMessages: Array<Record<string, unknown>> = [];
 
-  function publishTaskMessage(taskId: string, message: Record<string, unknown>): void {
+  function publishTaskMessage(taskId: string, message: Record<string, unknown>, mainRuntimeProducer = false): void {
     taskMessages.push({ ...message, task_id: taskId, sequence: String(nextTaskMessageSequence++) });
     Atomics.add(mailboxWords, 0, 1);
     Atomics.add(mailboxWords, 1, 1);
@@ -903,7 +903,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     Atomics.store(mailboxWords, 2, Number(id & 0xffff_ffffn));
     Atomics.store(mailboxWords, 3, Number(id >> 32n));
     Atomics.add(mailboxWords, 0, 1);
-    if (!opts.threaded && asyncTaskCallback)
+    if (asyncTaskCallback && (!opts.threaded || mainRuntimeProducer))
       functionTable.get(asyncTaskCallback)?.();
   }
 
@@ -911,11 +911,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (!foregroundProgressTaskId) foregroundProgressTaskId = String(nextAsyncTaskId++);
     publishTaskMessage(foregroundProgressTaskId, {
       type: 'progress', kind: 'project-load', percent, text,
-    });
+    }, true);
     if (percent === 100) {
       publishTaskMessage(foregroundProgressTaskId, {
         type: 'task-terminal', kind: 'project-load', terminal: 'completed', result: { ok: true },
-      });
+      }, true);
       foregroundProgressTaskId = undefined;
     }
   }

@@ -116,8 +116,14 @@ describe('worker protocol', () => {
     await expect(activeSlice).resolves.toMatchObject({ error: 'cancelled' });
   });
 
-  it('reads threaded FIFO progress after a shared wake without addFunction', async () => {
+  it('keeps threaded pthread progress on shared-wake delivery without invoking the JS notifier', async () => {
     const module = createMockModule({ threaded: true });
+    const originalAddFunction = module.addFunction;
+    let directNotifications = 0;
+    module.addFunction = (fn, signature) => originalAddFunction((...args) => {
+      directNotifications += 1;
+      fn(...args);
+    }, signature);
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);
     void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
@@ -126,7 +132,8 @@ describe('worker protocol', () => {
     const events: number[] = [];
     await workerClient.slice({}, (pct) => events.push(pct));
     expect(events).toContain(100);
-    expect(module._functionRegistrations).toBe(0);
+    expect(module._functionRegistrations).toBe(1);
+    expect(directNotifications).toBe(0);
   });
 
   it('returns binary slice buffers as transferable-arrayable views', async () => {
@@ -166,6 +173,53 @@ describe('worker protocol', () => {
     expect(events).toContain('progress:0');
   });
 
+  it.each([false, true])('delivers threaded=%s main-runtime project progress while the native parser is still active', async (threaded) => {
+    const module = createMockModule({ threaded });
+    const originalCall = module.ccall;
+    let nativeParserActive = false;
+    module.ccall = (name, ret, argTypes, args) => {
+      if (name !== 'orc_load_project_after_close') return originalCall(name, ret, argTypes, args);
+      nativeParserActive = true;
+      try { return originalCall(name, ret, argTypes, args); }
+      finally { nativeParserActive = false; }
+    };
+    const channel = new Channel();
+    const workerClient = createWorkerClient(channel);
+    void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
+    await workerClient.init();
+    const liveEvents: number[] = [];
+
+    const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'live.3mf',
+      (percent) => {
+        if (nativeParserActive && percent > 0 && percent < 100) liveEvents.push(percent);
+      });
+
+    expect(loaded.ok).toBe(true);
+    expect(liveEvents).toEqual([10, 55, 75, 90]);
+  });
+
+  it('drains nested threaded messages in global FIFO order with one active drainer', async () => {
+    const module = createMockModule({ threaded: true });
+    const channel = new Channel();
+    const workerClient = createWorkerClient(channel);
+    void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
+    await workerClient.init();
+    const events: number[] = [];
+
+    const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'nested.3mf',
+      (percent) => {
+        events.push(percent);
+        if (percent === 0) {
+          module._publishTaskMessage('1', {
+            type: 'progress', kind: 'project-load', percent: 5, text: 'Nested FIFO progress',
+          });
+        }
+      });
+
+    expect(loaded.ok).toBe(true);
+    expect(events).toEqual([0, 5, 10, 55, 75, 90, 100]);
+  });
+
   it('forwards geometry-only project load progress through the threaded mailbox', async () => {
     const module = createMockModule({ threaded: true });
     const channel = new Channel();
@@ -176,7 +230,7 @@ describe('worker protocol', () => {
     const loaded = await workerClient.importProjectGeometry(new Uint8Array([0x50, 0x4b]), 'part.3mf', (percent) => events.push(percent));
     expect(loaded.ok).toBe(true);
     expect(events).toContain(100);
-    expect(module._functionRegistrations).toBe(0);
+    expect(module._functionRegistrations).toBe(1);
   });
 
   it('transfers each v2 result ArrayBuffer exactly once from the worker', async () => {

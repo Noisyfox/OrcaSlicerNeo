@@ -1179,6 +1179,7 @@ export function createClient(
   let asyncWakeTimer: ReturnType<typeof setInterval> | undefined;
   let activeModule: OrcaModule | undefined;
   let drainingTaskMessages = false;
+  let taskDrainRequested = false;
   let runtimeThreaded = false;
   let serialTerminalEpoch = 0n;
   let serialSliceAdmissionInProgress = false;
@@ -1257,14 +1258,27 @@ export function createClient(
   }
 
   function drainTaskMessages(m = activeModule): void {
-    if (!m || drainingTaskMessages) return;
+    if (!m) return;
+    if (drainingTaskMessages) {
+      taskDrainRequested = true;
+      return;
+    }
     drainingTaskMessages = true;
     try {
-      const drained = callJson(m, 'orc_drain_async_task_mailbox', [], []) as {
-        ok?: boolean; messages?: unknown[];
-      };
-      if (drained.ok && Array.isArray(drained.messages))
-        drained.messages.forEach(handleTaskMessage);
+      // A drain may finalize a native task and enqueue its public terminal, or
+      // a listener may synchronously cause another enqueue. Keep one JS
+      // drainer and consume until an empty FIFO is observed after all nested
+      // notifications. Global message sequences still reject stale replay.
+      for (;;) {
+        taskDrainRequested = false;
+        const drained = callJson(m, 'orc_drain_async_task_mailbox', [], []) as {
+          ok?: boolean; messages?: unknown[];
+        };
+        const messages = drained.ok && Array.isArray(drained.messages)
+          ? drained.messages : [];
+        messages.forEach(handleTaskMessage);
+        if (messages.length === 0 && !taskDrainRequested) break;
+      }
     } finally {
       drainingTaskMessages = false;
     }
@@ -1304,6 +1318,11 @@ export function createClient(
         const mailbox = callJson(m, 'orc_get_async_task_mailbox', [], []) as {
           ok?: boolean; byte_offset?: number;
         };
+        // The notifier never bypasses the FIFO. It invokes the same guarded
+        // drain for serial producers and threaded main-runtime producers;
+        // pthread producers can only advance the shared wake below.
+        const cb = m.addFunction(() => drainTaskMessages(m), 'v');
+        m.ccall('orc_set_async_task_callback', 'void', ['pointer'], [cb]);
         if (threading.threaded) {
           const buffer = m.HEAPU8.buffer;
           if (mailbox.ok && buffer instanceof SharedArrayBuffer &&
@@ -1321,12 +1340,6 @@ export function createClient(
           }
           return m;
         }
-
-        // Serial producers notify after enqueue. Re-enter only the FIFO drain;
-        // the mailbox mutex has already been released and no task state is
-        // mutated by the callback itself.
-        const cb = m.addFunction(() => drainTaskMessages(m), 'v');
-        m.ccall('orc_set_async_task_callback', 'void', ['pointer'], [cb]);
         return m;
       });
     }

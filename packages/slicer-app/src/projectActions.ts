@@ -74,6 +74,18 @@ export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
 function setOperation(phase: Parameters<ReturnType<typeof useProjectStore.getState>['setOperation']>[0]['phase'], progress = 0, message?: string): void {
   useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' || phase === 'saving' });
 }
+function waitForProjectProgressPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') {
+      setTimeout(resolve, 0);
+      return;
+    }
+    // Resolve from a task scheduled by the frame callback. React has committed
+    // the external-store update and the browser gets a paint opportunity before
+    // the Worker starts the synchronous native parser.
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+}
 function invalidateInput(): void { useSlicerStore.getState().invalidateSliceResult(); }
 function projectedHistoryContext(): HistoryContext {
   return {
@@ -234,6 +246,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
       useProjectStore.getState().reset();
       useProjectStore.getState().setProject({ systemPresets: system, hasContent: false });
     };
+    await waitForProjectProgressPaint();
     const load = await runtime.loadProject(input.bytes, 'project', input.displayName,
       (percent, message) => setOperation('loading', percent, message), publishClosedProject);
     const commitRoute: ProjectLoadCommitRoute = 'load-project';

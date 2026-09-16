@@ -207,6 +207,38 @@ describe('transactional project actions', () => {
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'loading', progress: 42, message: 'Reading project settings' });
   });
 
+  it('commits the opening dialog state through a frame before native loading starts', async () => {
+    const { platform, runtime } = platformFor();
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    let frameEnded = false;
+    const frame = vi.fn((callback: FrameRequestCallback) => {
+      queueMicrotask(() => {
+        callback(performance.now());
+        frameEnded = true;
+      });
+      return 1;
+    });
+    globalThis.requestAnimationFrame = frame;
+    runtime.loadProject.mockImplementation(async (_bytes, _mode, _displayName, _onProgress, onProjectClosed) => {
+      expect(frameEnded).toBe(true);
+      expect(useProjectStore.getState().operation).toMatchObject({
+        phase: 'loading', progress: 0, message: 'Opening project',
+      });
+      onProjectClosed?.(freshPlateSession);
+      return { ok: true, objects: 1, instances: 1, mode: 'project' as const,
+        compatibility: 'bambu' as const, projectSettingsAvailable: true,
+        presetSnapshot: snapshot, plateSession: freshPlateSession };
+    });
+
+    try {
+      const result = await openProject(platform, { loadBehaviour: 'load_all' });
+      expect(result.status).toBe('ok');
+      expect(frame).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    }
+  });
+
   it('geometry import never replaces active settings and makes the session dirty', async () => {
     const { platform } = platformFor();
     useSettingsStore.setState({ modelLoaded: true, selectedPrinter: 'Current printer', selectedPrint: 'Current process', values: { layer_height: '0.2' } });
