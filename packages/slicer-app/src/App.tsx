@@ -330,6 +330,7 @@ export default function App() {
           session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
         };
         takeNativePerformanceProfile?: () => Promise<unknown>;
+        takeRealProjectProfileSnapshot?: () => Promise<unknown>;
       };
     };
     w.__orcaE2e = {
@@ -345,11 +346,24 @@ export default function App() {
       }),
       takeNativePerformanceProfile: () => platform.runtime.takeNativePerformanceProfile?.() ??
         Promise.resolve({ version: 1, samples: [] }),
+      ...(import.meta.env.VITE_REAL_PROJECT_PROFILE === '1' ? {
+        takeRealProjectProfileSnapshot: () =>
+          (platform.runtime as unknown as { takeRealProjectProfileSnapshot(): Promise<unknown> })
+            .takeRealProjectProfileSnapshot(),
+      } : {}),
     };
     return () => {
       if (!w.__orcaE2e) return;
-      const { projectLoadEvidence: _projectLoadEvidence, takeNativePerformanceProfile: _takeNativePerformanceProfile, ...rest } = w.__orcaE2e;
-      w.__orcaE2e = rest;
+      if (import.meta.env.VITE_REAL_PROJECT_PROFILE === '1') {
+        const { projectLoadEvidence: _projectLoadEvidence,
+          takeNativePerformanceProfile: _takeNativePerformanceProfile,
+          takeRealProjectProfileSnapshot: _takeRealProjectProfileSnapshot, ...rest } = w.__orcaE2e;
+        w.__orcaE2e = rest;
+      } else {
+        const { projectLoadEvidence: _projectLoadEvidence,
+          takeNativePerformanceProfile: _takeNativePerformanceProfile, ...rest } = w.__orcaE2e;
+        w.__orcaE2e = rest;
+      }
     };
   }, [projectState.hasContent, projectState.location, projectState.projectName, projectState.scope]);
   const titleBar = (

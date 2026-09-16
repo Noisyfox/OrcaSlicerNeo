@@ -108,6 +108,20 @@ public:
     };
     using LifecycleSnapshots = std::map<std::string, LifecycleSnapshot>;
 
+#ifdef NEO_REAL_PROJECT_PROFILE
+    struct ProfileEntry {
+        std::string plate_id;
+        const Print* print = nullptr;
+        const GCodeProcessorResult* gcode_result = nullptr;
+        bool native_core_materialized = false;
+    };
+
+    // Dedicated-profile builds may inspect immutable entry pointers while the
+    // stateful Worker is idle. Normal production builds contain neither this
+    // API nor the profiling ABI which consumes it.
+    std::vector<ProfileEntry> profile_entries() const;
+#endif
+
     // Reconcile runtime ownership with the current ordered plate ids.  An
     // existing id retains the same Print and result pointers; a new id gets a
     // fresh pair. An absent id is released immediately unless a job lease owns

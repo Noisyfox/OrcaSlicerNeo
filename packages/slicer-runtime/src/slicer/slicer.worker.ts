@@ -16,6 +16,7 @@ const mockVolumeCount = Number(import.meta.env.VITE_MOCK_VOLUME_COUNT ?? 1);
 const mockPresetTransitionDelayMs = Math.max(0, Number(import.meta.env.VITE_MOCK_PRESET_TRANSITION_DELAY_MS ?? 0) || 0);
 const mockPrimeTowerFixture = import.meta.env.VITE_MOCK_PRIME_TOWER === '1';
 const mockPrimeTowerWarnings = import.meta.env.VITE_MOCK_PRIME_TOWER_WARNINGS === '1';
+const realProjectProfileBuild = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
 
 // The WASM module's boost::log severity filter is read from
 // globalThis.ORCA_LOG_LEVEL at orc_init (client forwards it; default "info").
@@ -49,9 +50,9 @@ const factory: OrcaModuleFactory = useMock
       // preference or a guessed browser string.
       const isolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated
         && typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object';
-      const artifactDir: WasmArtifactVariant = isolated ? 'threaded' : 'serial';
+      type RuntimeArtifactDir = WasmArtifactVariant | 'profile-threaded';
       const wasmBase = resolveDeploymentBase(import.meta.env.BASE_URL, workerUrl);
-      const load = async (variant: WasmArtifactVariant): Promise<OrcaModule> => {
+      const load = async (variant: RuntimeArtifactDir): Promise<OrcaModule> => {
         const wasmUrl = new URL(`wasm/${variant}/orca_slice.js`, wasmBase).href;
         // Emscripten's scriptDirectory inside a worker derives from the
         // WORKER script's URL (assets/), not the imported module's — so
@@ -63,7 +64,11 @@ const factory: OrcaModuleFactory = useMock
         };
         return mod.default({ noInitialRun: true, locateFile });
       };
-      const loaded = await loadWasmArtifact(artifactDir, load, (error) => {
+      if (realProjectProfileBuild) {
+        if (!isolated) throw new Error('the real-project profile requires the visible threaded Electron runtime');
+        return load('profile-threaded');
+      }
+      const loaded = await loadWasmArtifact(isolated ? 'threaded' : 'serial', load, (error) => {
         console.warn('[slicer] threaded WASM failed to start; falling back to serial', error);
       });
       return loaded.module;

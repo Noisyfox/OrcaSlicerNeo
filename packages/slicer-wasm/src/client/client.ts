@@ -42,6 +42,9 @@ import type {
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
+const REAL_PROJECT_PROFILE_BUILD = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
+const REAL_PROJECT_PROFILE_JS_SENTINEL = 'ORCA_REAL_PROJECT_PROFILE_JS_V1';
+
 function emptyHistoryTiming(): HistoryTimingDiagnostic {
   return { count: 0, totalMs: 0, maxMs: 0, lastMs: 0 };
 }
@@ -1172,6 +1175,35 @@ export function createClient(
   let runtimeThreaded = false;
   let serialTerminalEpoch = 0n;
   let serialSliceAdmissionInProgress = false;
+  const realProjectProfileCalls: Array<{
+    operation: string;
+    wallMs: number;
+    inputJsonBytes: number;
+    outputJsonBytes: number;
+  }> | null = REAL_PROJECT_PROFILE_BUILD ? [] : null;
+
+  function callProfiledJson(
+    wasm: OrcaModule,
+    name: string,
+    argTypes: string[],
+    args: unknown[],
+  ): unknown {
+    if (!REAL_PROJECT_PROFILE_BUILD) return callJson(wasm, name, argTypes, args);
+    const startedAt = performance.now();
+    const result = callJson(wasm, name, argTypes, args);
+    const encoder = new TextEncoder();
+    const inputJsonBytes = args.reduce<number>((total, value) =>
+      total + (typeof value === 'string' ? encoder.encode(value).byteLength : 0), 0);
+    const outputJsonBytes = encoder.encode(JSON.stringify(result)).byteLength;
+    realProjectProfileCalls!.push({
+      operation: name,
+      wallMs: performance.now() - startedAt,
+      inputJsonBytes,
+      outputJsonBytes,
+    });
+    if (realProjectProfileCalls!.length > 64) realProjectProfileCalls!.shift();
+    return result;
+  }
 
   function handleTaskMessage(raw: unknown): void {
     if (!raw || typeof raw !== 'object') return;
@@ -1298,7 +1330,7 @@ export function createClient(
                               beforeContext: HistoryContext,
                               options?: HistoryTransactionOptions): Promise<HistoryTransactionId> {
     const m = await module();
-    const raw = callJson(m, 'orc_history_begin', ['string', 'string', 'string', 'string'],
+    const raw = callProfiledJson(m, 'orc_history_begin', ['string', 'string', 'string', 'string'],
       [label, category, JSON.stringify(beforeContext), options ? JSON.stringify(options) : '']) as Record<string, unknown>;
     if (raw?.ok !== true || typeof raw.transactionId !== 'string')
       return historyFailure(raw, 'history begin failed');
@@ -1308,7 +1340,7 @@ export function createClient(
   async function commitHistory(transactionId: HistoryTransactionId,
                                afterContext: HistoryContext): Promise<HistoryStatus> {
     const m = await module();
-    const raw = callJson(m, 'orc_history_commit', ['string', 'string'],
+    const raw = callProfiledJson(m, 'orc_history_commit', ['string', 'string'],
       [transactionId, JSON.stringify(afterContext)]);
     if (raw && typeof raw === 'object' && 'error' in (raw as Record<string, unknown>))
       return historyFailure(raw, 'history commit failed');
@@ -1322,7 +1354,7 @@ export function createClient(
 
   async function undoHistory(): Promise<RestoreResult> {
     const m = await module();
-    return normalizeHistoryRestore(callJson(m, 'orc_history_undo', [], []));
+    return normalizeHistoryRestore(callProfiledJson(m, 'orc_history_undo', [], []));
   }
 
   async function redoHistory(): Promise<RestoreResult> {
@@ -1493,7 +1525,7 @@ export function createClient(
 
     async addPlate(): Promise<PlateSessionMutationResult> {
       const m = await module();
-      return normalizePlateMutationResult(callJson(m, 'orc_add_plate', [], []));
+      return normalizePlateMutationResult(callProfiledJson(m, 'orc_add_plate', [], []));
     },
 
     async deletePlate(plateId: string): Promise<PlateSessionMutationResult> {
@@ -1728,7 +1760,7 @@ export function createClient(
 
     async setModelTransforms(transactionId, transforms) {
       const m = await module();
-      const raw = callJson(m, 'orc_set_model_transforms', ['string', 'string'],
+      const raw = callProfiledJson(m, 'orc_set_model_transforms', ['string', 'string'],
         [transactionId, JSON.stringify(transforms)]);
       if (!raw || typeof raw !== 'object' || (raw as Record<string, unknown>).ok !== true)
         return { ok: false, error: typeof (raw as Record<string, unknown> | null)?.error === 'string'
@@ -2294,5 +2326,17 @@ export function createClient(
     const m = await module();
     return callJson(m, 'orc_check_serial_admission', ['string'], [observedEpoch]) as Record<string, unknown>;
   });
+  if (REAL_PROJECT_PROFILE_BUILD) {
+    (client as unknown as Record<string, () => Promise<unknown>>).takeRealProjectProfileSnapshot = async () => {
+      const m = await module();
+      const native = callJson(m, 'orc_take_real_project_profile_snapshot', [], []) as Record<string, unknown>;
+      return {
+        ...native,
+        js_profile_identity: REAL_PROJECT_PROFILE_JS_SENTINEL,
+        js_wasm_calls: realProjectProfileCalls!.splice(0),
+        wasm_heap_buffer_bytes_after_read: m.HEAPU8.buffer.byteLength,
+      };
+    };
+  }
   return client;
 }

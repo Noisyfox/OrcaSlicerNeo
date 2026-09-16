@@ -344,6 +344,19 @@ bool PlateRuntimeRegistry::empty() const noexcept
     return entries_.empty();
 }
 
+#ifdef NEO_REAL_PROJECT_PROFILE
+std::vector<PlateRuntimeRegistry::ProfileEntry> PlateRuntimeRegistry::profile_entries() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ProfileEntry> result;
+    result.reserve(entries_.size());
+    for (const auto& [plate_id, entry] : entries_)
+        result.push_back({plate_id, entry->print.get(), entry->gcode_result.get(),
+                          entry->native_core_materialized});
+    return result;
+}
+#endif
+
 void PlateRuntimeRegistry::release_job(JobLease& lease) noexcept
 {
     std::lock_guard<std::mutex> lock(mutex_);

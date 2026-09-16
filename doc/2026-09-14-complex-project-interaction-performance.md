@@ -280,13 +280,59 @@ the Step 14 208.87 ms native projection / 278.85 ms click-to-restored profile;
 the remaining native work is primarily effective-config construction,
 plate-local model construction, and height bounds.
 
+### Dedicated real-project interaction acceptance profile
+
+Step 15 now has one dedicated, headed Electron acceptance profile for the
+exact 45,586,816-byte u1.3mf fixture. The runner requires `VITE_USE_MOCK=0`,
+builds a separate threaded WASM variant with `NEO_REAL_PROJECT_PROFILE=1`,
+stages it as `profile-threaded`, and drives a visible window. It proves the
+11-plate native load receipt, Add Plate to enabled `Undo Add Plate`, a genuine
+canvas Move to enabled `Undo Move`, and Undo to the exact pre-Move model-center
+projection with enabled `Redo Move`.
+
+The dedicated build records application/client/Worker timing, JSON bytes and
+wall time for each JS-to-WASM call, and the named native stages for history,
+plate mutation, transform, restore, and prime-tower projection. Its snapshot
+attributes the WASM heap, history retention, shared source meshes, per-plate
+`Print`/`GCodeProcessorResult` core-cache counts and byte estimates, renderer
+typed arrays, and estimated GPU geometry buffers. Shared mesh storage is
+charged once at the authoritative-model level and each per-plate mesh-byte
+attribution is explicitly zero.
+
+The latest accepted visible run measured 69.33 ms from Add Plate click to
+visible Undo, 58.38 ms from Move pointer-up to visible Undo, and 1,518.31 ms
+from Undo click to the restored renderer/model fence. The post-Undo snapshot
+reported a 1,873,543,168-byte WASM heap, 11,069,344 retained history bytes,
+57,317,544 shared-mesh bytes, 4,896 aggregate per-plate structural bytes,
+239,712 aggregate derived-cache bytes, 57,317,544 renderer typed-array bytes,
+and 76,412,856 estimated GPU bytes. Both mutation availability fences remain
+below the accepted 100 ms boundary.
+
+The normal CMake default leaves `NEO_REAL_PROJECT_PROFILE` off and does not
+compile the profile translation unit. Renderer/Worker hooks use direct Vite
+build-time branches, not runtime guards. Ordinary staging deletes the
+`profile-threaded` directory. The runner finishes by rebuilding the normal
+threaded WASM and Electron renderer with `VITE_USE_MOCK=0`, then scans both
+artifacts and fails if any profile ABI, hook, path, or sentinel remains.
+
+The canonical command is
+`pnpm --filter @orca/desktop test:e2e:real-project-profile`. For the final
+accepted run the dedicated WASM had already been rebuilt and validated, so the
+same command was run with
+`ORCA_REAL_PROJECT_PROFILE_SKIP_WASM_BUILD=1`; this skips only that repeated
+native compile and still stages the real artifact, builds the profiled
+renderer, runs the visible test, restores production artifacts, and executes
+both inclusion/exclusion scans.
+
 ## Verification
 
-- `pnpm --filter @orca/slicer-wasm test` — 148 tests passed.
+- `pnpm --filter @orca/slicer-wasm test` — 152 tests passed.
 - `pnpm --filter @orca/slicer-wasm typecheck` — passed.
+- `pnpm --filter @orca/slicer-runtime test` — 34 tests passed.
+- `pnpm --filter @orca/slicer-runtime typecheck` — passed.
 - `pnpm --filter @orca/desktop test` — 67 tests passed.
 - `pnpm --filter @orca/desktop typecheck` — passed.
-- `pnpm --filter @orca/slicer-app test` — 571 tests passed.
+- `pnpm --filter @orca/slicer-app test` — 575 tests passed.
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
 - `cmd /c scripts\build-windows.bat quick --variant both` — threaded and
   serial WASM artifacts built and validated.
@@ -312,6 +358,15 @@ plate-local model construction, and height bounds.
   scalar native `prime_tower_projection` aggregate/per-plate stage schema
   alongside sparse native `delta_record`/`delta_apply` stages without full
   native staging.
+- Dedicated `NEO_REAL_PROJECT_PROFILE=1` threaded WASM build — passed;
+  `orca_slice.wasm` was 34,104,592 bytes and exported the profile ABI only in
+  `out/profile-threaded`.
+- `$env:ORCA_REAL_PROJECT_PROFILE_SKIP_WASM_BUILD='1'; pnpm --filter
+  @orca/desktop test:e2e:real-project-profile` — passed twice after the final
+  test fixes. Each run staged the real profile artifact, built with
+  `VITE_USE_MOCK=0`, ran one headed/visible exact-u1 acceptance test, restored
+  the normal threaded artifact, rebuilt the production Electron renderer, and
+  verified that production retained no profile sentinel or call site.
 - `git diff --check` — passed.
 
 Do not treat a build under `packages/slicer-wasm/.work` or

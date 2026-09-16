@@ -28,6 +28,7 @@ else()
 endif()
 set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_OCCT_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone headless ProjectHistory test" OFF)
+option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
 # libslic3r part (slic3r_core + bridge/CLI TUs) is rebuilt with -g -O0 so the
 # final module embeds DWARF for interactive source-level debugging in Chrome
@@ -362,11 +363,19 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp"
 )
+if(NEO_REAL_PROJECT_PROFILE)
+  list(APPEND ORCA_BRIDGE_SRC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_real_project_profile.cpp")
+endif()
 set(ORCA_SLICE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
   ${ORCA_BRIDGE_SRC}
 )
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+if(NEO_REAL_PROJECT_PROFILE)
+  target_compile_definitions(orca_slice PRIVATE NEO_REAL_PROJECT_PROFILE=1)
+  message(STATUS "Real-project profile: dedicated profiling ABI enabled")
+endif()
 if(NEO_PROJECT_HISTORY_TEST)
   add_executable(plate_runtime_registry_test
     "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"

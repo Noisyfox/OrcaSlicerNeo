@@ -39,6 +39,7 @@ REM (1 = oneTBB pthreads, 0 = serial TBB shim); WASM_ARTIFACT_VARIANT names
 REM the tree. Each variant gets its own work/build/out dirs so a serial build
 REM can never reuse pthread objects (or vice versa).
 if not defined WASM_THREADING set "WASM_THREADING=1"
+if not defined NEO_REAL_PROJECT_PROFILE set "NEO_REAL_PROJECT_PROFILE=0"
 if defined WASM_ARTIFACT_VARIANT (
   set "ARTIFACT_VARIANT=%WASM_ARTIFACT_VARIANT%"
 ) else (
@@ -273,6 +274,7 @@ echo [wasm] Configuring stripped libslic3r + bridge + CLI (emcmake)
 emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DWASM_DEBUG=%DBG% ^
+  -DNEO_REAL_PROJECT_PROFILE=%NEO_REAL_PROJECT_PROFILE% ^
   -DORCA_SRC="%ORCA_SRC_CM%" ^
   -DSHIM_INCLUDE="%SHIM_CM%" ^
   -DGEN_INCLUDE="%GEN_CM%" ^
