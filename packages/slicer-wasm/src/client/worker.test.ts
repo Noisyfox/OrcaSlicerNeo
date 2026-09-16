@@ -94,8 +94,8 @@ describe('worker protocol', () => {
     const { workerClient } = setup();
     await workerClient.init();
     await workerClient.addModel(new Uint8Array(4), 'stl');
-    await workerClient.slice({}, () => {});
-    const res = await workerClient.getSliceResult();
+    const slice = await workerClient.slice({}, () => {});
+    const res = await workerClient.getSliceResult(slice.receipt!);
     expect(res.toolpath.segmentCount).toBeGreaterThan(0);
     expect(res.toolpath.ends.byteLength).toBe(res.toolpath.segmentCount * 3 * 4);
   });
@@ -144,8 +144,8 @@ describe('worker protocol', () => {
     const { workerClient, channel } = setup();
     await workerClient.init();
     await workerClient.addModel(new Uint8Array(4), 'stl');
-    await workerClient.slice({});
-    const result = await workerClient.getSliceResult();
+    const slice = await workerClient.slice({});
+    const result = await workerClient.getSliceResult(slice.receipt!);
     const responseTransfers = channel.transfers.find((items) => items.length > 5);
     expect(responseTransfers).toBeDefined();
     expect(new Set(responseTransfers as Transferable[]).size).toBe((responseTransfers as Transferable[]).length);

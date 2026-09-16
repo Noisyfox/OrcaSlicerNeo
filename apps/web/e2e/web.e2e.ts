@@ -404,6 +404,18 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
 });
 
 test('multi-plate Preview renders only the current plate in world coordinates', async ({ page }) => {
+  // This scenario intentionally performs two real native slices so both
+  // retained cores can be revisited; allow both to finish on slower hosts.
+  test.slow();
+  const waitForSliceTerminal = async () => {
+    await expect(page.getByTestId('slicer-status')).toHaveText(/Slicing…|Sliced|Error/);
+    await page.waitForFunction(() => ['Sliced', 'Error'].includes(
+      document.querySelector('[data-testid="slicer-status"]')?.textContent ?? '',
+    ), undefined, { timeout: 120_000 });
+    const status = await page.getByTestId('slicer-status').textContent();
+    const error = await page.getByTestId('slicer-error').textContent().catch(() => null);
+    expect(status, error ?? undefined).toBe('Sliced');
+  };
   await page.addInitScript(() => {
     localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
       version: 1,
@@ -435,7 +447,7 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
   await (await secondChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
   await page.getByTestId('btn-slice').click();
-  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await waitForSliceTerminal();
 
   await page.locator('#app-tab-preview').click();
   await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
@@ -470,7 +482,7 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
 
   // Preview exposes the same authoritative plate selection transaction in its
   // left sidebar. The first plate is valid but unsliced, so selecting it must
-  // retain Preview and let the existing coordinator slice that target.
+  // release plate 2's renderer projection and show the explicit empty state.
   const plateList = page.getByTestId('preview-plate-list');
   await expect(plateList).toBeVisible();
   const plate1Option = page.getByTestId(`preview-plate-${plate1.plateId}`);
@@ -485,7 +497,11 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
     expect.objectContaining({ plateId: plate1.plateId, current: true }),
   ]);
   await expect.poll(readModels).toHaveLength(1);
-  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await expect(page.getByTestId('viewport')).toHaveAttribute('data-preview-projection-state', 'needs-slicing');
+  await expect(page.getByRole('status')).toHaveText('Needs slicing');
+  await expect.poll(readToolpathBounds).toBeNull();
+  await page.getByTestId('btn-slice').click();
+  await waitForSliceTerminal();
   await expect.poll(readToolpathBounds).not.toBeNull();
   const plate1Bounds = await readToolpathBounds();
   if (!plate1Bounds) throw new Error('plate 1 preview bounds are unavailable');

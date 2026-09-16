@@ -277,6 +277,13 @@ const char* result_unavailable_error()
     return error_json("plate slice result is stale or unavailable");
 }
 
+json projection_receipt(const PlateRuntimeRegistry::Entry& entry)
+{
+    return json{{"plate_id", entry.plate_id},
+                {"input_stamp", entry.completed_input_revision.value_or(0)},
+                {"slice_task_id", std::to_string(entry.completed_slice_task_id.value_or(0))}};
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_get_progress_mailbox()
 {
     return dup_json(json{{"ok", true},
@@ -308,6 +315,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         runtime_entry = runtime_entry_for_plate(plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
+        const std::uint64_t slice_task_id = state().next_slice_task_id++;
         PlateRuntimeRegistry::begin_slice(*runtime_entry);
         auto& print = *runtime_entry->print;
 
@@ -503,7 +511,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
 #endif
         print.set_status_default();
         PlateRuntimeRegistry::mark_process_completed(
-            *runtime_entry, revision, current_input_revision_for_plate(plate_id));
+            *runtime_entry, revision, current_input_revision_for_plate(plate_id),
+            slice_task_id);
         finish_progress();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
@@ -517,7 +526,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         try { warnings = Neo::Bridge::PrimeTower::slice_warnings_for_plate(plate_id); }
         catch (...) { /* advisory warnings must never turn a successful slice into a hard error */ }
         return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)},
-                             {"warnings", std::move(warnings)}}.dump());
+                             {"warnings", std::move(warnings)},
+                             {"receipt", projection_receipt(*runtime_entry)}}.dump());
     } catch (const std::exception& e) {
         if (runtime_entry != nullptr)
             PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
@@ -601,6 +611,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                 {"metrics", json::object()}};
             PlateRuntimeRegistry::mark_presentation_valid(*runtime_entry, current_revision);
             return dup_json(json{{"ok", true}, {"preview_version", 2},
+                                 {"receipt", projection_receipt(*runtime_entry)},
                                  {"objects", 0}, {"layers", 0},
                                  {"metadata", json{{"result_id", 0}, {"layer_ranges", json::array()},
                                                     {"feature_palette", json::array()},
@@ -713,6 +724,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         const std::uintptr_t te = ptr(tp.ends);
 
         json out{{"ok", true}, {"preview_version", 2},
+                 {"receipt", projection_receipt(*runtime_entry)},
                  {"objects", print.objects().size()}, {"layers", layers}};
         out["metadata"] = {
             {"result_id", gcode_result.id}, {"source_filename", gcode_result.filename},
@@ -772,12 +784,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             *runtime_entry, current_input_revision_for_plate(state().current_plate_id));
         return dup_json(out.dump());
     } catch (const std::exception& e) {
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
+        // Projection construction is presentation-only work. A failed copy or
+        // allocation may be retried from the retained native core result and
+        // must not revoke Export eligibility or mutate registry ownership.
         return error_json(e.what());
     } catch (...) {
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
         return error_json("unknown C++ exception");

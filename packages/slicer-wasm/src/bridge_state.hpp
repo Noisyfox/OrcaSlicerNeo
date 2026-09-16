@@ -120,6 +120,10 @@ struct BridgeState {
     // future painting/support tools one safe outer transaction boundary.
     std::vector<HistoryTransaction> nested_history_transactions;
     std::uint64_t next_history_transaction_id = 1;
+    // Slice-task identities are runtime-only, monotonic, and never reused in
+    // one WASM session. The threaded task system will share this identity
+    // domain; renderer projection epochs remain separate UI-only tokens.
+    std::uint64_t next_slice_task_id = 1;
     std::uint64_t history_revision = 0;
     // Test-visible counter makes the no-PresetBundle history boundary
     // executable: history restores must use the minimal mutable frame below.
@@ -138,10 +142,9 @@ struct BridgeState {
     std::size_t preview_gcode_size = 0;
     std::vector<std::size_t> preview_gcode_line_ends;
     bool preview_text_available = false;
-    // The current result is deliberately single-plate until Step 8 adds the
-    // per-plate result cache. Keep its operation identity beside the result
-    // so export cannot accidentally consume a result for another plate or
-    // revision after selection/editing races.
+    // These fields identify only the current transferable renderer projection.
+    // Durable native slice cores and their generation identities live in the
+    // per-plate runtime registry.
     std::string preview_plate_id;
     std::uint64_t preview_plate_revision = 0;
     // Runtime-only identity for the headless plate session. These records are

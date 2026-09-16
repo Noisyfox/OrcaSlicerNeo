@@ -43,6 +43,11 @@ public:
         // process.  The current revision remains authoritative in
         // BridgeState::plate_input_revisions and is never duplicated here.
         std::optional<std::uint64_t> completed_input_revision;
+        // Runtime-only identity of the successful Slice which produced the
+        // retained core result. It is carried to React as a decimal string so
+        // delayed projection payloads cannot impersonate a newer Slice for
+        // the same unchanged input stamp.
+        std::optional<std::uint64_t> completed_slice_task_id;
         bool native_core_materialized = false;
     };
 
@@ -55,6 +60,7 @@ public:
         const GCodeProcessorResult* gcode_result = nullptr;
         PresentationLifecycle presentation = PresentationLifecycle::Invalid;
         std::optional<std::uint64_t> completed_input_revision;
+        std::optional<std::uint64_t> completed_slice_task_id;
         bool native_core_materialized = false;
     };
     using LifecycleSnapshots = std::map<std::string, LifecycleSnapshot>;
@@ -78,7 +84,8 @@ public:
     static void begin_slice(Entry& entry) noexcept;
     static void mark_process_completed(Entry& entry,
                                        std::uint64_t completed_revision,
-                                       std::uint64_t current_revision) noexcept;
+                                       std::uint64_t current_revision,
+                                       std::uint64_t slice_task_id) noexcept;
     static void mark_presentation_valid(Entry& entry,
                                         std::uint64_t current_revision) noexcept;
     static void mark_presentation_invalid(Entry& entry) noexcept;

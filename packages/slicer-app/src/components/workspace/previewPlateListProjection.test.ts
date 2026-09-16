@@ -28,15 +28,15 @@ describe('Preview plate list projection', () => {
 
   it('marks only a result matching the authoritative input revision as sliced', () => {
     const rows = projectPreviewPlateList(snapshot, {
-      a: { target: { plateId: 'a', inputRevision: 4 }, result: { layers: 2 } as any, warnings: [] },
-      b: { target: { plateId: 'b', inputRevision: 6 }, result: { layers: 2 } as any, warnings: [] },
+      a: { target: { plateId: 'a', inputRevision: 4 }, receipt: { plateId: 'a', inputStamp: 4, sliceTaskId: '1' }, warnings: [] },
+      b: { target: { plateId: 'b', inputRevision: 6 }, receipt: { plateId: 'b', inputStamp: 6, sliceTaskId: '2' }, warnings: [] },
     });
     expect(rows.find((row) => row.plate.plateId === 'a')?.status).toBe('sliced');
     expect(rows.find((row) => row.plate.plateId === 'b')?.status).toBe('unsliced');
   });
 
   it('retains an inactive plate result when the current plate changes', () => {
-    const result = { target: { plateId: 'a', inputRevision: 4 }, result: { layers: 2 } as any, warnings: [] };
+    const result = { target: { plateId: 'a', inputRevision: 4 }, receipt: { plateId: 'a', inputStamp: 4, sliceTaskId: '1' }, warnings: [] };
     const rows = projectPreviewPlateList({ ...snapshot, currentPlateId: 'a' }, { a: result });
     expect(rows.find((row) => row.plate.plateId === 'a')).toMatchObject({ current: true, status: 'sliced' });
 

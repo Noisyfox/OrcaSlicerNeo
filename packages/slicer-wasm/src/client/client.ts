@@ -16,7 +16,7 @@ import type {
   ConfigurationStatus,
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
-  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
+  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
@@ -53,6 +53,32 @@ function emptyHistoryDiagnosticLayer(): HistoryDiagnosticLayer {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
+  if (!isRecord(raw)) throw new Error('slice bridge returned an invalid result');
+  const receipt = raw.receipt;
+  let normalizedReceipt: SliceResultReceipt | undefined;
+  if (receipt !== undefined) {
+    if (!isRecord(receipt) || typeof receipt.plate_id !== 'string' ||
+        !Number.isSafeInteger(receipt.input_stamp) || Number(receipt.input_stamp) < 0 ||
+        typeof receipt.slice_task_id !== 'string' || !/^\d+$/.test(receipt.slice_task_id))
+      throw new Error('slice bridge returned an invalid result receipt');
+    normalizedReceipt = {
+      plateId: receipt.plate_id,
+      inputStamp: Number(receipt.input_stamp),
+      sliceTaskId: receipt.slice_task_id,
+    };
+  }
+  return {
+    ok: raw.ok === true,
+    unrecognized_keys: Array.isArray(raw.unrecognized_keys)
+      ? raw.unrecognized_keys.filter((key): key is string => typeof key === 'string') : [],
+    ...(Array.isArray(raw.warnings)
+      ? { warnings: raw.warnings.filter((warning): warning is string => typeof warning === 'string') } : {}),
+    ...(normalizedReceipt ? { receipt: normalizedReceipt } : {}),
+    ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+  };
 }
 
 function normalizeModelTransform(raw: unknown): ModelTransform | undefined {
@@ -1724,7 +1750,7 @@ export function createClient(
       // progress even with no listener attached; here we just subscribe.
       if (onProgress) progressListeners.add(onProgress);
       try {
-        return callJson(m, 'orc_slice', ['string'], [JSON.stringify(config)]) as SliceResultStatus;
+        return normalizeSliceResultStatus(callJson(m, 'orc_slice', ['string'], [JSON.stringify(config)]));
       } finally {
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -1734,18 +1760,19 @@ export function createClient(
       const m = await module();
       if (onProgress) progressListeners.add(onProgress);
       try {
-        return callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
+        return normalizeSliceResultStatus(callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
           JSON.stringify(config), target.plateId, target.inputRevision,
-        ]) as SliceResultStatus;
+        ]));
       } finally {
         if (onProgress) progressListeners.delete(onProgress);
       }
     },
 
-    async getSliceResult(): Promise<ClientSliceResult> {
+    async getSliceResult(expectedReceipt: SliceResultReceipt): Promise<ClientSliceResult> {
       const m = await module();
       const r = callJson(m, 'orc_get_slice_result', [], []) as {
         ok: boolean; error?: string; objects?: number; layers?: number; preview_version?: number;
+        receipt?: { plate_id?: string; input_stamp?: number; slice_task_id?: string };
         metadata?: {
           result_id?: number; source_filename?: string;
           layer_ranges?: Array<{ id: number; z: number; first_segment: number; segment_count: number }>;
@@ -1778,7 +1805,28 @@ export function createClient(
           metrics?: Record<string, { ptr: number; count: number }>;
         };
       };
-      if (!r.ok) return r as unknown as ClientSliceResult;
+      if (!r.ok) return {
+        ...r, status: r.error?.includes('stale or unavailable') ? 'unavailable' : 'failed',
+        objects: 0, layers: 0,
+      } as unknown as ClientSliceResult;
+      const rawReceipt = r.receipt;
+      if (!rawReceipt || typeof rawReceipt.plate_id !== 'string' ||
+          !Number.isSafeInteger(rawReceipt.input_stamp) || rawReceipt.input_stamp! < 0 ||
+          typeof rawReceipt.slice_task_id !== 'string' || !/^\d+$/.test(rawReceipt.slice_task_id))
+        throw new Error('slice result bridge returned an invalid receipt');
+      const receipt: SliceResultReceipt = {
+        plateId: rawReceipt.plate_id,
+        inputStamp: rawReceipt.input_stamp!,
+        sliceTaskId: rawReceipt.slice_task_id,
+      };
+      if (receipt.plateId !== expectedReceipt.plateId ||
+          receipt.inputStamp !== expectedReceipt.inputStamp ||
+          receipt.sliceTaskId !== expectedReceipt.sliceTaskId) {
+        return {
+          ok: false, status: 'stale', receipt, objects: 0, layers: 0,
+          error: 'slice result projection was superseded',
+        } as unknown as ClientSliceResult;
+      }
       if (r.preview_version !== 2 || !r.metadata || !r.toolpath)
         throw new Error('slice result bridge returned an invalid v2 envelope');
 
@@ -1964,6 +2012,7 @@ export function createClient(
 
       return {
         ok: true,
+        status: 'ok', receipt,
         objects: requireInteger(r.objects, 'object count'),
         layers: requireInteger(r.layers, 'layer count'),
         toolpath, metadata,

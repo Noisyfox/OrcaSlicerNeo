@@ -137,7 +137,9 @@ export function Workspace({
   const historyRestorePhase = useHistoryRestoreStore((s) => s.phase);
   const historyRestoreRevision = useHistoryRestoreStore((s) => s.revision);
   const glVolumes = useModelLoader();
-  const sliceResult = useSliceResult();
+  // Typed-array/GPU projection exists only while Preview is active. Native
+  // plate cores stay retained in the Worker registry across tab switches.
+  const sliceResult = useSliceResult(isPreviewTab(activeTab));
   const primeTowerRefreshRef = useRef<((forceDuringRestore?: boolean, forceRead?: boolean) => Promise<void>) | null>(null);
   const primeTowerRefreshGenerationRef = useRef(0);
   const primeTowerProjectionInputsRef = useRef<readonly unknown[] | null>(null);
@@ -586,13 +588,6 @@ export function Workspace({
     if (enteredPreview) void sliceCoordinator.ensureSlice();
   }, [activeTab, sliceCoordinator]);
 
-  // Orca Preview follows the selected plate. A retained result is activated
-  // synchronously by the viewport; an otherwise valid unsliced plate starts
-  // one job automatically when the selection changes in Preview.
-  useEffect(() => {
-    if (isPreviewTab(activeTab) && currentPlateId) void sliceCoordinator.ensureSlice();
-  }, [activeTab, currentPlateId, sliceCoordinator]);
-
   const selectPreviewPlate = useCallback(async (plateId: string) => {
     if (previewPlateSelectionPending) return;
     const previousPlateId = usePlateSessionStore.getState().snapshot?.currentPlateId;
@@ -761,6 +756,7 @@ export function Workspace({
           glVolumes={glVolumes}
           structure={structure}
           toolpath={sliceResult.toolpath}
+          projectionStatus={sliceResult.projectionStatus}
           previewFrameRequest={previewFrameRequest}
           onModelAdded={onModelAdded}
           onSceneFrameRendered={handleSceneFrameRendered}

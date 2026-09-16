@@ -85,13 +85,11 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   }
   const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: revision as number };
 
-  const existing = useSlicerStore.getState().plateResults[target.plateId];
-  if (existing?.target.inputRevision === target.inputRevision) {
-    useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);
-    return;
-  }
-
   const slicer = useSlicerStore.getState();
+  // An explicit Slice withdraws only the renderer-facing receipt/projection.
+  // The Worker registry keeps its native Print/result cache for incremental
+  // processing and publishes a new task-addressed receipt on success.
+  slicer.invalidatePlateResults([target.plateId]);
   slicer.setStatus('slicing');
   slicer.setActiveSliceTarget(target);
   slicer.setResultExported(false);
@@ -110,34 +108,21 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (result.unrecognized_keys.length) {
       console.warn('unrecognized keys dropped by libslic3r:', result.unrecognized_keys);
     }
-    // Read and retain the completed result while the worker still owns the
-    // corresponding native Print. The immutable target guards against a
-    // mutation/cancellation race; a late completion never becomes visible.
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
         live.activeSliceTarget.inputRevision !== target.inputRevision) return;
-    const preview = await platform.runtime.getSliceResult();
-    if (!preview.ok) { setFailure(preview.error ?? 'slice result unavailable'); return; }
-    const exported = await platform.runtime.exportGcodePlate(target);
-    if (!exported.ok) { setFailure(exported.error ?? 'slice G-code unavailable'); return; }
-    // A configuration or plate-local edit may have superseded the native
-    // result while preview extraction/export were in flight.  Re-read the
-    // authoritative plate revision immediately before publication so a late
-    // result can never repopulate the renderer cache after invalidation.
-    const finalSession = await platform.runtime.getPlateSessionSnapshot();
-    const finalRevision = finalSession.ok ? finalSession.inputRevisions?.[target.plateId] : undefined;
-    const finalLive = useSlicerStore.getState();
-    if (!finalSession.ok || finalRevision !== target.inputRevision ||
-        !finalLive.activeSliceTarget || finalLive.activeSliceTarget.plateId !== target.plateId ||
-        finalLive.activeSliceTarget.inputRevision !== target.inputRevision) {
-      if (finalLive.activeSliceTarget?.plateId === target.plateId &&
-          finalLive.activeSliceTarget.inputRevision === target.inputRevision) {
-        finalLive.setActiveSliceTarget(null);
-        if (finalLive.status === 'slicing') finalLive.setStatus('idle');
-      }
+    if (!result.receipt || result.receipt.plateId !== target.plateId ||
+        result.receipt.inputStamp !== target.inputRevision) {
+      const received = result.receipt
+        ? `${result.receipt.plateId}@${result.receipt.inputStamp}#${result.receipt.sliceTaskId}`
+        : 'missing';
+      setFailure(`slice result receipt did not match ${target.plateId}@${target.inputRevision} (received ${received})`);
       return;
     }
-    useSlicerStore.getState().setPlateResult(target, preview, exported.bytes, result.warnings ?? []);
+    // Native Slice completion is the global terminal. Typed-array transfer
+    // and GPU construction are a later Preview-local projection and do not
+    // keep slicing controls or Export blocked.
+    useSlicerStore.getState().setPlateResult(result.receipt, result.warnings ?? []);
     useSlicerStore.getState().setActiveSliceTarget(null);
     const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
     if (current === target.plateId) useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);
@@ -162,15 +147,9 @@ export async function exportGcode(platform: PlatformCapabilities): Promise<void>
     const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: Number(revision) };
     if (!currentTarget || currentTarget.plateId !== target.plateId || currentTarget.inputRevision !== target.inputRevision)
       throw new Error('current plate slice result is stale or unavailable');
-    const cached = useSlicerStore.getState().plateResults[target.plateId];
-    let bytes = cached?.target.inputRevision === target.inputRevision && cached.gcode ? cached.gcode : undefined;
-    if (!bytes) {
-      const fresh = await platform.runtime.exportGcodePlate(target);
-      if (!fresh.ok) throw new Error(fresh.error ?? 'export failed');
-      bytes = fresh.bytes;
-    }
-    if (!bytes) throw new Error('export failed');
-    await platform.exports.save('output.gcode', bytes);
+    const fresh = await platform.runtime.exportGcodePlate(target);
+    if (!fresh.ok) throw new Error(fresh.error ?? 'export failed');
+    await platform.exports.save('output.gcode', fresh.bytes);
     useSlicerStore.getState().setResultExported(true);
   } catch (err) {
     useSlicerStore.getState().setError(`export: ${errorText(err)}`);

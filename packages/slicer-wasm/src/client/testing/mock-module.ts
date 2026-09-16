@@ -304,6 +304,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let sliced = false;
   let slicedPlateId = '';
   let slicedPlateRevision = 0;
+  let nextSliceTaskId = 1n;
+  const sliceReceipts = new Map<string, { inputStamp: number; sliceTaskId: string }>();
   let plateSessionSequence = 0;
   let plateSessionId = '';
   let plateIds: string[] = [];
@@ -919,7 +921,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = true;
     slicedPlateId = plateId;
     slicedPlateRevision = revision;
-    return { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings] };
+    const receipt = { inputStamp: revision, sliceTaskId: String(nextSliceTaskId++) };
+    sliceReceipts.set(plateId, receipt);
+    return { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], receipt: {
+      plate_id: plateId, input_stamp: receipt.inputStamp, slice_task_id: receipt.sliceTaskId,
+    } };
   }
 
   // Serialize the current structure in the bridge's object/part/instance shape.
@@ -1949,7 +1955,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return runMockSlice(plateId, revision);
     },
     orc_get_slice_result() {
-      if (!sliced) return { error: 'no slice result' };
+      const receipt = sliceReceipts.get(currentPlateId);
+      if (!receipt || receipt.inputStamp !== (plateInputRevisions[currentPlateId] ?? 0) ||
+          (!sliced && slicedPlateId === currentPlateId))
+        return { error: 'plate slice result is stale or unavailable' };
       const n = fixture.toolpathVertices;
       const allocF32 = (values: number[]) => {
         const ptr = malloc(values.length * 4);
@@ -2003,6 +2012,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }).filter((x) => x.segment_count > 0);
       return {
         ok: true, preview_version: 2,
+        receipt: { plate_id: currentPlateId, input_stamp: receipt.inputStamp, slice_task_id: receipt.sliceTaskId },
         objects: objectTransforms.length,
         layers: fixture.layers,
         metadata: {
@@ -2058,7 +2068,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_export_gcode_plate(plateId: string, revision: number) {
       if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
       if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
-      if (!sliced || slicedPlateId !== plateId || slicedPlateRevision !== revision)
+      const receipt = sliceReceipts.get(plateId);
+      if (!receipt || receipt.inputStamp !== revision)
         return { error: 'plate slice result is stale or unavailable' };
       return bridge.orc_export_gcode();
     },

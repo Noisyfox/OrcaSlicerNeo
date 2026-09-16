@@ -1087,13 +1087,13 @@ describe('SlicerClient bridge contract', () => {
     it('invalidates the slice result after a non-destructive mutation', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.renameObject(objects[0].id, 'Renamed');
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1205,13 +1205,13 @@ describe('SlicerClient bridge contract', () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.deleteObjects([objects[0].id]);
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1256,13 +1256,13 @@ describe('SlicerClient bridge contract', () => {
     it('invalidates the slice result after a split', async () => {
       const c = createClient(async () => createMockModule());
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.splitVolumeToParts(objects[0].volumes[0].id);
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1292,13 +1292,13 @@ describe('SlicerClient bridge contract', () => {
     it('invalidates the slice result after a split', async () => {
       const c = createClient(async () => createMockModule({ splitParts: 2 }));
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.splitObjectToObjects(objects[0].id);
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1335,13 +1335,13 @@ describe('SlicerClient bridge contract', () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.mergeObjectsToMultipart([objects[0].id, objects[1].id], 'Asm');
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1505,12 +1505,21 @@ describe('SlicerClient bridge contract', () => {
   it('getSliceResult extracts toolpath buffers with layer ranges', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({}, () => {});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({}, () => {});
+    const r = await c.getSliceResult(slice.receipt!);
     expect(r.layers).toBe(40);
     expect(r.toolpath.segmentCount).toBe(2400);
     expect(r.toolpath.ends.byteLength).toBe(2400 * 3 * 4);
     expect(r.toolpath.features.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('rejects a projection payload whose slice task receipt was superseded', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const slice = await c.slice({});
+    const stale = await c.getSliceResult({ ...slice.receipt!, sliceTaskId: '999' });
+    expect(stale).toMatchObject({ ok: false, status: 'stale' });
+    expect(stale.receipt).toEqual(slice.receipt);
   });
 
   it('decodes continuous v2 segments, indexes, palettes and metadata', async () => {
@@ -1531,8 +1540,8 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({});
+    const r = await c.getSliceResult(slice.receipt!);
     const t = r.toolpath;
     expect(t.segmentCount).toBe(4);
     expect(t.starts.length).toBe(12);
@@ -1592,8 +1601,8 @@ describe('SlicerClient bridge contract', () => {
       sliceFixture: { layers: 1, toolpathVertices: 2, features: orcaPalette },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({});
+    const r = await c.getSliceResult(slice.receipt!);
     expect(r.metadata.featurePalette).toEqual(orcaPalette);
     expect(r.toolpath.palette).toEqual(orcaPalette);
   });
@@ -1603,8 +1612,8 @@ describe('SlicerClient bridge contract', () => {
       sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, role: 0, name: 'Travel', color: [1, 2, 3] }] },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({});
+    const r = await c.getSliceResult(slice.receipt!);
     expect(r.toolpath.segmentCount).toBe(2);
     expect(r.toolpath.metrics).toEqual({});
     expect(r.metadata.sourceLineMapping?.available).toBe(true);
@@ -1715,8 +1724,8 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const result = await c.getSliceResult();
+    const slice = await c.slice({});
+    const result = await c.getSliceResult(slice.receipt!);
     const encoded = new TextEncoder().encode(sourceText);
     const middle = await c.readTextChunk({ resultId: result.metadata.resultId, offset: 3, length: 5 });
     expect(middle.offset).toBe(2);
@@ -1738,8 +1747,8 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const result = await c.getSliceResult();
+    const slice = await c.slice({});
+    const result = await c.getSliceResult(slice.receipt!);
     const chunk = await c.readTextChunk({
       resultId: result.metadata.resultId,
       offset: 3,
@@ -1759,8 +1768,8 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const result = await c.getSliceResult();
+    const slice = await c.slice({});
+    const result = await c.getSliceResult(slice.receipt!);
     const page = await c.readTextLines({ resultId: result.metadata.resultId, startLine: 3, lineCount: 1 });
     expect(page).toMatchObject({ startLine: 3, lineCount: 1, eof: true, text: 'G1 X2\n' });
     await expect(c.readTextLines({ resultId: 19, startLine: 1, lineCount: 129 })).rejects.toThrow('1-128');

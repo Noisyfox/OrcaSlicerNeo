@@ -1,9 +1,9 @@
 // packages/slicer-app/src/components/viewport/useSliceResult.ts
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
+import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis, SliceResultReceipt } from '@slicer/client';
 import { createPreviewSourceLineIndex, maxMoveOrderForLayer, type PreviewSourceLineIndex } from './previewSemantics';
 import { deriveLogicalMoveOrders } from './gpuStreamingPlanner';
 
@@ -34,7 +34,19 @@ export interface ToolpathGeometry {
   dispose: () => void;
 }
 
-export function useSliceResult() {
+export type PreviewProjectionStatus = 'needs-slicing' | 'loading' | 'ready' | 'failed';
+
+interface ProjectedResult {
+  receipt: SliceResultReceipt;
+  result: ClientSliceResult;
+}
+
+function sameReceipt(left: SliceResultReceipt | undefined, right: SliceResultReceipt | undefined): boolean {
+  return left !== undefined && right !== undefined && left.plateId === right.plateId &&
+    left.inputStamp === right.inputStamp && left.sliceTaskId === right.sliceTaskId;
+}
+
+export function useSliceResult(enabled = true) {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
   const sliceTarget = useSlicerStore((s) => s.sliceTarget);
@@ -46,68 +58,82 @@ export function useSliceResult() {
   const setLayer = useSlicerStore((s) => s.setLayer);
   const setPreviewBounds = useSlicerStore((s) => s.setPreviewBounds);
   const resetPreviewState = useSlicerStore((s) => s.resetPreviewState);
-  const [result, setResult] = useState<(ClientSliceResult & { sourceTextBytes?: Uint8Array }) | null>(null);
+  const activeResult = currentPlateId && sliceTarget?.plateId === currentPlateId
+    ? plateResults[currentPlateId]
+    : undefined;
+  const expectedReceipt = activeResult?.receipt;
+  const projectionEpoch = useRef(0);
+  const [projection, setProjection] = useState<ProjectedResult | null>(null);
+  const [projectionStatus, setProjectionStatus] = useState<PreviewProjectionStatus>('needs-slicing');
 
   useEffect(() => {
-    if (status !== 'done') {
-      // Any change to the slice inputs invalidates the completed Print (the
-      // bridge already cleared its C++ result). Drop the cached toolpath so
-      // the stale G-code preview leaves the scene, and reset the scrubber
-      // state so it hides until the next result is fetched (spec §8:
-      // "On invalidation the toolpath and layer state are immediately
-      // cleared... Stale preview data is never rendered.").
-      setResult(null);
+    const epoch = ++projectionEpoch.current;
+    setProjection(null);
+    if (!enabled || status !== 'done' || !expectedReceipt || expectedReceipt.plateId !== currentPlateId) {
+      setProjectionStatus('needs-slicing');
       setLayer(0);
       setMaxLayer(0);
       resetPreviewState();
       return;
     }
-    const cached = currentPlateId && sliceTarget?.plateId === currentPlateId
-      ? plateResults[currentPlateId]
-      : undefined;
-    if (cached && cached.target.inputRevision === sliceTarget?.inputRevision) {
-      setResult({ ...cached.result, sourceTextBytes: cached.gcode });
-      setLayers(cached.result.layers);
-      setMaxLayer(Math.max(0, cached.result.layers - 1));
-      const activeLayer = Math.max(0, cached.result.layers - 1);
-      const maxMove = maxMoveOrderForLayer({ ...cached.result.toolpath, metadata: cached.result.metadata }, activeLayer);
-      setPreviewBounds(activeLayer, maxMove, cached.result.metadata.resultId);
-      return;
-    }
+    const requestedReceipt = expectedReceipt;
+    setProjectionStatus('loading');
+    setLayer(0);
+    setMaxLayer(0);
+    resetPreviewState();
     let cancelled = false;
     (async () => {
       try {
-        const r = await platform.runtime.getSliceResult();
-        if (!r.ok) throw new Error(r.error ?? 'getSliceResult failed');
-        if (cancelled) return;
+        const r = await platform.runtime.getSliceResult(requestedReceipt);
+        if (cancelled || projectionEpoch.current !== epoch) return;
+        const live = useSlicerStore.getState();
+        const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
+        const liveReceipt = live.plateResults[requestedReceipt.plateId]?.receipt;
+        const liveTarget = live.sliceTarget;
+        if (current !== requestedReceipt.plateId || live.status !== 'done' ||
+            liveTarget?.plateId !== requestedReceipt.plateId ||
+            liveTarget?.inputRevision !== requestedReceipt.inputStamp ||
+            !sameReceipt(liveReceipt, requestedReceipt)) return;
+        if (!r.ok) {
+          if (r.status === 'stale') return;
+          if (r.status === 'unavailable') {
+            live.discardPlateResult(requestedReceipt.plateId);
+            setProjectionStatus('needs-slicing');
+            return;
+          }
+          setProjectionStatus('failed');
+          console.error('slice result projection failed:', r.error ?? 'unknown projection failure');
+          return;
+        }
+        if (!sameReceipt(r.receipt, requestedReceipt)) return;
         // bridge_buffers supplies a raw per-segment stream. Canonicalize it
         // once here so arc tessellation is one logical move for all consumers;
         // the enriched result/source then retains this array by reference.
         const moveOrders = deriveLogicalMoveOrders(r.toolpath.layerIds, r.toolpath.gcodeIds, r.toolpath.segmentCount);
         const result = { ...r, toolpath: { ...r.toolpath, moveOrders } };
-        setResult(result);
-        const target = useSlicerStore.getState().sliceTarget;
-        if (target) useSlicerStore.getState().setPlateResult(target, result);
+        setProjection({ receipt: requestedReceipt, result });
+        setProjectionStatus('ready');
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
         const activeLayer = Math.max(0, r.layers - 1);
         const maxMove = maxMoveOrderForLayer({ ...result.toolpath, metadata: r.metadata }, activeLayer);
         setPreviewBounds(Math.max(0, r.layers - 1), maxMove, r.metadata.resultId);
       } catch (err) {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
-        console.error('slice result fetch failed:', err);
-        // Slicing and preview extraction are separate worker calls.  Do not
-        // leave a failed extraction looking like a completed slice with an
-        // empty viewport; surface its bridge error through the same status
-        // path as an orc_slice failure.
-        const slicer = useSlicerStore.getState();
-        slicer.setStatus('error');
-        slicer.setError(`preview: ${message}`);
+        if (cancelled || projectionEpoch.current !== epoch) return;
+        // Projection failure is local and retryable from the retained native
+        // cache. It must not turn a completed Slice into a global slice error.
+        setProjectionStatus('failed');
+        console.error('slice result projection failed:', err);
       }
     })();
     return () => { cancelled = true; };
-  }, [currentPlateId, plateResults, resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, sliceTarget, status]);
+  }, [currentPlateId, expectedReceipt?.inputStamp, expectedReceipt?.plateId,
+    enabled, expectedReceipt?.sliceTaskId, resetPreviewState, setLayers, setMaxLayer,
+    setLayer, setPreviewBounds, status]);
+
+  const result = projection && sameReceipt(projection.receipt, expectedReceipt) &&
+      enabled && currentPlateId === projection.receipt.plateId && status === 'done'
+    ? projection.result : null;
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) return null;
@@ -136,7 +162,6 @@ export function useSliceResult() {
       ...(result.metadata.analysis ? { analysis: result.metadata.analysis } : {}),
       source,
       metadata: result.metadata,
-      ...(result.sourceTextBytes ? { sourceTextBytes: result.sourceTextBytes } : {}),
       // The source buffers are owned by the slice result and released by the
       // runtime. The renderer owns and disposes only its GPU resources.
       dispose: () => {},
@@ -147,5 +172,5 @@ export function useSliceResult() {
   // tree; clean them up after that transition without touching camera state.
   useEffect(() => () => toolpath?.dispose(), [toolpath]);
 
-  return { result, toolpath };
+  return { result, toolpath, projectionStatus };
 }

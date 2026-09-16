@@ -63,10 +63,12 @@ void PlateRuntimeRegistry::begin_slice(Entry& entry) noexcept
 
 void PlateRuntimeRegistry::mark_process_completed(Entry& entry,
                                                   const std::uint64_t completed_revision,
-                                                  const std::uint64_t current_revision) noexcept
+                                                  const std::uint64_t current_revision,
+                                                  const std::uint64_t slice_task_id) noexcept
 {
     entry.native_core_materialized = true;
     entry.completed_input_revision = completed_revision;
+    entry.completed_slice_task_id = slice_task_id;
     // Result/export materialization may promote this intermediate state to
     // valid without losing the retained native core objects.
     entry.presentation = completed_revision == current_revision
@@ -103,7 +105,8 @@ PlateRuntimeRegistry::LifecycleSnapshots PlateRuntimeRegistry::capture_lifecycle
     for (const auto& [plate_id, entry] : entries_)
         snapshots.emplace(plate_id, LifecycleSnapshot{
             entry.print.get(), entry.gcode_result.get(), entry.presentation,
-            entry.completed_input_revision, entry.native_core_materialized});
+            entry.completed_input_revision, entry.completed_slice_task_id,
+            entry.native_core_materialized});
     return snapshots;
 }
 
@@ -119,6 +122,7 @@ void PlateRuntimeRegistry::restore_lifecycle(const LifecycleSnapshots& snapshots
             continue;
         entry->presentation = snapshot.presentation;
         entry->completed_input_revision = snapshot.completed_input_revision;
+        entry->completed_slice_task_id = snapshot.completed_slice_task_id;
         entry->native_core_materialized = snapshot.native_core_materialized;
     }
 }

@@ -32,10 +32,11 @@ int main()
     CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
     CHECK(first->print.get() == first_print);
     CHECK(first->gcode_result.get() == first_result);
-    PlateRuntimeRegistry::mark_process_completed(*first, 0, 0);
+    PlateRuntimeRegistry::mark_process_completed(*first, 0, 0, 17);
     CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
     CHECK(first->native_core_materialized);
     CHECK(first->completed_input_revision == 0);
+    CHECK(first->completed_slice_task_id == 17);
     CHECK(PlateRuntimeRegistry::can_materialize_result(*first, 0));
     PlateRuntimeRegistry::mark_presentation_valid(*first, 0);
     CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Valid);
@@ -62,7 +63,7 @@ int main()
     CHECK(created->gcode_result.get() != retained->gcode_result.get());
     CHECK(created->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
     PlateRuntimeRegistry::begin_slice(*created);
-    PlateRuntimeRegistry::mark_process_completed(*created, 0, 1);
+    PlateRuntimeRegistry::mark_process_completed(*created, 0, 1, 18);
     CHECK(created->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
     CHECK(created->native_core_materialized);
     CHECK(!PlateRuntimeRegistry::can_materialize_result(*created, 1));
@@ -95,10 +96,10 @@ int main()
     auto* plate_c = registry.find("plate-c");
     CHECK(plate_b != nullptr && plate_c != nullptr);
     PlateRuntimeRegistry::begin_slice(*plate_b);
-    PlateRuntimeRegistry::mark_process_completed(*plate_b, 4, 4);
+    PlateRuntimeRegistry::mark_process_completed(*plate_b, 4, 4, 41);
     PlateRuntimeRegistry::mark_presentation_valid(*plate_b, 4);
     PlateRuntimeRegistry::begin_slice(*plate_c);
-    PlateRuntimeRegistry::mark_process_completed(*plate_c, 7, 7);
+    PlateRuntimeRegistry::mark_process_completed(*plate_c, 7, 7, 71);
     PlateRuntimeRegistry::mark_presentation_valid(*plate_c, 7);
     const auto b_print = plate_b->print.get();
     const auto b_result = plate_b->gcode_result.get();
@@ -110,6 +111,8 @@ int main()
     registry.restore_lifecycle(lifecycle_before);
     CHECK(plate_b->presentation == PlateRuntimeRegistry::PresentationLifecycle::Valid);
     CHECK(plate_c->presentation == PlateRuntimeRegistry::PresentationLifecycle::Valid);
+    CHECK(plate_b->completed_slice_task_id == 41);
+    CHECK(plate_c->completed_slice_task_id == 71);
     registry.reconcile({"plate-b", "plate-c", "plate-e"});
     registry.restore_lifecycle(lifecycle_before);
     CHECK(registry.find("plate-e")->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
@@ -133,7 +136,7 @@ int main()
     // A changed revision must withdraw presentation even when the retained
     // native result was completed at the same numeric target revision.
     auto* changed = registry.find("plate-b");
-    PlateRuntimeRegistry::mark_process_completed(*changed, 4, 4);
+    PlateRuntimeRegistry::mark_process_completed(*changed, 4, 4, 42);
     PlateRuntimeRegistry::mark_presentation_valid(*changed, 4);
     registry.reconcile_history({"plate-b", "plate-f"},
                                {"plate-b"});

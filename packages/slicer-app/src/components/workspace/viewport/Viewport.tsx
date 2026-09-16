@@ -10,7 +10,7 @@ import { GizmoToolbar } from './GizmoToolbar';
 import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
 import type { LoadedObject } from './useModelLoader';
-import type { ToolpathGeometry } from './useSliceResult';
+import type { PreviewProjectionStatus, ToolpathGeometry } from './useSliceResult';
 import { filterBuildPlateOccludedIntersections, pickBuildPlateId, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
@@ -72,10 +72,11 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onModelAdded, onSceneFrameRendered }: {
+export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'needs-slicing', sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onModelAdded, onSceneFrameRendered }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
+  projectionStatus?: PreviewProjectionStatus;
   sceneInteraction: SceneInteractionController;
   wipeTowerVolumes?: WipeTowerVolumeCollection;
   structure?: readonly ModelObjectStructure[];
@@ -389,6 +390,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wip
       tabIndex={0}
       aria-label={previewTab ? 'G-code preview viewport' : '3D viewport'}
       data-testid="viewport"
+      data-preview-projection-state={previewTab ? projectionStatus : undefined}
       onContextMenuCapture={(event) => {
         // Keep the Web canvas from exposing the browser host menu in every
         // mode. Prepare's SceneContextMenu still handles its own custom menu;
@@ -522,6 +524,17 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wip
         </SceneContextMenu>
       </ViewportErrorBoundary>
       {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
+      {previewTab && !toolpath && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" aria-live="polite">
+          <p className="rounded-md bg-background/80 px-3 py-2 text-sm text-muted-foreground shadow-sm backdrop-blur-sm">
+            {projectionStatus === 'loading'
+              ? 'Loading preview…'
+              : projectionStatus === 'failed'
+                ? 'Preview unavailable'
+                : 'Needs slicing'}
+          </p>
+        </div>
+      )}
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}

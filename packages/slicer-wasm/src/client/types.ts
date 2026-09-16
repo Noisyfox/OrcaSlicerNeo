@@ -623,6 +623,8 @@ export interface SliceResultStatus {
   unrecognized_keys: string[];
   /** Native slice-time advisory warnings; these never replace hard errors. */
   warnings?: string[];
+  /** Runtime-only identity of the retained core result produced by this Slice. */
+  receipt?: SliceResultReceipt;
   error?: string;
 }
 
@@ -640,6 +642,20 @@ export interface PlateOperationTarget {
   readonly plateId: string;
   readonly inputRevision: number;
 }
+
+/**
+ * Immutable address of one retained native result generation.
+ *
+ * `sliceTaskId` stays a decimal string across JSON so the eventual global
+ * uint64 task generator cannot lose precision in JavaScript.
+ */
+export interface SliceResultReceipt {
+  readonly plateId: string;
+  readonly inputStamp: number;
+  readonly sliceTaskId: string;
+}
+
+export type ResultReadStatus = 'ok' | 'stale' | 'unavailable' | 'failed';
 
 export interface ToolpathFeature {
   id: number;
@@ -780,6 +796,10 @@ export interface ClientToolpath {
 
 export interface ClientSliceResult {
   ok: boolean;
+  /** Projection reads use typed terminals; stale/unavailable are normal races. */
+  status?: ResultReadStatus;
+  /** Address echoed by the Worker-side payload. */
+  receipt?: SliceResultReceipt;
   objects: number;
   layers: number;
   toolpath: ClientToolpath;
@@ -1193,7 +1213,8 @@ export interface SlicerClient {
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
-  getSliceResult(): Promise<ClientSliceResult>;
+  /** Materialize a renderer projection for exactly one retained native result. */
+  getSliceResult(receipt: SliceResultReceipt): Promise<ClientSliceResult>;
   /** Read a bounded UTF-8 chunk from the current completed slice result. */
   readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
   /** Read a bounded, seekable source-text page from the current result. */
