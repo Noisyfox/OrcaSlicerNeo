@@ -304,29 +304,29 @@ boundary without sacrificing drag performance.
 
 ### 6.3 Two-phase restore and failure handling
 
-Neo restores through a prepare/commit protocol. The Worker first reconstructs
-and validates the requested model version and `HistoryContext` in a temporary
-restore container, retaining shared immutable meshes where possible. Only a
-successful preparation atomically replaces the active model and moves the
-history cursor.
+Neo follows Orca's in-place object-history restore. `Model` first collects
+reusable objects keyed by stable native `ObjectID`; the target snapshot then
+loads only its object versions and applies topology changes in place. It does
+not materialize a second complete `Model`, validate the entire project, or swap
+the active model afterward. Immutable meshes stay shared where their retained
+versions permit it.
 
-On preparation or validation failure, the active model, cursor, selection,
-plate, and gizmo remain unchanged, and the UI reports a retryable restore
-failure. If a severe WASM memory failure prevents preservation of a safe active
-state, history is disabled for that session and the user is offered reloading
-the last saved 3MF; Neo must never continue editing a partially restored
-project.
-
-Native Orca assumes its self-generated in-memory snapshots are valid and
-restores its `Model` in place. The two-phase protocol is the Neo-specific
-reliability boundary required by the asynchronous Worker/WASM environment.
+The history store contains only self-generated, same-session records. A broken
+archive, duplicate identity, or invalid topology is therefore an internal
+invariant violation, not a compatibility case with a full-model fallback. The
+synchronous Worker call publishes no renderer update until the restore returns
+successfully. Severe failure disables history for the session rather than
+continuing to edit from an unknown partially restored model.
 
 ### 6.4 Stable identity and stale-result isolation
 
 History context references object, part, and instance `ObjectID` values and
 stable plate IDs only, never positional indices. A restored entity retains the
-identity of that historical version. After each restore React re-reads complete
-model structure and mesh projections.
+identity of that historical version. After each restore the Worker returns a
+stable-ID scene mutation summary. React and Three update only added, removed,
+or changed objects, volumes, and instances; unchanged scene and GPU resources
+are retained. Full scene projection is reserved for project load, Worker
+restart, and graphics-context loss, never an ordinary history operation.
 
 Every renderer object, cached positional index, and asynchronous refresh result
 is associated with the active history revision/token. A result for another
@@ -473,3 +473,40 @@ measures history memory and calls least-recently-used release after restore.
 - The sequential agent-gated implementation plan is
   `doc/2026-09-07-undo-redo-implementation-plan.md`.
 - Is tracked in `spec/Grand Plan.md` and `doc/high_level_dev_plan.md`.
+
+## 12. 2026-09-16 Stable-identity restoration correction
+
+The prior Neo sparse-receipt implementation is superseded for model identity
+and restore semantics. This correction applies only to in-memory project
+history; saved 3MF files and internal API compatibility are explicitly out of
+scope.
+
+- The history authority is an Orca-style timestamped object-version snapshot,
+  not a replay of bridge commands and not a model-wide temporary restore
+  container. One outer semantic transaction may contain arbitrary mixtures of
+  additions, deletions, and edits to multiple objects.
+- `ModelObject`, `ModelVolume`, and `ModelInstance` retain their native
+  `ObjectID` across Undo and Redo. Objects and volumes already serialize their
+  base identity. Neo additionally records each instance ID in its object-local
+  history record and reapplies it while materializing the otherwise
+  ID-less-upstream `ModelInstance` archive. New identities continue to be
+  allocated only by native construction APIs; no sidecar ID namespace or new
+  global generator is introduced.
+- An outer transaction captures its predecessor before the first model write.
+  It commits one named snapshot and leaves the resulting topmost state
+  unarchived. The first Undo captures that topmost state only when required as
+  the Redo endpoint, matching Orca's `take_snapshot()` and lazy topmost
+  capture. Nested operations join the outer transaction. A failed transaction
+  restores its predecessor and leaves no entry.
+- Restore follows Orca's reusable-object path. It is proportional to retained
+  object versions and topology changes, not to a full temporary copy of the
+  project. Same-session history corruption is an invariant failure; there is
+  no legacy-receipt, index, or whole-model compatibility fallback.
+- History never stores Print, G-code, preview, or other slicing output. Every
+  successful Undo or Redo invalidates every plate's derived slicing result for
+  this first implementation. This is deliberately broader than the model
+  restore and may later be narrowed to affected plates.
+- Each restore yields one aggregated stable-ID renderer patch. React/Three
+  update only affected scene members and preserve untouched GPU resources;
+  only project load, Worker restart, or graphics-context loss permits full
+  scene reconstruction.

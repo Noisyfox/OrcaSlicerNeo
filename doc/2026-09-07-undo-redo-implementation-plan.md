@@ -761,3 +761,30 @@ making Add Cube → Move → Undo twice → Redo twice deterministic. The native
 history fixture covers rebasing each single-step plan shape, the typed client
 covers the sequence, the serial/threaded real-WASM harness reproduces the
 runtime-ID boundary, and Electron exercises the visible controls.
+
+## 18. 2026-09-16 accepted redesign — Orca-style stable-object history
+
+The sparse receipts and temporary whole-model restore plan are superseded for
+the next implementation. Neo will adapt Orca's timestamped object-version
+history: the outer semantic transaction captures the predecessor before its
+first write, leaves its current topmost state unarchived, and captures that
+state lazily only when Undo first needs a Redo endpoint. Nested mutations join
+the same outer entry, so one entry may atomically cover arbitrary multi-object
+add, delete, and edit operations.
+
+Restore is in place through reusable native objects. `ModelObject`,
+`ModelVolume`, and `ModelInstance` must retain their native IDs on every
+history traversal. Because upstream's `ModelInstance` archive does not include
+its `ObjectBase`, Neo's bridge history record will retain the ordered instance
+IDs and reapply them after `add_instance()` materialization; it will not patch
+the pinned upstream submodule or invent a sidecar ID namespace. Same-session
+history is not a persistence or compatibility format, so archive/identity
+failure is an invariant violation without a legacy or full-model fallback.
+
+The completed restore publishes one stable-ID scene patch rather than a full
+React/Three projection. Only changed, added, and removed scene members update;
+unchanged GPU resources remain live. Project load, Worker restart, and
+graphics-context loss are the only full-rebuild boundaries. History contains
+no slicing output. For the first version, every successful Undo or Redo
+invalidates derived results for all plates while preserving this incremental
+model-scene update path.
