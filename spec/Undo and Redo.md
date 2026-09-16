@@ -502,11 +502,27 @@ scope.
   object versions and topology changes, not to a full temporary copy of the
   project. Same-session history corruption is an invariant failure; there is
   no legacy-receipt, index, or whole-model compatibility fallback.
+- The recovered `PlateSession` is applied after the model and binds its members
+  directly by stable instance ID. History restore never invokes reflow,
+  auto-arrange, or prime-tower layout; stored model transforms are authoritative.
+- Mutable versions are deduplicated by native object timestamp and retained as
+  time intervals. A snapshot visits the model graph, but unchanged objects,
+  volumes, instances, plate session, and immutable mesh data reuse their prior
+  retained versions instead of being serialized again. The fixed 256 MiB
+  session budget releases optional immutable data first and then oldest
+  retained timestamps, following Orca's ordering.
 - History never stores Print, G-code, preview, or other slicing output. Every
   successful Undo or Redo invalidates every plate's derived slicing result for
-  this first implementation. This is deliberately broader than the model
-  restore and may later be narrowed to affected plates.
+  this first implementation. It immediately advances the input revisions,
+  hides stale renderer data, and asynchronously requests active job
+  cancellation without waiting. A per-plate `Print` owns its applied model,
+  so a restore that does not remove that plate does not mutate its Print or
+  contend with its slice thread. The existing tombstone owns a removed plate's
+  Print until its job reaches a terminal state. This policy is deliberately
+  broader than the model restore and may later be narrowed to affected plates.
 - Each restore yields one aggregated stable-ID renderer patch. React/Three
   update only affected scene members and preserve untouched GPU resources;
   only project load, Worker restart, or graphics-context loss permits full
-  scene reconstruction.
+  scene reconstruction. The per-entry `SceneDelta` is a non-authoritative
+  acceleration record; multi-entry jumps merge its stable IDs and publish one
+  final patch, while the object-version history remains the restore authority.

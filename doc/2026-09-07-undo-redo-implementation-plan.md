@@ -788,3 +788,20 @@ graphics-context loss are the only full-rebuild boundaries. History contains
 no slicing output. For the first version, every successful Undo or Redo
 invalidates derived results for all plates while preserving this incremental
 model-scene update path.
+
+The restored `PlateSession` follows the restored model and binds memberships
+directly by stable instance ID. It restores historical transforms without
+reflow, auto-arrange, or prime-tower computation. Object timestamps and history
+intervals prevent unchanged object, volume, instance, plate-session, and mesh
+payloads from being serialized again; the existing 256 MiB cap adopts Orca's
+optional-data-first then oldest-timestamp eviction ordering. Each entry keeps a
+non-authoritative stable-ID scene delta, and a multi-entry jump unions deltas
+before publishing one final renderer patch.
+
+Undo/Redo adopts the same asynchronous stop protocol as ordinary model edits:
+it immediately advances all plate input revisions, drops renderer-visible
+outputs, and requests cancellation without awaiting job completion. A plate
+`Print` owns the model copied by `Print::apply`, so a restore that retains the
+plate does not modify that Print or race its slice thread. Only deletion of a
+plate relies on the already accepted Print tombstone to preserve its Print
+until the associated job reaches a terminal state.
