@@ -160,6 +160,22 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
   }
 });
 
+test('shows total application memory and grouped details from the status bar', async () => {
+  const { app } = await launchApp({ initialTab: 'home' });
+  try {
+    const page = await app.firstWindow();
+    const indicator = page.getByTestId('memory-indicator');
+    await expect(indicator).toHaveText(/^Memory: \d/, { timeout: PRESET_READY_TIMEOUT });
+    await indicator.click();
+    const popup = page.getByTestId('memory-indicator-popup');
+    await expect(popup).toContainText('Platform memory');
+    await expect(popup).toContainText('Shared runtime diagnostics');
+    await expect(popup).toContainText('Included in total');
+  } finally {
+    await app.close();
+  }
+});
+
 test('Prepare plate controls use the session snapshot and preserve the camera', async () => {
   const { app } = await launchApp();
   try {

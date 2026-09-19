@@ -1110,6 +1110,14 @@ export interface RuntimeExecutionState {
   readonly serialTerminalEpoch: string;
 }
 
+/** Worker-local measurements available without C++ profiling instrumentation. */
+export interface RuntimeMemorySnapshot {
+  /** Chromium's non-standard, currently used Worker JavaScript heap. */
+  readonly jsHeapUsedBytes?: number;
+  /** Current capacity of the Emscripten/WASM linear-memory buffer. */
+  readonly wasmLinearMemoryBytes: number;
+}
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
@@ -1142,6 +1150,8 @@ export interface SlicerClient {
   getHistoryDiagnostics(): import('./history').HistoryTransportDiagnostics;
   /** Read the already-known Worker execution state without another RPC. */
   getRuntimeExecutionState(): RuntimeExecutionState;
+  /** Read current Worker JS heap and WASM linear-memory capacity. */
+  getRuntimeMemory(): Promise<RuntimeMemorySnapshot>;
   /** Diagnostic-only native timing samples. Present in real WASM builds. */
   takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
   runProjectHistoryTransaction<T>(

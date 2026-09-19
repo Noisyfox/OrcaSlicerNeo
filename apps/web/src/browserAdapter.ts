@@ -137,6 +137,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     printers: { configuration: printerConfiguration, transport: createBrowserPrinterTransport() },
     webview: createBrowserWebViewHost(),
     runtime,
+    memory: { async sample() { return { entries: [] }; } },
     profiles: createBrowserProfileSource(),
     chrome: { kind: 'web', platform: navigator.platform, menuMode: 'browser' },
     menu: browserMenu,

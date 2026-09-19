@@ -222,6 +222,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },
     webview: createElectronWebViewHost(),
     runtime,
+    memory: { sample: () => host.memory.sample() },
     lifecycle: {
       onCloseRequest: (listener) => host.lifecycle.onCloseRequest(listener),
       respondClose: (allow) => host.lifecycle.respondClose(allow),

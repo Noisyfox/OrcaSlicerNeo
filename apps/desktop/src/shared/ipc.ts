@@ -34,6 +34,7 @@ export const Ipc = {
   openSource: 'external:openSource',
   windowCloseRequest: 'window:closeRequest',
   windowCloseDecision: 'window:closeDecision',
+  memorySample: 'memory:sample',
 } as const;
 
 export const MENU_COMMAND_IDS = [
@@ -78,6 +79,9 @@ export interface ElectronBridge {
   preferences: {
     load(): Promise<PreferencesLoadResult>;
     save(json: unknown): Promise<void>;
+  };
+  memory: {
+    sample(): Promise<ElectronMemoryIpcSnapshot>;
   };
   printers: {
     configuration: {
@@ -164,4 +168,10 @@ export interface PreferencesLoadResult {
   found: boolean;
   /** Parsed preferences JSON when found. */
   json: unknown;
+}
+
+/** Generic, validated payload returned by Electron's read-only memory IPC. */
+export interface ElectronMemoryIpcSnapshot {
+  totalBytes: number;
+  entries: Array<{ id: string; label: string; bytes: number }>;
 }

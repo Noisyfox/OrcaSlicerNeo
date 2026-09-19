@@ -4,6 +4,22 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('Web memory indicator shows a transparent total or JS-heap fallback with shared details', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  const indicator = page.getByTestId('memory-indicator');
+  if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
+    await expect(indicator).toHaveText(/^JS heap estimate: \d/, { timeout: 30_000 });
+  } else {
+    await expect(indicator).toHaveText(/^(Memory|JS heap estimate): \d/, { timeout: 30_000 });
+  }
+  await indicator.click();
+  const popup = page.getByTestId('memory-indicator-popup');
+  await expect(popup).toContainText('Shared runtime diagnostics');
+  await expect(popup).toContainText('Renderer JS heap');
+  await expect(popup).toContainText('WASM linear-memory capacity');
+});
+
 // This suite intentionally has no mock mode. The staging step must have
 // published both real wasm64 variants before either invocation is run.
 test('real Web flow: import DRC → profile → slice → layer → G-code download', async ({ page }) => {

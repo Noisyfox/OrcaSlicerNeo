@@ -1,7 +1,7 @@
 import type {
   ExternalLinks, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
   SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
-  WebViewHost, ProjectFileCapability,
+  WebViewHost, ProjectFileCapability, PlatformMemory,
 } from './contracts';
 import type { MenuCommandId, PlatformMenu } from './menu';
 
@@ -35,6 +35,7 @@ export const fakeCapabilities: PlatformCapabilities = {
     },
   } satisfies WebViewHost,
   runtime: {} as SlicerRuntime,
+  memory: { async sample() { return { entries: [] }; } } satisfies PlatformMemory,
   profiles: { async fetch() { return new Uint8Array(); } } satisfies ProfileSource,
   chrome: { kind: 'web', menuMode: 'browser' },
   menu: {

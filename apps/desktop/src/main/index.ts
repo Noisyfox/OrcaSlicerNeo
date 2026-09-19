@@ -18,6 +18,7 @@ import {
 } from './nativeMenu';
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 import { writeFileAtomically } from './atomicFile';
+import { summarizeElectronMemory } from './memoryIpc';
 
 // Chromium documents this as a preference for a discrete GPU when multiple
 // adapters are available. It does not name or require a particular GPU; the
@@ -339,6 +340,11 @@ function registerIpc(): void {
     // served back to the bridge; atomic-ish via tmp + rename is overkill for
     // this file's size, a plain write is fine (single writer: the renderer).
     await writeFile(preferencesPath(), JSON.stringify(json, null, 2), 'utf8');
+  });
+
+  ipcMain.handle(Ipc.memorySample, async (event) => {
+    if (!isCurrentRenderer(event.sender)) throw new Error('Unauthorized memory sample request');
+    return summarizeElectronMemory(app.getAppMetrics());
   });
 
   const printerConfigurationIpc = createPrinterConfigurationIpcHandlers({

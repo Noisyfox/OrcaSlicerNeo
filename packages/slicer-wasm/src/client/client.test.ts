@@ -2,7 +2,7 @@
 // Contract tests for the typed bridge client, driven against the
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
 // contract that Task 7 implements in C++.
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { createMockModule, type MockFeature } from './testing/mock-module';
 import { createClient } from './client';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
@@ -13,6 +13,22 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  const originalPerformanceMemory = Object.getOwnPropertyDescriptor(performance, 'memory');
+
+  afterEach(() => {
+    if (originalPerformanceMemory) Object.defineProperty(performance, 'memory', originalPerformanceMemory);
+    else delete (performance as Performance & { memory?: unknown }).memory;
+  });
+
+  it('reads Worker JavaScript heap and WASM linear-memory capacity without a native profiling hook', async () => {
+    Object.defineProperty(performance, 'memory', { configurable: true, value: { usedJSHeapSize: 123 } });
+    const module = createMockModule();
+    await expect(createClient(async () => module).getRuntimeMemory()).resolves.toEqual({
+      jsHeapUsedBytes: 123,
+      wasmLinearMemoryBytes: module.HEAPU8.buffer.byteLength,
+    });
+  });
+
   it('normalizes the strict scalar native Prime Tower profile schema', async () => {
     const aggregateStages = {
       session_preparation: 0.1, bounds_scan: 0.2, effective_config_construction: 1,

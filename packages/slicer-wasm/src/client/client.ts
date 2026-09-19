@@ -1214,6 +1214,14 @@ export function createClient(
     outputJsonBytes: number;
   }> | null = REAL_PROJECT_PROFILE_BUILD ? [] : null;
 
+  function currentJsHeapBytes(): number | undefined {
+    const memory = (performance as Performance & {
+      memory?: { usedJSHeapSize?: unknown };
+    }).memory;
+    const bytes = memory?.usedJSHeapSize;
+    return typeof bytes === 'number' && Number.isFinite(bytes) && bytes >= 0 ? bytes : undefined;
+  }
+
   function callProfiledJson(
     wasm: OrcaModule,
     name: string,
@@ -1470,6 +1478,15 @@ export function createClient(
         log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
+    },
+
+    async getRuntimeMemory() {
+      const m = await module();
+      const jsHeapUsedBytes = currentJsHeapBytes();
+      return {
+        ...(jsHeapUsedBytes === undefined ? {} : { jsHeapUsedBytes }),
+        wasmLinearMemoryBytes: m.HEAPU8.buffer.byteLength,
+      };
     },
 
     async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
