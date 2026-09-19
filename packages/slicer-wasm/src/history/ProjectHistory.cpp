@@ -48,6 +48,11 @@ bool bytes_equal(const Blob& lhs, const Bytes& rhs)
     return lhs && *lhs == rhs;
 }
 
+bool bytes_equal(const Blob& lhs, const Blob& rhs)
+{
+    return lhs == rhs || (lhs && rhs && *lhs == *rhs);
+}
+
 bool native_mesh_equal(const NativeMesh& lhs, const NativeMesh& rhs)
 {
     if (!lhs || !rhs) return bool(lhs) == bool(rhs);
@@ -61,6 +66,8 @@ struct StoredMutable {
     Blob data;
     std::vector<ObjectID> volume_ids;
     std::vector<ObjectID> instance_ids;
+    std::vector<MutableObject::Transform> volume_transforms;
+    std::vector<MutableObject::Transform> instance_transforms;
 };
 
 struct StoredMesh {
@@ -141,7 +148,9 @@ struct ProjectHistory::Impl {
             const auto& a = lhs.mutable_objects[i];
             const auto& b = model.mutable_objects[i];
             if (a.id != b.id || a.timestamp != b.timestamp || !bytes_equal(a.data, b.data) ||
-                a.volume_ids != b.volume_ids || a.instance_ids != b.instance_ids)
+                a.volume_ids != b.volume_ids || a.instance_ids != b.instance_ids ||
+                a.volume_transforms != b.volume_transforms ||
+                a.instance_transforms != b.instance_transforms)
                 return false;
         }
         for (std::size_t i = 0; i < lhs.immutable_meshes.size(); ++i) {
@@ -176,9 +185,10 @@ struct ProjectHistory::Impl {
                     [&object](const StoredMutable& old) { return old.id == object.id && bytes_equal(old.data, object.data); });
                 if (it != previous->mutable_objects.end()) data = it->data;
             }
-            if (!data) data = make_blob(object.data);
+            if (!data) data = object.data;
             state.mutable_objects.push_back({ object.id, object.timestamp, std::move(data), object.volume_ids,
-                                              object.instance_ids });
+                                              object.instance_ids, object.volume_transforms,
+                                              object.instance_transforms });
         }
 
         state.immutable_meshes.reserve(model.immutable_meshes.size());
@@ -220,8 +230,9 @@ struct ProjectHistory::Impl {
         model.mutable_objects.reserve(state.mutable_objects.size());
         for (const auto& object : state.mutable_objects)
             model.mutable_objects.push_back({ object.id, object.timestamp,
-                                              object.data ? *object.data : Bytes{}, object.volume_ids,
-                                              object.instance_ids });
+                                              object.data, object.volume_ids,
+                                              object.instance_ids, object.volume_transforms,
+                                              object.instance_transforms });
         model.immutable_meshes.reserve(state.immutable_meshes.size());
         for (const auto& mesh : state.immutable_meshes)
             model.immutable_meshes.push_back({ mesh.key, mesh.resident, mesh.deferred, mesh.optional,
@@ -898,6 +909,8 @@ std::size_t ProjectHistory::bytes_used() const
             count(object.data);
             add_product(total, object.volume_ids.capacity(), sizeof(ObjectID));
             add_product(total, object.instance_ids.capacity(), sizeof(ObjectID));
+            add_product(total, object.volume_transforms.capacity(), sizeof(MutableObject::Transform));
+            add_product(total, object.instance_transforms.capacity(), sizeof(MutableObject::Transform));
         }
         for (const auto& mesh : state.state.immutable_meshes) {
             add_string_storage(total, mesh.key);
@@ -1006,6 +1019,8 @@ void ProjectHistory::rebuild_intervals()
         Blob data;
         std::vector<ObjectID> volume_ids;
         std::vector<ObjectID> instance_ids;
+        std::vector<MutableObject::Transform> volume_transforms;
+        std::vector<MutableObject::Transform> instance_transforms;
     };
     std::map<ObjectID, ActiveVersion> active;
     for (std::size_t time = 0; time < m_impl->states.size(); ++time) {
@@ -1016,7 +1031,9 @@ void ProjectHistory::rebuild_intervals()
             const bool same = it != active.end() && it->second.interval.end == time &&
                 it->second.data && object.data && *it->second.data == *object.data &&
                 it->second.volume_ids == object.volume_ids &&
-                it->second.instance_ids == object.instance_ids;
+                it->second.instance_ids == object.instance_ids &&
+                it->second.volume_transforms == object.volume_transforms &&
+                it->second.instance_transforms == object.instance_transforms;
             if (!same) {
                 if (it != active.end()) {
                     m_object_intervals.push_back(it->second.interval);
@@ -1024,7 +1041,8 @@ void ProjectHistory::rebuild_intervals()
                 }
                 active.emplace(object.id, ActiveVersion{
                     { object.id, time, time + 1 }, object.data,
-                    object.volume_ids, object.instance_ids });
+                    object.volume_ids, object.instance_ids, object.volume_transforms,
+                    object.instance_transforms });
             } else {
                 it->second.interval.end = time + 1;
             }

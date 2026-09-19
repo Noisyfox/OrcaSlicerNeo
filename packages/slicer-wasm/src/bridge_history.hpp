@@ -63,6 +63,8 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
 ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
                                MutableObjectCaptureCache& object_cache,
                                CaptureTimings* timings);
+bool prime_model_capture_cache(const Model& model, const ModelState& roots,
+                               MutableObjectCaptureCache& object_cache);
 
 // Reconstruct a transient model from a retained history state. model_template
 // supplies the non-history model defaults needed while materializing a fresh

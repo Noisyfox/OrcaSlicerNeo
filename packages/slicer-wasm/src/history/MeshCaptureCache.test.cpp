@@ -186,17 +186,66 @@ int main()
     CHECK(object_first.mutable_objects[0].instance_ids.size() == 2);
     CHECK(object_first.mutable_objects[1].instance_ids.size() == 1);
 
-    // Touching only one object archives only that object. A zero timestamp is
-    // explicitly rejected by the cache, because it is not reliable enough to
-    // gate serialization (the live ModelConfig API does not expose a setter
-    // for the intentionally-invalid zero value).
-    objects.objects[0]->config.touch();
+    // Transform state is a sparse timestamp-root overlay on the complete
+    // object archive. Mutating one instance shares both immutable archives;
+    // the exact matrix changes independently and is reapplied on restore.
+    objects.objects[0]->instances[0]->set_offset(Vec3d(4.0, 2.0, 1.0));
     const auto object_third = capture_model_state(objects, object_mesh_cache, object_cache);
-    CHECK(object_cache.serialized_object_count() == 3);
-    CHECK(object_cache.reused_object_count() == 3);
-    CHECK(object_third.mutable_objects[0].data != object_second.mutable_objects[0].data);
+    CHECK(object_cache.serialized_object_count() == 2);
+    CHECK(object_cache.reused_object_count() == 4);
+    CHECK(object_third.mutable_objects[0].data == object_second.mutable_objects[0].data);
     CHECK(object_third.mutable_objects[1].data == object_second.mutable_objects[1].data);
-    CHECK(object_cache.find(objects.objects[0]->id().id, 0, {}, {}, {}) == nullptr);
+    CHECK(object_third.mutable_objects[0].instance_transforms !=
+          object_second.mutable_objects[0].instance_transforms);
+    Model transformed_restore = stage_model(objects, restore_state(object_third));
+    MeshCaptureCache transformed_mesh_cache;
+    MutableObjectCaptureCache transformed_object_cache;
+    CHECK(transformed_restore.objects[0]->instances[0]->get_offset() == Vec3d(4.0, 2.0, 1.0));
+    CHECK(prime_model_capture_cache(transformed_restore, object_third, transformed_object_cache));
+    CHECK(model_state_equal(object_third,
+          capture_model_state(transformed_restore, transformed_mesh_cache, transformed_object_cache)));
+    MutableObjectCaptureCache restored_prime_cache;
+    CHECK(prime_model_capture_cache(transformed_restore, object_third, restored_prime_cache));
+    MeshCaptureCache restored_prime_mesh_cache;
+    const auto primed_capture = capture_model_state(
+        transformed_restore, restored_prime_mesh_cache, restored_prime_cache);
+    CHECK(model_state_equal(object_third, primed_capture));
+    CHECK(restored_prime_cache.serialized_object_count() == 0);
+    CHECK(restored_prime_cache.reused_object_count() == 2);
+    auto invalid_overlay = object_third;
+    invalid_overlay.mutable_objects[0].instance_transforms[0][12] += 1.0;
+    CHECK(!prime_model_capture_cache(transformed_restore, invalid_overlay, restored_prime_cache));
+    // Zero is a valid imported-object timestamp. Exact fingerprints, stable
+    // child IDs, and mesh ownership still allow safe reuse without relying on
+    // a timestamp touch.
+    MutableObjectCaptureCache zero_timestamp_cache;
+    MutableObjectCaptureCache::MutationFingerprint zero_fingerprint;
+    zero_fingerprint.name = "imported-zero-timestamp";
+    zero_timestamp_cache.insert(42, 0, std::make_shared<const Neo::History::Bytes>(
+                                    Neo::History::Bytes {1, 2, 3}), {},
+                                {43}, {44}, zero_fingerprint);
+    CHECK(zero_timestamp_cache.find(42, 0, {}, {43}, {44}, zero_fingerprint) != nullptr);
+    zero_fingerprint.name = "mutated-without-timestamp";
+    CHECK(zero_timestamp_cache.find(42, 0, {}, {43}, {44}, zero_fingerprint) == nullptr);
+
+    // Painting timestamps participate independently. This models a future
+    // high-frequency painting child transaction that does not touch the
+    // object's configuration timestamp.
+    objects.objects[1]->volumes[0]->mmu_segmentation_facets.set_triangle_from_string(0, "2");
+    objects.objects[1]->volumes[0]->mmu_segmentation_facets.touch();
+    const auto painted = capture_model_state(objects, object_mesh_cache, object_cache);
+    CHECK(object_cache.serialized_object_count() == 3);
+    CHECK(object_cache.reused_object_count() == 5);
+    CHECK(painted.mutable_objects[0].data == object_third.mutable_objects[0].data);
+    CHECK(painted.mutable_objects[1].data != object_third.mutable_objects[1].data);
+
+    // Unknown mutation classes deliberately discard all reusable mutable
+    // archives. The next canonical root remains complete and self-contained.
+    object_cache.invalidate_all();
+    const auto conservative = capture_model_state(objects, object_mesh_cache, object_cache);
+    CHECK(object_cache.serialized_object_count() == 5);
+    CHECK(painted.mutable_objects[0].instance_transforms == conservative.mutable_objects[0].instance_transforms);
+    CHECK(*painted.mutable_objects[1].data == *conservative.mutable_objects[1].data);
 
     // Removing a live object drops its entry before the next capture, so a
     // later add cannot reuse a stale record even if its payload happens to be
@@ -218,6 +267,38 @@ int main()
     CHECK(added->id().id != removed_id);
     CHECK(remove_object_cache.serialized_object_count() == 3);
 
+    // Non-transform fields cannot hide behind an unchanged object timestamp.
+    Model metadata_model = model_with_cube(8.0);
+    MeshCaptureCache metadata_mesh_cache;
+    MutableObjectCaptureCache metadata_cache;
+    auto metadata_before = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    auto* metadata_object = metadata_model.objects[0];
+    auto* metadata_volume = metadata_object->volumes[0];
+    metadata_volume->set_offset(Vec3d(3, 4, 5));
+    auto metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data == metadata_after.mutable_objects[0].data);
+    CHECK(stage_model(metadata_model, restore_state(metadata_after)).objects[0]->volumes[0]->get_offset() == Vec3d(3, 4, 5));
+    metadata_before = metadata_after;
+    metadata_volume->source.is_converted_from_inches = true;
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+    metadata_before = metadata_after;
+    metadata_object->origin_translation = Vec3d(8, 9, 10);
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+    metadata_before = metadata_after;
+    metadata_object->instances[0]->set_offset_to_assembly(Vec3d(2, 3, 4));
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+    metadata_before = metadata_after;
+    metadata_volume->config.set_key_value("extruder", new ConfigOptionInt(2));
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+    metadata_before = metadata_after;
+    metadata_volume->set_mesh(TriangleMesh(its_make_cube(9.0, 9.0, 9.0)));
+    metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
+    CHECK(metadata_before.mutable_objects[0].data != metadata_after.mutable_objects[0].data);
+
     // Consecutive retained states still restore complete, self-sufficient
     // object records. This exercises both navigation directions after the
     // timestamp-gated captures rather than reconstructing deltas.
@@ -230,7 +311,9 @@ int main()
     RestoreState restored_state;
     CHECK(history.undo(restored_state));
     Model restored_third = stage_model(objects, restored_state);
-    CHECK(model_state_equal(object_third, capture_model_state(restored_third, object_mesh_cache)));
+    CHECK(restored_third.objects[0]->instances[0]->get_offset() == Vec3d(4.0, 2.0, 1.0));
+    CHECK(prime_model_capture_cache(restored_third, object_third, object_cache));
+    CHECK(model_state_equal(object_third, capture_model_state(restored_third, object_mesh_cache, object_cache)));
     CHECK(restored_third.objects[0]->instances[0]->id().id ==
           object_third.mutable_objects[0].instance_ids[0]);
     CHECK(restored_third.objects[0]->instances[1]->id().id ==
@@ -242,6 +325,8 @@ int main()
     CHECK(model_state_equal(object_first, capture_model_state(restored_first, object_mesh_cache)));
     CHECK(history.redo(restored_state));
     Model restored_again = stage_model(objects, restored_state);
-    CHECK(model_state_equal(object_third, capture_model_state(restored_again, object_mesh_cache)));
+    CHECK(restored_again.objects[0]->instances[0]->get_offset() == Vec3d(4.0, 2.0, 1.0));
+    CHECK(prime_model_capture_cache(restored_again, object_third, object_cache));
+    CHECK(model_state_equal(object_third, capture_model_state(restored_again, object_mesh_cache, object_cache)));
     return 0;
 }

@@ -136,6 +136,9 @@ nlohmann::json snapshot()
     for (const auto& entry : entries) plates.push_back(plate_profile(entry));
 
     const SharedMeshAccounting shared = account_meshes(state().model);
+    const auto object_cache_misses = state().mutable_object_capture_cache.profile_miss_counts();
+    const auto object_fingerprint_misses =
+        state().mutable_object_capture_cache.profile_fingerprint_miss_counts();
     std::size_t shared_total_bytes = shared.vertex_bytes;
     add_bytes(shared_total_bytes, shared.index_bytes);
     return {
@@ -152,11 +155,23 @@ nlohmann::json snapshot()
         {"retired_registry_entry_count", state().plate_runtime_registry.retired_size()},
         {"prime_tower_projection_cache_entries", state().prime_tower_projection_cache.size()},
         {"history", {
-            {"entry_count", state().history.entry_count()},
+            {"entry_count", state().history.entries().size()},
             {"retained_estimated_bytes", state().history.bytes_used()},
             {"serialized_mesh_count", state().mesh_capture_cache.serialized_mesh_count()},
             {"serialized_object_count", state().mutable_object_capture_cache.serialized_object_count()},
             {"reused_object_count", state().mutable_object_capture_cache.reused_object_count()},
+            {"object_cache_misses", {
+                {"missing", object_cache_misses[0]}, {"timestamp", object_cache_misses[1]},
+                {"ids", object_cache_misses[2]}, {"fingerprint", object_cache_misses[3]},
+                {"mesh_size", object_cache_misses[4]}, {"mesh_owner", object_cache_misses[5]},
+            }},
+            {"object_fingerprint_misses", {
+                {"object", object_fingerprint_misses[0]},
+                {"volume_transform", object_fingerprint_misses[1]},
+                {"volume_metadata", object_fingerprint_misses[2]},
+                {"instance_transform", object_fingerprint_misses[3]},
+                {"instance_metadata", object_fingerprint_misses[4]},
+            }},
         }},
         {"shared_source_mesh", {
             {"reference_count", shared.references},

@@ -93,6 +93,10 @@ void establish_clean_history_baseline()
     state().nested_history_transactions.clear();
     state().history_disabled = false;
     state().history_live_context = project_history_context();
+    // Prime immutable archive sharing at the load boundary, but keep timestamp
+    // zero lazy: native slicing may legitimately update non-history model state
+    // before the first edit and must not stale an already-retained root.
+    (void) HistoryMetadata::capture_history_roots(state(), state().history_live_context);
     HistoryMetadata::advance_history_epoch(state());
     state().history.mark_current_as_saved();
 }

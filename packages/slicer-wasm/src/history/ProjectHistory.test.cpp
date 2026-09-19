@@ -21,14 +21,14 @@ static ModelState model(std::uint8_t value, std::size_t count = 1)
 {
     ModelState state;
     state.serialized = bytes(value, count);
-    state.mutable_objects.push_back({ 42, value, bytes(value, count) });
+    state.mutable_objects.push_back({ 42, value, std::make_shared<const Bytes>(bytes(value, count)) });
     return state;
 }
 
 static ModelState model_with_native_state(std::uint8_t value, std::size_t native_bytes)
 {
     auto state = model(value);
-    state.mutable_objects.front().data = bytes(value, native_bytes);
+    state.mutable_objects.front().data = std::make_shared<const Bytes>(bytes(value, native_bytes));
     state.immutable_meshes.push_back({
         "mesh-shared", std::make_shared<const Bytes>(bytes(value, native_bytes)), {}, false});
     return state;
@@ -220,7 +220,7 @@ int main()
     // mutable object has an exact slot, payload, and interval delta.
     ModelState one_object = model(3, 7);
     ModelState two_objects = one_object;
-    two_objects.mutable_objects.push_back({ 99, 3, bytes(7, 7) });
+    two_objects.mutable_objects.push_back({ 99, 3, std::make_shared<const Bytes>(bytes(7, 7)) });
     ProjectHistory one_object_history(1u << 20);
     ProjectHistory two_object_history(1u << 20);
     CHECK(one_object_history.commit("objects", Category::Project, one_object, {}));
@@ -576,11 +576,11 @@ int main()
     // duplicate object 9 or the unchanged immutable mesh in the next entry.
     auto shared_mesh = std::make_shared<const Bytes>(bytes(6, 64));
     ModelState shared_base;
-    shared_base.mutable_objects.push_back({7, 10, bytes(1, 32)});
-    shared_base.mutable_objects.push_back({9, 20, bytes(2, 32)});
+    shared_base.mutable_objects.push_back({7, 10, std::make_shared<const Bytes>(bytes(1, 32))});
+    shared_base.mutable_objects.push_back({9, 20, std::make_shared<const Bytes>(bytes(2, 32))});
     shared_base.immutable_meshes.push_back({"shared-native-mesh", shared_mesh, {}, false});
     ModelState shared_edit = shared_base;
-    shared_edit.mutable_objects[0] = {7, 11, bytes(3, 32)};
+    shared_edit.mutable_objects[0] = {7, 11, std::make_shared<const Bytes>(bytes(3, 32))};
     ProjectHistory shared(4096);
     CHECK(shared.commit("base", Category::Project, shared_base, {}));
     CHECK(shared.commit("one object", Category::Project, shared_edit, {}));
@@ -596,7 +596,7 @@ int main()
     CHECK(shared.current().model.immutable_meshes.front().resident.get() == shared_mesh.get());
     CHECK(shared.undo(restored));
     CHECK(restored.model.immutable_meshes.front().resident.get() == shared_mesh.get());
-    CHECK(restored.model.mutable_objects[1].data == bytes(2, 32));
+    CHECK(restored.model.mutable_objects[1].data && *restored.model.mutable_objects[1].data == bytes(2, 32));
 
     // Deterministic large-model fixture (fixtures/history-large-model.json):
     // 24 mutable objects share one immutable mesh while 12 edits touch only
@@ -606,13 +606,14 @@ int main()
     large_base.immutable_meshes.push_back({
         "large-shared-mesh", std::make_shared<const Bytes>(bytes(0xA5, 64 * 1024)), {}, false});
     for (ObjectID id = 1; id <= 24; ++id)
-        large_base.mutable_objects.push_back({id, 1, bytes(static_cast<std::uint8_t>(id), 4 * 1024)});
+        large_base.mutable_objects.push_back({id, 1,
+            std::make_shared<const Bytes>(bytes(static_cast<std::uint8_t>(id), 4 * 1024))});
     ProjectHistory large(256 * 1024);
     CHECK(large.commit("large baseline", Category::Project, large_base, {}));
     for (std::uint8_t edit = 1; edit <= 12; ++edit) {
         auto next = large_base;
         next.mutable_objects.front().timestamp = edit + 1;
-        next.mutable_objects.front().data = bytes(edit, 4 * 1024);
+        next.mutable_objects.front().data = std::make_shared<const Bytes>(bytes(edit, 4 * 1024));
         CHECK(large.commit("large edit", Category::Project, next, {}));
         large_base = std::move(next);
     }

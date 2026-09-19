@@ -4,6 +4,7 @@
 // independent of the native GUI and of the bridge ABI.  Native immutable mesh
 // owners are opaque to this core; byte-backed fields remain for compatibility.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -22,11 +23,16 @@ using Bytes = std::vector<std::uint8_t>;
 using ObjectID = std::uint64_t;
 
 struct MutableObject {
+    using Transform = std::array<double, 16>;
+
     ObjectID id { 0 };
     // A non-zero timestamp is an optional fast path for callers that already
     // know an object's content did not change.  The bytes remain authoritative.
     std::uint64_t timestamp { 0 };
-    Bytes data;
+    // Object archives are immutable once captured. Sharing the payload is
+    // essential: a timestamp root contains a complete object manifest, but
+    // unchanged objects must not copy their cereal archive on every capture.
+    std::shared_ptr<const Bytes> data;
     // ModelVolume's native undo archive omits ObjectBase. Retain the ordered
     // IDs separately so restore can reapply them after materialization.
     std::vector<ObjectID> volume_ids;
@@ -34,6 +40,12 @@ struct MutableObject {
     // ordered native IDs so the bridge can reapply them after add_instance()
     // materializes the complete object graph.
     std::vector<ObjectID> instance_ids;
+    // Transform-only edits are represented as a sparse overlay on the
+    // immutable object archive. The archive remains a complete canonical
+    // fallback for every other mutable field; restore reapplies these exact
+    // matrices after deserializing it.
+    std::vector<Transform> volume_transforms;
+    std::vector<Transform> instance_transforms;
 };
 
 // Immutable mesh data is shared by identity and can be discarded from the
@@ -143,7 +155,7 @@ struct ResourceDiagnostics {
 struct ResourceAccounting {
     static constexpr std::size_t kImplAllocationBytes = 256;
     static constexpr std::size_t kStoredEntryBytes = 512;
-    static constexpr std::size_t kMutableObjectSlotBytes = 96;
+    static constexpr std::size_t kMutableObjectSlotBytes = 160;
     static constexpr std::size_t kImmutableMeshSlotBytes = 128;
     static constexpr std::size_t kObjectIntervalSlotBytes = 32;
     static constexpr std::size_t kSharedBlobAllocationBytes = 64;

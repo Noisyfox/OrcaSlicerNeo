@@ -24,7 +24,7 @@ static MutableObject object(ObjectID id, std::uint64_t timestamp, std::uint8_t v
     MutableObject result;
     result.id = id;
     result.timestamp = timestamp;
-    result.data = bytes(value, count);
+    result.data = std::make_shared<const Bytes>(bytes(value, count));
     result.volume_ids = { id + 1000 };
     result.instance_ids = { id + 2000 };
     return result;
@@ -49,11 +49,35 @@ static bool object_is(const TimestampedRestore& restored, std::size_t index, Obj
 {
     if (index >= restored.roots.model.mutable_objects.size()) return false;
     const auto& object = restored.roots.model.mutable_objects[index];
-    return object.id == id && object.timestamp == timestamp && object.data == bytes(value);
+    return object.id == id && object.timestamp == timestamp && object.data && *object.data == bytes(value);
 }
 
 int main()
 {
+    // Transform roots share a potentially large archive but remain distinct
+    // authoritative states. Unversioned archive edits must also mark the
+    // object in the renderer delta even when config timestamp stays zero.
+    TimestampedHistory overlays;
+    auto overlay_before = roots(1, {object(1, 0, 1, 1024 * 1024)});
+    overlay_before.model.mutable_objects[0].instance_transforms.push_back({});
+    auto overlay_after = overlay_before;
+    overlay_after.model.mutable_objects[0].instance_transforms[0][12] = 9;
+    CHECK(overlays.begin_operation("move", overlay_before));
+    const auto overlay_bytes = overlays.bytes_used();
+    CHECK(overlays.commit_operation(overlay_after));
+    TimestampedRestore overlay_restore;
+    CHECK(overlays.undo(overlay_after, overlay_restore));
+    CHECK(overlay_restore.scene_delta.object_ids == std::vector<ObjectID>({1}));
+    CHECK(overlay_restore.roots.model.mutable_objects[0].instance_transforms[0][12] == 0);
+    CHECK(overlays.bytes_used() < overlay_bytes + 8192);
+    CHECK(overlays.redo(overlay_restore));
+    CHECK(overlay_restore.roots.model.mutable_objects[0].instance_transforms[0][12] == 9);
+    auto metadata_after = overlay_after;
+    metadata_after.model.mutable_objects[0].data = std::make_shared<const Bytes>(bytes(2));
+    CHECK(overlays.begin_operation("paint", overlay_after));
+    CHECK(overlays.commit_operation(metadata_after));
+    CHECK(overlays.entries().back().scene_delta.object_ids == std::vector<ObjectID>({1}));
+
     // One semantic operation may add, move, and delete multiple stable-ID
     // objects. A non-adjacent menu target restores its explicit timestamp.
     TimestampedHistory sequence;
@@ -124,7 +148,7 @@ int main()
     const auto object_2_before = sharing.object_archive(0, 2);
     const auto object_2_after = sharing.object_archive(1, 2);
     CHECK(object_1_before && object_1_before == object_1_after);
-    CHECK(object_1_before->data.data() == object_1_after->data.data());
+    CHECK(object_1_before->data == object_1_after->data);
     CHECK(object_2_before && object_2_after && object_2_before != object_2_after);
     CHECK(sharing.object_archive_count() == 3);
     CHECK(sharing.object_intervals().size() == 3);
@@ -170,22 +194,19 @@ int main()
     CHECK(lazy.redo(restored));
     CHECK(restored.roots.session.history_context == lazy_after.session.history_context);
 
-    // The authoritative snapshot still retains a distinct archive if bytes
-    // differ despite an unchanged synthetic timestamp. SceneDelta deliberately
-    // relies on the native mutation contract to advance that timestamp and
-    // therefore never copies archive bytes to detect this impossible bridge
-    // state a second time.
+    // Unversioned metadata edits retain a distinct archive and publish their
+    // renderer delta without copying archive bytes into the acceleration.
     TimestampedHistory timestamp_hint;
     const auto hint_before = roots(1, { object(1, 5, 1) });
     const auto hint_after = roots(2, { object(1, 5, 2) });
     CHECK(timestamp_hint.begin_operation("timestamp hint", hint_before));
     CHECK(timestamp_hint.commit_operation(hint_after));
     CHECK(timestamp_hint.undo(hint_after, restored));
-    CHECK(restored.scene_delta.object_ids.empty());
+    CHECK(restored.scene_delta.object_ids == std::vector<ObjectID>({1}));
     CHECK(timestamp_hint.object_archive_count() == 2);
     CHECK(timestamp_hint.redo(restored));
     CHECK(object_is(restored, 0, 1, 5, 2));
-    CHECK(restored.scene_delta.object_ids.empty());
+    CHECK(restored.scene_delta.object_ids == std::vector<ObjectID>({1}));
 
     // Active SceneDelta derivation retains only bounded ID/version metadata.
     // Increasing serialized object bytes grows bytes_used by exactly one
@@ -200,7 +221,7 @@ int main()
     const auto large_archive = large_delta_metadata.object_archive(0, 1);
     CHECK(small_archive && large_archive);
     const auto authoritative_archive_growth =
-        large_archive->data.capacity() - small_archive->data.capacity();
+        large_archive->data->capacity() - small_archive->data->capacity();
     CHECK(large_delta_metadata.bytes_used() - small_delta_metadata.bytes_used() ==
           authoritative_archive_growth);
     CHECK(small_delta_metadata.abort_operation());

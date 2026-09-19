@@ -33,6 +33,7 @@
 
 #include "bridge_buffers.hpp"
 #include "bridge_filament.hpp"
+#include "bridge_history.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
@@ -715,9 +716,11 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         runtime_entry = &task->lease.entry();
         auto& print = *runtime_entry->print;
 
-        // A new slice invalidates both the old toolpath and its source text
-        // before any work begins. The client must fetch a fresh result id.
-        invalidate_preview_source();
+        // begin_slice() withdraws the old toolpath/result presentation before
+        // any work begins. Starting a slice does not mutate model/config input,
+        // so retain the prime-tower projection and used-slot summary. Actual
+        // model/config mutations invalidate that source through their normal
+        // commit paths.
         // libslic3r's internal phase reporting does not promise a final 100%
         // notification (the current FDM path often ends at 75%). Establish
         // stable operation boundaries for the UI around those detailed phases.
@@ -861,6 +864,15 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             ScopedPlateModelContext model_context(state().model, *target_plate);
             print.apply(state().model, config);
         }
+        // Print::apply() may finish lazy native transform/config normalization
+        // on the authoritative model while it constructs the reusable Print
+        // snapshot. Refresh the history acceleration only after the scoped
+        // plate state has been restored. The captured archives describe the
+        // exact post-apply model; a later edit may therefore share every
+        // untouched object without treating a pre-normalization archive as a
+        // canonical predecessor.
+        (void) Neo::History::Codec::capture_model_state(
+            state().model, state().mesh_capture_cache, state().mutable_object_capture_cache);
         // Native validation also checks whether the generated prime tower
         // footprint overlaps a configured exclusion/wrapping area.  Those
         // three tower collision classes are slice-time advisories in Neo;

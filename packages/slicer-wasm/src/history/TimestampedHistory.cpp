@@ -21,8 +21,10 @@ template <class T> bool shared_bytes_equal(const std::shared_ptr<const T>& lhs, 
 
 bool mutable_equal(const MutableObject& lhs, const MutableObject& rhs)
 {
-    return lhs.id == rhs.id && lhs.timestamp == rhs.timestamp && lhs.data == rhs.data &&
-           lhs.volume_ids == rhs.volume_ids && lhs.instance_ids == rhs.instance_ids;
+    return lhs.id == rhs.id && lhs.timestamp == rhs.timestamp && shared_bytes_equal(lhs.data, rhs.data) &&
+           lhs.volume_ids == rhs.volume_ids && lhs.instance_ids == rhs.instance_ids &&
+           lhs.volume_transforms == rhs.volume_transforms &&
+           lhs.instance_transforms == rhs.instance_transforms;
 }
 
 bool mesh_equal(const ImmutableMesh& lhs, const ImmutableMesh& rhs)
@@ -57,8 +59,11 @@ template <class T> void append_unique(std::vector<T>& target, const std::vector<
 struct SceneObjectState {
     ObjectID id { 0 };
     std::uint64_t timestamp { 0 };
+    std::shared_ptr<const Bytes> archive;
     std::vector<ObjectID> volume_ids;
     std::vector<ObjectID> instance_ids;
+    std::vector<MutableObject::Transform> volume_transforms;
+    std::vector<MutableObject::Transform> instance_transforms;
 };
 
 struct SceneState {
@@ -71,7 +76,8 @@ SceneState scene_state(const TimestampedRoots& roots)
     SceneState result;
     result.objects.reserve(roots.model.mutable_objects.size());
     for (const MutableObject& object : roots.model.mutable_objects)
-        result.objects.push_back({object.id, object.timestamp, object.volume_ids, object.instance_ids});
+        result.objects.push_back({object.id, object.timestamp, object.data, object.volume_ids, object.instance_ids,
+                                  object.volume_transforms, object.instance_transforms});
     result.plate_ids = roots.session.scene_plate_ids;
     sort_unique(result.plate_ids);
     return result;
@@ -93,8 +99,11 @@ SceneDelta scene_delta(const SceneState& before, const SceneState& after)
         const auto new_object = after_by_id.find(id);
         const bool changed = old_object == before_by_id.end() || new_object == after_by_id.end() ||
             old_object->second->timestamp != new_object->second->timestamp ||
+            !shared_bytes_equal(old_object->second->archive, new_object->second->archive) ||
             old_object->second->volume_ids != new_object->second->volume_ids ||
-            old_object->second->instance_ids != new_object->second->instance_ids;
+            old_object->second->instance_ids != new_object->second->instance_ids ||
+            old_object->second->volume_transforms != new_object->second->volume_transforms ||
+            old_object->second->instance_transforms != new_object->second->instance_transforms;
         if (!changed) continue;
         result.object_ids.push_back(id);
         if (old_object != before_by_id.end()) {
@@ -309,8 +318,18 @@ struct TimestampedHistory::Impl {
             return false;
         for (std::size_t index = 0; index < prior.object_order.size(); ++index) {
             const auto found = prior.objects.find(prior.object_order[index]);
-            if (found == prior.objects.end() || prior.object_order[index] != roots.model.mutable_objects[index].id ||
-                found->second->timestamp != roots.model.mutable_objects[index].timestamp)
+            if (found == prior.objects.end()) return false;
+            const MutableObject& retained = *found->second;
+            const MutableObject& live = roots.model.mutable_objects[index];
+            // The restored timestamp's archive is immutable and remains the
+            // authority. A fresh cereal stream may differ in internal derived
+            // bytes, so validate every independently versioned/overlaid field
+            // and refresh only session/editing roots; never replace the model
+            // archive at an existing timestamp.
+            if (prior.object_order[index] != live.id || retained.timestamp != live.timestamp ||
+                retained.volume_ids != live.volume_ids || retained.instance_ids != live.instance_ids ||
+                retained.volume_transforms != live.volume_transforms ||
+                retained.instance_transforms != live.instance_transforms)
                 return false;
         }
         for (std::size_t index = 0; index < prior.meshes.size(); ++index)
@@ -487,8 +506,11 @@ struct TimestampedHistory::Impl {
             add_blob(snapshot->project_config_overlay);
             for (const auto& [id, object] : snapshot->objects) {
                 if (!objects.insert(object.get()).second) continue;
-                result += kObjectArchiveBytes + object->data.capacity() + vector_bytes(object->volume_ids) +
-                          vector_bytes(object->instance_ids);
+                add_blob(object->data);
+                result += kObjectArchiveBytes +
+                    vector_bytes(object->volume_ids) +
+                    vector_bytes(object->instance_ids) + vector_bytes(object->volume_transforms) +
+                    vector_bytes(object->instance_transforms);
             }
             for (const auto& mesh : snapshot->meshes) {
                 if (!meshes.insert(mesh.get()).second) continue;
@@ -509,7 +531,8 @@ struct TimestampedHistory::Impl {
             result += kEntryBytes + string_bytes(operation->label) + vector_bytes(operation->before_scene.objects) +
                       vector_bytes(operation->before_scene.plate_ids);
             for (const auto& object : operation->before_scene.objects)
-                result += vector_bytes(object.volume_ids) + vector_bytes(object.instance_ids);
+                result += vector_bytes(object.volume_ids) + vector_bytes(object.instance_ids) +
+                    vector_bytes(object.volume_transforms) + vector_bytes(object.instance_transforms);
             for (const auto& plate_id : operation->before_scene.plate_ids) result += string_bytes(plate_id);
         }
         return result;

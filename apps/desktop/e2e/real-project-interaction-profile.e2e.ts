@@ -54,7 +54,8 @@ type NativeMemory = {
   retired_registry_entry_count: number;
   prime_tower_projection_cache_entries: number;
   history: { entry_count: number; retained_estimated_bytes: number; serialized_mesh_count: number;
-    serialized_object_count: number; reused_object_count: number };
+    serialized_object_count: number; reused_object_count: number;
+    object_cache_misses: Record<string, number>; object_fingerprint_misses: Record<string, number> };
   shared_source_mesh: { reference_count: number; unique_mesh_count: number; vertex_bytes: number;
     index_bytes: number; total_bytes: number };
   plates: NativePlateMemory[];
@@ -292,7 +293,6 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     if (!activeMoveBefore?.worker || !activeMoveBefore.client)
       throw new Error('history diagnostics unavailable before active-slice Move');
     await takeNativeProfile();
-    await takeAttribution();
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…', { timeout: 30_000 });
     await expect.poll(readActiveSliceCount, {
@@ -315,6 +315,10 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       timeout: 30_000,
       intervals: [10],
     }).toBe(0);
+    // Print::apply admission is complete once the detached job is observable.
+    // Start the capture-work delta here so it measures the ordinary Move
+    // transaction itself, not slice-time cache normalization.
+    const activeCaptureBefore = await takeAttribution();
     const activeMove = await page.evaluate(() =>
       (window as unknown as { __orcaE2e?: {
         realProjectMoveSelectedX?: (delta: number) => { moved: boolean; startedAt: number };
@@ -342,8 +346,22 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       appMutationMs: activeMoveAfter.app.mutation.lastMs,
       operations: activeMoveNative.samples.map((sample) => ({
         operation: sample.operation,
-        totalMs: sample.stagesMs.total,
+        stagesMs: sample.stagesMs,
       })),
+      serializedObjectDelta: activeMoveMemory.native.history.serialized_object_count -
+        activeCaptureBefore.native.history.serialized_object_count,
+      reusedObjectDelta: activeMoveMemory.native.history.reused_object_count -
+        activeCaptureBefore.native.history.reused_object_count,
+      captureCounts: {
+        beforeSerialized: activeCaptureBefore.native.history.serialized_object_count,
+        beforeReused: activeCaptureBefore.native.history.reused_object_count,
+        afterSerialized: activeMoveMemory.native.history.serialized_object_count,
+        afterReused: activeMoveMemory.native.history.reused_object_count,
+        beforeMisses: activeCaptureBefore.native.history.object_cache_misses,
+        afterMisses: activeMoveMemory.native.history.object_cache_misses,
+        beforeFingerprintMisses: activeCaptureBefore.native.history.object_fingerprint_misses,
+        afterFingerprintMisses: activeMoveMemory.native.history.object_fingerprint_misses,
+      },
       jsWasmOperations: activeMoveMemory.native.js_wasm_calls.map((sample) => ({
         operation: sample.operation,
         wallMs: sample.wallMs,
@@ -351,7 +369,7 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
         outputJsonBytes: sample.outputJsonBytes,
       })),
     }));
-    expect(activeMoveVisibleMs,
+    expect.soft(activeMoveVisibleMs,
       'an active threaded slice must not delay Move Undo publication beyond 100 ms').toBeLessThan(100);
     await expect.poll(readActiveSliceCount, {
       message: 'the obsolete slice must reach its terminal and release the global job slot',
@@ -367,6 +385,9 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     expect(activeMoveMemory.native.js_wasm_calls.map((sample) => sample.operation).filter((operation) =>
       ['orc_history_begin', 'orc_set_model_transforms', 'orc_history_commit'].includes(operation)))
       .toEqual(['orc_history_begin', 'orc_set_model_transforms', 'orc_history_commit']);
+    expect(activeMoveMemory.native.history.serialized_object_count -
+      activeCaptureBefore.native.history.serialized_object_count,
+    'an active-slice Move must reuse the canonical archive beneath its transform overlay').toBe(0);
     await page.getByTestId('history-undo').click();
     await expect.poll(async () => {
       const restored = await readCenters();
@@ -409,7 +430,15 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     const addNativeMs = addNative.samples.slice(0, 3).reduce((sum, sample) => sum + sample.stagesMs.total, 0);
     const addJsWasmMs = addMemory.native.js_wasm_calls.reduce((sum, sample) => sum + sample.wallMs, 0);
     const addVisibleMs = addUndoAt - addStart;
-    expect(addVisibleMs, 'Add Plate must expose Undo within the accepted 100 ms boundary').toBeLessThan(100);
+    console.log('[add-plate-gate-profile]', JSON.stringify({
+      visibleMs: addVisibleMs,
+      workerMutationMs: addAfter.worker.mutation.lastMs,
+      clientMutationMs: addAfter.client.mutation.lastMs,
+      appMutationMs: addAfter.app.mutation.lastMs,
+      nativeStages: addNative.samples,
+      jsWasmCalls: addMemory.native.js_wasm_calls,
+    }));
+    expect.soft(addVisibleMs, 'Add Plate must expose Undo within the accepted 100 ms boundary').toBeLessThan(100);
 
     // Select a genuine rendered model through the canvas and perform one full
     // pointer gesture. The newly-added empty plate remains part of the state.
@@ -420,7 +449,7 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     const beforeMoveBounds = await readBounds();
     expect(beforeMoveBounds).not.toBeNull();
     await takeNativeProfile();
-    await takeAttribution();
+    const moveCaptureBefore = await takeAttribution();
     const moveBefore = await readDiagnostics();
     if (!moveBefore?.worker || !moveBefore.client) throw new Error('history diagnostics unavailable before Move');
     await page.mouse.move(box.x + start!.x, box.y + start!.y);
@@ -452,8 +481,25 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     const moveMemory = await takeAttribution();
     expectAttribution(moveMemory, 12);
     expectCalls(moveMemory.native, ['orc_history_begin', 'orc_set_model_transforms', 'orc_history_commit']);
+    expect(moveMemory.native.history.serialized_object_count -
+      moveCaptureBefore.native.history.serialized_object_count,
+    'a one-object Move must reuse its canonical archive beneath the transform overlay').toBe(0);
+    expect(moveMemory.native.history.reused_object_count -
+      moveCaptureBefore.native.history.reused_object_count,
+    'a Move must share untouched object archives across both complete timestamp roots').toBeGreaterThan(0);
     const moveVisibleMs = moveUndoAt - pointerUpAt;
-    expect(moveVisibleMs, 'Move must expose Undo within the accepted 100 ms boundary').toBeLessThan(100);
+    expect.soft(moveVisibleMs, 'Move must expose Undo within the accepted 100 ms boundary').toBeLessThan(100);
+    console.log('[move-gate-profile]', JSON.stringify({
+      visibleMs: moveVisibleMs,
+      workerMutationMs: moveAfter.worker.mutation.lastMs,
+      clientMutationMs: moveAfter.client.mutation.lastMs,
+      appMutationMs: moveAfter.app.mutation.lastMs,
+      operations: moveNative.samples.map((sample) => ({ operation: sample.operation, stagesMs: sample.stagesMs })),
+      serializedObjectDelta: moveMemory.native.history.serialized_object_count -
+        moveCaptureBefore.native.history.serialized_object_count,
+      reusedObjectDelta: moveMemory.native.history.reused_object_count -
+        moveCaptureBefore.native.history.reused_object_count,
+    }));
     const movedCenters = await readCenters();
 
     // The Undo fence is the restored model projection plus consumed Undo Move
@@ -480,20 +526,25 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     if (!undoAfter?.worker || !undoAfter.client) throw new Error('history diagnostics unavailable after Undo');
     const undoNative = await takeNativeProfile();
     expect(undoNative.samples.map((sample) => sample.operation)).toEqual(['history_restore', 'prime_tower_projection']);
-    expect(Object.keys(undoNative.samples[0].stagesMs).sort()).toEqual(['delta_apply', 'total']);
+    expect(Object.keys(undoNative.samples[0].stagesMs).sort()).toEqual([
+      'immutable_mesh_reconnect', 'model_staging_deserialization',
+      'plate_session_project_overlay_restore', 'total',
+    ]);
     expect(undoNative.samples[1].perPlateStagesMs).toHaveLength(12);
     const undoMemory = await takeAttribution();
     expectAttribution(undoMemory, 12);
     expectCalls(undoMemory.native, ['orc_history_undo']);
+    expect(undoAfter.app.directRestore.count - undoBefore.app.directRestore.count,
+      'real-project Move Undo must publish one stable-ID scene delta').toBe(1);
     expect(undoAfter.app.transformReceiptApplied - undoBefore.app.transformReceiptApplied,
-      'real-project Move Undo must use the sparse transform receipt').toBe(1);
+      'timestamp history must not use the removed sparse transform receipt').toBe(0);
     expect(undoAfter.app.transformReceiptFallbacks - undoBefore.app.transformReceiptFallbacks,
       'real-project Move Undo must not fall back to a full projection reload').toBe(0);
     expect(undoAfter.app.fullRestoreModelReloads - undoBefore.app.fullRestoreModelReloads,
       'real-project Move Undo must not reload the full model projection').toBe(0);
     expect(undoAfter.app.transformReceiptProofFailures - undoBefore.app.transformReceiptProofFailures,
       'real-project Move Undo receipt proof must remain valid').toBe(0);
-    expect(restoredAt - undoClickAt,
+    expect.soft(restoredAt - undoClickAt,
       'real-project Move Undo restore fence must remain below the 500 ms regression boundary').toBeLessThan(500);
 
     await page.getByTestId('history-redo').click();
@@ -543,8 +594,8 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
         nativeStages: undoNative.samples,
         application: {
           restoreMs: timingDelta(undoBefore.app.restore, undoAfter.app.restore, 'Undo application restore'),
-          // Sparse Move Undo applies the retained transform receipt in-place;
-          // only a fallback restore rebuilds the full model projection.
+          // Timestamp Undo publishes one stable-ID scene patch; unchanged
+          // renderer resources remain live.
           projectionMs: optionalTimingDelta(undoBefore.app.projection, undoAfter.app.projection),
           filamentRefreshMs: timingDelta(undoBefore.app.filamentRefresh, undoAfter.app.filamentRefresh, 'Undo filament refresh'),
           // A matching narrow Prime Tower restore receipt patches the retained

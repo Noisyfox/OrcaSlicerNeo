@@ -1118,8 +1118,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.instance->set_transformation(item.next_instance);
                 item.volume->set_transformation(item.next_volume);
                 item.object->invalidate_bounding_box();
-                if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
-                    item.object->config.touch();
             }
             if (projection_geometry_changed)
                 Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
@@ -1148,8 +1146,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.instance->set_transformation(item.previous_instance);
                 item.volume->set_transformation(item.previous_volume);
                 item.object->invalidate_bounding_box();
-                if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
-                    item.object->config.touch();
             }
             state().plate_input_revisions = before_revisions;
             state().plate_runtime_registry.restore_lifecycle(before_lifecycle);

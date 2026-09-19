@@ -365,6 +365,9 @@ json restore_timestamped_result(const Runtime& runtime,
         state().history_live_context = context;
         state().history_live_context["plateSession"]["input_revisions"] =
             Neo::Bridge::PlateSession::plate_revisions_json();
+        if (!Neo::History::Codec::prime_model_capture_cache(
+                state().model, restored.roots.model, state().mutable_object_capture_cache))
+            state().mutable_object_capture_cache.clear();
         restore_timings.plate_session_project_overlay_restore_ms =
             Neo::Bridge::Performance::now_ms() - roots_restore_started_at;
     } catch (...) {
@@ -544,7 +547,118 @@ std::string mesh_key(const TriangleMesh& mesh)
         reinterpret_cast<std::uintptr_t>(&mesh));
 }
 
+std::array<double, 16> transform_fingerprint(const Transform3d& transform)
+{
+    std::array<double, 16> result {};
+    std::copy_n(transform.data(), result.size(), result.data());
+    return result;
+}
+
+Geometry::Transformation transformation_from_overlay(const MutableObject::Transform& values)
+{
+    Transform3d transform;
+    std::copy(values.begin(), values.end(), transform.data());
+    return Geometry::Transformation(transform);
+}
+
+template<class... T> std::string metadata_fingerprint(const T&... values)
+{
+    std::ostringstream stream(std::ios::binary | std::ios::out);
+    cereal::BinaryOutputArchive archive(stream);
+    archive(values...);
+    return stream.str();
+}
+
+MutableObjectCaptureCache::MutationFingerprint mutation_fingerprint(const ModelObject& object)
+{
+    MutableObjectCaptureCache::MutationFingerprint result;
+    result.object_config_timestamp = static_cast<const ModelConfig&>(object.config).timestamp();
+    result.name = object.name;
+    result.module_name = object.module_name;
+    result.input_file = object.input_file;
+    result.printable = object.printable;
+    // Native fields without a mutation timestamp still participate exactly.
+    // Derived bounding-box caches are deliberately excluded; restore
+    // invalidates them after applying the authoritative transform overlay.
+    result.metadata = metadata_fingerprint(object.layer_config_ranges,
+        object.layer_height_profile, object.sla_support_points, object.sla_points_status,
+        object.sla_drain_holes, object.origin_translation, object.brim_points,
+        object.cut_connectors, object.cut_id);
+    result.volumes.reserve(object.volumes.size());
+    for (const ModelVolume* volume : object.volumes) {
+        MutableObjectCaptureCache::VolumeFingerprint fingerprint;
+        fingerprint.transform = transform_fingerprint(volume->get_transformation().get_matrix());
+        fingerprint.config_timestamp = static_cast<const ModelConfig&>(volume->config).timestamp();
+        fingerprint.facet_timestamps = {
+            volume->supported_facets.timestamp(), volume->seam_facets.timestamp(),
+            volume->mmu_segmentation_facets.timestamp(), volume->fuzzy_skin_facets.timestamp()};
+        fingerprint.name = volume->name;
+        fingerprint.material_id = volume->material_id();
+        fingerprint.type = static_cast<int>(volume->type());
+        fingerprint.metadata = metadata_fingerprint(volume->source, volume->cut_info);
+        // These complex, unversioned payloads have no cheap identity proof.
+        // Conservatively capture such volumes rather than assuming they are
+        // unchanged. They are not present in the ordinary mesh Move path.
+        fingerprint.reusable = !volume->text_configuration && !volume->emboss_shape;
+        result.volumes.push_back(std::move(fingerprint));
+    }
+    result.instances.reserve(object.instances.size());
+    for (const ModelInstance* instance : object.instances) {
+        MutableObjectCaptureCache::InstanceFingerprint fingerprint;
+        fingerprint.transform = transform_fingerprint(instance->get_transformation().get_matrix());
+        fingerprint.assemble_transform = transform_fingerprint(instance->get_assemble_transformation().get_matrix());
+        fingerprint.printable = instance->printable;
+        fingerprint.auto_drop = instance->auto_drop;
+        fingerprint.print_volume_state = static_cast<int>(instance->print_volume_state);
+        fingerprint.arrange_order = instance->arrange_order;
+        fingerprint.loaded_id = instance->loaded_id;
+        const auto assembly_offset = instance->get_offset_to_assembly();
+        std::copy_n(assembly_offset.data(), 3, fingerprint.assembly_offset.data());
+        fingerprint.assemble_initialized = const_cast<ModelInstance*>(instance)->is_assemble_initialized();
+        result.instances.push_back(std::move(fingerprint));
+    }
+    return result;
+}
+
 } // namespace
+
+bool prime_model_capture_cache(const Model& model, const ModelState& roots,
+                               MutableObjectCaptureCache& object_cache)
+{
+    object_cache.invalidate_all();
+    const auto fail = [&object_cache]() {
+        object_cache.invalidate_all();
+        return false;
+    };
+    if (model.objects.size() != roots.mutable_objects.size()) return fail();
+    for (std::size_t index = 0; index < model.objects.size(); ++index) {
+        const ModelObject& object = *model.objects[index];
+        const MutableObject& root = roots.mutable_objects[index];
+        const auto fingerprint = mutation_fingerprint(object);
+        if (root.id != object.id().id ||
+            root.timestamp != static_cast<const ModelConfig&>(object.config).timestamp() ||
+            root.volume_ids.size() != object.volumes.size() ||
+            root.instance_ids.size() != object.instances.size() ||
+            root.volume_transforms.size() != fingerprint.volumes.size() ||
+            root.instance_transforms.size() != fingerprint.instances.size())
+            return fail();
+        std::vector<MutableObjectCaptureCache::MeshPtr> meshes;
+        meshes.reserve(object.volumes.size());
+        for (std::size_t child = 0; child < object.volumes.size(); ++child) {
+            if (root.volume_ids[child] != object.volumes[child]->id().id ||
+                root.volume_transforms[child] != fingerprint.volumes[child].transform)
+                return fail();
+            meshes.push_back(object.volumes[child]->get_mesh_shared_ptr());
+        }
+        for (std::size_t child = 0; child < object.instances.size(); ++child)
+            if (root.instance_ids[child] != object.instances[child]->id().id ||
+                root.instance_transforms[child] != fingerprint.instances[child].transform)
+                return fail();
+        object_cache.prime(root.id, root.timestamp, root.data, meshes, root.volume_ids,
+                           root.instance_ids, fingerprint);
+    }
+    return true;
+}
 
 ModelState capture_model_state(const Model& model)
 {
@@ -626,27 +740,38 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
         // ModelObject derives from ObjectBase (whose timestamp is zero); use
         // the mutable object configuration timestamp as the Orca gate.
         const auto timestamp = static_cast<const ModelConfig&>(object->config).timestamp();
+        auto fingerprint = mutation_fingerprint(*object);
+        std::vector<MutableObject::Transform> volume_transforms;
+        volume_transforms.reserve(fingerprint.volumes.size());
+        for (const auto& volume : fingerprint.volumes)
+            volume_transforms.push_back(volume.transform);
+        std::vector<MutableObject::Transform> instance_transforms;
+        instance_transforms.reserve(fingerprint.instances.size());
+        for (const auto& instance : fingerprint.instances)
+            instance_transforms.push_back(instance.transform);
         const auto* cached = object_cache.find(
-            object->id().id, timestamp, object_meshes, volume_ids, instance_ids);
+            object->id().id, timestamp, object_meshes, volume_ids, instance_ids, fingerprint);
         if (timings) timings->collection_cache_ms += Neo::Bridge::Performance::now_ms() - object_iteration_started_at;
         const double mutable_archive_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
-        Bytes object_bytes;
+        std::shared_ptr<const Bytes> object_bytes;
         if (cached) {
-            object_bytes = *cached->bytes;
+            object_bytes = cached->bytes;
             object_cache.record_reuse();
         } else {
+            // Keep a complete native archive as the base. Its embedded
+            // transforms are superseded by the root's exact transform
+            // overlay, allowing transform-only successors to share it.
             std::ostringstream stream(std::ios::binary | std::ios::out);
             NeoHistoryOutputArchive archive(archive_context, stream);
             archive(*object);
             const std::string encoded = stream.str();
-            object_bytes.assign(encoded.begin(), encoded.end());
-            object_cache.insert(object->id().id, timestamp,
-                                std::make_shared<const Bytes>(object_bytes), object_meshes,
-                                volume_ids, instance_ids);
+            object_bytes = std::make_shared<const Bytes>(encoded.begin(), encoded.end());
+            object_cache.insert(object->id().id, timestamp, object_bytes, object_meshes,
+                                volume_ids, instance_ids, std::move(fingerprint));
         }
         result.mutable_objects.push_back({
             object->id().id, timestamp, std::move(object_bytes), std::move(volume_ids),
-            std::move(instance_ids)});
+            std::move(instance_ids), std::move(volume_transforms), std::move(instance_transforms)});
         if (timings) timings->mutable_object_archive_ms += Neo::Bridge::Performance::now_ms() - mutable_archive_started_at;
     }
     const double immutable_result_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
@@ -699,8 +824,8 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
     rebuilt_model.clear_objects();
     InstanceIdentityGraph instance_identity_graph;
     for (const auto& object : restored.model.mutable_objects) {
-        if (object.data.empty()) throw std::runtime_error("history object data is unavailable");
-        std::string bytes(object.data.begin(), object.data.end());
+        if (!object.data || object.data->empty()) throw std::runtime_error("history object data is unavailable");
+        std::string bytes(object.data->begin(), object.data->end());
         std::istringstream stream(bytes, std::ios::binary | std::ios::in);
         ModelObject* native_object = rebuilt_model.add_object();
         NeoHistoryInputArchive archive(archive_context, stream);
@@ -710,6 +835,7 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
 
         const std::size_t decoded_volume_count = native_object->volumes.size();
         if (object.volume_ids.size() != decoded_volume_count ||
+            object.volume_transforms.size() != decoded_volume_count ||
             std::any_of(object.volume_ids.begin(), object.volume_ids.end(),
                         [](Neo::History::ObjectID id) { return id == 0; }))
             throw std::runtime_error("history volume identities are unavailable");
@@ -743,13 +869,21 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
             std::istringstream id_input(id_bytes, std::ios::binary | std::ios::in);
             cereal::BinaryInputArchive id_reader(id_input);
             id_reader(cereal::base_class<ObjectBase>(materialized));
+            materialized->set_transformation(
+                transformation_from_overlay(object.volume_transforms[index]));
         }
 
+        if (object.instance_transforms.size() != object.instance_ids.size())
+            throw std::runtime_error("history instance transforms are unavailable");
         InstanceIDs instance_ids;
         instance_ids.reserve(object.instance_ids.size());
         for (const Neo::History::ObjectID id : object.instance_ids)
             instance_ids.emplace_back(id);
         instance_identity_graph.restore(*native_object, instance_ids);
+        for (std::size_t index = 0; index < native_object->instances.size(); ++index)
+            native_object->instances[index]->set_transformation(
+                transformation_from_overlay(object.instance_transforms[index]));
+        native_object->invalidate_bounding_box();
     }
     if (timings)
         timings->model_staging_deserialization_ms += Neo::Bridge::Performance::now_ms() - mutable_started_at;
@@ -764,8 +898,12 @@ bool model_state_equal(const ModelState& lhs, const ModelState& rhs)
     for (std::size_t index = 0; index < lhs.mutable_objects.size(); ++index) {
         const auto& left = lhs.mutable_objects[index];
         const auto& right = rhs.mutable_objects[index];
-        if (left.id != right.id || left.timestamp != right.timestamp || left.data != right.data ||
-            left.volume_ids != right.volume_ids || left.instance_ids != right.instance_ids)
+        const bool data_equal = left.data == right.data ||
+            (left.data && right.data && *left.data == *right.data);
+        if (left.id != right.id || left.timestamp != right.timestamp || !data_equal ||
+            left.volume_ids != right.volume_ids || left.instance_ids != right.instance_ids ||
+            left.volume_transforms != right.volume_transforms ||
+            left.instance_transforms != right.instance_transforms)
             return false;
     }
     for (std::size_t index = 0; index < lhs.immutable_meshes.size(); ++index) {
@@ -1061,7 +1199,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
         Neo::History::Codec::CaptureTimings capture_timings;
-        state().mutable_object_capture_cache.clear();
         auto before_roots = HistoryMetadata::capture_history_roots(state(), before_context, &capture_timings);
         if (!state().history.begin_operation(label, before_roots))
             return error_json("could not capture history predecessor");
@@ -1116,7 +1253,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const auto tx = *state().active_history_transaction;
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
         Neo::History::Codec::CaptureTimings capture_timings;
-        state().mutable_object_capture_cache.clear();
         const auto after_roots = HistoryMetadata::capture_history_roots(state(), after_context, &capture_timings);
         const double capture_finished_at = Neo::Bridge::Performance::now_ms();
         const bool unchanged = Neo::History::Codec::model_state_equal(tx.before_roots.model, after_roots.model) &&
@@ -1329,6 +1465,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
         state().nested_history_transactions.clear();
         state().history_disabled = false;
         state().history_live_context = context;
+        (void) HistoryMetadata::capture_history_roots(state(), context);
         state().history.mark_current_as_saved();
         HistoryMetadata::advance_history_epoch(state());
         return duplicate_json(history_status_json().dump());

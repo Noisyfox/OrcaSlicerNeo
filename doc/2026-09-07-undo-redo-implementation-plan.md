@@ -958,3 +958,27 @@ one restore rather than traversing sparse adjacent receipts.
   Full renderer projection remains limited to initial project load, Worker
   restart, or explicit renderer/context recovery. Root acceptance is
   intentionally not recorded here.
+
+### Capture efficiency boundary
+
+Timestamp model roots share immutable native object archives instead of copying
+their bytes. Each root also owns exact ordered volume and instance transforms;
+those transforms override the matrices embedded in the shared base archive on
+restore. A transform-only transaction therefore captures no new object archive,
+while remaining an ordinary authoritative timestamp snapshot for arbitrary
+compound actions, abort, and direct history navigation.
+
+Reuse requires stable child identities, the same immutable mesh owners, native
+configuration and painting timestamps, and matching unversioned native metadata.
+Zero configuration timestamps from imported objects are valid. Source metadata,
+names, material/type, printable and assembly state, origin, layer configuration,
+and other archived object fields participate in the proof. Complex unversioned
+emboss/text state conservatively takes the complete archive path. Derived
+bounding-box caches do not version history and are invalidated on restore.
+Project load and successful restore prime the cache from authoritative state;
+ordinary history begin/commit preserve it.
+
+SceneDelta derivation retains shared archive identity and exact transform
+metadata, so painting or other edits with unchanged object configuration
+timestamps still update the correct renderer members without copying archives.
+History memory accounting charges each shared archive allocation once.
