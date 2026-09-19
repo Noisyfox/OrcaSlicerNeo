@@ -36,7 +36,10 @@ function makePlatform() {
           request: vi.fn(async () => ({ status: 200, json: async () => ({ result: { item: { path: 'gcodes/output.gcode' } } }) })),
         },
       },
-      runtime: { exportGcode: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })) },
+      runtime: {
+        exportGcode: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
+        getRuntimeExecutionState: vi.fn(() => ({ threaded: true, sliceActive: false, serialSliceActive: false, serialTerminalEpoch: '0' })),
+      },
     } as unknown as PlatformCapabilities,
   };
 }
@@ -167,6 +170,30 @@ describe('Toolbar send navigation', () => {
       root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
     });
     await act(async () => { useHistoryRestoreStore.getState().setPhase('restoring'); });
+    expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('disables buttons and history menus during a serial slice but keeps threaded history responsive', async () => {
+    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
+    useHistoryNavigationStore.getState().setStatus(navigationStatus);
+    useSlicerStore.setState({ status: 'slicing' });
+    const { platform } = makePlatform();
+    const runtimeState = vi.mocked(platform.runtime.getRuntimeExecutionState);
+    runtimeState.mockReturnValue({ threaded: false, sliceActive: true, serialSliceActive: true, serialTerminalEpoch: '0' });
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+    });
+    for (const testId of ['history-undo', 'history-redo', 'history-undo-menu-trigger', 'history-redo-menu-trigger'])
+      expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).disabled).toBe(true);
+
+    runtimeState.mockReturnValue({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' });
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+    });
     expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(false);
     expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
   });

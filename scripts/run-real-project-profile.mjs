@@ -63,8 +63,7 @@ const profileEnv = {
 let testStatus = 1;
 let primaryError;
 try {
-  if (process.env.ORCA_REAL_PROJECT_PROFILE_SKIP_WASM_BUILD !== '1')
-    requireRun('cmd.exe', ['/d', '/c', `call ${emsdkEnv} && call packages\\slicer-wasm\\build.bat`], root, profileEnv);
+  requireRun('cmd.exe', ['/d', '/c', `call ${emsdkEnv} && call packages\\slicer-wasm\\build.bat`], root, profileEnv);
   requirePnpm(['stage:assets'], root, profileEnv);
   requireRun(process.execPath, [join(root, 'scripts/stage-real-project-profile.mjs')], root, profileEnv);
   requirePnpm(['exec', 'electron-vite', 'build'], desktop, profileEnv);

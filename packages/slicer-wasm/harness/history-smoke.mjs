@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 
 const [moduleArg, profileRootArg] = argv.slice(2);
 if (!moduleArg) throw new Error('usage: node history-smoke.mjs <out/orca_slice.js> [profile-package-root]');
@@ -229,6 +230,39 @@ historyCheck('second Redo reapplies Move with exact native IDs', freshMoveRedo.o
     actual: modelIdentity(freshMoveRedoStructure) }));
 assertSceneDelta('second Redo publishes the exact move delta', freshMoveRedo,
   freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
+const threading = callJson('orc_get_threading_info', [], []);
+if (threading.threaded) {
+  const beforeActiveRestore = callJson('orc_get_plate_session_snapshot', [], []);
+  const activePlateId = beforeActiveRestore.current_plate_id;
+  const activeRevision = beforeActiveRestore.input_revisions?.[activePlateId];
+  const activeSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], [
+    JSON.stringify({ layer_height: '0.17' }), activePlateId, activeRevision,
+  ]);
+  historyCheck('threaded history fixture admits a detached Slice task', activeSlice.accepted === true,
+    JSON.stringify(activeSlice));
+  const restoreStartedAt = Date.now();
+  const activeSliceUndo = callJson('orc_history_undo', [], []);
+  historyCheck('threaded Undo restores immediately while Slice is active', activeSliceUndo.ok === true &&
+    Date.now() - restoreStartedAt < 1_000, JSON.stringify({ activeSliceUndo,
+      elapsed_ms: Date.now() - restoreStartedAt }));
+  const restoredRevisions = activeSliceUndo.context?.plateSession?.input_revisions ?? {};
+  historyCheck('threaded Undo advances every plate input stamp',
+    Object.entries(beforeActiveRestore.input_revisions ?? {}).every(([plateId, revision]) =>
+      Number.isSafeInteger(restoredRevisions[plateId]) && restoredRevisions[plateId] !== revision),
+    JSON.stringify({ before: beforeActiveRestore.input_revisions, after: restoredRevisions }));
+  // Cancellation is deliberately requested after the authoritative restore;
+  // its terminal is not awaited before the history call above completes.
+  callJson('orc_cancel', [], []);
+  const obsoleteTerminal = await awaitAsyncTask(callJson, activeSlice);
+  const obsoleteProjection = obsoleteTerminal.receipt
+    ? getSliceResult(callJson, obsoleteTerminal.receipt)
+    : obsoleteTerminal;
+  historyCheck('late cancelled or completed Slice output stays non-authoritative after Undo',
+    obsoleteProjection.ok !== true && /cancel|stale|unavailable|supersed/i.test(obsoleteProjection.error ?? ''),
+    JSON.stringify({ obsoleteTerminal, obsoleteProjection }));
+  historyCheck('threaded history fixture returns to the moved state',
+    callJson('orc_history_redo', [], []).ok === true);
+}
 const freshMoveJumpUndo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'undo']);
 historyCheck('adjacent Undo jump loads the rematerialized Move target', freshMoveJumpUndo.ok === true &&
   callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] ===

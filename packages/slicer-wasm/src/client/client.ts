@@ -1204,7 +1204,7 @@ export function createClient(
   let activeModule: OrcaModule | undefined;
   let drainingTaskMessages = false;
   let taskDrainRequested = false;
-  let runtimeThreaded = false;
+  let runtimeThreaded: boolean | undefined;
   let serialTerminalEpoch = 0n;
   let serialSliceAdmissionInProgress = false;
   const realProjectProfileCalls: Array<{
@@ -1527,6 +1527,12 @@ export function createClient(
     markHistorySaved,
     resetHistory,
     getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
+    getRuntimeExecutionState: () => ({
+      threaded: runtimeThreaded ?? null,
+      sliceActive: serialSliceAdmissionInProgress || pendingSliceTasks.size > 0,
+      serialSliceActive: runtimeThreaded === false && serialSliceAdmissionInProgress,
+      serialTerminalEpoch: serialTerminalEpoch.toString(),
+    }),
     async takeNativePerformanceProfile(): Promise<NativePerformanceProfile> {
       const m = await module();
       return normalizeNativePerformanceProfile(callJson(m, 'orc_take_performance_profile', [], []));

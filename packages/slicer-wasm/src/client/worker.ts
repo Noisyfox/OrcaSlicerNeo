@@ -20,6 +20,8 @@ import type {
 } from './history';
 import { createClient, dispatchClientRequest } from './client';
 
+const REAL_PROJECT_PROFILE_BUILD = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
+
 export type WorkerMessage =
   | { type: 'request'; id: number; op: string; args: unknown[]; serialTerminalEpoch?: string }
   | { type: 'response'; id: number; ok: boolean; result: unknown; error?: string }
@@ -269,8 +271,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   const progressListeners = new Set<(pct: number, text: string) => void>();
   const projectClosedListeners = new Set<ProjectClosedCallback>();
   let runtimeThreaded: boolean | undefined;
+  let activeSliceRequests = 0;
   let serialSliceActive = false;
   let serialTerminalEpoch = '0';
+  let profileLastRestoreSliceActive: boolean | null = null;
   let diagnostics: HistoryTransportDiagnostics = { version: 1, worker: emptyLayer(), client: emptyLayer() };
 
   function recordLayer(layer: 'worker' | 'client', diagnostic: HistoryWorkerDiagnostic): void {
@@ -313,6 +317,9 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
+    if (REAL_PROJECT_PROFILE_BUILD && isRestoreOperation(p.op))
+      profileLastRestoreSliceActive = activeSliceRequests > 0;
+    if (p.op === 'slice' || p.op === 'slicePlate') activeSliceRequests -= 1;
     if (!runtimeThreaded && (p.op === 'slice' || p.op === 'slicePlate'))
       serialSliceActive = false;
     if (msg.ok) {
@@ -333,8 +340,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     const id = nextId++;
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op))
       return Promise.resolve({ error: 'slice_busy' });
-    if ((op === 'slice' || op === 'slicePlate') && runtimeThreaded !== true)
-      serialSliceActive = true;
+    if (op === 'slice' || op === 'slicePlate') {
+      activeSliceRequests += 1;
+      if (runtimeThreaded !== true) serialSliceActive = true;
+    }
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, op, startedAt: historyNow() });
       transport.post({ type: 'request', id, op, args, serialTerminalEpoch });
@@ -356,6 +365,16 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       if (prop === 'getHistoryDiagnostics') {
         return () => copyDiagnostics(diagnostics);
       }
+      if (prop === 'getRuntimeExecutionState') {
+        return () => ({
+          threaded: runtimeThreaded ?? null,
+          sliceActive: activeSliceRequests > 0,
+          serialSliceActive: runtimeThreaded === false && serialSliceActive,
+          serialTerminalEpoch,
+        });
+      }
+      if (REAL_PROJECT_PROFILE_BUILD && prop === 'realProjectProfileLastRestoreSliceActive')
+        return () => profileLastRestoreSliceActive;
       if (prop === 'runProjectHistoryTransaction') {
         return async (
           label: string, category: 'project', beforeContext: unknown,

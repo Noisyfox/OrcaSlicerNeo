@@ -68,6 +68,8 @@ export interface MenuStateSnapshot {
     status: MenuSlicerStatus;
     progress: number;
     error: string | null;
+    /** Missing/unknown is treated conservatively as serial while slicing. */
+    threaded?: boolean | null;
   };
   scene: {
     hasModel: boolean;

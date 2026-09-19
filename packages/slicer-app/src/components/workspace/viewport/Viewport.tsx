@@ -16,6 +16,7 @@ import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { isSerialSliceBusy } from '../../../runtimeExecution';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { deleteSelection } from '../actions/deleteSelection';
@@ -91,7 +92,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     () => getPrintableAreaBounds(normalizePrintableArea(printableArea)),
     [printableArea],
   );
-  const slicing = useSlicerStore((s) => s.status === 'slicing');
+  const slicerStatus = useSlicerStore((s) => s.status);
+  const slicing = isSerialSliceBusy(platform.runtime, slicerStatus);
   const previewTab = isPreviewTab(activeTab);
   const prepareTab = isPrepareTab(activeTab);
   const previewState = useSlicerStore((s) => s.preview);

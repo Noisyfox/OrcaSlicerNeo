@@ -37,6 +37,7 @@ import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { historyNavigationIntentAllowed, historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
+import { isSerialSliceBusy } from './runtimeExecution';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 
 export function handleMenuKeyDown(
@@ -229,7 +230,10 @@ export default function App() {
     version: 1,
     activeTab,
     boot: { phase: boot, error: bootError },
-    slicer: { status, progress, error: slicerError },
+    slicer: {
+      status, progress, error: slicerError,
+      threaded: platform.runtime.getRuntimeExecutionState?.().threaded ?? null,
+    },
     scene: { hasModel: modelLoaded },
     result: { hasResult: status === 'done', exported: resultExported },
     project: {
@@ -323,13 +327,14 @@ export default function App() {
       if (!coordinator) return;
       const historyStatus = useHistoryNavigationStore.getState().status;
       const restoring = useHistoryRestoreStore.getState().phase !== 'idle';
+      if (isSerialSliceBusy(platform.runtime, useSlicerStore.getState().status)) return;
       if (!historyNavigationIntentAllowed(historyStatus, action, restoring)) return;
       event.preventDefault();
       void coordinator.restore(action);
     };
     document.addEventListener('keydown', onHistoryKeyDown);
     return () => document.removeEventListener('keydown', onHistoryKeyDown);
-  }, [activeTab]);
+  }, [activeTab, platform.runtime]);
   useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);
@@ -345,6 +350,7 @@ export default function App() {
         takeNativePerformanceProfile?: () => Promise<unknown>;
         takeRealProjectProfileSnapshot?: () => Promise<unknown>;
         realProjectProfileActiveSliceCount?: () => Promise<unknown>;
+        realProjectProfileLastRestoreSliceActive?: () => boolean | null;
         realProjectProfileMutationPendingCount?: () => number;
       };
     };
@@ -366,6 +372,9 @@ export default function App() {
         realProjectProfileActiveSliceCount: () =>
           (platform.runtime as unknown as { realProjectProfileActiveSliceCount(): Promise<unknown> })
             .realProjectProfileActiveSliceCount(),
+        realProjectProfileLastRestoreSliceActive: () =>
+          (platform.runtime as unknown as { realProjectProfileLastRestoreSliceActive(): boolean | null })
+            .realProjectProfileLastRestoreSliceActive(),
         takeRealProjectProfileSnapshot: () =>
           (platform.runtime as unknown as { takeRealProjectProfileSnapshot(): Promise<unknown> })
             .takeRealProjectProfileSnapshot(),
@@ -378,7 +387,9 @@ export default function App() {
           takeNativePerformanceProfile: _takeNativePerformanceProfile,
           takeRealProjectProfileSnapshot: _takeRealProjectProfileSnapshot,
           realProjectProfileMutationPendingCount: _realProjectProfileMutationPendingCount,
-          realProjectProfileActiveSliceCount: _realProjectProfileActiveSliceCount, ...rest } = w.__orcaE2e;
+          realProjectProfileActiveSliceCount: _realProjectProfileActiveSliceCount,
+          realProjectProfileLastRestoreSliceActive: _realProjectProfileLastRestoreSliceActive,
+          ...rest } = w.__orcaE2e;
         w.__orcaE2e = rest;
       } else {
         const { projectLoadEvidence: _projectLoadEvidence,

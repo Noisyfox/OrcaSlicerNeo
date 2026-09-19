@@ -40,6 +40,7 @@ import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
 import type { PrimeTowerMoveResultOrError } from '@slicer/client';
 import { captureHistoryTransportDiagnostics, historyDiagnosticNow, type HistoryObservabilitySnapshot, useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
+import { isSerialSliceBusy } from '../../runtimeExecution';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -135,6 +136,8 @@ export function Workspace({
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const historyRestorePhase = useHistoryRestoreStore((s) => s.phase);
   const historyRestoreRevision = useHistoryRestoreStore((s) => s.revision);
+  const slicerStatus = useSlicerStore((s) => s.status);
+  const serialSliceBusy = isSerialSliceBusy(platform.runtime, slicerStatus);
   const glVolumes = useModelLoader();
   // Typed-array/GPU projection exists only while Preview is active. Native
   // plate cores stay retained in the Worker registry across tab switches.
@@ -284,7 +287,6 @@ export function Workspace({
       getStatus: () => useSlicerStore.getState().status,
       slice: () => sliceModel(platform),
       requestPreview: () => onRequestPreview?.(),
-      cancel: () => platform.runtime.cancel(),
     });
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
@@ -293,7 +295,6 @@ export function Workspace({
     historyRestoreRef.current = createHistoryRestoreCoordinator({
       runtime: platform.runtime,
       sceneInteraction,
-      sliceCoordinator,
       refreshModel: async (context, impact, sceneDelta, revision) => {
         if (impact.model !== 'delta')
           throw new Error('ordinary history restore requires a SceneDelta projection');
@@ -601,7 +602,7 @@ export function Workspace({
   }
 
   return (
-    <div className="flex flex-1 min-h-0">
+    <div className="flex flex-1 min-h-0" inert={serialSliceBusy} aria-busy={serialSliceBusy}>
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"
         style={{

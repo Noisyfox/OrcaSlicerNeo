@@ -277,15 +277,24 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     expectAttribution(baseline, 11);
     expectCalls(baseline.native, []);
 
-    // Exercise the threaded acceptance boundary with the project's current
-    // real plate. The profile-only active-job probe makes this wait land after the
-    // synchronous apply/admission phase, while Print::process() is running on
-    // its detached pthread and the stateful Worker is available for edits.
+    // Prepare one real Move entry, then start a detached slice from that moved
+    // state so Undo can restore its predecessor while Print::process() remains
+    // active on the pthread.
     const activeBed = (await readBeds()).find((bed) => bed.current);
     if (!activeBed?.plateId) throw new Error('real project has no current rendered plate');
     const populated = baseline.renderer.perPlate.find((plate) => plate.plateId === activeBed.plateId);
     if (!populated || populated.volumeCount === 0)
       throw new Error(`current real project plate ${activeBed.plateId} has no projected model`);
+    const layerHeight = page.locator('#layer_height');
+    await layerHeight.fill('0.05');
+    await layerHeight.blur();
+    await expect.poll(() => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { realProjectProfileMutationPendingCount?: () => number } })
+        .__orcaE2e?.realProjectProfileMutationPendingCount?.() ?? -1), {
+      message: 'thin-layer setup must commit before the Move history entry',
+      timeout: 30_000,
+      intervals: [10],
+    }).toBe(0);
     const activePlateCenters = await readPlateCenters(activeBed.plateId);
     expect(activePlateCenters.length, 'target plate must contain projected model volumes').toBeGreaterThan(0);
     const activeBeforeCenters = (await readCenters()).map((center) => [...center]);
@@ -304,6 +313,7 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     // available, so return there before exercising an edit against the live
     // detached job.
     await page.locator('#app-tab-prepare').click();
+    await takeAttribution();
     const activeSelected = await page.evaluate((plateId) =>
       (window as unknown as { __orcaE2e?: { realProjectSelectFirstModelOnPlate?: (id: string) => boolean } })
         .__orcaE2e?.realProjectSelectFirstModelOnPlate?.(plateId) ?? false, activeBed.plateId);
@@ -346,6 +356,7 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       appMutationMs: activeMoveAfter.app.mutation.lastMs,
       operations: activeMoveNative.samples.map((sample) => ({
         operation: sample.operation,
+        totalMs: sample.stagesMs.total,
         stagesMs: sample.stagesMs,
       })),
       serializedObjectDelta: activeMoveMemory.native.history.serialized_object_count -
@@ -372,6 +383,40 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     expect.soft(activeMoveVisibleMs,
       'an active threaded slice must not delay Move Undo publication beyond 100 ms').toBeLessThan(100);
     await expect.poll(readActiveSliceCount, {
+      message: 'the slice invalidated by Move must release the job slot before the Undo scenario',
+      timeout: 300_000,
+      intervals: [20],
+    }).toBe(0);
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…', { timeout: 30_000 });
+    await expect.poll(readActiveSliceCount, {
+      message: 'profile must observe the detached native slice before Undo',
+      timeout: 120_000,
+      intervals: [20],
+    }).toBe(1);
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 30_000 });
+    expect(await readActiveSliceCount(),
+      'Undo acceptance must begin while the obsolete detached slice is still active').toBe(1);
+    const activeUndoStartedAt = await page.evaluate(() => performance.now());
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('history-redo')).toHaveAttribute('aria-label', 'Redo Move', { timeout: 30_000 });
+    const restoredWhileSlicePending = await page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { realProjectProfileLastRestoreSliceActive?: () => boolean | null };
+      }).__orcaE2e?.realProjectProfileLastRestoreSliceActive?.() ?? null);
+    expect(restoredWhileSlicePending,
+      'native Undo response must precede the obsolete slice public terminal').toBe(true);
+    await expect.poll(async () => {
+      const restored = await readCenters();
+      return restored.length === activeBeforeCenters.length && restored.every((center, index) =>
+        center.every((value, axis) => Math.abs(value - activeBeforeCenters[index][axis]) <= 1e-6));
+    }, { timeout: 30_000, intervals: [10] }).toBe(true);
+    const activeUndoVisibleMs = await page.evaluate((startedAt) => performance.now() - startedAt,
+      activeUndoStartedAt);
+    expect(activeUndoVisibleMs,
+      'threaded Undo must not await obsolete slice terminal cleanup').toBeLessThan(500);
+    await expect.poll(readActiveSliceCount, {
       message: 'the obsolete slice must reach its terminal and release the global job slot',
       timeout: 300_000,
       intervals: [20],
@@ -388,13 +433,6 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     expect(activeMoveMemory.native.history.serialized_object_count -
       activeCaptureBefore.native.history.serialized_object_count,
     'an active-slice Move must reuse the canonical archive beneath its transform overlay').toBe(0);
-    await page.getByTestId('history-undo').click();
-    await expect.poll(async () => {
-      const restored = await readCenters();
-      return restored.length === activeBeforeCenters.length && restored.every((center, index) =>
-        center.every((value, axis) => Math.abs(value - activeBeforeCenters[index][axis]) <= 1e-6));
-    }, { timeout: 30_000, intervals: [10] }).toBe(true);
-    await expect(page.getByTestId('history-redo')).toHaveAttribute('aria-label', 'Redo Move');
     // The active-slice Undo is independently asserted above. Clear its native
     // restore/projection samples so the following Add Plate attribution owns
     // an exact operation window.

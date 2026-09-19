@@ -1,3 +1,4 @@
+/// <reference path="../env.d.ts" />
 // packages/slicer-wasm/src/client/index.ts
 export { createClient, normalizeHistoryContext } from './client';
 export { startWorker, createWorkerClient } from './worker';

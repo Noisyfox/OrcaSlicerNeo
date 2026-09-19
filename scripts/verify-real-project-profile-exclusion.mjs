@@ -14,6 +14,7 @@ const sentinels = [
   'ORCA_REAL_PROJECT_PROFILE_JS_V1',
   'takeRealProjectProfileSnapshot',
   'realProjectProfileActiveSliceCount',
+  'realProjectProfileLastRestoreSliceActive',
   'realProjectProfileMutationPendingCount',
   'realProjectPlateModelWorldCenters',
   'realProjectSelectFirstModelOnPlate',

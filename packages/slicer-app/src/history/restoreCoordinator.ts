@@ -1,6 +1,5 @@
 import type { HistoryContext, RestoreImpact, RestoreResult, SceneDelta, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
-import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
@@ -18,9 +17,9 @@ export interface HistoryRestoreCoordinator {
 }
 
 export interface HistoryRestoreCoordinatorOptions {
-  runtime: Pick<SlicerClient, 'undoHistory' | 'redoHistory' | 'jumpHistory' | 'cancel' | 'getFilamentSessionSnapshot' | 'getHistoryStatus'>;
+  runtime: Pick<SlicerClient, 'undoHistory' | 'redoHistory' | 'jumpHistory' | 'cancel' | 'getFilamentSessionSnapshot' | 'getHistoryStatus'> &
+    Partial<Pick<SlicerClient, 'getRuntimeExecutionState'>>;
   sceneInteraction: SceneInteractionController;
-  sliceCoordinator?: Pick<WorkspaceSliceCoordinator, 'cancelAndWait'>;
   /**
    * Projects one successful Worker restore. The promise must settle only
    * after structure, mesh, plate, selection, and gizmo projections are safe
@@ -48,11 +47,14 @@ function restoreError(result: RestoreResult): string {
 export function createHistoryRestoreCoordinator({
   runtime,
   sceneInteraction,
-  sliceCoordinator,
   refreshModel,
   publishRestoredFilamentRack,
 }: HistoryRestoreCoordinatorOptions): HistoryRestoreCoordinator {
   const restore = (action: HistoryRestoreAction): Promise<boolean> => {
+    if (runtime.getRuntimeExecutionState?.().serialSliceActive) {
+      useHistoryRestoreStore.getState().setError('slice_busy');
+      return Promise.resolve(false);
+    }
     // A drag is a draft gesture. The first Undo/Redo cancels it and is
     // intentionally consumed; a second shortcut performs navigation.
     if (sceneInteraction.activeDrag) {
@@ -68,10 +70,10 @@ export function createHistoryRestoreCoordinator({
     let revision: number | null = null;
     return restoreProjectHistory(runtime, action, async (restored) => {
       if (revision === null) throw new Error('history restore started without a revision');
-      // Full restores must hide derived output before their asynchronous
-      // model projection begins. A narrow tower receipt already performs
-      // targeted native invalidation and must not clear other plates.
-      if (restored.impact.preview === 'all') useSlicerStore.getState().invalidateSliceResult();
+      // Timestamp history never retains derived output. Every successful
+      // restore advances every native plate stamp, so renderer receipts are
+      // unconditionally invalid even for a narrow scene projection.
+      useSlicerStore.getState().invalidateSliceResult();
       const projectionStartedAt = historyDiagnosticNow();
       let projectionPath: HistoryRestorePath = historyRestorePath(restored.impact);
       try {
@@ -96,12 +98,13 @@ export function createHistoryRestoreCoordinator({
     }, async () => {
       const state = useHistoryRestoreStore.getState();
       state.setError(null);
-      if (useSlicerStore.getState().status === 'slicing') {
-        state.setPhase('cancelling-slice');
-        // The bridge is synchronous, so cancel is queued behind an in-flight
-        // slice. Await both to ensure no late slice result can be projected.
-        const sliceWait = sliceCoordinator ? sliceCoordinator.cancelAndWait() : runtime.cancel();
-        await Promise.allSettled([sliceWait]);
+      const sliceState = useSlicerStore.getState();
+      const nativeSliceActive = runtime.getRuntimeExecutionState?.().sliceActive === true;
+      if (sliceState.status === 'slicing' || nativeSliceActive) {
+        // Withdraw renderer receipts before restoring. The native restore
+        // advances stamps and invalidate_presentations atomically requests
+        // cancellation on each leased Print, without awaiting its terminal.
+        sliceState.invalidateSliceResult();
       }
       state.setPhase('restoring');
       revision = state.advanceRevision();

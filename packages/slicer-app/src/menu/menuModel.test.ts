@@ -106,6 +106,15 @@ describe('buildMenuModel', () => {
       false, false, false, false,
     ]);
 
+    const threaded = buildMenuStateSnapshot(input({
+      scene: { hasModel: true },
+      result: { hasResult: true, exported: false },
+      slicer: { status: 'slicing', progress: 50, error: null, threaded: true },
+    }), web);
+    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(threaded, id as MenuCommandId).enabled)).toEqual([
+      true, true, false, false,
+    ]);
+
     const incomplete = buildMenuStateSnapshot(input({ scene: { hasModel: true }, result: { hasResult: true, exported: false } }), web);
     expect(stateFor(incomplete, 'export-gcode').enabled).toBe(false);
 

@@ -91,13 +91,15 @@ export function deriveMenuItemStates(
   };
   const ready = snapshot.boot.phase === 'ready';
   const slicing = snapshot.slicer.status === 'slicing';
+  const serialSlicing = slicing && snapshot.slicer.threaded !== true;
   const hasCompletedResult = snapshot.result.hasResult && snapshot.slicer.status === 'done';
   const workspaceTab = isWorkspaceTab(snapshot.activeTab);
   const prepareTab = isPrepareTab(snapshot.activeTab);
   const projectOperationActive = ['waiting-for-load-choice', 'waiting-for-project-confirmation', 'waiting-for-dirty-decision', 'loading', 'saving', 'model-import']
     .includes(project.operation.phase);
-  const fileActionsEnabled = ready && !slicing && !projectOperationActive;
-  const projectActionsEnabled = fileActionsEnabled;
+  const editActionsEnabled = ready && !serialSlicing && !projectOperationActive;
+  const taskActionsEnabled = ready && !slicing && !projectOperationActive;
+  const projectActionsEnabled = taskActionsEnabled;
   const electron = isElectronHost(snapshot, chrome);
   const state = (enabled: boolean): { enabled: boolean; checked: false } => ({ enabled, checked: false });
 
@@ -107,9 +109,9 @@ export function deriveMenuItemStates(
     'save-project': state(projectActionsEnabled && project.hasContent && project.dirty),
     'save-project-as': state(projectActionsEnabled && project.hasContent),
     preferences: state(projectActionsEnabled),
-    'add-model': state(fileActionsEnabled && prepareTab),
-    'clear-scene': state(fileActionsEnabled && prepareTab && snapshot.scene.hasModel),
-    'slice': state(fileActionsEnabled && workspaceTab && snapshot.scene.hasModel && !hasCompletedResult),
+    'add-model': state(editActionsEnabled && prepareTab),
+    'clear-scene': state(editActionsEnabled && prepareTab && snapshot.scene.hasModel),
+    'slice': state(taskActionsEnabled && workspaceTab && snapshot.scene.hasModel && !hasCompletedResult),
     'export-gcode': state(ready && !slicing && hasCompletedResult),
     'quit': state(electron),
     'open-source': state(true),

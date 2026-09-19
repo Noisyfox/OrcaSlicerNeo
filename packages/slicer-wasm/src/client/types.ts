@@ -1100,6 +1100,16 @@ export interface NativePerformanceProfile {
   readonly samples: readonly NativePerformanceSample[];
 }
 
+/** Worker-local execution state used to gate serial-only UI interactions. */
+export interface RuntimeExecutionState {
+  /** Null only before the WASM artifact has reported its threading mode. */
+  readonly threaded: boolean | null;
+  /** True from slice request admission until its public terminal response. */
+  readonly sliceActive: boolean;
+  readonly serialSliceActive: boolean;
+  readonly serialTerminalEpoch: string;
+}
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
@@ -1130,6 +1140,8 @@ export interface SlicerClient {
   resetHistory(context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   /** Compact Worker/client timing counters for smoke and E2E diagnostics. */
   getHistoryDiagnostics(): import('./history').HistoryTransportDiagnostics;
+  /** Read the already-known Worker execution state without another RPC. */
+  getRuntimeExecutionState(): RuntimeExecutionState;
   /** Diagnostic-only native timing samples. Present in real WASM builds. */
   takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
   runProjectHistoryTransaction<T>(

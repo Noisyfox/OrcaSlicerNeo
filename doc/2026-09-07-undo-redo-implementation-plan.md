@@ -1011,3 +1011,34 @@ derived Prepare previews.
 When plate settings and configuration are unchanged, only the old/new owning
 plates of changed transform overlays lose their projections; untouched plates
 retain their already computed tower estimates.
+
+### Stage 6 execution record — asynchronous history and slicing
+
+Threaded history restoration now withdraws renderer slice receipts immediately
+and restores the authoritative history state without awaiting slice completion.
+The native restore already advances every plate input stamp and calls
+`PlateRuntimeRegistry::invalidate_presentations`, which requests cancellation
+through each leased Print's atomic cancellation state. The renderer does not
+schedule a second global cancel that could hit a later task. Late success,
+failure, and rejected promises from an obsolete slice are ignored by the same
+active-target stamp check. History never retains native or renderer results.
+
+Serial slicing makes the Prepare workspace inert and disables history buttons,
+history menus, shortcuts, and editing menus. A direct restore-coordinator call
+returns `slice_busy` without clearing the active slice. The existing client
+pre-postMessage guard and native terminal-epoch admission remain the second
+boundary for API bypasses. Threaded execution stays editable and has no serial
+busy restriction. Runtime execution state is a typed, synchronous local read;
+it does not enqueue an RPC behind the serial Worker.
+
+Self-verification includes the complete workspace unit suite and typecheck,
+serial/threaded real history harnesses, serial bridge smoke including stale
+terminal-epoch rejection, and a fresh visible Electron profile of the exact
+45,586,816-byte Odyssey u1 project. The profile independently proves Undo's
+response precedes the obsolete slice terminal and that SceneDelta restores the
+actual Prepare model positions. The final measured run was Add Plate 39.66 ms,
+Move 28.21 ms, active-slice Move 52.19 ms, and Undo 166.02 ms, passing the 100/500 ms
+gates. Production builds exclude the new restore-during-slice probe; the
+enabled and excluded artifact sentinel checks both pass. The real-project
+runner always rebuilds its profile WASM before staging and launching Electron.
+Root acceptance remains separate from this implementation self-verification.

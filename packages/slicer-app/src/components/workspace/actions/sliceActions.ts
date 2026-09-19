@@ -100,6 +100,9 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
       values,
       (pct) => useSlicerStore.getState().setProgress(pct),
     );
+    const live = useSlicerStore.getState();
+    if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
+        live.activeSliceTarget.inputRevision !== target.inputRevision) return;
     if (!result.ok) {
       setFailure(result.error ?? 'slice failed');
       console.error('slice failed:', result.error);
@@ -108,9 +111,6 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (result.unrecognized_keys.length) {
       console.warn('unrecognized keys dropped by libslic3r:', result.unrecognized_keys);
     }
-    const live = useSlicerStore.getState();
-    if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
-        live.activeSliceTarget.inputRevision !== target.inputRevision) return;
     if (!result.receipt || result.receipt.plateId !== target.plateId ||
         result.receipt.inputStamp !== target.inputRevision) {
       const received = result.receipt
@@ -127,6 +127,9 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
     if (current === target.plateId) useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);
   } catch (err) {
+    const live = useSlicerStore.getState();
+    if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
+        live.activeSliceTarget.inputRevision !== target.inputRevision) return;
     useSlicerStore.getState().setActiveSliceTarget(null);
     setFailure(errorText(err));
     console.error('slice failed:', err);

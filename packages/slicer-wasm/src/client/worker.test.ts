@@ -98,7 +98,14 @@ describe('worker protocol', () => {
 
     const activeSlice = workerClient.slice({ layer_height: '0.2' });
     await Promise.resolve();
+    expect(workerClient.getRuntimeExecutionState()).toEqual({
+      threaded: false, sliceActive: true, serialSliceActive: true, serialTerminalEpoch: '0',
+    });
     await expect(workerClient.setInstanceOffset(0, 0, 1, 2, 3))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.undoHistory()).resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.redoHistory()).resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.jumpHistory('entry-1', 'undo'))
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.slice({ layer_height: '0.3' }))
       .resolves.toMatchObject({ error: 'slice_busy' });
@@ -114,6 +121,41 @@ describe('worker protocol', () => {
     transport.emit({ type: 'response', id: requests[0].id, ok: true,
       result: { ok: false, error: 'cancelled' } });
     await expect(activeSlice).resolves.toMatchObject({ error: 'cancelled' });
+    expect(workerClient.getRuntimeExecutionState()).toEqual({
+      threaded: false, sliceActive: false, serialSliceActive: false, serialTerminalEpoch: '1',
+    });
+  });
+
+  it('keeps threaded history requests non-blocking while a slice response is pending', async () => {
+    const transport = new RecordingTransport();
+    const workerClient = createWorkerClient(transport);
+    transport.emit({ type: 'runtime-state', threaded: true, serialTerminalEpoch: '0' });
+
+    const activeSlice = workerClient.slice({ layer_height: '0.2' });
+    await Promise.resolve();
+    expect(workerClient.getRuntimeExecutionState()).toEqual({
+      threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0',
+    });
+    const undo = workerClient.undoHistory();
+    const requests = transport.posted.filter((message) => message.type === 'request');
+    expect(requests.map((message) => message.type === 'request' ? message.op : '')).toEqual(['slice', 'undoHistory']);
+    if (requests[0]?.type !== 'request' || requests[1]?.type !== 'request')
+      throw new Error('threaded requests were not posted');
+    transport.emit({ type: 'response', id: requests[1].id, ok: true,
+      result: { ok: false, error: 'unused' } });
+    await expect(undo).resolves.toMatchObject({ error: 'unused' });
+    expect(workerClient.getRuntimeExecutionState().sliceActive).toBe(true);
+    const rejectedSlice = workerClient.slice({});
+    const overlapping = transport.posted.at(-1);
+    if (overlapping?.type !== 'request') throw new Error('overlapping slice was not posted');
+    transport.emit({ type: 'response', id: overlapping.id, ok: true,
+      result: { ok: false, error: 'slice_busy' } });
+    await expect(rejectedSlice).resolves.toMatchObject({ error: 'slice_busy' });
+    expect(workerClient.getRuntimeExecutionState().sliceActive).toBe(true);
+    transport.emit({ type: 'response', id: requests[0].id, ok: true,
+      result: { ok: false, error: 'cancelled' } });
+    await expect(activeSlice).resolves.toMatchObject({ error: 'cancelled' });
+    expect(workerClient.getRuntimeExecutionState().sliceActive).toBe(false);
   });
 
   it('keeps threaded pthread progress on shared-wake delivery without invoking the JS notifier', async () => {
