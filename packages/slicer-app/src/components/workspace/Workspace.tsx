@@ -77,8 +77,9 @@ function primeTowerSessionInputs(): readonly unknown[] {
   // a direct history restore cannot invalidate an already-applied projection.
   return [
     JSON.stringify(filamentSnapshot?.revisions ?? null),
+    // Selection only changes which cached tower is interactive. Mutation
+    // receipts advance these stamps even when the GLVolume array is retained.
     JSON.stringify(plateSession ? {
-      currentPlateId: plateSession.currentPlateId,
       inputRevisions: plateSession.inputRevisions,
     } : null),
     JSON.stringify(useSettingsStore.getState().overlay),
@@ -251,7 +252,7 @@ export function Workspace({
     if (historyRestorePhase !== 'idle') return;
     void refreshPrimeTowerProjection();
   }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision,
-    refreshPrimeTowerProjection, settingsOverlay, structure]);
+    plateSession, refreshPrimeTowerProjection, settingsOverlay, structure]);
   useEffect(() => {
     if (plateSession) wipeTowerVolumes.setCurrentPlate(plateSession.currentPlateId, plateSession);
   }, [plateSession?.currentPlateId, wipeTowerVolumes]);

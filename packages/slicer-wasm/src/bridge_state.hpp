@@ -143,9 +143,16 @@ struct BridgeState {
     // Runtime-only session allocator.  History frames may retain old numeric
     // revisions as context, but live stamps never come from those values.
     std::uint64_t next_plate_input_stamp = 1;
-    // Runtime-only derived Prime Tower projections keyed by stable plate id.
+    // Runtime-only derived projections. The input stamp is authoritative;
+    // explicit invalidation is only an optimization, never the validity proof.
+    // Display order also affects indexed tower coordinates/custom G-code.
     // Never serialized into project or history state.
-    std::map<std::string, nlohmann::json> prime_tower_projection_cache;
+    struct PrimeTowerProjectionCacheEntry {
+        std::uint64_t input_stamp;
+        int display_index;
+        nlohmann::json projection;
+    };
+    std::map<std::string, PrimeTowerProjectionCacheEntry> prime_tower_projection_cache;
 
     BridgeState();
 };

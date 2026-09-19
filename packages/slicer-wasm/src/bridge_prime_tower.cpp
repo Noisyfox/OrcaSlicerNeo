@@ -852,13 +852,18 @@ json projection_json(ProjectionTimings* timings)
     if (timings != nullptr) timings->per_plate.resize(state().plate_session_plates.size());
     for (std::size_t index = 0; index < state().plate_session_plates.size(); ++index) {
         const auto& plate = state().plate_session_plates[index];
+        const auto input_stamp = state().plate_input_revisions.at(plate.id);
         auto cached = state().prime_tower_projection_cache.find(plate.id);
-        if (cached == state().prime_tower_projection_cache.end()) {
+        if (cached == state().prime_tower_projection_cache.end() ||
+            cached->second.input_stamp != input_stamp ||
+            cached->second.display_index != plate.display_index) {
             auto projected = projection_for_plate(plate, bounds, index,
                                                   timings != nullptr ? &timings->per_plate[index] : nullptr);
-            cached = state().prime_tower_projection_cache.emplace(plate.id, std::move(projected)).first;
+            cached = state().prime_tower_projection_cache.insert_or_assign(plate.id,
+                BridgeState::PrimeTowerProjectionCacheEntry{input_stamp, plate.display_index,
+                                                            std::move(projected)}).first;
         }
-        auto projected = cached->second;
+        auto projected = cached->second.projection;
         projected["build_area"] = {{"min_x", bounds.min_x}, {"max_x", bounds.max_x},
                                     {"min_y", bounds.min_y}, {"max_y", bounds.max_y},
                                     {"max_z", bounds.max_z}};

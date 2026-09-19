@@ -8,7 +8,9 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
-import type { PlateSessionSnapshot } from '@slicer/client';
+import type { PlateSessionSnapshot, PrimeTowerProjection } from '@slicer/client';
+import type { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
+import { applySettledTransformSyncResult } from './actions/persistModelTransforms';
 import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
 
@@ -249,5 +251,61 @@ describe('Workspace ownership', () => {
     expect(useHistoryDiagnosticsStore.getState().app).toMatchObject({
       directRestore: { count: 1 }, projection: { count: 1 }, directPrimeTowerModelReloads: 0,
     });
+  });
+
+  it('refreshes tower visibility from committed transform stamps without reloading scene geometry', async () => {
+    const buildArea = { minX: 0, maxX: 220, minY: 0, maxY: 220, maxZ: 250 };
+    const projected: PrimeTowerProjection = {
+      ok: true, version: 1, currentPlateId: 'plate-a', buildArea,
+      plates: [{
+        plateId: 'plate-a', displayIndex: 0, eligible: true, forced: true, empty: false, usedSlots: [1],
+        width: 20, depth: 16, height: 20, position: { x: 20, y: 30 }, rotation: 0, brimMargin: 0,
+        footprint: { minX: 20, maxX: 40, minY: 30, maxY: 46 }, buildArea,
+        bands: [{ slot: 1, colour: '#ff0000', opacity: 0.66, startDepth: 0, endDepth: 16 }],
+      }],
+    };
+    let currentProjection = projected;
+    const runtime = { getPrimeTowerProjection: vi.fn(async () => currentProjection) };
+    platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
+    usePlateSessionStore.getState().setSnapshot(twoPlateSnapshot);
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" /></PlatformProvider>);
+    });
+    const scene = testMocks.viewportProps.at(-1)?.glVolumes;
+    const towers = testMocks.viewportProps.at(-1)?.wipeTowerVolumes as WipeTowerVolumeCollection;
+    expect(towers.volumes).toHaveLength(1);
+    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledOnce();
+
+    currentProjection = { ...projected, plates: [{ ...projected.plates[0]!, eligible: false, empty: true,
+      width: 0, depth: 0, height: 0, bands: [], usedSlots: [] }] };
+    await act(async () => {
+      applySettledTransformSyncResult({ ok: true, plateSession: { ...twoPlateSnapshot,
+        instanceTransforms: [],
+        inputRevisions: { 'plate-a': 2, 'plate-b': 1 }, affectedPlateIds: ['plate-a'], dirtyReasons: ['model-transform'],
+      } });
+    });
+    expect(towers.volumes).toHaveLength(0);
+    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(2);
+    expect(testMocks.viewportProps.at(-1)?.glVolumes).toBe(scene);
+
+    currentProjection = projected;
+    await act(async () => {
+      applySettledTransformSyncResult({ ok: true, plateSession: { ...twoPlateSnapshot,
+        instanceTransforms: [],
+        inputRevisions: { 'plate-a': 3, 'plate-b': 1 }, affectedPlateIds: ['plate-a'], dirtyReasons: ['model-transform'],
+      } });
+    });
+    expect(towers.volumes).toHaveLength(1);
+    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(3);
+    expect(testMocks.viewportProps.at(-1)?.glVolumes).toBe(scene);
+
+    await act(async () => {
+      const snapshot = usePlateSessionStore.getState().snapshot!;
+      usePlateSessionStore.getState().setSnapshot({ ...snapshot, currentPlateId: 'plate-b' });
+    });
+    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(3);
   });
 });

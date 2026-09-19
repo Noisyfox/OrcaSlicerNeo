@@ -600,3 +600,23 @@ artifact restoration and profile-code exclusion passed. The root also
 independently passed the serial bridge smoke, including `slice_busy` and stale
 terminal-epoch rejection; these checks qualify the serial admission boundary
 separately from the threaded real-project profile.
+
+### Prime Tower projection validity (2026-09-19)
+
+Every committed plate input stamp is a Prime Tower projection dependency.
+Prepare refreshes from plate-session mutation receipts even when transforms
+retain the same GLVolume and object-list arrays. Selecting a different plate
+only changes interaction ownership and does not issue another projection read.
+Native cached projections carry the input stamp and display index; a read
+recomputes a mismatched entry lazily. Explicit cache eviction is no longer the
+only validity proof. Unaffected plates and incremental filament-usage summaries
+remain reusable; no new model traversal or reflow is added to cache hits.
+
+The real-WASM `prime-tower-cache-validity-smoke.mjs` covers warm reads,
+selection, ordinary movement, the final object leaving and returning to a bed,
+configuration changes, plate reorder, and deletion to an empty plate. It checks
+the returned eligibility, dimensions, and slot data, with zero recomputation
+for unrelated plates during movement and zero full used-slot scans for ordinary
+translation. The Workspace regression exercises the committed transform
+receipt and actual WipeTowerVolumeCollection, proving tower removal/restoration
+without replacing scene geometry and no projection read for plate selection.
