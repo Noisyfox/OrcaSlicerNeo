@@ -982,3 +982,12 @@ SceneDelta derivation retains shared archive identity and exact transform
 metadata, so painting or other edits with unchanged object configuration
 timestamps still update the correct renderer members without copying archives.
 History memory accounting charges each shared archive allocation once.
+
+Successor UI context may consume a typed receipt from the successful operation
+instead of reading the complete model and plate session again. The receipt
+declares either preserved stable model membership or an authoritative resulting
+structure, plus the resulting active plate ID. Add Plate preserves membership
+even when its layout reflows transforms, and uses its returned plate ID. UI
+selection, gizmo, and project configuration are still sampled when committing;
+compound operations without a complete receipt read the native projections.
+Failed operations never consume a receipt or publish their renderer result.

@@ -261,6 +261,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     setPlateActionPending(true);
     try {
       await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate(), null, {
+        contextReceipt: (result) => {
+          if (!result.ok) throw new Error(result.error);
+          // Adding a plate may reflow transforms, but cannot add/remove model IDs.
+          return { structure: 'preserved', activePlateId: result.currentPlateId };
+        },
         publish: async (result) => {
           if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
         },

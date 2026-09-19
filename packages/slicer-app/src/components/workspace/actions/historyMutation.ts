@@ -70,7 +70,18 @@ function projectContextOntoStructure(context: HistoryContext, structure: Awaited
 }
 
 type MutationResponse = { ok?: boolean; error?: string };
+/** Facts returned by the completed operation, before renderer publication.
+ * `preserved` means stable object/part/instance membership is unchanged;
+ * transforms and plate layout may still change. */
+export interface HistoryContextReceipt {
+  structure: 'preserved' | (ModelStructureResult & { ok: true });
+  activePlateId: string | null;
+}
+
 export interface ProjectHistoryMutationOptions<T extends MutationResponse = MutationResponse> {
+  /** Supply authoritative successor facts already returned by the operation.
+   * Omit for compound operations that require a fresh native projection. */
+  contextReceipt?: (result: T) => HistoryContextReceipt;
   /** Renderer/application publication that must complete before the fence is released. */
   publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void;
 }
@@ -235,6 +246,7 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
   sceneInteraction?: SceneInteractionController | null,
   options: ProjectHistoryMutationOptions<T> = {},
 ): Promise<HistoryMutationResult<T>> {
+  let receipt: HistoryContextReceipt | undefined;
   return executeProjectHistoryTransaction(
     runtime,
     label,
@@ -242,10 +254,15 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
     async () => {
       const result = await mutation();
       if (result.ok !== true) throw new Error(result.error ?? `${label} failed`);
+      receipt = options.contextReceipt?.(result);
       return result;
     },
     async () => {
       let context = historyContextForStructure(sceneInteraction);
+      if (receipt) {
+        if (receipt.structure !== 'preserved') context = projectContextOntoStructure(context, receipt.structure);
+        return { ...context, activePlateId: receipt.activePlateId };
+      }
       const structure = await runtime.getModelStructure().catch(() => null);
       if (structure) context = projectContextOntoStructure(context, structure);
       const plateSession = await runtime.getPlateSessionSnapshot().catch(() => null);

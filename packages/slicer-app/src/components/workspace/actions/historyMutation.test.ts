@@ -82,6 +82,53 @@ describe('structural history transaction boundary', () => {
     expect(response.result).toEqual({ ok: false, error: 'rejected' });
   });
 
+  it.each([false, true])('uses the Add Plate receipt without full reads (reflow=%s)', async (reflow) => {
+    const runtime = transactionRuntime();
+    let committed: HistoryContext | undefined;
+    runtime.runProjectHistoryTransaction.mockImplementation(async (_label, _category, _before, mutation, after) => {
+      const result = await mutation('tx-1');
+      committed = typeof after === 'function' ? await after() : after;
+      return { result, status };
+    });
+    await runProjectHistoryMutation(runtime, 'Add Plate', async () => ({
+      ok: true, currentPlateId: 'plate-b', reflow,
+    }), null, {
+      contextReceipt: (result) => ({ structure: 'preserved', activePlateId: result.currentPlateId }),
+    });
+    expect(runtime.getModelStructure).not.toHaveBeenCalled();
+    expect(runtime.getPlateSessionSnapshot).not.toHaveBeenCalled();
+    expect(committed?.selection.objectIds).toEqual([42]);
+    expect(committed?.activePlateId).toBe('plate-b');
+  });
+
+  it('projects structural deletion from an operation receipt before publication', async () => {
+    const runtime = transactionRuntime();
+    let committed: HistoryContext | undefined;
+    runtime.runProjectHistoryTransaction.mockImplementation(async (_label, _category, _before, mutation, after) => {
+      const result = await mutation('tx-1');
+      committed = typeof after === 'function' ? await after() : after;
+      return { result, status };
+    });
+    const publish = vi.fn(() => { expect(committed?.selection.objectIds).toEqual([]); });
+    await runProjectHistoryMutation(runtime, 'Delete Objects', async () => ({ ok: true }), null, {
+      contextReceipt: () => ({ structure: { ok: true, objects: [] }, activePlateId: 'plate-a' }),
+      publish,
+    });
+    expect(runtime.getModelStructure).not.toHaveBeenCalled();
+    expect(runtime.getPlateSessionSnapshot).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledOnce();
+  });
+
+  it('does not consume a receipt or publish after a rejected operation', async () => {
+    const runtime = transactionRuntime();
+    const contextReceipt = vi.fn(() => ({ structure: 'preserved' as const, activePlateId: 'plate-b' }));
+    const publish = vi.fn();
+    const response = await runProjectHistoryMutation(runtime, 'Add Plate', async () => ({ ok: false, error: 'rejected' }), null, { contextReceipt, publish });
+    expect(response.result.ok).toBe(false);
+    expect(contextReceipt).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it('projects the Worker checkpoint after an aborted transaction', async () => {
     const runtime = {
       runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
