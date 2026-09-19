@@ -6,6 +6,7 @@ import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-cont
 import { Workspace } from './Workspace';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import type { PlateSessionSnapshot, PrimeTowerProjection } from '@slicer/client';
@@ -61,6 +62,7 @@ describe('Workspace ownership', () => {
     document.body.innerHTML = '';
     useSettingsStore.setState({ modelLoaded: false });
     useSlicerStore.setState({ status: 'idle', progress: 0, error: null });
+    useProjectStore.setState({ projectMutationPendingCount: 0 });
     usePlateSessionStore.getState().reset();
     useHistoryRestoreStore.getState().reset();
     useHistoryDiagnosticsStore.getState().reset();
@@ -282,11 +284,17 @@ describe('Workspace ownership', () => {
     currentProjection = { ...projected, plates: [{ ...projected.plates[0]!, eligible: false, empty: true,
       width: 0, depth: 0, height: 0, bands: [], usedSlots: [] }] };
     await act(async () => {
+      useProjectStore.getState().beginProjectMutation();
       applySettledTransformSyncResult({ ok: true, plateSession: { ...twoPlateSnapshot,
         instanceTransforms: [],
         inputRevisions: { 'plate-a': 2, 'plate-b': 1 }, affectedPlateIds: ['plate-a'], dirtyReasons: ['model-transform'],
       } });
     });
+    // A mutation receipt precedes the native history commit. Keep the previous
+    // projection until the same project transaction finishes publication.
+    expect(towers.volumes).toHaveLength(1);
+    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledOnce();
+    await act(async () => { useProjectStore.getState().endProjectMutation(); });
     expect(towers.volumes).toHaveLength(0);
     expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(2);
     expect(testMocks.viewportProps.at(-1)?.glVolumes).toBe(scene);

@@ -22,6 +22,7 @@ import { hasEnteredPreview, isPreviewTab, type AppTab } from '../layout/appTabs'
 import { createWorkspaceSliceCoordinator, type WorkspaceSliceCoordinator } from './sliceCoordinator';
 import { sliceModel } from './actions/sliceActions';
 import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useObjectListStore } from './objectList/useObjectListStore';
@@ -137,6 +138,7 @@ export function Workspace({
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const historyRestorePhase = useHistoryRestoreStore((s) => s.phase);
   const historyRestoreRevision = useHistoryRestoreStore((s) => s.revision);
+  const projectMutationPendingCount = useProjectStore((s) => s.projectMutationPendingCount);
   const slicerStatus = useSlicerStore((s) => s.status);
   const serialSliceBusy = isSerialSliceBusy(platform.runtime, slicerStatus);
   const glVolumes = useModelLoader();
@@ -199,6 +201,10 @@ export function Workspace({
     // The restore callback explicitly opts in once the native operation has
     // committed; ordinary reactive refreshes stay out of that window.
     if (!forceDuringRestore && useHistoryRestoreStore.getState().phase !== 'idle') return Promise.resolve();
+    // Mutation receipts can reach renderer stores before the enclosing native
+    // history transaction commits. Read its final projection after the lease
+    // releases; explicit restore publication already follows native commit.
+    if (!forceDuringRestore && useProjectStore.getState().projectMutationPendingCount !== 0) return Promise.resolve();
     // Deliberately exclude restore phase: the explicit read happens while
     // restoring and the reactive effect happens after it becomes idle.  They
     // are one projection when every actual renderer input below is identical.
@@ -249,10 +255,10 @@ export function Workspace({
     // commit has switched the shared store back to idle.  Gate on this
     // render's phase before entering the callback, otherwise those obsolete
     // effects turn into full projections after the explicit restore read.
-    if (historyRestorePhase !== 'idle') return;
+    if (historyRestorePhase !== 'idle' || projectMutationPendingCount !== 0) return;
     void refreshPrimeTowerProjection();
   }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision,
-    plateSession, refreshPrimeTowerProjection, settingsOverlay, structure]);
+    plateSession, projectMutationPendingCount, refreshPrimeTowerProjection, settingsOverlay, structure]);
   useEffect(() => {
     if (plateSession) wipeTowerVolumes.setCurrentPlate(plateSession.currentPlateId, plateSession);
   }, [plateSession?.currentPlateId, wipeTowerVolumes]);

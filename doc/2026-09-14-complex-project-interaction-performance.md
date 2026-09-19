@@ -605,8 +605,12 @@ separately from the threaded real-project profile.
 
 Every committed plate input stamp is a Prime Tower projection dependency.
 Prepare refreshes from plate-session mutation receipts even when transforms
-retain the same GLVolume and object-list arrays. Selecting a different plate
-only changes interaction ownership and does not issue another projection read.
+retain the same GLVolume and object-list arrays. Reactive reads wait until the
+existing project mutation lease releases, so a receipt published during an open
+history transaction cannot trigger a pre-commit projection read. The explicit
+history-restore read still publishes after native restore commits. Selecting a
+different plate only changes interaction ownership and does not issue another
+projection read.
 Native cached projections carry the input stamp and display index; a read
 recomputes a mismatched entry lazily. Explicit cache eviction is no longer the
 only validity proof. Unaffected plates and incremental filament-usage summaries
@@ -620,3 +624,7 @@ for unrelated plates during movement and zero full used-slot scans for ordinary
 translation. The Workspace regression exercises the committed transform
 receipt and actual WipeTowerVolumeCollection, proving tower removal/restoration
 without replacing scene geometry and no projection read for plate selection.
+The fresh visible exact-u1 profile passed with the original strict native
+transaction ordering: ordinary Move exposed Undo in 33.71 ms and its subsequent
+projection took 3.36 ms with no full used-slot scan. Active-slice Move exposed
+Undo in 69.67 ms. Production restoration and profile-code exclusion passed.
