@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+import { awaitAsyncTask } from './async-task-mailbox.mjs';
 
 const modulePath = process.argv[2];
 if (!modulePath) throw new Error('usage: node prime-tower-cache-validity-smoke.mjs <module>');
@@ -16,6 +17,7 @@ function call(name, types = [], args = []) {
   try {
     const result = JSON.parse(Module.UTF8ToString(pointer));
     if (name === 'orc_history_commit') assert.equal(result.canUndo, true, JSON.stringify(result));
+    else if (name === 'orc_slice_plate') assert.equal(result.accepted, true, JSON.stringify(result));
     else if (name !== 'orc_take_performance_profile')
       assert.equal(result.ok, true, `${name}: ${JSON.stringify(result)}`);
     return result;
@@ -83,6 +85,25 @@ assert.ok(read.sample.per_plate_stages_ms[0].total > 0, 'new input stamp must be
 assert.equal(read.sample.stages_ms.used_slot_full_scan_fallback, 0, 'translation retains usage summaries');
 assertCached(read, [second]);
 assertCached(projection(), [first, second]);
+
+// Cancelling a detached job, including its eventual terminal cleanup, must
+// retain input-derived caches. A following move still reuses usage summaries.
+if (call('orc_get_threading_info').threaded) {
+  const current = snapshot();
+  const accepted = call('orc_slice_plate', ['string', 'string', 'number'],
+    ['{}', first, current.input_revisions[first]]);
+  call('orc_cancel');
+  assertCached(projection(), [first, second]);
+  const terminal = await awaitAsyncTask((name, types, args) => call(name, types, args), accepted);
+  assert.equal(terminal.error, 'slice cancelled');
+  assertCached(projection(), [first, second]);
+  move(entry, [home[0] + 2, home[1], home[2]]);
+  read = projection();
+  assert.equal(read.sample.stages_ms.used_slot_full_scan_fallback, 0, 'cancelled slice retains usage summaries');
+  assertCached(read, [second]);
+  move(entry, home);
+  projection();
+}
 
 move(entry, [10000, 10000, home[2]]);
 read = projection();

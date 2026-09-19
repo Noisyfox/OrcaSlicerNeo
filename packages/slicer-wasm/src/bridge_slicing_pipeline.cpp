@@ -454,7 +454,8 @@ std::pair<std::string, json> finalize_slice_task(
     if (process_outcome != "completed" || cancelled) {
         registry.mark_process_failed(task->lease);
         if (cancelled) task->lease.entry().print->restart();
-        invalidate_preview_source();
+        // A slice terminal changes only derived Print/result state. Prepare
+        // inputs and their Prime Tower usage summaries remain authoritative.
         const std::string terminal = cancelled ? "cancelled" : "failed";
         const std::string error = cancelled ? "slice cancelled" :
             (process_error.empty() ? "slice failed" : std::string(process_error));
@@ -465,7 +466,6 @@ std::pair<std::string, json> finalize_slice_task(
     const std::uint64_t current_revision = current_input_revision_for_plate(task->plate_id);
     if (current_revision != task->revision) {
         registry.mark_process_failed(task->lease);
-        invalidate_preview_source();
         release_active_slice_task(task);
         return {"stale", json{{"error", "plate slice result is stale or unavailable"}}};
     }
@@ -484,7 +484,6 @@ std::pair<std::string, json> finalize_slice_task(
     const bool live_completion = registry.mark_process_completed(
         task->lease, task->revision, current_revision);
     if (!live_completion || !registry.can_publish_completed_job(task->lease, current_revision)) {
-        invalidate_preview_source();
         release_active_slice_task(task);
         return {"stale", json{{"error", "plate slice result is stale or unavailable"}}};
     }
@@ -1068,7 +1067,6 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result(const char* pla
             return result_unavailable_error();
         }
         if (print.objects().empty()) {
-            invalidate_preview_source();
             json empty_toolpath{{"segment_count", 0},
                                 {"starts_ptr", 0}, {"ends_ptr", 0},
                                 {"layer_id_ptr", 0}, {"move_order_ptr", 0},
@@ -1488,7 +1486,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
         if (!task)
             return error_json("no active slice job");
         PlateRuntimeRegistry::mark_presentation_invalid(task->lease.entry());
-        invalidate_preview_source();
+        // Cancellation withdraws slice output, not the unchanged Prepare
+        // inputs. Input mutations invalidate their own stamped projections.
         if (!state().plate_runtime_registry.request_job_cancellation(task->lease))
             return error_json("slice job is no longer active");
         return dup_json(json{{"ok", true}}.dump());

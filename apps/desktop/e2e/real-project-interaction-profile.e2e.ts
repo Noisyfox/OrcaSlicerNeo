@@ -348,6 +348,15 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       throw new Error('history diagnostics unavailable after active-slice Move');
     const activeMoveVisibleMs = activeUndoAt - activeMove.startedAt;
     const activeMoveNative = await takeNativeProfile();
+    const activeTransformIndex = activeMoveNative.samples.findIndex((sample) => sample.operation === 'set_model_transforms');
+    expect(activeTransformIndex).toBeGreaterThanOrEqual(0);
+    const activeMoveProjections = activeMoveNative.samples.slice(activeTransformIndex + 1)
+      .filter((sample) => sample.operation === 'prime_tower_projection');
+    expect(activeMoveProjections.length, 'the committed active-slice Move must refresh its tower projection').toBeGreaterThan(0);
+    for (const sample of activeMoveProjections) {
+      expect(sample.stagesMs.used_slot_full_scan_fallback,
+        'slice cancellation must preserve valid input-derived usage summaries').toBe(0);
+    }
     const activeMoveMemory = await takeAttribution();
     console.log('[active-slice-move-profile]', JSON.stringify({
       visibleMs: activeMoveVisibleMs,

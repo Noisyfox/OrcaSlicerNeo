@@ -616,6 +616,13 @@ recomputes a mismatched entry lazily. Explicit cache eviction is no longer the
 only validity proof. Unaffected plates and incremental filament-usage summaries
 remain reusable; no new model traversal or reflow is added to cache hits.
 
+Slice cancellation, failure, stale completion, and empty result reads withdraw
+only the registry's derived slice presentation. They do not clear Prepare tower
+projections or filament-usage summaries, because these events do not mutate
+model/configuration inputs. The input-stamp contract remains responsible for
+edits. A cancelled-job regression checks cache reuse both before and after its
+terminal message, followed by a Move with no full used-slot scan.
+
 The real-WASM `prime-tower-cache-validity-smoke.mjs` covers warm reads,
 selection, ordinary movement, the final object leaving and returning to a bed,
 configuration changes, plate reorder, and deletion to an empty plate. It checks
@@ -625,6 +632,8 @@ translation. The Workspace regression exercises the committed transform
 receipt and actual WipeTowerVolumeCollection, proving tower removal/restoration
 without replacing scene geometry and no projection read for plate selection.
 The fresh visible exact-u1 profile passed with the original strict native
-transaction ordering: ordinary Move exposed Undo in 33.71 ms and its subsequent
-projection took 3.36 ms with no full used-slot scan. Active-slice Move exposed
-Undo in 69.67 ms. Production restoration and profile-code exclusion passed.
+transaction ordering: ordinary Move exposed Undo in 39.14 ms and its subsequent
+projection took 3.70 ms with no full used-slot scan. Active-slice Move exposed
+Undo in 74.06 ms, with a 4.23 ms projection and zero full used-slot scan. The
+profile now asserts this cancellation-cache invariant explicitly. Production
+restoration and profile-code exclusion passed.
