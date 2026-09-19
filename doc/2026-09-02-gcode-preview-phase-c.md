@@ -43,6 +43,12 @@ The selected-scheme legend header is clickable and collapses or expands its
 categorical entries or numeric gradient, while the separate colour-scheme
 selector remains usable.
 
+Categorical preview colours use Orca's rendering adjustment: a colour whose
+three RGB channels are all below 0.2 is displayed as neutral 0.2 gray. This
+keeps black and near-black assigned filaments visible under toolpath lighting;
+the legend uses the same displayed colour. Numeric range ramps and Travels
+retain their native palette values.
+
 The right-top overlay presents bridge-precomputed summary values and
 per-feature standard time/filament rows. It does not scan toolpath segments
 when opening or updating the panel. The current-move card follows the active

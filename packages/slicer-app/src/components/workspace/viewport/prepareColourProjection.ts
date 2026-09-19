@@ -1,5 +1,6 @@
 import type { FilamentSessionSnapshot, ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import type { LoadedObject } from './useModelLoader';
+import { adjustRgbForRendering } from './renderColor';
 
 export const PREPARE_DEFAULT_COLOUR = '#cbd5e1';
 export const PREPARE_DEFAULT_SLOT_COLOURS: Readonly<Record<number, string>> = {};
@@ -23,10 +24,11 @@ export function resolvePrepareMaterial(options: {
   transparent?: boolean;
 }): PrepareMaterialOverlay {
   const dimmed = options.disabled || options.outOfBounds;
+  const baseColour = adjustHexForRendering(normalizeHex(options.baseColour));
   return {
     colour: options.selected
-      ? brightenForSelection(options.baseColour)
-      : dimmed ? shade(options.baseColour, 0.52) : normalizeHex(options.baseColour),
+      ? brightenForSelection(baseColour)
+      : dimmed ? shade(baseColour, 0.52) : baseColour,
     opacity: options.transparent ? 0.15 : 1,
     transparent: Boolean(options.transparent),
     depthWrite: !options.transparent,
@@ -43,17 +45,21 @@ function shade(hex: string, factor: number): string {
   return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
+function adjustHexForRendering(hex: string): string {
+  const [r, g, b] = adjustRgbForRendering(hexToRgb(hex));
+  return rgbToHex(r, g, b);
+}
+
 /**
  * Match OrcaSlicer's selection rendering for an opaque CSS hex colour.
  *
- * Native GLVolume first lifts a colour whose three RGB channels are all below
- * 0.2, then converts RGB to HSL and adds 0.25 to lightness (clamped to 1).
+ * Native GLVolume converts the already render-adjusted colour to HSL and adds
+ * 0.25 to lightness (clamped to 1).
  * The bridge/session owns the actual alpha semantics; Prepare's selection
  * overlay is intentionally RGB-only so Preview transparency stays independent.
  */
 function brightenForSelection(hex: string): string {
   let [r, g, b] = hexToRgb(normalizeHex(hex));
-  if (r < 0.2 && g < 0.2 && b < 0.2) r = g = b = 0.2;
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);

@@ -49,6 +49,18 @@ describe('Phase-C preview color schemes', () => {
     expect(value).toEqual([56 / 255, 72 / 255, 155 / 255]);
   });
 
+  it('lifts all-channel near-black categorical colours like OrcaSlicer', () => {
+    const black: [number, number, number] = [0, 0, 0];
+    const darkFilament = source({ extruderPalette: [
+      { id: 0, tool: 0, name: 'Black PLA', color: black },
+      { id: 1, tool: 1, name: 'Blue PLA', color: [0, 0, 255] },
+    ] });
+    expect(resolvePreviewColor(darkFilament, 0, 'filament')).toEqual([0.2, 0.2, 0.2]);
+    expect(describePreviewScheme(darkFilament, 'filament')?.items[0]?.color).toEqual([0.2, 0.2, 0.2]);
+    expect(resolvePreviewColor(source({ palette: [{ id: 0, name: 'Perimeter', color: black }] }), 0, 'feature'))
+      .toEqual([0.2, 0.2, 0.2]);
+  });
+
   it('exposes only schemes backed by the result', () => {
     const noMetrics = source({ metrics: {}, analysis: { summary: {}, featureStatistics: [], metricRanges: {} }, extruderPalette: undefined });
     expect(previewSchemeAvailable(noMetrics, 'feature')).toBe(true);
