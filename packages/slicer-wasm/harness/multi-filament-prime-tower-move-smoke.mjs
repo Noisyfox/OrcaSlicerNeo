@@ -143,6 +143,10 @@ assert.equal(redoProjectionSample.stages_ms.used_slot_full_scan_fallback, 0, JSO
 trace('initial prime tower undo/redo projections complete');
 
 const thirdRevision = session().input_revisions[thirdPlate];
+// This plate deliberately uses one tool from a multi-slot project. Smooth
+// timelapse still requires its tower, exercising WipeTower2's one-tool prime.
+const thirdTower = callJson('orc_get_prime_tower_projection').plates.find((plate) => plate.plate_id === thirdPlate);
+assert.equal(thirdTower.used_slots.length, 1, JSON.stringify(thirdTower));
 trace('third plate slice starting');
 const thirdSlice = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);

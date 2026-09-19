@@ -559,3 +559,33 @@ summary. Where unchanged plate/config roots can be proved, only affected owning
 plates lose their cached estimates. The real-project profile now asserts zero
 full used-slot scan after Move Undo. Its runner restores the production build
 and verifies the absence of dedicated profile sentinels and call sites.
+
+Repeated native acceptance exposed an independent upstream single-tool priming
+fault. With the same release artifact, the fourth independent threaded run
+failed during the first actual Slice, before mixed-object history restoration.
+A separately linked symbol-map artifact reproduced the failure and resolved
+the stack to `WipeTower2::prime` → `Print::_make_wipe_tower` → `Print::process`.
+The third fixture plate uses one tool while smooth timelapse requires a tower.
+The final-tool branch indexed `tools[idx_tool - 1]` when `idx_tool` was zero,
+causing an unsigned underflow and nondeterministic out-of-bounds heap access.
+
+The same expression remains in [Orca's upstream implementation](https://github.com/OrcaSlicer/OrcaSlicer/blob/main/src/libslic3r/GCode/WipeTower2.cpp).
+Formal Orca patch `0009-wipe-tower-single-tool-priming.patch` uses the existing
+`old_tool`, captured before changing tools. This preserves the previous-tool
+matrix lookup for multi-tool priming and selects the same-tool diagonal for
+one-tool priming, where no material transition occurs. Existing loading and
+the wipe routine's mandatory first row remain unchanged; no artificial purge
+minimum or fixture workaround is introduced. The native harness now explicitly
+checks that this plate uses exactly one tool before slicing. Patch validation
+replays the complete Orca patch stack against the pinned HEAD using a temporary
+Git index, leaving pre-existing submodule edits untouched.
+
+After the patch, ten independent threaded processes completed the complete
+three-plate history/tower harness with tracing enabled. The artifact SHA-256
+remained `11c45576e4c588087e8a1825950b201c7270b8614bb9a07ef01061c2bedf760b`
+before and after the ten runs. Both real-WASM history harnesses, the serial
+tower harness, and both variants' native identity/model-history tests passed.
+The subsequent fresh, no-skip, visible exact-u1 profile also passed: Add Plate
+45.475 ms, Move 33.368 ms, active-slice Move 81.385 ms, Undo 168.993 ms, native
+restore 5.695 ms, and full used-slot scan 0 ms. The runner restored production
+and passed profile-code exclusion verification.
