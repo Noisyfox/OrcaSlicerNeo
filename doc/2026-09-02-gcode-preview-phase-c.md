@@ -90,6 +90,11 @@ uncached page(s) requested, so continuous scrolling does not issue intermediate
 page requests. Pending scroll loads are cancelled when the result changes or
 the window unmounts, and stale page responses cannot populate a newer result.
 
+The virtual text viewport maintains logical line coordinates independently of
+its bounded physical scroll track. This keeps slider-selected lines visible
+when a G-code file exceeds a browser engine's maximum layout/scroll coordinate;
+only the small visible row window is positioned in physical CSS pixels.
+
 The G-code text window is a separately persisted overlay. Its title bar can be dragged
 to reposition it, and a visible bottom-right handle can resize it. Both
 gestures use pointer capture and terminate safely on pointer up, cancel, lost

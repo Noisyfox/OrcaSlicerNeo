@@ -481,6 +481,29 @@ describe('GcodeTextWindow', () => {
     expect((container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement).scrollTop).toBeGreaterThan(0);
   });
 
+  it('keeps a very late slider-selected line within the browser scroll-coordinate limit', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: false,
+      text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
+    }));
+    const lateLine = 1_900_000;
+    const largeData: ToolpathGeometry = {
+      ...lateData,
+      gcodeIds: Uint32Array.from([4, 7, lateLine]),
+      sourceLineIndex: { moveByLine: new Map(), mappedLines: [], orderedGcodeIds: Uint32Array.from([4, 7, lateLine]) },
+      metadata: { ...data.metadata!, sourceLineMapping: { available: true, lineCount: 2_000_000 } },
+    };
+    const platform = testPlatform(readTextLines);
+    useSlicerStore.getState().setPreviewBounds(1, 0, 42);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={largeData} onClose={() => undefined} /></PlatformProvider>); });
+    const expectedStartLine = Math.floor((lateLine - 1) / PAGE_LINES) * PAGE_LINES + 1;
+    const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;
+    expect(readTextLines).toHaveBeenCalledWith({ receipt: data.receipt, resultId: 42, startLine: expectedStartLine, lineCount: PAGE_LINES });
+    expect(scroll.scrollTop).toBeLessThan(16 * 1024 * 1024);
+    expect(container.querySelector(`[data-testid="gcode-line-${lateLine}"]`)?.getAttribute('aria-current')).toBe('true');
+  });
+
   it('loads a manually scrolled cache miss only after scrolling settles', async () => {
     vi.useFakeTimers();
     const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
