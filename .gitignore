@@ -28,6 +28,7 @@ opencode.jsonc
 .kiro/settings/
 .vscode/mcp.json
 .vscode/settings.json
+*.log
 # Added by code-review-graph
 .code-review-graph/
 .zvec-grep/
