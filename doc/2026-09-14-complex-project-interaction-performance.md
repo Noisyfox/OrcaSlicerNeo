@@ -353,13 +353,12 @@ threaded WASM and Electron renderer with `VITE_USE_MOCK=0`, then scans both
 artifacts and fails if any profile ABI, hook, path, or sentinel remains.
 
 The canonical command is
-`pnpm --filter @orca/desktop test:e2e:real-project-profile`. For the final
-accepted run the dedicated WASM had already been rebuilt and validated, so the
-same command was run with
-`ORCA_REAL_PROJECT_PROFILE_SKIP_WASM_BUILD=1`; this skips only that repeated
-native compile and still stages the real artifact, builds the profiled
-renderer, runs the visible test, restores production artifacts, and executes
-both inclusion/exclusion scans.
+`pnpm --filter @orca/desktop test:e2e:real-project-profile`. It always rebuilds
+the dedicated WASM, stages that artifact, builds the profiled renderer, runs the
+visible test, restores production artifacts, and executes both
+inclusion/exclusion scans. The former `ORCA_REAL_PROJECT_PROFILE_SKIP_WASM_BUILD`
+bypass has been removed; older run records below describe historical evidence,
+not an available verification shortcut.
 
 ## Per-Plate Print Architecture Final Qualification
 
@@ -589,3 +588,15 @@ The subsequent fresh, no-skip, visible exact-u1 profile also passed: Add Plate
 45.475 ms, Move 33.368 ms, active-slice Move 81.385 ms, Undo 168.993 ms, native
 restore 5.695 ms, and full used-slot scan 0 ms. The runner restored production
 and passed profile-code exclusion verification.
+
+The root's independent 2026-09-19 acceptance of asynchronous history restoration
+used another fresh run of
+`pnpm --filter @orca/desktop test:e2e:real-project-profile`. It loaded the same
+exact 45,586,816-byte u1 fixture in visible, non-mock Electron and measured
+Add Plate to visible Undo at 38 ms and active-slice Move to visible Undo at
+46.2 ms. The test verified that Undo returned before the obsolete slice's
+terminal event and restored the actual Prepare model positions. Production
+artifact restoration and profile-code exclusion passed. The root also
+independently passed the serial bridge smoke, including `slice_busy` and stale
+terminal-epoch rejection; these checks qualify the serial admission boundary
+separately from the threaded real-project profile.

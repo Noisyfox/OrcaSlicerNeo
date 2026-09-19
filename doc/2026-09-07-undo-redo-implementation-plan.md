@@ -1,8 +1,8 @@
 # Undo/Redo Implementation Plan
 
 **Date:** 2026-09-07
-**Status:** Step 7 implementation complete; root acceptance recorded below
-**Branch:** `dev/undo-redo-design`
+**Status:** Timestamped history redesign implemented; independent acceptance completed 2026-09-19
+**Branch:** `dev/per-plate-print-architecture`
 **Normative design:** [`spec/Undo and Redo.md`](../spec/Undo%20and%20Redo.md)
 
 ## 1. Execution Protocol
@@ -13,9 +13,10 @@ and the root agent's independent acceptance.
 
 For every numbered step:
 
-1. The root agent starts one **new** `gpt-5.6-luna` agent at `high` reasoning
-   effort, with only that step's scoped task. The agent does not delegate the
-   step further.
+1. The root agent starts one **new** `gpt-6-astra` agent at `low` reasoning
+   effort, with only that step's scoped task. This is the user's current model
+   requirement; earlier implementation records retain their original models.
+   The agent does not delegate the step further.
 2. The agent reads the normative Undo/Redo specification and relevant existing
    code, implements only the step, runs its required self-verification, and
    creates one in-scope commit.
@@ -24,7 +25,7 @@ For every numbered step:
 4. The root agent independently reviews the diff and invariants, runs the
    acceptance checks listed for that step, and records the result in this
    document.
-5. Only a passing root acceptance authorizes a fresh luna-high agent for the
+5. Only a passing root acceptance authorizes a fresh agent for the
    next step. If acceptance fails, the same step is returned to its existing
    agent; no later step begins.
 
@@ -1041,4 +1042,14 @@ Move 28.21 ms, active-slice Move 52.19 ms, and Undo 166.02 ms, passing the 100/5
 gates. Production builds exclude the new restore-during-slice probe; the
 enabled and excluded artifact sentinel checks both pass. The real-project
 runner always rebuilds its profile WASM before staging and launching Electron.
-Root acceptance remains separate from this implementation self-verification.
+Root independently accepted commit `78fba05` on 2026-09-19 after reviewing the
+threaded restore and serial admission boundaries. The independent serial bridge
+smoke passed, including `slice_busy` and stale terminal-epoch rejection. Root
+also ran `pnpm --filter @orca/desktop test:e2e:real-project-profile` with a fresh
+WASM build and visible Electron window. That non-mock run loaded the exact
+45,586,816-byte `OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf` fixture and
+passed the restore-before-obsolete-terminal and actual Prepare-position checks.
+It measured Add Plate to visible Undo at 38 ms and active-slice Move to visible
+Undo at 46.2 ms. The runner restored production artifacts and passed the
+profile-code exclusion check. These are root acceptance results, separate from
+the implementation agent's measurements above.

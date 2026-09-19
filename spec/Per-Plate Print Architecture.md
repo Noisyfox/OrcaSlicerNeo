@@ -981,8 +981,14 @@ time alone is insufficient.
   runtime state such as Print objects, result caches, and history receipts.
 - Prime-tower Prepare proxies stay pre-slice estimates. Acquiring or updating
   a proxy must not call `Print::apply` merely to construct a preview.
-- The previous sparse Move and Add Plate history receipts remain supported and
-  follow the stamp, invalidation, and registry-reconciliation rules above.
+- Timestamped object-version history replaces the previous sparse Move and
+  Add Plate receipts, as specified in [Undo and Redo](Undo%20and%20Redo.md).
+  History retains only model, plate-session, and project-configuration inputs;
+  Print, slice results, and renderer result data remain excluded. Successful
+  Undo/Redo restores reconcile the plate registry, advance all plate input
+  stamps, and invalidate all derived results. Threaded restoration requests
+  asynchronous cancellation and retains removed active Prints as tombstones
+  until their jobs terminate; serial history remains rejected while slicing.
 
 ## 4. Decision Status
 
