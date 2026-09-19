@@ -20,10 +20,9 @@ using json = nlohmann::json;
 
 struct Runtime {
     std::function<json()> filament_history_state;
-    std::function<void()> invalidate_preview;
 };
 
-// The bridge facade supplies the two narrow callbacks that cannot be linked
+// The bridge facade supplies the narrow callback that cannot be linked
 // directly without making this module depend on its private projections.
 Runtime runtime();
 
@@ -51,6 +50,10 @@ struct RestoreTimings {
     double model_staging_deserialization_ms = 0.0;
     double immutable_mesh_reconnect_ms = 0.0;
     double plate_session_project_overlay_restore_ms = 0.0;
+#ifdef NEO_PROJECT_HISTORY_TEST
+    std::size_t deserialized_objects = 0;
+    std::size_t reused_objects = 0;
+#endif
 };
 
 // Capture the mutable object records and shared immutable mesh payloads used
@@ -70,7 +73,7 @@ bool prime_model_capture_cache(const Model& model, const ModelState& roots,
 // supplies the non-history model defaults needed while materializing a fresh
 // object graph; it is never accessed through bridge-global state.
 Model stage_model(const Model& model_template, const RestoreState& restored,
-                  RestoreTimings* timings = nullptr);
+                  RestoreTimings* timings = nullptr, const ModelState* live_roots = nullptr);
 
 bool model_state_equal(const ModelState& lhs, const ModelState& rhs);
 

@@ -524,3 +524,38 @@ must run `pnpm stage:assets` after the WASM build and before the Electron
 renderer build; copying an already-built renderer cannot update embedded
 public assets. The test must set `VITE_USE_MOCK=0` explicitly and prove the
 fixture name, byte count, and 11-plate native receipt before profiling.
+
+### Timestamp restore archive reuse (2026-09-19)
+
+The full timestamp restore had decoded every object archive, including painted
+volume payloads and a second volume encode/decode pass, even when only one
+instance transform changed. Shared archive identity now proves which staged
+native objects can be reused with the target transform overlays. Changed
+archives still use complete decoding and stable-ID materialization. The
+transactional staging/validation/rollback boundary and renderer SceneDelta
+contract remain intact.
+
+The fresh, no-skip `scripts/run-real-project-profile.mjs` run against the exact
+45,586,816-byte Odyssey u1 fixture in visible, non-mock Electron measured:
+
+| Boundary | Time |
+| --- | ---: |
+| Add Plate to visible Undo | 45.865 ms |
+| Move pointer-up to visible Undo | 26.263 ms |
+| Move during active slice to visible Undo | 87.215 ms |
+| Undo click to restored model | 185.896 ms |
+| Native history restore | 5.670 ms |
+| Native model staging | 0.730 ms |
+| Native Prime Tower projection | 46.790 ms |
+| Native used-slot summary lookup | 0.630 ms |
+| Native full used-slot scan | 0 ms |
+
+The historical restore callback had also unconditionally cleared Prime Tower
+usage summaries after the history path had already selected its invalidation.
+That duplicate callback is removed. Transform-only restores retain summaries;
+changed object archives still invalidate them. The fixture conservatively
+recomputed all 12 plate projections in this run, but each reused its usage
+summary. Where unchanged plate/config roots can be proved, only affected owning
+plates lose their cached estimates. The real-project profile now asserts zero
+full used-slot scan after Move Undo. Its runner restores the production build
+and verifies the absence of dedicated profile sentinels and call sites.

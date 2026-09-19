@@ -632,6 +632,8 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
         gpuProjectionAfterUndo: undoMemory.renderer.gpuProjectionEstimatedBytes - moveMemory.renderer.gpuProjectionEstimatedBytes,
       },
     };
+    const undoTower = report.undo.nativeStages.find(stage => stage.operation === 'prime_tower_projection');
+    expect(undoTower?.stagesMs.used_slot_full_scan_fallback).toBe(0);
     console.log('[real-project-interaction-profile-summary]', JSON.stringify({
       addPlateVisibleUndoMs: report.addPlate.clickToVisibleUndoMs,
       moveVisibleUndoMs: report.move.pointerUpToVisibleUndoMs,

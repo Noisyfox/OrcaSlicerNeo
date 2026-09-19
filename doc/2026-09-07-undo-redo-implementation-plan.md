@@ -991,3 +991,23 @@ even when its layout reflows transforms, and uses its returned plate ID. UI
 selection, gizmo, and project configuration are still sampled when committing;
 compound operations without a complete receipt read the native projections.
 Failed operations never consume a receipt or publish their renderer result.
+
+Restore uses the same shared archive proof as capture. Within the transactional
+staging model, objects whose archive allocation and stable child identities
+match the live roots reuse their native object graph and apply the target's
+authoritative transform overlays. Only new or changed object archives are
+decoded; unchanged painting payloads are not serialized or deserialized during
+a Move Undo. The target object order is restored after unused staged objects
+are released through the Model ownership API. Validation still precedes live
+publication and the existing rollback boundary covers all three history roots.
+
+When every object's archive and child identity is unchanged, restoring transform
+overlays invalidates Prime Tower projections while retaining pointer-free
+filament-usage summaries. The existing effective-configuration and membership
+checks validate those summaries during the next projection read. Changed object
+archives conservatively clear the summaries, including painting and per-object
+configuration changes. Slice-result invalidation remains independent of these
+derived Prepare previews.
+When plate settings and configuration are unchanged, only the old/new owning
+plates of changed transform overlays lose their projections; untouched plates
+retain their already computed tower estimates.

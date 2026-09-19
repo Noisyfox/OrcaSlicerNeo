@@ -198,6 +198,25 @@ int main()
     CHECK(object_third.mutable_objects[0].instance_transforms !=
           object_second.mutable_objects[0].instance_transforms);
     Model transformed_restore = stage_model(objects, restore_state(object_third));
+    Slic3r::Neo::History::Codec::RestoreTimings reuse_timings;
+    Model reused_restore = stage_model(objects, restore_state(object_first), &reuse_timings, &object_third);
+    CHECK(reuse_timings.reused_objects == 2);
+    CHECK(reuse_timings.deserialized_objects == 0);
+    CHECK(reused_restore.objects[0]->id() == objects.objects[0]->id());
+    CHECK(reused_restore.objects[0]->instances[0]->id() == objects.objects[0]->instances[0]->id());
+    CHECK(reused_restore.objects[0]->instances[0]->get_offset() == Vec3d::Zero());
+    CHECK(reused_restore.objects[0]->volumes[0]->id() == objects.objects[0]->volumes[0]->id());
+    CHECK(reused_restore.objects[1]->id() == objects.objects[1]->id());
+    Model mixed_live = objects;
+    MutableObjectCaptureCache mixed_cache;
+    CHECK(prime_model_capture_cache(mixed_live, object_third, mixed_cache));
+    mixed_live.objects[1]->name = "changed archive";
+    const auto changed_archive = capture_model_state(mixed_live, object_mesh_cache, mixed_cache);
+    Slic3r::Neo::History::Codec::RestoreTimings mixed_timings;
+    Model mixed_restore = stage_model(mixed_live, restore_state(object_first), &mixed_timings, &changed_archive);
+    CHECK(mixed_timings.reused_objects == 1);
+    CHECK(mixed_timings.deserialized_objects == 1);
+    CHECK(mixed_restore.objects[1]->name == reused_restore.objects[1]->name);
     MeshCaptureCache transformed_mesh_cache;
     MutableObjectCaptureCache transformed_object_cache;
     CHECK(transformed_restore.objects[0]->instances[0]->get_offset() == Vec3d(4.0, 2.0, 1.0));

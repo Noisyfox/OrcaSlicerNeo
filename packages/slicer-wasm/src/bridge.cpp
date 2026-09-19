@@ -71,8 +71,7 @@ namespace Slic3r::Neo::Bridge::HistoryRuntime {
 
 Runtime runtime()
 {
-    return {[] { return history_state_json(state().presets); },
-            [] { Slic3r::Neo::Bridge::SlicingPipeline::invalidate_preview_result_only(); }};
+    return {[] { return history_state_json(state().presets); }};
 }
 
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime

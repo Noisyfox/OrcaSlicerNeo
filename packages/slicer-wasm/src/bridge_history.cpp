@@ -313,7 +313,8 @@ json restore_timestamped_result(const Runtime& runtime,
     const bool model_matches_target = Neo::History::Codec::model_state_equal(live_model_state, restored.roots.model);
     Model staged_model = model_matches_target
         ? Model(state().model)
-        : Neo::History::Codec::stage_model(state().model, {restored.roots.model, {}, {}}, &restore_timings);
+        : Neo::History::Codec::stage_model(state().model, {restored.roots.model, {}, {}}, &restore_timings,
+                                          &live_model_state);
     const json plate_session = bytes_json(restored.roots.session.plate_session);
     auto staged_plates = build_history_plate_session(plate_session, staged_model);
     const json context = context_from_history_roots(restored.roots, staged_model, staged_plates);
@@ -386,8 +387,46 @@ json restore_timestamped_result(const Runtime& runtime,
         state().mutable_object_capture_cache.clear();
         throw;
     }
-    Neo::Bridge::PrimeTower::invalidate_projection_cache();
-    if (runtime.invalidate_preview) runtime.invalidate_preview();
+    // Transform overlays do not change an object's filament usage. Keep the
+    // pointer-free usage summaries in that case; membership and effective
+    // configuration are checked by the projection reader on every lookup.
+    bool usage_unchanged = live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size();
+    for (std::size_t index = 0; usage_unchanged && index < live_model_state.mutable_objects.size(); ++index) {
+        const auto& before = live_model_state.mutable_objects[index];
+        const auto& after = restored.roots.model.mutable_objects[index];
+        usage_unchanged = before.id == after.id && before.data == after.data &&
+            before.volume_ids == after.volume_ids && before.instance_ids == after.instance_ids;
+    }
+    if (usage_unchanged) {
+        std::set<std::string> plates;
+        const bool plate_settings_unchanged = !filament_changed &&
+            before_overlay.value("project", json::object()) == staged_overlay.value("project", json::object()) &&
+            before_live_context.contains("plateSession") &&
+            before_live_context["plateSession"].value("plates", json()) == plate_session.value("plates", json());
+        if (plate_settings_unchanged) {
+            for (std::size_t index = 0; index < live_model_state.mutable_objects.size(); ++index) {
+                const auto& before = live_model_state.mutable_objects[index];
+                const auto& after = restored.roots.model.mutable_objects[index];
+                if (before.volume_transforms == after.volume_transforms &&
+                    before.instance_transforms == after.instance_transforms &&
+                    before_membership == state().instance_plate_ids &&
+                    before_parked == state().parked_instance_ids &&
+                    before_out_of_bounds == state().plate_out_of_bounds_ids)
+                    continue;
+                for (const auto id : after.instance_ids) {
+                    const auto old_plate = before_membership.find(id);
+                    if (old_plate != before_membership.end()) plates.insert(old_plate->second);
+                    const auto new_plate = state().instance_plate_ids.find(id);
+                    if (new_plate != state().instance_plate_ids.end()) plates.insert(new_plate->second);
+                }
+            }
+        } else {
+            for (const auto& plate : state().plate_session_plates) plates.insert(plate.id);
+        }
+        Neo::Bridge::PrimeTower::invalidate_projection_cache(plates);
+    } else {
+        Neo::Bridge::PrimeTower::invalidate_projection_cache();
+    }
     HistoryMetadata::advance_history_epoch(state());
     json response_context = state().history_live_context;
     json scene_delta{{"version", 1},
@@ -788,7 +827,7 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
 }
 
 Model stage_model(const Model& model_template, const RestoreState& restored,
-                  RestoreTimings* timings)
+                  RestoreTimings* timings, const ModelState* live_roots)
 {
     NeoHistoryArchiveContext archive_context;
     const double mesh_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
@@ -821,13 +860,51 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
     // retained by history; TimestampedHistory owns only keyed object versions.
     const double mutable_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     Model rebuilt_model = model_template;
-    rebuilt_model.clear_objects();
+    std::map<ObjectID, ModelObject*> reusable_objects;
+    for (ModelObject* object : rebuilt_model.objects)
+        reusable_objects.emplace(object->id().id, object);
+    std::vector<ModelObject*> restored_order;
     InstanceIdentityGraph instance_identity_graph;
     for (const auto& object : restored.model.mutable_objects) {
+        // Shared archive identity proves all non-transform mutable fields are
+        // unchanged. Reuse the native graph without decoding painting or
+        // rebuilding its volumes; overlays remain the authoritative matrices.
+        const ModelObject* reusable = nullptr;
+        if (live_roots != nullptr) {
+            for (std::size_t index = 0; index < live_roots->mutable_objects.size(); ++index) {
+                const auto& live = live_roots->mutable_objects[index];
+                if (live.id == object.id && live.data == object.data &&
+                    live.volume_ids == object.volume_ids && live.instance_ids == object.instance_ids &&
+                    index < model_template.objects.size() && model_template.objects[index]->id().id == object.id) {
+                    reusable = model_template.objects[index];
+                    break;
+                }
+            }
+        }
+        if (reusable != nullptr) {
+#ifdef NEO_PROJECT_HISTORY_TEST
+            if (timings) ++timings->reused_objects;
+#endif
+            if (object.volume_transforms.size() != reusable->volumes.size() ||
+                object.instance_transforms.size() != reusable->instances.size())
+                throw std::runtime_error("history transform identities are unavailable");
+            ModelObject* native_object = reusable_objects.at(object.id);
+            restored_order.push_back(native_object);
+            for (std::size_t index = 0; index < native_object->volumes.size(); ++index)
+                native_object->volumes[index]->set_transformation(transformation_from_overlay(object.volume_transforms[index]));
+            for (std::size_t index = 0; index < native_object->instances.size(); ++index)
+                native_object->instances[index]->set_transformation(transformation_from_overlay(object.instance_transforms[index]));
+            native_object->invalidate_bounding_box();
+            continue;
+        }
         if (!object.data || object.data->empty()) throw std::runtime_error("history object data is unavailable");
+#ifdef NEO_PROJECT_HISTORY_TEST
+        if (timings) ++timings->deserialized_objects;
+#endif
         std::string bytes(object.data->begin(), object.data->end());
         std::istringstream stream(bytes, std::ios::binary | std::ios::in);
         ModelObject* native_object = rebuilt_model.add_object();
+        restored_order.push_back(native_object);
         NeoHistoryInputArchive archive(archive_context, stream);
         archive(*native_object);
         if (object.id == 0 || native_object->id().id != object.id)
@@ -885,6 +962,10 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
                 transformation_from_overlay(object.instance_transforms[index]));
         native_object->invalidate_bounding_box();
     }
+    for (std::size_t index = rebuilt_model.objects.size(); index > 0; --index)
+        if (std::find(restored_order.begin(), restored_order.end(), rebuilt_model.objects[index - 1]) == restored_order.end())
+            rebuilt_model.delete_object(index - 1);
+    rebuilt_model.objects = std::move(restored_order);
     if (timings)
         timings->model_staging_deserialization_ms += Neo::Bridge::Performance::now_ms() - mutable_started_at;
     return rebuilt_model;
