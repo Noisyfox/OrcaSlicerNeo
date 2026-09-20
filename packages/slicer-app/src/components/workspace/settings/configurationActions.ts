@@ -106,10 +106,10 @@ async function commitScopedConfigurationMutationNow(
 ): Promise<PlateSessionMutation> {
   let mutation: PlateSessionMutationResult | undefined;
   try {
-    const history = await runProjectHistoryMutation(
+    const history = await runProjectHistoryMutation<PlateSessionMutationResult>(
       platform.runtime,
       request.operation === 'set' ? 'Change Scoped Configuration' : 'Reset Scoped Configuration',
-      async () => {
+      async (): Promise<PlateSessionMutationResult> => {
         const result = await platform.runtime.mutateNativeScopedConfig(request);
         if (!result.ok) throw new Error(result.error);
         if (result.configurationStatus?.state === 'ready' && result.configurationStatus.errors.length > 0)
@@ -144,6 +144,11 @@ async function commitScopedConfigurationMutationNow(
     mutation = history.result;
   } catch (error) {
     const message = errorText(error);
+    useSlicerStore.getState().setError(message);
+    throw new Error(message);
+  }
+  if (mutation && !mutation.ok) {
+    const message = mutation.error ?? 'scoped configuration mutation failed';
     useSlicerStore.getState().setError(message);
     throw new Error(message);
   }

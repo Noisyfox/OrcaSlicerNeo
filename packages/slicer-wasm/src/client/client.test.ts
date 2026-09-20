@@ -1209,6 +1209,92 @@ describe('SlicerClient bridge contract', () => {
       expect(clone.instances.map((i) => i.id)).not.toContain(source.instances[0].id);
     });
 
+    it('normalizes native plate-session receipts for structural mutations', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2, instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getPlateSessionSnapshot();
+      if (!before.ok) throw new Error(before.error);
+      const source = (await c.getModelStructure()).objects[0];
+      const cloned = await c.cloneObjects([source.id]);
+      expect(cloned).toMatchObject({ ok: true, plateSession: {
+        affectedPlateIds: [before.currentPlateId],
+        dirtyReasons: ['model-structure'],
+      } });
+      const afterClone = await c.getPlateSessionSnapshot();
+      if (!afterClone.ok) throw new Error(afterClone.error);
+      expect(afterClone.inputRevisions?.[before.currentPlateId]).toBeGreaterThan(
+        before.inputRevisions?.[before.currentPlateId] ?? -1,
+      );
+      const reordered = await c.reorderVolumes(source.id, source.volumes[1].id, 0);
+      expect(reordered).toMatchObject({ ok: true, plateSession: { dirtyReasons: ['model-structure'] } });
+    });
+
+    it('keeps native object and part overrides on cloned stable IDs', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const source = (await c.getModelStructure()).objects[0];
+      await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
+      await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
+      const cloned = await c.cloneObjects([source.id]);
+      const cloneId = cloned.newObjectIds[0];
+      const snapshot = await c.getNativeScopedConfig();
+      expect(snapshot).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full', snapshot: {
+        objects: { [String(cloneId)]: { wall_loops: '3' } },
+      } } });
+      const after = await c.getModelStructure();
+      const clonedPartId = after.objects.find((object) => object.id === cloneId)?.volumes[0]?.id;
+      expect(clonedPartId).toBeDefined();
+      expect(snapshot).toMatchObject({ nativeScopedConfig: { snapshot: {
+        parts: { [String(clonedPartId)]: { enable_support: '1' } },
+      } } });
+    });
+
+    it('mirrors native split-object config ownership on derived stable IDs', async () => {
+      const c = createClient(async () => createMockModule({ splitParts: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const source = (await c.getModelStructure()).objects[0];
+      await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
+      await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
+      const split = await c.splitObjectToObjects(source.id);
+      expect(split.ok).toBe(true);
+      if (!split.ok) throw new Error(split.error);
+      const snapshot = await c.getNativeScopedConfig();
+      expect(snapshot).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full', snapshot: {
+        objects: {
+          [String(split.newObjectIds[0])]: { wall_loops: '3', enable_support: '1' },
+          [String(split.newObjectIds[1])]: { wall_loops: '3', enable_support: '1' },
+        },
+        parts: {},
+      } } });
+    });
+
+    it('keeps part config on separated volumes without copying object config', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const source = (await c.getModelStructure()).objects[0];
+      await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
+      await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
+      const separated = await c.separateInstances(source.id, [source.instances[1].id]);
+      expect(separated.ok).toBe(true);
+      if (!separated.ok) throw new Error(separated.error);
+      const structure = await c.getModelStructure();
+      const separatedObject = structure.objects.find((object) => object.id === separated.newObjectIds[0]);
+      expect(separatedObject).toBeDefined();
+      const separatedPartId = separatedObject?.volumes[0]?.id;
+      expect(separatedPartId).toBeDefined();
+      const snapshot = await c.getNativeScopedConfig();
+      expect(snapshot).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full', snapshot: {
+        objects: { [String(source.id)]: { wall_loops: '3' } },
+        parts: {
+          [String(source.volumes[0].id)]: { enable_support: '1' },
+          [String(separatedPartId)]: { enable_support: '1' },
+        },
+      } } });
+      expect(snapshot).not.toMatchObject({ nativeScopedConfig: { snapshot: {
+        objects: { [String(separated.newObjectIds[0])]: expect.anything() },
+      } } });
+    });
+
     it('reorderObjects moves an object to a destination index', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');

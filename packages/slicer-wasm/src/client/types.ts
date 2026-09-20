@@ -574,6 +574,8 @@ export interface CloneObjectsResult {
   newObjectIds: number[];
   /** Object count after cloning. */
   objects?: number;
+  /** Native plate input/revision receipt for the structural operation. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -581,6 +583,8 @@ export interface CloneObjectsResult {
 export interface ReorderStructureResult {
   ok: boolean;
   objects: ModelObjectStructure[];
+  /** Native plate input/revision receipt when the reorder invalidates inputs. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -593,6 +597,8 @@ export interface SplitVolumeResult {
   newVolumeIds?: number[];
   /** Current structure after the split. */
   objects?: ModelObjectStructure[];
+  /** Native plate input/revision receipt for the derived volumes. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -602,6 +608,8 @@ export interface SplitObjectResult {
   newObjectIds: number[];
   /** Object count after splitting. */
   objects?: number;
+  /** Native plate input/revision receipt for the derived objects. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -611,6 +619,8 @@ export interface MergeObjectsResult {
   objectId?: number;
   /** Object count after assembling. */
   objects?: number;
+  /** Native plate input/revision receipt for the assembled object. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -620,6 +630,8 @@ export interface SeparateInstancesResult {
   newObjectIds: number[];
   /** Object count after separating. */
   objects?: number;
+  /** Native plate input/revision receipt for the derived objects. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -628,18 +640,24 @@ export interface AddInstanceResult {
   ok: boolean;
   objectId?: number;
   instanceId?: number;
+  /** Native plate input/revision receipt for the added instance. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
 /** Remove-instance result. */
 export interface RemoveInstanceResult {
   ok: boolean;
+  /** Native plate input/revision receipt for the removed instance. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
+  /** Native plate input/revision receipt for slice-affecting mutations. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 

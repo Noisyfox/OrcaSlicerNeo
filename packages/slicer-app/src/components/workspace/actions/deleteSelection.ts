@@ -9,7 +9,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
+import { applyPlateResultMutation, invalidateAffectedPlateResults } from '../../../stores/plateResultLifecycle';
 import { runProjectHistoryMutation } from './historyMutation';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };
@@ -87,6 +87,14 @@ export async function deleteSelection(
         }
         else settings.refreshModel();
         if (published.plateSession) {
+          invalidateAffectedPlateResults(runtime, published.plateSession.affectedPlateIds ?? []);
+          if (published.plateSession.nativeScopedConfig) {
+            const outcome = settings.applyNativeScopedConfigTransport(published.plateSession.nativeScopedConfig);
+            if (outcome === 'refresh-required') {
+              const refreshed = await runtime.getNativeScopedConfig();
+              if (refreshed.ok) settings.applyNativeScopedConfigTransport(refreshed.nativeScopedConfig);
+            }
+          }
           const previousPlateSession = usePlateSessionStore.getState().snapshot;
           usePlateSessionStore.getState().setSnapshot(published.plateSession);
           applyPlateResultMutation(published.plateSession, previousPlateSession);

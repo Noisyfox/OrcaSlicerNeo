@@ -8,7 +8,7 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, ProfileSnapshot, ProfileSnapshotResult,
-  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult, PlateSelectionResult,
+  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutation, PlateSessionMutationResult, PlateSelectionResult,
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
   PrimeTowerMoveResultOrError,
@@ -967,6 +967,28 @@ function normalizeDeleteResult(raw: unknown): DeleteObjectsResult & DeleteVolume
     ...(plateSession?.ok ? { plateSession } : {}) };
 }
 
+/** Normalize structural model mutations that carry the native plate receipt.
+ * Structural operations must publish the same authoritative plate/session
+ * snapshot as deletes/imports so the application can reject stale slice
+ * results without maintaining an old-to-new renderer mapping. */
+function normalizeStructuralResult<T extends { ok: boolean }>(raw: unknown): T {
+  if (!raw || typeof raw !== 'object')
+    return { ok: false, error: 'invalid model mutation response' } as unknown as T;
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true)
+    return { ...value, ok: false,
+      error: typeof value.error === 'string' ? value.error : 'model mutation failed' } as unknown as T;
+  let plateSession: PlateSessionMutation | undefined;
+  if (value.plate_session !== undefined) {
+    const normalized = normalizePlateMutationResult(value.plate_session);
+    if (!normalized.ok)
+      return { ok: false, error: normalized.error ?? 'invalid plate mutation response' } as unknown as T;
+    plateSession = normalized;
+  }
+  const { plate_session: _plateSession, ...rest } = value;
+  return { ...rest, ...(plateSession ? { plateSession } : {}) } as T;
+}
+
 function normalizeClearResult(raw: unknown): ClearModelResult {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
   const value = raw as Record<string, unknown>;
@@ -1916,55 +1938,55 @@ export function createClient(
 
     async cloneObjects(objectIds: number[]): Promise<CloneObjectsResult> {
       const m = await module();
-      return callJson(m, 'orc_clone_objects', ['string'],
-                      [JSON.stringify(objectIds)]) as CloneObjectsResult;
+      return normalizeStructuralResult<CloneObjectsResult>(callJson(m, 'orc_clone_objects', ['string'],
+                      [JSON.stringify(objectIds)]));
     },
 
     async reorderObjects(fromObjectId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
-      return callJson(m, 'orc_reorder_objects', ['number', 'number'],
-                      [fromObjectId, toIndex]) as ReorderStructureResult;
+      return normalizeStructuralResult<ReorderStructureResult>(callJson(m, 'orc_reorder_objects', ['number', 'number'],
+                      [fromObjectId, toIndex]));
     },
 
     async reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
-      return callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
-                      [objectId, fromVolumeId, toIndex]) as ReorderStructureResult;
+      return normalizeStructuralResult<ReorderStructureResult>(callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
+                      [objectId, fromVolumeId, toIndex]));
     },
 
     async splitVolumeToParts(volumeId: number, maxExtruders = 1, remapPaint = false): Promise<SplitVolumeResult> {
       const m = await module();
-      return callJson(m, 'orc_split_volume_to_parts', ['number', 'number', 'number'],
-                      [volumeId, maxExtruders, remapPaint ? 1 : 0]) as SplitVolumeResult;
+      return normalizeStructuralResult<SplitVolumeResult>(callJson(m, 'orc_split_volume_to_parts', ['number', 'number', 'number'],
+                      [volumeId, maxExtruders, remapPaint ? 1 : 0]));
     },
 
     async splitObjectToObjects(objectId: number, autoDrop = false): Promise<SplitObjectResult> {
       const m = await module();
-      return callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
-                      [objectId, autoDrop ? 1 : 0]) as SplitObjectResult;
+      return normalizeStructuralResult<SplitObjectResult>(callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
+                      [objectId, autoDrop ? 1 : 0]));
     },
 
     async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {
       const m = await module();
-      return callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
-                      [JSON.stringify(objectIds), name]) as MergeObjectsResult;
+      return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
+                      [JSON.stringify(objectIds), name]));
     },
 
     async separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult> {
       const m = await module();
-      return callJson(m, 'orc_instances_to_separate_objects', ['number', 'string'],
-                      [objectId, JSON.stringify(instanceIds)]) as SeparateInstancesResult;
+      return normalizeStructuralResult<SeparateInstancesResult>(callJson(m, 'orc_instances_to_separate_objects', ['number', 'string'],
+                      [objectId, JSON.stringify(instanceIds)]));
     },
 
     async addInstance(objectId: number): Promise<AddInstanceResult> {
       const m = await module();
-      return callJson(m, 'orc_add_instance', ['number'], [objectId]) as AddInstanceResult;
+      return normalizeStructuralResult<AddInstanceResult>(callJson(m, 'orc_add_instance', ['number'], [objectId]));
     },
 
     async removeInstance(objectId: number, instanceId: number): Promise<RemoveInstanceResult> {
       const m = await module();
-      return callJson(m, 'orc_remove_instance', ['number', 'number'],
-                      [objectId, instanceId]) as RemoveInstanceResult;
+      return normalizeStructuralResult<RemoveInstanceResult>(callJson(m, 'orc_remove_instance', ['number', 'number'],
+                      [objectId, instanceId]));
     },
 
     async renameObject(objectId: number, name: string): Promise<MutationResult> {
@@ -1981,20 +2003,20 @@ export function createClient(
 
     async setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult> {
       const m = await module();
-      return callJson(m, 'orc_set_volume_type', ['number', 'string'],
-                      [volumeId, type]) as MutationResult;
+      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_volume_type', ['number', 'string'],
+                      [volumeId, type]));
     },
 
     async setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult> {
       const m = await module();
-      return callJson(m, 'orc_set_object_printable', ['number', 'number'],
-                      [objectId, printable ? 1 : 0]) as MutationResult;
+      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_object_printable', ['number', 'number'],
+                      [objectId, printable ? 1 : 0]));
     },
 
     async setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult> {
       const m = await module();
-      return callJson(m, 'orc_set_instance_printable', ['number', 'number'],
-                      [instanceId, printable ? 1 : 0]) as MutationResult;
+      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_instance_printable', ['number', 'number'],
+                      [instanceId, printable ? 1 : 0]));
     },
 
     async slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {

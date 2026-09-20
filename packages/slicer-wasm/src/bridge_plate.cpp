@@ -643,6 +643,8 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     result["affected_plate_ids_after"] = plate_id_array(after);
     result["affected_plate_ids"] = plate_id_array(affected);
     result["dirty_reasons"] = dirty_reasons;
+    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+        state().history_revision);
     // A completed transaction consumes any deferred transform markers. This
     // is important when a structural command (for example Add plate) follows
     // a transform write before the normal recompute call.

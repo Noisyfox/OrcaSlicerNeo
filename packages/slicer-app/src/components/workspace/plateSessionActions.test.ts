@@ -107,4 +107,51 @@ describe('plate selection actions', () => {
     expect(applyPlateSessionResponse({ runtime: {} } as unknown as PlatformCapabilities, result)).toBe(true);
     expect(useSettingsStore.getState().nativeScopedConfig).toEqual(nativeScopedConfig.snapshot);
   });
+
+  it('cancels only the active threaded plate named by a structural receipt', () => {
+    usePlateSessionStore.getState().setSnapshot(plateA);
+    useSlicerStore.getState().setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'a-1' });
+    useSlicerStore.getState().setPlateResult({ plateId: 'b', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'b-1' });
+    useSlicerStore.getState().setActiveSliceTarget({ plateId: 'a', inputRevision: 1 });
+    const cancel = vi.fn(async () => undefined);
+    const result = {
+      ...plateA,
+      affectedPlateIds: ['a'],
+      dirtyReasons: ['model-structure'],
+      instanceTransforms: [],
+    };
+
+    expect(applyPlateSessionResponse({
+      runtime: {
+        cancel,
+        getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' }),
+      },
+    } as unknown as PlatformCapabilities, result)).toBe(true);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(useSlicerStore.getState().plateResults).not.toHaveProperty('a');
+    expect(useSlicerStore.getState().plateResults).toHaveProperty('b');
+  });
+
+  it('cancels an active slice when structural plate deletion removes its identity', () => {
+    usePlateSessionStore.getState().setSnapshot(plateA);
+    useSlicerStore.getState().setPlateResult({ plateId: 'b', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'b-1' });
+    useSlicerStore.getState().setActiveSliceTarget({ plateId: 'b', inputRevision: 1 });
+    const cancel = vi.fn(async () => undefined);
+    const result = {
+      ...plateA,
+      currentPlateId: 'a',
+      plates: [plateA.plates[0]],
+      affectedPlateIds: [],
+      dirtyReasons: ['plate-structure'],
+      instanceTransforms: [],
+    };
+
+    expect(applyPlateSessionResponse({
+      runtime: {
+        cancel,
+        getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' }),
+      },
+    } as unknown as PlatformCapabilities, result)).toBe(true);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });

@@ -865,7 +865,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     result.affected_plate_ids_after = after;
     result.affected_plate_ids = affected;
     result.dirty_reasons = [reason];
+    result.native_scoped_config = nativeScopedConfigFullTransport();
     return result;
+  }
+
+  function modelStructureMutation(beforePlates: readonly string[]) {
+    const affected = [...new Set(beforePlates.filter((id) => plateIds.includes(id)))];
+    return plateMutation('model-structure', affected, affected);
   }
 
   function reflowMockPlateOrigins(): Array<Record<string, unknown>> {
@@ -1412,15 +1418,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requested.some((id) => !plateIds.includes(id)))
         return { error: 'plate order must contain every plate exactly once' };
       const oldOrigins = new Map(plateIds.map((id, index) => [id, plateOrigins[index]]));
+      const changedOrigins: string[] = [];
       plateIds = [...requested] as string[];
       plateOrigins = plateIds.map((id, index) => {
         const next = plateOrigin(index, plateIds.length);
         const before = oldOrigins.get(id)!;
-        if (before.some((value, axis) => value !== next[axis]))
+        if (before.some((value, axis) => value !== next[axis])) {
           plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+          changedOrigins.push(id);
+        }
         return next;
       });
-      return plateSessionSnapshot();
+      const result = plateSessionSnapshot() as Record<string, unknown>;
+      result.affected_plate_ids_before = changedOrigins;
+      result.affected_plate_ids_after = changedOrigins;
+      result.affected_plate_ids = changedOrigins;
+      result.dirty_reasons = ['plate-structure'];
+      result.native_scoped_config = nativeScopedConfigFullTransport();
+      return result;
     },
     orc_delete_plate(plateId: string) {
       if (plateIds.length <= 1) return { error: 'at least one plate must remain' };
@@ -1747,15 +1762,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       // Descending order keeps earlier indices valid while the arrays shrink.
       toDelete.sort((a, b) => b - a);
+      const affectedBefore = toDelete.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       for (const oi of toDelete) {
+        delete nativeScopedConfig.objects[String(objectMeta[oi].id)];
+        for (const volume of volumeMeta[oi]) delete nativeScopedConfig.parts[String(volume.id)];
         objectTransforms.splice(oi, 1);
         objectVolumeTransforms.splice(oi, 1);
         objectMeta.splice(oi, 1);
         volumeMeta.splice(oi, 1);
         instanceMeta.splice(oi, 1);
+        objectPlateIds.splice(oi, 1);
       }
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length, plate_session: plateMutation('model-delete') };
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length,
+        plate_session: plateMutation('model-delete', affectedBefore, affectedBefore) };
     },
     orc_delete_volumes(volumeIdsJson: string) {
       const ids = JSON.parse(volumeIdsJson ?? '[]') as unknown;
@@ -1781,41 +1801,60 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       // Group by object ascending, volume index descending within each object.
       toDelete.sort((a, b) => (a.oi !== b.oi ? a.oi - b.oi : b.vi - a.vi));
+      const affectedBefore = toDelete.map(({ oi }) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       for (const { oi, vi } of toDelete) {
+        delete nativeScopedConfig.parts[String(volumeMeta[oi][vi].id)];
         volumeMeta[oi].splice(vi, 1);
         objectVolumeTransforms[oi].splice(vi, 1);
       }
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length,
+        plate_session: plateMutation('model-delete', affectedBefore, affectedBefore) };
     },
     orc_clone_objects(objectIdsJson: string) {
       const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
       if (!Array.isArray(ids) || ids.length === 0) return { error: 'no object ids' };
       const newObjectIds: number[] = [];
+      const affectedBefore: string[] = [];
       for (const item of ids) {
         if (!Number.isInteger(item) || item < 1) return { error: 'object id must be a positive integer' };
         const oi = objectMeta.findIndex((o) => o.id === item);
         if (oi < 0) return { error: 'object not found' };
+        if (objectPlateIds[oi]) affectedBefore.push(objectPlateIds[oi]);
+        const sourceObjectId = String(objectMeta[oi].id);
+        const sourceVolumeIds = volumeMeta[oi].map((volume) => String(volume.id));
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
         objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
-        volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
+        const clonedObjectId = objectMeta[objectMeta.length - 1].id;
+        if (nativeScopedConfig.objects[sourceObjectId])
+          nativeScopedConfig.objects[String(clonedObjectId)] = clone(nativeScopedConfig.objects[sourceObjectId]);
+        const clonedVolumes = volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ }));
+        volumeMeta.push(clonedVolumes);
+        clonedVolumes.forEach((volume, index) => {
+          const values = nativeScopedConfig.parts[sourceVolumeIds[index]];
+          if (values) nativeScopedConfig.parts[String(volume.id)] = clone(values);
+        });
         instanceMeta.push(instanceMeta[oi].map((i) => ({ ...i, id: nextInstanceId++ })));
+        objectPlateIds.push(objectPlateIds[oi] ?? currentPlateId);
         newObjectIds.push(objectMeta[objectMeta.length - 1].id);
       }
       sliced = false;
-      return { ok: true, newObjectIds, objects: objectTransforms.length };
+      return { ok: true, newObjectIds, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_reorder_objects(fromObjectId: number, toIndex: number) {
       const fromIdx = objectMeta.findIndex((o) => o.id === fromObjectId);
       if (fromIdx < 0) return { error: 'object not found' };
+      const affectedBefore = objectPlateIds[fromIdx] ? [objectPlateIds[fromIdx]] : [];
       moveToIndex(objectTransforms, fromIdx, toIndex);
       moveToIndex(objectVolumeTransforms, fromIdx, toIndex);
       moveToIndex(objectMeta, fromIdx, toIndex);
       moveToIndex(volumeMeta, fromIdx, toIndex);
       moveToIndex(instanceMeta, fromIdx, toIndex);
+      moveToIndex(objectPlateIds, fromIdx, toIndex);
       sliced = false;
-      return { ok: true, objects: buildStructure() };
+      return { ok: true, objects: buildStructure(), plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_reorder_volumes(objectId: number, fromVolumeId: number, toIndex: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
@@ -1825,24 +1864,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       moveToIndex(volumeMeta[oi], fromIdx, toIndex);
       moveToIndex(objectVolumeTransforms[oi], fromIdx, toIndex);
       sliced = false;
-      return { ok: true, objects: buildStructure() };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+      return { ok: true, objects: buildStructure(), plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_split_volume_to_parts(volumeId: number, _maxExtruders: number, _remapPaint: number) {
       for (let oi = 0; oi < volumeMeta.length; oi++) {
         const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
         if (vi >= 0) {
+          const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
           const source = volumeMeta[oi][vi];
+          const sourceValues = nativeScopedConfig.parts[String(source.id)];
           if (!source.isSplittable) return { error: 'volume is not splittable' };
           const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
           for (let p = 0; p < splitParts; p++) {
             parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
+            if (sourceValues) nativeScopedConfig.parts[String(parts[p].id)] = clone(sourceValues);
           }
+          delete nativeScopedConfig.parts[String(source.id)];
           volumeMeta[oi].splice(vi, 1, ...parts);
           const transform = objectVolumeTransforms[oi][vi];
           objectVolumeTransforms[oi].splice(vi, 1,
             ...Array.from({ length: splitParts }, () => JSON.parse(JSON.stringify(transform))));
           sliced = false;
-          return { ok: true, parts: splitParts, newVolumeIds: parts.map((p) => p.id), objects: buildStructure() };
+          return { ok: true, parts: splitParts, newVolumeIds: parts.map((p) => p.id), objects: buildStructure(),
+            plate_session: modelStructureMutation(affectedBefore) };
         }
       }
       return { error: 'volume not found' };
@@ -1851,24 +1896,46 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
       if (oi < 0) return { error: 'object not found' };
       if (volumeMeta[oi].length === 1 && !volumeMeta[oi][0].isSplittable) return { error: 'object is not splittable' };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       const newIds: number[] = [];
       const srcVolume = volumeMeta[oi][0];
       const srcInstance = instanceMeta[oi][0];
+      const sourceObjectId = String(objectMeta[oi].id);
+      const sourceVolumeId = String(srcVolume.id);
+      const sourceObjectValues = nativeScopedConfig.objects[sourceObjectId];
+      const sourceVolumeValues = nativeScopedConfig.parts[sourceVolumeId];
       for (let p = 0; p < splitParts; p++) {
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0]))]);
         objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable });
-        volumeMeta.push([{ id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type, isSplittable: false }]);
+        const newObjectId = objectMeta[objectMeta.length - 1].id;
+        // ModelObject::split() starts each derived object's config from the
+        // source object and applies the source volume config over it. The
+        // resulting ModelVolume config is reset, so do not create a derived
+        // part map entry here.
+        const mergedObjectValues = {
+          ...(sourceObjectValues ? clone(sourceObjectValues) : {}),
+          ...(sourceVolumeValues ? clone(sourceVolumeValues) : {}),
+        };
+        if (Object.keys(mergedObjectValues).length > 0)
+          nativeScopedConfig.objects[String(newObjectId)] = mergedObjectValues;
+        const newVolume = { id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type, isSplittable: false };
+        volumeMeta.push([newVolume]);
         instanceMeta.push([{ id: nextInstanceId++, printable: srcInstance.printable }]);
+        objectPlateIds.push(objectPlateIds[oi] ?? currentPlateId);
         newIds.push(objectMeta[objectMeta.length - 1].id);
       }
       objectTransforms.splice(oi, 1);
       objectVolumeTransforms.splice(oi, 1);
       objectMeta.splice(oi, 1);
+      delete nativeScopedConfig.objects[sourceObjectId];
+      for (const volume of volumeMeta[oi]) delete nativeScopedConfig.parts[String(volume.id)];
       volumeMeta.splice(oi, 1);
       instanceMeta.splice(oi, 1);
+      objectPlateIds.splice(oi, 1);
       sliced = false;
-      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_merge_objects_to_multipart(objectIdsJson: string, name: string) {
       const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
@@ -1880,13 +1947,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (oi < 0) return { error: 'object not found' };
         if (!srcIdxs.includes(oi)) srcIdxs.push(oi);
       }
+      const affectedBefore = srcIdxs.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       const newObjectId = nextObjectId++;
       const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
       const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
       const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
       for (const oi of srcIdxs) {
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
-          newVolumes.push({ id: nextVolumeId++, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
+          const newVolumeId = nextVolumeId++;
+          newVolumes.push({ id: newVolumeId, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
+          const values = nativeScopedConfig.parts[String(volumeMeta[oi][vi].id)];
+          if (values) nativeScopedConfig.parts[String(newVolumeId)] = clone(values);
           newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][vi])) as ReturnType<typeof identityTransform>);
         }
       }
@@ -1895,16 +1966,21 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable });
       volumeMeta.push(newVolumes);
       instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
+      objectPlateIds.push(objectPlateIds[srcIdxs[0]] ?? currentPlateId);
       srcIdxs.sort((a, b) => b - a);
       for (const oi of srcIdxs) {
+        delete nativeScopedConfig.objects[String(objectMeta[oi].id)];
+        for (const volume of volumeMeta[oi]) delete nativeScopedConfig.parts[String(volume.id)];
         objectTransforms.splice(oi, 1);
         objectVolumeTransforms.splice(oi, 1);
         objectMeta.splice(oi, 1);
         volumeMeta.splice(oi, 1);
         instanceMeta.splice(oi, 1);
+        objectPlateIds.splice(oi, 1);
       }
       sliced = false;
-      return { ok: true, objectId: newObjectId, objects: objectTransforms.length };
+      return { ok: true, objectId: newObjectId, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_instances_to_separate_objects(objectId: number, instanceIdsJson: string) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
@@ -1913,6 +1989,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!Array.isArray(ids) || ids.length === 0) return { error: 'no instance ids' };
       const newIds: number[] = [];
       const toRemove: number[] = [];
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       for (const item of ids) {
         if (!Number.isInteger(item) || item < 1) return { error: 'instance id must be a positive integer' };
         const ii = instanceMeta[oi].findIndex((inst) => inst.id === item);
@@ -1922,8 +1999,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
         objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
-        volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
+        const separatedVolumes = volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ }));
+        volumeMeta.push(separatedVolumes);
+        separatedVolumes.forEach((volume, volumeIndex) => {
+          const values = nativeScopedConfig.parts[String(volumeMeta[oi][volumeIndex].id)];
+          if (values) nativeScopedConfig.parts[String(volume.id)] = clone(values);
+        });
         instanceMeta.push([{ id: nextInstanceId++, printable: srcInst.printable }]);
+        objectPlateIds.push(objectPlateIds[oi] ?? currentPlateId);
         newIds.push(objectMeta[objectMeta.length - 1].id);
       }
       toRemove.sort((a, b) => b - a);
@@ -1932,11 +2015,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectTransforms[oi].splice(ii, 1);
       }
       sliced = false;
-      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_add_instance(objectId: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
       if (oi < 0) return { error: 'object not found' };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       const instance = { id: nextInstanceId++, printable: true };
       instanceMeta[oi].push(instance);
       const lastTransform = objectTransforms[oi][objectTransforms[oi].length - 1];
@@ -1944,7 +2029,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       newTransform.offset[0] += 50;
       objectTransforms[oi].push(newTransform);
       sliced = false;
-      return { ok: true, objectId, instanceId: instance.id };
+      return { ok: true, objectId, instanceId: instance.id,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_remove_instance(objectId: number, instanceId: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
@@ -1952,10 +2038,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (instanceMeta[oi].length <= 1) return { error: 'cannot remove the last instance' };
       const ii = instanceMeta[oi].findIndex((inst) => inst.id === instanceId);
       if (ii < 0) return { error: 'instance not found' };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       instanceMeta[oi].splice(ii, 1);
       objectTransforms[oi].splice(ii, 1);
       sliced = false;
-      return { ok: true };
+      return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= objectTransforms[obj].length) return { error: 'no such instance' };
@@ -2103,7 +2190,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           }
           vol.type = type as VolumeType;
           sliced = false;
-          return { ok: true };
+          const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+          return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
         }
       }
       return { error: 'volume not found' };
@@ -2115,7 +2203,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta[oi].printable = value;
       for (const inst of instanceMeta[oi]) inst.printable = value;
       sliced = false;
-      return { ok: true };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+      return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_set_instance_printable(instanceId: number, printable: number) {
       for (let oi = 0; oi < instanceMeta.length; oi++) {
@@ -2123,7 +2212,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (ii >= 0) {
           instanceMeta[oi][ii].printable = printable !== 0;
           sliced = false;
-          return { ok: true };
+          const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+          return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
         }
       }
       return { error: 'instance not found' };

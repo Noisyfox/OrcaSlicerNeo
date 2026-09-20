@@ -91,7 +91,7 @@ describe('worker protocol', () => {
     expect(events.length).toBeGreaterThan(0);
   });
 
-  it('rejects serial edits, Slice, Export, and Cancel before posting while Slice is active', async () => {
+  it('rejects serial config/structural edits, Slice, Export, and Cancel before posting while Slice is active', async () => {
     const transport = new RecordingTransport();
     const workerClient = createWorkerClient(transport);
     transport.emit({ type: 'runtime-state', threaded: false, serialTerminalEpoch: '0' });
@@ -102,6 +102,13 @@ describe('worker protocol', () => {
       threaded: false, sliceActive: true, serialSliceActive: true, serialTerminalEpoch: '0',
     });
     await expect(workerClient.setInstanceOffset(0, 0, 1, 2, 3))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.setNativeScopedConfig({ scope: 'project' }, 'layer_height', '0.2'))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.mutateNativeScopedConfig({ version: 1, operation: 'set',
+      targets: [{ scope: 'project' }], key: 'layer_height', value: '0.2' }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.cloneObjects([1]))
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.undoHistory()).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.redoHistory()).resolves.toMatchObject({ error: 'slice_busy' });

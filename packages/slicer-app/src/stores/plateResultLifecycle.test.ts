@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import type { PlateSessionMutation, SliceResultReceipt } from '@slicer/client';
 import { useSlicerStore } from './useSlicerStore';
-import { applyPlateResultMutation } from './plateResultLifecycle';
+import { applyPlateResultMutation, invalidateAffectedPlateResults } from './plateResultLifecycle';
 
 const receipt = (plateId: string, inputStamp: number, sliceTaskId = `${plateId}-${inputStamp}`): SliceResultReceipt =>
   ({ plateId, inputStamp, resultGeneration: '1', sliceTaskId });
@@ -53,5 +53,37 @@ describe('per-plate result lifecycle', () => {
     expect(useSlicerStore.getState().error).toContain('outside the printable area');
     expect(store.activatePlateResult('b', 1)).toBe(true);
     expect(useSlicerStore.getState().error).toBeNull();
+  });
+
+  it('cancels only the active threaded plate after invalidating its receipt', () => {
+    const store = useSlicerStore.getState();
+    store.setPlateResult(receipt('a', 1));
+    store.setPlateResult(receipt('b', 1));
+    store.setActiveSliceTarget({ plateId: 'a', inputRevision: 1 });
+    const cancel = vi.fn(() => Promise.resolve({ ok: true }));
+    const runtime = {
+      cancel,
+      getRuntimeExecutionState: () => ({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' }),
+    };
+
+    invalidateAffectedPlateResults(runtime, ['b']);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState().plateResults).toHaveProperty('a');
+
+    invalidateAffectedPlateResults(runtime, ['a']);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(useSlicerStore.getState().plateResults).not.toHaveProperty('a');
+  });
+
+  it('does not issue a cancellation for a serial runtime receipt', () => {
+    const store = useSlicerStore.getState();
+    store.setPlateResult(receipt('a', 1));
+    store.setActiveSliceTarget({ plateId: 'a', inputRevision: 1 });
+    const cancel = vi.fn(() => Promise.resolve({ ok: true }));
+    invalidateAffectedPlateResults({
+      cancel,
+      getRuntimeExecutionState: () => ({ threaded: false, sliceActive: true, serialSliceActive: true, serialTerminalEpoch: '0' }),
+    }, ['a']);
+    expect(cancel).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
+import { invalidateAffectedPlateResults } from '../../stores/plateResultLifecycle';
 
 /**
  * Apply the complete result of a runtime plate transaction.  Both Prepare's
@@ -22,23 +23,16 @@ export function applyPlateSessionResponse(
   }
   const previous = usePlateSessionStore.getState().snapshot;
   const slicer = useSlicerStore.getState();
-  const activeJob = slicer.activeSliceTarget;
   const affected = result.affectedPlateIds ?? [];
   const structural = result.dirtyReasons?.includes('plate-structure') ?? false;
-  if (!structural && activeJob && affected.includes(activeJob.plateId)) {
-    slicer.invalidatePlateResults([activeJob.plateId]);
-    void platform.runtime.cancel().catch(() => undefined);
-  } else if (!structural && affected.length) {
-    slicer.invalidatePlateResults(affected);
-  }
+  const removed: string[] = [];
   if (structural && previous) {
     const nextIds = new Set(result.plates.map((plate) => plate.plateId));
-    const removed = previous.plates.filter((plate) => !nextIds.has(plate.plateId)).map((plate) => plate.plateId);
+    removed.push(...previous.plates.filter((plate) => !nextIds.has(plate.plateId)).map((plate) => plate.plateId));
+  }
+  invalidateAffectedPlateResults(platform.runtime, [...affected, ...removed]);
+  if (structural && previous) {
     for (const plateId of removed) slicer.discardPlateResult(plateId);
-    if (activeJob && removed.includes(activeJob.plateId)) {
-      slicer.invalidatePlateResults([activeJob.plateId]);
-      void platform.runtime.cancel().catch(() => undefined);
-    }
   }
   // Add/Delete Plate may normalize the native wipe-tower coordinate arrays.
   // Publish the native snapshot carried by that same atomic receipt before any later
@@ -69,11 +63,8 @@ export function applyPrimeTowerMoveMutation(
 ): boolean {
   const previous = usePlateSessionStore.getState().snapshot;
   if (!previous || !previous.plates.some((plate) => plate.plateId === mutation.plateId)) return false;
-  const slicer = useSlicerStore.getState();
   if (mutation.affectedPlateIds.includes(mutation.plateId)) {
-    slicer.invalidatePlateResults([mutation.plateId]);
-    if (slicer.activeSliceTarget?.plateId === mutation.plateId)
-      void platform.runtime.cancel().catch(() => undefined);
+    invalidateAffectedPlateResults(platform.runtime, [mutation.plateId]);
   }
   usePlateSessionStore.getState().setSnapshot({
     ...previous,

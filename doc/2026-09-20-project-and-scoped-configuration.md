@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Date:** 2026-09-20
-**Status:** Implementation in progress — Steps 1–5 accepted
+**Status:** Implementation in progress — Steps 1–6 accepted
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
@@ -217,3 +217,32 @@ Parent acceptance checks passed:
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
 - `pnpm --filter @orca/slicer-wasm test -- --run` — 5 files, 161 tests passed.
 - `git diff --check` — passed (only Windows line-ending warnings).
+
+### Step 6 — Slice-time and structural-operation integration
+
+Accepted on 2026-09-20. The serial Worker admission gate now explicitly rejects the
+multi-target scoped command with `slice_busy` before it posts a native mutation or
+history transaction. For threaded execution, an accepted configuration or structural
+receipt invalidates exactly its native affected-Plate set and begins cancellation
+asynchronously only when that set contains the active slice target. Unaffected plate
+results remain available. The existing input-revision receipt checks continue to
+reject stale Slice results.
+
+Structural bridge operations now return authoritative native plate/session receipts
+with complete native scoped-config transport and exact before/after affected Plate
+sets. This covers the actual current structural API: deletion, cloning, object/volume
+reorder, split-to-parts, split-to-objects, merge-to-multipart, separate instances,
+instance add/remove, volume type changes, printable changes, and Plate reordering or
+deletion. React consumes those receipts directly; it maintains no old-to-new scoped
+configuration mapping. Test mocks mirror the observed native clone, split, and
+separate-instance map ownership rules. The repository has no cut or generic
+replacement bridge API, so this step does not invent one; any future endpoint must
+return the same native receipt contract.
+
+Parent acceptance checks passed:
+
+- `cmd /c scripts\\build-windows.bat quick` — serial and threaded staged WASM builds
+  validated successfully.
+- `pnpm --filter @orca/slicer-wasm test -- --run` — 5 files, 165 tests passed.
+- `pnpm --filter @orca/slicer-app test -- --run` — 77 files, 592 tests passed.
+- `pnpm typecheck` and `git diff --check` — passed (only Windows line-ending warnings).
