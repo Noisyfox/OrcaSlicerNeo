@@ -10,7 +10,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
+import { projectFilamentHistoryRevision, refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '../../../history/projectMutationGate';
 import { projectHistoryStatus } from '../../../history/projectHistoryStatus';
 import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '../../../history/historyDiagnostics';
@@ -70,7 +70,18 @@ function projectContextOntoStructure(context: HistoryContext, structure: Awaited
 }
 
 type MutationResponse = { ok?: boolean; error?: string };
+/** Facts returned by the completed operation, before renderer publication.
+ * `preserved` means stable object/part/instance membership is unchanged;
+ * transforms and plate layout may still change. */
+export interface HistoryContextReceipt {
+  structure: 'preserved' | (ModelStructureResult & { ok: true });
+  activePlateId: string | null;
+}
+
 export interface ProjectHistoryMutationOptions<T extends MutationResponse = MutationResponse> {
+  /** Supply authoritative successor facts already returned by the operation.
+   * Omit for compound operations that require a fresh native projection. */
+  contextReceipt?: (result: T) => HistoryContextReceipt;
   /** Renderer/application publication that must complete before the fence is released. */
   publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void;
 }
@@ -158,6 +169,9 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
    * invalidated by an intervening Worker mutation without ever opening a
    * transaction for their obsolete draft. */
   preflight?: () => Promise<void> | void,
+  /** Transform-only fast path: the committed History/plate receipt advances
+   * filament revision tokens without rereading unchanged filament content. */
+  filamentProjection: 'snapshot' | 'history-revision' = 'snapshot',
 ): Promise<HistoryMutationResult<T>> {
   const queuedAt = historyDiagnosticNow();
   return enqueueHistoryOperation(async () => {
@@ -206,7 +220,14 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
         };
       }
       if (response.status) projectHistoryStatus(response.status);
-      await refreshFilamentSession(runtime, undefined, lease);
+      if (filamentProjection === 'history-revision' && response.status) {
+        const plateSession = (response.result as MutationResponse & {
+          plateSession?: { inputRevisions?: Readonly<Record<string, number>> };
+        }).plateSession;
+        projectFilamentHistoryRevision(response.status.revision, plateSession?.inputRevisions);
+      } else {
+        await refreshFilamentSession(runtime, undefined, lease);
+      }
       await publish?.(response.result, response.status);
       return response;
     } finally {
@@ -225,6 +246,7 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
   sceneInteraction?: SceneInteractionController | null,
   options: ProjectHistoryMutationOptions<T> = {},
 ): Promise<HistoryMutationResult<T>> {
+  let receipt: HistoryContextReceipt | undefined;
   return executeProjectHistoryTransaction(
     runtime,
     label,
@@ -232,10 +254,15 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
     async () => {
       const result = await mutation();
       if (result.ok !== true) throw new Error(result.error ?? `${label} failed`);
+      receipt = options.contextReceipt?.(result);
       return result;
     },
     async () => {
       let context = historyContextForStructure(sceneInteraction);
+      if (receipt) {
+        if (receipt.structure !== 'preserved') context = projectContextOntoStructure(context, receipt.structure);
+        return { ...context, activePlateId: receipt.activePlateId };
+      }
       const structure = await runtime.getModelStructure().catch(() => null);
       if (structure) context = projectContextOntoStructure(context, structure);
       const plateSession = await runtime.getPlateSessionSnapshot().catch(() => null);
@@ -330,20 +357,6 @@ export async function resetProjectHistory(
       projectHistoryStatus(status);
       await refreshFilamentSession(runtime, undefined, lease);
       return status;
-    } finally { lease.release(); }
-  });
-}
-
-export async function recordProjectHistoryContext(
-  runtime: Pick<SlicerRuntime, 'recordHistoryContext'>,
-  label: string,
-  context: HistoryContext,
-): Promise<HistoryStatus> {
-  return enqueueHistoryOperation(async () => {
-    const lease = acquireProjectMutationLease();
-    try {
-      const status = await runtime.recordHistoryContext(label, context);
-      return projectHistoryStatus(status);
     } finally { lease.release(); }
   });
 }

@@ -4,9 +4,12 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 
 #include "bridge_state.hpp"
-#include "history/ProjectHistory.hpp"
+#include "history/MeshCaptureCache.hpp"
+#include "history/MutableObjectCaptureCache.hpp"
+#include "history/TimestampedHistory.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "nlohmann/json.hpp"
@@ -17,31 +20,60 @@ using json = nlohmann::json;
 
 struct Runtime {
     std::function<json()> filament_history_state;
-    std::function<void()> invalidate_preview;
 };
 
-// The bridge facade supplies the two narrow callbacks that cannot be linked
+// The bridge facade supplies the narrow callback that cannot be linked
 // directly without making this module depend on its private projections.
 Runtime runtime();
 
 json default_history_context(const Runtime& runtime);
 json canonical_history_context(const Runtime& runtime, json context);
-// Record navigation context without recapturing the immutable model archive.
-void record_active_plate_context(const Runtime& runtime, json requested = {});
 
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime
 
 namespace Slic3r::Neo::History::Codec {
 
+// Scalar-only diagnostics for one model capture. The bridge publishes these
+// values only for normal history transactions; the capture result and its
+// cache/reuse semantics are independent of this optional sink.
+struct CaptureTimings {
+    double collection_cache_ms = 0.0;
+    double mutable_object_archive_ms = 0.0;
+    double immutable_mesh_retention_ms = 0.0;
+    double total_ms = 0.0;
+};
+
+// Scalar-only diagnostics for one ordinary full-model history restore. The
+// bridge owns this sink; no model, context, identifiers, or payloads cross
+// the diagnostic boundary.
+struct RestoreTimings {
+    double model_staging_deserialization_ms = 0.0;
+    double immutable_mesh_reconnect_ms = 0.0;
+    double plate_session_project_overlay_restore_ms = 0.0;
+#ifdef NEO_PROJECT_HISTORY_TEST
+    std::size_t deserialized_objects = 0;
+    std::size_t reused_objects = 0;
+#endif
+};
+
 // Capture the mutable object records and shared immutable mesh payloads used
-// by Neo's object-history store. The codec is deliberately independent of
-// bridge-owned state and receives the model it serializes explicitly.
+// by Neo's object-history store. The no-cache overload is useful for isolated
+// callers; bridge paths pass their Worker-owned cache explicitly.
 ModelState capture_model_state(const Model& model);
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache);
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
+                               MutableObjectCaptureCache& object_cache);
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
+                               MutableObjectCaptureCache& object_cache,
+                               CaptureTimings* timings);
+bool prime_model_capture_cache(const Model& model, const ModelState& roots,
+                               MutableObjectCaptureCache& object_cache);
 
 // Reconstruct a transient model from a retained history state. model_template
 // supplies the non-history model defaults needed while materializing a fresh
 // object graph; it is never accessed through bridge-global state.
-Model stage_model(const Model& model_template, const RestoreState& restored);
+Model stage_model(const Model& model_template, const ModelState& restored,
+                  RestoreTimings* timings = nullptr, const ModelState* live_roots = nullptr);
 
 bool model_state_equal(const ModelState& lhs, const ModelState& rhs);
 
@@ -64,24 +96,6 @@ json canonical_history_context(const BridgeState& state,
                                const json& plate_session,
                                const json& filament_state);
 
-// Context records retain the current model version but deliberately do not
-// advance BridgeState::history_revision. The model state is supplied by the
-// caller so this metadata layer never reaches through a global or copies a
-// Model/PresetBundle.
-void record_history_context(BridgeState& state,
-                            const std::string& label,
-                            const json& requested,
-                            const json& plate_session,
-                            const json& filament_state,
-                            const History::ModelState& model_state);
-void record_history_context_reusing_current_model(BridgeState& state,
-                                                  const std::string& label,
-                                                  const json& context);
-void record_active_plate_context(BridgeState& state,
-                                 const json& plate_session,
-                                 const json& filament_state,
-                                 const History::ModelState& model_state);
-
 json history_status_json(const BridgeState& state);
 json restore_diagnostics_json(const BridgeState& state);
 
@@ -91,9 +105,11 @@ json restore_diagnostics_json(const BridgeState& state);
 // move backwards.
 std::uint64_t advance_history_epoch(BridgeState& state);
 
-// Execute one revision-producing ProjectHistory append as the bridge's atomic
-// history-publication boundary. Callers supply only the append operation; a
-// successful append is the sole condition that advances the observed epoch.
-bool commit_history_entry(BridgeState& state, const std::function<bool()>& append);
+History::TimestampedRoots capture_history_roots(BridgeState& state, const json& context,
+                                                History::Codec::CaptureTimings* timings = nullptr);
+bool begin_timestamped_operation(BridgeState& state, const std::string& label, const json& before_context,
+                                 History::Codec::CaptureTimings* timings = nullptr);
+bool commit_timestamped_operation(BridgeState& state, const json& after_context);
+void abort_timestamped_operation(BridgeState& state);
 
 } // namespace Slic3r::Neo::Bridge::HistoryMetadata

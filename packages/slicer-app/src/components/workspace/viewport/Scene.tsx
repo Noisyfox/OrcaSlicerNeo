@@ -117,6 +117,26 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           min: [number, number, number];
           max: [number, number, number];
         } | null;
+        realProjectRendererMemorySnapshot?: () => {
+          identity: 'ORCA_REAL_PROJECT_PROFILE_RENDERER_V1';
+          reactTypedArrayBytes: number;
+          gpuProjectionEstimatedBytes: number;
+          volumeCount: number;
+          perPlate: Array<{
+            plateId: string;
+            reactTypedArrayBytes: number;
+            gpuProjectionEstimatedBytes: number;
+            volumeCount: number;
+          }>;
+        };
+        realProjectModelWorldCentersProfile?: () => {
+          identity: 'ORCA_REAL_PROJECT_BOUNDS_PROFILE_V1';
+          durationMs: number;
+          centers: Array<[number, number, number]>;
+        };
+        realProjectPlateModelWorldCenters?: (plateId: string) => Array<[number, number, number]>;
+        realProjectSelectFirstModelOnPlate?: (plateId: string) => boolean;
+        realProjectMoveSelectedX?: (delta: number) => { moved: boolean; startedAt: number };
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -246,25 +266,126 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           max: [max[0], max[1], max[2]],
         };
       },
+      ...(import.meta.env.VITE_REAL_PROJECT_PROFILE === '1' ? {
+        realProjectPlateModelWorldCenters: (plateId: string) => {
+          const instancePlates = new Map((plateSession?.instances ?? []).map((instance) =>
+            [`${instance.objectIndex}:${instance.instanceIndex}`, instance.plateId]));
+          return glVolumes.filter((volume) =>
+            instancePlates.get(`${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`) === plateId)
+            .map((volume) => {
+              const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
+              return [center.x, center.y, center.z] as [number, number, number];
+            });
+        },
+        realProjectSelectFirstModelOnPlate: (plateId: string) => {
+          const instancePlates = new Map((plateSession?.instances ?? []).map((instance) =>
+            [`${instance.objectIndex}:${instance.instanceIndex}`, instance.plateId]));
+          const volume = glVolumes.find((candidate) =>
+            instancePlates.get(`${candidate.buffer.objectIdx}:${candidate.buffer.instanceIdx}`) === plateId);
+          sceneInteraction.clearSelection();
+          return Boolean(volume && sceneInteraction.selectFromHit(volume, false));
+        },
+        realProjectMoveSelectedX: (delta: number) => {
+          const startedAt = performance.now();
+          return {
+            moved: Number.isFinite(delta) &&
+              sceneInteraction.moveSelectionBy(new THREE.Vector3(delta, 0, 0)),
+            startedAt,
+          };
+        },
+        realProjectModelWorldCentersProfile: () => {
+          const startedAt = performance.now();
+          const centers = previewVolumes.map((volume) => {
+            const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
+            return [center.x, center.y, center.z] as [number, number, number];
+          });
+          return {
+            identity: 'ORCA_REAL_PROJECT_BOUNDS_PROFILE_V1' as const,
+            durationMs: performance.now() - startedAt,
+            centers,
+          };
+        },
+        realProjectRendererMemorySnapshot: () => {
+          const instancePlates = new Map((plateSession?.instances ?? []).map((instance) =>
+            [`${instance.objectIndex}:${instance.instanceIndex}`, instance.plateId]));
+          const totals = new Map<string, {
+            reactTypedArrayBytes: number;
+            gpuProjectionEstimatedBytes: number;
+            volumeCount: number;
+          }>();
+          let reactTypedArrayBytes = 0;
+          let gpuProjectionEstimatedBytes = 0;
+          for (const volume of glVolumes) {
+            const sourceBytes = volume.buffer.positions.byteLength + volume.buffer.indices.byteLength;
+            let gpuBytes = volume.geometry.index?.array.byteLength ?? 0;
+            for (const attribute of Object.values(volume.geometry.attributes))
+              gpuBytes += attribute.array.byteLength;
+            reactTypedArrayBytes += sourceBytes;
+            gpuProjectionEstimatedBytes += gpuBytes;
+            const plateId = instancePlates.get(`${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`) ?? 'unassigned';
+            const plate = totals.get(plateId) ?? {
+              reactTypedArrayBytes: 0,
+              gpuProjectionEstimatedBytes: 0,
+              volumeCount: 0,
+            };
+            plate.reactTypedArrayBytes += sourceBytes;
+            plate.gpuProjectionEstimatedBytes += gpuBytes;
+            plate.volumeCount += 1;
+            totals.set(plateId, plate);
+          }
+          return {
+            identity: 'ORCA_REAL_PROJECT_PROFILE_RENDERER_V1' as const,
+            reactTypedArrayBytes,
+            gpuProjectionEstimatedBytes,
+            volumeCount: glVolumes.length,
+            perPlate: [...totals].sort(([lhs], [rhs]) => lhs.localeCompare(rhs))
+              .map(([plateId, values]) => ({ plateId, ...values })),
+          };
+        },
+      } : {}),
     };
     return () => {
       if (w.__orcaE2e) {
-        const {
-          projectWorldToScreen: _dropped,
-          projectSelectionPivot: _pivot,
-          selectionPivotWorld: _pivotWorld,
-          selectionBoundsWorld: _bounds,
-          pointerOwner: _owner,
-          selectionInstanceCount: _count,
-          selectMockInstance: _selection,
-          previewMarkerPresent: _marker,
-          cameraState: _camera,
-          bedPlateStates: _beds,
-          modelWorldCenters: _models,
-          previewToolpathWorldBounds: _toolpathBounds,
-          ...rest
-        } = w.__orcaE2e;
-        w.__orcaE2e = rest;
+        if (import.meta.env.VITE_REAL_PROJECT_PROFILE === '1') {
+          const {
+            projectWorldToScreen: _dropped,
+            projectSelectionPivot: _pivot,
+            selectionPivotWorld: _pivotWorld,
+            selectionBoundsWorld: _bounds,
+            pointerOwner: _owner,
+            selectionInstanceCount: _count,
+            selectMockInstance: _selection,
+            previewMarkerPresent: _marker,
+            cameraState: _camera,
+            bedPlateStates: _beds,
+            modelWorldCenters: _models,
+            previewToolpathWorldBounds: _toolpathBounds,
+            realProjectModelWorldCentersProfile: _realProjectBounds,
+            realProjectRendererMemorySnapshot: _realProjectMemory,
+            realProjectPlateModelWorldCenters: _realProjectPlateModelWorldCenters,
+            realProjectSelectFirstModelOnPlate: _realProjectSelectFirstModelOnPlate,
+            realProjectMoveSelectedX: _realProjectMoveSelectedX,
+            ...rest
+          } = w.__orcaE2e;
+          w.__orcaE2e = rest;
+        } else {
+          const {
+            projectWorldToScreen: _dropped,
+            projectSelectionPivot: _pivot,
+            selectionPivotWorld: _pivotWorld,
+            selectionBoundsWorld: _bounds,
+            pointerOwner: _owner,
+            selectionInstanceCount: _count,
+            selectMockInstance: _selection,
+            previewMarkerPresent: _marker,
+            cameraState: _camera,
+            bedPlateStates: _beds,
+            modelWorldCenters: _models,
+            previewToolpathWorldBounds: _toolpathBounds,
+            ...rest
+          } = w.__orcaE2e;
+          w.__orcaE2e = rest;
+        }
       }
     };
   }, [activeTab, camera, controls, glVolumes, plateSession, previewVolumes, scene, size, sceneInteraction, toolpath]);

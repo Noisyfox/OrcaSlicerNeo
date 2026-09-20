@@ -12,6 +12,8 @@ export function useModelLoader(): LoadedObject[] {
   const modelRevision = useSettingsStore((s) => s.modelRevision);
   const [objects, setObjects] = useState<LoadedObject[]>([]);
 
+  useEffect(() => glVolumeCollection.subscribe((volumes) => setObjects([...volumes])), []);
+
   useEffect(() => {
     let disposed = false;
     const requestedRevision = modelRevision;
@@ -34,7 +36,6 @@ export function useModelLoader(): LoadedObject[] {
           // render — the previous scene stays visible while the fetch is in
           // flight, instead of flashing empty on every revision bump.
           glVolumeCollection.replace(loaded, requestedRevision);
-          setObjects(loaded);
         }
       } catch (err) {
         if (!disposed && useSettingsStore.getState().modelRevision === requestedRevision)
@@ -45,7 +46,7 @@ export function useModelLoader(): LoadedObject[] {
     return () => {
       disposed = true;
     };
-  }, [modelLoaded, modelRevision]);
+  }, [modelRevision]);
 
   // Real unmount (Canvas teardown) disposes the mounted geometries. Kept
   // separate from the revision effect above so a reload — e.g. adding a

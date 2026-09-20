@@ -78,7 +78,6 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const platform = injectedPlatform ?? contextPlatform;
   const sliceStatus = useSlicerStore((state) => state.status);
   const sliceTarget = useSlicerStore((state) => state.sliceTarget);
-  const plateResults = useSlicerStore((state) => state.plateResults);
   const sliceReady = sliceStatus === 'done';
   const [document, setDocument] = useState<PrinterConfigurationDocument>({ version: 1, printers: [] });
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
@@ -277,32 +276,20 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     setProgress({ loaded: 0 });
     setState('uploading');
     try {
-      const runtime = platform.runtime as typeof platform.runtime & {
-        getPlateSessionSnapshot?: typeof platform.runtime.getPlateSessionSnapshot;
-        exportGcodePlate?: typeof platform.runtime.exportGcodePlate;
-      };
-      // Keep focused legacy dialog fixtures usable while real hosts always
-      // take the target-bound path below.
-      let exported;
-      if (typeof runtime.getPlateSessionSnapshot === 'function' && typeof runtime.exportGcodePlate === 'function') {
-        const currentSession = await runtime.getPlateSessionSnapshot();
-        if (!currentSession.ok) throw new Error(currentSession.error);
-        usePlateSessionStore.getState().setSnapshot(currentSession);
-        const currentRevision = currentSession.inputRevisions?.[currentSession.currentPlateId];
-        if (!sliceTarget || sliceTarget.plateId !== currentSession.currentPlateId ||
-            sliceTarget.inputRevision !== currentRevision)
-          throw new Error('current plate slice result is stale or unavailable');
-        const currentPlate = currentSession.plates.find((plate) => plate.plateId === currentSession.currentPlateId);
-        const membershipKnown = currentPlate?.instanceIds !== undefined || currentSession.instances !== undefined;
-        if (!currentPlate || currentPlate.valid === false || (membershipKnown && !(currentPlate.instanceIds?.length)))
-          throw new Error(currentPlate?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
-        const cached = plateResults[sliceTarget.plateId];
-        exported = cached?.target.inputRevision === sliceTarget.inputRevision && cached.gcode
-          ? { ok: true, path: 'output.gcode', bytes: cached.gcode }
-          : await runtime.exportGcodePlate(sliceTarget);
-      } else {
-        exported = await platform.runtime.exportGcode();
-      }
+      const currentSession = await platform.runtime.getPlateSessionSnapshot();
+      if (!currentSession.ok) throw new Error(currentSession.error);
+      usePlateSessionStore.getState().setSnapshot(currentSession);
+      const currentRevision = currentSession.inputRevisions?.[currentSession.currentPlateId];
+      if (!sliceTarget || sliceTarget.plateId !== currentSession.currentPlateId ||
+          sliceTarget.inputRevision !== currentRevision)
+        throw new Error('current plate slice result is stale or unavailable');
+      const currentPlate = currentSession.plates.find((plate) => plate.plateId === currentSession.currentPlateId);
+      if (!currentPlate || currentPlate.valid === false || !(currentPlate.instanceIds?.length))
+        throw new Error(currentPlate?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
+      const receipt = useSlicerStore.getState().plateResults[currentSession.currentPlateId]?.receipt;
+      if (!receipt || receipt.inputStamp !== currentRevision)
+        throw new Error('current plate slice result is stale or unavailable');
+      const exported = await platform.runtime.exportGcodePlate(receipt);
       if (!exported.ok) throw new Error('export failed');
       const documentSnapshot = normalizePrinterConfigurationDocument(document);
       const service = new PrinterControlService(documentSnapshot, platform.printers.transport);

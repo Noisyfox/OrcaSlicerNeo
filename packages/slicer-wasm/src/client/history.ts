@@ -7,6 +7,8 @@
  * retain a context alongside a model version without making React a second
  * model owner.
  */
+import type { PlateSessionSnapshot } from './types';
+
 
 /** Stable native identities.  These are IDs, never positional indexes. */
 export type StableObjectId = number;
@@ -47,10 +49,12 @@ export interface HistoryContext {
   readonly gizmo: HistoryGizmoContext | null;
   /** Project/object/part overrides and retained plate metadata, never global preset preferences. */
   readonly projectConfigOverlay: HistoryJsonObject;
+  /** Native-canonical session projection, present on Worker restore results. */
+  readonly plateSession?: PlateSessionSnapshot;
 }
 
-/** Project entries are navigable; context entries accompany a project frame. */
-export type HistoryCategory = 'project' | 'context';
+/** Every retained history entry is a genuine project mutation. */
+export type HistoryCategory = 'project';
 export type HistoryEntryCategory = HistoryCategory;
 /** Alias matching the Worker API's `beginHistory(..., kind, ...)` wording. */
 export type HistoryKind = HistoryCategory;
@@ -79,8 +83,6 @@ export interface HistoryStatus {
   readonly dirty: boolean;
   readonly bytesUsed: number;
   readonly byteBudget: number;
-  /** Cumulative bytes released from optional/reconstructable history data. */
-  readonly optionalBytesReleased: number;
   /** Cumulative whole-entry evictions for this project session. */
   readonly evictedEntryCount: number;
   readonly lastEvictedEntryId: HistoryEntryId | null;
@@ -115,12 +117,12 @@ export interface HistoryError {
 
 /**
  * Worker-authored projection domains changed by one atomic restore commit.
- * Missing, malformed, or newer-than-known descriptors deliberately normalize
- * to the conservative full-model path in the typed client.
+ * Missing or malformed descriptors normalize to the broad SceneDelta path;
+ * they never authorize a full renderer projection during history navigation.
  */
 export interface RestoreImpact {
   readonly version: 1;
-  readonly model: 'full' | 'none';
+  readonly model: 'delta' | 'none';
   readonly plateSession: boolean;
   readonly filamentRack: boolean;
   readonly projectOverlay: boolean;
@@ -130,29 +132,18 @@ export interface RestoreImpact {
 }
 
 /**
- * Minimal native fact published only for a committed direct Prime Tower
- * restore.  It is deliberately separate from the all-plate projection: a
- * future collection patch can update one plate without deriving state from a
- * stale renderer snapshot.
+ * Worker-authored, non-authoritative acceleration for one completed restore.
+ * Every ID is a stable native/session identity. `objectOrder` is the final
+ * target order needed to merge retained React/Three objects without reading
+ * or rebuilding the complete model projection.
  */
-export type PrimeTowerRestoreReceipt = PrimeTowerRestoreAvailableReceipt | PrimeTowerRestoreClearedReceipt;
-
-export interface PrimeTowerRestoreAvailableReceipt {
+export interface SceneDelta {
   readonly version: 1;
-  readonly state: 'available';
-  readonly plateId: string;
-  /** Native plate input revision after the committed restore. */
-  readonly revision: number;
-  readonly position: Readonly<{ x: number; y: number }>;
-  readonly footprint: Readonly<{ minX: number; maxX: number; minY: number; maxY: number }>;
-}
-
-/** A future direct frame may intentionally remove or disable a tower. */
-export interface PrimeTowerRestoreClearedReceipt {
-  readonly version: 1;
-  readonly state: 'cleared';
-  readonly plateId: string;
-  readonly revision: number;
+  readonly objectIds: readonly StableObjectId[];
+  readonly volumeIds: readonly StablePartId[];
+  readonly instanceIds: readonly StableInstanceId[];
+  readonly plateIds: readonly StablePlateId[];
+  readonly objectOrder: readonly StableObjectId[];
 }
 
 /** A compact timing aggregate; it intentionally retains no operation history. */
@@ -200,8 +191,7 @@ export interface RestoreSuccess {
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
-  /** Omitted for full restores, legacy artifacts, and malformed receipts. */
-  readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
+  readonly sceneDelta: SceneDelta;
 }
 
 export interface RestoreFailure {
@@ -246,8 +236,6 @@ export interface HistoryRuntimeMethods {
   jumpHistory: (entryId: HistoryEntryId, direction: HistoryJumpDirection) => Promise<RestoreResult>;
   /** Advance the saved checkpoint without releasing history frames. */
   markHistorySaved: (context?: HistoryContext) => Promise<HistoryStatus>;
-  /** Record a renderer-projected selection/plate context without a model edit. */
-  recordHistoryContext: (label: HistoryLabel, context: HistoryContext) => Promise<HistoryStatus>;
   /** Replace the project session with a clean, one-frame history baseline. */
   resetHistory: (context: HistoryContext) => Promise<HistoryStatus>;
 }

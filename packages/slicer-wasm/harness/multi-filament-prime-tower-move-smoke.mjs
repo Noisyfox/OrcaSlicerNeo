@@ -1,7 +1,8 @@
-// Step 12 native Prime Tower narrow-history smoke.
+// Native Prime Tower timestamped-history smoke.
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -9,6 +10,9 @@ const opts = {};
 for (let i = 2; i < argv.length; i += 2) opts[argv[i]?.replace(/^--/, '')] = argv[i + 1];
 if (!opts.module) throw new Error('usage: node multi-filament-prime-tower-move-smoke.mjs --module out/threaded/orca_slice.js');
 const root = resolve(import.meta.dirname, '../../..');
+const trace = (phase) => {
+  if (process.env.ORCA_HARNESS_TRACE === '1') console.error(`[prime-tower-move] ${phase}`);
+};
 const Module = await (await loadModuleFactory(resolve(opts.module)))({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(resolve(opts['profile-root'] ?? `${root}/packages/profile-resources/dist`)));
 
@@ -52,6 +56,7 @@ function modelShape() {
 }
 
 assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
+trace('initialized');
 for (let index = 0; index < 12; index++)
   assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', `prime tower object ${index}`]).ok, true);
 setProject('enable_prime_tower', '1'); setProject('timelapse_type', '1');
@@ -104,37 +109,50 @@ assert.equal(multifilamentMove.result.mutation.history_entry_delta, 1);
 assert.equal(callJson('orc_history_status').undoEntries.length, multifilamentHistory.undoEntries.length + 1);
 const multifilamentAfter = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
 assert.notDeepEqual(multifilamentAfter, multifilamentBefore, 'released tower coordinates must persist');
+trace('initial prime tower move committed');
+// Populate the moved target projection so Undo must prove that its own cache
+// entry is invalidated rather than returning the moved JSON unchanged.
+callJson('orc_take_performance_profile');
+callJson('orc_get_prime_tower_projection');
 const multifilamentUndo = callJson('orc_history_undo');
 assert.equal(multifilamentUndo.ok, true);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, multifilamentBefore);
-const undoReceipt = multifilamentUndo.prime_tower_receipt;
-assert.equal(undoReceipt?.version, 1, JSON.stringify(multifilamentUndo));
-assert.equal(undoReceipt?.state, 'available', JSON.stringify(multifilamentUndo));
-assert.equal(undoReceipt?.plate_id, firstPlate, JSON.stringify(multifilamentUndo));
-assert.equal(undoReceipt?.revision, session().input_revisions[firstPlate], JSON.stringify(multifilamentUndo));
-assert.equal(undoReceipt?.position?.x, multifilamentBefore.x[0], JSON.stringify(multifilamentUndo));
-assert.equal(undoReceipt?.position?.y, multifilamentBefore.y[0], JSON.stringify(multifilamentUndo));
-assert.ok(Number.isFinite(undoReceipt?.footprint?.min_x) && Number.isFinite(undoReceipt?.footprint?.max_x) &&
-  Number.isFinite(undoReceipt?.footprint?.min_y) && Number.isFinite(undoReceipt?.footprint?.max_y) &&
-  undoReceipt.footprint.min_x <= undoReceipt.footprint.max_x && undoReceipt.footprint.min_y <= undoReceipt.footprint.max_y,
-JSON.stringify(multifilamentUndo));
+assert.equal(multifilamentUndo.impact?.model, 'delta', JSON.stringify(multifilamentUndo));
+assert.equal(multifilamentUndo.impact?.preview, 'all', JSON.stringify(multifilamentUndo));
+assert.equal(Object.hasOwn(multifilamentUndo, 'prime_tower_receipt'), false, JSON.stringify(multifilamentUndo));
+callJson('orc_take_performance_profile');
+callJson('orc_get_prime_tower_projection');
+const undoProjectionProfile = callJson('orc_take_performance_profile');
+const undoProjectionSample = undoProjectionProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+assert.ok(undoProjectionSample, JSON.stringify(undoProjectionProfile));
+assert.ok(undoProjectionSample.per_plate_stages_ms[0].total > 0, JSON.stringify(undoProjectionSample));
+assert.equal(undoProjectionSample.stages_ms.used_slot_full_scan_fallback, 0, JSON.stringify(undoProjectionSample));
 const multifilamentRedo = callJson('orc_history_redo');
 assert.equal(multifilamentRedo.ok, true);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, multifilamentAfter);
-const redoReceipt = multifilamentRedo.prime_tower_receipt;
-assert.equal(redoReceipt?.version, 1, JSON.stringify(multifilamentRedo));
-assert.equal(redoReceipt?.state, 'available', JSON.stringify(multifilamentRedo));
-assert.equal(redoReceipt?.plate_id, firstPlate, JSON.stringify(multifilamentRedo));
-assert.equal(redoReceipt?.revision, session().input_revisions[firstPlate], JSON.stringify(multifilamentRedo));
-assert.equal(redoReceipt?.position?.x, multifilamentAfter.x[0], JSON.stringify(multifilamentRedo));
-assert.equal(redoReceipt?.position?.y, multifilamentAfter.y[0], JSON.stringify(multifilamentRedo));
+assert.equal(multifilamentRedo.impact?.model, 'delta', JSON.stringify(multifilamentRedo));
+assert.equal(multifilamentRedo.impact?.preview, 'all', JSON.stringify(multifilamentRedo));
+assert.equal(Object.hasOwn(multifilamentRedo, 'prime_tower_receipt'), false, JSON.stringify(multifilamentRedo));
+callJson('orc_take_performance_profile');
+callJson('orc_get_prime_tower_projection');
+const redoProjectionProfile = callJson('orc_take_performance_profile');
+const redoProjectionSample = redoProjectionProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+assert.ok(redoProjectionSample, JSON.stringify(redoProjectionProfile));
+assert.ok(redoProjectionSample.per_plate_stages_ms[0].total > 0, JSON.stringify(redoProjectionSample));
+assert.equal(redoProjectionSample.stages_ms.used_slot_full_scan_fallback, 0, JSON.stringify(redoProjectionSample));
+trace('initial prime tower undo/redo projections complete');
 
 const thirdRevision = session().input_revisions[thirdPlate];
-const thirdSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
+// This plate deliberately uses one tool from a multi-slot project. Smooth
+// timelapse still requires its tower, exercising WipeTower2's one-tool prime.
+const thirdTower = callJson('orc_get_prime_tower_projection').plates.find((plate) => plate.plate_id === thirdPlate);
+assert.equal(thirdTower.used_slots.length, 1, JSON.stringify(thirdTower));
+trace('third plate slice starting');
+const thirdSlice = await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
 assert.equal(thirdSlice.ok, true, JSON.stringify(thirdSlice));
-assert.equal(callJson('orc_get_slice_result').ok, true);
-const previewBefore = callJson('orc_history_restore_diagnostics');
-assert.equal(previewBefore.previewPlateId, thirdPlate); assert.ok(previewBefore.previewResultId > 0);
+trace('third plate slice complete');
+assert.equal(getSliceResult(callJson, thirdSlice.receipt).ok, true);
 assert.equal(callJson('orc_select_plate', ['string'], [secondPlate]).ok, true);
 const before = projectArray('wipe_tower_x'); const beforeY = projectArray('wipe_tower_y');
 const beforeRevision = session().input_revisions[secondPlate];
@@ -172,20 +190,21 @@ assert.equal(afterY[0], beforeY[0]); assert.equal(afterY[2], beforeY[2]);
 assert.notEqual(after[1], before[1]); assert.notEqual(afterY[1], beforeY[1]); assertNoPlateCoordinates(session());
 const afterDiagnostics = callJson('orc_history_restore_diagnostics');
 assert.equal(afterDiagnostics.fullPresetBundleCopyCount, beforeDiagnostics.fullPresetBundleCopyCount);
-assert.equal(afterDiagnostics.currentDirectFrameKind, 'primeTower');
-assert.ok(afterDiagnostics.currentDirectFrameBytes > 0 && afterDiagnostics.currentDirectFrameBytes < 1024);
-assert.equal(afterDiagnostics.currentModelBytes, beforeDiagnostics.currentModelBytes);
-assert.equal(afterDiagnostics.previewPlateId, thirdPlate); assert.equal(afterDiagnostics.previewResultId, previewBefore.previewResultId);
+assert.ok(afterDiagnostics.currentContextBytes > 0);
+assert.equal(Object.hasOwn(afterDiagnostics, 'currentDirectFrameKind'), false);
+assert.equal(Object.hasOwn(afterDiagnostics, 'currentDirectFrameBytes'), false);
+assert.equal(getSliceResult(callJson, thirdSlice.receipt).ok, true);
 assert.equal(callJson('orc_history_status').undoEntries.length, beforeHistory.undoEntries.length + 1);
 
 assert.equal(callJson('orc_history_undo').ok, true); assert.deepEqual(projectArray('wipe_tower_x'), before); assert.deepEqual(projectArray('wipe_tower_y'), beforeY);
-assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPlate);
+let restoredThird = getSliceResult(callJson, thirdSlice.receipt); assert.equal(restoredThird.ok, false); assert.equal(restoredThird.status, 'stale');
+trace('selected plate move undo/redo complete');
 assert.equal(callJson('orc_history_redo').ok, true); assert.deepEqual(projectArray('wipe_tower_x'), after); assert.deepEqual(projectArray('wipe_tower_y'), afterY);
-assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPlate);
+restoredThird = getSliceResult(callJson, thirdSlice.receipt); assert.equal(restoredThird.ok, false); assert.equal(restoredThird.status, 'stale');
 
-// A narrow Prime Tower frame followed by an ordinary model mutation must not
-// bypass the target model restore. Exercise one-step navigation in both
-// directions plus directional jumps across the mixed sequence.
+// A Prime Tower timestamp followed by an ordinary model mutation restores the
+// same three roots. Exercise one-step navigation in both directions plus
+// directional jumps across the mixed sequence.
 const mixedModelBefore = modelShape();
 const mixedCoordinatesBefore = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
 const mixedRevisionBefore = session().input_revisions[secondPlate];
@@ -211,64 +230,66 @@ assert.equal(mixedModelAfter.length, mixedModelBefore.length + 1);
 const mixedUndo = callJson('orc_history_undo');
 assert.equal(mixedUndo.ok, true, JSON.stringify(mixedUndo));
 assert.notEqual(mixedUndo.direct, true, JSON.stringify(mixedUndo));
-assert.equal(mixedUndo.impact?.model, 'full', JSON.stringify(mixedUndo));
+assert.equal(mixedUndo.impact?.model, 'delta', JSON.stringify(mixedUndo));
 assert.deepEqual(modelShape(), mixedModelBefore);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 const mixedRedo = callJson('orc_history_redo');
 assert.equal(mixedRedo.ok, true, JSON.stringify(mixedRedo));
 assert.notEqual(mixedRedo.direct, true, JSON.stringify(mixedRedo));
-assert.equal(mixedRedo.impact?.model, 'full', JSON.stringify(mixedRedo));
+assert.equal(mixedRedo.impact?.model, 'delta', JSON.stringify(mixedRedo));
 assert.deepEqual(modelShape(), mixedModelAfter);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 
 assert.equal(callJson('orc_history_undo').ok, true);
 const towerUndo = callJson('orc_history_undo');
 assert.equal(towerUndo.ok, true, JSON.stringify(towerUndo));
-assert.equal(towerUndo.direct, true, JSON.stringify(towerUndo));
 assert.deepEqual(towerUndo.impact, {
-  version: 1, model: 'none', plateSession: true, filamentRack: false,
-  projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate',
+  version: 1, model: 'delta', plateSession: true, filamentRack: true,
+  projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
 }, JSON.stringify(towerUndo));
 assert.deepEqual(modelShape(), mixedModelBefore);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedCoordinatesBefore);
 const towerRedo = callJson('orc_history_redo');
 assert.equal(towerRedo.ok, true, JSON.stringify(towerRedo));
-assert.equal(towerRedo.direct, true, JSON.stringify(towerRedo));
-assert.equal(towerRedo.impact?.model, 'none', JSON.stringify(towerRedo));
+assert.equal(towerRedo.impact?.model, 'delta', JSON.stringify(towerRedo));
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 assert.equal(callJson('orc_history_redo').ok, true);
 
 const jumpBeforeTower = callJson('orc_history_jump', ['string', 'string'], [mixedTowerEntryId, 'undo']);
 assert.equal(jumpBeforeTower.ok, true, JSON.stringify(jumpBeforeTower));
-assert.notEqual(jumpBeforeTower.direct, true, JSON.stringify(jumpBeforeTower));
+assert.equal(jumpBeforeTower.impact?.model, 'delta', JSON.stringify(jumpBeforeTower));
 assert.deepEqual(modelShape(), mixedModelBefore);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedCoordinatesBefore);
 const jumpToTower = callJson('orc_history_jump', ['string', 'string'], [mixedTowerEntryId, 'redo']);
 assert.equal(jumpToTower.ok, true, JSON.stringify(jumpToTower));
-assert.equal(jumpToTower.direct, true, JSON.stringify(jumpToTower));
+assert.equal(jumpToTower.impact?.model, 'delta', JSON.stringify(jumpToTower));
 assert.deepEqual(modelShape(), mixedModelBefore);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 const jumpToStructural = callJson('orc_history_jump', ['string', 'string'], [mixedStructuralEntryId, 'redo']);
 assert.equal(jumpToStructural.ok, true, JSON.stringify(jumpToStructural));
-assert.notEqual(jumpToStructural.direct, true, JSON.stringify(jumpToStructural));
+assert.equal(jumpToStructural.impact?.model, 'delta', JSON.stringify(jumpToStructural));
 assert.deepEqual(modelShape(), mixedModelAfter);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
+trace('mixed history navigation complete');
 
 const targetRevision = session().input_revisions[secondPlate];
-assert.equal(callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', secondPlate, targetRevision]).ok, true);
-assert.equal(callJson('orc_get_slice_result').ok, true);
-assert.ok(callJson('orc_history_restore_diagnostics').previewResultId > 0);
+trace('second plate slice starting');
+const secondSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', secondPlate, targetRevision]);
+assert.equal(secondSlice.ok, true);
+trace('second plate slice complete');
+assert.equal(getSliceResult(callJson, secondSlice.receipt).ok, true);
 assert.equal(request('orc_move_prime_tower', { version: 1, plate_id: secondPlate, revision: targetRevision, x: 30, y: 30 }).ok, true);
-let invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
-assert.equal(callJson('orc_history_undo').ok, true); invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
-assert.equal(callJson('orc_history_redo').ok, true); invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
+let invalid = getSliceResult(callJson, secondSlice.receipt); assert.equal(invalid.ok, false); assert.equal(invalid.status, 'stale');
+assert.equal(callJson('orc_history_undo').ok, true); invalid = getSliceResult(callJson, secondSlice.receipt); assert.equal(invalid.ok, false); assert.equal(invalid.status, 'stale');
+assert.equal(callJson('orc_history_redo').ok, true); invalid = getSliceResult(callJson, secondSlice.receipt); assert.equal(invalid.ok, false); assert.equal(invalid.status, 'stale');
 
 assert.equal(callJson('orc_delete_plate', ['string'], [firstPlate]).ok, true);
 assert.equal(projectArray('wipe_tower_x').length, 2); assert.equal(projectArray('wipe_tower_y').length, 2);
 assert.equal(session().plates.find((plate) => plate.plate_id === secondPlate).display_index, 0);
 assert.equal(session().plates.find((plate) => plate.plate_id === thirdPlate).display_index, 1); assertNoPlateCoordinates(session());
+trace('complete');
 
 console.log(JSON.stringify({ ok: true, plateId: secondPlate, moveDurationMs: Number(moveDurationMs.toFixed(2)),
-  narrowFrameBytes: afterDiagnostics.currentDirectFrameBytes, retainedModelBytes: afterDiagnostics.currentModelBytes,
-  unaffectedPreviewPlate: thirdPlate, targetPreviewInvalidAfterUndoRedo: true,
-  directPrimeTowerModelReloads: 0, fullRestoreModelReloads: 2 }));
+  historyContextBytes: afterDiagnostics.currentContextBytes,
+  allPreviewResultsInvalidAfterUndoRedo: true, fullTimestampRestores: true }));

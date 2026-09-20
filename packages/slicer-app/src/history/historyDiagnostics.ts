@@ -19,9 +19,9 @@ export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
   readonly primeTowerEmit: HistoryTimingDiagnostic;
   /** A direct restore may require it; a direct tower move normally does not. */
   readonly plateSessionSnapshot: HistoryTimingDiagnostic;
-  /** A direct Prime Tower receipt must never enter model projection. */
-  readonly directPrimeTowerModelReloads: number;
-  /** Full receipts are allowed to rebuild the model and are counted explicitly. */
+  readonly plateSessionTransforms: HistoryTimingDiagnostic;
+  readonly selectionRestore: HistoryTimingDiagnostic;
+  /** Count full-model projections separately from SceneDelta patches. */
   readonly fullRestoreModelReloads: number;
 }
 
@@ -45,6 +45,8 @@ interface HistoryDiagnosticsState extends HistoryObservabilitySnapshot {
   recordPrimeTowerReconcile(durationMs: number): void;
   recordPrimeTowerEmit(durationMs: number): void;
   recordPlateSessionSnapshot(durationMs: number): void;
+  recordPlateSessionTransforms(durationMs: number): void;
+  recordSelectionRestore(durationMs: number): void;
   setTransport(diagnostics: HistoryTransportDiagnostics | null): void;
   reset(): void;
 }
@@ -81,12 +83,13 @@ function emptyApp(): HistoryAppDiagnostics {
     filamentPreferencePersistence: emptyTiming(), projection: emptyTiming(), primeTowerProjectionRead: emptyTiming(),
     primeTowerSetProjection: emptyTiming(), primeTowerReconcile: emptyTiming(), primeTowerEmit: emptyTiming(),
     plateSessionSnapshot: emptyTiming(),
-    directPrimeTowerModelReloads: 0, fullRestoreModelReloads: 0,
+    plateSessionTransforms: emptyTiming(), selectionRestore: emptyTiming(),
+    fullRestoreModelReloads: 0,
   };
 }
 
 function restorePath(impact: RestoreImpact): HistoryRestorePath {
-  return impact.model === 'none' ? 'direct' : 'full';
+  return impact.model === 'delta' || impact.model === 'none' ? 'direct' : 'full';
 }
 
 function addRestore(app: HistoryAppDiagnostics, path: HistoryRestorePath, durationMs: number): HistoryAppDiagnostics {
@@ -118,9 +121,6 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
     app: {
       ...state.app,
       projection: addTiming(state.app.projection, durationMs),
-      // The direct path intentionally never calls getModelStructure or waits
-      // for GL replacement. Keep the zero visible as a regression guard.
-      directPrimeTowerModelReloads: state.app.directPrimeTowerModelReloads,
       fullRestoreModelReloads: state.app.fullRestoreModelReloads + (path === 'full' ? 1 : 0),
     },
   })),
@@ -138,6 +138,12 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
   } })),
   recordPlateSessionSnapshot: (durationMs) => set((state) => ({ app: {
     ...state.app, plateSessionSnapshot: addTiming(state.app.plateSessionSnapshot, durationMs),
+  } })),
+  recordPlateSessionTransforms: (durationMs) => set((state) => ({ app: {
+    ...state.app, plateSessionTransforms: addTiming(state.app.plateSessionTransforms, durationMs),
+  } })),
+  recordSelectionRestore: (durationMs) => set((state) => ({ app: {
+    ...state.app, selectionRestore: addTiming(state.app.selectionRestore, durationMs),
   } })),
   setTransport: (diagnostics) => set({ worker: diagnostics?.worker ?? null, client: diagnostics?.client ?? null }),
   reset: () => set({ worker: null, client: null, app: emptyApp() }),

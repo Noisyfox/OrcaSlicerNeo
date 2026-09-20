@@ -1,8 +1,8 @@
 # Undo/Redo Implementation Plan
 
 **Date:** 2026-09-07
-**Status:** Step 7 implementation complete; root acceptance recorded below
-**Branch:** `dev/undo-redo-design`
+**Status:** Timestamped history redesign implemented; independent acceptance completed 2026-09-19
+**Branch:** `dev/per-plate-print-architecture`
 **Normative design:** [`spec/Undo and Redo.md`](../spec/Undo%20and%20Redo.md)
 
 ## 1. Execution Protocol
@@ -13,9 +13,10 @@ and the root agent's independent acceptance.
 
 For every numbered step:
 
-1. The root agent starts one **new** `gpt-5.6-luna` agent at `high` reasoning
-   effort, with only that step's scoped task. The agent does not delegate the
-   step further.
+1. The root agent starts one **new** `gpt-6-astra` agent at `low` reasoning
+   effort, with only that step's scoped task. This is the user's current model
+   requirement; earlier implementation records retain their original models.
+   The agent does not delegate the step further.
 2. The agent reads the normative Undo/Redo specification and relevant existing
    code, implements only the step, runs its required self-verification, and
    creates one in-scope commit.
@@ -24,7 +25,7 @@ For every numbered step:
 4. The root agent independently reviews the diff and invariants, runs the
    acceptance checks listed for that step, and records the result in this
    document.
-5. Only a passing root acceptance authorizes a fresh luna-high agent for the
+5. Only a passing root acceptance authorizes a fresh agent for the
    next step. If acceptance fails, the same step is returned to its existing
    agent; no later step begins.
 
@@ -47,7 +48,7 @@ history core belongs in Neo-owned `packages/slicer-wasm/src/history/`.
 - Capture a reproducible baseline for the existing project/session, Worker,
   transform, settings, ObjectList, multi-plate, and E2E suites.
 - Add dependency-free TypeScript contract types for `HistoryContext`, stable
-  selection/plate IDs, history labels/categories, `HistoryStatus`, transaction
+  selection/plate IDs, history labels/project category, `HistoryStatus`, transaction
   IDs, restore results, and history errors.
 - Extend mock-runtime types only enough to compile future callers; do not expose
   an enabled Undo/Redo UI or change production mutation behaviour yet.
@@ -59,7 +60,7 @@ exactly as before; no project mutation is yet routed through history.
 
 **Agent self-verification**
 
-- Contract and mock-unit tests prove stable IDs, project-vs-context categories,
+- Contract and mock-unit tests prove stable IDs, the project-only category,
   and serialization-safe context shapes.
 - Existing store/project/action tests remain unchanged in behaviour.
 - Full required pnpm/typecheck/Desktop E2E baseline passes.
@@ -113,7 +114,7 @@ context without wx dependencies.
 
 - Expose explicit `begin`, `commit`, `abort`, `undo`, `redo`, `jump`, and
   `status` bridge operations backed by `ProjectHistory`.
-- Carry `transactionId`, labels, project/context category, before/after
+- Carry `transactionId`, labels, the project category, before/after
   `HistoryContext`, cursor, saved-checkpoint relation, byte usage, and disabled
   state through the typed client and Worker RPC.
 - Enforce one active history transaction in the Worker and reject malformed,
@@ -153,9 +154,9 @@ then Undo/Redo it. Existing product actions continue on their existing paths.
 - Integrate Save/Save As checkpoint marking without clearing history.
 - Integrate New/Open/Reload hard boundaries that clear history and establish a
   clean baseline. Keep Add Model and Clear Scene out of this boundary.
-- Record selection and active-plate changes as internal, non-dirty context
-  snapshots; regular one-step traversal skips them while a new context change
-  after Undo still truncates Redo.
+- Keep selection and active-plate changes outside history. The next genuine
+  project mutation samples the current context for its predecessor and
+  successor frames; UI-only context changes after Undo preserve Redo.
 
 **Functional boundary**
 
@@ -165,7 +166,8 @@ before ordinary model-editing actions are migrated.
 **Agent self-verification**
 
 - Tests cover save → Undo → clean/dirty transitions, Save As, checkpoint
-  eviction, New/Open/Reload reset, context-only records, and redo truncation.
+  eviction, New/Open/Reload reset, UI-context Redo preservation, and genuine
+  mutation Redo truncation.
 - Existing 3MF persistence tests prove history itself is not serialized.
 - Required full host checks pass.
 
@@ -248,8 +250,8 @@ WASM traffic and no per-frame history growth.
 - Route Add Model/Cube/Handy Model, Clear Scene, and every ObjectList mutation
   through the transaction helper.
 - Route the currently exposed multi-plate add/delete and shared configuration
-  actions through the same path; active-plate switching remains only an
-  internal context record. Plate reorder and lock APIs/UI call sites do not
+  actions through the same path; active-plate switching remains UI context
+  only. Plate reorder and lock APIs/UI call sites do not
   exist in this milestone and are not part of this migration.
 - Ensure restored model entities keep stable IDs and that ObjectList/viewport
   projections refresh from the restored structure instead of stale indices.
@@ -266,8 +268,9 @@ undoable, while New/Open/Reload remain hard boundaries.
   add/delete, and shared project configuration through Worker history.
 - Added focused transaction/context coverage and stable-ID selection fallback
   coverage. Post-mutation contexts now filter deleted IDs and read the
-  authoritative active plate identity; active-plate navigation records a
-  context-only history entry. Real dual-variant WASM smoke passed.
+  authoritative active plate identity. The original active-plate context entry
+  described here was removed by the accepted §14 correction. Real dual-variant
+  WASM smoke passed.
 - `pnpm test`, `pnpm typecheck`, slicer-app tests (401 passed), Electron E2E
   (29 passed, 3 existing skips), threaded Web E2E (4 passed), and serial Web
   E2E (4 passed) all passed. The dual-variant quick WASM build also passed.
@@ -344,7 +347,7 @@ project save/load; changing a system preset never becomes a project Undo item.
 - Add shared primary-toolbar Undo/Redo buttons, accessible disabled state,
   next-operation labels, directional menus, and direct jump.
 - Populate menus from Worker `HistoryStatus`; display only project-modifying
-  entries and omit internal selection/plate context records.
+  entries. Selection/plate changes never create entries.
 - Add focus-aware shortcuts: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl+Y; editable
   controls retain native text Undo/Redo.
 - Respect restoring/cancelling-slice state and operation errors.
@@ -358,8 +361,8 @@ without intercepting text-field Undo/Redo.
 
 - Added the shared primary-toolbar Undo/Redo controls and directional menus.
   Labels, disabled state, menu contents, and direct jumps are projected from
-  the latest Worker `HistoryStatus`; context-only selection/plate entries are
-  filtered at the UI boundary and no frontend history list is retained.
+  the latest Worker `HistoryStatus`; selection/plate changes create no history
+  entries and no frontend history list is retained.
 - Routed one-step and menu navigation through the existing restore
   coordinator so drag cancellation, slice cancellation, atomic restore,
   revision fencing, and retryable errors remain shared by Electron and Web.
@@ -476,8 +479,8 @@ root review and focused verification before the next step begins.
 1. Restore the complete Worker-owned plate session in every history frame:
    plate collection, stable IDs, active plate, memberships, ordering, locks,
    revisions, and project-owned plate configuration.
-2. Make one-step Undo/Redo skip context-only entries while restoring the
-   adjacent project frame and preserving correct redo branching.
+2. Keep context-only UI changes completely outside history so one-step
+   Undo/Redo traverses genuine project frames and UI navigation preserves Redo.
 3. Project Worker history dirty state into the canonical project store after
    every restore so save-point navigation and close protection agree.
 4. Keep restore fencing active until structure, mesh, selection, active plate,
@@ -539,19 +542,12 @@ repair sequence is complete prematurely.
 - This supplemental harness-only commit does not change the C++ implementation
   or the root acceptance status.
 
-### Repair 2 execution record — context-only traversal
+### Repair 2 execution record — superseded context-only traversal
 
-- Changed the headless `ProjectHistory` traversal so one-step Undo first skips
-  any trailing context records, then moves from the current project frame to
-  its preceding project frame. Redo uses the symmetric next-project-frame
-  traversal. `canUndo`, `canRedo`, toolbar labels, and returned contexts now
-  describe the same project-frame targets.
-- Updated the mock Worker protocol and added regression coverage for multiple
-  consecutive context records, baseline-only context records, saved-checkpoint
-  dirty behavior, symmetric Undo/Redo, and context-branch redo truncation.
-- Added the same regression to `history-smoke.mjs`; it passed against both the
-  serial and threaded real WASM artifacts. The existing native ProjectHistory
-  fixture also passed after rebuilding its serial test target.
+- The original context-record traversal described here was removed by the
+  accepted §14 correction. `ProjectHistory`, the bridge ABI, and the typed
+  client now retain only genuine project mutations; renderer context is
+  sampled onto those frames.
 - Focused Worker/client tests passed 10/10. Full `pnpm test` passed (workspace:
   8 packages; 109 slicer-wasm tests; 409 slicer-app tests), and `pnpm typecheck`
   passed. `scripts\\build-windows.bat quick --variant both` and the dual
@@ -612,12 +608,11 @@ repair sequence is complete prematurely.
 
 - Added an explicit `undo`/`redo` direction to the Worker jump contract. The
   renderer now passes the menu direction with the opaque entry ID; it no longer
-  performs adjacent-entry arithmetic that could cross context records or stale
-  evictions.
+  performs adjacent-entry arithmetic across stale evictions.
 - Core Undo jumps resolve the selected project operation to the nearest prior
   project frame, while Redo jumps restore the selected operation's after-state.
   Both directions require a retained, non-baseline project operation and
-  reject opposite-side IDs, context IDs, and unknown/evicted IDs. The public
+  reject opposite-side and unknown/evicted IDs. The public
   Worker/client jump method requires its direction; the legacy headless
   exact-jump helper remains available only for native fixture diagnostics, and
   the bridge requires an explicit direction.
@@ -637,7 +632,7 @@ repair sequence is complete prematurely.
   prepare/jump calls reject that evicted ID while a retained ID still jumps.
   The real bridge smoke now exercises the complete directional matrix in both
   serial and threaded WASM artifacts: top Undo changes the model, an older
-  Undo crosses an interleaved context record, Redo restores the selected
+  Undo reaches the preceding project state, Redo restores the selected
   after-state, and opposite-direction plus branched stale IDs are rejected.
 - Root acceptance is intentionally not recorded in this execution record.
 
@@ -695,3 +690,366 @@ repair sequence is complete prematurely.
   shared TypeScript dirty projection and does not touch the bridge or WASM
   sources.
 - Root acceptance is intentionally not recorded in this execution record.
+
+## 14. 2026-09-16 correction — context without standalone revisions
+
+The accepted context policy is stricter than the original Step 3 delivery:
+
+- selecting another object, clearing selection, switching the current plate,
+  and equivalent UI-only operations never enter the history coordinator or
+  Worker mutation API;
+- these operations do not create a revision, move the history cursor, affect
+  dirty state, or truncate Redo;
+- a genuine project transaction reads the current renderer context when it
+  starts, atomically attaches that `beforeContext` to the retained predecessor,
+  and stores its `afterContext` with the new project frame;
+- Undo/Redo restores context only from genuine project frames, and a new
+  project mutation after Undo remains the sole branch-truncation boundary.
+
+The correction removes the Object List selection and plate-navigation context
+writers, removes their restore-only snapshot-suppression choreography, and
+extends the headless commit boundary so predecessor context refresh and branch
+append succeed or roll back together. The public profile-selection boundary is
+unchanged.
+
+## 15. 2026-09-16 correction — multi-entry directional jumps
+
+Directional menu navigation accepts any retained entry displayed on the
+requested side of the cursor. Sparse Add Plate and Move frames remain
+adjacent-only storage optimizations, but they no longer make an older retained
+menu entry appear stale:
+
+- the native history store resolves the selected opaque entry ID and direction
+  to an ordered path of adjacent restore plans;
+- each sparse receipt is applied against its retained predecessor model inside
+  the same synchronous Worker command, so archive rematerialization cannot
+  invalidate a later step's runtime instance IDs;
+- React receives only the final context, status, and full model projection;
+  intermediate steps are never published as independent history navigation;
+- a failed internal step rolls back the completed path before returning the
+  retryable failure, while a failed rollback disables history rather than
+  continuing from a partially restored cursor;
+- stale, evicted, baseline, and opposite-direction entry IDs remain rejected.
+
+The regression boundary mixes Add Cube, sparse Move, and sparse Add Plate in
+one timeline and verifies both an older Undo-menu target and the corresponding
+multi-entry Redo target through the native bridge.
+
+## 16. 2026-09-16 correction — empty model restore after a sparse frame
+
+An empty `ModelState` is a complete, valid history target and must not double
+as the sentinel for “reuse the live model.” Restore plans now carry that sparse
+decision explicitly. In particular, after Add Plate on an empty project and
+then Add Cube, Undo materializes the retained empty two-plate predecessor
+before applying the Add Plate sidecar context. The plate-session validator
+therefore sees the same zero-instance model represented by that context.
+
+The explicit model-presence signal is also used when rebasing sparse steps in a
+multi-entry jump, preserving the existing runtime-ID and rollback rules. Native
+history coverage fixes the empty-state distinction, the typed client covers the
+single-step contract, the real WASM harness covers the native bridge failure,
+and the visible Electron flow covers the user-facing sequence.
+
+## 17. 2026-09-16 correction — sparse Move after a full single-step restore
+
+Ordinary Undo, Redo, and adjacent directional jumps preserve the sparse Move
+fast path while its retained object, volume, and instance IDs still match the
+live model. A preceding full-model restore may rematerialize instances with new
+runtime IDs; before applying a model-less Transform receipt, the bridge now
+checks those identities and rebases only a stale receipt on its authoritative
+retained target model. This keeps normal adjacent Move navigation narrow while
+making Add Cube → Move → Undo twice → Redo twice deterministic. The native
+history fixture covers rebasing each single-step plan shape, the typed client
+covers the sequence, the serial/threaded real-WASM harness reproduces the
+runtime-ID boundary, and Electron exercises the visible controls.
+
+## 18. 2026-09-16 accepted redesign — Orca-style stable-object history
+
+The sparse receipts and temporary whole-model restore plan are superseded for
+the next implementation. Neo will adapt Orca's timestamped object-version
+history: the outer semantic transaction captures the predecessor before its
+first write, leaves its current topmost state unarchived, and captures that
+state lazily only when Undo first needs a Redo endpoint. Nested mutations join
+the same outer entry, so one entry may atomically cover arbitrary multi-object
+add, delete, and edit operations.
+
+Restore is in place through reusable native objects. `ModelObject`,
+`ModelVolume`, and `ModelInstance` must retain their native IDs on every
+history traversal. Because upstream's `ModelInstance` archive does not include
+its `ObjectBase`, Neo's bridge history record will retain the ordered instance
+IDs and reapply them after `add_instance()` materialization; it will not patch
+the pinned upstream submodule or invent a sidecar ID namespace. Same-session
+history is not a persistence or compatibility format, so archive/identity
+failure is an invariant violation without a legacy or full-model fallback.
+
+The completed restore publishes one stable-ID scene patch rather than a full
+React/Three projection. Only changed, added, and removed scene members update;
+unchanged GPU resources remain live. Project load, Worker restart, and
+graphics-context loss are the only full-rebuild boundaries. History contains
+no slicing output. For the first version, every successful Undo or Redo
+invalidates derived results for all plates while preserving this incremental
+model-scene update path.
+
+The restored `PlateSession` follows the restored model and binds memberships
+directly by stable instance ID. It restores historical transforms without
+reflow, auto-arrange, or prime-tower computation. Object timestamps and history
+intervals prevent unchanged object, volume, instance, plate-session, and mesh
+payloads from being serialized again; the existing 256 MiB cap adopts Orca's
+optional-data-first then oldest-timestamp eviction ordering. Each entry keeps a
+non-authoritative stable-ID scene delta, and a multi-entry jump unions deltas
+before publishing one final renderer patch.
+
+Undo/Redo adopts the same asynchronous stop protocol as ordinary model edits:
+it immediately advances all plate input revisions, drops renderer-visible
+outputs, and requests cancellation without awaiting job completion. A plate
+`Print` owns the model copied by `Print::apply`, so a restore that retains the
+plate does not modify that Print or race its slice thread. Only deletion of a
+plate relies on the already accepted Print tombstone to preserve its Print
+until the associated job reaches a terminal state.
+
+Configuration has three non-overlapping history roots: native `Model` owns
+object and part overrides, `PlateSession` owns plate overrides, and the
+project-only portion of `ProjectConfigOverlay` is a Neo-specific root. The
+last remains Undoable even though Orca leaves `PresetBundle::project_config`
+outside its Undo stack; global preset selection remains outside Neo history.
+Save only marks the current logical timestamp as its checkpoint and never
+forces lazy topmost serialization. History menu entries carry explicit before
+and after timestamps, so both directional menus load their selected target in
+one restore rather than traversing sparse adjacent receipts.
+
+### Stage 2 execution record — stable native identity in the full restore path
+
+- The existing full `ModelState` capture now retains the ordered native
+  `ModelInstance` IDs beside each object's native object and volume identities.
+  Staging validates the archived `ModelObject` identity, rematerializes volumes,
+  and then uses the Neo-owned `InstanceIdentityGraph` across the complete model
+  graph so every `ModelInstance` regains its retained native ID after
+  `add_instance()`.
+- Mutable-object cache reuse, equality, object-version intervals, restore data,
+  and deterministic accounting include the retained instance-ID vector. A
+  change in any object, volume, or instance identity therefore cannot reuse or
+  merge an incompatible object record.
+- Plate-session validation now requires its complete stable instance-ID set to
+  equal the staged model's set and requires each saved structural position to
+  carry the same ID. Restore binds membership, parked, and out-of-bounds state
+  directly by those retained IDs instead of mapping to freshly allocated
+  identities.
+- The serial and threaded real-WASM harnesses pass the exact Add Cube → Move →
+  Undo twice → Redo twice sequence with object, volume, and instance IDs checked
+  after both Redos. The same harness restores a two-object/three-instance model
+  with exact plate membership and exports unchanged painted triangles after a
+  full restore. The standalone C++ integration also checks support, seam, MMU,
+  and fuzzy-skin facet data; the history/mesh/identity targets pass in both
+  variants, as do all 158 slicer-wasm tests and the complete workspace unit
+  suite.
+- A real-WASM Electron production build passed the reported sequence in a
+  visible headed Playwright run with no restore or stale-identity error. The
+  affected slicer-wasm and desktop typechecks pass. The repository-wide
+  typecheck remains blocked in the unchanged `@orca/platform-contract` package
+  because its TypeScript configuration does not declare `ImportMeta.env`.
+- This stage does not begin the timestamped history-core migration. The pinned
+  C++ submodule remains untouched with its pre-existing dirty state, and root
+  acceptance is intentionally not recorded here.
+
+### Stage 3 execution record — timestamped object-version core
+
+- Added the independent Neo-owned `TimestampedHistory` core without changing
+  bridge RPC, restore coordination, or UI behavior. Named entries retain
+  explicit before/after logical timestamps; an outer operation captures its
+  predecessor, the committed topmost state stays uncaptured until Undo needs
+  its Redo endpoint, and a new branch discards its former future.
+- Snapshot manifests retain stable ordered object IDs while shared object
+  archives carry native object timestamps and half-open lifetime intervals.
+  Unchanged mutable objects, root byte payloads, and immutable meshes reuse
+  their retained allocations; no command receipt, sparse rebase, or legacy
+  compatibility path exists in the new core.
+- One restore returns the model, plate-session/history context, and
+  project-only configuration root together. Save marks only the active logical
+  timestamp. Budget pressure releases reconstructable immutable data first,
+  then oldest unprotected timestamps, while retaining the current and nearest
+  usable navigation state and conservatively invalidating an evicted saved
+  checkpoint.
+- The deterministic native fixture covers multi-object add/move/delete and a
+  non-adjacent direct restore, archive sharing, atomic three-root restore, lazy
+  topmost capture, allocation-free Save, branch truncation, and budget/checkpoint
+  behavior. The new target and the existing ProjectHistory, mesh-capture, and
+  identity targets pass as actual serial and threaded wasm64 executables. Both
+  production variants build, both existing bridge-history smokes pass, and all
+  158 `@orca/slicer-wasm` tests plus its typecheck pass.
+- The legacy bridge remains on `ProjectHistory`; migration is intentionally
+  deferred. The pinned C++ submodule remains untouched with its pre-existing
+  dirty state, and root acceptance is intentionally not recorded here.
+
+### Stage 4 execution record — live bridge timestamp migration
+
+- The Worker bridge now uses `TimestampedHistory` for mutation, Undo, Redo,
+  direct menu jumps, abort, save-checkpoint, and project-load ownership. An
+  outer transaction captures the canonical native model, complete plate
+  session/history context, and project-only overlay roots at its predecessor;
+  commit creates only the named logical topmost timestamp and leaves its
+  archive lazy until a later Undo needs that Redo endpoint.
+- Undo lazily captures only an uncaptured live topmost state. Redo and both
+  directional history menus restore their selected explicit timestamp in one
+  load, so crossing other entries cannot by itself make the selected target
+  stale. Restored timestamps remain immutable when selection or active-plate
+  context changes, and those UI-only changes neither create entries nor remove
+  a retained Redo branch. Abort restores the predecessor after a mutation and
+  remains revision-stable when the operation made no accepted change.
+- Restore stages the complete model with the stable object, volume, and
+  instance IDs delivered in Stage 2, then atomically restores the complete
+  plate session and project-only overlay. Plate input revisions are regenerated
+  rather than retained as project history, every successful restore invalidates
+  all derived slice/preview results, and no slice result is retained by the
+  history core. Stage 4 deliberately publishes the existing safe full-scene
+  restore impact; incremental renderer `SceneDelta` projection remains Stage 5.
+- The obsolete sparse Transform/Add Plate receipts, traversal/rebase restores,
+  direct-frame Prime Tower/filament snapshots, and their bridge runtime
+  identity fallbacks were removed instead of being preserved as internal
+  compatibility paths. Filament and Prime Tower mutations now participate in
+  the same three-root timestamp transaction.
+- The expanded real-WASM history harness passes Add Cube → Move → Undo twice →
+  Redo twice with exact stable IDs; one atomic multi-object add/move/delete
+  transaction; multiple Add Plate entries with direct non-adjacent Undo/Redo
+  menu targets; UI-only selection and active-plate changes; project-overlay
+  restore; result invalidation; and direct timestamp selection after other
+  entries are crossed. The serial and threaded quick builds and history/Prime
+  Tower harnesses pass, as do the timestamp/identity executables in both
+  variants, all 158 slicer-wasm tests, all 581 slicer-app tests, all 67 desktop
+  tests, the affected typechecks, and a visible headed real-WASM Electron
+  Add Cube/Move/Undo/Redo run.
+- The pinned C++ submodule remains untouched with its pre-existing dirty state.
+  Renderer delta projection is not included, and root acceptance is
+  intentionally not recorded here.
+
+### Stage 5 execution record — stable-ID SceneDelta projection
+
+- Every committed timestamp edge now retains a non-authoritative `SceneDelta`
+  derived from its authoritative before/after model roots. It contains the
+  sorted stable object, volume, instance, and plate IDs changed by the complete
+  outer transaction. Active derivation retains only stable IDs and native
+  object timestamps; it never copies serialized mutable-object archives.
+  Nested commits still produce one outer entry. A direct history jump unions
+  each crossed edge once and publishes the final native object order with the
+  single restore response.
+- The bridge exposes one typed `orc_get_model_scene_patch` read that accepts
+  the affected stable object IDs and returns only their current structure and
+  mesh buffers plus the complete target object order. Full mesh buffers and
+  targeted buffers both carry native object, volume, and instance IDs. The
+  typed Worker/client boundary validates and copies those targeted buffers;
+  application code never calls the Emscripten module directly.
+- The shared application validates the complete patch before publication,
+  merges it by stable native identity, and publishes the GL collection once.
+  Removed and changed volumes are disposed; every untouched `GLVolume` and
+  `BufferGeometry` remains the identical live object. Object List selection,
+  restored history selection, and authoritative plate transforms now use the
+  same stable object/volume/instance IDs rather than positional composite
+  strings. Ordinary Undo, Redo, and directional jumps do not call the full
+  `getModelStructure`/`getModelMesh` projection route.
+- Exact native and renderer fixtures cover nested multi-object add/move/delete,
+  bounded delta metadata with no duplicate archive bytes, adjacent Undo/Redo,
+  non-adjacent jump union, plate context, targeted real-WASM mesh reads, and
+  unchanged-scene identity/geometry preservation. Both serial and threaded
+  wasm64 quick builds,
+  timestamped-history executables, and real history harnesses pass. The complete
+  workspace unit suite passes (158 slicer-wasm, 584 slicer-app, and all host and
+  supporting-package tests), the affected package typechecks pass, and a headed
+  Electron run against the staged real WASM confirms Undo/Redo stays on the
+  direct projection path with zero full-model reloads.
+- The pinned C++ submodule remains untouched with its pre-existing dirty state.
+  Full renderer projection remains limited to initial project load, Worker
+  restart, or explicit renderer/context recovery. Root acceptance is
+  intentionally not recorded here.
+
+### Capture efficiency boundary
+
+Timestamp model roots share immutable native object archives instead of copying
+their bytes. Each root also owns exact ordered volume and instance transforms;
+those transforms override the matrices embedded in the shared base archive on
+restore. A transform-only transaction therefore captures no new object archive,
+while remaining an ordinary authoritative timestamp snapshot for arbitrary
+compound actions, abort, and direct history navigation.
+
+Reuse requires stable child identities, the same immutable mesh owners, native
+configuration and painting timestamps, and matching unversioned native metadata.
+Zero configuration timestamps from imported objects are valid. Source metadata,
+names, material/type, printable and assembly state, origin, layer configuration,
+and other archived object fields participate in the proof. Complex unversioned
+emboss/text state conservatively takes the complete archive path. Derived
+bounding-box caches do not version history and are invalidated on restore.
+Project load and successful restore prime the cache from authoritative state;
+ordinary history begin/commit preserve it.
+
+SceneDelta derivation retains shared archive identity and exact transform
+metadata, so painting or other edits with unchanged object configuration
+timestamps still update the correct renderer members without copying archives.
+History memory accounting charges each shared archive allocation once.
+
+Successor UI context may consume a typed receipt from the successful operation
+instead of reading the complete model and plate session again. The receipt
+declares either preserved stable model membership or an authoritative resulting
+structure, plus the resulting active plate ID. Add Plate preserves membership
+even when its layout reflows transforms, and uses its returned plate ID. UI
+selection, gizmo, and project configuration are still sampled when committing;
+compound operations without a complete receipt read the native projections.
+Failed operations never consume a receipt or publish their renderer result.
+
+Restore uses the same shared archive proof as capture. Within the transactional
+staging model, objects whose archive allocation and stable child identities
+match the live roots reuse their native object graph and apply the target's
+authoritative transform overlays. Only new or changed object archives are
+decoded; unchanged painting payloads are not serialized or deserialized during
+a Move Undo. The target object order is restored after unused staged objects
+are released through the Model ownership API. Validation still precedes live
+publication and the existing rollback boundary covers all three history roots.
+
+When every object's archive and child identity is unchanged, restoring transform
+overlays invalidates Prime Tower projections while retaining pointer-free
+filament-usage summaries. The existing effective-configuration and membership
+checks validate those summaries during the next projection read. Changed object
+archives conservatively clear the summaries, including painting and per-object
+configuration changes. Slice-result invalidation remains independent of these
+derived Prepare previews.
+When plate settings and configuration are unchanged, only the old/new owning
+plates of changed transform overlays lose their projections; untouched plates
+retain their already computed tower estimates.
+
+### Stage 6 execution record — asynchronous history and slicing
+
+Threaded history restoration now withdraws renderer slice receipts immediately
+and restores the authoritative history state without awaiting slice completion.
+The native restore already advances every plate input stamp and calls
+`PlateRuntimeRegistry::invalidate_presentations`, which requests cancellation
+through each leased Print's atomic cancellation state. The renderer does not
+schedule a second global cancel that could hit a later task. Late success,
+failure, and rejected promises from an obsolete slice are ignored by the same
+active-target stamp check. History never retains native or renderer results.
+
+Serial slicing makes the Prepare workspace inert and disables history buttons,
+history menus, shortcuts, and editing menus. A direct restore-coordinator call
+returns `slice_busy` without clearing the active slice. The existing client
+pre-postMessage guard and native terminal-epoch admission remain the second
+boundary for API bypasses. Threaded execution stays editable and has no serial
+busy restriction. Runtime execution state is a typed, synchronous local read;
+it does not enqueue an RPC behind the serial Worker.
+
+Self-verification includes the complete workspace unit suite and typecheck,
+serial/threaded real history harnesses, serial bridge smoke including stale
+terminal-epoch rejection, and a fresh visible Electron profile of the exact
+45,586,816-byte Odyssey u1 project. The profile independently proves Undo's
+response precedes the obsolete slice terminal and that SceneDelta restores the
+actual Prepare model positions. The final measured run was Add Plate 39.66 ms,
+Move 28.21 ms, active-slice Move 52.19 ms, and Undo 166.02 ms, passing the 100/500 ms
+gates. Production builds exclude the new restore-during-slice probe; the
+enabled and excluded artifact sentinel checks both pass. The real-project
+runner always rebuilds its profile WASM before staging and launching Electron.
+Root independently accepted commit `78fba05` on 2026-09-19 after reviewing the
+threaded restore and serial admission boundaries. The independent serial bridge
+smoke passed, including `slice_busy` and stale terminal-epoch rejection. Root
+also ran `pnpm --filter @orca/desktop test:e2e:real-project-profile` with a fresh
+WASM build and visible Electron window. That non-mock run loaded the exact
+45,586,816-byte `OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf` fixture and
+passed the restore-before-obsolete-terminal and actual Prepare-position checks.
+It measured Add Plate to visible Undo at 38 ms and active-slice Move to visible
+Undo at 46.2 ms. The runner restored production artifacts and passed the
+profile-code exclusion check. These are root acceptance results, separate from
+the implementation agent's measurements above.

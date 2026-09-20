@@ -11,7 +11,10 @@ export default defineConfig({
   use: {
     ...devices['Desktop Chrome'],
     baseURL: 'http://127.0.0.1:4173',
-    headless: true,
+    // Qualification is intentionally observable; Web Playwright must never
+    // hide the browser because the operator uses the live window to detect
+    // stalls and incorrect preview state.
+    headless: false,
     launchOptions: {
       executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
       args: [

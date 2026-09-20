@@ -77,9 +77,11 @@ function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) =
   };
   const runtime = {
         selectProfile: vi.fn(selectProfile),
+        revalidateProjectConfigOverlay: vi.fn(async () => ({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } })),
         getFilamentSessionSnapshot: vi.fn(async () => resolvedRack),
         applyRememberedFilamentRack: vi.fn(async () => resolvedRack),
         markSharedConfigurationMutation: vi.fn(async () => ({
+          instances: [],
           ok: true,
           version: 1,
           currentPlateId: 'plate-1',

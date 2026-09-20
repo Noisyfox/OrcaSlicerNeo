@@ -48,8 +48,9 @@ are intentionally not recorded here.
   different row or unexpectedly open a context menu. Ineligible rows show no
   misleading selector.
 - Prepare colours printable model volumes by their effective filament colour.
-  Selection, disabled, transparency, and boundary overlays remain visible on
-  top of that colour.
+  Before rendering, an all-channel near-black colour is lifted to the native
+  Orca-visible 0.2 gray; selection, disabled, transparency, and boundary
+  overlays remain visible on top of that colour.
 - A valid user colour is retained when the slot's preset changes. Colour edits
   change the project slot, not the global filament preset.
 

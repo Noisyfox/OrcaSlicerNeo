@@ -12,8 +12,8 @@ const transform = (offset: [number, number, number]): ModelTransform => ({
 describe('syncModelTransforms', () => {
   it('applies a shared-configuration reflow to members on every plate', () => {
     const volumes = [
-      { buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
-      { buffer: { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1000, instanceId: 3000, objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1001, instanceId: 3001, objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
     ];
     applyPlateSessionTransforms({ instanceTransforms: [{
       instanceId: 3001, objectId: 1001, objectIndex: 1, instanceIndex: 0,
@@ -21,6 +21,21 @@ describe('syncModelTransforms', () => {
     }] }, volumes);
     expect(volumes[0].instanceTransform.offset).toEqual([0, 0, 0]);
     expect(volumes[1].instanceTransform.offset).toEqual([307.2, 0, 0]);
+  });
+
+  it('applies changed plate transforms by instance identity without touching unrelated volumes', () => {
+    const volumes = [
+      { buffer: { objectId: 1001, instanceId: 3001, objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1001, instanceId: 3001, objectIdx: 0, volumeIdx: 1, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectId: 1002, instanceId: 3002, objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+    ];
+
+    applyPlateSessionTransforms({ instanceTransforms: [{
+      instanceId: 3001, objectId: 1001, objectIndex: 0, instanceIndex: 0,
+      worldTransform: transform([12, 0, 0]),
+    }] }, volumes);
+
+    expect(volumes.map((volume) => volume.instanceTransform.offset)).toEqual([[12, 0, 0], [12, 0, 0], [264, 0, 0]]);
   });
 
   it('synchronizes every composite, including sibling volumes of each instance', async () => {
@@ -68,6 +83,7 @@ describe('syncModelTransforms', () => {
   it('recomputes membership once after the complete global transform snapshot', async () => {
     const setModelTransform = vi.fn().mockResolvedValue({ ok: true });
     const recomputePlateMembership = vi.fn().mockResolvedValue({
+      instances: [],
       ok: true,
       version: 1,
       currentPlateId: 'plate-1',

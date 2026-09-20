@@ -2,6 +2,7 @@
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Progress } from '@/components/ui/progress';
 import { usePlatform } from '@orca/platform-contract';
+import { MemoryIndicator } from './MemoryIndicator';
 
 export function StatusBar() {
   const status = useSlicerStore((s) => s.status);
@@ -24,9 +25,12 @@ export function StatusBar() {
           {error}
         </span>
       )}
-      {platform.chrome.kind === 'web' && typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated && (
-        <span className="ml-auto shrink-0" data-testid="serial-runtime-status">Single-thread fallback</span>
-      )}
+      <div className="ml-auto flex shrink-0 items-center gap-3">
+        {platform.chrome.kind === 'web' && typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated && (
+          <span data-testid="serial-runtime-status">Single-thread fallback</span>
+        )}
+        <MemoryIndicator />
+      </div>
     </div>
   );
 }

@@ -17,16 +17,12 @@ function instanceKey(objectIndex: number, instanceIndex: number): string {
  * Project the editing collection into Preview without changing the shared
  * GLVolume collection or its selection state. Membership is matched by the
  * authoritative object/instance indices in the plate-session snapshot.
- *
- * A legacy snapshot without membership rows is kept renderable as a
- * compatibility fallback; the native bridge includes rows for all current
- * multi-plate projects.
  */
 export function previewVolumesForCurrentPlate(
   volumes: readonly LoadedObject[],
   snapshot: PlateSessionSnapshot | null | undefined,
 ): LoadedObject[] {
-  if (!snapshot?.instances) return [...volumes];
+  if (!snapshot) return [];
   const currentPlateId = snapshot.currentPlateId;
   const members = new Set(
     snapshot.instances

@@ -2,7 +2,7 @@
 // Contract tests for the typed bridge client, driven against the
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
 // contract that Task 7 implements in C++.
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { createMockModule, type MockFeature } from './testing/mock-module';
 import { createClient } from './client';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
@@ -13,6 +13,54 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  const originalPerformanceMemory = Object.getOwnPropertyDescriptor(performance, 'memory');
+
+  afterEach(() => {
+    if (originalPerformanceMemory) Object.defineProperty(performance, 'memory', originalPerformanceMemory);
+    else delete (performance as Performance & { memory?: unknown }).memory;
+  });
+
+  it('reads Worker JavaScript heap and WASM linear-memory capacity without a native profiling hook', async () => {
+    Object.defineProperty(performance, 'memory', { configurable: true, value: { usedJSHeapSize: 123 } });
+    const module = createMockModule();
+    await expect(createClient(async () => module).getRuntimeMemory()).resolves.toEqual({
+      jsHeapUsedBytes: 123,
+      wasmLinearMemoryBytes: module.HEAPU8.buffer.byteLength,
+    });
+  });
+
+  it('normalizes the strict scalar native Prime Tower profile schema', async () => {
+    const aggregateStages = {
+      session_preparation: 0.1, bounds_scan: 0.2, effective_config_construction: 1,
+      plate_local_model_construction: 2, used_slot_summary_hit: 0.1, used_slot_summary_delta: 0.2,
+      used_slot_full_scan_fallback: 2.7, used_slot_scan: 3, printable_height_bounds_scan: 4,
+      direct_wipe_tower_estimate: 5, print_apply_wipe_tower_data_fallback: 0,
+      footprint_bands_projection_json: 6,
+      final_json_serialization: 0.7, final_json_copy: 0.8, total: 23.8,
+    };
+    const plateStages = {
+      effective_config_construction: 0.1, plate_local_model_construction: 0.2,
+      used_slot_summary_hit: 0.01, used_slot_summary_delta: 0.02,
+      used_slot_full_scan_fallback: 0.27, used_slot_scan: 0.3, printable_height_bounds_scan: 0.4,
+      direct_wipe_tower_estimate: 0.5, print_apply_wipe_tower_data_fallback: 0,
+      footprint_bands_projection_json: 0.6, total: 2.1,
+    };
+    const profile = await createClient(async () => createMockModule({ nativePerformanceProfile: {
+      version: 1, samples: [{ operation: 'prime_tower_projection', stages_ms: aggregateStages,
+        per_plate_stages_ms: [plateStages, plateStages] }],
+    } })).takeNativePerformanceProfile!();
+    expect(profile).toEqual({ version: 1, samples: [{ operation: 'prime_tower_projection',
+      stagesMs: aggregateStages, perPlateStagesMs: [plateStages, plateStages] }] });
+  });
+
+  it('rejects malformed Prime Tower native profile stage shape', async () => {
+    const profile = { version: 1, samples: [{ operation: 'prime_tower_projection', stages_ms: {
+      total: 1,
+    }, per_plate_stages_ms: [] }] };
+    await expect(createClient(async () => createMockModule({ nativePerformanceProfile: profile }))
+      .takeNativePerformanceProfile!()).rejects.toThrow('invalid prime tower performance stages');
+  });
+
   it('keeps disabled prime towers non-empty while clearing eligibility', async () => {
     const module = createMockModule({ primeTowerFixture: true });
     const c = createClient(async () => module);
@@ -248,17 +296,11 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(applied);
   });
 
-  it('keeps the filament command fence stable across context-only history', async () => {
+  it('keeps the filament command fence stable without standalone context history', async () => {
     const c = makeClient();
     const before = await c.getFilamentSessionSnapshot();
     if (!before.ok) throw new Error(before.error);
 
-    await c.recordHistoryContext('Selection', {
-      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-      activePlateId: null,
-      gizmo: null,
-      projectConfigOverlay: {},
-    });
     const afterContext = await c.getFilamentSessionSnapshot();
     if (!afterContext.ok) throw new Error(afterContext.error);
     expect(afterContext.revisions.session).toBe(before.revisions.session);
@@ -283,7 +325,7 @@ describe('SlicerClient bridge contract', () => {
     const receipt = (revision = 1, dirty = true) => ({
       canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
       savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
-      byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+      byteBudget: 10, evictedEntryCount: 0,
       lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
       disabled: false, activeTransactionId: null, revision,
     });
@@ -485,6 +527,7 @@ describe('SlicerClient bridge contract', () => {
     if (!first.ok) throw new Error(first.error);
     expect(first.plates).toEqual([{
       plateId: first.currentPlateId,
+      instanceIds: [], outOfBoundsInstanceIds: [], valid: true,
       displayIndex: 0,
       origin: [0, 0, 0],
       name: 'Plate 1',
@@ -512,6 +555,7 @@ describe('SlicerClient bridge contract', () => {
     expect(added.plates).toHaveLength(2);
     expect(added.currentPlateId).toBe(added.plates[1].plateId);
     expect(added.instanceTransforms).toEqual([]);
+    expect(added.projectConfigOverlay).toEqual({ project: {}, objects: {}, parts: {}, plates: {} });
 
     const restored = await c.selectPlate(initial.currentPlateId);
     expect(restored.ok).toBe(true);
@@ -524,6 +568,7 @@ describe('SlicerClient bridge contract', () => {
     expect(deleted.plates).toHaveLength(1);
     expect(deleted.currentPlateId).toBe(initial.currentPlateId);
     expect(deleted.instanceTransforms).toEqual([]);
+    expect(deleted.projectConfigOverlay).toEqual({ project: {}, objects: {}, parts: {}, plates: {} });
 
     const beforeRejectedDelete = await c.getPlateSessionSnapshot();
     const rejected = await c.deletePlate(initial.currentPlateId);
@@ -536,7 +581,11 @@ describe('SlicerClient bridge contract', () => {
     expect(recomputed.instanceTransforms).toEqual([]);
   });
 
-  it('rejects malformed opaque plate metadata instead of silently dropping it', async () => {
+  it.each([
+    ['malformed opaque metadata', (payload: Record<string, any>) => { payload.plates[0].opaque_metadata = [{ key: 'future-key', value: 42 }]; }],
+    ['missing membership', (payload: Record<string, any>) => { delete payload.instances; }],
+    ['invalid membership', (payload: Record<string, any>) => { payload.instances = {}; }],
+  ] as const)('rejects %s instead of projecting an incomplete plate session', async (_label, corrupt) => {
     const module = createMockModule();
     const originalCall = module.ccall;
     module.ccall = (name, ret, argTypes, args) => {
@@ -544,7 +593,7 @@ describe('SlicerClient bridge contract', () => {
       if (name !== 'orc_get_plate_session_snapshot') return pointer;
       const payload = JSON.parse(module.UTF8ToString(Number(pointer))) as Record<string, any>;
       module._free(Number(pointer));
-      payload.plates[0].opaque_metadata = [{ key: 'future-key', value: 42 }];
+      corrupt(payload);
       const bytes = new TextEncoder().encode(JSON.stringify(payload));
       const replacement = module._malloc(bytes.byteLength + 1);
       module.HEAPU8.set(bytes, replacement);
@@ -591,7 +640,7 @@ describe('SlicerClient bridge contract', () => {
   it('keeps project configuration overrides in the Worker and scopes them by stable identity', async () => {
     const c = makeClient();
     const initial = await c.getProjectConfigOverlay();
-    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {} } });
+    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } });
     const project = await c.setProjectConfigOverride({ scope: 'project' }, 'layer_height', '0.16');
     expect(project).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
     await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
@@ -603,6 +652,15 @@ describe('SlicerClient bridge contract', () => {
       .resolves.toMatchObject({ overlay: { objects: { [objectId]: { wall_loops: '3' } } } });
     await expect(c.setProjectConfigOverride({ scope: 'part', id: partId }, 'enable_support', '1'))
       .resolves.toMatchObject({ overlay: { parts: { [partId]: { enable_support: '1' } } } });
+    const plateSession = await c.getPlateSessionSnapshot();
+    if (!plateSession.ok) throw new Error(plateSession.error);
+    const plateId = plateSession.currentPlateId;
+    const plateRevision = plateSession.inputRevisions?.[plateId] ?? 0;
+    await expect(c.setProjectConfigOverride({ scope: 'plate', id: plateId }, 'layer_height', '0.12'))
+      .resolves.toMatchObject({
+        overlay: { plates: { [plateId]: { layer_height: '0.12' } } },
+        plateSession: { affectedPlateIds: [plateId], inputRevisions: { [plateId]: plateRevision + 1 } },
+      });
     const revalidated = await c.revalidateProjectConfigOverlay();
     expect(revalidated).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
   });
@@ -1046,13 +1104,13 @@ describe('SlicerClient bridge contract', () => {
     it('invalidates the slice result after a non-destructive mutation', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.renameObject(objects[0].id, 'Renamed');
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1164,13 +1222,13 @@ describe('SlicerClient bridge contract', () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.deleteObjects([objects[0].id]);
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1215,13 +1273,13 @@ describe('SlicerClient bridge contract', () => {
     it('invalidates the slice result after a split', async () => {
       const c = createClient(async () => createMockModule());
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.splitVolumeToParts(objects[0].volumes[0].id);
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1251,13 +1309,13 @@ describe('SlicerClient bridge contract', () => {
     it('invalidates the slice result after a split', async () => {
       const c = createClient(async () => createMockModule({ splitParts: 2 }));
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.splitObjectToObjects(objects[0].id);
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1294,13 +1352,13 @@ describe('SlicerClient bridge contract', () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
       await c.addModel(new Uint8Array(4), 'stl');
-      await c.slice({});
-      expect((await c.getSliceResult()).ok).toBe(true);
+      const slice = await c.slice({});
+      expect((await c.getSliceResult(slice.receipt!)).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.mergeObjectsToMultipart([objects[0].id, objects[1].id], 'Asm');
-      const after = await c.getSliceResult();
+      const after = await c.getSliceResult(slice.receipt!);
       expect(after.ok).toBeFalsy();
-      expect(after.error).toContain('no slice result');
+      expect(after.error).toContain('stale or unavailable');
     });
   });
 
@@ -1409,11 +1467,12 @@ describe('SlicerClient bridge contract', () => {
     const session = await c.getPlateSessionSnapshot();
     if (!session.ok) throw new Error(session.error);
     const target = { plateId: session.currentPlateId, inputRevision: session.inputRevisions?.[session.currentPlateId] ?? 0 };
-    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ ok: true });
-    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ ok: true });
+    const sliced = await c.slicePlate(target, {});
+    expect(sliced.ok).toBe(true);
+    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
     const changed = await c.addPlate();
     if (!changed.ok) throw new Error(changed.error);
-    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
+    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
   });
 
   it('rejects stale current-plate targets before slicing', async () => {
@@ -1427,7 +1486,22 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.slicePlate(target, {})).resolves.toMatchObject({ error: 'plate operation target is stale' });
   });
 
-  it('threaded client publishes progress through shared memory, never addFunction', async () => {
+  it('reorders by stable plate identity and advances only origin-changing stamps', async () => {
+    const c = makeClient();
+    await c.addPlate();
+    await c.addPlate();
+    const before = await c.getPlateSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const [plateA, plateB, plateC] = before.plates.map((plate) => plate.plateId);
+    const reordered = await c.reorderPlates([plateC, plateB, plateA]);
+    if (!reordered.ok) throw new Error(reordered.error);
+    expect(reordered.plates.map((plate) => plate.plateId)).toEqual([plateC, plateB, plateA]);
+    expect(reordered.inputRevisions?.[plateA]).toBeGreaterThan(before.inputRevisions?.[plateA] ?? 0);
+    expect(reordered.inputRevisions?.[plateC]).toBeGreaterThan(before.inputRevisions?.[plateC] ?? 0);
+    expect(reordered.inputRevisions?.[plateB]).toBe(before.inputRevisions?.[plateB]);
+  });
+
+  it('threaded client registers the generic notifier while pthread progress retains shared wake', async () => {
     const module = createMockModule({ threaded: true });
     const c = createClient(async () => module);
     await c.init();
@@ -1436,15 +1510,43 @@ describe('SlicerClient bridge contract', () => {
     const words = new Int32Array(module.HEAPU8.buffer, 128, 4);
     expect(Atomics.load(words, 0)).toBeGreaterThan(0);
     expect(Atomics.load(words, 0) % 2).toBe(0);
-    expect(Atomics.load(words, 1)).toBe(100);
-    expect(module._functionRegistrations).toBe(0);
+    expect(Atomics.load(words, 1)).toBeGreaterThan(0);
+    expect(module._functionRegistrations).toBe(1);
+  });
+
+  it('allocates non-reused monotonically increasing slice task ids', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const first = await c.slice({ layer_height: '0.2' });
+    const second = await c.slice({ layer_height: '0.3' });
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(BigInt(second.receipt!.sliceTaskId)).toBeGreaterThan(BigInt(first.receipt!.sliceTaskId));
+  });
+
+  it('discards late progress from an earlier threaded slice task', async () => {
+    const module = createMockModule({ threaded: true });
+    const texts: string[] = [];
+    const c = createClient(async () => module, (_percent, text) => texts.push(text));
+    await c.init();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const first = await c.slice({ layer_height: '0.2' });
+    texts.length = 0;
+    module._publishTaskMessage(first.receipt!.sliceTaskId, {
+      type: 'progress', kind: 'slice', plate_id: first.receipt!.plateId,
+      entry_incarnation: '1', percent: 99, text: 'late old progress',
+    });
+    const second = await c.slice({ layer_height: '0.3' });
+    expect(second.ok).toBe(true);
+    expect(texts).not.toContain('late old progress');
+    expect(texts).toContain('slice 100%');
   });
 
   it('beforeInit runs once across repeated init calls (StrictMode double-mount)', async () => {
     // App.tsx boots from a StrictMode effect in dev, so init() is sent twice.
     // Profile installation must not re-fetch/re-mount on the second call.
     let installRuns = 0;
-    const c = createClient(async () => createMockModule(), undefined, undefined, async () => { installRuns += 1; });
+    const c = createClient(async () => createMockModule(), undefined, async () => { installRuns += 1; });
     await c.init();
     await c.init();
     expect(installRuns).toBe(1);
@@ -1452,7 +1554,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('beforeInit retries a rejected install on the next init', async () => {
     let installRuns = 0;
-    const c = createClient(async () => createMockModule(), undefined, undefined, async () => {
+    const c = createClient(async () => createMockModule(), undefined, async () => {
       installRuns += 1;
       if (installRuns === 1) throw new Error('first install failed');
     });
@@ -1464,12 +1566,21 @@ describe('SlicerClient bridge contract', () => {
   it('getSliceResult extracts toolpath buffers with layer ranges', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({}, () => {});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({}, () => {});
+    const r = await c.getSliceResult(slice.receipt!);
     expect(r.layers).toBe(40);
     expect(r.toolpath.segmentCount).toBe(2400);
     expect(r.toolpath.ends.byteLength).toBe(2400 * 3 * 4);
     expect(r.toolpath.features.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('rejects a projection payload whose slice task receipt was superseded', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const slice = await c.slice({});
+    const stale = await c.getSliceResult({ ...slice.receipt!, sliceTaskId: '999' });
+    expect(stale).toMatchObject({ ok: false, status: 'stale' });
+    expect(stale.receipt).toEqual(slice.receipt);
   });
 
   it('decodes continuous v2 segments, indexes, palettes and metadata', async () => {
@@ -1490,8 +1601,8 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({});
+    const r = await c.getSliceResult(slice.receipt!);
     const t = r.toolpath;
     expect(t.segmentCount).toBe(4);
     expect(t.starts.length).toBe(12);
@@ -1551,8 +1662,8 @@ describe('SlicerClient bridge contract', () => {
       sliceFixture: { layers: 1, toolpathVertices: 2, features: orcaPalette },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({});
+    const r = await c.getSliceResult(slice.receipt!);
     expect(r.metadata.featurePalette).toEqual(orcaPalette);
     expect(r.toolpath.palette).toEqual(orcaPalette);
   });
@@ -1562,29 +1673,39 @@ describe('SlicerClient bridge contract', () => {
       sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, role: 0, name: 'Travel', color: [1, 2, 3] }] },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const r = await c.getSliceResult();
+    const slice = await c.slice({});
+    const r = await c.getSliceResult(slice.receipt!);
     expect(r.toolpath.segmentCount).toBe(2);
     expect(r.toolpath.metrics).toEqual({});
     expect(r.metadata.sourceLineMapping?.available).toBe(true);
   });
 
-  it('exportGcode returns the MEMFS bytes', async () => {
+  it('exports the addressed completed generation from MEMFS', async () => {
     const c = makeClient();
-    const r = await c.exportGcode();
-    expect(r.ok).toBe(true);
-    expect(new TextDecoder().decode(r.bytes.slice(0, 6))).toBe('; mock');
+    await c.addModel(new Uint8Array(4), 'stl');
+    const sliced = await c.slice({});
+    const first = await c.exportGcodePlate(sliced.receipt!);
+    expect(first.ok).toBe(true);
+    expect(new TextDecoder().decode(first.bytes.slice(0, 6))).toBe('; mock');
+    first.bytes.fill(0);
+    const second = await c.exportGcodePlate(sliced.receipt!);
+    expect(second.ok).toBe(true);
+    expect(new TextDecoder().decode(second.bytes.slice(0, 6))).toBe('; mock');
   });
 
   it('loads BBS projects with typed compatibility and warning metadata', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
-    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf');
+    const closed: string[] = [];
+    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf', undefined,
+      (plateSession) => closed.push(plateSession.currentPlateId));
     expect(r).toMatchObject({
       ok: true, mode: 'project', compatibility: 'bambu',
       projectSettingsAvailable: true, multiPlate: false, plateCount: 1,
     });
-    expect(r.embeddedPresetWarnings?.requiresConfirmation).toBe(true);
+    expect(r.embeddedPresetWarnings?.requiresConfirmation).toBe(false);
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).not.toBe(r.plateSession?.currentPlateId);
   });
 
   it('preserves independent embedded preset warning evidence', async () => {
@@ -1670,17 +1791,18 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const result = await c.getSliceResult();
+    const slice = await c.slice({});
+    const result = await c.getSliceResult(slice.receipt!);
     const encoded = new TextEncoder().encode(sourceText);
-    const middle = await c.readTextChunk({ resultId: result.metadata.resultId, offset: 3, length: 5 });
+    const middle = await c.readTextChunk({ receipt: slice.receipt!, resultId: result.metadata.resultId, offset: 3, length: 5 });
     expect(middle.offset).toBe(2);
     expect(middle.text).toBe('注释');
     expect(middle.eof).toBe(false);
-    const tail = await c.readTextChunk({ resultId: result.metadata.resultId, offset: encoded.length - 1, length: 1 });
+    const tail = await c.readTextChunk({ receipt: slice.receipt!, resultId: result.metadata.resultId, offset: encoded.length - 1, length: 1 });
     expect(tail.text).toBe('\n');
-    await expect(c.readTextChunk({ resultId: 16, offset: 0, length: 1 })).rejects.toThrow('unavailable');
-    await expect(c.readTextChunk({ resultId: 17, offset: 0, length: 64 * 1024 + 1 })).rejects.toThrow('at most');
+    await expect(c.readTextChunk({ receipt: slice.receipt!, resultId: 16, offset: 0, length: 1 }))
+      .resolves.toMatchObject({ ok: false, text: '', eof: true });
+    await expect(c.readTextChunk({ receipt: slice.receipt!, resultId: 17, offset: 0, length: 64 * 1024 + 1 })).rejects.toThrow('at most');
   });
 
   it('bounds both UTF-8 alignment edges for a maximum-size request', async () => {
@@ -1693,9 +1815,10 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const result = await c.getSliceResult();
+    const slice = await c.slice({});
+    const result = await c.getSliceResult(slice.receipt!);
     const chunk = await c.readTextChunk({
+      receipt: slice.receipt!,
       resultId: result.metadata.resultId,
       offset: 3,
       length: PREVIEW_TEXT_CHUNK_MAX_BYTES,
@@ -1714,11 +1837,11 @@ describe('SlicerClient bridge contract', () => {
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.slice({});
-    const result = await c.getSliceResult();
-    const page = await c.readTextLines({ resultId: result.metadata.resultId, startLine: 3, lineCount: 1 });
+    const slice = await c.slice({});
+    const result = await c.getSliceResult(slice.receipt!);
+    const page = await c.readTextLines({ receipt: slice.receipt!, resultId: result.metadata.resultId, startLine: 3, lineCount: 1 });
     expect(page).toMatchObject({ startLine: 3, lineCount: 1, eof: true, text: 'G1 X2\n' });
-    await expect(c.readTextLines({ resultId: 19, startLine: 1, lineCount: 129 })).rejects.toThrow('1-128');
+    await expect(c.readTextLines({ receipt: slice.receipt!, resultId: 19, startLine: 1, lineCount: 129 })).rejects.toThrow('1-128');
   });
 
   it('cancel is safe', async () => {

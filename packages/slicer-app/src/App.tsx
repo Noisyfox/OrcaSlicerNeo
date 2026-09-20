@@ -1,6 +1,7 @@
 // packages/slicer-app/src/App.tsx (boot effect: app config load → worker
 // client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/layout/Toolbar';
@@ -36,6 +37,7 @@ import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { historyNavigationIntentAllowed, historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
+import { isSerialSliceBusy } from './runtimeExecution';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 
 export function handleMenuKeyDown(
@@ -65,12 +67,23 @@ export default function App() {
   const progress = useSlicerStore((s) => s.progress);
   const slicerError = useSlicerStore((s) => s.error);
   const resultExported = useSlicerStore((s) => s.resultExported);
-  const projectState = useProjectStore((s) => s);
+  // The high-level shell does not render the internal mutation-fence counter
+  // or plate revision map. Selecting the entire store made every transform
+  // lease acquisition/release synchronously rerender the full application.
+  const projectState = useProjectStore(useShallow((s) => ({
+    projectName: s.projectName,
+    location: s.location,
+    hasContent: s.hasContent,
+    dirty: s.dirty,
+    scope: s.scope,
+    notices: s.notices,
+    operation: s.operation,
+  })));
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
-  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | 'project-confirm' | null>(null);
+  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'notice' | 'project-confirm' | null>(null);
   const [loadInput, setLoadInput] = useState<ProjectInput | null>(null);
   const [dirtyOperation, setDirtyOperation] = useState<'new' | 'open' | 'close'>('open');
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
@@ -78,7 +91,6 @@ export default function App() {
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectLoadResult | null>(null);
   const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
   const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
-  const flattenResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const projectConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
   // The receipt comes from the same action that has applied the native result,
   // reset history, and published the project session. Production UI does not
@@ -148,9 +160,6 @@ export default function App() {
   const decideDirty = useCallback((operation: 'new' | 'open' | 'close') => new Promise<DirtyProjectDecision>((resolve) => {
     setDirtyOperation(operation); dirtyResolver.current = resolve; setDialog('dirty');
   }), []);
-  const confirmFlatten = useCallback(() => new Promise<boolean>((resolve) => {
-    flattenResolver.current = resolve; setDialog('flatten');
-  }), []);
   const confirmProjectLoad = useCallback((load: ProjectLoadResult) => new Promise<boolean>((resolve) => {
     setProjectConfirmation(load);
     projectConfirmationResolver.current = resolve;
@@ -164,43 +173,34 @@ export default function App() {
     }
   }, [setError]);
   const runNewProject = useCallback(async () => {
-    const result = await newProject(platform, { decideDirty, confirmFlattenedSave: confirmFlatten, sceneResetTarget: sceneInteractionRef.current });
+    const result = await newProject(platform, { decideDirty, sceneResetTarget: sceneInteractionRef.current });
     reportProjectFailure(result);
     if (result.status === 'ok') setActiveTab('prepare');
-  }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [decideDirty, platform, reportProjectFailure]);
   const runOpenProject = useCallback(async () => {
     projectLoadReceiptRef.current = null;
-    const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
+    const result = await openProject(platform, { chooseLoad, decideDirty, confirmProjectLoad });
     if (result.status === 'ok' && result.loadReceipt) projectLoadReceiptRef.current = result.loadReceipt;
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
-  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
     let allow = true;
     if (await projectDirtyStatus(platform)) {
       const decision = await decideDirty('close');
       if (decision === 'cancel') allow = false;
       else if (decision === 'save') {
-        if (useProjectStore.getState().flattenedMultiPlate && !(await confirmFlatten())) {
-          allow = false;
-        } else {
-          const result = await saveProject(platform);
-          reportProjectFailure(result);
-          allow = result.status === 'ok';
-        }
+        const result = await saveProject(platform);
+        reportProjectFailure(result);
+        allow = result.status === 'ok';
       }
     }
     await platform.lifecycle?.respondClose(allow);
-  }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [decideDirty, platform, reportProjectFailure]);
   const runSaveProject = useCallback(async (asCopy = false) => {
-    if (projectState.flattenedMultiPlate) {
-      setDialog(null);
-      const confirmed = await confirmFlatten();
-      if (!confirmed) return;
-    }
     const result = asCopy ? await saveProjectAs(platform) : await saveProject(platform);
     reportProjectFailure(result);
-  }, [confirmFlatten, platform, projectState.flattenedMultiPlate, reportProjectFailure]);
+  }, [platform, reportProjectFailure]);
   const openPreferences = useCallback(async () => {
     try { setPreferences(await platform.preferences.load()); } catch { setPreferences(null); }
     setDialog('preferences');
@@ -216,13 +216,15 @@ export default function App() {
     version: 1,
     activeTab,
     boot: { phase: boot, error: bootError },
-    slicer: { status, progress, error: slicerError },
+    slicer: {
+      status, progress, error: slicerError,
+      threaded: platform.runtime.getRuntimeExecutionState?.().threaded ?? null,
+    },
     scene: { hasModel: modelLoaded },
     result: { hasResult: status === 'done', exported: resultExported },
     project: {
       hasContent: projectState.hasContent,
       dirty: projectState.dirty,
-      flattenedMultiPlate: projectState.flattenedMultiPlate,
       operation: {
         phase: projectState.operation.phase,
         progress: projectState.operation.progress / 100,
@@ -310,13 +312,14 @@ export default function App() {
       if (!coordinator) return;
       const historyStatus = useHistoryNavigationStore.getState().status;
       const restoring = useHistoryRestoreStore.getState().phase !== 'idle';
+      if (isSerialSliceBusy(platform.runtime, useSlicerStore.getState().status)) return;
       if (!historyNavigationIntentAllowed(historyStatus, action, restoring)) return;
       event.preventDefault();
       void coordinator.restore(action);
     };
     document.addEventListener('keydown', onHistoryKeyDown);
     return () => document.removeEventListener('keydown', onHistoryKeyDown);
-  }, [activeTab]);
+  }, [activeTab, platform.runtime]);
   useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);
@@ -329,6 +332,11 @@ export default function App() {
           receipt: ProjectLoadReceipt | null;
           session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
         };
+        takeNativePerformanceProfile?: () => Promise<unknown>;
+        takeRealProjectProfileSnapshot?: () => Promise<unknown>;
+        realProjectProfileActiveSliceCount?: () => Promise<unknown>;
+        realProjectProfileLastRestoreSliceActive?: () => boolean | null;
+        realProjectProfileMutationPendingCount?: () => number;
       };
     };
     w.__orcaE2e = {
@@ -342,11 +350,37 @@ export default function App() {
           hasLocation: projectState.location !== undefined,
         },
       }),
+      takeNativePerformanceProfile: () => platform.runtime.takeNativePerformanceProfile?.() ??
+        Promise.resolve({ version: 1, samples: [] }),
+      ...(import.meta.env.VITE_REAL_PROJECT_PROFILE === '1' ? {
+        realProjectProfileMutationPendingCount: () => useProjectStore.getState().projectMutationPendingCount,
+        realProjectProfileActiveSliceCount: () =>
+          (platform.runtime as unknown as { realProjectProfileActiveSliceCount(): Promise<unknown> })
+            .realProjectProfileActiveSliceCount(),
+        realProjectProfileLastRestoreSliceActive: () =>
+          (platform.runtime as unknown as { realProjectProfileLastRestoreSliceActive(): boolean | null })
+            .realProjectProfileLastRestoreSliceActive(),
+        takeRealProjectProfileSnapshot: () =>
+          (platform.runtime as unknown as { takeRealProjectProfileSnapshot(): Promise<unknown> })
+            .takeRealProjectProfileSnapshot(),
+      } : {}),
     };
     return () => {
       if (!w.__orcaE2e) return;
-      const { projectLoadEvidence: _projectLoadEvidence, ...rest } = w.__orcaE2e;
-      w.__orcaE2e = rest;
+      if (import.meta.env.VITE_REAL_PROJECT_PROFILE === '1') {
+        const { projectLoadEvidence: _projectLoadEvidence,
+          takeNativePerformanceProfile: _takeNativePerformanceProfile,
+          takeRealProjectProfileSnapshot: _takeRealProjectProfileSnapshot,
+          realProjectProfileMutationPendingCount: _realProjectProfileMutationPendingCount,
+          realProjectProfileActiveSliceCount: _realProjectProfileActiveSliceCount,
+          realProjectProfileLastRestoreSliceActive: _realProjectProfileLastRestoreSliceActive,
+          ...rest } = w.__orcaE2e;
+        w.__orcaE2e = rest;
+      } else {
+        const { projectLoadEvidence: _projectLoadEvidence,
+          takeNativePerformanceProfile: _takeNativePerformanceProfile, ...rest } = w.__orcaE2e;
+        w.__orcaE2e = rest;
+      }
     };
   }, [projectState.hasContent, projectState.location, projectState.projectName, projectState.scope]);
   const titleBar = (
@@ -465,13 +499,13 @@ export default function App() {
           }))) };
       if (dropped.status === 'cancelled') return;
       if (dropped.status === 'failed') { reportProjectFailure(dropped); return; }
-       const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
+       const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmProjectLoad });
       reportProjectFailure(result);
       if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
     } catch (error) {
       reportProjectFailure({ status: 'failed', error });
     }
-  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const handleDroppedModelFiles = useCallback(async (files: File[]) => {
     try {
       await addDroppedModels(platform, sceneInteractionRef.current, () => Promise.all(files.map(async (file) => ({
@@ -567,13 +601,6 @@ export default function App() {
         open={dialog === 'notice' && notices.length > 0}
         notices={notices}
         onClose={() => { setDialog(null); setExtraNotice(null); }}
-      />
-      <ProjectNoticeDialog
-        notices={projectState.flattenedMultiPlate && dialog === 'flatten' ? [{ kind: 'multi-plate', message: 'This project contains multiple plates. Saving will flatten it into a single-plate project.' }] : []}
-        title="Flatten project before saving?"
-        testId="project-flatten-dialog"
-        onClose={() => { flattenResolver.current?.(false); flattenResolver.current = null; setDialog(null); }}
-        onContinue={() => { flattenResolver.current?.(true); flattenResolver.current = null; setDialog(null); }}
       />
       <ProjectProgressDialog
         operation={projectState.operation}

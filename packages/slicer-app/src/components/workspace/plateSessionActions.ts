@@ -1,12 +1,11 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { HistoryContext, PlateSessionMutationResult, PlateSessionSnapshotResult, PrimeTowerMoveMutation } from '@slicer/client';
+import type { PlateSessionMutationResult, PlateSessionSnapshotResult, PrimeTowerMoveMutation } from '@slicer/client';
 import { glVolumeCollection } from './viewport/GLVolume';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import { recordProjectHistoryContext } from './actions/historyMutation';
 
 /**
  * Apply the complete result of a runtime plate transaction.  Both Prepare's
@@ -41,6 +40,11 @@ export function applyPlateSessionResponse(
       void platform.runtime.cancel().catch(() => undefined);
     }
   }
+  // Add/Delete Plate may normalize the native wipe-tower coordinate arrays.
+  // Publish the overlay carried by that same atomic receipt before any later
+  // Move restore proof compares the retained renderer state with history.
+  if (result.projectConfigOverlay)
+    useSettingsStore.getState().setOverlay(result.projectConfigOverlay);
   usePlateSessionStore.getState().setSnapshot(result);
   if (result.instanceTransforms) {
     applyPlateSessionTransforms({ instanceTransforms: result.instanceTransforms }, glVolumeCollection.volumes);
@@ -109,19 +113,7 @@ export async function selectPlateSessionAndClearSelection(
     return false;
   }
   const selected = await selectPlateSession(platform, plateId);
-  if (selected) {
-    clearSelection();
-    // Plate navigation is a context-only history record. It must not create a
-    // project step or dirty the project, but restored project frames should
-    // retain the active stable plate identity.
-    const context: HistoryContext = {
-      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-      activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? plateId,
-      gizmo: null,
-      projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
-    };
-    await recordProjectHistoryContext(platform.runtime, 'Active Plate', context).catch(() => undefined);
-  }
+  if (selected) clearSelection();
   return selected;
 }
 

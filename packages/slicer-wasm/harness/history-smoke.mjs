@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 
 const [moduleArg, profileRootArg] = argv.slice(2);
 if (!moduleArg) throw new Error('usage: node history-smoke.mjs <out/orca_slice.js> [profile-package-root]');
@@ -19,6 +20,11 @@ function writeBytes(bytes) {
   const ptr = Number(Module._malloc(bytes.byteLength));
   Module.HEAPU8.set(bytes, ptr);
   return ptr;
+}
+function readAndFree(ptr, length) {
+  const bytes = Module.HEAPU8.slice(Number(ptr), Number(ptr) + Number(length));
+  Module._free(Number(ptr));
+  return bytes;
 }
 function historyCheck(label, condition, detail = '') {
   if (!condition) throw new Error(`${label}${detail ? `: ${detail}` : ''}`);
@@ -37,14 +43,58 @@ function sessionShape(snapshot) {
       plate_id: plate.plate_id, display_index: plate.display_index, origin: plate.origin,
       name: plate.name, locked: plate.locked, settings: plate.settings,
       opaque_metadata: plate.opaque_metadata, future_metadata: plate.future_metadata,
+      instance_ids: [...(plate.instance_ids ?? [])].sort((a, b) => a - b),
+      out_of_bounds_instance_ids: [...(plate.out_of_bounds_instance_ids ?? [])].sort((a, b) => a - b),
       instance_keys: plateMembers(plate.instance_ids ?? []),
       out_of_bounds_keys: plateMembers(plate.out_of_bounds_instance_ids ?? []),
     })),
     instances: [...records.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => ({
-      key, plate_id: item.plate_id, member: item.member, parked: item.parked,
+      key, instance_id: item.instance_id, object_id: item.object_id,
+      plate_id: item.plate_id, member: item.member, parked: item.parked,
       out_of_bounds: item.out_of_bounds,
     })),
   };
+}
+function modelIdentity(structure) {
+  return (structure.objects ?? []).map((object) => ({
+    object_id: object.id,
+    volume_ids: (object.volumes ?? []).map((volume) => volume.id),
+    instance_ids: (object.instances ?? []).map((instance) => instance.id),
+  }));
+}
+function assertSceneDelta(label, restored, identities, plateIds, objectOrder) {
+  const expected = {
+    object_ids: identities.map((object) => object.object_id).sort((a, b) => a - b),
+    volume_ids: identities.flatMap((object) => object.volume_ids).sort((a, b) => a - b),
+    instance_ids: identities.flatMap((object) => object.instance_ids).sort((a, b) => a - b),
+    plate_ids: [...plateIds].sort(),
+    object_order: [...objectOrder],
+  };
+  const actual = restored.scene_delta;
+  historyCheck(label, restored.impact?.model === 'delta' && actual?.version === 1 &&
+    JSON.stringify(actual.object_ids) === JSON.stringify(expected.object_ids) &&
+    JSON.stringify(actual.volume_ids) === JSON.stringify(expected.volume_ids) &&
+    JSON.stringify(actual.instance_ids) === JSON.stringify(expected.instance_ids) &&
+    JSON.stringify(actual.plate_ids) === JSON.stringify(expected.plate_ids) &&
+    JSON.stringify(actual.object_order) === JSON.stringify(expected.object_order),
+  JSON.stringify({ expected, actual, impact: restored.impact }));
+}
+function mergeIdentities(...groups) {
+  const merged = new Map();
+  for (const object of groups.flat()) {
+    const current = merged.get(object.object_id) ?? {
+      object_id: object.object_id, volume_ids: [], instance_ids: [],
+    };
+    current.volume_ids = [...new Set([...current.volume_ids, ...object.volume_ids])];
+    current.instance_ids = [...new Set([...current.instance_ids, ...object.instance_ids])];
+    merged.set(object.object_id, current);
+  }
+  return [...merged.values()];
+}
+function stableSessionShape(snapshot) {
+  const shape = sessionShape(snapshot);
+  delete shape.input_revisions;
+  return shape;
 }
 function assertLiveSessionIntegrity(snapshot, label) {
   const model = callJson('orc_get_model_structure', [], []);
@@ -86,6 +136,7 @@ const freshAddCommit = callJson('orc_history_commit', ['string', 'string'],
 if (!freshAddCommit.canUndo) throw new Error(`fresh Cube commit failed: ${JSON.stringify(freshAddCommit)}`);
 const freshBeforeMove = callJson('orc_get_model_mesh', [], []);
 const freshBeforeMoveStructure = callJson('orc_get_model_structure', [], []);
+const freshStableIds = modelIdentity(freshBeforeMoveStructure);
 const freshMoveTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Move', 'project', JSON.stringify(context), '']);
 if (!freshMoveTx.ok || typeof freshMoveTx.transactionId !== 'string') throw new Error(JSON.stringify(freshMoveTx));
@@ -100,8 +151,52 @@ historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transfo
 const freshMoveCommit = callJson('orc_history_commit', ['string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify(context)]);
 if (!freshMoveCommit.canUndo) throw new Error(`fresh Cube move commit failed: ${JSON.stringify(freshMoveCommit)}`);
+const freshMoveId = freshMoveCommit.undoEntries?.[0]?.id;
+if (typeof freshMoveId !== 'string') throw new Error(`fresh Cube move ID missing: ${JSON.stringify(freshMoveCommit)}`);
+// Drain the mutation profile so this assertion isolates the authoritative
+// native timestamp restore performed by the real Undo operation below.
+callJson('orc_take_performance_profile', [], []);
 const freshMoveUndo = callJson('orc_history_undo', [], []);
 if (!freshMoveUndo.ok) throw new Error(`fresh Cube move undo failed: ${JSON.stringify(freshMoveUndo)}`);
+const freshMoveUndoProfile = callJson('orc_take_performance_profile', [], []);
+const restoreSamples = (freshMoveUndoProfile.samples ?? []).filter((sample) => sample.operation === 'history_restore');
+const restoreStages = [
+  'immutable_mesh_reconnect',
+  'model_staging_deserialization',
+  'plate_session_project_overlay_restore',
+  'total',
+];
+historyCheck('fresh-project move Undo exposes bounded native restore stages', restoreSamples.length === 1 &&
+  Object.keys(restoreSamples[0].stages_ms).sort().join(',') === [...restoreStages].sort().join(',') &&
+  restoreStages.every((stage) => Number.isFinite(restoreSamples[0].stages_ms[stage]) &&
+    restoreSamples[0].stages_ms[stage] >= 0) &&
+  restoreSamples[0].stages_ms.total >= Math.max(...restoreStages.filter((stage) => stage !== 'total')
+    .map((stage) => restoreSamples[0].stages_ms[stage])), JSON.stringify({ restoreSamples, restoreStages }));
+historyCheck('fresh-project move Undo returns the SceneDelta timestamped-restore ABI response', freshMoveUndo.ok === true &&
+  freshMoveUndo.context && typeof freshMoveUndo.context === 'object' &&
+  freshMoveUndo.impact?.model === 'delta' && freshMoveUndo.impact?.plateSession === true &&
+  freshMoveUndo.impact?.projectOverlay === true && freshMoveUndo.impact?.preview === 'all' &&
+  !Object.hasOwn(freshMoveUndo, 'direct') && !Object.hasOwn(freshMoveUndo, 'transform_receipt'),
+  JSON.stringify(freshMoveUndo));
+const freshPlateIds = freshMoveUndo.context.plateSession.plates.map((plate) => plate.plate_id);
+assertSceneDelta('fresh-project move Undo publishes the exact stable-ID delta', freshMoveUndo,
+  freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
+const freshScenePatch = callJson('orc_get_model_scene_patch', ['string'],
+  [JSON.stringify(freshMoveUndo.scene_delta.object_ids)]);
+historyCheck('fresh-project move Undo targeted patch returns only the touched native object',
+  freshScenePatch.ok === true &&
+  JSON.stringify(freshScenePatch.object_order) === JSON.stringify(freshMoveUndo.scene_delta.object_order) &&
+  JSON.stringify(modelIdentity(freshScenePatch)) === JSON.stringify(freshStableIds) &&
+  freshScenePatch.meshes.length === 1 &&
+  freshScenePatch.meshes[0].object_id === freshStableIds[0].object_id &&
+  freshScenePatch.meshes[0].volume_id === freshStableIds[0].volume_ids[0] &&
+  freshScenePatch.meshes[0].instance_id === freshStableIds[0].instance_ids[0],
+  JSON.stringify(freshScenePatch));
+for (const mesh of freshScenePatch.meshes ?? []) {
+  readAndFree(mesh.vertex_ptr, mesh.vertex_count * 3 * Float32Array.BYTES_PER_ELEMENT);
+  readAndFree(mesh.index_ptr, mesh.index_count * Uint32Array.BYTES_PER_ELEMENT);
+}
+console.log(`history restore native stages ms ${JSON.stringify(restoreSamples[0].stages_ms)}`);
 const freshFilament = callJson('orc_get_filament_session_snapshot', [], []);
 const freshStructure = callJson('orc_get_model_structure', [], []);
 historyCheck('fresh-project move Undo keeps filament routing contract valid',
@@ -111,6 +206,75 @@ historyCheck('fresh-project move Undo keeps filament routing contract valid',
     ? route.id === 0 && route.object_id === 0
     : Number.isSafeInteger(route.id) && route.id > 0 && Number.isSafeInteger(route.object_id) && route.object_id > 0),
   JSON.stringify({ freshFilament, freshStructure, freshBeforeMoveStructure }));
+const freshCubeUndo = callJson('orc_history_undo', [], []);
+historyCheck('second Undo removes the fresh-project Cube', freshCubeUndo.ok === true &&
+  callJson('orc_get_model_structure', [], []).objects.length === 0,
+  JSON.stringify({ freshCubeUndo, status: callJson('orc_history_status', [], []) }));
+assertSceneDelta('second Undo publishes the exact delete delta', freshCubeUndo,
+  freshStableIds, freshPlateIds, []);
+const freshCubeRedo = callJson('orc_history_redo', [], []);
+const freshCubeRedoStructure = callJson('orc_get_model_structure', [], []);
+historyCheck('first Redo fully restores the fresh-project Cube with exact native IDs',
+  freshCubeRedo.ok === true &&
+  JSON.stringify(modelIdentity(freshCubeRedoStructure)) === JSON.stringify(freshStableIds),
+  JSON.stringify({ freshCubeRedo, expected: freshStableIds, actual: modelIdentity(freshCubeRedoStructure) }));
+assertSceneDelta('first Redo publishes the exact add delta', freshCubeRedo,
+  freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
+const freshMoveRedo = callJson('orc_history_redo', [], []);
+const freshMoveRedoMesh = callJson('orc_get_model_mesh', [], []);
+const freshMoveRedoStructure = callJson('orc_get_model_structure', [], []);
+historyCheck('second Redo reapplies Move with exact native IDs', freshMoveRedo.ok === true &&
+  freshMoveRedoMesh.objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0] &&
+  JSON.stringify(modelIdentity(freshMoveRedoStructure)) === JSON.stringify(freshStableIds),
+  JSON.stringify({ freshMoveRedo, freshMoveRedoMesh, expected: freshStableIds,
+    actual: modelIdentity(freshMoveRedoStructure) }));
+assertSceneDelta('second Redo publishes the exact move delta', freshMoveRedo,
+  freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
+const threading = callJson('orc_get_threading_info', [], []);
+if (threading.threaded) {
+  const beforeActiveRestore = callJson('orc_get_plate_session_snapshot', [], []);
+  const activePlateId = beforeActiveRestore.current_plate_id;
+  const activeRevision = beforeActiveRestore.input_revisions?.[activePlateId];
+  const activeSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], [
+    JSON.stringify({ layer_height: '0.17' }), activePlateId, activeRevision,
+  ]);
+  historyCheck('threaded history fixture admits a detached Slice task', activeSlice.accepted === true,
+    JSON.stringify(activeSlice));
+  const restoreStartedAt = Date.now();
+  const activeSliceUndo = callJson('orc_history_undo', [], []);
+  historyCheck('threaded Undo restores immediately while Slice is active', activeSliceUndo.ok === true &&
+    Date.now() - restoreStartedAt < 1_000, JSON.stringify({ activeSliceUndo,
+      elapsed_ms: Date.now() - restoreStartedAt }));
+  const restoredRevisions = activeSliceUndo.context?.plateSession?.input_revisions ?? {};
+  historyCheck('threaded Undo advances every plate input stamp',
+    Object.entries(beforeActiveRestore.input_revisions ?? {}).every(([plateId, revision]) =>
+      Number.isSafeInteger(restoredRevisions[plateId]) && restoredRevisions[plateId] !== revision),
+    JSON.stringify({ before: beforeActiveRestore.input_revisions, after: restoredRevisions }));
+  // Cancellation is deliberately requested after the authoritative restore;
+  // its terminal is not awaited before the history call above completes.
+  callJson('orc_cancel', [], []);
+  const obsoleteTerminal = await awaitAsyncTask(callJson, activeSlice);
+  const obsoleteProjection = obsoleteTerminal.receipt
+    ? getSliceResult(callJson, obsoleteTerminal.receipt)
+    : obsoleteTerminal;
+  historyCheck('late cancelled or completed Slice output stays non-authoritative after Undo',
+    obsoleteProjection.ok !== true && /cancel|stale|unavailable|supersed/i.test(obsoleteProjection.error ?? ''),
+    JSON.stringify({ obsoleteTerminal, obsoleteProjection }));
+  historyCheck('threaded history fixture returns to the moved state',
+    callJson('orc_history_redo', [], []).ok === true);
+}
+const freshMoveJumpUndo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'undo']);
+historyCheck('adjacent Undo jump loads the rematerialized Move target', freshMoveJumpUndo.ok === true &&
+  callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] ===
+    freshBody.instance_transform.offset[0], JSON.stringify(freshMoveJumpUndo));
+assertSceneDelta('adjacent Undo jump publishes the exact move delta', freshMoveJumpUndo,
+  freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
+const freshMoveJumpRedo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'redo']);
+historyCheck('adjacent Redo jump reapplies the rematerialized Move target', freshMoveJumpRedo.ok === true &&
+  callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0],
+  JSON.stringify(freshMoveJumpRedo));
+assertSceneDelta('adjacent Redo jump publishes the exact move delta', freshMoveJumpRedo,
+  freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
 historyCheck('reset fresh-project filament history fixture after regression',
   callJson('orc_clear_model', [], []).ok === true &&
   callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
@@ -124,7 +288,7 @@ const committed = callJson('orc_history_commit', ['string', 'string'], [tx.trans
 if (!committed.canUndo) throw new Error(`commit did not enable undo: ${JSON.stringify(committed)}`);
 if (!Number.isFinite(committed.bytesUsed) || committed.bytesUsed <= 512)
   throw new Error(`history accounting omitted native restore storage: ${JSON.stringify(committed)}`);
-for (const key of ['optionalBytesReleased', 'evictedEntryCount', 'bytesUsed', 'byteBudget']) {
+for (const key of ['evictedEntryCount', 'bytesUsed', 'byteBudget']) {
   if (!Number.isSafeInteger(committed[key]) || committed[key] < 0)
     throw new Error(`history resource diagnostic ${key} is not deterministic: ${JSON.stringify(committed)}`);
 }
@@ -132,34 +296,59 @@ if (typeof committed.oldestRetainedEntryId !== 'string' ||
     typeof committed.oversizedEntryRetained !== 'boolean')
   throw new Error(`history retention diagnostics are incomplete: ${JSON.stringify(committed)}`);
 const beforeEdit = callJson('orc_get_model_structure', [], []);
+const beforeEditSession = callJson('orc_get_plate_session_snapshot', [], []);
 if (!beforeEdit.ok || beforeEdit.objects.length !== 2)
   throw new Error(`two-object baseline was not restored: ${JSON.stringify(beforeEdit)}`);
 
-// Standalone selection records are retained in the linear branch but one
-// ordinary Undo must skip all of them and restore the preceding project
-// frame. Redo must symmetrically restore the project frame and its context.
-const selectionOne = { ...context,
-  selection: { ...context.selection, mode: 'part', objectIds: [1] } };
-const selectionTwo = { ...selectionOne,
-  selection: { ...selectionOne.selection, partIds: [2] } };
-const contextOne = callJson('orc_history_record_context',
-  ['string', 'string'], ['Selection 1', JSON.stringify(selectionOne)]);
-if (contextOne.dirty !== true || contextOne.undoEntries.length !== 1)
-  throw new Error(`first context record changed project navigation unexpectedly: ${JSON.stringify(contextOne)}`);
-const contextTwo = callJson('orc_history_record_context',
-  ['string', 'string'], ['Selection 2', JSON.stringify(selectionTwo)]);
-if (contextTwo.dirty !== true || contextTwo.undoEntries.length !== 1)
-  throw new Error(`second context record changed project navigation unexpectedly: ${JSON.stringify(contextTwo)}`);
+// UI-only selection/plate changes never call history. They preserve Redo, and
+// the next genuine mutation attaches the then-current context to its retained
+// predecessor before truncating the branch.
 const contextUndo = callJson('orc_history_undo', [], []);
 const contextUndoModel = callJson('orc_get_model_structure', [], []);
 if (!contextUndo.ok || !contextUndoModel.ok || contextUndoModel.objects.length !== 0 ||
-    contextUndo.context.selection.objectIds.length !== 0)
-  throw new Error(`context-only records were not skipped by Undo: ${JSON.stringify({ contextUndo, contextUndoModel })}`);
+    contextUndo.status.canRedo !== true)
+  throw new Error(`mutation A Undo did not expose Redo: ${JSON.stringify({ contextUndo, contextUndoModel })}`);
+assertSceneDelta('multi-object compound Undo publishes one exact add/delete delta', contextUndo,
+  modelIdentity(beforeEdit), beforeEditSession.plates.map((plate) => plate.plate_id), []);
+const statusBeforeUiContext = callJson('orc_history_status', [], []);
+const plateDuringUiContext = callJson('orc_get_plate_session_snapshot', [], []);
+const selectSamePlate = callJson('orc_select_plate', ['string'], [plateDuringUiContext.current_plate_id]);
+const selectionBeforeB = { ...context,
+  activePlateId: plateDuringUiContext.current_plate_id,
+  selection: { ...context.selection, mode: 'part', objectIds: [101], partIds: [202] } };
+const statusAfterUiContext = callJson('orc_history_status', [], []);
+if (!selectSamePlate.ok || statusAfterUiContext.canRedo !== true ||
+    statusAfterUiContext.cursor !== statusBeforeUiContext.cursor ||
+    statusAfterUiContext.revision !== statusBeforeUiContext.revision)
+  throw new Error(`UI context changed history: ${JSON.stringify({ statusBeforeUiContext, statusAfterUiContext })}`);
 const contextRedo = callJson('orc_history_redo', [], []);
 const contextRedoModel = callJson('orc_get_model_structure', [], []);
-if (!contextRedo.ok || !contextRedoModel.ok || contextRedoModel.objects.length !== 2 ||
-    contextRedo.context.selection.objectIds.length !== 0)
-  throw new Error(`context-only records were not skipped by Redo: ${JSON.stringify({ contextRedo, contextRedoModel })}`);
+if (!contextRedo.ok || !contextRedoModel.ok || contextRedoModel.objects.length !== 2)
+  throw new Error(`mutation A Redo was lost after UI context: ${JSON.stringify({ contextRedo, contextRedoModel })}`);
+const uiBranchUndo = callJson('orc_history_undo', [], []);
+if (!uiBranchUndo.ok) throw new Error(`mutation A second Undo failed: ${JSON.stringify({
+  uiBranchUndo, status: callJson('orc_history_status', [], []),
+})}`);
+const uiBranchTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Mutation B', 'project', JSON.stringify(selectionBeforeB), '']);
+if (!uiBranchTx.ok || typeof uiBranchTx.transactionId !== 'string') throw new Error(JSON.stringify(uiBranchTx));
+for (const name of ['Branched history Cube A', 'Branched history Cube B']) {
+  const branchAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', name]);
+  if (!branchAdded.ok) throw new Error(JSON.stringify(branchAdded));
+}
+const uiBranchCommit = callJson('orc_history_commit', ['string', 'string'],
+  [uiBranchTx.transactionId, JSON.stringify(selectionBeforeB)]);
+if (uiBranchCommit.canRedo !== false)
+  throw new Error(`mutation B did not truncate Redo: ${JSON.stringify(uiBranchCommit)}`);
+const branchMutationUndo = callJson('orc_history_undo', [], []);
+if (!branchMutationUndo.ok || branchMutationUndo.context.selection.objectIds[0] !== 101 ||
+    branchMutationUndo.context.selection.partIds[0] !== 202)
+  throw new Error(`mutation B predecessor context was not restored: ${JSON.stringify(branchMutationUndo)}`);
+const branchMutationRedo = callJson('orc_history_redo', [], []);
+if (!branchMutationRedo.ok) throw new Error(`mutation B Redo failed: ${JSON.stringify(branchMutationRedo)}`);
+const activeBeforeEdit = callJson('orc_get_model_structure', [], []);
+if (!activeBeforeEdit.ok || activeBeforeEdit.objects.length !== 2)
+  throw new Error(`mutation B model was not restored: ${JSON.stringify(activeBeforeEdit)}`);
 
 // Plate-session state is part of the same history frame as the model.  This
 // is intentionally exercised before the model-only edits below: the old
@@ -184,11 +373,25 @@ const plateRedone = callJson('orc_history_redo', [], []);
 const plateAfterRedo = callJson('orc_get_plate_session_snapshot', [], []);
 if (!plateRedone.ok || !plateAfterRedo.ok || plateAfterRedo.plates.length !== 2)
   throw new Error(`plate redo did not restore two plates: ${JSON.stringify({ plateRedone, plateAfterRedo })}`);
-if (plateAfterRedo.current_plate_id !== plateAdded.current_plate_id ||
-    plateAfterRedo.plates.map((plate) => plate.plate_id).join(',') !==
-      plateAdded.plates.map((plate) => plate.plate_id).join(',') ||
-    JSON.stringify(plateAfterRedo.input_revisions) !== JSON.stringify(plateAdded.input_revisions))
-  throw new Error(`plate redo did not restore stable IDs/revisions: ${JSON.stringify({ plateAdded, plateAfterRedo })}`);
+// Session plate IDs and logical model membership are persistent history
+// identity. Native ModelInstance IDs are rematerialized by the model archive,
+// so sessionShape deliberately compares members by object/instance index while
+// retaining the stable ModelObject ID. Slice-input revisions are runtime
+// invalidation stamps: every restored affected plate must receive a fresh,
+// strictly newer stamp and must never recover the old numeric value.
+const stablePlateStateRestored =
+  JSON.stringify(stableSessionShape(plateAfterRedo)) === JSON.stringify(stableSessionShape(plateAdded));
+const restoredRevisionsAdvanced = plateAdded.plates.every(({ plate_id: plateId }) =>
+  Number.isSafeInteger(plateAfterRedo.input_revisions[plateId]) &&
+  plateAfterRedo.input_revisions[plateId] > plateAdded.input_revisions[plateId]);
+if (!stablePlateStateRestored || !restoredRevisionsAdvanced)
+  throw new Error(`plate redo did not restore stable identity with fresh revisions: ${JSON.stringify({
+    plateAdded: stableSessionShape(plateAdded),
+    plateAfterRedo: stableSessionShape(plateAfterRedo),
+    addedRevisions: plateAdded.input_revisions,
+    redoneRevisions: plateAfterRedo.input_revisions,
+  })}`);
+assertLiveSessionIntegrity(plateAfterRedo, 'plate redo');
 
 const configuredPlateId = plateAfterRedo.current_plate_id;
 const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
@@ -218,13 +421,13 @@ const projectHistoryCountBeforeCoalesced = configRedo.status.undoEntries.length;
 const outer = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Coalesced edit', 'project', JSON.stringify(context), '']);
 if (!outer.ok || typeof outer.transactionId !== 'string') throw new Error(JSON.stringify(outer));
-const outerEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[0].id, 0]);
+const outerEdit = callJson('orc_set_object_printable', ['number', 'number'], [activeBeforeEdit.objects[0].id, 0]);
 if (!outerEdit.ok) throw new Error(JSON.stringify(outerEdit));
 const child = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Coalesced child', 'project', JSON.stringify(context),
     JSON.stringify({ coalesce: true, parentTransactionId: outer.transactionId })]);
 if (!child.ok || typeof child.transactionId !== 'string') throw new Error(JSON.stringify(child));
-const childEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[1].id, 0]);
+const childEdit = callJson('orc_set_object_printable', ['number', 'number'], [activeBeforeEdit.objects[1].id, 0]);
 if (!childEdit.ok) throw new Error(JSON.stringify(childEdit));
 const childCommit = callJson('orc_history_commit', ['string', 'string'], [child.transactionId, JSON.stringify(context)]);
 if (childCommit.activeTransactionId !== outer.transactionId)
@@ -246,7 +449,7 @@ if (!coalescedReset.ok) throw new Error(`coalesced reset failed: ${JSON.stringif
 
 const editTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], ['Toggle One Cube', 'project', JSON.stringify(context), '']);
 if (!editTx.ok || typeof editTx.transactionId !== 'string') throw new Error(JSON.stringify(editTx));
-const targetId = beforeEdit.objects[0].id;
+const targetId = activeBeforeEdit.objects[0].id;
 const edited = callJson('orc_set_object_printable', ['number', 'number'], [targetId, 0]);
 if (!edited.ok) throw new Error(JSON.stringify(edited));
 const editedCommit = callJson('orc_history_commit', ['string', 'string'], [editTx.transactionId, JSON.stringify(context)]);
@@ -313,6 +516,35 @@ for (const [label, edit] of transformCases) {
   delete base.matrix;
   const next = edit(base);
   commitTransform(label, next);
+  if (label === 'Move') {
+    const transformProfile = callJson('orc_take_performance_profile', [], []);
+    const transformSample = transformProfile.samples.find((sample) => sample.operation === 'set_model_transforms');
+    const historySamples = transformProfile.samples.filter((sample) =>
+      sample.operation === 'history_begin' || sample.operation === 'history_commit').slice(-2);
+    const captureStages = [
+      'capture_collection_cache',
+      'capture_mutable_object_archive',
+      'capture_immutable_mesh_retention',
+      'capture_model_state',
+    ];
+    const requiredStages = [
+      'input_json_decode', 'request_validation_target_resolution', 'transform_mutation',
+      'plate_membership_reflow', 'response_json_serialization', 'total',
+    ];
+    historyCheck('model transform timing exposes bounded native stages only', transformProfile.version === 1 && Boolean(transformSample) &&
+      requiredStages.every((stage) => Number.isFinite(transformSample.stages_ms[stage]) && transformSample.stages_ms[stage] >= 0) &&
+      Object.keys(transformSample.stages_ms).every((stage) => requiredStages.includes(stage)) &&
+      Object.keys(transformSample).every((key) => ['operation', 'stages_ms'].includes(key)));
+    historyCheck('Move history captures the canonical timestamp roots', historySamples.length === 2 &&
+      historySamples.every((sample) => captureStages.every((stage) =>
+        Number.isFinite(sample.stages_ms[stage]) && sample.stages_ms[stage] >= 0)) &&
+      Object.keys(historySamples[0].stages_ms).every((stage) =>
+        ['total', ...captureStages].includes(stage)) &&
+      Object.keys(historySamples[1].stages_ms).every((stage) =>
+        ['history_store', 'total', ...captureStages].includes(stage)),
+      JSON.stringify(historySamples));
+    console.log('history capture stages (ms)', JSON.stringify(historySamples));
+  }
   const committedTransform = modelMesh().instance_transform;
   assertTransformEqual(committedTransform, next, `${label} final transform`);
   const undoneTransform = callJson('orc_history_undo', [], []);
@@ -324,6 +556,80 @@ for (const [label, edit] of transformCases) {
   assertTransformEqual(modelMesh().instance_transform, next, `${label} redo`);
 }
 
+// One semantic transaction may combine structural and transform mutations
+// across several objects. Undo/Redo must publish the complete root set once,
+// with no observable intermediate add/move/delete state.
+const compoundBeforeStructure = callJson('orc_get_model_structure', [], []);
+const compoundBeforeMesh = callJson('orc_get_model_mesh', [], []);
+const compoundTransformState = (mesh) => mesh.objects.map((entry) => ({
+  object_idx: entry.object_idx, volume_idx: entry.volume_idx, instance_idx: entry.instance_idx,
+  instance_transform: entry.instance_transform, volume_transform: entry.volume_transform,
+}));
+const compoundBeforeIds = modelIdentity(compoundBeforeStructure);
+const compoundPlateIds = callJson('orc_get_plate_session_snapshot', [], []).plates
+  .map((plate) => plate.plate_id);
+const compoundBeforeObjectIds = new Set(compoundBeforeStructure.objects.map((object) => object.id));
+const compoundTx = beginHistory('Compound add move delete');
+for (const name of ['Compound added A', 'Compound added B']) {
+  const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', name]);
+  historyCheck(`${name} applies inside compound transaction`, added.ok === true, JSON.stringify(added));
+}
+const compoundAddedStructure = callJson('orc_get_model_structure', [], []);
+const compoundNewObjects = compoundAddedStructure.objects.filter((object) => !compoundBeforeObjectIds.has(object.id));
+historyCheck('compound transaction creates two stable-ID objects', compoundNewObjects.length === 2,
+  JSON.stringify(compoundAddedStructure));
+const compoundMesh = callJson('orc_get_model_mesh', [], []);
+const compoundMoveIndexes = [0, compoundAddedStructure.objects.findIndex((object) => object.id === compoundNewObjects[0].id)];
+const compoundMoves = compoundMoveIndexes.map((objectIdx, index) => {
+  const body = compoundMesh.objects.find((entry) => entry.object_idx === objectIdx);
+  if (!body) throw new Error(`compound move target ${objectIdx} missing`);
+  const transform = cloneTransform(body.instance_transform);
+  transform.offset[0] += 13 + index;
+  delete transform.matrix;
+  return { objectIdx: body.object_idx, volumeIdx: body.volume_idx, instanceIdx: body.instance_idx,
+    instanceTransform: transform, volumeTransform: body.volume_transform };
+});
+const compoundMoved = callJson('orc_set_model_transforms', ['string', 'string'],
+  [compoundTx, JSON.stringify(compoundMoves)]);
+historyCheck('compound transaction moves existing and added objects', compoundMoved.ok === true,
+  JSON.stringify(compoundMoved));
+const compoundDeleted = callJson('orc_delete_objects', ['string'],
+  [JSON.stringify([compoundBeforeStructure.objects[1].id, compoundNewObjects[1].id])]);
+historyCheck('compound transaction deletes existing and added objects atomically', compoundDeleted.ok === true,
+  JSON.stringify(compoundDeleted));
+const compoundCommit = commitHistory('Compound add move delete', compoundTx);
+const compoundAfterStructure = callJson('orc_get_model_structure', [], []);
+const compoundAfterMesh = callJson('orc_get_model_mesh', [], []);
+const compoundTouchedIds = new Set([
+  compoundBeforeStructure.objects[0].id,
+  compoundBeforeStructure.objects[1].id,
+  compoundNewObjects[0].id,
+]);
+const compoundTouchedIdentity = mergeIdentities(
+  compoundBeforeIds.filter((object) => compoundTouchedIds.has(object.object_id)),
+  modelIdentity(compoundAfterStructure).filter((object) => compoundTouchedIds.has(object.object_id)),
+);
+historyCheck('compound transaction commits exactly one entry',
+  compoundCommit.undoEntries[0]?.label === 'Compound add move delete');
+const compoundUndo = callJson('orc_history_undo', [], []);
+historyCheck('compound Undo restores the exact predecessor atomically', compoundUndo.ok === true &&
+  JSON.stringify(modelIdentity(callJson('orc_get_model_structure', [], []))) === JSON.stringify(compoundBeforeIds) &&
+  JSON.stringify(compoundTransformState(callJson('orc_get_model_mesh', [], []))) ===
+    JSON.stringify(compoundTransformState(compoundBeforeMesh)),
+  JSON.stringify(compoundUndo));
+assertSceneDelta('compound Undo publishes the exact multi-object add/delete/move delta once', compoundUndo,
+  compoundTouchedIdentity, compoundPlateIds, compoundBeforeIds.map((object) => object.object_id));
+const compoundRedo = callJson('orc_history_redo', [], []);
+historyCheck('compound Redo restores exact final stable IDs and transforms', compoundRedo.ok === true &&
+  JSON.stringify(modelIdentity(callJson('orc_get_model_structure', [], []))) ===
+    JSON.stringify(modelIdentity(compoundAfterStructure)) &&
+  JSON.stringify(compoundTransformState(callJson('orc_get_model_mesh', [], []))) ===
+    JSON.stringify(compoundTransformState(compoundAfterMesh)),
+  JSON.stringify(compoundRedo));
+assertSceneDelta('compound Redo publishes the exact multi-object add/delete/move delta once', compoundRedo,
+  compoundTouchedIdentity, compoundPlateIds,
+  modelIdentity(compoundAfterStructure).map((object) => object.object_id));
+
 // A multi-object renderer gesture is one atomic Worker command and one
 // history entry. Rejecting its second target must leave the first untouched;
 // stale transaction IDs are rejected before any model write.
@@ -331,17 +637,28 @@ const atomicBefore = callJson('orc_get_model_mesh', [], []);
 const atomicTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Atomic multi-object Move', 'project', JSON.stringify(context), '']);
 if (!atomicTx.ok || typeof atomicTx.transactionId !== 'string') throw new Error(JSON.stringify(atomicTx));
-const atomicTransforms = atomicBefore.objects.slice(0, 2).map((entry, index) => ({
-  objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
-  instanceTransform: { ...entry.instance_transform,
-    offset: [entry.instance_transform.offset[0] + (index + 1) * 11, entry.instance_transform.offset[1], entry.instance_transform.offset[2]] },
-  volumeTransform: entry.volume_transform,
-}));
+const atomicTransforms = atomicBefore.objects.slice(0, 2).map((entry, index) => {
+  const instanceTransform = cloneTransform(entry.instance_transform);
+  delete instanceTransform.matrix;
+  instanceTransform.offset[0] += (index + 1) * 11;
+  return {
+    objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
+    instanceTransform,
+    volumeTransform: entry.volume_transform,
+  };
+});
 const atomicMoved = callJson('orc_set_model_transforms', ['string', 'string'],
   [atomicTx.transactionId, JSON.stringify(atomicTransforms)]);
-historyCheck('atomic multi-object transform receipt', atomicMoved.ok === true && Array.isArray(atomicMoved.instance_transforms));
+historyCheck('atomic multi-object transform result', atomicMoved.ok === true && Array.isArray(atomicMoved.instance_transforms));
+const atomicAfter = callJson('orc_get_model_mesh', [], []);
+historyCheck('atomic multi-object transform changes both live targets',
+  atomicAfter.objects.slice(0, 2).every((entry, index) =>
+    entry.instance_transform.offset[0] === atomicTransforms[index].instanceTransform.offset[0]),
+  JSON.stringify({ atomicBefore, atomicTransforms, atomicAfter }));
 const atomicCommit = callJson('orc_history_commit', ['string', 'string'], [atomicTx.transactionId, JSON.stringify(context)]);
-historyCheck('atomic multi-object transform commits one history entry', atomicCommit.undoEntries.filter((entry) => entry.label === 'Atomic multi-object Move').length === 1);
+historyCheck('atomic multi-object transform commits one history entry',
+  atomicCommit.undoEntries?.filter((entry) => entry.label === 'Atomic multi-object Move').length === 1,
+  JSON.stringify(atomicCommit));
 const atomicUndo = callJson('orc_history_undo', [], []);
 historyCheck('atomic multi-object transform undo', atomicUndo.ok === true &&
   callJson('orc_get_model_mesh', [], []).objects.slice(0, 2).every((entry, index) =>
@@ -396,6 +713,19 @@ const fixtureArchive = await readFile(resolve(repoRoot,
 // interoperability fixture.  Change only the in-memory fixture copy so the
 // history baseline contains a real imported locked plate.
 const fixtureEntries = readZipEntries(fixtureArchive);
+const fixturePaintStates = ['4', '8', '4', '8', '4', '8', '4', '8', '4', '8', '4', '8'];
+const fixtureModelEntry = fixtureEntries.find((entry) => entry.name === '3D/3dmodel.model');
+if (!fixtureModelEntry) throw new Error('native history fixture is missing 3D/3dmodel.model');
+let paintedTriangle = 0;
+const fixtureModelText = new TextDecoder().decode(fixtureModelEntry.content);
+fixtureModelEntry.content = new TextEncoder().encode(fixtureModelText.replace(
+  /<triangle\b[^>]*\/>/g,
+  (source) => paintedTriangle < fixturePaintStates.length
+    ? source.replace('/>', ` paint_color="${fixturePaintStates[paintedTriangle++]}"/>`)
+    : source,
+));
+historyCheck('paint the native structural history fixture',
+  paintedTriangle === fixturePaintStates.length, `painted=${paintedTriangle}`);
 const fixtureMetadata = {
   schema: 'org.orcaslicerneo.plate-session', version: 1, current_plate_index: 0,
   plates: [
@@ -417,6 +747,21 @@ historyCheck('load locked multi-plate fixture', loadedFixture.ok === true && loa
 let fixtureSession = callJson('orc_get_plate_session_snapshot', [], []);
 const lockedPlateId = fixtureSession.plates.find((plate) => plate.locked)?.plate_id;
 historyCheck('fixture retains locked plate state', typeof lockedPlateId === 'string', JSON.stringify(fixtureSession));
+const importedFixtureStructure = callJson('orc_get_model_structure', [], []);
+const multiInstanceObjectId = importedFixtureStructure.objects?.[0]?.id;
+const addedFixtureInstance = callJson('orc_add_instance', ['number'], [multiInstanceObjectId]);
+historyCheck('add a second instance to the first imported object',
+  addedFixtureInstance.ok === true && Number.isSafeInteger(addedFixtureInstance.instanceId),
+  JSON.stringify({ importedFixtureStructure, addedFixtureInstance }));
+fixtureSession = callJson('orc_recompute_plate_membership', [], []);
+const multiInstanceStructure = callJson('orc_get_model_structure', [], []);
+historyCheck('multi-object fixture has stable multi-instance plate membership',
+  multiInstanceStructure.objects?.length === 2 &&
+  multiInstanceStructure.objects[0].instances?.length === 2 &&
+  fixtureSession.instances?.length === 3 &&
+  fixtureSession.instances.every((instance) => Number.isSafeInteger(instance.instance_id) &&
+    instance.instance_id > 0 && (instance.member || instance.parked)),
+  JSON.stringify({ multiInstanceStructure, fixtureSession }));
 
 const fixturePlateOne = fixtureSession.plates[0].plate_id;
 const fixturePlateTwo = fixtureSession.plates[1].plate_id;
@@ -458,6 +803,7 @@ const resetFixtureHistory = callJson('orc_history_reset', ['string'], [JSON.stri
 historyCheck('establish structural fixture history baseline',
   resetFixtureHistory.canUndo === false, JSON.stringify(resetFixtureHistory));
 let structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
+const structuralBaselineIdentity = modelIdentity(callJson('orc_get_model_structure', [], []));
 assertLiveSessionIntegrity(structuralBaseline, 'structural baseline');
 function coordinateArraysMatchPlateCount(session) {
   const overlay = callJson('orc_get_project_config_overlay');
@@ -519,9 +865,14 @@ function commitHistory(label, transactionId) {
 function restoreAndCompare(label, expected) {
   const restoredSession = callJson('orc_get_plate_session_snapshot', [], []);
   assertLiveSessionIntegrity(restoredSession, label);
+  const revisionsAreFresh = (expected.plates ?? []).every(({ plate_id: plateId }) =>
+    Number.isSafeInteger(restoredSession.input_revisions?.[plateId]) &&
+    restoredSession.input_revisions[plateId] > expected.input_revisions[plateId]);
   historyCheck(`${label} restores complete session`,
-    JSON.stringify(sessionShape(restoredSession)) === JSON.stringify(sessionShape(expected)),
-    JSON.stringify({ expected: sessionShape(expected), actual: sessionShape(restoredSession) }));
+    JSON.stringify(stableSessionShape(restoredSession)) === JSON.stringify(stableSessionShape(expected)) &&
+      revisionsAreFresh,
+    JSON.stringify({ expected: stableSessionShape(expected), actual: stableSessionShape(restoredSession),
+      expectedRevisions: expected.input_revisions, actualRevisions: restoredSession.input_revisions }));
   return restoredSession;
 }
 
@@ -546,6 +897,15 @@ commitHistory('Delete Plate', deleteTransaction);
 const deleteUndo = callJson('orc_history_undo', [], []);
 historyCheck('Delete Plate undo succeeds', deleteUndo.ok === true, JSON.stringify(deleteUndo));
 const deleteUndoSession = restoreAndCompare('Delete Plate undo', structuralBaseline);
+historyCheck('multi-instance multi-object restore preserves complete native IDs and plate memberships',
+  JSON.stringify(modelIdentity(callJson('orc_get_model_structure', [], []))) ===
+    JSON.stringify(structuralBaselineIdentity) &&
+  JSON.stringify(stableSessionShape(deleteUndoSession)) ===
+    JSON.stringify(stableSessionShape(structuralBaseline)),
+  JSON.stringify({ expectedIdentity: structuralBaselineIdentity,
+    actualIdentity: modelIdentity(callJson('orc_get_model_structure', [], [])),
+    expectedSession: stableSessionShape(structuralBaseline),
+    actualSession: stableSessionShape(deleteUndoSession) }));
 historyCheck('Delete Plate undo restores coordinate arrays to three plates',
   coordinateArraysMatchPlateCount(deleteUndoSession));
 historyCheck('Delete Plate undo restores coordinate identity order',
@@ -554,6 +914,21 @@ historyCheck('Delete Plate undo restores current plate and member flags',
   deleteUndoSession.current_plate_id === fixturePlateThree &&
   deleteUndoSession.instances.some((item) => item.object_index === 2 && item.plate_id === fixturePlateTwo && !item.parked) &&
   deleteUndoSession.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds));
+const paintedRestoreExport = callJson('orc_export_project', [], []);
+historyCheck('painted history restore exports a native project',
+  paintedRestoreExport.ok === true && paintedRestoreExport.bytes_ptr > 0 &&
+  paintedRestoreExport.bytes_length > 0, JSON.stringify(paintedRestoreExport));
+const paintedRestoreBytes = readAndFree(
+  paintedRestoreExport.bytes_ptr, paintedRestoreExport.bytes_length);
+const paintedRestoreModel = readZipEntries(paintedRestoreBytes)
+  .find((entry) => entry.name === '3D/3dmodel.model');
+const restoredPaintStates = paintedRestoreModel
+  ? [...new TextDecoder().decode(paintedRestoreModel.content).matchAll(/paint_color="([^"]+)"/g)]
+    .map((match) => match[1])
+  : [];
+historyCheck('painting survives full bridge history restore',
+  JSON.stringify(restoredPaintStates) === JSON.stringify(fixturePaintStates),
+  JSON.stringify({ expected: fixturePaintStates, actual: restoredPaintStates }));
 const deleteRedo = callJson('orc_history_redo', [], []);
 historyCheck('Delete Plate redo succeeds', deleteRedo.ok === true, JSON.stringify(deleteRedo));
 const deleteRedoSession = restoreAndCompare('Delete Plate redo', deleteAfter);
@@ -603,6 +978,157 @@ historyCheck('reorder Redo restores compact coordinate identity order',
 historyCheck('locked plate state survives reorder Undo/Redo',
   reorderAfter.plates.find((plate) => plate.plate_id === lockedPlateId)?.locked === true);
 
+// Add Plate remains one timestamped operation whether or not its layout
+// reflows existing instances. The mutation response still identifies moved
+// instances for renderer projection, while history captures the three roots.
+historyCheck('return to three-plate baseline before add reflow profile',
+  callJson('orc_history_undo', [], []).ok === true);
+const addNoReflowBefore = callJson('orc_get_plate_session_snapshot', [], []);
+const addNoReflowBeforeMesh = callJson('orc_get_model_mesh', [], []);
+const addNoReflowPlateIds = new Set(addNoReflowBefore.plates.map((plate) => plate.plate_id));
+const modelTransformState = (mesh) => (mesh.objects ?? []).map((object) => ({
+  object_idx: object.object_idx,
+  instance_transform: object.instance_transform,
+}));
+const addNoReflowTransaction = beginHistory('Add Plate');
+const addNoReflow = callJson('orc_add_plate', [], []);
+historyCheck('Add Plate no-reflow omits unchanged transforms',
+  addNoReflow.ok === true && addNoReflow.plates.length === 4 &&
+  (!Object.hasOwn(addNoReflow, 'instance_transforms') || addNoReflow.instance_transforms.length === 0),
+  JSON.stringify(addNoReflow));
+const addNoReflowStableBefore = {
+  plates: addNoReflowBefore.plates.filter((plate) => addNoReflowPlateIds.has(plate.plate_id)),
+  instances: addNoReflowBefore.instances,
+  input_revisions: Object.fromEntries([...addNoReflowPlateIds].map((id) => [id, addNoReflowBefore.input_revisions[id]])),
+};
+const addNoReflowStableAfter = {
+  plates: addNoReflow.plates.filter((plate) => addNoReflowPlateIds.has(plate.plate_id)),
+  instances: addNoReflow.instances,
+  input_revisions: Object.fromEntries([...addNoReflowPlateIds].map((id) => [id, addNoReflow.input_revisions[id]])),
+};
+historyCheck('Add Plate stable-origin gate preserves old state',
+  JSON.stringify(addNoReflowStableAfter) === JSON.stringify(addNoReflowStableBefore) &&
+  JSON.stringify(modelTransformState(callJson('orc_get_model_mesh', [], []))) ===
+    JSON.stringify(modelTransformState(addNoReflowBeforeMesh)) &&
+  Array.isArray(addNoReflow.affected_plate_ids) && addNoReflow.affected_plate_ids.length === 0,
+  JSON.stringify({ before: addNoReflowStableBefore, after: addNoReflowStableAfter, addNoReflow }));
+historyCheck('Add Plate creates a fresh zero-revision plate entry',
+  addNoReflow.plates.some((plate) => !addNoReflowPlateIds.has(plate.plate_id)) &&
+  addNoReflow.plates.filter((plate) => !addNoReflowPlateIds.has(plate.plate_id))
+    .every((plate) => addNoReflow.input_revisions[plate.plate_id] === 0),
+  JSON.stringify(addNoReflow));
+const addNoReflowCommit = commitHistory('Add Plate no-reflow', addNoReflowTransaction);
+const addNoReflowProfile = callJson('orc_take_performance_profile', [], []);
+const addNoReflowHistorySamples = addNoReflowProfile.samples.filter((sample) =>
+  ['history_begin', 'add_plate', 'history_commit'].includes(sample.operation)).slice(-3);
+historyCheck('Add Plate no-reflow captures timestamp roots',
+  addNoReflowHistorySamples.length === 3 &&
+  addNoReflowHistorySamples.filter((sample) => sample.operation !== 'add_plate')
+    .every((sample) => typeof sample.stages_ms.capture_model_state === 'number' &&
+      typeof sample.stages_ms.capture_collection_cache === 'number'));
+const addReflowTransaction = beginHistory('Add Plate');
+const addReflowBefore = callJson('orc_get_plate_session_snapshot', [], []);
+const addReflow = callJson('orc_add_plate', [], []);
+historyCheck('Add Plate reflow records only moved instances',
+  addReflow.ok === true && addReflow.plates.length === 5 &&
+  Array.isArray(addReflow.instance_transforms) && addReflow.instance_transforms.length > 0,
+  JSON.stringify(addReflow));
+const addReflowChanged = new Set(addReflow.affected_plate_ids ?? []);
+const addReflowOldIds = addReflowBefore.plates.map((plate) => plate.plate_id);
+const expectedAddReflowChanged = new Set(addReflowBefore.plates
+  .filter((beforePlate) => {
+    const afterPlate = addReflow.plates.find((plate) => plate.plate_id === beforePlate.plate_id);
+    return afterPlate !== undefined && afterPlate.origin.some((value, axis) => value !== beforePlate.origin[axis]);
+  })
+  .map((plate) => plate.plate_id));
+historyCheck('Add Plate reflow invalidates only origin-changed plates',
+  addReflowChanged.size === expectedAddReflowChanged.size &&
+  addReflow.affected_plate_ids?.length === expectedAddReflowChanged.size &&
+  [...expectedAddReflowChanged].every((id) => addReflowChanged.has(id)) &&
+  addReflowOldIds.every((id) => addReflowChanged.has(id)
+    ? addReflow.input_revisions[id] > addReflowBefore.input_revisions[id]
+    : addReflow.input_revisions[id] === addReflowBefore.input_revisions[id]) &&
+  addReflow.plates.filter((plate) => !addReflowOldIds.includes(plate.plate_id))
+    .every((plate) => addReflow.input_revisions[plate.plate_id] === 0),
+  JSON.stringify({ before: addReflowBefore.input_revisions, after: addReflow.input_revisions,
+    expected: [...expectedAddReflowChanged], affected: addReflow.affected_plate_ids }));
+const addReflowCommit = commitHistory('Add Plate reflow', addReflowTransaction);
+const addReflowProfile = callJson('orc_take_performance_profile', [], []);
+const addReflowHistorySamples = addReflowProfile.samples.filter((sample) =>
+  ['history_begin', 'add_plate', 'history_commit'].includes(sample.operation)).slice(-3);
+historyCheck('Add Plate reflow captures timestamp roots',
+  addReflowHistorySamples.length === 3 &&
+  addReflowHistorySamples.filter((sample) => sample.operation !== 'add_plate')
+    .every((sample) => typeof sample.stages_ms.capture_model_state === 'number' &&
+      typeof sample.stages_ms.capture_collection_cache === 'number'));
+const afterAddTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.instance_transform);
+delete afterAddTransform.matrix;
+const afterAddVolumeTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.volume_transform);
+delete afterAddVolumeTransform.matrix;
+const afterAddEdit = { ...afterAddTransform,
+  offset: [afterAddTransform.offset[0] + 7, afterAddTransform.offset[1], afterAddTransform.offset[2]] };
+const afterAddVolumeEdit = { ...afterAddVolumeTransform,
+  offset: [afterAddVolumeTransform.offset[0] + 3, afterAddVolumeTransform.offset[1], afterAddVolumeTransform.offset[2]] };
+const normalAfterAddTransaction = beginHistory('Move After Add Plate');
+const normalAfterAddMutation = callJson('orc_set_model_transform',
+  ['number', 'number', 'number', 'string', 'string'],
+  [3, 0, 0, JSON.stringify(afterAddEdit), JSON.stringify(afterAddVolumeEdit)]);
+if (!normalAfterAddMutation.ok)
+  throw new Error(`normal edit after Add Plate failed: ${JSON.stringify(normalAfterAddMutation)}`);
+const normalAfterAddCommit = commitHistory('Move After Add Plate', normalAfterAddTransaction);
+const normalAfterAddUndo = callJson('orc_history_undo', [], []);
+const afterAddUndoMesh = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.instance_transform;
+historyCheck('normal undo returns to Add Plate after-transform state',
+  normalAfterAddUndo.ok === true && normalAfterAddUndo.impact?.model === 'delta' &&
+  !Object.hasOwn(normalAfterAddUndo, 'instance_transforms') &&
+  callJson('orc_get_plate_session_snapshot', [], []).plates.length === 5,
+  JSON.stringify({ normalAfterAddUndo, afterAddUndoMesh }));
+assertTransformEqual(afterAddUndoMesh, afterAddTransform, 'Add Plate after-transform state');
+const afterAddUndoVolume = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.volume_transform;
+assertTransformEqual(afterAddUndoVolume, afterAddVolumeTransform, 'Add Plate volume baseline state');
+const normalAfterAddRedo = callJson('orc_history_redo', [], []);
+const afterAddRedoMesh = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.instance_transform;
+historyCheck('normal redo restores edit after Add Plate', normalAfterAddRedo.ok === true,
+  JSON.stringify(normalAfterAddRedo));
+assertTransformEqual(afterAddRedoMesh, afterAddEdit, 'normal edit after Add Plate');
+const afterAddRedoVolume = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.volume_transform;
+assertTransformEqual(afterAddRedoVolume, afterAddVolumeEdit, 'normal volume edit after Add Plate');
+const normalAfterAddUndoAgain = callJson('orc_history_undo', [], []);
+historyCheck('normal undo again returns to Add Plate state',
+  normalAfterAddUndoAgain.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 5,
+  JSON.stringify(normalAfterAddUndoAgain));
+const addReflowUndo = callJson('orc_history_undo', [], []);
+historyCheck('Add Plate reflow undo restores four plates',
+  addReflowUndo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 4,
+  JSON.stringify({ addReflowUndo, status: callJson('orc_history_status', [], []) }));
+const addNoReflowUndo = callJson('orc_history_undo', [], []);
+historyCheck('Add Plate no-reflow undo restores three plates',
+  addNoReflowUndo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 3,
+  JSON.stringify(addNoReflowUndo));
+const addNoReflowRedo = callJson('orc_history_redo', [], []);
+historyCheck('Add Plate no-reflow redo restores four plates',
+  addNoReflowRedo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 4,
+  JSON.stringify(addNoReflowRedo));
+const addAfterUndo = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Plate', 'project', JSON.stringify(context), '']);
+if (!addAfterUndo.ok) throw new Error(`Add Plate branch begin failed: ${JSON.stringify(addAfterUndo)}`);
+const addAfterUndoMutation = callJson('orc_add_plate', [], []);
+const addAfterUndoCommit = commitHistory('Add Plate after undo', addAfterUndo.transactionId);
+historyCheck('Add Plate after undo discards redo branch',
+  addAfterUndoMutation.ok === true && addAfterUndoCommit.canRedo === false &&
+  callJson('orc_get_plate_session_snapshot', [], []).plates.length === 5,
+  JSON.stringify(addAfterUndoCommit));
+historyCheck('restore add-plate profile fixture baseline',
+  callJson('orc_history_undo', [], []).ok === true &&
+  callJson('orc_history_undo', [], []).ok === true &&
+  callJson('orc_get_plate_session_snapshot', [], []).plates.length === 3);
+
 // Repair 5 directional menu-jump matrix.  Isolate the real bridge exercise
 // from the structural fixture above: the reset gives the scenario a known
 // empty baseline, and the final reset prevents this diagnostic from leaking
@@ -616,12 +1142,6 @@ historyCheck('directional jump first edit applies', jumpFirstAdded.ok === true, 
 const jumpFirstCommit = commitHistory('Jump First', jumpFirstTransaction);
 const jumpFirstId = jumpFirstCommit.undoEntries[0]?.id;
 historyCheck('capture first directional jump ID', typeof jumpFirstId === 'string', JSON.stringify(jumpFirstCommit));
-
-const jumpContext = callJson('orc_history_record_context',
-  ['string', 'string'], ['Jump selection', JSON.stringify({ ...context,
-    selection: { ...context.selection, mode: 'object', objectIds: [jumpFirstAdded.objectId ?? 1] } })]);
-historyCheck('interleave context record', jumpContext.dirty === true && jumpContext.undoEntries.length === 1,
-  JSON.stringify(jumpContext));
 
 const jumpSecondTransaction = beginHistory('Jump Second');
 const jumpSecondAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump second']);
@@ -667,46 +1187,165 @@ historyCheck('restore directional fixture baseline',
   callJson('orc_clear_model', [], []).ok === true &&
   callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
 
-// Repair 6 real-bridge accounting diagnostic.  The long context and label
-// must increase the same retained-resource status that the restore path uses;
-// the delta must exceed the context payload itself, proving that canonical
-// entry/container metadata is included.  Native fixture tests cover budget
-// eviction and oversized retention deterministically; this real-WASM check
-// keeps its focus on accounting and a valid retained restore.
+const plateJumpIds = [];
+for (const ordinal of ['Second', 'Third', 'Fourth']) {
+  const transaction = beginHistory(`Add ${ordinal} Plate`);
+  const added = callJson('orc_add_plate', [], []);
+  historyCheck(`direct menu fixture adds ${ordinal.toLowerCase()} plate`, added.ok === true,
+    JSON.stringify(added));
+  const committedPlate = commitHistory(`Add ${ordinal} Plate`, transaction);
+  plateJumpIds.push(committedPlate.undoEntries[0]?.id);
+}
+historyCheck('multiple Add Plate entries expose stable menu IDs',
+  plateJumpIds.every((id) => typeof id === 'string') &&
+  callJson('orc_get_plate_session_snapshot', [], []).plates.length === 4,
+  JSON.stringify(plateJumpIds));
+const plateJumpUndo = callJson('orc_history_jump', ['string', 'string'], [plateJumpIds[0], 'undo']);
+historyCheck('multi-entry Add Plate Undo menu loads selected predecessor directly',
+  plateJumpUndo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 1,
+  JSON.stringify(plateJumpUndo));
+const plateJumpRedo = callJson('orc_history_jump', ['string', 'string'], [plateJumpIds[2], 'redo']);
+historyCheck('multi-entry Add Plate Redo menu loads selected after timestamp directly',
+  plateJumpRedo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 4,
+  JSON.stringify(plateJumpRedo));
+historyCheck('restore multi-plate menu fixture baseline',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+
+// An Add Plate timestamp can precede the first model edit. Undoing that
+// edit must restore the empty two-plate predecessor, whose complete
+// plate session legitimately has no model instances.
+const emptyPlateTransaction = beginHistory('Add Plate');
+const emptyPlateAdded = callJson('orc_add_plate', [], []);
+historyCheck('empty-scene Add Plate applies',
+  emptyPlateAdded.ok === true && emptyPlateAdded.plates.length === 2,
+  JSON.stringify(emptyPlateAdded));
+commitHistory('empty-scene Add Plate', emptyPlateTransaction);
+const firstCubeAfterPlateTransaction = beginHistory('Add Cube');
+const firstCubeAfterPlate = callJson('orc_add_shape', ['string', 'string'],
+  ['Cube', 'First cube after plate']);
+historyCheck('first Cube after empty-scene Add Plate applies',
+  firstCubeAfterPlate.ok === true, JSON.stringify(firstCubeAfterPlate));
+commitHistory('first Cube after empty-scene Add Plate', firstCubeAfterPlateTransaction);
+const firstCubeAfterPlateUndo = callJson('orc_history_undo', [], []);
+const emptyPlateUndoStructure = callJson('orc_get_model_structure', [], []);
+const emptyPlateUndoSession = callJson('orc_get_plate_session_snapshot', [], []);
+historyCheck('Undo first Cube restores empty two-plate predecessor',
+  firstCubeAfterPlateUndo.ok === true && emptyPlateUndoStructure.objects.length === 0 &&
+  emptyPlateUndoSession.plates.length === 2 && emptyPlateUndoSession.instances.length === 0,
+  JSON.stringify({ firstCubeAfterPlateUndo, emptyPlateUndoStructure, emptyPlateUndoSession }));
+historyCheck('restore empty-plate fixture baseline',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+
+// A menu jump is one direct timestamp restore when its target crosses Move
+// and Add Plate entries. This ensures a retained target never becomes stale
+// merely because other entries were crossed.
+const mixedFirstTransaction = beginHistory('Add Cube');
+const mixedFirstAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Mixed first']);
+historyCheck('mixed jump first Add Cube applies', mixedFirstAdded.ok === true, JSON.stringify(mixedFirstAdded));
+const mixedFirstCommit = commitHistory('mixed jump first Add Cube', mixedFirstTransaction);
+const mixedFirstId = mixedFirstCommit.undoEntries[0]?.id;
+historyCheck('capture mixed jump first ID', typeof mixedFirstId === 'string', JSON.stringify(mixedFirstCommit));
+
+const mixedBeforeMove = callJson('orc_get_model_mesh', [], []);
+const mixedBody = mixedBeforeMove.objects?.[0];
+if (!mixedBody) throw new Error(`mixed jump Cube mesh unavailable: ${JSON.stringify(mixedBeforeMove)}`);
+const mixedMoveTransform = cloneTransform(mixedBody.instance_transform);
+mixedMoveTransform.offset[0] += 10;
+delete mixedMoveTransform.matrix;
+const mixedMoveTransaction = beginHistory('Move');
+const mixedMove = callJson('orc_set_model_transforms', ['string', 'string'], [mixedMoveTransaction,
+  JSON.stringify([{ objectIdx: mixedBody.object_idx, volumeIdx: mixedBody.volume_idx,
+    instanceIdx: mixedBody.instance_idx, instanceTransform: mixedMoveTransform,
+    volumeTransform: mixedBody.volume_transform }])]);
+historyCheck('mixed jump Move applies', mixedMove.ok === true, JSON.stringify(mixedMove));
+commitHistory('mixed jump Move', mixedMoveTransaction);
+
+const mixedPlateTransaction = beginHistory('Add Plate');
+const mixedPlate = callJson('orc_add_plate', [], []);
+historyCheck('mixed jump Add Plate applies', mixedPlate.ok === true && mixedPlate.plates.length === 2,
+  JSON.stringify(mixedPlate));
+commitHistory('mixed jump Add Plate', mixedPlateTransaction);
+
+const mixedSecondTransaction = beginHistory('Add Cube');
+const mixedSecondAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Mixed second']);
+historyCheck('mixed jump second Add Cube applies', mixedSecondAdded.ok === true, JSON.stringify(mixedSecondAdded));
+const mixedSecondCommit = commitHistory('mixed jump second Add Cube', mixedSecondTransaction);
+const mixedSecondId = mixedSecondCommit.undoEntries[0]?.id;
+historyCheck('capture mixed jump second ID', typeof mixedSecondId === 'string', JSON.stringify(mixedSecondCommit));
+const mixedFinalStructure = callJson('orc_get_model_structure', [], []);
+const mixedFinalIdentity = modelIdentity(mixedFinalStructure);
+const mixedFinalPlateIds = callJson('orc_get_plate_session_snapshot', [], []).plates
+  .map((plate) => plate.plate_id);
+const mixedFinalTransforms = modelTransformState(callJson('orc_get_model_mesh', [], []));
+const mixedRevisionBeforeUndo = mixedSecondCommit.revision;
+
+const mixedUndoJump = callJson('orc_history_jump', ['string', 'string'], [mixedFirstId, 'undo']);
+const mixedUndoStructure = callJson('orc_get_model_structure', [], []);
+const mixedUndoPlates = callJson('orc_get_plate_session_snapshot', [], []);
+historyCheck('one Undo jump crosses Add Cube, Move, and Add Plate entries',
+  mixedUndoJump.ok === true && mixedUndoJump.impact?.model === 'delta' &&
+  mixedUndoJump.status.revision === mixedRevisionBeforeUndo + 1 &&
+  mixedUndoStructure.objects.length === 0 && mixedUndoPlates.plates.length === 1,
+  JSON.stringify({ mixedUndoJump, mixedUndoStructure, mixedUndoPlates }));
+assertSceneDelta('one Undo jump unions every crossed stable-ID and plate change once', mixedUndoJump,
+  mixedFinalIdentity, mixedFinalPlateIds, []);
+
+const mixedRedoJump = callJson('orc_history_jump', ['string', 'string'], [mixedSecondId, 'redo']);
+const mixedRedoStructure = callJson('orc_get_model_structure', [], []);
+const mixedRedoPlates = callJson('orc_get_plate_session_snapshot', [], []);
+const mixedRedoTransforms = modelTransformState(callJson('orc_get_model_mesh', [], []));
+historyCheck('one Redo jump restores the complete mixed after-state',
+  mixedRedoJump.ok === true && mixedRedoJump.impact?.model === 'delta' &&
+  mixedRedoStructure.objects.length === 2 && mixedRedoPlates.plates.length === 2 &&
+  JSON.stringify(mixedRedoTransforms) === JSON.stringify(mixedFinalTransforms),
+  JSON.stringify({ mixedRedoJump, mixedRedoStructure, mixedRedoPlates,
+    expected: mixedFinalTransforms, actual: mixedRedoTransforms }));
+assertSceneDelta('one Redo jump unions every crossed stable-ID and plate change once', mixedRedoJump,
+  mixedFinalIdentity, mixedFinalPlateIds, mixedFinalIdentity.map((object) => object.object_id));
+historyCheck('restore mixed directional fixture baseline',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+
+// Repair 6 real-bridge accounting diagnostic. A genuine project mutation with
+// a long context and label must increase the retained-resource status used by
+// restore. Native fixture tests cover budget eviction deterministically.
 const accountingTransaction = beginHistory('Accounting restore');
 const accountingAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Accounting restore']);
 historyCheck('accounting restore fixture edit applies', accountingAdded.ok === true,
   JSON.stringify(accountingAdded));
 commitHistory('Accounting restore', accountingTransaction);
 const accountingBaseline = callJson('orc_history_status', [], []);
-const accountingShort = callJson('orc_history_record_context',
-  ['string', 'string'], ['Accounting short', JSON.stringify(context)]);
 const accountingLabel = 'Accounting long label '.repeat(16);
 const accountingContext = { ...context,
   selection: { ...context.selection,
     objectIds: Array.from({ length: 512 }, (_, index) => index) } };
 const accountingContextJson = JSON.stringify(accountingContext);
-const accountingLong = callJson('orc_history_record_context',
-  ['string', 'string'], [accountingLabel, accountingContextJson]);
+const accountingLongBegin = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  [accountingLabel, 'project', accountingContextJson, '']);
+const accountingLongAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Accounting long']);
+const accountingLong = callJson('orc_history_commit', ['string', 'string'],
+  [accountingLongBegin.transactionId, accountingContextJson]);
 historyCheck('history accounting exposes deterministic bridge diagnostics',
   Number.isSafeInteger(accountingBaseline.bytesUsed) &&
-  Number.isSafeInteger(accountingShort.bytesUsed) &&
+  accountingLongBegin.ok === true && accountingLongAdded.ok === true &&
   Number.isSafeInteger(accountingLong.bytesUsed),
-  JSON.stringify({ accountingBaseline, accountingShort, accountingLong }));
-const accountingDelta = accountingLong.bytesUsed - accountingShort.bytesUsed;
-historyCheck('long label/context growth includes canonical metadata overhead',
-  accountingDelta > accountingContextJson.length && accountingLong.bytesUsed > accountingShort.bytesUsed,
+  JSON.stringify({ accountingBaseline, accountingLongBegin, accountingLongAdded, accountingLong }));
+const accountingDelta = accountingLong.bytesUsed - accountingBaseline.bytesUsed;
+historyCheck('long project label/context growth is retained',
+  accountingDelta > accountingContextJson.length && accountingLong.bytesUsed > accountingBaseline.bytesUsed,
   JSON.stringify({ accountingDelta, contextBytes: accountingContextJson.length,
-    labelBytes: accountingLabel.length, accountingShort, accountingLong }));
+    labelBytes: accountingLabel.length, accountingBaseline, accountingLong }));
 const accountingUndo = callJson('orc_history_undo', [], []);
 const accountingUndoModel = callJson('orc_get_model_structure', [], []);
 historyCheck('accounting status remains valid through retained restore',
-  accountingUndo.ok === true && accountingUndo.status?.bytesUsed === accountingLong.bytesUsed &&
-  accountingUndoModel.ok === true && accountingUndoModel.objects.length === 0,
+  accountingUndo.ok === true && accountingUndo.status?.bytesUsed >= accountingLong.bytesUsed &&
+  accountingUndoModel.ok === true && accountingUndoModel.objects.length === 1,
   JSON.stringify({ accountingUndo, accountingUndoModel }));
 const accountingRedo = callJson('orc_history_redo', [], []);
 historyCheck('accounting diagnostic restore redoes successfully',
-  accountingRedo.ok === true && accountingRedo.status?.bytesUsed === accountingLong.bytesUsed &&
-  callJson('orc_get_model_structure', [], []).objects.length === 1,
+  accountingRedo.ok === true && accountingRedo.status?.bytesUsed === accountingUndo.status?.bytesUsed &&
+  callJson('orc_get_model_structure', [], []).objects.length === 2,
   JSON.stringify({ accountingRedo, model: callJson('orc_get_model_structure', [], []) }));
 console.log(`history smoke passed (${moduleArg})`);

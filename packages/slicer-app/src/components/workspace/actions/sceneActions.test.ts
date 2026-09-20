@@ -12,12 +12,24 @@ vi.mock('@orca/slicer-runtime', () => ({
 
 import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { glVolumeCollection } from '../viewport/GLVolume';
+
+// Model loading is owned by the viewport; publish its revision at the store
+// boundary so action tests exercise the same wait as production.
+let unsubscribeModelPublication: (() => void) | undefined;
+beforeEach(() => {
+  glVolumeCollection.clear(useSettingsStore.getState().modelRevision);
+  unsubscribeModelPublication = useSettingsStore.subscribe((state) => {
+    glVolumeCollection.clear(state.modelRevision);
+  });
+});
+afterEach(() => { unsubscribeModelPublication?.(); });
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
   const addModel = vi.fn(async (_bytes: Uint8Array, _ext: string, _name: string) => result);
   const runProjectHistoryTransaction = vi.fn(async <T>(
     _label: string,
-    _category: 'project' | 'context',
+    _category: 'project',
     _before: unknown,
     mutation: (transactionId: string) => Promise<T>,
     _after: unknown | (() => unknown | Promise<unknown>),
@@ -117,7 +129,7 @@ describe('scene add-model action', () => {
     });
     const runProjectHistoryTransaction = vi.fn(async <T>(
       _label: string,
-      _category: 'project' | 'context',
+      _category: 'project',
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),

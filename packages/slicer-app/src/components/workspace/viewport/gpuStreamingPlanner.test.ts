@@ -217,7 +217,7 @@ describe('GPU streaming source adapter and page planner', () => {
     });
     expect(plan.diagnostics.texelSchema.texelsPerSegment).toBe(4);
     expect(plan.diagnostics.hardCapacity).toBe(Math.floor(64 / 3));
-    expect(plan.pages.every((page) => page.atlasWidth <= 8)).toBe(true);
+    expect(plan.pages.every((page) => page.geometryAtlasWidth <= 8 && page.identityAtlasWidth <= 8)).toBe(true);
     expect(plan.diagnostics.allocatedBytes).toBeNull();
   });
 });

@@ -4,7 +4,6 @@ import { projectSelection } from '../objectList/projection';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
-import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
 import { applySettledTransformSyncResult } from './persistModelTransforms';
@@ -195,6 +194,7 @@ export class TransformHistoryCoordinator {
       undefined,
       async () => { await this.reconcile?.(); },
       async () => this.validateReservation(next),
+      'history-revision',
     );
     void next.task.then((response) => {
       if (response.result.ok) this.finish(next, { outcome: 'committed' });
@@ -238,7 +238,12 @@ export class TransformHistoryCoordinator {
   }
 
   private captureTransforms(): Parameters<typeof syncModelTransforms>[1] {
-    return glVolumeCollection.volumes.map((volume) => ({
+    // A history gesture owns only the selection it mutates. Sending every
+    // rendered CompositeID made a one-object move scale with the entire
+    // project and duplicated unchanged transforms across JS, Worker JSON and
+    // WASM validation. The stable-ID reservation below still proves that each
+    // selected target is the same native entity at release time.
+    return this.sceneInteraction.selectedVolumes().map((volume) => ({
       buffer: { objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx },
       instanceTransform: structuredClone(volume.instanceTransform),
       volumeTransform: structuredClone(volume.volumeTransform),

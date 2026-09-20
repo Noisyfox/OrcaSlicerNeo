@@ -125,15 +125,6 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
-  /**
-   * A selected body may still turn the current pointer press into a drag.
-   * Context-only history must not take the project lease during this short
-   * arbitration window, or it rejects the same gesture's transform draft.
-   */
-  get bodySelectionHistoryState(): 'idle' | 'pending' | 'dragging' {
-    if (this.pointerOwner === 'body') return 'dragging';
-    return this.pendingBodyDragHit === null ? 'idle' : 'pending';
-  }
   get selectionMode(): SelectionMode { return this.selectionModeState; }
   /** Distinct selected instances — the panels' multi-selection display rule. */
   get selectionInstanceCount(): number {
@@ -298,19 +289,23 @@ export class SceneInteractionController {
     if (selectedSet.size === 0) return 'empty';
 
     const perInstance = new Map<string, number>(); // total volumes per (obj, inst)
+    const volumesById = new Map<string, GLVolume>();
     for (const volume of this.getVolumes()) {
       const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
       perInstance.set(key, (perInstance.get(key) ?? 0) + 1);
+      volumesById.set(volume.id, volume);
     }
 
     const touched = new Map<string, number>(); // selected count per (obj, inst)
     const touchedObjects = new Set<number>();
     for (const id of selectedSet) {
-      const [oiStr, , iiStr] = id.split(':');
-      const key = `${oiStr}:${iiStr}`;
+      const volume = volumesById.get(id);
+      if (!volume) continue;
+      const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
       touched.set(key, (touched.get(key) ?? 0) + 1);
-      touchedObjects.add(Number(oiStr));
+      touchedObjects.add(volume.buffer.objectIdx);
     }
+    if (touched.size === 0) return 'empty';
 
     // Mode homogeneity: a partial instance is the only thing that can be part-
     // scoped. It is valid only as a lone part set (one object, one instance).
@@ -723,7 +718,11 @@ export class SceneInteractionController {
   }
 
   /** Project a Worker-owned stable-ID history context onto fresh GL volumes. */
-  restoreHistoryContext(context: HistoryContext, structure: ModelStructureResult): void {
+  restoreHistoryContext(
+    context: HistoryContext,
+    structure: ModelStructureResult,
+    fallbackSelectionIds: readonly string[] = [],
+  ): void {
     this.cancelDrag();
     const objectIds = new Set(context.selection.objectIds);
     const partIds = new Set(context.selection.partIds);
@@ -734,14 +733,28 @@ export class SceneInteractionController {
       for (const volume of object.volumes) {
         if (objectSelected || partIds.has(volume.id)) {
           for (const instance of object.instances)
-            selected.add(`${object.index}:${volume.index}:${instance.index}`);
+            selected.add(`${object.id}:${volume.id}:${instance.id}`);
         }
       }
       for (const instance of object.instances) {
         if (!instanceIds.has(instance.id)) continue;
         for (const volume of object.volumes)
-          selected.add(`${object.index}:${volume.index}:${instance.index}`);
+          selected.add(`${object.id}:${volume.id}:${instance.id}`);
       }
+    }
+    // Sparse Move history frames carry transforms and the normalized native
+    // session, but may not carry the renderer's selection context for the
+    // baseline frame. Keep the active Move selection in that one case so the
+    // restored bounds/pivot remain tied to the moved volumes. IDs are checked
+    // against the retained structure before being accepted.
+    if (selected.size === 0 && fallbackSelectionIds.length > 0) {
+      const renderedIds = new Set<string>();
+      for (const object of structure.objects)
+        for (const volume of object.volumes)
+          for (const instance of object.instances)
+            renderedIds.add(`${object.id}:${volume.id}:${instance.id}`);
+      for (const id of fallbackSelectionIds)
+        if (renderedIds.has(id)) selected.add(id);
     }
     this.selectionModeState = context.selection.mode === 'part' ? 'volume' : context.selection.mode;
     this.selection.replaceIds([...selected]);

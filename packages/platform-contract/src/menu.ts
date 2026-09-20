@@ -68,6 +68,8 @@ export interface MenuStateSnapshot {
     status: MenuSlicerStatus;
     progress: number;
     error: string | null;
+    /** Missing/unknown is treated conservatively as serial while slicing. */
+    threaded?: boolean | null;
   };
   scene: {
     hasModel: boolean;
@@ -94,7 +96,6 @@ export interface MenuProjectState {
     message?: string;
     cancellable: boolean;
   };
-  flattenedMultiPlate: boolean;
 }
 
 /** Shared-app-to-host menu synchronization and host command boundary. */

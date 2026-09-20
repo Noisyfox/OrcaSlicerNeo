@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/printer-control';
 import { SendGcodeDialog } from './SendGcodeDialog';
 import { useSlicerStore } from '../../stores/useSlicerStore';
+import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 
 // jsdom does not provide PointerEvent, while Base UI's checkbox click path
 // constructs one to preserve pointer modifiers.
@@ -43,7 +44,10 @@ function makePlatform(
   preferenceValue: UserPreferences = { version: 1, selectedProfiles: {}, ui: {} },
 ) {
   let preferences = preferenceValue;
-  const runtime = { exportGcode: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })) };
+  const runtime = {
+    getPlateSessionSnapshot: vi.fn(async () => usePlateSessionStore.getState().snapshot!),
+    exportGcodePlate: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
+  };
   return {
     platform: {
       preferences: {
@@ -97,6 +101,16 @@ async function choosePrinter(container: HTMLElement, id: string) {
 
 describe('SendGcodeDialog', () => {
   let roots: Root[] = [];
+  beforeEach(() => {
+    const receipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' };
+    usePlateSessionStore.getState().setSnapshot({ ok: true, version: 1, currentPlateId: 'plate-1',
+      plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'Plate 1', origin: [0, 0, 0], instanceIds: [1] }],
+      instances: [{ instanceId: 1, objectId: 1, objectIndex: 0, instanceIndex: 0,
+        plateId: 'plate-1', member: true, unprintable: false, outOfBounds: false }],
+      inputRevisions: { 'plate-1': 1 } });
+    useSlicerStore.setState({ sliceTarget: { plateId: 'plate-1', inputRevision: 1 },
+      plateResults: { 'plate-1': { target: { plateId: 'plate-1', inputRevision: 1 }, receipt, warnings: [] } } });
+  });
   afterEach(() => {
     vi.useRealTimers();
     roots.forEach((root) => root.unmount());
@@ -114,7 +128,7 @@ describe('SendGcodeDialog', () => {
     expect(container.textContent).not.toContain('secret-key-must-not-render');
     await click(container, 'send-submit');
     expect(transport.requests.map((request) => request.url)).toEqual(['http://printer.local:7125/server/files/upload']);
-    expect(runtime.exportGcode).toHaveBeenCalledOnce();
+    expect(runtime.exportGcodePlate).toHaveBeenCalledOnce();
     expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('uploaded');
     expect((platform.printers.configuration.save as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });

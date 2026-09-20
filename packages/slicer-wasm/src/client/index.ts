@@ -1,5 +1,6 @@
+/// <reference path="../env.d.ts" />
 // packages/slicer-wasm/src/client/index.ts
-export { createClient } from './client';
+export { createClient, normalizeHistoryContext } from './client';
 export { startWorker, createWorkerClient } from './worker';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
@@ -11,6 +12,7 @@ export type {
   FilamentSessionRevisions, FilamentSessionStatus, FilamentSessionSnapshot,
   FilamentSessionSnapshotError, FilamentSessionSnapshotResult,
   AtomicCommandSuccessEnvelope, AtomicCommandErrorEnvelope, AtomicCommandResult,
+  NativePrimeTowerProjectionStage, NativePerformanceSample, NativePerformanceProfile,
   FilamentMutationSummary, FilamentMutationResult, FilamentMutationResultOrError,
   FilamentCommandRequest, FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
@@ -26,13 +28,14 @@ export type {
   ProjectConfigOverlayResult, ProjectConfigOverlayError, ProjectConfigOverlayResultOrError,
   ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
-  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform, ModelTransformMutation,
+  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelTransform, ModelTransformMutation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   ModelInstanceStructure, VolumeType,
-  SliceResultStatus, PlateOperationTarget, ClientSliceResult, ClientToolpath,
+  SliceResultStatus, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
+  ClientSliceResult, ClientToolpath,
   ToolpathFeature, PreviewLayerRange, PreviewPaletteEntry, PreviewMetadata,
   PreviewToolpathMetrics, PreviewMetricKey, PreviewMetricRange,
   PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewAnalysis,
@@ -45,8 +48,7 @@ export type {
   HistoryGizmoContext, HistoryContext, HistoryCategory, HistoryEntryCategory, HistoryKind,
   HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryJumpDirection, HistoryEntrySummary,
   HistoryStatus, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
-  RestoreResult, RestoreImpact, HistoryTimingDiagnostic, HistoryDiagnosticLayer, HistoryReadDiagnosticLayer,
-  PrimeTowerRestoreReceipt, PrimeTowerRestoreAvailableReceipt, PrimeTowerRestoreClearedReceipt,
+  RestoreResult, RestoreImpact, SceneDelta, HistoryTimingDiagnostic, HistoryDiagnosticLayer, HistoryReadDiagnosticLayer,
   HistoryTransportDiagnostics, HistoryRuntimeMethods, MockHistoryRuntime, HistoryMutation,
 } from './history';
 export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';

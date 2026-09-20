@@ -4,6 +4,22 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('Web memory indicator shows a transparent total or JS-heap fallback with shared details', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  const indicator = page.getByTestId('memory-indicator');
+  if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
+    await expect(indicator).toHaveText(/^JS heap estimate: \d/, { timeout: 30_000 });
+  } else {
+    await expect(indicator).toHaveText(/^(Memory|JS heap estimate): \d/, { timeout: 30_000 });
+  }
+  await indicator.click();
+  const popup = page.getByTestId('memory-indicator-popup');
+  await expect(popup).toContainText('Shared runtime diagnostics');
+  await expect(popup).toContainText('Renderer JS heap');
+  await expect(popup).toContainText('WASM linear-memory capacity');
+});
+
 // This suite intentionally has no mock mode. The staging step must have
 // published both real wasm64 variants before either invocation is run.
 test('real Web flow: import DRC → profile → slice → layer → G-code download', async ({ page }) => {
@@ -404,6 +420,82 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
 });
 
 test('multi-plate Preview renders only the current plate in world coordinates', async ({ page }) => {
+  // This scenario intentionally performs two real native slices so both
+  // retained cores can be revisited. Each phase has its own timeout; the test
+  // timeout remains only a final runaway guard.
+  test.setTimeout(15 * 60_000);
+  const timeline: Array<{ phase: string; elapsedMs: number }> = [];
+  let currentPhase = 'initialization';
+  const failureDiagnostics = async () => page.evaluate(() => ({
+    readyState: document.readyState,
+    status: document.querySelector('[data-testid="slicer-status"]')?.textContent ?? null,
+    error: document.querySelector('[data-testid="slicer-error"]')?.textContent ?? null,
+    projection: document.querySelector('[data-testid="viewport"]')?.getAttribute('data-preview-projection-state') ?? null,
+    previewMessage: document.querySelector('[role="status"]')?.textContent ?? null,
+    plates: [...document.querySelectorAll('[data-testid^="preview-plate-"]')].map((element) => ({
+      testId: element.getAttribute('data-testid'),
+      selected: element.getAttribute('aria-selected'),
+      status: element.getAttribute('data-plate-status'),
+    })),
+    worker: (window as unknown as { __previewWorkerDiagnostics?: unknown }).__previewWorkerDiagnostics ?? null,
+  }));
+  const boundedFailureDiagnostics = () => Promise.race([
+    failureDiagnostics(),
+    new Promise<{ diagnosticError: string }>((resolveDiagnostic) => setTimeout(
+      () => resolveDiagnostic({ diagnosticError: 'diagnostic snapshot timed out after 5s' }), 5_000,
+    )),
+  ]);
+  const phaseStep = async <T,>(phase: string, timeout: number, action: () => Promise<T>): Promise<T> => {
+    currentPhase = phase;
+    const startedAt = Date.now();
+    try {
+      const result = await test.step(phase, action, { timeout });
+      const elapsedMs = Date.now() - startedAt;
+      timeline.push({ phase, elapsedMs });
+      console.log(`[multi-preview timing] ${phase}: ${elapsedMs} ms`);
+      return result;
+    } catch (cause) {
+      const diagnostics = page.isClosed() ? { pageClosed: true } : await boundedFailureDiagnostics().catch((error) => ({
+        diagnosticError: String(error),
+      }));
+      const detail = cause instanceof Error ? cause.stack ?? cause.message : String(cause);
+      throw new Error(`${phase} failed\n${JSON.stringify({ currentPhase, timeline, ...diagnostics }, null, 2)}\n${detail}`);
+    }
+  };
+  const markBrowserMilestone = (label: string) => page.evaluate((milestone) => {
+    const diagnosticWindow = window as unknown as { __previewWorkerDiagnostics?: {
+      paints?: Array<{ label: string; atMs: number }>;
+    } };
+    diagnosticWindow.__previewWorkerDiagnostics?.paints?.push({ label: milestone, atMs: performance.now() });
+  }, label);
+  const waitForSliceTerminal = async (plate: string) => phaseStep(`${plate}: native slice terminal`, 180_000, async () => {
+    await expect(page.getByTestId('slicer-status')).toHaveText(/Slicing…|Sliced|Error/);
+    await expect(page.getByTestId('slicer-status')).toHaveText(/Sliced|Error/, { timeout: 170_000 });
+    // Query the optional error node without a locator wait. `textContent()` on
+    // an absent locator waits until the enclosing phase timeout before its
+    // rejection reaches `.catch()`, which looked like a post-slice UI hang.
+    const { status, error } = await page.evaluate(() => ({
+      status: document.querySelector('[data-testid="slicer-status"]')?.textContent ?? null,
+      error: document.querySelector('[data-testid="slicer-error"]')?.textContent ?? null,
+    }));
+    expect(status, error ?? undefined).toBe('Sliced');
+    await markBrowserMilestone(`${plate}: slice status painted`);
+  });
+  const waitForInteractionReady = async (plate: string) => phaseStep(`${plate}: React paint and interaction ready`, 60_000, async () => {
+    const probeStartedAt = Date.now();
+    const paint = await page.evaluate((label) => new Promise<{ atMs: number; frameDelayMs: number }>((resolve) => {
+      const startedAt = performance.now();
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const atMs = performance.now();
+        const diagnosticWindow = window as unknown as { __previewWorkerDiagnostics?: {
+          paints?: Array<{ label: string; atMs: number }>;
+        } };
+        diagnosticWindow.__previewWorkerDiagnostics?.paints?.push({ label, atMs });
+        resolve({ atMs, frameDelayMs: atMs - startedAt });
+      }));
+    }), `${plate}: interaction ready`);
+    console.log(`[multi-preview timing] ${plate}: double-rAF ${paint.frameDelayMs.toFixed(1)} ms, Playwright round trip ${Date.now() - probeStartedAt} ms`);
+  });
   await page.addInitScript(() => {
     localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
       version: 1,
@@ -411,18 +503,83 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
       selectedProfiles: {},
       ui: {},
     }));
-  });
-  await page.goto('/');
-  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
-  await page.locator('#app-tab-prepare').click();
-  await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: 120_000 });
+    const diagnostics = {
+      events: [] as Array<Record<string, unknown>>,
+      lastReceipt: null as unknown,
+      paints: [] as Array<{ label: string; atMs: number }>,
+    };
+    (window as unknown as { __previewWorkerDiagnostics: typeof diagnostics }).__previewWorkerDiagnostics = diagnostics;
+    const NativeWorker = window.Worker;
+    const requests = new Map<number, string>();
+    window.Worker = class DiagnosticWorker extends NativeWorker {
+      constructor(scriptURL: string | URL, options?: WorkerOptions) {
+        super(scriptURL, options);
+        this.addEventListener('message', (event: MessageEvent<unknown>) => {
+          const message = event.data as { type?: unknown; id?: unknown; ok?: unknown; result?: unknown; error?: unknown };
+          if (message?.type !== 'response' || typeof message.id !== 'number') return;
+          const operation = requests.get(message.id) ?? 'unknown';
+          const result = message.result as {
+            ok?: unknown; status?: unknown; receipt?: unknown; objects?: unknown; layers?: unknown; error?: unknown;
+            toolpath?: { segmentCount?: unknown };
+          } | undefined;
+          if (result?.receipt) diagnostics.lastReceipt = result.receipt;
+          const buffers = new Set<ArrayBufferLike>();
+          const visited = new WeakSet<object>();
+          const collectBufferBytes = (value: unknown): void => {
+            if (!value || typeof value !== 'object') return;
+            if (ArrayBuffer.isView(value)) {
+              buffers.add(value.buffer);
+              return;
+            }
+            if (value instanceof ArrayBuffer) {
+              buffers.add(value);
+              return;
+            }
+            if (visited.has(value)) return;
+            visited.add(value);
+            for (const nested of Object.values(value)) collectBufferBytes(nested);
+          };
+          collectBufferBytes(result);
+          diagnostics.events.push({ direction: 'response', atMs: performance.now(), id: message.id, operation, ok: message.ok,
+            result: result ? { ok: result.ok, status: result.status, receipt: result.receipt,
+              objects: result.objects, layers: result.layers, error: result.error,
+              segmentCount: result.toolpath?.segmentCount,
+              transferBytes: [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0) } : undefined,
+            error: message.error });
+          if (diagnostics.events.length > 64) diagnostics.events.shift();
+        });
+      }
 
-  const chooser = page.waitForEvent('filechooser');
-  await page.getByTestId('btn-add-model').click();
-  await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
-  await expect(page.getByTestId('btn-slice')).toBeEnabled();
-  await page.getByTestId('add-plate').click();
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+      postMessage(message: unknown, transferOrOptions?: Transferable[] | StructuredSerializeOptions): void {
+        const request = message as { type?: unknown; id?: unknown; op?: unknown };
+        if (request?.type === 'request' && typeof request.id === 'number' && typeof request.op === 'string') {
+          requests.set(request.id, request.op);
+          diagnostics.events.push({ direction: 'request', atMs: performance.now(), id: request.id, operation: request.op });
+          if (diagnostics.events.length > 64) diagnostics.events.shift();
+        }
+        if (transferOrOptions === undefined) super.postMessage(message);
+        else if (Array.isArray(transferOrOptions)) super.postMessage(message, transferOrOptions);
+        else super.postMessage(message, transferOrOptions);
+      }
+    };
+  });
+  await phaseStep('runtime bootstrap', 180_000, async () => {
+    await page.goto('/');
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 170_000 });
+  });
+  await phaseStep('enter Prepare', 60_000, async () => {
+    await page.locator('#app-tab-prepare').click({ timeout: 30_000 });
+    await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: 30_000 });
+  });
+
+  await phaseStep('plate 1: model load and plate 2 creation', 180_000, async () => {
+    const chooser = page.waitForEvent('filechooser', { timeout: 30_000 });
+    await page.getByTestId('btn-add-model').click({ timeout: 30_000 });
+    await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 120_000 });
+    await page.getByTestId('add-plate').click({ timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)', { timeout: 30_000 });
+  });
   const beds = await page.evaluate(() => (window as unknown as {
     __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number]; bounds: { minX: number; maxX: number; minY: number; maxY: number } }> };
   }).__orcaE2e?.bedPlateStates?.() ?? []);
@@ -430,15 +587,19 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
   const plate2 = beds.find((bed) => bed.current);
   if (!plate1?.plateId || !plate2?.plateId) throw new Error('multi-plate identities are unavailable');
 
-  const secondChooser = page.waitForEvent('filechooser');
-  await page.getByTestId('btn-add-model').click();
-  await (await secondChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
-  await expect(page.getByTestId('btn-slice')).toBeEnabled();
-  await page.getByTestId('btn-slice').click();
-  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
-
-  await page.locator('#app-tab-preview').click();
-  await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
+  await phaseStep('plate 2: model load and slice dispatch', 180_000, async () => {
+    const secondChooser = page.waitForEvent('filechooser', { timeout: 30_000 });
+    await page.getByTestId('btn-add-model').click({ timeout: 30_000 });
+    await (await secondChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 120_000 });
+    await page.getByTestId('btn-slice').click({ timeout: 30_000 });
+    // Slice owns Preview navigation. Waiting for the selected tab is the
+    // observable terminal; clicking the already-selected tab again obscured
+    // whether the renderer was merely busy finishing its first paint.
+    await expect(page.locator('#app-tab-preview')).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+    await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
+  });
+  await waitForSliceTerminal('plate 2');
   const readBeds = () => page.evaluate(() => (window as unknown as {
     __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number]; bounds: { minX: number; maxX: number; minY: number; maxY: number } }> };
   }).__orcaE2e?.bedPlateStates?.() ?? []);
@@ -452,11 +613,19 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
     __orcaE2e?: { cameraState?: () => { target: [number, number, number] } };
   }).__orcaE2e?.cameraState?.().target ?? null);
 
-  await expect.poll(readBeds).toEqual([
-    expect.objectContaining({ plateId: plate2.plateId, current: true }),
-  ]);
-  await expect.poll(readModels).toHaveLength(1);
-  await expect.poll(readToolpathBounds).not.toBeNull();
+  await phaseStep('plate 2: renderer projection terminal', 180_000, async () => {
+    await expect(page.getByTestId('viewport')).toHaveAttribute(
+      'data-preview-projection-state', /ready|failed/, { timeout: 120_000 },
+    );
+    await expect(page.getByTestId('viewport')).toHaveAttribute('data-preview-projection-state', 'ready');
+    await markBrowserMilestone('plate 2: projection DOM ready');
+    await expect.poll(readBeds, { timeout: 30_000 }).toEqual([
+      expect.objectContaining({ plateId: plate2.plateId, current: true }),
+    ]);
+    await expect.poll(readModels, { timeout: 30_000 }).toHaveLength(1);
+    await expect.poll(readToolpathBounds, { timeout: 30_000 }).not.toBeNull();
+  });
+  await waitForInteractionReady('plate 2');
   const plate2Bounds = await readToolpathBounds();
   if (!plate2Bounds) throw new Error('plate 2 preview bounds are unavailable');
   const bed2 = beds.find((bed) => bed.plateId === plate2.plateId)!;
@@ -470,7 +639,7 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
 
   // Preview exposes the same authoritative plate selection transaction in its
   // left sidebar. The first plate is valid but unsliced, so selecting it must
-  // retain Preview and let the existing coordinator slice that target.
+  // release plate 2's renderer projection and show the explicit empty state.
   const plateList = page.getByTestId('preview-plate-list');
   await expect(plateList).toBeVisible();
   const plate1Option = page.getByTestId(`preview-plate-${plate1.plateId}`);
@@ -478,15 +647,34 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
   await expect(plate2Option).toHaveAttribute('aria-selected', 'true');
   await expect(plate2Option).toHaveAttribute('data-plate-status', 'sliced');
   await expect(plate1Option).toHaveAttribute('data-plate-status', 'unsliced');
-  await plate1Option.click();
-  await expect(plate1Option).toHaveAttribute('aria-selected', 'true');
-  await expect(plate2Option).toHaveAttribute('aria-selected', 'false');
-  await expect.poll(readBeds).toEqual([
-    expect.objectContaining({ plateId: plate1.plateId, current: true }),
-  ]);
-  await expect.poll(readModels).toHaveLength(1);
-  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
-  await expect.poll(readToolpathBounds).not.toBeNull();
+  await phaseStep('plate 1: unsliced activation terminal', 90_000, async () => {
+    await plate1Option.click({ timeout: 30_000 });
+    await expect(plate1Option).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+    await expect(plate2Option).toHaveAttribute('aria-selected', 'false', { timeout: 30_000 });
+    await expect.poll(readBeds, { timeout: 30_000 }).toEqual([
+      expect.objectContaining({ plateId: plate1.plateId, current: true }),
+    ]);
+    await expect.poll(readModels, { timeout: 30_000 }).toHaveLength(1);
+    await expect(page.getByTestId('viewport')).toHaveAttribute(
+      'data-preview-projection-state', 'needs-slicing', { timeout: 30_000 },
+    );
+    await expect(page.getByTestId('viewport').getByRole('status'))
+      .toHaveText('Needs slicing', { timeout: 30_000 });
+    await expect.poll(readToolpathBounds, { timeout: 30_000 }).toBeNull();
+  });
+  await phaseStep('plate 1: slice dispatch', 60_000, async () => {
+    await page.getByTestId('btn-slice').click({ timeout: 30_000 });
+  });
+  await waitForSliceTerminal('plate 1');
+  await phaseStep('plate 1: renderer projection terminal', 180_000, async () => {
+    await expect(page.getByTestId('viewport')).toHaveAttribute(
+      'data-preview-projection-state', /ready|failed/, { timeout: 120_000 },
+    );
+    await expect(page.getByTestId('viewport')).toHaveAttribute('data-preview-projection-state', 'ready');
+    await markBrowserMilestone('plate 1: projection DOM ready');
+    await expect.poll(readToolpathBounds, { timeout: 30_000 }).not.toBeNull();
+  });
+  await waitForInteractionReady('plate 1');
   const plate1Bounds = await readToolpathBounds();
   if (!plate1Bounds) throw new Error('plate 1 preview bounds are unavailable');
   const bed1 = beds.find((bed) => bed.plateId === plate1.plateId)!;
@@ -501,27 +689,58 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
   // than the one native Print currently held by the worker. This catches the
   // multi-plate case where both results are complete and the user switches
   // away from the plate whose native result was loaded most recently.
-  await page.getByTestId('viewport').focus();
-  await page.keyboard.press('c');
-  await expect(page.getByTestId('gcode-text-window')).toBeVisible();
-  await expect(page.locator('[data-testid^="gcode-line-"]').first()).toContainText(/\S/);
-  await expect.poll(readCameraTarget).not.toBeNull();
+  await phaseStep('plate 1: text projection terminal', 90_000, async () => {
+    await page.getByTestId('viewport').focus();
+    await page.keyboard.press('c');
+    await expect(page.getByTestId('gcode-text-window')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid^="gcode-line-"]').first()).toContainText(/\S/, { timeout: 30_000 });
+    await expect.poll(readCameraTarget, { timeout: 30_000 }).not.toBeNull();
+  });
   const plate1CameraTarget = await readCameraTarget();
   if (!plate1CameraTarget) throw new Error('plate 1 camera target is unavailable');
   // Selecting and slicing the other plate must not advance plate 2's input
   // revision: its retained result remains sliced when it becomes inactive.
-  await plate2Option.click();
-  await expect(plate2Option).toHaveAttribute('aria-selected', 'true');
-  await expect(plate2Option).toHaveAttribute('data-plate-status', 'sliced');
-  await expect(plate1Option).toHaveAttribute('data-plate-status', 'sliced');
-  await expect.poll(readCameraTarget).toEqual([
-    plate1CameraTarget[0] + (plate2.position[0] - plate1.position[0]),
-    plate1CameraTarget[1] + (plate2.position[1] - plate1.position[1]),
-    plate1CameraTarget[2],
-  ]);
-  await expect(page.getByTestId('gcode-text-window')).toBeVisible();
-  await expect(page.locator('[data-testid^="gcode-line-"]').first()).toContainText(/\S/);
-  await expect(page.getByTestId('gcode-text-window')).not.toContainText('preview text page is unavailable');
+  await phaseStep('plate 2: retained projection revisit terminal', 180_000, async () => {
+    await plate2Option.click({ timeout: 30_000 });
+    await expect(plate2Option).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+    await expect(plate2Option).toHaveAttribute('data-plate-status', 'sliced', { timeout: 30_000 });
+    await expect(plate1Option).toHaveAttribute('data-plate-status', 'sliced', { timeout: 30_000 });
+    await expect(page.getByTestId('viewport')).toHaveAttribute(
+      'data-preview-projection-state', /ready|failed/, { timeout: 120_000 },
+    );
+    await expect(page.getByTestId('viewport')).toHaveAttribute('data-preview-projection-state', 'ready');
+    await markBrowserMilestone('plate 2 revisit: projection DOM ready');
+    await expect.poll(readCameraTarget, { timeout: 30_000 }).toEqual([
+      plate1CameraTarget[0] + (plate2.position[0] - plate1.position[0]),
+      plate1CameraTarget[1] + (plate2.position[1] - plate1.position[1]),
+      plate1CameraTarget[2],
+    ]);
+    await expect(page.getByTestId('gcode-text-window')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid^="gcode-line-"]').first()).toContainText(/\S/, { timeout: 30_000 });
+    await expect(page.getByTestId('gcode-text-window')).not.toContainText(
+      'preview text page is unavailable', { timeout: 30_000 },
+    );
+  });
+  await waitForInteractionReady('plate 2 revisit');
+  const performanceEvidence = await page.evaluate(() => {
+    const diagnostics = (window as unknown as { __previewWorkerDiagnostics?: {
+      events: Array<{ direction?: unknown; atMs?: unknown; operation?: unknown; result?: {
+        segmentCount?: unknown; transferBytes?: unknown;
+      } }>;
+      paints: Array<{ label: string; atMs: number }>;
+    } }).__previewWorkerDiagnostics;
+    return {
+      workerTerminals: diagnostics?.events.filter((event) => event.direction === 'response' &&
+        (event.operation === 'slicePlate' || event.operation === 'getSliceResult')).map((event) => ({
+          operation: event.operation,
+          atMs: event.atMs,
+          segmentCount: event.result?.segmentCount,
+          transferBytes: event.result?.transferBytes,
+        })) ?? [],
+      browserMilestones: diagnostics?.paints ?? [],
+    };
+  });
+  console.log(`[multi-preview timing] performance evidence ${JSON.stringify(performanceEvidence)}`);
 });
 
 test('GPU streaming preview: native renderer is the default backend', async ({ page }) => {

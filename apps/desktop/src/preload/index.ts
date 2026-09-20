@@ -57,6 +57,10 @@ const bridge: ElectronBridge = {
     save: (json: unknown) => ipcRenderer.invoke(Ipc.preferencesSave, json) as Promise<void>,
   },
 
+  memory: {
+    sample: () => ipcRenderer.invoke(Ipc.memorySample) as Promise<import('../shared/ipc').ElectronMemoryIpcSnapshot>,
+  },
+
   printers: {
     configuration: {
       load: () => ipcRenderer.invoke(Ipc.printerConfigurationLoad) as Promise<PrinterConfigurationDocument>,

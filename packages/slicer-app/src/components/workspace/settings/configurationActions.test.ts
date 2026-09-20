@@ -7,6 +7,7 @@ import { commitOptionFieldChange } from './OptionField';
 import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 
 const mutation = {
+  instances: [],
   ok: true as const,
   version: 1 as const,
   currentPlateId: 'plate-1',
@@ -21,7 +22,7 @@ const mutation = {
 
 function runProjectHistoryTransaction<T>(
   _label: string,
-  _category: 'project' | 'context',
+  _category: 'project',
   _before: unknown,
   mutationCallback: (transactionId: string) => Promise<T>,
   _after: unknown | (() => unknown | Promise<unknown>),
@@ -91,10 +92,9 @@ describe('commitSharedConfigurationMutation', () => {
   });
 
   it('invalidates only the native affected plate for a scoped model override', async () => {
-    const result = { ok: true, objects: 1, layers: 1, toolpath: {}, metadata: {} } as any;
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputRevision: 1 }, result);
-    slicer.setPlateResult({ plateId: 'plate-2', inputRevision: 1 }, result);
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
     const setOverride = vi.fn(async () => ({
       ok: true as const,
       overlay: { project: {}, objects: { '42': { layer_height: '0.15' } }, parts: {}, plates: {} },
@@ -106,10 +106,9 @@ describe('commitSharedConfigurationMutation', () => {
   });
 
   it('treats an explicit empty native affected set as a scoped no-op', () => {
-    const result = { ok: true, objects: 1, layers: 1, toolpath: {}, metadata: {} } as any;
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputRevision: 1 }, result);
-    slicer.setPlateResult({ plateId: 'plate-2', inputRevision: 1 }, result);
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
 
     invalidateAfterSharedConfigurationMutation([]);
 

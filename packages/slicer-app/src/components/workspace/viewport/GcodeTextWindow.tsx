@@ -19,6 +19,9 @@ const OVERSCAN_ROWS = 8;
 const PAGE_LINES = 128;
 const MAX_CACHED_PAGES = 6;
 const SCROLL_IDLE_DELAY_MS = 160;
+// Browser layout engines cap individual scroll coordinates. Keep well below
+// Chrome's limit and map this physical track onto the logical line range.
+const MAX_PHYSICAL_SCROLL_TOP = 16 * 1024 * 1024;
 const DEFAULT_WINDOW_WIDTH = 560;
 const DEFAULT_WINDOW_HEIGHT = VIEWPORT_HEIGHT + 36 + 28;
 const MIN_WINDOW_WIDTH = 320;
@@ -140,6 +143,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const setPreviewLayerEnd = useSlicerStore((state) => state.setPreviewLayerEnd);
   const setPreviewMoveEnd = useSlicerStore((state) => state.setPreviewMoveEnd);
   const [scrollTop, setScrollTop] = useState(0);
+  const [physicalScrollTop, setPhysicalScrollTop] = useState(0);
   const [cacheVersion, setCacheVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,10 +168,19 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const activeMove = findPreviewMove(data, inspectionIndex, preview.visibleLayerEnd, preview.activeMoveEnd);
   const activeLine = activeMove === null || !sourceIndex ? null : sourceLineForPreviewMove(data, sourceIndex, activeMove);
   const totalRows = Math.max(1, lineCount);
-  const firstRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS);
   const textViewportHeight = Math.max(120, geometry.height - 36 - 28);
+  const logicalContentHeight = totalRows * ROW_HEIGHT;
+  const logicalMaxScrollTop = Math.max(0, logicalContentHeight - textViewportHeight);
+  const physicalMaxScrollTop = Math.min(logicalMaxScrollTop, MAX_PHYSICAL_SCROLL_TOP);
+  const scrollScale = logicalMaxScrollTop === 0 ? 1 : physicalMaxScrollTop / logicalMaxScrollTop;
+  const physicalContentHeight = physicalMaxScrollTop + textViewportHeight;
+  const physicalScrollTopFor = (logicalTop: number) => Math.max(0,
+    Math.min(physicalMaxScrollTop, logicalTop * scrollScale));
+  const logicalScrollTopFor = (physicalTop: number) => scrollScale === 0 ? 0 : physicalTop / scrollScale;
+  const firstRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS);
   const visibleRows = Math.ceil(textViewportHeight / ROW_HEIGHT) + OVERSCAN_ROWS * 2;
   const lastRow = Math.min(totalRows, firstRow + visibleRows);
+  const visibleRowsTop = physicalScrollTop + firstRow * ROW_HEIGHT - scrollTop;
 
   const applyGeometry = useCallback((next: WindowGeometry, userInitiated = false) => {
     const bounded = clampGeometry(next, viewportSize(windowRef.current));
@@ -334,6 +347,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     setLoading(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setScrollTop(0);
+    setPhysicalScrollTop(0);
     setCacheVersion((version) => version + 1);
     setError(null);
 
@@ -356,12 +370,14 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     try {
       const request: PreviewTextLinesRequest = {
         resultId: data.metadata?.resultId ?? 0,
+        receipt: data.receipt,
         startLine,
         lineCount: Math.min(PAGE_LINES, lineCount - startLine + 1),
       };
       const page = data.sourceTextBytes
         ? readCachedTextLines(data.sourceTextBytes, startLine, request.lineCount)
         : await platform.runtime.readTextLines(request);
+      if (page.ok === false) return;
       if (cacheGenerationRef.current === generation) {
         cacheRef.current.set(pageNumber, { startLine: page.startLine, lines: pageLines(page), eof: page.eof });
         while (cacheRef.current.size > MAX_CACHED_PAGES) {
@@ -416,19 +432,21 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   }, [data, loadPage, textViewportHeight, totalRows]);
 
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    const nextScrollTop = event.currentTarget.scrollTop;
+    const nextPhysicalScrollTop = event.currentTarget.scrollTop;
+    const nextScrollTop = logicalScrollTopFor(nextPhysicalScrollTop);
     // A user scroll supersedes an outstanding active-line centering request.
     // Page cache updates must not move the viewport back to the active line.
     pendingCenterPageRef.current = null;
     scrollTopRef.current = nextScrollTop;
     setScrollTop(nextScrollTop);
+    setPhysicalScrollTop(nextPhysicalScrollTop);
     if (scrollIdleTimerRef.current !== null) clearTimeout(scrollIdleTimerRef.current);
     const generation = cacheGenerationRef.current;
     scrollIdleTimerRef.current = setTimeout(() => {
       scrollIdleTimerRef.current = null;
       if (cacheGenerationRef.current === generation) scheduleVisiblePages(scrollTopRef.current);
     }, SCROLL_IDLE_DELAY_MS);
-  }, [scheduleVisiblePages]);
+  }, [scheduleVisiblePages, scrollScale]);
 
   // Once the active page has resolved, center its row in the viewport so the
   // active-line highlight is always visible after slider navigation.
@@ -440,14 +458,17 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     const targetTop = (activeLine - 1) * ROW_HEIGHT;
     const element = scrollRef.current;
     if (!element) return;
-    const centeredTop = Math.max(0, targetTop - (textViewportHeight - ROW_HEIGHT) / 2);
+    const centeredTop = Math.min(logicalMaxScrollTop,
+      Math.max(0, targetTop - (textViewportHeight - ROW_HEIGHT) / 2));
+    const centeredPhysicalTop = physicalScrollTopFor(centeredTop);
     pendingCenterPageRef.current = null;
-    if (Math.abs(element.scrollTop - centeredTop) > ROW_HEIGHT) {
+    if (Math.abs(element.scrollTop - centeredPhysicalTop) > ROW_HEIGHT * scrollScale) {
       scrollTopRef.current = centeredTop;
-      element.scrollTop = centeredTop;
+      element.scrollTop = centeredPhysicalTop;
       setScrollTop(centeredTop);
+      setPhysicalScrollTop(centeredPhysicalTop);
     }
-  }, [activeLine, cacheVersion, textViewportHeight]);
+  }, [activeLine, cacheVersion, logicalMaxScrollTop, scrollScale, textViewportHeight]);
 
   const selectLine = (lineNumber: number) => {
     if (!sourceIndex) return;
@@ -499,8 +520,8 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         style={{ height: textViewportHeight }}
         onScroll={handleScroll}
       >
-        <div style={{ height: totalRows * ROW_HEIGHT, position: 'relative' }}>
-          <div style={{ position: 'absolute', top: firstRow * ROW_HEIGHT, left: 0, right: 0 }}>
+        <div style={{ height: physicalContentHeight, position: 'relative' }}>
+          <div style={{ position: 'absolute', top: visibleRowsTop, left: 0, right: 0 }}>
             {Array.from({ length: lastRow - firstRow }, (_, offset) => {
               const row = firstRow + offset;
               const lineNumber = row + 1;

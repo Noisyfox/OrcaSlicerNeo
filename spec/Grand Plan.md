@@ -358,6 +358,31 @@ and drives structural operations through the typed client.
       threaded checklist completed in 50.300 s and the licensed project flow
       completed in 2m06s
 
+## Milestone 18: Per-Plate Print Architecture
+
+> [!success] Delivered and qualified 2026-09-16. Normative specification:
+> [`Per-Plate Print Architecture.md`](Per-Plate%20Print%20Architecture.md).
+> Implementation and exact-u1 profile record:
+> [`2026-09-14-complex-project-interaction-performance.md`](../doc/2026-09-14-complex-project-interaction-performance.md).
+
+- [x] Runtime-only stable plate registry with one independent Print,
+      GCodeProcessorResult, result generation, immutable G-code source, input
+      and presentation stamps, and tombstone/job lifetime per plate
+- [x] Complete receipt-scoped Slice/result/text/Export/Send boundary, distinct
+      native Slice and renderer-projection terminals, and stale payload
+      rejection by plate, stamp, generation, and presentation epoch
+- [x] Registry reconciliation for plate mutations, history, project load,
+      geometry-only 3MF import, configuration scope, reorder, and active-job
+      deletion; derived output remains runtime-only and internal APIs have no
+      compatibility fallback
+- [x] Fresh serial/threaded WASM and real harness qualification, all affected
+      package tests/typechecks, visible serial/threaded Web Playwright, visible
+      Electron regression, and exact non-mock u1 Electron performance coverage
+- [x] New profile/test execution branches are absent from production runtime:
+      native probes are compile-time gated, renderer hooks are build-time
+      gated, and restored production WASM/Electron artifacts pass exclusion
+      scans
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.

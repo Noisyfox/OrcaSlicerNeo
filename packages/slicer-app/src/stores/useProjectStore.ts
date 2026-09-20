@@ -62,10 +62,9 @@ export interface ProjectSessionState {
   scope: ProjectPresetScope;
   systemPresets: ProjectPresetSelections | null;
   projectPresets: ProjectPresetSelections | null;
-  flattenedMultiPlate: boolean;
   notices: ProjectNotice[];
   operation: ProjectOperation;
-  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
+  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'scope' | 'systemPresets' | 'projectPresets' | 'notices'>>) => void;
   beginProjectMutation: () => void;
   endProjectMutation: () => void;
   /** Compatibility projection for ordinary edits not yet migrated to history. */
@@ -98,7 +97,6 @@ const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'beginProjec
   scope: 'system',
   systemPresets: null,
   projectPresets: null,
-  flattenedMultiPlate: false,
   notices: [],
   operation: { phase: 'idle', progress: 0, cancellable: false },
 });

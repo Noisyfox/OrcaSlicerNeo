@@ -293,6 +293,29 @@ export interface SlicerRuntime extends SlicerClient, HistoryRuntimeMethods {
   readonly status?: RuntimeStatus;
 }
 
+/** A host-neutral, current memory item. Values are bytes, never display units. */
+export interface MemoryEntry {
+  readonly id: string;
+  readonly label: string;
+  readonly bytes: number;
+}
+
+/**
+ * Host-only memory information. The shared application owns common renderer
+ * and slicer-Worker diagnostics, so adapters contribute only native/platform
+ * entries here.
+ */
+export interface PlatformMemorySnapshot {
+  /** A host-attributable total. Omitted when the host has no such metric. */
+  readonly totalBytes?: number;
+  /** Entries are additive only when totalBytes is present. */
+  readonly entries: readonly MemoryEntry[];
+}
+
+export interface PlatformMemory {
+  sample(): Promise<PlatformMemorySnapshot>;
+}
+
 export interface PlatformCapabilities {
   models: ModelPicker;
   exports: GcodeExporter;
@@ -301,6 +324,7 @@ export interface PlatformCapabilities {
   printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
   webview: WebViewHost;
   runtime: SlicerRuntime;
+  memory: PlatformMemory;
   lifecycle?: PlatformLifecycle;
   profiles: ProfileSource;
   chrome: PlatformChrome;

@@ -4,6 +4,7 @@ import { canAddPlate, canDeletePlate, MAX_PLATE_COUNT } from './plateControls';
 
 function snapshot(count: number): PlateSessionSnapshot {
   return {
+    instances: [],
     ok: true,
     version: 1,
     currentPlateId: 'plate-0',

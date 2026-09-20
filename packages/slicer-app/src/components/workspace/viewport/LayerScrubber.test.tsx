@@ -18,6 +18,7 @@ import { describePreviewScheme, PREVIEW_SCHEME_LABELS, previewSchemeAvailable } 
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data: ToolpathGeometry = {
+  receipt: { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' },
   segmentCount: 4,
   palette: [{ id: 0, name: 'Perimeter', color: [220, 50, 50] }, { id: 1, name: 'Infill', color: [50, 120, 220] }],
   layerIds: Uint32Array.from([0, 0, 1, 1]), moveOrders: Uint32Array.from([0, 1, 0, 1]),

@@ -14,15 +14,15 @@ import type {
   PrimeTowerMoveResultOrError,
   ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
   ConfigurationStatus,
-  ClearModelResult,
+  ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
-  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
+  ModelMeshResult, ModelScenePatchResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
-  ProgressMailbox, ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
+  ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
@@ -33,6 +33,7 @@ import type {
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
   RememberedFilamentRackRequest,
   FilamentAssignmentRequest, FilamentRoutingRequest,
+  NativePerformanceProfile,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -40,6 +41,9 @@ import type {
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+
+const REAL_PROJECT_PROFILE_BUILD = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
+const REAL_PROJECT_PROFILE_JS_SENTINEL = 'ORCA_REAL_PROJECT_PROFILE_JS_V1';
 
 function emptyHistoryTiming(): HistoryTimingDiagnostic {
   return { count: 0, totalMs: 0, maxMs: 0, lastMs: 0 };
@@ -52,6 +56,103 @@ function emptyHistoryDiagnosticLayer(): HistoryDiagnosticLayer {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
+  if (!isRecord(raw)) throw new Error('slice bridge returned an invalid result');
+  const receipt = raw.receipt;
+  let normalizedReceipt: SliceResultReceipt | undefined;
+  if (receipt !== undefined) {
+    if (!isRecord(receipt) || typeof receipt.plate_id !== 'string' ||
+        !Number.isSafeInteger(receipt.input_stamp) || Number(receipt.input_stamp) < 0 ||
+        typeof receipt.result_generation !== 'string' || !/^[1-9]\d*$/.test(receipt.result_generation) ||
+        typeof receipt.slice_task_id !== 'string' || !/^\d+$/.test(receipt.slice_task_id))
+      throw new Error('slice bridge returned an invalid result receipt');
+    normalizedReceipt = {
+      plateId: receipt.plate_id,
+      inputStamp: Number(receipt.input_stamp),
+      resultGeneration: receipt.result_generation,
+      sliceTaskId: receipt.slice_task_id,
+    };
+  }
+  return {
+    ok: raw.ok === true,
+    unrecognized_keys: Array.isArray(raw.unrecognized_keys)
+      ? raw.unrecognized_keys.filter((key): key is string => typeof key === 'string') : [],
+    ...(Array.isArray(raw.warnings)
+      ? { warnings: raw.warnings.filter((warning): warning is string => typeof warning === 'string') } : {}),
+    ...(normalizedReceipt ? { receipt: normalizedReceipt } : {}),
+    ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+  };
+}
+
+function normalizeModelTransform(raw: unknown): ModelTransform | undefined {
+  if (!isRecord(raw)) return undefined;
+  const tuple = (value: unknown, length: number): value is number[] =>
+    Array.isArray(value) && value.length === length && value.every((item) => typeof item === 'number' && Number.isFinite(item));
+  if (!tuple(raw.offset, 3) || !tuple(raw.rotation, 3) || !tuple(raw.scale, 3) || !tuple(raw.mirror, 3) ||
+      (raw.matrix !== undefined && !tuple(raw.matrix, 16))) return undefined;
+  return {
+    offset: [...raw.offset] as [number, number, number], rotation: [...raw.rotation] as [number, number, number],
+    scale: [...raw.scale] as [number, number, number], mirror: [...raw.mirror] as [number, number, number],
+    ...(raw.matrix !== undefined ? { matrix: [...raw.matrix] as ModelTransform['matrix'] } : {}),
+  };
+}
+
+function normalizeNativePerformanceProfile(raw: unknown): NativePerformanceProfile {
+  if (!isRecord(raw) || raw.version !== 1 || !Array.isArray(raw.samples))
+    throw new Error('invalid native performance profile');
+  if (raw.samples.length > 16) throw new Error('invalid native performance profile sample count');
+  const aggregateStages = [
+    'session_preparation', 'bounds_scan', 'effective_config_construction',
+    'plate_local_model_construction', 'used_slot_summary_hit', 'used_slot_summary_delta',
+    'used_slot_full_scan_fallback', 'used_slot_scan', 'printable_height_bounds_scan',
+    'direct_wipe_tower_estimate', 'print_apply_wipe_tower_data_fallback',
+    'footprint_bands_projection_json',
+    'final_json_serialization', 'final_json_copy', 'total',
+  ];
+  const plateStages = [
+    'effective_config_construction', 'plate_local_model_construction', 'used_slot_summary_hit',
+    'used_slot_summary_delta', 'used_slot_full_scan_fallback', 'used_slot_scan',
+    'printable_height_bounds_scan', 'direct_wipe_tower_estimate',
+    'print_apply_wipe_tower_data_fallback',
+    'footprint_bands_projection_json', 'total',
+  ];
+  const samples = raw.samples.map((sample): NativePerformanceProfile['samples'][number] => {
+    if (!isRecord(sample) || typeof sample.operation !== 'string' || !isRecord(sample.stages_ms))
+      throw new Error('invalid native performance sample');
+    const stagesMs: Record<string, number> = {};
+    for (const [stage, value] of Object.entries(sample.stages_ms)) {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+        throw new Error('invalid native performance stage');
+      stagesMs[stage] = value;
+    }
+    if (sample.operation === 'prime_tower_projection') {
+      if (!sameKeys(stagesMs, aggregateStages) || !Array.isArray(sample.per_plate_stages_ms))
+        throw new Error('invalid prime tower performance stages');
+      const perPlateStagesMs = sample.per_plate_stages_ms.map((plate) => {
+        if (!isRecord(plate)) throw new Error('invalid prime tower performance plate stages');
+        const normalized: Record<string, number> = {};
+        for (const [stage, value] of Object.entries(plate)) {
+          if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+            throw new Error('invalid prime tower performance plate stage');
+          normalized[stage] = value;
+        }
+        if (!sameKeys(normalized, plateStages)) throw new Error('invalid prime tower performance plate stages');
+        return normalized;
+      });
+      return { operation: sample.operation, stagesMs, perPlateStagesMs };
+    }
+    if (sample.per_plate_stages_ms !== undefined)
+      throw new Error('invalid native performance sample');
+    return { operation: sample.operation, stagesMs };
+  });
+  return { version: 1, samples };
+}
+
+function sameKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(record).sort();
+  return actual.length === expected.length && actual.every((key, index) => key === [...expected].sort()[index]);
 }
 
 function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): ConfigurationStatus | null {
@@ -125,7 +226,7 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
     if (!plateSession.ok) return { ok: false, error: plateSession.error };
     result.plateSession = plateSession;
   }
-  const rawStatus = raw.configuration_status ?? raw.configurationStatus;
+  const rawStatus = raw.configuration_status;
   if (rawStatus !== undefined) {
     const status = normalizeConfigurationStatus(rawStatus, true);
     if (!status || status.state !== 'ready') return { ok: false, error: 'invalid project configuration status' };
@@ -480,7 +581,7 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate session response' };
   const value = raw as Record<string, unknown>;
   if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'plate session request failed' };
-  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates)) {
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates) || !Array.isArray(value.instances)) {
     return { ok: false, error: 'invalid plate session response' };
   }
   const plates = value.plates.map((entry): PlateSessionPlate | null => {
@@ -510,11 +611,16 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
           ? { key: item.key, value: item.value } : null;
       }) : undefined;
     if (hasOpaqueMetadata && (!opaqueMetadata || opaqueMetadata.some((entry) => entry === null))) return null;
+    const hasFutureMetadata = plate.future_metadata !== undefined;
+    const futureMetadata = hasFutureMetadata && plate.future_metadata && typeof plate.future_metadata === 'object' && !Array.isArray(plate.future_metadata)
+      ? plate.future_metadata as Readonly<Record<string, unknown>> : undefined;
+    if (hasFutureMetadata && !futureMetadata) return null;
     return {
       ...normalized,
       ...(typeof plate.locked === 'boolean' ? { locked: plate.locked } : {}),
       ...(settings ? { settings } : {}),
       ...(opaqueMetadata ? { opaqueMetadata: opaqueMetadata as { key: string; value: string }[] } : {}),
+      ...(futureMetadata ? { futureMetadata } : {}),
       ...(Array.isArray(plate.instance_ids) && plate.instance_ids.every((id) => Number.isSafeInteger(id))
         ? { instanceIds: plate.instance_ids as number[] } : {}),
       ...(Array.isArray(plate.out_of_bounds_instance_ids) && plate.out_of_bounds_instance_ids.every((id) => Number.isSafeInteger(id))
@@ -528,37 +634,39 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (!plates.some((plate) => plate!.plateId === value.current_plate_id)) {
     return { ok: false, error: 'invalid plate session current identity' };
   }
+  const instances = value.instances.map((entry) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
+      .every((id) => Number.isSafeInteger(id)) || typeof item.plate_id !== 'string' ||
+        typeof item.member !== 'boolean' || typeof item.unprintable !== 'boolean' ||
+        typeof item.out_of_bounds !== 'boolean') return null;
+    return { instanceId: item.instance_id as number, objectId: item.object_id as number,
+      objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
+      plateId: item.plate_id, member: item.member, unprintable: item.unprintable,
+      outOfBounds: item.out_of_bounds,
+      ...(typeof item.parked === 'boolean' ? { parked: item.parked } : {}),
+    };
+  });
+  if (instances.some((instance) => instance === null)) return { ok: false, error: 'invalid plate session instances' };
   const result: PlateSessionSnapshot = {
     ok: true,
     version: 1,
     currentPlateId: value.current_plate_id,
     plates: plates as PlateSessionPlate[],
+    instances: instances as NonNullable<typeof instances[number]>[],
   };
-  if (Array.isArray(value.instances)) {
-    const instances = value.instances.map((entry) => {
-      if (!entry || typeof entry !== 'object') return null;
-      const item = entry as Record<string, unknown>;
-      if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
-        .every((id) => Number.isSafeInteger(id)) || typeof item.plate_id !== 'string' ||
-          typeof item.member !== 'boolean' || typeof item.unprintable !== 'boolean' ||
-          typeof item.out_of_bounds !== 'boolean') return null;
-      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
-        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
-        plateId: item.plate_id, member: item.member, unprintable: item.unprintable,
-        outOfBounds: item.out_of_bounds };
-    });
-    if (instances.some((instance) => instance === null)) return { ok: false, error: 'invalid plate session instances' };
-    result.instances = instances as NonNullable<typeof instances[number]>[];
-  }
   if (Array.isArray(value.instance_transforms)) {
     const transforms = value.instance_transforms.map((entry) => {
       if (!entry || typeof entry !== 'object') return null;
       const item = entry as Record<string, unknown>;
       if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
         .every((id) => Number.isSafeInteger(id)) || !item.world_transform || typeof item.world_transform !== 'object') return null;
+      const worldTransform = normalizeModelTransform(item.world_transform);
+      if (!worldTransform) return null;
       return { instanceId: item.instance_id as number, objectId: item.object_id as number,
         objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
-        worldTransform: item.world_transform as any };
+        worldTransform };
     });
     if (transforms.some((transform) => transform === null)) return { ok: false, error: 'invalid plate session transforms' };
     result.instanceTransforms = transforms as NonNullable<typeof transforms[number]>[];
@@ -581,7 +689,26 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (after) result.affectedPlateIdsAfter = after;
   if (affected) result.affectedPlateIds = affected;
   if (reasons) result.dirtyReasons = reasons;
+  if (value.project_config_overlay !== undefined) {
+    const overlay = normalizeProjectConfigOverlay({ ok: true, overlay: value.project_config_overlay });
+    if (!overlay.ok) return { ok: false, error: 'invalid plate session project configuration overlay' };
+    result.projectConfigOverlay = overlay.overlay;
+  }
   return result;
+}
+
+/** Normalize the native-canonical session embedded in every history context.
+ * A malformed optional session is omitted so an adjacent receipt cannot use
+ * it as proof; the restore itself remains eligible for the full projection. */
+export function normalizeHistoryContext(raw: unknown): HistoryContext | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (raw.plateSession === undefined) return raw as unknown as HistoryContext;
+  const session = normalizePlateSessionResult(raw.plateSession);
+  if (!session.ok) {
+    const { plateSession: _invalid, ...withoutSession } = raw;
+    return withoutSession as unknown as HistoryContext;
+  }
+  return { ...raw, plateSession: session } as unknown as HistoryContext;
 }
 
 function normalizePlateSelectionResult(raw: unknown): PlateSelectionResult {
@@ -810,7 +937,7 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
       if (!entry || typeof entry !== 'object') return [];
       const item = entry as Record<string, unknown>;
       return typeof item.id === 'string' && typeof item.label === 'string' &&
-        (item.category === 'project' || item.category === 'context')
+        item.category === 'project'
         ? [{ id: item.id, label: item.label, category: item.category }] : [];
     });
   };
@@ -824,7 +951,6 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     savedCheckpoint: saved === null ? null : typeof saved === 'number' && Number.isSafeInteger(saved) ? saved : null,
     savedCheckpointEvicted: bool('savedCheckpointEvicted'), dirty: bool('dirty'),
     bytesUsed: integer('bytesUsed'), byteBudget: integer('byteBudget'), disabled: bool('disabled'),
-    optionalBytesReleased: integer('optionalBytesReleased'),
     evictedEntryCount: integer('evictedEntryCount'),
     lastEvictedEntryId: typeof value.lastEvictedEntryId === 'string' ? value.lastEvictedEntryId : null,
     oldestRetainedEntryId: typeof value.oldestRetainedEntryId === 'string' ? value.oldestRetainedEntryId : null,
@@ -860,55 +986,29 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
   const impact = normalizeRestoreImpact(value.impact);
-  const primeTowerReceipt = normalizePrimeTowerRestoreReceipt(value.prime_tower_receipt, impact, value.narrow);
+  const sceneDelta = normalizeSceneDelta(value.scene_delta);
+  if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
+  const context = normalizeHistoryContext(value.context);
+  if (!context || (impact.plateSession && !context.plateSession))
+    return historyFailure(raw, 'invalid history plate session context');
   return {
     ok: true,
-    context: value.context as HistoryContext,
+    context,
     status: normalizeHistoryStatus(value.status),
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
-    ...(primeTowerReceipt ? { primeTowerReceipt } : {}),
+    sceneDelta,
   };
-}
-
-/**
- * Receipts are an optional acceleration contract. Invalid or legacy data is
- * ignored so callers retain the existing authoritative projection fallback.
- */
-export function normalizePrimeTowerRestoreReceipt(
-  raw: unknown,
-  impact: import('./history').RestoreImpact,
-  narrow: unknown,
-): import('./history').PrimeTowerRestoreReceipt | undefined {
-  if (narrow !== true || impact.model !== 'none' || !impact.primeTower || !raw || typeof raw !== 'object') return undefined;
-  const value = raw as Record<string, unknown>;
-  if (value.version !== 1 || typeof value.plate_id !== 'string' || value.plate_id.length === 0 ||
-      !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return undefined;
-  if (value.state === 'cleared') {
-    return { version: 1, state: 'cleared', plateId: value.plate_id, revision: value.revision as number };
-  }
-  if (value.state !== 'available' || !value.position || typeof value.position !== 'object' ||
-      !value.footprint || typeof value.footprint !== 'object') return undefined;
-  const position = value.position as Record<string, unknown>;
-  const footprint = value.footprint as Record<string, unknown>;
-  const finite = (entry: unknown): entry is number => typeof entry === 'number' && Number.isFinite(entry);
-  if (![position.x, position.y, footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite) ||
-      (footprint.max_x as number) < (footprint.min_x as number) ||
-      (footprint.max_y as number) < (footprint.min_y as number)) return undefined;
-  return { version: 1, state: 'available', plateId: value.plate_id, revision: value.revision as number,
-    position: { x: position.x as number, y: position.y as number },
-    footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
-      minY: footprint.min_y as number, maxY: footprint.max_y as number } };
 }
 
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
   const fallback: import('./history').RestoreImpact = {
-    version: 1, model: 'full', plateSession: true, filamentRack: true,
+    version: 1, model: 'delta', plateSession: true, filamentRack: true,
     projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const value = raw as Record<string, unknown>;
-  if (value.version !== 1 || (value.model !== 'full' && value.model !== 'none') ||
+  if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
       typeof value.projectOverlay !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
@@ -916,11 +1016,53 @@ export function normalizeRestoreImpact(raw: unknown): import('./history').Restor
   return value as unknown as import('./history').RestoreImpact;
 }
 
+export function normalizeSceneDelta(raw: unknown): import('./history').SceneDelta | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const nativeIds = (key: string): number[] | undefined => {
+    const ids = value[key];
+    if (!Array.isArray(ids) || !ids.every((id) => Number.isSafeInteger(id) && (id as number) > 0)) return undefined;
+    const normalized = ids as number[];
+    return new Set(normalized).size === normalized.length ? normalized : undefined;
+  };
+  const objectIds = nativeIds('object_ids');
+  const volumeIds = nativeIds('volume_ids');
+  const instanceIds = nativeIds('instance_ids');
+  const objectOrder = nativeIds('object_order');
+  if (value.version !== 1 || !objectIds || !volumeIds || !instanceIds || !objectOrder ||
+      !Array.isArray(value.plate_ids) ||
+      !value.plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(value.plate_ids).size !== value.plate_ids.length) return undefined;
+  return { version: 1, objectIds, volumeIds, instanceIds,
+    plateIds: value.plate_ids as string[], objectOrder };
+}
+
+const clientAdmissionChecks = new WeakMap<SlicerClient,
+  (observedEpoch: string) => Promise<Record<string, unknown>>>();
+
+/** Worker-only dispatcher which applies the authoritative serial bridge gate. */
+export async function dispatchClientRequest(
+  client: SlicerClient, operation: string, args: unknown[],
+  observedSerialEpoch: string, restricted: boolean,
+): Promise<unknown> {
+  if (restricted) {
+    const check = clientAdmissionChecks.get(client);
+    if (check) {
+      const admitted = await check(observedSerialEpoch);
+      if (admitted.ok !== true) return admitted;
+    }
+  }
+  const method = (client as unknown as Record<string, (...values: unknown[]) => unknown>)[operation];
+  if (typeof method !== 'function') throw new Error(`unknown op: ${operation}`);
+  return method.apply(client, args);
+}
+
 export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
-  onProgressMailbox?: (mailbox: ProgressMailbox) => void,
   beforeInit?: (module: OrcaModule) => Promise<void>,
+  onBridgeProjectClosed?: ProjectClosedCallback,
+  onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
 ): SlicerClient {
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
@@ -929,40 +1071,190 @@ export function createClient(
   // install clears the memo so a later init can retry.
   let beforeInitPromise: Promise<void> | null = null;
   const progressListeners = new Set<(percent: number, text: string) => void>();
+  type TaskMessage = {
+    type: 'progress' | 'task-terminal'; sequence: string; task_id: string; kind: string;
+    plate_id?: string; entry_incarnation?: string; percent?: number; text?: string;
+    terminal?: string; result?: unknown;
+  };
+  const pendingSliceTasks = new Map<string, {
+    plateId: string; incarnation: string;
+    resolve: (result: SliceResultStatus) => void;
+  }>();
+  const terminalSliceResults = new Map<string, SliceResultStatus>();
+  let lastTaskMessageSequence = 0n;
+  let asyncWake: { buffer: SharedArrayBuffer; byteOffset: number; sequence: number } | undefined;
+  let asyncWakeTimer: ReturnType<typeof setInterval> | undefined;
+  let activeModule: OrcaModule | undefined;
+  let drainingTaskMessages = false;
+  let taskDrainRequested = false;
+  let runtimeThreaded: boolean | undefined;
+  let serialTerminalEpoch = 0n;
+  let serialSliceAdmissionInProgress = false;
+  const realProjectProfileCalls: Array<{
+    operation: string;
+    wallMs: number;
+    inputJsonBytes: number;
+    outputJsonBytes: number;
+  }> | null = REAL_PROJECT_PROFILE_BUILD ? [] : null;
+
+  function currentJsHeapBytes(): number | undefined {
+    const memory = (performance as Performance & {
+      memory?: { usedJSHeapSize?: unknown };
+    }).memory;
+    const bytes = memory?.usedJSHeapSize;
+    return typeof bytes === 'number' && Number.isFinite(bytes) && bytes >= 0 ? bytes : undefined;
+  }
+
+  function callProfiledJson(
+    wasm: OrcaModule,
+    name: string,
+    argTypes: string[],
+    args: unknown[],
+  ): unknown {
+    if (!REAL_PROJECT_PROFILE_BUILD) return callJson(wasm, name, argTypes, args);
+    const startedAt = performance.now();
+    const result = callJson(wasm, name, argTypes, args);
+    const encoder = new TextEncoder();
+    const inputJsonBytes = args.reduce<number>((total, value) =>
+      total + (typeof value === 'string' ? encoder.encode(value).byteLength : 0), 0);
+    const outputJsonBytes = encoder.encode(JSON.stringify(result)).byteLength;
+    realProjectProfileCalls!.push({
+      operation: name,
+      wallMs: performance.now() - startedAt,
+      inputJsonBytes,
+      outputJsonBytes,
+    });
+    if (realProjectProfileCalls!.length > 64) realProjectProfileCalls!.shift();
+    return result;
+  }
+
+  function handleTaskMessage(raw: unknown): void {
+    if (!raw || typeof raw !== 'object') return;
+    const message = raw as Partial<TaskMessage>;
+    if (typeof message.sequence !== 'string' || typeof message.task_id !== 'string' ||
+        typeof message.kind !== 'string' ||
+        (message.type !== 'progress' && message.type !== 'task-terminal')) return;
+    let sequence: bigint;
+    try { sequence = BigInt(message.sequence); } catch { return; }
+    if (sequence <= lastTaskMessageSequence) return;
+    lastTaskMessageSequence = sequence;
+
+    const pending = pendingSliceTasks.get(message.task_id);
+    const identityMatches = message.kind !== 'slice' ||
+      (pending !== undefined && message.plate_id === pending.plateId &&
+        message.entry_incarnation === pending.incarnation) ||
+      (pending === undefined && message.type === 'task-terminal') ||
+      (!runtimeThreaded && serialSliceAdmissionInProgress);
+    if (!identityMatches) return;
+    if (message.type === 'progress') {
+      // A slice record without the currently accepted task identity is a late
+      // delivery from a superseded task. The serial producer is the one
+      // exception: Print::process() and its callbacks run before the accepted
+      // envelope returns, so that admission window is explicitly tracked.
+      if (message.kind === 'slice' && pending === undefined &&
+          (runtimeThreaded || !serialSliceAdmissionInProgress)) return;
+      if (typeof message.percent !== 'number' || typeof message.text !== 'string') return;
+      for (const listener of progressListeners) listener(message.percent, message.text);
+      onBridgeProgress?.(message.percent, message.text);
+      return;
+    }
+    if (message.kind !== 'slice') return;
+    const result = normalizeSliceResultStatus(message.result);
+    if (!runtimeThreaded) {
+      serialTerminalEpoch += 1n;
+      onRuntimeState?.({ threaded: false, serialTerminalEpoch: serialTerminalEpoch.toString() });
+    }
+    if (pending) {
+      pendingSliceTasks.delete(message.task_id);
+      pending.resolve(result);
+    } else {
+      terminalSliceResults.set(message.task_id, result);
+    }
+  }
+
+  function drainTaskMessages(m = activeModule): void {
+    if (!m) return;
+    if (drainingTaskMessages) {
+      taskDrainRequested = true;
+      return;
+    }
+    drainingTaskMessages = true;
+    try {
+      // A drain may finalize a native task and enqueue its public terminal, or
+      // a listener may synchronously cause another enqueue. Keep one JS
+      // drainer and consume until an empty FIFO is observed after all nested
+      // notifications. Global message sequences still reject stale replay.
+      for (;;) {
+        taskDrainRequested = false;
+        const drained = callJson(m, 'orc_drain_async_task_mailbox', [], []) as {
+          ok?: boolean; messages?: unknown[];
+        };
+        const messages = drained.ok && Array.isArray(drained.messages)
+          ? drained.messages : [];
+        messages.forEach(handleTaskMessage);
+        if (messages.length === 0 && !taskDrainRequested) break;
+      }
+    } finally {
+      drainingTaskMessages = false;
+    }
+  }
+
+  function awaitSliceTask(accepted: Record<string, unknown>): Promise<SliceResultStatus> {
+    const taskId = typeof accepted.task_id === 'string' ? accepted.task_id : '';
+    const plateId = typeof accepted.plate_id === 'string' ? accepted.plate_id : '';
+    const incarnation = typeof accepted.entry_incarnation === 'string' ? accepted.entry_incarnation : '';
+    if (!taskId || !plateId || !incarnation)
+      return Promise.resolve(normalizeSliceResultStatus({ error: 'malformed slice task acceptance' }));
+    const terminal = terminalSliceResults.get(taskId);
+    if (terminal) {
+      terminalSliceResults.delete(taskId);
+      return Promise.resolve(terminal);
+    }
+    return new Promise((resolve) => {
+      pendingSliceTasks.set(taskId, { plateId, incarnation, resolve });
+      drainTaskMessages();
+    });
+  }
 
   async function module(): Promise<OrcaModule> {
     if (!modulePromise) {
       modulePromise = moduleFactory({ noInitialRun: true }).then((m) => {
+        activeModule = m;
         // Use the regular JSON bridge decoder instead of ccall('string') so
         // wasm64 and the mock module share the same pointer contract.
         const threading = callJson(m, 'orc_get_threading_info', [], []) as {
-          threaded?: boolean;
+          threaded?: boolean; serial_terminal_epoch?: string;
         };
+        runtimeThreaded = threading.threaded === true;
+        try { serialTerminalEpoch = BigInt(threading.serial_terminal_epoch ?? '0'); }
+        catch { serialTerminalEpoch = 0n; }
+        onRuntimeState?.({ threaded: runtimeThreaded,
+          serialTerminalEpoch: serialTerminalEpoch.toString() });
+        const mailbox = callJson(m, 'orc_get_async_task_mailbox', [], []) as {
+          ok?: boolean; byte_offset?: number;
+        };
+        // The notifier never bypasses the FIFO. It invokes the same guarded
+        // drain for serial producers and threaded main-runtime producers;
+        // pthread producers can only advance the shared wake below.
+        const cb = m.addFunction(() => drainTaskMessages(m), 'v');
+        m.ccall('orc_set_async_task_callback', 'void', ['pointer'], [cb]);
         if (threading.threaded) {
-          const mailbox = callJson(m, 'orc_get_progress_mailbox', [], []) as {
-            ok?: boolean; byte_offset?: number; text_capacity?: number;
-          };
           const buffer = m.HEAPU8.buffer;
           if (mailbox.ok && buffer instanceof SharedArrayBuffer &&
-              Number.isSafeInteger(mailbox.byte_offset) &&
-              Number.isSafeInteger(mailbox.text_capacity)) {
-            onProgressMailbox?.({
-              buffer,
-              byteOffset: Number(mailbox.byte_offset),
-              textCapacity: Number(mailbox.text_capacity),
-            });
+              Number.isSafeInteger(mailbox.byte_offset)) {
+            asyncWake = { buffer, byteOffset: Number(mailbox.byte_offset), sequence: -1 };
+            asyncWakeTimer = setInterval(() => {
+              if (!asyncWake) return;
+              const words = new Int32Array(asyncWake.buffer, asyncWake.byteOffset, 4);
+              const before = Atomics.load(words, 0);
+              if ((before & 1) !== 0 || before === asyncWake.sequence) return;
+              if (before !== Atomics.load(words, 0)) return;
+              asyncWake.sequence = before;
+              drainTaskMessages(m);
+            }, 20);
           }
           return m;
         }
-
-        // Register the serial progress callback ONCE and never remove it:
-        // the bridge's g_progress is a raw fn ptr with no clear path.
-        const cb = m.addFunction((pct: unknown, text: unknown) => {
-          const msg = m.UTF8ToString(Number(text));
-          for (const l of progressListeners) l(Number(pct), msg);
-          onBridgeProgress?.(Number(pct), msg);
-        }, 'vij');
-        m.ccall('orc_set_progress_callback', 'void', ['pointer'], [cb]);
         return m;
       });
     }
@@ -973,7 +1265,7 @@ export function createClient(
                               beforeContext: HistoryContext,
                               options?: HistoryTransactionOptions): Promise<HistoryTransactionId> {
     const m = await module();
-    const raw = callJson(m, 'orc_history_begin', ['string', 'string', 'string', 'string'],
+    const raw = callProfiledJson(m, 'orc_history_begin', ['string', 'string', 'string', 'string'],
       [label, category, JSON.stringify(beforeContext), options ? JSON.stringify(options) : '']) as Record<string, unknown>;
     if (raw?.ok !== true || typeof raw.transactionId !== 'string')
       return historyFailure(raw, 'history begin failed');
@@ -983,7 +1275,7 @@ export function createClient(
   async function commitHistory(transactionId: HistoryTransactionId,
                                afterContext: HistoryContext): Promise<HistoryStatus> {
     const m = await module();
-    const raw = callJson(m, 'orc_history_commit', ['string', 'string'],
+    const raw = callProfiledJson(m, 'orc_history_commit', ['string', 'string'],
       [transactionId, JSON.stringify(afterContext)]);
     if (raw && typeof raw === 'object' && 'error' in (raw as Record<string, unknown>))
       return historyFailure(raw, 'history commit failed');
@@ -997,7 +1289,7 @@ export function createClient(
 
   async function undoHistory(): Promise<RestoreResult> {
     const m = await module();
-    return normalizeHistoryRestore(callJson(m, 'orc_history_undo', [], []));
+    return normalizeHistoryRestore(callProfiledJson(m, 'orc_history_undo', [], []));
   }
 
   async function redoHistory(): Promise<RestoreResult> {
@@ -1018,11 +1310,6 @@ export function createClient(
   async function markHistorySaved(context?: HistoryContext): Promise<HistoryStatus> {
     const m = await module();
     return normalizeHistoryStatus(callJson(m, 'orc_history_mark_saved', ['string'], [context ? JSON.stringify(context) : '']));
-  }
-
-  async function recordHistoryContext(label: HistoryLabel, context: HistoryContext): Promise<HistoryStatus> {
-    const m = await module();
-    return normalizeHistoryStatus(callJson(m, 'orc_history_record_context', ['string', 'string'], [label, JSON.stringify(context)]));
   }
 
   async function resetHistory(context: HistoryContext): Promise<HistoryStatus> {
@@ -1048,7 +1335,7 @@ export function createClient(
     }
   }
 
-  return {
+  const client: SlicerClient = {
     async init(): Promise<InitResult> {
       const m = await module();
       if (!beforeInitPromise) {
@@ -1074,6 +1361,15 @@ export function createClient(
         log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
+    },
+
+    async getRuntimeMemory() {
+      const m = await module();
+      const jsHeapUsedBytes = currentJsHeapBytes();
+      return {
+        ...(jsHeapUsedBytes === undefined ? {} : { jsHeapUsedBytes }),
+        wasmLinearMemoryBytes: m.HEAPU8.buffer.byteLength,
+      };
     },
 
     async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
@@ -1129,9 +1425,18 @@ export function createClient(
     jumpHistory,
     getHistoryStatus,
     markHistorySaved,
-    recordHistoryContext,
     resetHistory,
     getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
+    getRuntimeExecutionState: () => ({
+      threaded: runtimeThreaded ?? null,
+      sliceActive: serialSliceAdmissionInProgress || pendingSliceTasks.size > 0,
+      serialSliceActive: runtimeThreaded === false && serialSliceAdmissionInProgress,
+      serialTerminalEpoch: serialTerminalEpoch.toString(),
+    }),
+    async takeNativePerformanceProfile(): Promise<NativePerformanceProfile> {
+      const m = await module();
+      return normalizeNativePerformanceProfile(callJson(m, 'orc_take_performance_profile', [], []));
+    },
     runProjectHistoryTransaction,
 
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
@@ -1164,7 +1469,12 @@ export function createClient(
 
     async addPlate(): Promise<PlateSessionMutationResult> {
       const m = await module();
-      return normalizePlateMutationResult(callJson(m, 'orc_add_plate', [], []));
+      return normalizePlateMutationResult(callProfiledJson(m, 'orc_add_plate', [], []));
+    },
+
+    async reorderPlates(plateIds: string[]): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_reorder_plates', ['string'], [JSON.stringify(plateIds)]));
     },
 
     async deletePlate(plateId: string): Promise<PlateSessionMutationResult> {
@@ -1226,14 +1536,38 @@ export function createClient(
       }
     },
 
-    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string, onProgress?: ProjectProgressCallback, nativeName = 'orc_load_project'): Promise<ProjectLoadResult> {
+    async closeProject(): Promise<ProjectCloseResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_close_project', [], []) as Record<string, unknown>;
+      if (!r.ok) return { ok: false, error: typeof r.error === 'string' ? r.error : 'project close failed' };
+      const plateSession = normalizePlateMutationResult(r.plate_session);
+      if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'invalid closed project session' };
+      onBridgeProjectClosed?.(plateSession);
+      return { ok: true, plateSession };
+    },
+
+    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string, onProgress?: ProjectProgressCallback, onProjectClosed?: ProjectClosedCallback): Promise<ProjectLoadResult> {
       const m = await module();
       const ptr = writeBytes(m, bytes);
       if (onProgress) progressListeners.add(onProgress);
       try {
-        const preflight = nativeName === 'orc_preflight_project';
-        const r = callJson(m, nativeName, preflight ? ['pointer', 'number', 'string'] : ['pointer', 'number', 'number', 'string'],
-          preflight ? [ptr, bytes.length, displayName ?? ''] : [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? '']) as Record<string, unknown>;
+        let nativeName = 'orc_load_project';
+        let argumentTypes: ('pointer' | 'number' | 'string')[] = ['pointer', 'number', 'number', 'string'];
+        let args: unknown[] = [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? ''];
+        if (mode === 'project') {
+          const closed = callJson(m, 'orc_close_project', [], []) as Record<string, unknown>;
+          if (!closed.ok) return { ok: false, objects: 0, instances: 0,
+            error: typeof closed.error === 'string' ? closed.error : 'project close failed' };
+          const plateSession = normalizePlateMutationResult(closed.plate_session);
+          if (!plateSession.ok) return { ok: false, objects: 0, instances: 0,
+            error: plateSession.error ?? 'invalid closed project session' };
+          onBridgeProjectClosed?.(plateSession);
+          if (onProjectClosed !== onBridgeProjectClosed) onProjectClosed?.(plateSession);
+          nativeName = 'orc_load_project_after_close';
+          argumentTypes = ['pointer', 'number', 'string'];
+          args = [ptr, bytes.length, displayName ?? ''];
+        }
+        const r = callJson(m, nativeName, argumentTypes, args) as Record<string, unknown>;
         if (!r.ok) return r as unknown as ProjectLoadResult;
         const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
         return {
@@ -1241,7 +1575,6 @@ export function createClient(
           objects: Number(r.objects ?? 0),
           instances: Number(r.instances ?? 0),
           mode: r.mode as ProjectLoadMode | undefined,
-          preflightToken: typeof r.preflight_token === 'string' ? r.preflight_token : undefined,
           displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
           compatibility: r.compatibility as ProjectLoadResult['compatibility'],
           projectSettingsAvailable: r.project_settings_available === true,
@@ -1296,69 +1629,10 @@ export function createClient(
             ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
         };
       } finally {
+        drainTaskMessages(m);
         m._free(ptr);
         if (onProgress) progressListeners.delete(onProgress);
       }
-    },
-
-    async preflightProject(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
-      return (this.loadProject as unknown as (bytes: Uint8Array, mode: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback, nativeName?: string) => Promise<ProjectLoadResult>)(bytes, 'project', displayName, onProgress, 'orc_preflight_project');
-    },
-
-    async commitProjectPreflight(token: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
-      const m = await module();
-      if (onProgress) progressListeners.add(onProgress);
-      try {
-        const r = callJson(m, 'orc_commit_project_preflight', ['string'], [token]) as Record<string, unknown>;
-        if (!r.ok) return r as unknown as ProjectLoadResult;
-        // The committed result uses the exact same native response shape as
-        // loadProject; route it through the normal parser without re-reading
-        // project bytes.
-        const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
-        return {
-          ok: true,
-          objects: Number(r.objects ?? 0), instances: Number(r.instances ?? 0), mode: r.mode as ProjectLoadMode | undefined,
-          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
-          compatibility: r.compatibility as ProjectLoadResult['compatibility'], projectSettingsAvailable: r.project_settings_available === true,
-          isBbl3mf: r.is_bbl_3mf === true, isOrca3mf: r.is_orca_3mf === true,
-          fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined, multiPlate: r.multi_plate === true,
-          plateCount: Number(r.plate_count ?? 0),
-          embeddedPresetWarnings: warnings ? {
-            present: warnings.present === true, count: Number(warnings.count ?? 0), printerCount: Number(warnings.printer_count ?? 0),
-            processCount: Number(warnings.process_count ?? 0), filamentCount: Number(warnings.filament_count ?? 0),
-            modifiedPrinterGcode: warnings.modified_printer_gcode === true, modifiedFilamentGcode: warnings.modified_filament_gcode === true,
-            missingSystemPreset: warnings.missing_system_preset === true, requiresConfirmation: warnings.requires_confirmation === true,
-            modifiedGcodeKeys: Array.isArray(warnings.modified_gcode_keys) ? warnings.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : undefined,
-            missingSystemPresetTypes: Array.isArray(warnings.missing_system_preset_types)
-              ? warnings.missing_system_preset_types.filter((type): type is 'printer' | 'filament' => type === 'printer' || type === 'filament') : undefined,
-            presetEvidence: Array.isArray(warnings.preset_evidence) ? warnings.preset_evidence.flatMap((evidence) => {
-              if (!evidence || typeof evidence !== 'object') return [];
-              const item = evidence as Record<string, unknown>;
-              const type = item.type === 'printer' || item.type === 'filament' ? item.type : undefined;
-              if (!type || typeof item.name !== 'string' || typeof item.inherits !== 'string') return [];
-              return [{ type, name: item.name, inherits: item.inherits, hasMatchingSystemPreset: item.has_matching_system_preset === true,
-                modifiedGcodeKeys: Array.isArray(item.modified_gcode_keys) ? item.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : [] }];
-            }) : undefined,
-            filamentSlotChanges: Array.isArray(warnings.filament_slot_changes) ? warnings.filament_slot_changes.flatMap((change) => {
-              if (!change || typeof change !== 'object') return [];
-              const item = change as Record<string, unknown>;
-              return Number.isInteger(item.slot) && (item.slot as number) >= 1 && typeof item.before === 'string' && typeof item.after === 'string' && item.reason === 'native-compatibility'
-                ? [{ slot: item.slot as number, before: item.before, after: item.after, reason: 'native-compatibility' as const }] : [];
-            }) : undefined,
-          } : undefined,
-          presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object' && (r.preset_snapshot as Record<string, unknown>).ok === true
-            ? normalizeProfileSnapshot(r.preset_snapshot as Record<string, unknown>) as ProfileSnapshot : undefined,
-          ...(r.plate_session ? (() => { const plateSession = normalizePlateMutationResult(r.plate_session); return plateSession.ok ? { plateSession } : {}; })() : {}),
-          ...(r.project_config_overlay && typeof r.project_config_overlay === 'object' ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
-        };
-      } finally {
-        if (onProgress) progressListeners.delete(onProgress);
-      }
-    },
-
-    async cancelProjectPreflight(token: string): Promise<{ ok: boolean; error?: string }> {
-      const m = await module();
-      return callJson(m, 'orc_cancel_project_preflight', ['string'], [token]) as { ok: boolean; error?: string };
     },
 
     async importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
@@ -1401,6 +1675,7 @@ export function createClient(
           })() : {}),
         };
       } finally {
+        drainTaskMessages(m);
         m._free(ptr);
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -1434,7 +1709,7 @@ export function createClient(
 
     async setModelTransforms(transactionId, transforms) {
       const m = await module();
-      const raw = callJson(m, 'orc_set_model_transforms', ['string', 'string'],
+      const raw = callProfiledJson(m, 'orc_set_model_transforms', ['string', 'string'],
         [transactionId, JSON.stringify(transforms)]);
       if (!raw || typeof raw !== 'object' || (raw as Record<string, unknown>).ok !== true)
         return { ok: false, error: typeof (raw as Record<string, unknown> | null)?.error === 'string'
@@ -1447,6 +1722,7 @@ export function createClient(
       const m = await module();
       const r = callJson(m, 'orc_get_model_mesh', [], []) as {
         ok: boolean; error?: string; objects?: Array<{
+          object_id: number; volume_id: number; instance_id: number;
           object_idx: number; volume_idx: number; instance_idx: number;
           vertex_ptr: number; vertex_count: number;
           index_ptr: number; index_count: number; offset: number[];
@@ -1458,6 +1734,7 @@ export function createClient(
         const positions = new Float32Array(readBytes(m, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
         const indices = new Uint32Array(readBytes(m, Number(o.index_ptr), o.index_count * 4).buffer);
         return {
+          objectId: o.object_id, volumeId: o.volume_id, instanceId: o.instance_id,
           objectIdx: o.object_idx,
           volumeIdx: o.volume_idx,
           instanceIdx: o.instance_idx,
@@ -1469,6 +1746,34 @@ export function createClient(
         };
       });
       return { ok: true, objects };
+    },
+
+    async getModelScenePatch(objectIds: readonly number[]): Promise<ModelScenePatchResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_get_model_scene_patch', ['string'], [JSON.stringify(objectIds)]) as {
+        ok: boolean; error?: string; object_order?: number[]; objects?: ModelStructureResult['objects'];
+        meshes?: Array<{
+          object_id: number; volume_id: number; instance_id: number;
+          object_idx: number; volume_idx: number; instance_idx: number;
+          vertex_ptr: number; vertex_count: number;
+          index_ptr: number; index_count: number; offset: number[];
+          instance_transform: ModelTransform; volume_transform: ModelTransform;
+        }>;
+      };
+      if (!r.ok || !r.object_order || !r.objects || !r.meshes)
+        return { ok: false, objectOrder: [], objects: [], meshes: [], error: r.error ?? 'invalid model scene patch' };
+      const meshes: ModelObjectBuffer[] = r.meshes.map((entry) => ({
+        objectId: entry.object_id, volumeId: entry.volume_id, instanceId: entry.instance_id,
+        objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
+        positions: new Float32Array(readBytes(m, Number(entry.vertex_ptr), entry.vertex_count * 3 * 4).buffer),
+        vertexCount: entry.vertex_count,
+        indices: new Uint32Array(readBytes(m, Number(entry.index_ptr), entry.index_count * 4).buffer),
+        indexCount: entry.index_count,
+        offset: [entry.offset[0], entry.offset[1], entry.offset[2]] as [number, number, number],
+        instanceTransform: entry.instance_transform,
+        volumeTransform: entry.volume_transform,
+      }));
+      return { ok: true, objectOrder: r.object_order, objects: r.objects, meshes };
     },
 
     async getModelStructure(): Promise<ModelStructureResult> {
@@ -1578,7 +1883,16 @@ export function createClient(
       // progress even with no listener attached; here we just subscribe.
       if (onProgress) progressListeners.add(onProgress);
       try {
-        return callJson(m, 'orc_slice', ['string'], [JSON.stringify(config)]) as SliceResultStatus;
+        if (!runtimeThreaded) serialSliceAdmissionInProgress = true;
+        let raw: unknown;
+        try {
+          raw = callJson(m, 'orc_slice', ['string'], [JSON.stringify(config)]);
+        } finally {
+          serialSliceAdmissionInProgress = false;
+        }
+        if (isRecord(raw) && raw.accepted === true) return await awaitSliceTask(raw);
+        drainTaskMessages(m);
+        return normalizeSliceResultStatus(raw);
       } finally {
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -1588,18 +1902,34 @@ export function createClient(
       const m = await module();
       if (onProgress) progressListeners.add(onProgress);
       try {
-        return callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
-          JSON.stringify(config), target.plateId, target.inputRevision,
-        ]) as SliceResultStatus;
+        if (!runtimeThreaded) serialSliceAdmissionInProgress = true;
+        let raw: unknown;
+        try {
+          raw = callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
+            JSON.stringify(config), target.plateId, target.inputRevision,
+          ]);
+        } finally {
+          serialSliceAdmissionInProgress = false;
+        }
+        if (isRecord(raw) && raw.accepted === true) return await awaitSliceTask(raw);
+        drainTaskMessages(m);
+        return normalizeSliceResultStatus(raw);
       } finally {
         if (onProgress) progressListeners.delete(onProgress);
       }
     },
 
-    async getSliceResult(): Promise<ClientSliceResult> {
+    async getSliceResult(expectedReceipt: SliceResultReceipt): Promise<ClientSliceResult> {
       const m = await module();
-      const r = callJson(m, 'orc_get_slice_result', [], []) as {
+      const generation = Number(expectedReceipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        throw new Error('slice result receipt has an invalid generation');
+      const r = callJson(m, 'orc_get_slice_result', ['string', 'number', 'number'], [
+        expectedReceipt.plateId, expectedReceipt.inputStamp, generation,
+      ]) as {
         ok: boolean; error?: string; objects?: number; layers?: number; preview_version?: number;
+        status?: ResultReadStatus;
+        receipt?: { plate_id?: string; input_stamp?: number; result_generation?: string; slice_task_id?: string };
         metadata?: {
           result_id?: number; source_filename?: string;
           layer_ranges?: Array<{ id: number; z: number; first_segment: number; segment_count: number }>;
@@ -1632,7 +1962,31 @@ export function createClient(
           metrics?: Record<string, { ptr: number; count: number }>;
         };
       };
-      if (!r.ok) return r as unknown as ClientSliceResult;
+      if (!r.ok) return {
+        ...r, status: r.status ?? 'failed',
+        objects: 0, layers: 0,
+      } as unknown as ClientSliceResult;
+      const rawReceipt = r.receipt;
+      if (!rawReceipt || typeof rawReceipt.plate_id !== 'string' ||
+          !Number.isSafeInteger(rawReceipt.input_stamp) || rawReceipt.input_stamp! < 0 ||
+          typeof rawReceipt.result_generation !== 'string' || !/^[1-9]\d*$/.test(rawReceipt.result_generation) ||
+          typeof rawReceipt.slice_task_id !== 'string' || !/^\d+$/.test(rawReceipt.slice_task_id))
+        throw new Error('slice result bridge returned an invalid receipt');
+      const receipt: SliceResultReceipt = {
+        plateId: rawReceipt.plate_id,
+        inputStamp: rawReceipt.input_stamp!,
+        resultGeneration: rawReceipt.result_generation,
+        sliceTaskId: rawReceipt.slice_task_id,
+      };
+      if (receipt.plateId !== expectedReceipt.plateId ||
+          receipt.inputStamp !== expectedReceipt.inputStamp ||
+          receipt.resultGeneration !== expectedReceipt.resultGeneration ||
+          receipt.sliceTaskId !== expectedReceipt.sliceTaskId) {
+        return {
+          ok: false, status: 'stale', receipt, objects: 0, layers: 0,
+          error: 'slice result projection was superseded',
+        } as unknown as ClientSliceResult;
+      }
       if (r.preview_version !== 2 || !r.metadata || !r.toolpath)
         throw new Error('slice result bridge returned an invalid v2 envelope');
 
@@ -1818,28 +2172,27 @@ export function createClient(
 
       return {
         ok: true,
+        status: 'ok', receipt,
         objects: requireInteger(r.objects, 'object count'),
         layers: requireInteger(r.layers, 'layer count'),
         toolpath, metadata,
       };
     },
 
-    async exportGcode(): Promise<ExportGcodeResult> {
+    async exportGcodePlate(receipt: SliceResultReceipt): Promise<ExportGcodeResult> {
       const m = await module();
-      const r = callJson(m, 'orc_export_gcode', [], []) as { ok: boolean; path?: string; error?: string };
-      if (!r.ok) return r as ExportGcodeResult;
-      const bytes = m.FS.readFile('/out.gcode');
-      return { ok: true, path: r.path ?? '/out.gcode', bytes };
-    },
-
-    async exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult> {
-      const m = await module();
-      const r = callJson(m, 'orc_export_gcode_plate', ['string', 'number'], [
-        target.plateId, target.inputRevision,
-      ]) as { ok: boolean; path?: string; error?: string };
-      if (!r.ok) return r as ExportGcodeResult;
-      const bytes = m.FS.readFile('/out.gcode');
-      return { ok: true, path: r.path ?? '/out.gcode', bytes };
+      const generation = Number(receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        return { ok: false, path: '', bytes: new Uint8Array(0), error: 'invalid result generation' };
+      const r = callJson(m, 'orc_export_gcode_plate', ['string', 'number', 'number'], [
+        receipt.plateId, receipt.inputStamp, generation,
+      ]) as { ok: boolean; status?: ResultReadStatus; path?: string; error?: string };
+      if (!r.ok) return {
+        ok: false, status: r.status ?? 'failed', path: '', bytes: new Uint8Array(0), error: r.error,
+      };
+      const path = r.path ?? '';
+      const bytes = m.FS.readFile(path);
+      return { ok: true, path, bytes };
     },
 
     async exportProject(): Promise<ExportProjectResult> {
@@ -1874,7 +2227,12 @@ export function createClient(
           length > PREVIEW_TEXT_CHUNK_MAX_BYTES)
         throw new RangeError(`preview text chunk must be a safe range of at most ${PREVIEW_TEXT_CHUNK_MAX_BYTES} bytes`);
       const m = await module();
-      const r = callJson(m, 'orc_read_gcode_chunk', ['number', 'number', 'number'], [
+      const generation = Number(request.receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        throw new RangeError('preview text receipt has an invalid generation');
+      const r = callJson(m, 'orc_read_gcode_chunk',
+        ['string', 'number', 'number', 'number', 'number', 'number'], [
+        request.receipt.plateId, request.receipt.inputStamp, generation,
         // The result id is intentionally read from the caller's completed
         // result metadata in the app. A zero id is rejected by the bridge.
         request.resultId,
@@ -1882,6 +2240,7 @@ export function createClient(
         length,
       ]) as {
         ok: boolean;
+        status?: ResultReadStatus;
         error?: string;
         offset?: number;
         length?: number;
@@ -1889,9 +2248,12 @@ export function createClient(
         bytes_ptr?: number;
         bytes_length?: number;
       };
-      if (!r.ok) throw new Error(r.error ?? 'preview text is unavailable');
+      if (!r.ok) return {
+        ok: false, status: r.status ?? 'failed', error: r.error,
+        offset, text: '', eof: true,
+      };
       const actualOffset = Number(r.offset);
-      const byteLength = Number(r.bytes_length ?? r.length ?? 0);
+      const byteLength = Number(r.bytes_length);
       if (!Number.isSafeInteger(actualOffset) || actualOffset < 0 ||
           !Number.isSafeInteger(byteLength) || byteLength < 0 ||
           byteLength > PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES || !r.bytes_ptr)
@@ -1914,13 +2276,21 @@ export function createClient(
           !Number.isSafeInteger(lineCount) || lineCount < 1 || lineCount > PREVIEW_TEXT_LINES_MAX)
         throw new RangeError(`preview text page must contain 1-${PREVIEW_TEXT_LINES_MAX} lines`);
       const m = await module();
-      const r = callJson(m, 'orc_read_gcode_lines', ['number', 'number', 'number'], [
+      const generation = Number(request.receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        throw new RangeError('preview text receipt has an invalid generation');
+      const r = callJson(m, 'orc_read_gcode_lines',
+        ['string', 'number', 'number', 'number', 'number', 'number'], [
+        request.receipt.plateId, request.receipt.inputStamp, generation,
         request.resultId, startLine, lineCount,
       ]) as {
-        ok: boolean; error?: string; start_line?: number; line_count?: number;
+        ok: boolean; status?: ResultReadStatus; error?: string; start_line?: number; line_count?: number;
         eof?: boolean; bytes_ptr?: number; bytes_length?: number;
       };
-      if (!r.ok) throw new Error(r.error ?? 'preview text page is unavailable');
+      if (!r.ok) return {
+        ok: false, status: r.status ?? 'failed', error: r.error,
+        startLine, lineCount: 0, text: '', eof: true,
+      };
       const actualStart = Number(r.start_line);
       const actualCount = Number(r.line_count);
       const byteLength = Number(r.bytes_length ?? 0);
@@ -1955,4 +2325,25 @@ export function createClient(
       return callJson(m, 'orc_cancel', [], []) as CancelResult;
     },
   };
+  clientAdmissionChecks.set(client, async (observedEpoch) => {
+    const m = await module();
+    return callJson(m, 'orc_check_serial_admission', ['string'], [observedEpoch]) as Record<string, unknown>;
+  });
+  if (REAL_PROJECT_PROFILE_BUILD) {
+    (client as unknown as Record<string, () => Promise<unknown>>).realProjectProfileActiveSliceCount = async () => {
+      const m = await module();
+      return m.ccall('orc_real_project_profile_active_slice_count', 'number', [], []);
+    };
+    (client as unknown as Record<string, () => Promise<unknown>>).takeRealProjectProfileSnapshot = async () => {
+      const m = await module();
+      const native = callJson(m, 'orc_take_real_project_profile_snapshot', [], []) as Record<string, unknown>;
+      return {
+        ...native,
+        js_profile_identity: REAL_PROJECT_PROFILE_JS_SENTINEL,
+        js_wasm_calls: realProjectProfileCalls!.splice(0),
+        wasm_heap_buffer_bytes_after_read: m.HEAPU8.buffer.byteLength,
+      };
+    };
+  }
+  return client;
 }

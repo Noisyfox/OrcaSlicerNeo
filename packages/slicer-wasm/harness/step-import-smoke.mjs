@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
 const [moduleArg, fixtureDirArg, profileRootArg] = argv.slice(2);
@@ -138,11 +139,11 @@ const config = {
   machine_start_gcode: 'G28\\nG1 Z5 F5000',
   machine_end_gcode: 'M104 S0\\nM140 S0\\nG28 X0\\nM84',
 };
-const sliced = callJson('orc_slice', ['string'], [JSON.stringify(config)]);
+const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'], [JSON.stringify(config)]);
 check('valid STEP slices successfully', sliceInput.ok === true && sliced.ok === true,
       JSON.stringify(sliced));
-const exported = callJson('orc_export_gcode', [], []);
-const gcode = validateGcode(Module.FS.readFile('/out.gcode'));
+const exported = exportGcode(callJson, sliced.receipt);
+const gcode = validateGcode(Module.FS.readFile(exported.path));
 check('valid STEP exports non-empty G-code', exported.ok === true && gcode.ok,
       JSON.stringify(gcode));
 
@@ -150,8 +151,8 @@ check('valid STEP exports non-empty G-code', exported.ok === true && gcode.ok,
 const beforeSlicedStructure = JSON.stringify(callJson('orc_get_model_structure', [], []));
 const rejectedAfterSlice = addModel(malformed, 'stp', 'malformed-after-slice.stp');
 const afterSlicedStructure = JSON.stringify(callJson('orc_get_model_structure', [], []));
-const exportAfterReject = callJson('orc_export_gcode', [], []);
-const gcodeAfterReject = validateGcode(Module.FS.readFile('/out.gcode'));
+const exportAfterReject = exportGcode(callJson, sliced.receipt);
+const gcodeAfterReject = validateGcode(Module.FS.readFile(exportAfterReject.path));
 check('malformed STEP leaves sliced scene and result unchanged',
       rejectedAfterSlice.ok !== true && afterSlicedStructure === beforeSlicedStructure
       && exportAfterReject.ok === true && gcodeAfterReject.ok,

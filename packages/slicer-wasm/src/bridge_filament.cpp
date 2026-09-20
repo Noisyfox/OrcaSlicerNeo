@@ -28,74 +28,6 @@ json history_state_json(const PresetBundle& bundle)
     };
 }
 
-std::size_t direct_frame_bytes(const DirectHistoryFrame& frame,
-                               const History::ModelState& model_state)
-{
-    // ModelState is already the authoritative archive budget proxy. Charge
-    // the opaque frame once so this acceleration cannot become an unbudgeted
-    // cache.
-    std::size_t bytes = sizeof(DirectHistoryFrame);
-    const auto add_string = [&bytes](const std::string& value) {
-        bytes += value.capacity() + 1;
-    };
-    for (const auto& value : frame.filament_presets) add_string(value);
-    for (const auto& row : frame.ams_multi_colour_filment)
-        for (const auto& value : row) add_string(value);
-    const std::string edited = frame.edited_filament
-        ? config_metadata_json(frame.edited_filament->config).dump() : std::string{};
-    const std::string project = config_metadata_json(frame.project_config).dump();
-    const std::string overlay = frame.overlay.dump();
-    bytes += edited.capacity() + project.capacity() + overlay.capacity();
-    for (const auto& plate : frame.plates) {
-        bytes += sizeof(BridgeState::PlateSessionPlate) + plate.id.capacity() + plate.name.capacity() + 2;
-        bytes += plate.settings_metadata.dump().capacity() + plate.opaque_metadata.dump().capacity() +
-            plate.future_metadata.dump().capacity();
-    }
-    for (const auto& object : model_state.mutable_objects) bytes += object.data.capacity();
-    for (const auto& mesh : model_state.immutable_meshes) {
-        bytes += mesh.key.capacity() + 1;
-        if (mesh.resident) bytes += mesh.resident->capacity();
-        if (mesh.deferred) bytes += mesh.deferred->capacity();
-    }
-    return bytes;
-}
-
-std::optional<History::RestoreState::DirectFrame>
-make_direct_frame(BridgeState& bridge, std::shared_ptr<const Model> model,
-                  const History::ModelState& model_state)
-{
-    if (!model) return std::nullopt;
-    auto frame = std::make_shared<DirectHistoryFrame>();
-    frame->filament_presets = bridge.presets.filament_presets;
-    frame->edited_filament.emplace(bridge.presets.filaments.get_edited_preset());
-    frame->project_config = bridge.presets.project_config;
-    frame->ams_multi_colour_filment = bridge.presets.ams_multi_color_filment;
-    frame->model = std::move(model);
-    frame->plates = bridge.plate_session_plates;
-    frame->overlay = bridge.project_config_overlay;
-    frame->plate_input_revisions = bridge.plate_input_revisions;
-    frame->instance_plate_ids = bridge.instance_plate_ids;
-    frame->plate_out_of_bounds_ids = bridge.plate_out_of_bounds_ids;
-    frame->parked_instance_ids = bridge.parked_instance_ids;
-    frame->pending_membership_instance_ids = bridge.pending_membership_instance_ids;
-    frame->current_plate_id = bridge.current_plate_id;
-    frame->next_filament_colour_index = bridge.next_filament_colour_index;
-    const std::size_t bytes = direct_frame_bytes(*frame, model_state);
-    return History::RestoreState::DirectFrame{
-        History::RestoreState::DirectFrame::Kind::Filament,
-        std::static_pointer_cast<const void>(std::move(frame)), bytes};
-}
-
-std::shared_ptr<const Model> current_direct_frame_model(const BridgeState& bridge)
-{
-    const auto& current = bridge.history.current();
-    if (!current.direct_frame || !current.direct_frame->payload) return {};
-    if (current.direct_frame->kind != History::RestoreState::DirectFrame::Kind::Filament) return {};
-    const auto frame = std::static_pointer_cast<const DirectHistoryFrame>(
-        current.direct_frame->payload);
-    return frame ? frame->model : std::shared_ptr<const Model>{};
-}
-
 void apply_project_sidecar(PresetBundle& bundle, const json& encoded)
 {
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
@@ -224,9 +156,7 @@ namespace Slic3r::Neo::Bridge::Filament::Commands {
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
 using Neo::Bridge::Filament::State::config_metadata_json;
-using Neo::Bridge::Filament::State::current_direct_frame_model;
 using Neo::Bridge::Filament::State::history_state_json;
-using Neo::Bridge::Filament::State::make_direct_frame;
 using Neo::Bridge::HistoryMetadata::default_history_context;
 using Neo::Bridge::PlateSession::all_plate_ids;
 using Neo::Bridge::PlateSession::ensure_plate_session_state;
@@ -880,25 +810,11 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         const auto before_snapshot = filament_snapshot_json();
         if (!before_snapshot.value("ok", false)) return before_snapshot;
         const auto before_context = default_command_history_context();
-        // The retained current entry is the authoritative pre-command model.
-        // Reusing its immutable history representation avoids serializing the
-        // entire native model again for every small filament edit; the post-
-        // command frame below is still serialized before it is committed.
-        const auto before_history_model = state().history.entries().empty()
-            ? Neo::History::Codec::capture_model_state(state().model) : state().history.current().model;
-        const bool needs_predecessor_direct = state().history.entries().empty() ||
-            !state().history.current().direct_frame.has_value();
-        std::shared_ptr<const Model> direct_before_model = current_direct_frame_model(state());
-        if (!direct_before_model) direct_before_model = std::make_shared<Model>(state().model);
-        const auto predecessor_direct = needs_predecessor_direct
-            ? make_direct_frame(state(), direct_before_model, before_history_model)
-            : std::optional<Neo::History::RestoreState::DirectFrame>{};
         if (!request.contains("revision") || !request["revision"].is_number_unsigned())
             return command_error("stale_revision", "filament session revision is required");
         const auto expected = request["revision"].get<std::uint64_t>();
         if (expected != before_snapshot["revisions"]["session"].get<std::uint64_t>())
             return command_error("stale_revision", "filament session revision is stale");
-
         // The preset catalogue is immutable during a project session.  Never
         // copy PresetBundle in a history-producing mutation: retain only the
         // exact mutable filament fields which may need atomic rollback.
@@ -915,17 +831,28 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         const auto before_parked = state().parked_instance_ids;
         const auto before_pending = state().pending_membership_instance_ids;
         const auto before_current_plate = state().current_plate_id;
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
+        if (!HistoryMetadata::begin_timestamped_operation(state(), label, before_context))
+            return command_error("native_validation_failure", "could not capture filament history predecessor");
+        bool history_started = true;
         const auto old_count = state().presets.filament_presets.size();
         bool mutated = false;
         bool history_committed = false;
         const auto rollback_published = [&]() {
-            if (!mutated || history_committed) return;
+            if (history_committed) return;
+            if (history_started) {
+                HistoryMetadata::abort_timestamped_operation(state());
+                history_started = false;
+            }
+            if (!mutated) return;
             state().presets.filament_presets = before_filament_presets;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
             state().presets.filaments.get_edited_preset() = before_edited_filament;
             state().model = before_model;
+            state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
+            Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
             state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
@@ -934,6 +861,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             state().pending_membership_instance_ids = before_pending;
             state().current_plate_id = before_current_plate;
             state().next_filament_colour_index = before_next_filament_colour_index;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         };
         json mutation;
         try {
@@ -958,7 +886,10 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             // the post-command snapshot; the renderer must not infer this from
             // whichever plate happens to be selected.
             ensure_plate_session_state();
-            for (const auto& plate_id : all_plate_ids()) ++state().plate_input_revisions[plate_id];
+            const auto affected_plates = all_plate_ids();
+            for (const auto& plate_id : affected_plates)
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
+            state().plate_runtime_registry.invalidate_presentations(affected_plates);
             const auto final_snapshot = filament_snapshot_json();
             if (!final_snapshot.value("ok", false)) {
                 rollback_published();
@@ -966,12 +897,10 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             }
             auto context = default_command_history_context();
             // The model may be unchanged for a pure slot edit.  Include the
-            // authoritative filament revision in the history context so ProjectHistory
+            // authoritative filament revision in the history context so TimestampedHistory
             // records exactly one semantic project mutation instead of coalescing
             // the command away as an identical model/context snapshot.
             context["filamentSessionRevision"] = state().history_revision + 1;
-            const auto encoded = context.dump();
-            const Neo::History::Bytes bytes(encoded.begin(), encoded.end());
             const auto failure_stage = request.value("inject_failure_stage", "");
             if (failure_stage == "before-history") {
                 rollback_published();
@@ -979,31 +908,17 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             }
             if (failure_stage == "during-history")
                 throw std::runtime_error("injected history commit failure");
-            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
-            const auto direct_frame = make_direct_frame(
-                state(), std::make_shared<Model>(state().model), after_history_model);
-            const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {
-                if (!state().history.entries().empty())
-                    return state().history.commit(label, Neo::History::Category::Project,
-                                                  after_history_model, bytes, direct_frame,
-                                                  predecessor_direct);
-                const auto baseline_encoded = before_context.dump();
-                const Neo::History::Bytes baseline_bytes(baseline_encoded.begin(), baseline_encoded.end());
-                return state().history.commit_with_baseline(
-                    label, Neo::History::Category::Project,
-                    before_history_model, baseline_bytes, after_history_model, bytes,
-                    predecessor_direct, direct_frame);
-            });
+            const bool committed = HistoryMetadata::commit_timestamped_operation(state(), context);
             if (!committed) {
                 rollback_published();
                 return command_error("native_validation_failure", "history commit rejected filament mutation");
             }
             history_committed = true;
+            history_started = false;
         } catch (...) {
             if (!history_committed) rollback_published();
             throw;
         }
-        state().print.clear();
         invalidate_preview_source();
         mutation["history_entry_delta"] = 1;
         mutation["revision_before"] = expected;
@@ -1042,14 +957,11 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         const auto before_snapshot = filament_snapshot_json();
         if (!before_snapshot.value("ok", false)) return before_snapshot;
         const auto before_context = default_command_history_context();
-        const auto before_history_model = state().history.entries().empty()
-            ? Neo::History::Codec::capture_model_state(state().model) : state().history.current().model;
         if (!request.contains("revision") || !request["revision"].is_number_unsigned())
             return command_error("stale_revision", "filament session revision is required");
         const auto expected = request["revision"].get<std::uint64_t>();
         if (expected != before_snapshot["revisions"]["session"].get<std::uint64_t>())
             return command_error("stale_revision", "filament session revision is stale");
-
         const auto before_filament_presets = state().presets.filament_presets;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
@@ -1064,26 +976,27 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         const auto before_parked = state().parked_instance_ids;
         const auto before_pending = state().pending_membership_instance_ids;
         const auto before_current_plate = state().current_plate_id;
-        const auto& current_history = state().history.current();
-        const bool needs_predecessor_direct = state().history.entries().empty() ||
-            !current_history.direct_frame.has_value();
-        std::shared_ptr<const Model> direct_before_model = current_direct_frame_model(state());
-        if (!direct_before_model)
-            direct_before_model = before_model ? before_model : std::make_shared<Model>(state().model);
-        const auto predecessor_direct = needs_predecessor_direct
-            ? make_direct_frame(state(), direct_before_model, before_history_model)
-            : std::optional<Neo::History::RestoreState::DirectFrame>{};
-
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
+        if (!HistoryMetadata::begin_timestamped_operation(state(), label, before_context))
+            return command_error("native_validation_failure", "could not capture filament history predecessor");
+        bool history_started = true;
         bool mutated = false;
         bool history_committed = false;
         const auto rollback = [&]() {
-            if (!mutated || history_committed) return;
+            if (history_committed) return;
+            if (history_started) {
+                HistoryMetadata::abort_timestamped_operation(state());
+                history_started = false;
+            }
+            if (!mutated) return;
             state().presets.filament_presets = before_filament_presets;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
             state().presets.filaments.get_edited_preset() = before_edited_filament;
             if (before_model) state().model = *before_model;
+            state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
+            Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
             state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
@@ -1092,6 +1005,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             state().pending_membership_instance_ids = before_pending;
             state().current_plate_id = before_current_plate;
             state().next_filament_colour_index = before_next_filament_colour_index;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         };
 
         try {
@@ -1107,7 +1021,10 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
                                         state().project_config_overlay);
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             ensure_plate_session_state();
-            for (const auto& plate_id : all_plate_ids()) ++state().plate_input_revisions[plate_id];
+            const auto affected_plates = all_plate_ids();
+            for (const auto& plate_id : affected_plates)
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
+            state().plate_runtime_registry.invalidate_presentations(affected_plates);
             const auto final_snapshot = filament_snapshot_json();
             if (!final_snapshot.value("ok", false)) {
                 rollback();
@@ -1115,8 +1032,6 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             }
             auto context = default_command_history_context();
             context["filamentSessionRevision"] = state().history_revision + 1;
-            const auto encoded = context.dump();
-            const Neo::History::Bytes bytes(encoded.begin(), encoded.end());
             const auto failure_stage = request.value("inject_failure_stage", "");
             if (failure_stage == "before-history") {
                 rollback();
@@ -1124,29 +1039,13 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             }
             if (failure_stage == "during-history")
                 throw std::runtime_error("injected history commit failure");
-            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
-            const auto direct_after_model = model_changes
-                ? std::make_shared<Model>(state().model) : direct_before_model;
-            const auto direct_frame = make_direct_frame(state(), direct_after_model,
-                                                        after_history_model);
-            const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {
-                if (!state().history.entries().empty())
-                    return state().history.commit(label, Neo::History::Category::Project,
-                                                  after_history_model, bytes, direct_frame,
-                                                  predecessor_direct);
-                const auto baseline_encoded = before_context.dump();
-                const Neo::History::Bytes baseline_bytes(baseline_encoded.begin(), baseline_encoded.end());
-                return state().history.commit_with_baseline(
-                    label, Neo::History::Category::Project,
-                    before_history_model, baseline_bytes, after_history_model, bytes,
-                    predecessor_direct, direct_frame);
-            });
+            const bool committed = HistoryMetadata::commit_timestamped_operation(state(), context);
             if (!committed) {
                 rollback();
                 return command_error("native_validation_failure", "history commit rejected filament mutation");
             }
             history_committed = true;
-            state().print.clear();
+            history_started = false;
             invalidate_preview_source();
             mutation["history_entry_delta"] = 1;
             mutation["revision_before"] = expected;
@@ -1214,7 +1113,6 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
             HistoryMetadata::advance_history_epoch(state());
             const auto result = filament_snapshot_json();
             if (!result.value("ok", false)) throw std::runtime_error(result.value("error", "invalid remembered filament rack"));
-            state().print.clear();
             invalidate_preview_source();
             return duplicate_json(result.dump());
         } catch (...) {
@@ -1316,8 +1214,6 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             request["revision"].get<std::uint64_t>() != before_snapshot["revisions"]["session"].get<std::uint64_t>())
             return command_error("stale_revision", "filament session revision is stale");
         const auto before_context = default_command_history_context();
-        const auto before_history_model = state().history.entries().empty()
-            ? Neo::History::Codec::capture_model_state(state().model) : state().history.current().model;
         // Assignment and routing must use the live immutable profile
         // catalogue.  Support routing changes only project_config; preserve
         // that narrow mutable surface rather than cloning PresetBundle.
@@ -1361,12 +1257,20 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         const auto before_parked = state().parked_instance_ids;
         const auto before_pending = state().pending_membership_instance_ids;
         const auto before_current_plate = state().current_plate_id;
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         bool history_committed = false;
+        bool history_started = false;
         const auto rollback = [&]() {
             if (history_committed) return;
+            if (history_started) {
+                HistoryMetadata::abort_timestamped_operation(state());
+                history_started = false;
+            }
             restore_mutable_bundle();
             state().model = before_model;
+            state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
+            Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
             state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
@@ -1374,49 +1278,33 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             state().parked_instance_ids = before_parked;
             state().pending_membership_instance_ids = before_pending;
             state().current_plate_id = before_current_plate;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         };
-        const bool needs_predecessor_direct = state().history.entries().empty() ||
-            !state().history.current().direct_frame.has_value();
-        std::shared_ptr<const Model> direct_before_model = current_direct_frame_model(state());
-        if (!direct_before_model) direct_before_model = std::make_shared<Model>(state().model);
-        const auto predecessor_direct = needs_predecessor_direct
-            ? make_direct_frame(state(), direct_before_model, before_history_model)
-            : std::optional<Neo::History::RestoreState::DirectFrame>{};
         try {
+            if (!HistoryMetadata::begin_timestamped_operation(state(), label, before_context))
+                throw std::runtime_error("could not capture filament assignment history predecessor");
+            history_started = true;
             state().model = std::move(staged_model);
             state().plate_session_plates = std::move(staged_plates);
             state().project_config_overlay = std::move(staged_overlay);
             ensure_plate_session_state();
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
-            for (const auto& plate_id : affected_plates) ++state().plate_input_revisions[plate_id];
+            for (const auto& plate_id : affected_plates)
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
+            state().plate_runtime_registry.invalidate_presentations(affected_plates);
             auto context = default_command_history_context();
             context["filamentSessionRevision"] = state().history_revision + 1;
-            const auto encoded = context.dump();
-            const Neo::History::Bytes bytes(encoded.begin(), encoded.end());
             if (request.value("inject_failure_stage", "") == "during-history")
                 throw std::runtime_error("injected history commit failure");
-            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
-            const auto direct_frame = make_direct_frame(
-                state(), std::make_shared<Model>(state().model), after_history_model);
-            const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {
-                if (!state().history.entries().empty())
-                    return state().history.commit(label, Neo::History::Category::Project,
-                                                  after_history_model, bytes, direct_frame,
-                                                  predecessor_direct);
-                const auto baseline_encoded = before_context.dump();
-                const Neo::History::Bytes baseline_bytes(baseline_encoded.begin(), baseline_encoded.end());
-                return state().history.commit_with_baseline(label, Neo::History::Category::Project,
-                    before_history_model, baseline_bytes, after_history_model, bytes,
-                    predecessor_direct, direct_frame);
-            });
+            const bool committed = HistoryMetadata::commit_timestamped_operation(state(), context);
             if (!committed) throw std::runtime_error("history commit rejected filament assignment");
             history_committed = true;
+            history_started = false;
         } catch (...) {
             if (!history_committed) rollback();
             throw;
         }
         if (affected_plates.find(state().current_plate_id) != affected_plates.end()) {
-            state().print.clear();
             invalidate_preview_source();
         }
         mutation["history_entry_delta"] = 1;
@@ -1971,8 +1859,11 @@ json filament_session_snapshot_json()
     std::sort(parts.begin(), parts.end(), [](const Assignment& a, const Assignment& b) { return a.id < b.id; });
     std::sort(modifiers.begin(), modifiers.end(), [](const Assignment& a, const Assignment& b) { return a.id < b.id; });
 
+    std::uint64_t current_result_generation = 0;
+    if (const auto* entry = state().plate_runtime_registry.find(state().current_plate_id))
+        current_result_generation = entry->result_generation;
     json revisions = {{"session", state().history_revision}, {"project", state().history_revision},
-                      {"result", state().preview_result_id}, {"plates", plate_revisions_json()}};
+                      {"result", current_result_generation}, {"plates", plate_revisions_json()}};
     json routing = json::array();
     const std::array<std::pair<const char *, const char *>, 8> routing_keys = {{
         {"support-base", "support_filament"}, {"support-interface", "support_interface_filament"},

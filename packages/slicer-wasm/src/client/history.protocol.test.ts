@@ -45,7 +45,6 @@ describe('Worker-owned project history protocol', () => {
       async () => client.addShape('Cube'), baseline);
     const firstId = first.status.undoEntries[0]?.id;
     if (!firstId) throw new Error('missing first entry id');
-    await client.recordHistoryContext('Selection', context('plate-2'));
     const second = await client.runProjectHistoryTransaction('Second', 'project', context('plate-2'),
       async () => client.addShape('Cube'), context('plate-2'));
     const secondId = second.status.undoEntries[0]?.id;
@@ -65,6 +64,120 @@ describe('Worker-owned project history protocol', () => {
     expect((await client.getModelStructure()).objects).toHaveLength(2);
     await expect(client.jumpHistory(secondId, 'redo')).rejects.toThrow('outside the requested direction');
     await expect(client.jumpHistory('entry-999999', 'undo')).rejects.toThrow('stale or unavailable');
+  });
+
+  it('jumps across mixed Add Cube, Move, and Add Plate entries by opaque entry id', async () => {
+    const client = createClient(async () => createMockModule());
+    const editingContext = context('plate-session-1-plate-1');
+    const firstCube = await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    const firstCubeId = firstCube.status.undoEntries[0]?.id;
+    if (!firstCubeId) throw new Error('missing first Add Cube entry id');
+
+    const move = await client.beginHistory('Move', 'project', editingContext);
+    const transform = { offset: [10, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    expect((await client.setModelTransforms(move, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform, volumeTransform: { ...transform, offset: [0, 0, 0] } },
+    ])).ok).toBe(true);
+    await client.commitHistory(move, editingContext);
+
+    const addPlate = await client.runProjectHistoryTransaction('Add Plate', 'project', editingContext,
+      async () => client.addPlate(), editingContext);
+    expect(addPlate.result.ok).toBe(true);
+    const secondCube = await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    const secondCubeId = secondCube.status.undoEntries[0]?.id;
+    if (!secondCubeId) throw new Error('missing second Add Cube entry id');
+
+    const undone = await client.jumpHistory(firstCubeId, 'undo');
+    expect(undone.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    const undonePlates = await client.getPlateSessionSnapshot();
+    expect(undonePlates.ok).toBe(true);
+    if (!undonePlates.ok) throw new Error(undonePlates.error);
+    expect(undonePlates.plates).toHaveLength(1);
+
+    const redone = await client.jumpHistory(secondCubeId, 'redo');
+    expect(redone.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(2);
+    expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset[0]).toBe(10);
+    const redonePlates = await client.getPlateSessionSnapshot();
+    expect(redonePlates.ok).toBe(true);
+    if (!redonePlates.ok) throw new Error(redonePlates.error);
+    expect(redonePlates.plates).toHaveLength(2);
+  });
+
+  it('undoes the first Cube after an empty-scene Add Plate', async () => {
+    const client = createClient(async () => createMockModule());
+    const editingContext = context('plate-session-1-plate-1');
+    const addedPlate = await client.runProjectHistoryTransaction('Add Plate', 'project', editingContext,
+      async () => client.addPlate(), editingContext);
+    expect(addedPlate.result.ok).toBe(true);
+    const twoPlates = await client.getPlateSessionSnapshot();
+    expect(twoPlates.ok).toBe(true);
+    if (!twoPlates.ok) throw new Error(twoPlates.error);
+    expect(twoPlates.plates).toHaveLength(2);
+
+    await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+
+    const undone = await client.undoHistory();
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) throw new Error('undo failed');
+    expect(undone.context.plateSession).toMatchObject({
+      currentPlateId: twoPlates.currentPlateId, instances: [],
+    });
+    expect(undone.sceneDelta.objectOrder).toEqual([]);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    const restoredPlates = await client.getPlateSessionSnapshot();
+    expect(restoredPlates.ok).toBe(true);
+    if (!restoredPlates.ok) throw new Error(restoredPlates.error);
+    expect(restoredPlates.plates).toHaveLength(2);
+
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+  });
+
+  it('redoes a Move after Add Cube was fully restored', async () => {
+    const client = createClient(async () => createMockModule());
+    const editingContext = context('plate-session-1-plate-1');
+    await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    const stableIds = (await client.getModelStructure()).objects.map((object) => ({
+      objectId: object.id,
+      volumeIds: object.volumes.map((volume) => volume.id),
+      instanceIds: object.instances.map((instance) => instance.id),
+    }));
+    const move = await client.beginHistory('Move', 'project', editingContext);
+    const moved = {
+      offset: [25, 0, 0] as [number, number, number],
+      rotation: [0, 0, 0] as [number, number, number],
+      scale: [1, 1, 1] as [number, number, number],
+      mirror: [1, 1, 1] as [number, number, number],
+    };
+    const identity = { ...moved, offset: [0, 0, 0] as [number, number, number] };
+    expect((await client.setModelTransforms(move, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
+    ])).ok).toBe(true);
+    await client.commitHistory(move, editingContext);
+
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects.map((object) => ({
+      objectId: object.id,
+      volumeIds: object.volumes.map((volume) => volume.id),
+      instanceIds: object.instances.map((instance) => instance.id),
+    }))).toEqual(stableIds);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects.map((object) => ({
+      objectId: object.id,
+      volumeIds: object.volumes.map((volume) => volume.id),
+      instanceIds: object.instances.map((instance) => instance.id),
+    }))).toEqual(stableIds);
+    expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset[0]).toBe(25);
   });
 
   it('does not create a no-op entry and abort restores the model', async () => {
@@ -140,7 +253,7 @@ describe('Worker-owned project history protocol', () => {
     await expect(client.undoHistory()).resolves.toMatchObject({ ok: true });
   });
 
-  it('keeps Save as a checkpoint and skips context-only records', async () => {
+  it('keeps Save as a checkpoint while UI context remains outside history', async () => {
     const client = createClient(async () => createMockModule());
     const before = context('plate-1');
     const first = await client.runProjectHistoryTransaction('Add Cube', 'project', before,
@@ -148,21 +261,19 @@ describe('Worker-owned project history protocol', () => {
     expect(first.status.dirty).toBe(true);
     const saved = await client.markHistorySaved(before);
     expect(saved.dirty).toBe(false);
-    const contextAfter = context('plate-2');
-    const contextTx = await client.beginHistory('Active Plate', 'context', before);
-    const contextStatus = await client.commitHistory(contextTx, contextAfter);
-    expect(contextStatus.dirty).toBe(false);
-    expect(contextStatus.undoEntries).toHaveLength(1);
+    const statusAfterUiContext = await client.getHistoryStatus();
+    expect(statusAfterUiContext).toEqual(saved);
     const undone = await client.undoHistory();
     expect(undone.ok).toBe(true);
     if (!undone.ok) throw new Error('missing restore');
-    // The saved checkpoint is the post-project frame. Skipping the context
-    // record still undoes that project operation, so the baseline is dirty
-    // relative to the saved frame.
+    // The saved checkpoint is the post-project frame, so Undoing that project
+    // operation reaches the baseline and becomes dirty relative to Save.
     expect(undone.status.dirty).toBe(true);
     expect(undone.context.activePlateId).toBe('plate-1');
     const redone = await client.redoHistory();
     expect(redone.ok).toBe(true);
+    if (!redone.ok) throw new Error('redo failed');
+    expect(redone.context.plateSession?.instances).toHaveLength(1);
     if (!redone.ok) throw new Error('missing saved-frame redo');
     expect(redone.status.dirty).toBe(false);
     const reset = await client.resetHistory(context('fresh'));
@@ -171,94 +282,64 @@ describe('Worker-owned project history protocol', () => {
     expect(reset.dirty).toBe(false);
   });
 
-  it('skips consecutive context records in one-step navigation and truncates their branch', async () => {
+  it('keeps redo across UI context changes and attaches the latest context to the next mutation', async () => {
     const client = createClient(async () => createMockModule());
-    const baseline = context('plate-1');
-    const first = await client.runProjectHistoryTransaction('Add Cube', 'project', baseline,
-      async () => client.addShape('Cube'), baseline);
-    expect(first.status.dirty).toBe(true);
-    const saved = await client.markHistorySaved(baseline);
-    expect(saved.dirty).toBe(false);
-
-    const contextOne = await client.recordHistoryContext('Selection 1', context('plate-2'));
-    expect(contextOne.dirty).toBe(false);
-    const contextTwo = await client.recordHistoryContext('Selection 2', context('plate-3'));
-    expect(contextTwo.dirty).toBe(false);
-    expect(contextTwo.undoEntries).toHaveLength(1);
-
-    const undone = await client.undoHistory();
-    expect(undone.ok).toBe(true);
-    if (!undone.ok) throw new Error('missing context-skipping restore');
-    expect((await client.getModelStructure()).objects).toHaveLength(0);
-    expect(undone.context.activePlateId).toBe('plate-1');
-    expect(undone.status.dirty).toBe(true);
-    expect(undone.status.canRedo).toBe(true);
-
-    const redone = await client.redoHistory();
-    expect(redone.ok).toBe(true);
-    if (!redone.ok) throw new Error('missing symmetric redo restore');
-    expect((await client.getModelStructure()).objects).toHaveLength(1);
-    expect(redone.context.activePlateId).toBe('plate-1');
-    expect(redone.status.dirty).toBe(false);
-    expect(redone.status.canRedo).toBe(false);
-
-    await client.undoHistory();
-    const branched = await client.recordHistoryContext('New Selection', context('plate-branch'));
-    expect(branched.canRedo).toBe(false);
-  });
-
-  it('restores project selection context and truncates redo after a new context record', async () => {
-    const client = createClient(async () => createMockModule());
-    const before = context('plate-1');
-    const selected: HistoryContext = {
+    const addedPlate = await client.addPlate();
+    if (!addedPlate.ok) throw new Error(addedPlate.error);
+    const firstPlateId = addedPlate.plates[0].plateId;
+    const secondPlateId = addedPlate.plates[1].plateId;
+    await client.selectPlate(firstPlateId);
+    const before = context(firstPlateId);
+    await client.resetHistory(before);
+    const selectedAfterA: HistoryContext = {
       selection: { mode: 'part', objectIds: [11], partIds: [22], instanceIds: [33] },
-      activePlateId: 'plate-1', gizmo: { type: 'move' }, projectConfigOverlay: {},
+      activePlateId: firstPlateId, gizmo: { type: 'move' }, projectConfigOverlay: {},
     };
-    await client.runProjectHistoryTransaction('Add Cube', 'project', before,
-      async () => client.addShape('Cube'), selected);
-    await client.markHistorySaved(selected);
-    const changed = await client.recordHistoryContext('Selection', {
-      ...selected,
-      selection: { ...selected.selection, partIds: [23] },
-    });
-    expect(changed.dirty).toBe(false);
-    expect(changed.undoEntries).toHaveLength(1);
+    await client.runProjectHistoryTransaction('Mutation A', 'project', before,
+      async () => client.addShape('Cube'), selectedAfterA);
     const undone = await client.undoHistory();
     expect(undone.ok).toBe(true);
     if (!undone.ok) throw new Error('missing restore');
-    expect(undone.context.selection.partIds).toEqual([]);
-    expect(undone.context.activePlateId).toBe('plate-1');
-    const projectRestored = await client.redoHistory();
-    expect(projectRestored.ok).toBe(true);
-    if (!projectRestored.ok) throw new Error('missing project restore');
-    expect(projectRestored.context.selection.partIds).toEqual([22]);
-    await client.recordHistoryContext('Selection', {
-      ...selected,
-      selection: { ...selected.selection, partIds: [23] },
+    const beforeUiChanges = undone.status;
+
+    // Selecting another object, clearing it, and switching plate are renderer
+    // context only. Plate selection exercises the actual runtime command; the
+    // selection changes intentionally make no history call.
+    const selectedBeforeB: HistoryContext = {
+      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: secondPlateId, gizmo: null, projectConfigOverlay: {},
+    };
+    expect((await client.selectPlate(secondPlateId)).ok).toBe(true);
+    const afterUiChanges = await client.getHistoryStatus();
+    expect(afterUiChanges).toMatchObject({
+      canRedo: true,
+      cursor: beforeUiChanges.cursor,
+      revision: beforeUiChanges.revision,
+      redoEntries: beforeUiChanges.redoEntries,
     });
-    const afterUndo = await client.undoHistory();
-    expect(afterUndo.ok).toBe(true);
-    if (!afterUndo.ok) throw new Error('missing baseline restore');
-    expect(afterUndo.context.selection.partIds).toEqual([]);
-    const truncated = await client.recordHistoryContext('Selection', {
-      ...selected,
-      selection: { ...selected.selection, objectIds: [99] },
-    });
-    expect(truncated.canRedo).toBe(false);
-    // This branch discards the saved checkpoint itself, so the conservative
-    // dirty rule applies even though the new record is context-only.
-    expect(truncated.dirty).toBe(true);
+
+    const redone = await client.redoHistory();
+    expect(redone.ok).toBe(true);
+    if (!redone.ok) throw new Error('missing project redo');
+    expect(redone.context).toMatchObject(selectedAfterA);
+
+    await client.undoHistory();
+    await client.selectPlate(secondPlateId);
+    const mutationB = await client.runProjectHistoryTransaction('Mutation B', 'project', selectedBeforeB,
+      async () => client.addShape('Cube'), selectedBeforeB);
+    expect(mutationB.status.canRedo).toBe(false);
+    const undoB = await client.undoHistory();
+    expect(undoB.ok).toBe(true);
+    if (!undoB.ok) throw new Error('missing mutation B undo');
+    expect(undoB.context).toMatchObject(selectedBeforeB);
   });
 
-  it('rejects future and past context IDs from the directional jump API', async () => {
+  it('rejects a standalone context transaction', async () => {
     const client = createClient(async () => createMockModule());
     const baseline = context('plate-1');
-    await client.runProjectHistoryTransaction('Add Cube', 'project', baseline,
-      async () => client.addShape('Cube'), baseline);
-    await client.recordHistoryContext('Selection', context('plate-2'));
-    await expect(client.jumpHistory('entry-2', 'undo')).rejects.toThrow('not a directional project operation');
-    await client.undoHistory();
-    await expect(client.jumpHistory('entry-2', 'redo')).rejects.toThrow('not a directional project operation');
+    await expect(client.beginHistory('Selection', 'context' as never, baseline))
+      .rejects.toThrow('history category must be project');
+    expect(await client.getHistoryStatus()).toMatchObject({ canUndo: false, canRedo: false });
   });
 
   it('keeps opt-in nested coalesced transactions dormant and publishes one entry', async () => {

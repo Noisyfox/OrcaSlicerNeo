@@ -15,7 +15,7 @@ function snapshot(command: keyof MenuStateSnapshot['items'], enabled: boolean): 
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: true },
     result: { hasResult: false, exported: false },
-    project: { hasContent: true, dirty: true, flattenedMultiPlate: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
+    project: { hasContent: true, dirty: true, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: false, menuMode: 'browser' },
     items,
   };

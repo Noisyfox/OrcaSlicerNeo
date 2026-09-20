@@ -41,7 +41,9 @@ describe('Prepare colour projection', () => {
     expect(resolvePrepareMaterial({ baseColour: '#ff0000', selected: true }).colour).toBe('#ff8080');
     expect(resolvePrepareMaterial({ baseColour: '#00ff00', selected: true }).colour).toBe('#80ff80');
   });
-  it('lifts pure and very dark colours before brightening them', () => {
+  it('lifts pure and very dark colours for both ordinary and selected rendering', () => {
+    expect(resolvePrepareMaterial({ baseColour: '#000000' }).colour).toBe('#333333');
+    expect(resolvePrepareMaterial({ baseColour: '#1a1a1a' }).colour).toBe('#333333');
     expect(resolvePrepareMaterial({ baseColour: '#000000', selected: true }).colour).toBe('#737373');
     expect(resolvePrepareMaterial({ baseColour: '#1a1a1a', selected: true }).colour).toBe('#737373');
   });

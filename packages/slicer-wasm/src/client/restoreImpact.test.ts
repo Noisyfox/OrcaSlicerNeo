@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { normalizeRestoreImpact } from './client';
 
 describe('restore impact normalization', () => {
-  it('uses a safe full restore when an old or malformed artifact omits the descriptor', () => {
+  it('keeps malformed descriptors on the SceneDelta path without introducing a full fallback', () => {
     for (const value of [undefined, null, {}, { version: 2 }, { version: 1, model: 'none' }]) {
       expect(normalizeRestoreImpact(value)).toMatchObject({
-        version: 1, model: 'full', plateSession: true, filamentRack: true,
+        version: 1, model: 'delta', plateSession: true, filamentRack: true,
         projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
       });
     }

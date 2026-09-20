@@ -32,7 +32,7 @@ function historyStatus(revision: number): HistoryStatus {
   return {
     canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
     savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true, bytesUsed: 1,
-    byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+    byteBudget: 10, evictedEntryCount: 0,
     lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
     disabled: false, activeTransactionId: null, revision,
   };

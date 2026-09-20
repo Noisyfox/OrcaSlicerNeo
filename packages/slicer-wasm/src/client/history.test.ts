@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePrimeTowerRestoreReceipt } from './client';
+import { normalizeHistoryContext } from './client';
 import type {
   HistoryContext, HistoryStatus, MockHistoryRuntime, RestoreResult,
   StableInstanceId, StableObjectId, StablePartId, StablePlateId,
@@ -29,7 +29,7 @@ const status: HistoryStatus = {
   dirty: true,
   bytesUsed: 128,
   byteBudget: 256 * 1024 * 1024,
-  optionalBytesReleased: 0, evictedEntryCount: 0, lastEvictedEntryId: null,
+  evictedEntryCount: 0, lastEvictedEntryId: null,
   oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
   disabled: false,
   activeTransactionId: null,
@@ -37,11 +37,6 @@ const status: HistoryStatus = {
 };
 
 describe('history contracts', () => {
-  const narrowImpact = {
-    version: 1 as const, model: 'none' as const, plateSession: true, filamentRack: false,
-    projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate' as const,
-  };
-
   it('keeps stable IDs distinct from positional context in a serializable shape', () => {
     const copy = JSON.parse(JSON.stringify(context)) as HistoryContext;
     expect(copy).toEqual(context);
@@ -51,17 +46,18 @@ describe('history contracts', () => {
     expect(copy.activePlateId).toBe('plate-session-1-plate-1');
   });
 
-  it('separates project and context history categories in status entries', () => {
-    const contextEntry = { id: 'entry-2', label: 'Selection', category: 'context' as const };
+  it('reports only project history categories in status entries', () => {
     expect(status.undoEntries[0]?.category).toBe('project');
-    expect(contextEntry.category).toBe('context');
     expect(status.canUndo).toBe(true);
     expect(status.canRedo).toBe(false);
   });
 
   it('allows future callers to type a mock runtime without enabling history', async () => {
-    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1', impact: {
-      version: 1, model: 'full', plateSession: true, filamentRack: true,
+    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1', sceneDelta: {
+      version: 1, objectIds: [101], volumeIds: [202], instanceIds: [303],
+      plateIds: ['plate-session-1-plate-1'], objectOrder: [101],
+    }, impact: {
+      version: 1, model: 'delta', plateSession: true, filamentRack: true,
       projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
     } };
     const mock: MockHistoryRuntime = {
@@ -74,29 +70,19 @@ describe('history contracts', () => {
     expect(mock.beginHistory).toBeUndefined();
   });
 
-  it('normalizes only a versioned direct Prime Tower receipt and preserves the cleared state', () => {
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'available', plate_id: 'plate-1', revision: 7,
-      position: { x: 12.5, y: 34.5 }, footprint: { min_x: 10, max_x: 20, min_y: 30, max_y: 40 },
-    }, narrowImpact, true)).toEqual({
-      version: 1, state: 'available', plateId: 'plate-1', revision: 7,
-      position: { x: 12.5, y: 34.5 }, footprint: { minX: 10, maxX: 20, minY: 30, maxY: 40 },
-    });
-    expect(normalizePrimeTowerRestoreReceipt(
-      { version: 1, state: 'cleared', plate_id: 'plate-1', revision: 8 }, narrowImpact, true,
-    )).toEqual({ version: 1, state: 'cleared', plateId: 'plate-1', revision: 8 });
-  });
-
-  it('drops malformed or non-direct receipts so the caller keeps its projection fallback', () => {
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'available', plate_id: 'plate-1', revision: 7,
-      position: { x: Number.NaN, y: 34.5 }, footprint: { min_x: 10, max_x: 20, min_y: 30, max_y: 40 },
-    }, narrowImpact, true)).toBeUndefined();
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
-    }, { ...narrowImpact, model: 'full' }, true)).toBeUndefined();
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
-    }, narrowImpact, false)).toBeUndefined();
+  it('normalizes native session proof and drops malformed session data', () => {
+    const nativeSession = {
+      ok: true, version: 1, current_plate_id: 'plate-1',
+      plates: [{ plate_id: 'plate-1', display_index: 0, origin: [0, 0, 0], name: 'Plate',
+        locked: false, settings: {}, opaque_metadata: [], future_metadata: {}, instance_ids: [303],
+        out_of_bounds_instance_ids: [], valid: true }],
+      instances: [{ instance_id: 303, object_id: 101, object_index: 0, instance_index: 0,
+        plate_id: 'plate-1', member: true, parked: false, unprintable: false, out_of_bounds: false }],
+      instance_transforms: [], input_revisions: { 'plate-1': 3 },
+    };
+    const normalized = normalizeHistoryContext({ ...context, plateSession: nativeSession });
+    expect(normalized?.plateSession?.currentPlateId).toBe('plate-1');
+    const malformed = normalizeHistoryContext({ ...context, plateSession: { ...nativeSession, instances: [{ malformed: true }] } });
+    expect(malformed?.plateSession).toBeUndefined();
   });
 });

@@ -123,12 +123,12 @@ describe('buildSelectableRows', () => {
     // Object 0 selects every volume×instance; each part is anchored to instance
     // 0 (the static fallback; the ObjectList re-anchors to the selection's single
     // instance); each instance selects all volumes of that instance.
-    expect(rows[0].volumeIds).toEqual(['0:0:0', '0:0:1', '0:1:0', '0:1:1']);
-    expect(rows[1].volumeIds).toEqual(['0:0:0']);
-    expect(rows[2].volumeIds).toEqual(['0:1:0']);
-    expect(rows[3].volumeIds).toEqual(['0:0:0', '0:1:0']);
+    expect(rows[0].volumeIds).toEqual(['1:10:20', '1:10:21', '1:11:20', '1:11:21']);
+    expect(rows[1].volumeIds).toEqual(['1:10:20']);
+    expect(rows[2].volumeIds).toEqual(['1:11:20']);
+    expect(rows[3].volumeIds).toEqual(['1:10:20', '1:11:20']);
     // Single-part, single-instance object has no child rows.
-    expect(rows[5].volumeIds).toEqual(['1:0:0']);
+    expect(rows[5].volumeIds).toEqual(['2:12:22']);
   });
 
   it('omits part/instance rows for single-part/single-instance objects', () => {

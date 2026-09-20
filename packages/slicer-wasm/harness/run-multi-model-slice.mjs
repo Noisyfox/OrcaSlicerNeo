@@ -10,6 +10,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const [modulePath, modelPath, countText = '2'] = argv.slice(2);
@@ -49,6 +50,6 @@ for (let i = 0; i < count; ++i) {
   }
 }
 
-const result = callJson('orc_slice', ['string'], ['{}']);
+const result = await callAsyncTask(callJson, 'orc_slice', ['string'], ['{}']);
 if (!result.ok) throw new Error(`multi-model slice failed: ${JSON.stringify(result)}`);
 console.log(`multi-model slice passed: models=${count}`);

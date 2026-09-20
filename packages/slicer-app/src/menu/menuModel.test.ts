@@ -106,6 +106,15 @@ describe('buildMenuModel', () => {
       false, false, false, false,
     ]);
 
+    const threaded = buildMenuStateSnapshot(input({
+      scene: { hasModel: true },
+      result: { hasResult: true, exported: false },
+      slicer: { status: 'slicing', progress: 50, error: null, threaded: true },
+    }), web);
+    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(threaded, id as MenuCommandId).enabled)).toEqual([
+      true, true, false, false,
+    ]);
+
     const incomplete = buildMenuStateSnapshot(input({ scene: { hasModel: true }, result: { hasResult: true, exported: false } }), web);
     expect(stateFor(incomplete, 'export-gcode').enabled).toBe(false);
 
@@ -170,7 +179,6 @@ describe('buildMenuModel', () => {
       project: {
         hasContent: true,
         dirty: false,
-        flattenedMultiPlate: false,
         operation: { phase: 'idle', progress: 0, cancellable: false },
       },
     });
@@ -190,7 +198,6 @@ describe('buildMenuModel', () => {
       project: {
         hasContent: true,
         dirty: true,
-        flattenedMultiPlate: false,
         operation: { phase: 'waiting-for-load-choice', progress: 0, cancellable: false },
       },
       scene: { hasModel: true },
@@ -205,7 +212,6 @@ describe('buildMenuModel', () => {
       project: {
         hasContent: true,
         dirty: true,
-        flattenedMultiPlate: false,
         operation: { phase: 'model-import', progress: 0.5, cancellable: false },
       },
       scene: { hasModel: true },

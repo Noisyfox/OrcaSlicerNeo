@@ -12,7 +12,7 @@ import { acquireProjectMutationLease } from '../../../history/projectMutationGat
 const status: HistoryStatus = {
   canUndo: true, canRedo: false, undoLabel: 'Delete', undoEntries: [], redoEntries: [],
   cursor: 1, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
-  bytesUsed: 1, byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+  bytesUsed: 1, byteBudget: 10, evictedEntryCount: 0,
   lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
   disabled: false, activeTransactionId: null, revision: 2,
 };
@@ -22,7 +22,7 @@ type TransactionMock = ReturnType<typeof vi.fn> & SlicerRuntime['runProjectHisto
 function transactionRuntime() {
   const implementation = async <T>(
     _label: string,
-    _category: 'project' | 'context',
+    _category: 'project',
     before: HistoryContext,
     mutation: (id: string) => Promise<T>,
     after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
@@ -39,6 +39,7 @@ function transactionRuntime() {
     getFilamentSessionSnapshot,
     getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
     getPlateSessionSnapshot: vi.fn(async () => ({
+      instances: [],
       ok: true as const,
       version: 1 as const,
       currentPlateId: 'plate-a',
@@ -55,6 +56,7 @@ describe('structural history transaction boundary', () => {
       projection: { objectIds: new Set([42]), volumeIds: new Set(), instanceIds: new Set() },
     });
     usePlateSessionStore.getState().setSnapshot({
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-a', plates: [{ plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
     });
     useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
@@ -82,13 +84,60 @@ describe('structural history transaction boundary', () => {
     expect(response.result).toEqual({ ok: false, error: 'rejected' });
   });
 
+  it.each([false, true])('uses the Add Plate receipt without full reads (reflow=%s)', async (reflow) => {
+    const runtime = transactionRuntime();
+    let committed: HistoryContext | undefined;
+    runtime.runProjectHistoryTransaction.mockImplementation(async (_label, _category, _before, mutation, after) => {
+      const result = await mutation('tx-1');
+      committed = typeof after === 'function' ? await after() : after;
+      return { result, status };
+    });
+    await runProjectHistoryMutation(runtime, 'Add Plate', async () => ({
+      ok: true, currentPlateId: 'plate-b', reflow,
+    }), null, {
+      contextReceipt: (result) => ({ structure: 'preserved', activePlateId: result.currentPlateId }),
+    });
+    expect(runtime.getModelStructure).not.toHaveBeenCalled();
+    expect(runtime.getPlateSessionSnapshot).not.toHaveBeenCalled();
+    expect(committed?.selection.objectIds).toEqual([42]);
+    expect(committed?.activePlateId).toBe('plate-b');
+  });
+
+  it('projects structural deletion from an operation receipt before publication', async () => {
+    const runtime = transactionRuntime();
+    let committed: HistoryContext | undefined;
+    runtime.runProjectHistoryTransaction.mockImplementation(async (_label, _category, _before, mutation, after) => {
+      const result = await mutation('tx-1');
+      committed = typeof after === 'function' ? await after() : after;
+      return { result, status };
+    });
+    const publish = vi.fn(() => { expect(committed?.selection.objectIds).toEqual([]); });
+    await runProjectHistoryMutation(runtime, 'Delete Objects', async () => ({ ok: true }), null, {
+      contextReceipt: () => ({ structure: { ok: true, objects: [] }, activePlateId: 'plate-a' }),
+      publish,
+    });
+    expect(runtime.getModelStructure).not.toHaveBeenCalled();
+    expect(runtime.getPlateSessionSnapshot).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledOnce();
+  });
+
+  it('does not consume a receipt or publish after a rejected operation', async () => {
+    const runtime = transactionRuntime();
+    const contextReceipt = vi.fn(() => ({ structure: 'preserved' as const, activePlateId: 'plate-b' }));
+    const publish = vi.fn();
+    const response = await runProjectHistoryMutation(runtime, 'Add Plate', async () => ({ ok: false, error: 'rejected' }), null, { contextReceipt, publish });
+    expect(response.result.ok).toBe(false);
+    expect(contextReceipt).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it('projects the Worker checkpoint after an aborted transaction', async () => {
     const runtime = {
       runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
       getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false, dirtyReasons: undefined })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
       getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
-      getPlateSessionSnapshot: vi.fn(async () => ({ ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
+      getPlateSessionSnapshot: vi.fn(async () => ({ instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
 
@@ -121,6 +170,7 @@ describe('structural history transaction boundary', () => {
         }],
       }),
       getPlateSessionSnapshot: async () => ({
+        instances: [],
         ok: true as const, version: 1 as const, currentPlateId: 'plate-b',
         plates: [{ plateId: 'plate-b', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], name: 'Plate 2' }],
       }),
@@ -215,7 +265,7 @@ describe('structural history transaction boundary', () => {
           revisions: { session: 4, project: 4, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
       }),
       getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
-      getPlateSessionSnapshot: vi.fn(async () => ({ ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
+      getPlateSessionSnapshot: vi.fn(async () => ({ instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     await runProjectHistoryMutation(failure, 'Rename Object', async () => ({ ok: true }));
     expect(failurePending).toEqual([1]);

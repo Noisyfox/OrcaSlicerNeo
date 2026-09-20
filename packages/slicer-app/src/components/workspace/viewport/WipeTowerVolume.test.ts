@@ -20,6 +20,7 @@ function tower() {
 
 function model() {
   return new GLVolume({
+    objectId: 1, volumeId: 2, instanceId: 3,
     objectIdx: 0, volumeIdx: 0, instanceIdx: 0, positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), vertexCount: 3,
     indices: new Uint32Array([0, 1, 2]), indexCount: 3, offset: [0, 0, 0],
     instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
@@ -190,7 +191,7 @@ describe('WipeTowerVolume shared scene integration', () => {
 
   it('reuses matching volumes, disposes replaced/removed volumes, and preserves non-current selection', () => {
     const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
+    const session = { instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
     const project = (currentPlateId: string, width = 20) => ({ ok: true as const, version: 1 as const, currentPlateId, buildArea: tower().projection.buildArea, plates: [
       { ...tower().projection, plateId: 'plate-1', displayIndex: 0, width },
       { ...tower().projection, plateId: 'plate-2', displayIndex: 1, width },
@@ -221,7 +222,7 @@ describe('WipeTowerVolume shared scene integration', () => {
 
   it('updates only the current-plate marker without rebuilding the projection', () => {
     const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
+    const session = { instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
     const project = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [
       { ...tower().projection, plateId: 'plate-1', displayIndex: 0 },
       { ...tower().projection, plateId: 'plate-2', displayIndex: 1 },
@@ -241,7 +242,7 @@ describe('WipeTowerVolume shared scene integration', () => {
 
   it('patches only the moved plate from the narrow native response', () => {
     const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
+    const session = { instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
     const second = { ...tower().projection, plateId: 'plate-2', displayIndex: 1, position: { x: 60, y: 70 } };
     const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea,
       plates: [tower().projection, second] };
@@ -254,56 +255,9 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(collection.volumes.find((volume) => volume.plateId === 'plate-2')?.position).toEqual({ x: 60, y: 70 });
   });
 
-  it('applies an available direct-history receipt to one matching plate and preserves the other plates', () => {
-    const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', inputRevisions: { 'plate-1': 7, 'plate-2': 3 },
-      plates: [plate('plate-1', 0), plate('plate-2', 1)] };
-    const second = { ...tower().projection, plateId: 'plate-2', displayIndex: 1, position: { x: 60, y: 70 } };
-    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea,
-      plates: [tower().projection, second] };
-    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
-    collection.setProjection(projection, session);
-
-    expect(collection.applyRestoreReceipt({ version: 1, state: 'available', plateId: 'plate-1', revision: 7,
-      position: { x: 35, y: 45 }, footprint: { minX: 35, maxX: 55, minY: 45, maxY: 61 } }, session)).toBe(true);
-
-    expect(collection.volumes.find((volume) => volume.plateId === 'plate-1')?.position).toEqual({ x: 35, y: 45 });
-    expect(collection.volumes.find((volume) => volume.plateId === 'plate-2')?.position).toEqual({ x: 60, y: 70 });
-  });
-
-  it('removes exactly the receipt plate when a matching direct-history receipt is cleared', () => {
-    const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', inputRevisions: { 'plate-1': 7, 'plate-2': 3 },
-      plates: [plate('plate-1', 0), plate('plate-2', 1)] };
-    const second = { ...tower().projection, plateId: 'plate-2', displayIndex: 1, position: { x: 60, y: 70 } };
-    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea,
-      plates: [tower().projection, second] };
-    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
-    collection.setProjection(projection, session);
-
-    expect(collection.applyRestoreReceipt({ version: 1, state: 'cleared', plateId: 'plate-1', revision: 7 }, session)).toBe(true);
-
-    expect(collection.volumes.map((volume) => volume.plateId)).toEqual(['plate-2']);
-    expect(collection.projection?.plates.map((entry) => entry.plateId)).toEqual(['plate-2']);
-  });
-
-  it('rejects stale or mismatched restore receipts without changing its retained projection', () => {
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', inputRevisions: { 'plate-1': 7 },
-      plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const }] };
-    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [tower().projection] };
-    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
-    collection.setProjection(projection, session);
-
-    expect(collection.applyRestoreReceipt({ version: 1, state: 'cleared', plateId: 'plate-1', revision: 6 }, session)).toBe(false);
-    expect(collection.applyRestoreReceipt({ version: 1, state: 'cleared', plateId: 'other-plate', revision: 7 }, session)).toBe(false);
-
-    expect(collection.volumes.map((volume) => volume.plateId)).toEqual(['plate-1']);
-    expect(collection.projection).toBe(projection);
-  });
-
   it('reports aggregate projection reconciliation and publication timings without retaining projection data', () => {
     const plate = { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const };
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate] };
+    const session = { instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate] };
     const diagnostics = {
       recordSetProjection: vi.fn(), recordReconcile: vi.fn(), recordEmit: vi.fn(),
     };
@@ -323,7 +277,7 @@ describe('WipeTowerVolume shared scene integration', () => {
   });
 
   it('republishes selected bounds and the gizmo pivot from the authoritative move receipt', async () => {
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [
+    const session = { instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [
       { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const },
     ] };
     const authoritativePosition = { x: 42, y: 55 };
@@ -340,7 +294,7 @@ describe('WipeTowerVolume shared scene integration', () => {
         historyStatus: {
           canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: 1,
           savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true, bytesUsed: 0,
-          byteBudget: 1, optionalBytesReleased: 0, evictedEntryCount: 0,
+          byteBudget: 1, evictedEntryCount: 0,
           lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false,
           disabled: false, activeTransactionId: null, revision: 2,
         },
@@ -384,7 +338,7 @@ describe('WipeTowerVolume shared scene integration', () => {
   });
 
   it('rebuilds a retained selection from the Worker projection after a stale release', async () => {
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [
+    const session = { instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [
       { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const },
     ] };
     const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [tower().projection] };
@@ -414,7 +368,7 @@ describe('WipeTowerVolume shared scene integration', () => {
     let rejectMove: ((reason?: unknown) => void) | undefined;
     const move = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectMove = reject; }));
     const collection = new WipeTowerVolumeCollection({ move, reconcile: vi.fn(async () => undefined), revision: vi.fn(() => 1) });
-    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const }] };
+    const session = { instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const }] };
     const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [tower().projection] };
     collection.setProjection(projection, session);
     const volume = collection.volumes[0]!;

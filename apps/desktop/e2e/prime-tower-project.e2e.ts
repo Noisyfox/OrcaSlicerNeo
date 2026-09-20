@@ -66,7 +66,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       receipt: {
         sourceDisplayName: PROJECT_FILE_NAME,
         sourceByteLength: statSync(PROJECT_PATH).size,
-        commitRoute: 'preflight-commit',
+        commitRoute: 'load-project',
         nativeResult: {
           ok: true, mode: 'project', displayName: PROJECT_FILE_NAME,
           projectSettingsAvailable: true, multiPlate: true, plateCount: 11,

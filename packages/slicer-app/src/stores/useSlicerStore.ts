@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ClientSliceResult, PlateOperationTarget } from '@slicer/client';
+import type { PlateOperationTarget, SliceResultReceipt } from '@slicer/client';
 
 export type SliceStatus = 'idle' | 'slicing' | 'done' | 'error';
 export type PreviewColorScheme = 'feature' | 'filament' | 'speed' | 'volumetricFlow' | 'layerTime' | 'temperature' | 'fanSpeed';
@@ -20,9 +20,8 @@ export interface PreviewState {
 
 export interface PlateSliceResult {
   target: PlateOperationTarget;
-  result: ClientSliceResult;
-  /** Host-neutral G-code bytes retained with the session result. */
-  gcode?: Uint8Array;
+  /** Lightweight address of the Worker-retained result; never renderer data. */
+  receipt: SliceResultReceipt;
   /** Native advisory warnings scoped to this plate result. */
   warnings: readonly string[];
 }
@@ -65,7 +64,7 @@ interface SlicerState {
   setResultExported: (exported: boolean) => void;
   setSliceTarget: (target: PlateOperationTarget | null) => void;
   setActiveSliceTarget: (target: PlateOperationTarget | null) => void;
-  setPlateResult: (target: PlateOperationTarget, result: ClientSliceResult, gcode?: Uint8Array, warnings?: readonly string[]) => void;
+  setPlateResult: (receipt: SliceResultReceipt, warnings?: readonly string[]) => void;
   activatePlateResult: (plateId: string, inputRevision: number) => boolean;
   invalidatePlateResults: (plateIds: readonly string[]) => void;
   discardPlateResult: (plateId: string) => void;
@@ -110,41 +109,53 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setResultExported: (resultExported) => set({ resultExported }),
   setSliceTarget: (sliceTarget) => set({ sliceTarget }),
   setActiveSliceTarget: (activeSliceTarget) => set({ activeSliceTarget }),
-  setPlateResult: (target, result, gcode, warnings = []) => set((state) => ({
-    plateResults: { ...state.plateResults, [target.plateId]: { target, result, warnings: [...warnings], ...(gcode ? { gcode } : {}) } },
-    // Keep the legacy active-result fields coherent for callers that only
-    // render the current plate.
-    ...(state.sliceTarget?.plateId === target.plateId || state.activeSliceTarget?.plateId === target.plateId
-      ? { sliceTarget: target, status: 'done' as const, resultExported: false,
-        error: warnings.length ? `[Warning] ${warnings.join('; ')}` : null }
-      : {}),
-  })),
+  setPlateResult: (receipt, warnings = []) => set((state) => {
+    const target = { plateId: receipt.plateId, inputRevision: receipt.inputStamp };
+    return {
+      plateResults: { ...state.plateResults, [target.plateId]: { target, receipt, warnings: [...warnings] } },
+      // Publish the selected plate result to the toolbar and active preview.
+      ...(state.sliceTarget?.plateId === target.plateId || state.activeSliceTarget?.plateId === target.plateId
+        ? {
+          sliceTarget: target,
+          status: 'done' as const,
+          resultExported: false,
+          error: warnings.length ? `[Warning] ${warnings.join('; ')}` : null,
+        }
+        : {}),
+    };
+  }),
   activatePlateResult: (plateId, inputRevision) => {
     let matched = false;
     set((state) => {
-    const cached = state.plateResults[plateId];
-    if (!cached || cached.target.inputRevision !== inputRevision) {
+      const cached = state.plateResults[plateId];
+      if (!cached || cached.target.inputRevision !== inputRevision) {
+        return {
+          sliceTarget: null,
+          status: 'idle' as const,
+          progress: 0,
+          layers: 0,
+          error: null,
+          resultExported: false,
+          layer: 0,
+          maxLayer: 0,
+          preview: { ...DEFAULT_PREVIEW_STATE },
+        };
+      }
+      matched = true;
       return {
-        sliceTarget: null,
-        status: 'idle' as const,
-        progress: 0,
+        sliceTarget: cached.target,
+        status: 'done' as const,
+        progress: 100,
+        // The current plate projection materializes asynchronously. Releasing
+        // these bounds here prevents a switched plate from inheriting the prior
+        // projection's scrubber while its payload is in flight.
         layers: 0,
-        error: null,
-        resultExported: false,
         layer: 0,
         maxLayer: 0,
         preview: { ...DEFAULT_PREVIEW_STATE },
+        error: cached.warnings.length ? `[Warning] ${cached.warnings.join('; ')}` : null,
+        resultExported: false,
       };
-    }
-    matched = true;
-    return {
-      sliceTarget: cached.target,
-      status: 'done' as const,
-      progress: 100,
-      layers: cached.result.layers,
-      error: cached.warnings.length ? `[Warning] ${cached.warnings.join('; ')}` : null,
-      resultExported: false,
-    };
     });
     return matched;
   },

@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { isSerialSliceBusy } from '../../runtimeExecution';
 
 // The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
@@ -35,6 +36,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
   const status = useSlicerStore((s) => s.status);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const busy = status === 'slicing';
+  const serialSliceBusy = isSerialSliceBusy(platform.runtime, status);
   const restoring = useHistoryRestoreStore((s) => s.phase !== 'idle');
   const historyError = useHistoryRestoreStore((s) => s.error);
   const historyStatus = useHistoryNavigationStore((s) => s.status);
@@ -46,8 +48,8 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
 
   const undoEntries = projectHistoryEntries(historyStatus, 'undo');
   const redoEntries = projectHistoryEntries(historyStatus, 'redo');
-  const undoDisabled = !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'undo', restoring, !!historyRestoreCoordinator);
-  const redoDisabled = !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'redo', restoring, !!historyRestoreCoordinator);
+  const undoDisabled = serialSliceBusy || !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'undo', restoring, !!historyRestoreCoordinator);
+  const redoDisabled = serialSliceBusy || !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'redo', restoring, !!historyRestoreCoordinator);
   const undoLabel = historyNextOperationLabel(historyStatus, 'undo');
   const redoLabel = historyNextOperationLabel(historyStatus, 'redo');
 
@@ -55,7 +57,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
     // A menu can remain mounted during a tab switch. Guard the command as
     // well as its disabled trigger so a stale menu item cannot restore outside
     // Prepare.
-    if (!historyNavigationAvailable || !historyRestoreCoordinator) return;
+    if (serialSliceBusy || !historyNavigationAvailable || !historyRestoreCoordinator) return;
     void historyRestoreCoordinator.restore(entryId ? { jump: entryId, direction } : direction);
   };
 

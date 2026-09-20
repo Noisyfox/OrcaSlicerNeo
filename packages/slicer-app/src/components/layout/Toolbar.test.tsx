@@ -36,7 +36,10 @@ function makePlatform() {
           request: vi.fn(async () => ({ status: 200, json: async () => ({ result: { item: { path: 'gcodes/output.gcode' } } }) })),
         },
       },
-      runtime: { exportGcode: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })) },
+      runtime: {
+        exportGcode: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
+        getRuntimeExecutionState: vi.fn(() => ({ threaded: true, sliceActive: false, serialSliceActive: false, serialTerminalEpoch: '0' })),
+      },
     } as unknown as PlatformCapabilities,
   };
 }
@@ -44,15 +47,13 @@ function makePlatform() {
 const navigationStatus: HistoryStatus = {
   canUndo: true, canRedo: true, undoLabel: 'Move', redoLabel: 'Delete',
   undoEntries: [
-    { id: 'undo-context', label: 'Selection', category: 'context' },
     { id: 'undo-move', label: 'Move', category: 'project' },
   ],
   redoEntries: [
     { id: 'redo-delete', label: 'Delete', category: 'project' },
-    { id: 'redo-context', label: 'Active Plate', category: 'context' },
   ],
   cursor: 2, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
-  bytesUsed: 1, byteBudget: 256, optionalBytesReleased: 0, evictedEntryCount: 0,
+  bytesUsed: 1, byteBudget: 256, evictedEntryCount: 0,
   lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
   disabled: false, activeTransactionId: null, revision: 2,
 };
@@ -173,6 +174,30 @@ describe('Toolbar send navigation', () => {
     expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('disables buttons and history menus during a serial slice but keeps threaded history responsive', async () => {
+    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
+    useHistoryNavigationStore.getState().setStatus(navigationStatus);
+    useSlicerStore.setState({ status: 'slicing' });
+    const { platform } = makePlatform();
+    const runtimeState = vi.mocked(platform.runtime.getRuntimeExecutionState);
+    runtimeState.mockReturnValue({ threaded: false, sliceActive: true, serialSliceActive: true, serialTerminalEpoch: '0' });
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+    });
+    for (const testId of ['history-undo', 'history-redo', 'history-undo-menu-trigger', 'history-redo-menu-trigger'])
+      expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).disabled).toBe(true);
+
+    runtimeState.mockReturnValue({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' });
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+    });
+    expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it.each(['home', 'preview', 'device'] as const)('disables history controls outside Prepare on %s', async (activeTab) => {
     const { platform } = makePlatform();
     const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
@@ -188,7 +213,7 @@ describe('Toolbar send navigation', () => {
       expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('opens directional project-only menus and jumps directly to the Worker entry', async () => {
+  it('opens directional menus and jumps directly to the Worker entry', async () => {
     const { platform } = makePlatform();
     const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
     useHistoryNavigationStore.getState().setStatus(navigationStatus);
@@ -202,7 +227,6 @@ describe('Toolbar send navigation', () => {
       (container.querySelector('[data-testid="history-undo-menu-trigger"]') as HTMLButtonElement).click();
     });
     expect(document.querySelector('[data-testid="history-undo-entry-undo-move"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="history-undo-entry-undo-context"]')).toBeNull();
     await act(async () => {
       (document.querySelector('[data-testid="history-undo-entry-undo-move"]') as HTMLElement).click();
     });

@@ -83,7 +83,6 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
   project: {
     hasContent: false,
     dirty: false,
-    flattenedMultiPlate: false,
     operation: { phase: 'idle', progress: 0, cancellable: false },
   },
   host: { isElectron: true, menuMode: 'native' },
@@ -198,7 +197,6 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
   const project = isRecord(rawProject)
     && typeof rawProject.hasContent === 'boolean'
     && typeof rawProject.dirty === 'boolean'
-    && typeof rawProject.flattenedMultiPlate === 'boolean'
     && isRecord(rawProject.operation)
     && isOneOf(['idle', 'waiting-for-load-choice', 'waiting-for-dirty-decision', 'loading', 'saving', 'model-import', 'completed', 'cancelled', 'failed'] as const, rawProject.operation.phase)
     && typeof rawProject.operation.progress === 'number'
@@ -208,7 +206,6 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
     ? {
       hasContent: rawProject.hasContent,
       dirty: rawProject.dirty,
-      flattenedMultiPlate: rawProject.flattenedMultiPlate,
       operation: {
         phase: rawProject.operation.phase,
         progress: rawProject.operation.progress,
@@ -219,7 +216,6 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
     : hasLegacyCommands ? {
       hasContent: value.scene.hasModel,
       dirty: false,
-      flattenedMultiPlate: false,
       operation: { phase: 'idle' as const, progress: 0, cancellable: false },
     } : null;
   if (!project) return null;

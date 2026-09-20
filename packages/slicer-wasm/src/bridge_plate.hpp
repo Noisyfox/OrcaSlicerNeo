@@ -49,6 +49,7 @@ Vec3d parked_origin_for_count(int count, const PlateBounds& bounds);
 
 void reset_plate_session_state();
 void ensure_plate_session_state();
+PlateRuntimeRegistry::Retirements reconcile_plate_runtime_registry();
 void normalize_coordinate_arrays(DynamicPrintConfig& project_config, std::size_t plate_count);
 bool coordinate_arrays_match_plate_count(const DynamicPrintConfig& project_config,
                                          std::size_t plate_count);
@@ -75,8 +76,10 @@ bool box_fully_inside_plate(const PlateInstanceRef& ref, const BoundingBoxf3& bo
                             const BridgeState::PlateSessionPlate& plate,
                             const PlateBounds& bounds);
 json instance_transform_record(const PlateInstanceRef& ref);
+void set_instance_transform(const PlateInstanceRef& ref, const json& transform);
 void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta);
-void rebuild_plate_membership(bool clear_parked);
+void rebuild_plate_membership(bool clear_parked,
+                              const std::set<std::size_t>* affected_instances = nullptr);
 json reflow_instance_transforms(const std::map<std::size_t, Vec3d>& changed);
 std::set<std::string> member_plate_ids();
 std::set<std::string> all_plate_ids();
@@ -88,7 +91,26 @@ json plate_mutation_snapshot(
     const std::set<std::string>& before,
     const std::vector<std::string>& dirty_reasons,
     const json& instance_transforms = json::array(),
-    const std::set<std::size_t>* affected_instances = nullptr);
+    const std::set<std::size_t>* affected_instances = nullptr,
+    const std::map<std::string, std::set<std::size_t>>* before_out_of_bounds = nullptr);
+// Complete an Add Plate structure mutation without treating every member plate
+// as affected. The caller supplies exactly the plates whose physical origins
+// changed; a newly-created plate starts with its fresh zero revision.
+json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
+                                 const json& instance_transforms = json::array());
+// Delete Plate has one additional structural effect: the deleted entry is
+// removed, while only surviving plates whose physical origins reflow are
+// invalidated.  This must not use the broader model-membership mutation
+// helper because empty and origin-stable plates retain their presentations.
+json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
+                                    const json& instance_transforms = json::array());
+// Advance and withdraw presentation for exactly the live plates whose
+// effective configuration changed. Native Print/G-code ownership is retained;
+// Print::apply remains deferred until the next explicit Slice.
+json configuration_mutation_snapshot(
+    const std::set<std::string>& affected_plate_ids,
+    const std::vector<std::string>& dirty_reasons,
+    const json& instance_transforms = json::array());
 std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& bounds);
 void refresh_existing_plate_validity(const PlateBounds& bounds);
 json shared_configuration_mutation_snapshot();

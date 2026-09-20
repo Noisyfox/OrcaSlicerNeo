@@ -1,5 +1,6 @@
 import type { PreviewAnalysis, PreviewPaletteEntry, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
 import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
+import { adjustRgbForRendering } from './renderColor';
 
 /** EMoveType::Travel in libslic3r/libvgcode. */
 export const TRAVEL_MOVE_TYPE = 8;
@@ -81,7 +82,7 @@ function rangeForScheme(source: PreviewColorSource, scheme: PreviewColorScheme):
 }
 
 function paletteColor(entry: ToolpathFeature | undefined): [number, number, number] {
-  return normalizedColor(entry?.color ?? TOOLPATH_FALLBACK_COLOR);
+  return adjustColorForRendering(normalizedColor(entry?.color ?? TOOLPATH_FALLBACK_COLOR));
 }
 
 function filamentEntry(source: PreviewColorSource, tool: number): PreviewPaletteEntry | undefined {
@@ -158,6 +159,17 @@ function normalizedColor(color: readonly [number, number, number], fallback = TO
 }
 
 /**
+ * Match OrcaSlicer's `adjust_color_for_rendering` for opaque categorical
+ * preview colours. Native rendering lifts every near-black RGB channel to
+ * 0.2 so an assigned black filament remains visible under preview lighting.
+ * Numeric ramps and the dedicated Travels colour already use their native
+ * display palettes and intentionally bypass this adjustment.
+ */
+function adjustColorForRendering(color: readonly [number, number, number]): [number, number, number] {
+  return adjustRgbForRendering(color);
+}
+
+/**
  * Resolve the display colour for one segment.
  *
  * Travel colour is intentionally selected from move type, not the extrusion
@@ -172,7 +184,7 @@ export function resolveToolpathColor(
 ): [number, number, number] {
   if (moveType === TRAVEL_MOVE_TYPE) return [...ORCA_TRAVEL_COLOR];
   const entry = palette.find((candidate) => candidate.id === feature) ?? palette[feature];
-  return normalizedColor(entry?.color ?? TOOLPATH_FALLBACK_COLOR);
+  return paletteColor(entry);
 }
 
 /** Resolve one segment's color using the active Orca-style view scheme. */

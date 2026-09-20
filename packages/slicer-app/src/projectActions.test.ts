@@ -18,6 +18,7 @@ const snapshot: ProfileSnapshot = {
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
 };
 const freshPlateSession: PlateSessionMutation = {
+  instances: [],
   ok: true,
   version: 1,
   currentPlateId: 'new-plate-1',
@@ -36,9 +37,15 @@ function filamentSnapshot(revision: number): FilamentSessionSnapshot {
     status: { state: 'ready', error: null },
   };
 }
-function platformFor(load: Record<string, unknown> = {}) {
+function platformFor(load: Partial<ProjectLoadResult> = {}) {
   const runtime = {
-    loadProject: vi.fn(async () => ({ ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const, projectSettingsAvailable: true, presetSnapshot: snapshot, ...load })),
+    loadProject: vi.fn(async (_bytes: Uint8Array, _mode?: string, _displayName?: string, _onProgress?: unknown,
+      onProjectClosed?: (plateSession: PlateSessionMutation) => void) => {
+      onProjectClosed?.(freshPlateSession);
+      return { ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const,
+        projectSettingsAvailable: true, presetSnapshot: snapshot, plateSession: freshPlateSession, ...load };
+    }),
+    closeProject: vi.fn(async () => ({ ok: true, plateSession: freshPlateSession })),
     importProjectGeometry: vi.fn(async () => ({ ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
@@ -48,12 +55,11 @@ function platformFor(load: Record<string, unknown> = {}) {
     applyRememberedFilamentRack: vi.fn(async () => filamentSnapshot(1)),
     getHistoryStatus: vi.fn(async () => ({ dirty: useProjectStore.getState().dirty } as never)),
     markHistorySaved: vi.fn(async () => ({ dirty: false } as never)),
-    recordHistoryContext: vi.fn(async () => ({ dirty: false } as never)),
     resetHistory: vi.fn(async () => ({ dirty: false } as never)),
     cancel: vi.fn(async () => ({ ok: true })),
     runProjectHistoryTransaction: vi.fn(async <T>(
       _label: string,
-      _category: 'project' | 'context',
+      _category: 'project',
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
@@ -66,17 +72,6 @@ function platformFor(load: Record<string, unknown> = {}) {
   };
   const preferences = { load: vi.fn(async () => ({ version: 1 as const, selectedProfiles: {}, ui: {} })), save: vi.fn(async () => {}) };
   return { runtime, projects, preferences, platform: { runtime, projects, preferences } as unknown as PlatformCapabilities };
-}
-function addPreflight(runtime: ReturnType<typeof platformFor>['runtime'], result: ProjectLoadResult, commitResult: ProjectLoadResult = result) {
-  const preflightRuntime = runtime as typeof runtime & {
-    preflightProject: ReturnType<typeof vi.fn>;
-    commitProjectPreflight: ReturnType<typeof vi.fn>;
-    cancelProjectPreflight: ReturnType<typeof vi.fn>;
-  };
-  preflightRuntime.preflightProject = vi.fn(async () => result);
-  preflightRuntime.commitProjectPreflight = vi.fn(async () => commitResult);
-  preflightRuntime.cancelProjectPreflight = vi.fn(async () => ({ ok: true }));
-  return preflightRuntime;
 }
 
 describe('transactional project actions', () => {
@@ -143,49 +138,44 @@ describe('transactional project actions', () => {
     expect(runtime.resetHistory).toHaveBeenCalledTimes(1);
   });
 
-  it('auto-commits a clean preflight without opening a confirmation dialog', async () => {
-    const { platform, runtime } = platformFor();
-    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, preflightToken: 'clean-token', presetSnapshot: snapshot,
+  it('commits a clean post-close load without opening a confirmation dialog', async () => {
+    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: false, count: 0, printerCount: 0, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
-    const preflight = addPreflight(runtime, result);
+    const { platform, runtime } = platformFor(result);
     const confirm = vi.fn(() => true);
     const opened = await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm });
     expect(opened.status).toBe('ok');
-    expect(opened.loadReceipt?.commitRoute).toBe('preflight-commit');
+    expect(opened.loadReceipt?.commitRoute).toBe('load-project');
     expect(confirm).not.toHaveBeenCalled();
-    expect(preflight.commitProjectPreflight).toHaveBeenCalledWith('clean-token', expect.any(Function));
-    expect(preflight.cancelProjectPreflight).not.toHaveBeenCalled();
+    expect(runtime.loadProject).toHaveBeenCalledTimes(1);
+    expect(runtime.closeProject).not.toHaveBeenCalled();
   });
 
-  it('shows warning confirmation and leaves project state untouched on rejection', async () => {
-    const { platform, runtime } = platformFor();
+  it('shows post-close warning confirmation and leaves the fresh empty session on rejection', async () => {
     useProjectStore.getState().setProject({ projectName: 'Prior', hasContent: true, dirty: true });
-    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, preflightToken: 'warning-token', presetSnapshot: snapshot,
+    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: true, count: 1, printerCount: 1, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: true, filamentSlotChanges: [{ slot: 1, before: 'A', after: 'B', reason: 'native-compatibility' }] } };
-    const preflight = addPreflight(runtime, result);
-    const before = useProjectStore.getState();
+    const { platform, runtime } = platformFor(result);
     const cancelled = await openProject(platform, { loadBehaviour: 'load_all', decideDirty: () => 'dont-save', confirmProjectLoad: () => false });
     expect(cancelled.status).toBe('cancelled');
-    expect(preflight.cancelProjectPreflight).toHaveBeenCalledWith('warning-token');
-    expect(preflight.commitProjectPreflight).not.toHaveBeenCalled();
-    expect(useProjectStore.getState()).toMatchObject({ projectName: before.projectName, hasContent: before.hasContent, dirty: before.dirty });
+    expect(runtime.closeProject).toHaveBeenCalledTimes(1);
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', hasContent: false, dirty: false });
+    expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('new-plate-1');
   });
 
-  it('cleans the pending token when confirmation throws or commit fails', async () => {
-    const thrown = platformFor();
-    const warning: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, preflightToken: 'throw-token', presetSnapshot: snapshot,
+  it('closes the loaded candidate when warning confirmation throws and keeps failure post-close', async () => {
+    const warning: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: true, count: 1, printerCount: 1, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: true } };
-    const thrownRuntime = addPreflight(thrown.runtime, warning);
+    const thrown = platformFor(warning);
     const confirmationError = new Error('dialog closed');
     expect((await openProject(thrown.platform, { loadBehaviour: 'load_all', confirmProjectLoad: () => { throw confirmationError; } })).status).toBe('failed');
-    expect(thrownRuntime.cancelProjectPreflight).toHaveBeenCalledWith('throw-token');
+    expect(thrown.runtime.closeProject).toHaveBeenCalledTimes(1);
 
-    const failed = platformFor();
-    const failedResult = { ...warning, preflightToken: 'commit-token' };
-    const failedRuntime = addPreflight(failed.runtime, failedResult, { ok: false, error: 'commit failed', objects: 0, instances: 0 });
-    const failedResultAction = await openProject(failed.platform, { loadBehaviour: 'load_all', confirmProjectLoad: () => true });
+    useProjectStore.getState().setProject({ projectName: 'Prior', hasContent: true, dirty: false });
+    const failed = platformFor({ ok: false, error: 'load failed', objects: 0, instances: 0 });
+    const failedResultAction = await openProject(failed.platform, { loadBehaviour: 'load_all' });
     expect(failedResultAction.status).toBe('failed');
-    expect(failedRuntime.cancelProjectPreflight).toHaveBeenCalledWith('commit-token');
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', hasContent: false, dirty: false });
   });
 
   it('refreshes the filament mirror after open-project history reset', async () => {
@@ -215,6 +205,38 @@ describe('transactional project actions', () => {
     expect(onProgress).toEqual(expect.any(Function));
     onProgress?.(42, 'Reading project settings');
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'loading', progress: 42, message: 'Reading project settings' });
+  });
+
+  it('commits the opening dialog state through a frame before native loading starts', async () => {
+    const { platform, runtime } = platformFor();
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    let frameEnded = false;
+    const frame = vi.fn((callback: FrameRequestCallback) => {
+      queueMicrotask(() => {
+        callback(performance.now());
+        frameEnded = true;
+      });
+      return 1;
+    });
+    globalThis.requestAnimationFrame = frame;
+    runtime.loadProject.mockImplementation(async (_bytes, _mode, _displayName, _onProgress, onProjectClosed) => {
+      expect(frameEnded).toBe(true);
+      expect(useProjectStore.getState().operation).toMatchObject({
+        phase: 'loading', progress: 0, message: 'Opening project',
+      });
+      onProjectClosed?.(freshPlateSession);
+      return { ok: true, objects: 1, instances: 1, mode: 'project' as const,
+        compatibility: 'bambu' as const, projectSettingsAvailable: true,
+        presetSnapshot: snapshot, plateSession: freshPlateSession };
+    });
+
+    try {
+      const result = await openProject(platform, { loadBehaviour: 'load_all' });
+      expect(result.status).toBe('ok');
+      expect(frame).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    }
   });
 
   it('geometry import never replaces active settings and makes the session dirty', async () => {
@@ -299,7 +321,10 @@ describe('transactional project actions', () => {
     useSettingsStore.setState({ modelLoaded: true, values: { modelPath: 'old.stl', layer_height: '0.2' } });
     useSlicerStore.setState({
       status: 'done', resultExported: true, sliceTarget: { plateId: 'old-plate-2', inputRevision: 4 },
-      plateResults: { 'old-plate-2': { target: { plateId: 'old-plate-2', inputRevision: 4 }, result: {} as never, warnings: [] } },
+      plateResults: { 'old-plate-2': {
+        target: { plateId: 'old-plate-2', inputRevision: 4 },
+        receipt: { plateId: 'old-plate-2', inputStamp: 4, resultGeneration: '1', sliceTaskId: '1' }, warnings: [],
+      } },
     });
     usePlateSessionStore.getState().setSnapshot({
       ...freshPlateSession,
@@ -317,7 +342,7 @@ describe('transactional project actions', () => {
     expect(resetForModel).toHaveBeenCalledOnce();
     expect(useSettingsStore.getState()).toMatchObject({ modelLoaded: false, values: {} });
     expect(useSlicerStore.getState()).toMatchObject({ status: 'idle', resultExported: false, sliceTarget: null, plateResults: {} });
-    expect(usePlateSessionStore.getState().snapshot).toMatchObject({ currentPlateId: 'new-plate-1', plates: [{ plateId: 'new-plate-1' }] });
+    expect(usePlateSessionStore.getState().snapshot).toMatchObject({ instances: [], currentPlateId: 'new-plate-1', plates: [{ plateId: 'new-plate-1' }] });
   });
 
   it('does not clear the renderer projection when runtime New fails', async () => {
@@ -391,7 +416,8 @@ describe('transactional project actions', () => {
     const result = await openProjectInputs(platform, files, { loadBehaviour: 'always_ask', chooseLoad: choose });
     expect(result.status).toBe('ok');
     expect(choose).toHaveBeenCalledWith(files[2]);
-    expect(runtime.loadProject).toHaveBeenCalledWith(files[2].bytes, 'project', 'a-project.3mf', expect.any(Function));
+    expect(runtime.loadProject).toHaveBeenCalledWith(files[2].bytes, 'project', 'a-project.3mf',
+      expect.any(Function), expect.any(Function));
     expect(runtime.importProjectGeometry).toHaveBeenCalledTimes(2);
     expect(runtime.importProjectGeometry.mock.calls.map((call) => (call as unknown[])[1])).toEqual(['b-project.3mf', 'z-model.stl']);
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'a-project', dirty: true, location: files[2].location });
@@ -437,7 +463,6 @@ describe('transactional project actions', () => {
     const first = { displayName: 'project.3mf', bytes: new Uint8Array([1]), location: {} as ProjectInput['location'] };
     const result = await openProjectInputs(platform, [first, { displayName: 'part.stl', bytes: new Uint8Array([2]) }], { loadBehaviour: 'load_all' });
     expect(result.status).toBe('ok');
-    expect(useProjectStore.getState().flattenedMultiPlate).toBe(false);
     expect(useProjectStore.getState().notices.some((notice) => notice.kind === 'multi-plate')).toBe(false);
   });
 });

@@ -27,7 +27,8 @@ else()
   set(_OCCT_DEFAULT_VARIANT serial)
 endif()
 set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_OCCT_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
-option(NEO_PROJECT_HISTORY_TEST "Build the standalone headless ProjectHistory test" OFF)
+option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
+option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
 # libslic3r part (slic3r_core + bridge/CLI TUs) is rebuilt with -g -O0 so the
 # final module embeds DWARF for interactive source-level debugging in Chrome
@@ -344,11 +345,13 @@ target_compile_options(deps_core PRIVATE
 # Explicitly list every Neo bridge and CLI translation unit. Keep this source
 # set outside the pinned Orca submodule; the C bridge and Worker transaction
 # adapters remain Neo code.
-set(ORCA_SLICE_SRC
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
+set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_performance.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
@@ -361,15 +364,57 @@ set(ORCA_SLICE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp"
 )
+if(NEO_REAL_PROJECT_PROFILE)
+  list(APPEND ORCA_BRIDGE_SRC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_real_project_profile.cpp")
+endif()
+set(ORCA_SLICE_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
+  ${ORCA_BRIDGE_SRC}
+)
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+if(NEO_REAL_PROJECT_PROFILE)
+  target_compile_definitions(orca_slice PRIVATE NEO_REAL_PROJECT_PROFILE=1)
+  message(STATUS "Real-project profile: dedicated profiling ABI enabled")
+endif()
 if(NEO_PROJECT_HISTORY_TEST)
-  add_executable(project_history_core_test
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.test.cpp")
-  target_compile_definitions(project_history_core_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
-  target_compile_options(project_history_core_test PRIVATE -fexceptions)
-  target_link_options(project_history_core_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+  add_executable(plate_runtime_registry_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.test.cpp")
+  target_compile_definitions(plate_runtime_registry_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(plate_runtime_registry_test PRIVATE -fexceptions)
+  target_link_options(plate_runtime_registry_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sUSE_FREETYPE=1 -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  target_link_libraries(plate_runtime_registry_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+
+  add_executable(timestamped_history_core_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.test.cpp")
+  target_compile_definitions(timestamped_history_core_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(timestamped_history_core_test PRIVATE -fexceptions)
+  target_link_options(timestamped_history_core_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
     -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  set_target_properties(timestamped_history_core_test PROPERTIES SUFFIX ".cjs")
+
+  add_executable(history_mesh_capture_test
+    ${ORCA_BRIDGE_SRC}
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/MeshCaptureCache.test.cpp")
+  target_compile_definitions(history_mesh_capture_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(history_mesh_capture_test PRIVATE -fexceptions)
+  target_link_options(history_mesh_capture_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  target_link_libraries(history_mesh_capture_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+  set_target_properties(history_mesh_capture_test PROPERTIES SUFFIX ".cjs")
+
+  add_executable(history_instance_identity_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.test.cpp")
+  target_compile_definitions(history_instance_identity_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(history_instance_identity_test PRIVATE -fexceptions)
+  target_link_options(history_instance_identity_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  target_link_libraries(history_instance_identity_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+  set_target_properties(history_instance_identity_test PROPERTIES SUFFIX ".cjs")
 endif()
 # The bridge's error contract leans on C++ exceptions (nlohmann type_error,
 # std::runtime_error from the slice path) being caught inside the bridge —
@@ -406,8 +451,27 @@ target_link_libraries(orca_slice PRIVATE
   -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
   "${OCCT_ROOT}/lib/libfreetype.a"
 )
+if(NEO_PROJECT_HISTORY_TEST)
+  target_link_libraries(history_mesh_capture_test PRIVATE
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
+    "${OCCT_ROOT}/lib/libfreetype.a"
+  )
+  target_link_libraries(history_instance_identity_test PRIVATE
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
+    "${OCCT_ROOT}/lib/libfreetype.a"
+  )
+  target_link_libraries(plate_runtime_registry_test PRIVATE
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
+    "${OCCT_ROOT}/lib/libfreetype.a"
+  )
+endif()
 if(WASM_THREADING)
   target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+  if(NEO_PROJECT_HISTORY_TEST)
+    target_link_libraries(history_mesh_capture_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+    target_link_libraries(history_instance_identity_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+    target_link_libraries(plate_runtime_registry_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+  endif()
 endif()
 # Boost static archives (Emscripten-built wasm64, build-boost-wasm64.sh):
 # libslic3r objects reference boost::filesystem / boost::regex / boost::log
@@ -416,6 +480,11 @@ endif()
 file(GLOB BOOST_ARCHIVES "${BOOST_INCLUDE}/stage-wasm64/lib/libboost_*.a")
 if(BOOST_ARCHIVES)
   target_link_libraries(orca_slice PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+  if(NEO_PROJECT_HISTORY_TEST)
+    target_link_libraries(history_mesh_capture_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+    target_link_libraries(history_instance_identity_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+    target_link_libraries(plate_runtime_registry_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+  endif()
 endif()
 set_target_properties(orca_slice PROPERTIES OUTPUT_NAME "orca_slice" SUFFIX ".js")
 # Link optimization: debug replaces -O3 with -O0 -g. -g at LINK time is what
@@ -454,7 +523,7 @@ target_link_options(orca_slice PRIVATE
   # cross via _malloc/_free + HEAPU8 views) requires the JS side to see the
   # heap view; the bridge smoke stages model bytes through it.
   # addFunction/removeFunction: the progress-callback handoff (orc_
-  # set_progress_callback takes a JS function via the wasm function table;
+  # set_async_task_callback takes a JS function via the wasm function table;
   # ALLOW_TABLE_GROWTH above makes dynamic allocation safe).
   # getExceptionMessage: M4 diag — decodes a CppException's excPtr into the
   # thrown type name (bridge probe); kept in the export list for CI probes.

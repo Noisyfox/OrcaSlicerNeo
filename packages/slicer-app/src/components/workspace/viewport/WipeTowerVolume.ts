@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { HistoryStatus, PlateSessionSnapshot, PrimeTowerMoveRequest, PrimeTowerMoveResultOrError, PrimeTowerPlateProjection, PrimeTowerProjection, PrimeTowerRestoreReceipt } from '@slicer/client';
+import type { HistoryStatus, PlateSessionSnapshot, PrimeTowerMoveRequest, PrimeTowerMoveResultOrError, PrimeTowerPlateProjection, PrimeTowerProjection } from '@slicer/client';
 import { useEffect, useState } from 'react';
 import { attachBoundsTree, disposeBVHGeometry, GLVolume, type BVHBufferGeometry } from './GLVolume';
 import { clampPrimeTowerPosition, type PrimeTowerPosition } from './primeTowerGeometry';
@@ -32,6 +32,9 @@ export class WipeTowerVolume extends GLVolume {
     ]);
     super({
       // Negative IDs reserve this scene-only object outside Worker model IDs.
+      objectId: -1001 - ordinal,
+      volumeId: 0,
+      instanceId: 0,
       objectIdx: -1001 - ordinal,
       volumeIdx: 0,
       instanceIdx: 0,
@@ -215,37 +218,6 @@ export class WipeTowerVolumeCollection {
     });
   }
 
-  /**
-   * Apply one normalized direct-history receipt without re-reading the
-   * all-plate projection.  A receipt deliberately has no eligibility, band,
-   * or build-area data, so it is usable only when the retained projection and
-   * the freshly-read native plate session prove that every omitted fact is
-   * still valid.  Returning false makes the caller take the authoritative
-   * full-projection path instead.
-   */
-  applyRestoreReceipt(receipt: PrimeTowerRestoreReceipt, session: PlateSessionSnapshot): boolean {
-    const projection = this.projectionState;
-    if (receipt.version !== 1 || !projection || !session.ok || session.version !== 1 ||
-        projection.version !== 1 || session.inputRevisions?.[receipt.plateId] !== receipt.revision ||
-        !session.plates.some((plate) => plate.plateId === receipt.plateId) ||
-        !projection.plates.some((plate) => plate.plateId === receipt.plateId)) return false;
-    if (receipt.state === 'cleared') {
-      this.setProjection({
-        ...projection,
-        currentPlateId: session.currentPlateId,
-        plates: projection.plates.filter((plate) => plate.plateId !== receipt.plateId),
-      }, session);
-      return true;
-    }
-    this.setProjection({
-      ...projection,
-      currentPlateId: session.currentPlateId,
-      plates: projection.plates.map((plate) => plate.plateId === receipt.plateId
-        ? { ...plate, position: receipt.position, footprint: receipt.footprint }
-        : plate),
-    }, session);
-    return true;
-  }
 
   async commit(volume: WipeTowerVolume): Promise<void> {
     if (this.commitInFlight) return;

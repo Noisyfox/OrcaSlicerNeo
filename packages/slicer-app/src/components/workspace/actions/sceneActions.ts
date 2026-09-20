@@ -43,7 +43,7 @@ async function commitAddedImpl(
   // concurrent Worker reads cannot publish an older collection after the
   // native add has completed.
   const currentSettings = useSettingsStore.getState();
-  if (currentSettings.modelLoaded && typeof platform.runtime.getModelMesh === 'function')
+  if (currentSettings.modelLoaded)
     await waitForGLVolumeRevision(currentSettings.modelRevision);
   const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction, {
     publish: async (r) => {
@@ -58,8 +58,7 @@ async function commitAddedImpl(
       settings.setValue('modelPath', displayName);
       settings.setModelLoaded(true);
       sceneInteraction?.resetForModel();
-      if (typeof platform.runtime.getModelMesh === 'function')
-        await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
+      await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
       useProjectStore.getState().setProject({ hasContent: true });
       if (r.plateSession) {
         const previousPlateSession = usePlateSessionStore.getState().snapshot;

@@ -23,13 +23,6 @@ export interface OrcaModule {
   };
 }
 
-/** Fixed layout published by the threaded C++ bridge in shared Wasm memory. */
-export interface ProgressMailbox {
-  buffer: SharedArrayBuffer;
-  byteOffset: number;
-  textCapacity: number;
-}
-
 export type OrcaModuleFactory = (opts?: {
   noInitialRun?: boolean;
   print?: (s: string) => void;
@@ -63,6 +56,8 @@ export interface PlateSessionPlate {
   readonly instanceIds?: readonly number[];
   readonly outOfBoundsInstanceIds?: readonly number[];
   readonly valid?: boolean;
+  /** Forward-compatible native metadata retained for session comparisons. */
+  readonly futureMetadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface PlateSessionInstance {
@@ -74,6 +69,7 @@ export interface PlateSessionInstance {
   readonly member: boolean;
   readonly unprintable: boolean;
   readonly outOfBounds: boolean;
+  readonly parked?: boolean;
 }
 
 export interface PlateSessionInstanceTransform {
@@ -99,13 +95,16 @@ export interface PlateSessionSnapshot {
   readonly version: 1;
   readonly plates: readonly PlateSessionPlate[];
   readonly currentPlateId: string;
-  instances?: readonly PlateSessionInstance[];
+  instances: readonly PlateSessionInstance[];
   instanceTransforms?: readonly PlateSessionInstanceTransform[];
   inputRevisions?: Readonly<Record<string, number>>;
   affectedPlateIdsBefore?: readonly string[];
   affectedPlateIdsAfter?: readonly string[];
   affectedPlateIds?: readonly string[];
   dirtyReasons?: readonly string[];
+  /** Present on structural plate mutations that normalize native per-plate
+   * configuration arrays. Ordinary snapshots and transform mutations omit it. */
+  projectConfigOverlay?: ProjectConfigOverlay;
 }
 
 /** Narrow authoritative receipt returned by pure plate navigation. */
@@ -224,7 +223,7 @@ export interface ProjectConfigOverlay {
   readonly plates: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
-export type ProjectConfigScope = 'project' | 'object' | 'part';
+export type ProjectConfigScope = 'project' | 'object' | 'part' | 'plate';
 
 export interface ProjectConfigOverrideTarget {
   readonly scope: ProjectConfigScope;
@@ -375,6 +374,13 @@ export interface ClearModelResult {
 export type ProjectLoadMode = 'project' | 'geometry-only';
 
 export type ProjectProgressCallback = (percent: number, text: string) => void;
+export type ProjectClosedCallback = (plateSession: PlateSessionMutation) => void;
+
+export interface ProjectCloseResult {
+  ok: boolean;
+  error?: string;
+  plateSession?: PlateSessionMutation;
+}
 
 export interface EmbeddedPresetEvidence {
   type: 'printer' | 'filament';
@@ -394,7 +400,6 @@ export interface FilamentSlotChange {
 /** Result metadata from the native BBS 3MF reader. */
 export interface ProjectLoadResult {
   ok: boolean;
-  preflightToken?: string;
   objects: number;
   instances: number;
   mode?: ProjectLoadMode;
@@ -431,6 +436,10 @@ export interface ProjectLoadResult {
 }
 
 export interface ModelObjectBuffer {
+  /** Stable native identities used for React/Three reconciliation. */
+  objectId: number;
+  volumeId: number;
+  instanceId: number;
   objectIdx: number;
   volumeIdx: number;
   instanceIdx: number;
@@ -468,6 +477,15 @@ export interface ModelTransform {
 export interface ModelMeshResult {
   ok: boolean;
   objects: ModelObjectBuffer[];
+  error?: string;
+}
+
+/** Targeted projection for the stable object IDs in one history SceneDelta. */
+export interface ModelScenePatchResult {
+  ok: boolean;
+  objectOrder: number[];
+  objects: ModelObjectStructure[];
+  meshes: ModelObjectBuffer[];
   error?: string;
 }
 
@@ -614,6 +632,8 @@ export interface SliceResultStatus {
   unrecognized_keys: string[];
   /** Native slice-time advisory warnings; these never replace hard errors. */
   warnings?: string[];
+  /** Runtime-only identity of the retained core result produced by this Slice. */
+  receipt?: SliceResultReceipt;
   error?: string;
 }
 
@@ -631,6 +651,22 @@ export interface PlateOperationTarget {
   readonly plateId: string;
   readonly inputRevision: number;
 }
+
+/**
+ * Immutable address of one retained native result generation.
+ *
+ * `sliceTaskId` stays a decimal string across JSON so the eventual global
+ * uint64 task generator cannot lose precision in JavaScript.
+ */
+export interface SliceResultReceipt {
+  readonly plateId: string;
+  readonly inputStamp: number;
+  /** Plate-local successful generation, carried as decimal text. */
+  readonly resultGeneration: string;
+  readonly sliceTaskId: string;
+}
+
+export type ResultReadStatus = 'ok' | 'stale' | 'unavailable' | 'failed';
 
 export interface ToolpathFeature {
   id: number;
@@ -682,11 +718,15 @@ export type PreviewSourceKind = 'slice-result' | 'external-gcode';
 export interface PreviewTextChunkRequest {
   /** Completed preview result identity; stale results are rejected by bridge. */
   resultId: number;
+  receipt: SliceResultReceipt;
   offset: number;
   length: number;
 }
 
 export interface PreviewTextChunk {
+  ok?: boolean;
+  status?: ResultReadStatus;
+  error?: string;
   offset: number;
   text: string;
   eof: boolean;
@@ -695,11 +735,15 @@ export interface PreviewTextChunk {
 /** Bounded, seekable source-text page addressed by 1-based source lines. */
 export interface PreviewTextLinesRequest {
   resultId: number;
+  receipt: SliceResultReceipt;
   startLine: number;
   lineCount: number;
 }
 
 export interface PreviewTextLines {
+  ok?: boolean;
+  status?: ResultReadStatus;
+  error?: string;
   startLine: number;
   lineCount: number;
   text: string;
@@ -771,6 +815,10 @@ export interface ClientToolpath {
 
 export interface ClientSliceResult {
   ok: boolean;
+  /** Projection reads use typed terminals; stale/unavailable are normal races. */
+  status?: ResultReadStatus;
+  /** Address echoed by the Worker-side payload. */
+  receipt?: SliceResultReceipt;
   objects: number;
   layers: number;
   toolpath: ClientToolpath;
@@ -780,6 +828,7 @@ export interface ClientSliceResult {
 
 export interface ExportGcodeResult {
   ok: boolean;
+  status?: ResultReadStatus;
   path: string;
   bytes: Uint8Array;
   error?: string;
@@ -1020,6 +1069,55 @@ export interface AtomicCommandErrorEnvelope {
 
 export type AtomicCommandResult<T> = AtomicCommandSuccessEnvelope<T> | AtomicCommandErrorEnvelope;
 
+/** Bounded native timing sample used only by local performance diagnostics. */
+export type NativePrimeTowerProjectionStage =
+  | 'session_preparation'
+  | 'bounds_scan'
+  | 'effective_config_construction'
+  | 'plate_local_model_construction'
+  | 'used_slot_summary_hit'
+  | 'used_slot_summary_delta'
+  | 'used_slot_full_scan_fallback'
+  | 'used_slot_scan'
+  | 'printable_height_bounds_scan'
+  | 'direct_wipe_tower_estimate'
+  | 'print_apply_wipe_tower_data_fallback'
+  | 'footprint_bands_projection_json'
+  | 'final_json_serialization'
+  | 'final_json_copy'
+  | 'total';
+
+export interface NativePerformanceSample {
+  readonly operation: string;
+  readonly stagesMs: Readonly<Record<string, number>>;
+  /** Present only for the prime-tower projection sample; array index is the native plate index. */
+  readonly perPlateStagesMs?: readonly Readonly<Record<string, number>>[];
+}
+
+/** Drains the bounded native diagnostic ring without retaining model data. */
+export interface NativePerformanceProfile {
+  readonly version: 1;
+  readonly samples: readonly NativePerformanceSample[];
+}
+
+/** Worker-local execution state used to gate serial-only UI interactions. */
+export interface RuntimeExecutionState {
+  /** Null only before the WASM artifact has reported its threading mode. */
+  readonly threaded: boolean | null;
+  /** True from slice request admission until its public terminal response. */
+  readonly sliceActive: boolean;
+  readonly serialSliceActive: boolean;
+  readonly serialTerminalEpoch: string;
+}
+
+/** Worker-local measurements available without C++ profiling instrumentation. */
+export interface RuntimeMemorySnapshot {
+  /** Chromium's non-standard, currently used Worker JavaScript heap. */
+  readonly jsHeapUsedBytes?: number;
+  /** Current capacity of the Emscripten/WASM linear-memory buffer. */
+  readonly wasmLinearMemoryBytes: number;
+}
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
@@ -1046,12 +1144,16 @@ export interface SlicerClient {
   getHistoryStatus(): Promise<import('./history').HistoryStatus>;
   /** Advance the saved checkpoint without clearing retained history. */
   markHistorySaved(context?: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
-  recordHistoryContext(label: import('./history').HistoryLabel,
-                       context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   /** Clear the prior project session and establish a clean baseline. */
   resetHistory(context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   /** Compact Worker/client timing counters for smoke and E2E diagnostics. */
   getHistoryDiagnostics(): import('./history').HistoryTransportDiagnostics;
+  /** Read the already-known Worker execution state without another RPC. */
+  getRuntimeExecutionState(): RuntimeExecutionState;
+  /** Read current Worker JS heap and WASM linear-memory capacity. */
+  getRuntimeMemory(): Promise<RuntimeMemorySnapshot>;
+  /** Diagnostic-only native timing samples. Present in real WASM builds. */
+  takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,
@@ -1070,11 +1172,12 @@ export interface SlicerClient {
   /** Select an existing plate by its opaque runtime identity. */
   selectPlate(plateId: string): Promise<PlateSelectionResult>;
   addPlate(): Promise<PlateSessionMutationResult>;
+  reorderPlates(plateIds: string[]): Promise<PlateSessionMutationResult>;
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
   markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
-  /** Read canonical Worker-owned project/object/part overrides plus plate metadata. */
+  /** Read canonical Worker-owned project/object/part/plate overrides. */
   getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
   /** Set one supported override and return the affected plate projection. */
   setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError>;
@@ -1085,14 +1188,10 @@ export interface SlicerClient {
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
+  /** Close the current project/session and construct one fresh empty session. */
+  closeProject(): Promise<ProjectCloseResult>;
   /** Load a BBS 3MF as a project (replace) or geometry-only append. */
-  loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
-  /** Parse and stage a project without changing the live Worker session. */
-  preflightProject(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
-  /** Commit a previously accepted project preflight. */
-  commitProjectPreflight(token: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
-  /** Discard a staged project preflight without changing the live session. */
-  cancelProjectPreflight(token: string): Promise<{ ok: boolean; error?: string }>;
+  loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback, onProjectClosed?: ProjectClosedCallback): Promise<ProjectLoadResult>;
   /** Explicit geometry-only alias used by Add Model/project fallback callers. */
   importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
   /** Add an OrcaSlicer primitive to the current scene, exactly like its
@@ -1114,6 +1213,8 @@ export interface SlicerClient {
     transforms: readonly ModelTransformMutation[],
   ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
   getModelMesh(): Promise<ModelMeshResult>;
+  /** Materialize only objects touched by a native history SceneDelta. */
+  getModelScenePatch(objectIds: readonly number[]): Promise<ModelScenePatchResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
   getModelStructure(): Promise<ModelStructureResult>;
   /** Delete whole objects by their stable ObjectIDs. */
@@ -1155,14 +1256,14 @@ export interface SlicerClient {
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
-  getSliceResult(): Promise<ClientSliceResult>;
+  /** Materialize a renderer projection for exactly one retained native result. */
+  getSliceResult(receipt: SliceResultReceipt): Promise<ClientSliceResult>;
   /** Read a bounded UTF-8 chunk from the current completed slice result. */
   readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
   /** Read a bounded, seekable source-text page from the current result. */
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
-  exportGcode(): Promise<ExportGcodeResult>;
   /** Export only the captured current plate's completed result. */
-  exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult>;
+  exportGcodePlate(receipt: SliceResultReceipt): Promise<ExportGcodeResult>;
   /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;

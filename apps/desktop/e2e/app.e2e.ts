@@ -160,6 +160,22 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
   }
 });
 
+test('shows total application memory and grouped details from the status bar', async () => {
+  const { app } = await launchApp({ initialTab: 'home' });
+  try {
+    const page = await app.firstWindow();
+    const indicator = page.getByTestId('memory-indicator');
+    await expect(indicator).toHaveText(/^Memory: \d/, { timeout: PRESET_READY_TIMEOUT });
+    await indicator.click();
+    const popup = page.getByTestId('memory-indicator-popup');
+    await expect(popup).toContainText('Platform memory');
+    await expect(popup).toContainText('Shared runtime diagnostics');
+    await expect(popup).toContainText('Included in total');
+  } finally {
+    await app.close();
+  }
+});
+
 test('Prepare plate controls use the session snapshot and preserve the camera', async () => {
   const { app } = await launchApp();
   try {
@@ -535,14 +551,176 @@ test('shared history toolbar supports buttons, shortcuts, menu jumps, and native
     await page.keyboard.press('Control+y');
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
-    // Two project actions create a directional menu; context-only records are
-    // never rendered as normal navigation entries.
+    // Build a branch whose retained predecessor still has two models and two
+    // plates. Selection, blank deselection, and plate switching are real
+    // Prepare interactions; none may consume the redo for the third model.
     await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('add-plate').click();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await page.getByTestId('btn-add-model').click();
+    const objectRows = page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
     await expect(undo).toBeEnabled({ timeout: 30_000 });
+    await undo.click();
+    await expect(objectRows).toHaveCount(2, { timeout: 30_000 });
+    await expect(redo).toBeEnabled();
+
+    const selectedInstances = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { selectionInstanceCount?: () => number } })
+        .__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    );
+    const clickWorld = async (point: [number, number, number]) => {
+      const projected = await page.evaluate((p) =>
+        (window as unknown as {
+          __orcaE2e?: { projectWorldToScreen?: (q: [number, number, number]) => { x: number; y: number } | null };
+        }).__orcaE2e?.projectWorldToScreen?.(p) ?? null,
+        point,
+      );
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box || !projected) throw new Error('viewport projection is unavailable');
+      await page.mouse.click(box.x + projected.x, box.y + projected.y);
+    };
+
+    await objectRows.first().click();
+    await expect.poll(selectedInstances).toBeGreaterThan(0);
+    await expect(redo).toBeEnabled();
+
+    await clickWorld([350, 110, 0]);
+    await expect.poll(selectedInstances).toBe(0);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect(redo).toBeEnabled();
+
+    await clickWorld([110, 110, 0]);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 1 (2/36)');
+    // The plate button is disabled while the authoritative switch is pending.
+    // Waiting for it flushes the old selection/plate history queue as well, so
+    // this assertion deterministically fails if context navigation killed Redo.
+    await expect(page.getByTestId('add-plate')).toBeEnabled();
+    await expect(redo).toBeEnabled();
+
+    await redo.click();
+    await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+
+    // One directional-menu command can cross the retained Add Model and Add
+    // Plate entries. The Worker receives the selected opaque entry ID rather
+    // than a sequence of renderer-side button clicks.
     await page.getByTestId('history-undo-menu-trigger').click();
-    await expect(page.getByTestId(/history-undo-entry-/).first()).toBeVisible();
-    await page.getByTestId(/history-undo-entry-/).first().click();
-    await expect(undo).toBeEnabled({ timeout: 30_000 });
+    const undoEntries = page.getByTestId(/history-undo-entry-/);
+    await expect(undoEntries).toHaveCount(4);
+    await undoEntries.last().click();
+    await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+
+    await page.getByTestId('history-redo-menu-trigger').click();
+    const redoEntries = page.getByTestId(/history-redo-entry-/);
+    await expect(redoEntries).toHaveCount(4);
+    await redoEntries.last().click();
+    await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+  } finally {
+    await app.close();
+  }
+});
+
+test('undoes the first Cube added after an empty-scene Add Plate', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const objectRows = page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    await page.getByTestId('add-plate').click();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await page.getByTestId('btn-add-model').click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+
+    const restoreCounts = () => page.evaluate(() => {
+      const diagnostics = (window as unknown as {
+        __orcaE2e?: { historyDiagnostics?: () => {
+          app: { directRestore: { count: number }; fullRestore: { count: number }; fullRestoreModelReloads: number };
+        } };
+      }).__orcaE2e?.historyDiagnostics?.();
+      return diagnostics ? {
+        direct: diagnostics.app.directRestore.count,
+        full: diagnostics.app.fullRestore.count,
+        fullModelReloads: diagnostics.app.fullRestoreModelReloads,
+      } : null;
+    });
+    const beforeUndo = await restoreCounts();
+    expect(beforeUndo).not.toBeNull();
+
+    await page.getByTestId('history-undo').click();
+    await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+    await expect.poll(restoreCounts).toEqual({
+      direct: beforeUndo!.direct + 1,
+      full: beforeUndo!.full,
+      fullModelReloads: beforeUndo!.fullModelReloads,
+    });
+
+    await page.getByTestId('history-redo').click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect.poll(restoreCounts).toEqual({
+      direct: beforeUndo!.direct + 2,
+      full: beforeUndo!.full,
+      fullModelReloads: beforeUndo!.fullModelReloads,
+    });
+  } finally {
+    await app.close();
+  }
+});
+
+test('redoes a moved Cube after undoing both Move and Add Cube without stale identity errors', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const objectRows = page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+
+    await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+    await expect(page.getByTestId('ctx-menu')).toBeVisible();
+    await page.getByTestId('btn-add-primitive').click();
+    await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
+    await page.getByTestId('btn-add-cube').click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+
+    await objectRows.first().click();
+    await page.getByTestId('gizmo-btn-move').click();
+    const beforeMoveX = await page.getByTestId('move-x').inputValue();
+    const movedX = (Number(beforeMoveX) + 15).toFixed(3);
+    await page.getByTestId('move-x').fill(movedX);
+    await page.getByTestId('move-x').press('Enter');
+    await expect(page.getByTestId('move-x')).toHaveValue(movedX);
+    const undo = page.getByTestId('history-undo');
+    const redo = page.getByTestId('history-redo');
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
+
+    await undo.click();
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    await expect(page.getByTestId('move-x')).toHaveValue(beforeMoveX);
+    await undo.click();
+    await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
+
+    await redo.click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+    await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+    await redo.click();
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+    await expect(page.getByText(/stale.*identity|identity.*stale/i)).toHaveCount(0);
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+    await objectRows.first().click();
+    const moveButton = page.getByTestId('gizmo-btn-move');
+    if (await moveButton.getAttribute('aria-pressed') !== 'true') await moveButton.click();
+    await expect(page.getByTestId('move-x')).toHaveValue(movedX);
   } finally {
     await app.close();
   }

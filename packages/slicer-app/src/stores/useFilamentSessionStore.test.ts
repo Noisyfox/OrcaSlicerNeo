@@ -21,7 +21,7 @@ function historyStatus(revision: number, dirty = true): HistoryStatus {
   return {
     canUndo: dirty, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
     savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
-    byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+    byteBudget: 10, evictedEntryCount: 0,
     lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
     disabled: false, activeTransactionId: null, revision,
   };
@@ -94,6 +94,7 @@ describe('filament session store lifecycle', () => {
       revisions: { session: 2, project: 2, result: 0, plates: { 'plate-a': 2, 'plate-b': 1 } },
     };
     const plateSession: PlateSessionSnapshot = {
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-a',
       plates: [
         { plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate A' },
@@ -126,14 +127,7 @@ describe('filament session store lifecycle', () => {
     } };
     const cancel = vi.fn(async () => ({ ok: true }));
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-a', inputRevision: 1 }, {
-      ok: true, objects: 1, layers: 1,
-      toolpath: { features: new Uint32Array(), palette: [], segmentCount: 0,
-        starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(), moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(),
-        sourceLineOrderValid: true, moveTypes: new Uint8Array(), extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(),
-        widths: new Float32Array(), heights: new Float32Array(), metrics: {} },
-      metadata: { resultId: 1, layerRanges: [], featurePalette: [] },
-    });
+    slicer.setPlateResult({ plateId: 'plate-a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
     slicer.setActiveSliceTarget({ plateId: 'plate-a', inputRevision: 1 });
     slicer.setStatus('slicing');
     useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
@@ -147,13 +141,8 @@ describe('filament session store lifecycle', () => {
   it('retains an unaffected cached plate for an object-scoped mutation', async () => {
     const initial = snapshot(1); const newer = snapshot(2);
     const slicer = useSlicerStore.getState();
-    const emptyResult = { ok: true, objects: 1, layers: 1,
-      toolpath: { features: new Uint32Array(), palette: [], segmentCount: 0,
-        starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(), moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(),
-        moveTypes: new Uint8Array(), extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(), widths: new Float32Array(), heights: new Float32Array(), metrics: {} },
-      metadata: { resultId: 1, layerRanges: [], featurePalette: [] } };
-    slicer.setPlateResult({ plateId: 'plate-a', inputRevision: 1 }, emptyResult);
-    slicer.setPlateResult({ plateId: 'plate-b', inputRevision: 1 }, emptyResult);
+    slicer.setPlateResult({ plateId: 'plate-a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-b', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
     useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
     await useFilamentSessionStore.getState().run({} as SlicerClient, async () => ({ ok: true, version: 1, result: {
       snapshot: newer,

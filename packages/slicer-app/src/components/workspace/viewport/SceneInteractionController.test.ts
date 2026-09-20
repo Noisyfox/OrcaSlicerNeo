@@ -7,6 +7,9 @@ import { EULER_ORDER } from './transformDeltaMath';
 
 function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number, offset: [number, number, number]): GLVolume {
   const buffer: ModelObjectBuffer = {
+    objectId: 100 + objectIdx,
+    volumeId: 200 + objectIdx * 10 + volumeIdx,
+    instanceId: 300 + objectIdx * 10 + instanceIdx,
     objectIdx,
     volumeIdx,
     instanceIdx,
@@ -184,27 +187,27 @@ describe('SceneInteractionController', () => {
   });
 
   it('selectVolumeIds replaces or unions raw volume IDs', () => {
-    expect(controller.selectVolumeIds(['0:0:0', '0:1:0'])).toBe(true);
+    expect(controller.selectVolumeIds([volumes[0].id, volumes[1].id])).toBe(true);
     expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
     // Additive union of the other instance's volumes.
-    expect(controller.selectVolumeIds(['0:0:1', '0:1:1'], true)).toBe(true);
+    expect(controller.selectVolumeIds([volumes[2].id, volumes[3].id], true)).toBe(true);
     expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
   it('classifies the selection like Orca (object/instance/part/mixed)', () => {
     expect(controller.computeSelectionKind()).toBe('empty');
 
-    controller.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
+    controller.selectVolumeIds(volumes.map((volume) => volume.id));
     expect(controller.computeSelectionKind()).toBe('object');
 
-    controller.selectVolumeIds(['0:0:0', '0:1:0']);
+    controller.selectVolumeIds([volumes[0].id, volumes[1].id]);
     expect(controller.computeSelectionKind()).toBe('instance');
 
-    controller.selectVolumeIds(['0:0:0']);
+    controller.selectVolumeIds([volumes[0].id]);
     expect(controller.computeSelectionKind()).toBe('part');
 
     // A part of instance 0 plus a part of instance 1 is Orca's Mixed.
-    controller.selectVolumeIds(['0:0:0', '0:0:1']);
+    controller.selectVolumeIds([volumes[0].id, volumes[2].id]);
     expect(controller.computeSelectionKind()).toBe('mixed');
   });
 
@@ -219,21 +222,21 @@ describe('SceneInteractionController', () => {
 
     // A full instance of object 0 plus the whole object 1 is all Instance-mode
     // (an instance is a full object at that level), so it is valid, NOT Mixed.
-    expect(multi.classifyVolumeIds(['0:0:0', '0:1:0', '1:0:0'])).toBe('object');
+    expect(multi.classifyVolumeIds([multiVolumes[0].id, multiVolumes[1].id, multiVolumes[4].id])).toBe('object');
 
     // The guard therefore allows the additive toggle.
-    multi.selectVolumeIds(['0:0:0', '0:1:0']);
+    multi.selectVolumeIds([multiVolumes[0].id, multiVolumes[1].id]);
     expect(multi.computeSelectionKind()).toBe('instance');
     expect(multi.selectComposite(1, 0, 0, true)).toBe(true);
     expect(multi.computeSelectionKind()).toBe('object');
 
     // Selecting both objects in full is also 'object'.
-    expect(multi.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1', '1:0:0'])).toBe(true);
+    expect(multi.selectVolumeIds(multiVolumes.map((volume) => volume.id))).toBe(true);
     expect(multi.computeSelectionKind()).toBe('object');
   });
 
   it('refuses additive viewport selection that would create Mixed (Orca)', () => {
-    controller.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1']); // whole object
+    controller.selectVolumeIds(volumes.map((volume) => volume.id)); // whole object
     expect(controller.computeSelectionKind()).toBe('object');
     const before = controller.selectedVolumes().length;
     // Ctrl+clicking a part of the full object would leave a partial instance ->
@@ -302,8 +305,8 @@ describe('SceneInteractionController', () => {
       ok: true,
       objects: [{
         id: 100, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
-        volumes: [{ id: 110, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
-        instances: [{ id: 120, index: 0, printable: true }],
+        volumes: [{ id: 200, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+        instances: [{ id: 300, index: 0, printable: true }],
       }],
     };
     const context: HistoryContext = {
@@ -313,6 +316,23 @@ describe('SceneInteractionController', () => {
     controller.restoreHistoryContext(context, structure);
     expect(controller.selectedVolumes()).toEqual([volumes[0]]);
     expect(controller.selectedVolumes().every((volume) => volume.buffer.objectIdx === 0)).toBe(true);
+  });
+
+  it('uses only surviving fallback selection IDs when a sparse history context is empty', () => {
+    const structure: ModelStructureResult = {
+      ok: true,
+      objects: [{
+        id: 100, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
+        volumes: [{ id: 200, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+        instances: [{ id: 300, index: 0, printable: true }],
+      }],
+    };
+    const context: HistoryContext = {
+      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+    };
+    controller.restoreHistoryContext(context, structure, [volumes[0].id, '999:999:999']);
+    expect(controller.selectedVolumes()).toEqual([volumes[0]]);
   });
 
   it('refuses a gizmo drag while the gizmo is not toggled on', () => {
@@ -510,16 +530,13 @@ describe('SceneInteractionController', () => {
     controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
 
     expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
-    expect(controller.bodySelectionHistoryState).toBe('pending');
     const start = controller.selectionPivot()!;
     // Deliberately do not await or publish React selection between these
     // calls: this is the same pointerdown -> thresholded pointermove turn.
     expect(controller.tryBeginBodyDrag(volumes[0])).toBe(false);
     expect(controller.tryBeginBodyDrag(volumes[2])).toBe(true);
-    expect(controller.bodySelectionHistoryState).toBe('dragging');
     expect(controller.updateDragPivot(start.clone().add(new THREE.Vector3(3, -2, 0)))).toBe(true);
     expect(controller.endDrag()).toBe(true);
-    expect(controller.bodySelectionHistoryState).toBe('idle');
     await Promise.resolve();
 
     expect(volumes.map((volume) => volume.instanceTransform.offset)).toEqual([
@@ -848,6 +865,9 @@ describe('SceneInteractionController', () => {
     // real mesh only tops out at ½√2. The selection box must use the real
     // transformed vertices, exactly like OrcaSlicer's World reference system.
     const buffer: ModelObjectBuffer = {
+      objectId: 100,
+      volumeId: 200,
+      instanceId: 300,
       objectIdx: 0,
       volumeIdx: 0,
       instanceIdx: 0,

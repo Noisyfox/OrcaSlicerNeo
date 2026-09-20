@@ -16,12 +16,10 @@ const status: HistoryStatus = {
   undoLabel: 'Move',
   redoLabel: 'Delete',
   undoEntries: [
-    { id: 'u-context', label: 'Selection', category: 'context' },
     { id: 'u-project', label: 'Move', category: 'project' },
   ],
   redoEntries: [
     { id: 'r-project', label: 'Add Model', category: 'project' },
-    { id: 'r-context', label: 'Active Plate', category: 'context' },
   ],
   cursor: 2,
   savedCheckpoint: 0,
@@ -29,7 +27,7 @@ const status: HistoryStatus = {
   dirty: true,
   bytesUsed: 10,
   byteBudget: 100,
-  optionalBytesReleased: 0, evictedEntryCount: 0, lastEvictedEntryId: null,
+  evictedEntryCount: 0, lastEvictedEntryId: null,
   oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
   disabled: false,
   activeTransactionId: null,
@@ -37,7 +35,7 @@ const status: HistoryStatus = {
 };
 
 describe('shared history navigation semantics', () => {
-  it('shows only Worker project entries while retaining Worker order', () => {
+  it('retains Worker project-entry order', () => {
     expect(projectHistoryEntries(status, 'undo')).toEqual([
       { id: 'u-project', label: 'Move', category: 'project' },
     ]);

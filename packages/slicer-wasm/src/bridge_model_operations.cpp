@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <set>
@@ -18,6 +19,8 @@
 #include <emscripten/emscripten.h>
 #include "bridge_buffers.hpp"
 #include "bridge_plate.hpp"
+#include "bridge_performance.hpp"
+#include "bridge_prime_tower.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -38,14 +41,7 @@ char* error_json(const std::string& message) {
     return dup_json(json{{"ok", false}, {"error", message}}.dump());
 }
 void invalidate_preview_source() {
-    auto& s = state();
-    ++s.preview_result_id;
-    s.preview_gcode_path.clear();
-    s.preview_gcode_size = 0;
-    s.preview_gcode_line_ends.clear();
-    s.preview_text_available = false;
-    s.preview_plate_id.clear();
-    s.preview_plate_revision = 0;
+    Neo::Bridge::PrimeTower::invalidate_projection_cache();
 }
 std::string sanitized_model_basename(const char* filename, const char* ext) {
     std::string name = filename ? filename : "";
@@ -61,6 +57,11 @@ std::string sanitized_model_basename(const char* filename, const char* ext) {
     return name;
 }
 }
+
+extern "C" {
+static json transform_json(const Slic3r::Geometry::Transformation& transformation);
+}
+
 namespace Slic3r::Neo::Bridge::ModelOperations {
 std::size_t model_instance_count(const Model& model) {
     std::size_t count = 0;
@@ -134,10 +135,11 @@ std::optional<ModelVolumeType> volume_type_from_string(const std::string& value)
     if (value == "support_enforcer") return ModelVolumeType::SUPPORT_ENFORCER;
     return std::nullopt;
 }
-json model_structure_json() {
+json model_structure_json_filtered(const std::set<std::size_t>* object_ids) {
     json objects = json::array();
     for (size_t oi = 0; oi < state().model.objects.size(); ++oi) {
         const auto& object = state().model.objects[oi];
+        if (object_ids != nullptr && object_ids->find(object->id().id) == object_ids->end()) continue;
         json volumes = json::array();
         for (size_t vi = 0; vi < object->volumes.size(); ++vi) {
             const auto& volume = object->volumes[vi];
@@ -152,6 +154,55 @@ json model_structure_json() {
         objects.push_back(json{{"id", object->id().id}, {"index", oi}, {"name", object->name},
             {"printable", object->printable}, {"instanceCount", object->instances.size()},
             {"volumes", std::move(volumes)}, {"instances", std::move(instances)}});
+    }
+    return objects;
+}
+
+json model_structure_json() {
+    return model_structure_json_filtered(nullptr);
+}
+
+json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr) {
+    json objects = json::array();
+    auto& model = state().model;
+    for (size_t oi = 0; oi < model.objects.size(); ++oi) {
+        const auto& object = model.objects[oi];
+        if (object_ids != nullptr && object_ids->find(object->id().id) == object_ids->end()) continue;
+        // LOCAL (volume-transformed, instance-untouched) vertices: the
+        // instance transform is reported separately and applied by Three.
+        for (size_t vi = 0; vi < object->volumes.size(); ++vi) {
+            const auto& volume_object = object->volumes[vi];
+            const auto& its = volume_object->mesh().its;
+            for (size_t ii = 0; ii < object->instances.size(); ++ii) {
+                MallocBuffer vbuf;
+                MallocBuffer ibuf;
+                for (const auto& vertex : its.vertices) {
+                    vbuf.appendF32(vertex.x());
+                    vbuf.appendF32(vertex.y());
+                    vbuf.appendF32(vertex.z());
+                }
+                for (const auto& triangle : its.indices) {
+                    ibuf.appendU32(static_cast<std::uint32_t>(triangle[0]));
+                    ibuf.appendU32(static_cast<std::uint32_t>(triangle[1]));
+                    ibuf.appendU32(static_cast<std::uint32_t>(triangle[2]));
+                }
+                const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
+                const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
+                vbuf.release();
+                ibuf.release();
+                const auto& instance_object = object->instances[ii];
+                const auto& instance = instance_object->get_transformation();
+                const auto& volume = volume_object->get_transformation();
+                objects.push_back(json{{"object_id", object->id().id},
+                    {"volume_id", volume_object->id().id}, {"instance_id", instance_object->id().id},
+                    {"object_idx", oi}, {"volume_idx", vi}, {"instance_idx", ii},
+                    {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
+                    {"index_ptr", iptr}, {"index_count", its.indices.size() * 3},
+                    {"offset", {instance.get_offset().x(), instance.get_offset().y(), instance.get_offset().z()}},
+                    {"instance_transform", transform_json(instance)},
+                    {"volume_transform", transform_json(volume)}});
+            }
+        }
     }
     return objects;
 }
@@ -279,7 +330,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         }
         rebuild_plate_membership(true);
         // A model mutation makes any existing Print/G-code result stale.
-        state().print.clear();
         invalidate_preview_source();
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
@@ -371,7 +421,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
                                                             -new_object->origin_translation.z()));
         new_object->ensure_on_bed();
         // A model mutation makes any existing Print/G-code result stale.
-        state().print.clear();
         invalidate_preview_source();
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
@@ -398,8 +447,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
 EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
         const auto affected_before = member_plate_ids();
-        state().print.clear();
         invalidate_preview_source();
+        state().mesh_capture_cache.clear();
+        state().mutable_object_capture_cache.clear();
         state().model = Model{};
         reset_plate_session_state();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-clear"});
@@ -433,7 +483,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
         for (const std::size_t id : *ids)
             state().model.delete_object(ObjectID(id));
         rebuild_plate_membership(true);
-        state().print.clear();
         invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
                                                        json::array(), &affected_instances);
@@ -481,9 +530,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
             std::sort(indexes.rbegin(), indexes.rend());
             for (const std::size_t idx : indexes)
                 obj->delete_volume(idx);
+            obj->config.touch();
         }
         rebuild_plate_membership(true);
-        state().print.clear();
         invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
                                                        json::array(), &affected_instances);
@@ -513,7 +562,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
             ModelObject* clone = state().model.add_object(*obj);
             new_object_ids.push_back(clone->id().id);
         }
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
@@ -548,7 +596,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
             objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(from_idx));
             objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(target), from_obj);
         }
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
@@ -581,9 +628,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
             ModelVolume* from_vol = vols[from_idx];
             vols.erase(vols.begin() + static_cast<std::ptrdiff_t>(from_idx));
             vols.insert(vols.begin() + static_cast<std::ptrdiff_t>(target), from_vol);
+            obj->config.touch();
         }
         obj->invalidate_bounding_box();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
@@ -616,13 +663,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
         const unsigned int max_ext = max_extruders > 0.0
             ? static_cast<unsigned int>(max_extruders) : 1u;
         const std::size_t parts = vol->split(max_ext, remap_paint != 0.0);
+        obj->config.touch();
 
         std::vector<std::size_t> new_volume_ids;
         for (const ModelVolume* v : obj->volumes)
             if (std::find(before_ids.begin(), before_ids.end(), v->id().id) == before_ids.end())
                 new_volume_ids.push_back(v->id().id);
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"parts", parts},
@@ -664,7 +711,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
         if (auto_drop != 0.0)
             state().model.adjust_min_z();
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
@@ -725,7 +771,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
         for (ModelObject* src : sources)
             model.delete_object(src);
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", new_obj->id().id},
@@ -778,8 +823,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
         std::sort(to_remove.rbegin(), to_remove.rend());
         for (const std::size_t i : to_remove)
             obj->delete_instance(i);
+        obj->config.touch();
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
@@ -810,7 +855,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
             : obj->instances.back()->get_offset();
         ModelInstance* inst = obj->add_instance();
         inst->set_offset(Slic3r::Vec3d(base.x() + step, base.y(), base.z()));
-        state().print.clear();
+        obj->config.touch();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", obj->id().id},
@@ -835,7 +880,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
         for (std::size_t i = 0; i < obj->instances.size(); ++i) {
             if (obj->instances[i]->id().id == *iid) {
                 obj->delete_instance(i);
-                state().print.clear();
+                obj->config.touch();
                 invalidate_preview_source();
                 return dup_json(json{{"ok", true}}.dump());
             }
@@ -899,6 +944,24 @@ static void set_transform(Slic3r::Geometry::Transformation& target, const json& 
     target.set_mirror(transform_vec3(transform, "mirror"));
 }
 
+// Translation changes plate membership, which is handled by the plate
+// mutation snapshot. The Prime Tower estimate also depends on the object's
+// shape, so invalidate a same-plate projection only when the affine linear
+// part changes (rotation, scale, mirror, or shear).
+static bool transform_geometry_changed(const Slic3r::Geometry::Transformation& before,
+                                       const Slic3r::Geometry::Transformation& after)
+{
+    const auto before_matrix = before.get_matrix().matrix();
+    const auto after_matrix = after.get_matrix().matrix();
+    for (int column = 0; column < 3; ++column)
+        for (int row = 0; row < 3; ++row)
+            if (before_matrix(row, column) != after_matrix(row, column)) return true;
+    // XY translation is invariant for the plate-local tower dimensions and
+    // footprint offsets. Z translation is not: the model height used by the
+    // estimate can change, so keep it in the invalidation proof.
+    return before_matrix(2, 3) != after_matrix(2, 3);
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int instance_idx, double x, double y, double z) {
     try {
         auto& model = state().model;
@@ -909,7 +972,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int ins
             return error_json("instance index out of range");
         // Drift surface: ModelInstance::set_offset(Vec3d) — confirm at SHA.
         auto* instance = obj->instances[static_cast<size_t>(instance_idx)];
+        const auto previous = instance->get_offset();
+        const auto affected_before = member_plate_ids_for_instances({instance->id().id});
         instance->set_offset(Slic3r::Vec3d(x, y, z));
+        if (previous != instance->get_offset()) obj->config.touch();
+        if (previous.z() != instance->get_offset().z())
+            Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
         state().pending_membership_instance_ids.insert(instance->id().id);
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -939,11 +1007,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
         auto volume = object->volumes[static_cast<size_t>(volume_idx)]->get_transformation();
         const auto previous_instance = instance;
         const auto previous_volume = volume;
+        const auto affected_before = member_plate_ids_for_instances({
+            object->instances[static_cast<size_t>(instance_idx)]->id().id});
         set_transform(instance, instance_transform);
         set_transform(volume, volume_transform);
         object->instances[static_cast<size_t>(instance_idx)]->set_transformation(instance);
         object->volumes[static_cast<size_t>(volume_idx)]->set_transformation(volume);
+        if (instance != previous_instance || volume != previous_volume) object->config.touch();
         object->invalidate_bounding_box();
+        if (transform_geometry_changed(previous_instance, instance) ||
+            transform_geometry_changed(previous_volume, volume))
+            Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
         // Slicing synchronizes every rendered composite before starting the
         // job. Re-emitting an identical transform is not an editing
         // transaction and must not advance a plate's input revision; doing
@@ -977,16 +1051,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         Slic3r::Geometry::Transformation previous_volume;
     };
     try {
+        const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const std::string transaction_id = transaction_id_cstr ? transaction_id_cstr : "";
-        const auto& active = state().active_history_transaction;
+        auto& active = state().active_history_transaction;
         if (!active || active->id != transaction_id)
             return error_json("history transaction is stale or belongs to another writer");
         if (active->base_history_revision != state().history_revision)
             return error_json("history transaction revision is stale");
 
+        const double input_decode_started_at = Neo::Bridge::Performance::now_ms();
         const json requests = json::parse(transforms_json ? transforms_json : "");
+        const double input_decode_finished_at = Neo::Bridge::Performance::now_ms();
         if (!requests.is_array() || requests.empty())
             return error_json("transforms must be a non-empty array");
+
+        const double validation_started_at = Neo::Bridge::Performance::now_ms();
         std::vector<StagedTransform> staged;
         staged.reserve(requests.size());
         std::set<std::tuple<int, int, int>> identities;
@@ -1014,30 +1093,62 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 object->instances[static_cast<size_t>(instance_idx)]->get_transformation(),
                 object->volumes[static_cast<size_t>(volume_idx)]->get_transformation()});
         }
-
         std::set<std::size_t> affected_instances;
         for (const auto& item : staged) {
             if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                 affected_instances.insert(item.instance->id().id);
         }
+        const double validation_finished_at = Neo::Bridge::Performance::now_ms();
+
+        const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
+        const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
+        const auto before_revisions = state().plate_input_revisions;
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const auto affected_before = affected_instances.empty()
             ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
+        const bool projection_geometry_changed = std::any_of(staged.begin(), staged.end(),
+            [](const StagedTransform& item) {
+                return transform_geometry_changed(item.previous_instance, item.next_instance) ||
+                    transform_geometry_changed(item.previous_volume, item.next_volume);
+            });
+        const double membership_lookup_finished_at = Neo::Bridge::Performance::now_ms();
+        const double mutation_started_at = Neo::Bridge::Performance::now_ms();
         try {
             for (const auto& item : staged) {
                 item.instance->set_transformation(item.next_instance);
                 item.volume->set_transformation(item.next_volume);
                 item.object->invalidate_bounding_box();
             }
+            if (projection_geometry_changed)
+                Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
+            const double mutation_finished_at = Neo::Bridge::Performance::now_ms();
+            const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
             rebuild_plate_membership(true);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
-                                                           json::array(), &affected_instances);
-            return dup_json(mutation.dump());
+                                                           json::array(), &affected_instances, &before_out_of_bounds);
+            const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
+            const double response_started_at = Neo::Bridge::Performance::now_ms();
+            const std::string response = mutation.dump();
+            char* result = dup_json(response);
+            const double response_finished_at = Neo::Bridge::Performance::now_ms();
+            Neo::Bridge::Performance::record("set_model_transforms", {
+                {"input_json_decode", input_decode_finished_at - input_decode_started_at},
+                {"request_validation_target_resolution", validation_finished_at - validation_started_at},
+                {"transform_mutation", mutation_finished_at - mutation_started_at},
+                {"plate_membership_reflow", (membership_lookup_finished_at - membership_lookup_started_at) +
+                    (membership_reflow_finished_at - membership_reflow_started_at)},
+                {"response_json_serialization", response_finished_at - response_started_at},
+                {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
+            });
+            return result;
         } catch (...) {
             for (const auto& item : staged) {
                 item.instance->set_transformation(item.previous_instance);
                 item.volume->set_transformation(item.previous_volume);
                 item.object->invalidate_bounding_box();
             }
+            state().plate_input_revisions = before_revisions;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
             throw;
         }
     } catch (const std::exception& e) {
@@ -1077,9 +1188,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char*
         ModelObject* obj = find_object_by_id(*id);
         if (obj == nullptr) return error_json("object not found");
         obj->name = name_cstr;
+        obj->config.touch();
         // A rename does not change geometry, but it does change the object's
         // reported name; the existing Print/G-code is still considered stale.
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1097,7 +1208,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char*
         ModelVolume* vol = find_volume_by_id(*id);
         if (vol == nullptr) return error_json("volume not found");
         vol->name = name_cstr;
-        state().print.clear();
+        vol->get_object()->config.touch();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1121,10 +1232,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         if (*new_type != ModelVolumeType::MODEL_PART && vol->is_the_only_one_part())
             return error_json("changing the last solid part is not allowed");
         vol->set_type(*new_type);
+        vol->get_object()->config.touch();
         // The type changes which volumes compose the print mesh; drop the cached
         // object bounds so a later getModelMesh / slice recomputes them.
         vol->get_object()->invalidate_bounding_box();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1148,7 +1259,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
         obj->printable = value;
         for (auto& inst : obj->instances)
             inst->printable = value;
-        state().print.clear();
+        obj->config.touch();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1165,7 +1276,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
         ModelInstance* inst = find_instance_by_id(*id);
         if (inst == nullptr) return error_json("instance not found");
         inst->printable = printable != 0.0;
-        state().print.clear();
+        inst->get_object()->config.touch();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1177,49 +1288,43 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
 
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     try {
-        auto& model = state().model;
-        json arr = json::array();
-        for (size_t oi = 0; oi < model.objects.size(); ++oi) {
-            const auto& obj = model.objects[oi];
-            // LOCAL (volume-transformed, instance-untouched) vertices: the
-            // instance offset is reported separately below and the renderer
-            // applies it as the group position. Baking instance transforms
-            // here (ModelObject::mesh()) double-offsets the model after any
-            // committed move + reload — a zero offset hid it at load time
-            // (see the mock-module contract comment).
-            for (size_t vi = 0; vi < obj->volumes.size(); ++vi) {
-                const auto& its = obj->volumes[vi]->mesh().its;
-                for (size_t ii = 0; ii < obj->instances.size(); ++ii) {
-                    MallocBuffer vbuf;
-                    MallocBuffer ibuf;
-                    for (const auto& v : its.vertices) {
-                        vbuf.appendF32(v.x()); vbuf.appendF32(v.y()); vbuf.appendF32(v.z());
-                    }
-                    for (const auto& tri : its.indices) {
-                        ibuf.appendU32(static_cast<std::uint32_t>(tri[0]));
-                        ibuf.appendU32(static_cast<std::uint32_t>(tri[1]));
-                        ibuf.appendU32(static_cast<std::uint32_t>(tri[2]));
-                    }
-                    const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
-                    const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
-                    vbuf.release(); ibuf.release();
-                    const auto& instance = obj->instances[ii]->get_transformation();
-                    const auto& volume = obj->volumes[vi]->get_transformation();
-                    arr.push_back(json{{"object_idx", oi}, {"volume_idx", vi}, {"instance_idx", ii},
-                        {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
-                        {"index_ptr", iptr}, {"index_count", its.indices.size() * 3},
-                        {"offset", {instance.get_offset().x(), instance.get_offset().y(), instance.get_offset().z()}},
-                        {"instance_transform", transform_json(instance)},
-                        {"volume_transform", transform_json(volume)}});
-                }
-            }
-        }
-        return dup_json(json{{"ok", true}, {"objects", std::move(arr)}}.dump());
+        return dup_json(json{{"ok", true}, {"objects", model_mesh_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Targeted history projection. The timestamped restore remains authoritative;
+// this read materializes only the stable object IDs named by its SceneDelta.
+EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_ids_cstr) {
+    try {
+        const json requested = json::parse(object_ids_cstr ? object_ids_cstr : "[]");
+        if (!requested.is_array()) return error_json("scene patch object ids must be an array");
+        std::set<std::size_t> object_ids;
+        for (const auto& value : requested) {
+            std::uint64_t id = 0;
+            if (value.is_number_unsigned()) {
+                id = value.get<std::uint64_t>();
+            } else if (value.is_number_integer()) {
+                const auto signed_id = value.get<std::int64_t>();
+                if (signed_id > 0) id = static_cast<std::uint64_t>(signed_id);
+            }
+            if (id == 0 || id > std::numeric_limits<std::size_t>::max())
+                return error_json("scene patch object ids must be positive integers");
+            object_ids.insert(static_cast<std::size_t>(id));
+        }
+        json object_order = json::array();
+        for (const auto* object : state().model.objects) object_order.push_back(object->id().id);
+        return dup_json(json{{"ok", true}, {"object_order", std::move(object_order)},
+                             {"objects", model_structure_json_filtered(&object_ids)},
+                             {"meshes", model_mesh_json(&object_ids)}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }

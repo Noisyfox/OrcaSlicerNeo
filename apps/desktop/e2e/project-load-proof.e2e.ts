@@ -19,7 +19,7 @@ type ProjectLoadEvidence = {
   receipt: {
     sourceDisplayName: string;
     sourceByteLength: number;
-    commitRoute: 'load-project' | 'preflight-commit';
+    commitRoute: 'load-project';
     nativeResult: {
       ok: boolean;
       mode?: string;
@@ -58,6 +58,21 @@ test('commits the requested multi-plate project before dependent E2E assertions'
     );
     await page.getByTestId('menu-file-trigger').click();
     await page.getByTestId('file-open-project').click();
+
+    await expect(page.getByTestId('project-progress-dialog')).toBeVisible({ timeout: 10_000 });
+    await expect.poll(async () => page.evaluate(() => {
+      const evidence = (window as unknown as {
+        __orcaE2e?: { projectLoadEvidence?: () => ProjectLoadEvidence };
+      }).__orcaE2e?.projectLoadEvidence?.() ?? null;
+      const dialog = document.querySelector('[data-testid="project-progress-dialog"]');
+      const message = document.querySelector('[data-testid="project-progress-message"]')?.textContent ?? '';
+      const progress = Number(document.querySelector('[data-testid="project-progress"]')?.getAttribute('aria-valuenow'));
+      const nativeStage = /Reading project metadata|Loading project model|Reading project settings|Applying project settings|Finalizing project/.test(message);
+      return dialog && evidence?.receipt === null && nativeStage && progress > 0 && progress < 100
+        ? 'native-progress-before-result'
+        : `waiting:${evidence?.receipt === null}:${progress}:${message}`;
+    }), { timeout: 300_000 }).toBe('native-progress-before-result');
+
     const confirmation = page.getByTestId('project-load-confirmation-dialog');
     if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
       await page.getByTestId('project-load-confirmation-dialog-continue').click();
@@ -66,7 +81,7 @@ test('commits the requested multi-plate project before dependent E2E assertions'
       receipt: {
         sourceDisplayName: PROJECT_FILE_NAME,
         sourceByteLength: statSync(PROJECT_PATH).size,
-        commitRoute: 'preflight-commit',
+        commitRoute: 'load-project',
         nativeResult: {
           ok: true,
           mode: 'project',

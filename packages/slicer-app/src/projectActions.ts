@@ -1,5 +1,5 @@
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
-import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
+import type { PlateSessionMutation, ProjectLoadResult, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
@@ -15,7 +15,6 @@ import {
   readProjectHistoryStatus,
   markProjectHistorySaved,
   resetProjectHistory,
-  recordProjectHistoryContext,
 } from './components/workspace/actions/historyMutation';
 import { applyRememberedFilamentRackFromRepository } from './preferences';
 
@@ -26,16 +25,14 @@ export interface ProjectActionOptions {
   preserveSessionIdentity?: boolean;
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
-  /** Explicit acceptance after native project preflight warnings are shown. */
+  /** Explicit acceptance after the closed-session project load reports warnings. */
   confirmProjectLoad?: (load: ProjectLoadResult) => Promise<boolean> | boolean;
   decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
-  /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
-  confirmFlattenedSave?: () => Promise<boolean> | boolean;
   signal?: AbortSignal;
   /** Renderer cleanup hook used after a successful New Project runtime reset. */
   sceneResetTarget?: SceneResetTarget | null;
 }
-export type ProjectLoadCommitRoute = 'load-project' | 'preflight-commit';
+export type ProjectLoadCommitRoute = 'load-project';
 
 /**
  * A completed project replacement receipt. It is deliberately limited to the
@@ -55,9 +52,8 @@ export interface ProjectActionResult {
   load?: ProjectLoadResult;
   loadReceipt?: ProjectLoadReceipt;
 }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
-  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'> &
-  Partial<Pick<SlicerClient, 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
+type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'resetHistory'>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -74,6 +70,18 @@ export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
 }
 function setOperation(phase: Parameters<ReturnType<typeof useProjectStore.getState>['setOperation']>[0]['phase'], progress = 0, message?: string): void {
   useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' || phase === 'saving' });
+}
+function waitForProjectProgressPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') {
+      setTimeout(resolve, 0);
+      return;
+    }
+    // Resolve from a task scheduled by the frame callback. React has committed
+    // the external-store update and the browser gets a paint opportunity before
+    // the Worker starts the synchronous native parser.
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
 }
 function invalidateInput(): void { useSlicerStore.getState().invalidateSliceResult(); }
 function projectedHistoryContext(): HistoryContext {
@@ -101,14 +109,6 @@ async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus> {
 async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
   return resetProjectHistory(runtime, projectedHistoryContext());
 }
-export async function recordHistoryContext(
-  platform: PlatformCapabilities,
-  label: string,
-  context: HistoryContext,
-): Promise<HistoryStatus> {
-  const runtime = runtimeOf(platform);
-  return recordProjectHistoryContext(runtime, label, context);
-}
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;
   let resolved: Awaited<ReturnType<Runtime['getProfileSnapshot']>> | null = null;
@@ -126,9 +126,7 @@ async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 
   const decision = await options.decideDirty?.(operationName, input) ?? 'cancel';
   if (decision === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; }
   if (decision === 'dont-save') return null;
-  if (useProjectStore.getState().flattenedMultiPlate && options.confirmFlattenedSave) {
-    if (!await options.confirmFlattenedSave()) { setOperation('cancelled'); return { status: 'cancelled' }; }
-  }
+
   const saved = await saveProject(platform);
   return saved.status === 'ok' ? null : saved;
 }
@@ -204,7 +202,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
             useProjectStore.getState().recordPlateMutation(published.plateSession);
           }
           else useProjectStore.getState().markDirty('model-import');
-          useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
+          useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, scope: existing.scope });
           useSettingsStore.getState().setModelLoaded(true);
         },
       },
@@ -229,41 +227,38 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
     const runtime = runtimeOf(platform);
-    let load: ProjectLoadResult;
-    let commitRoute: ProjectLoadCommitRoute;
-    if (runtime.preflightProject && runtime.commitProjectPreflight && runtime.cancelProjectPreflight) {
-      const preflight = await runtime.preflightProject(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message));
-      if (!preflight.ok || !preflight.preflightToken) throw new Error(preflight.error ?? 'project preflight failed');
-      const warning = preflight.embeddedPresetWarnings;
-      const needsConfirmation = warning?.requiresConfirmation === true ||
-        (warning?.filamentSlotChanges?.length ?? 0) > 0;
+    const publishClosedProject = (plateSession: PlateSessionMutation) => {
+      resetSceneState(options.sceneResetTarget, { clearSettings: true });
+      usePlateSessionStore.getState().setSnapshot(plateSession);
+      useProjectStore.getState().reset();
+      useProjectStore.getState().setProject({ systemPresets: system, hasContent: false });
+    };
+    await waitForProjectProgressPaint();
+    const load = await runtime.loadProject(input.bytes, 'project', input.displayName,
+      (percent, message) => setOperation('loading', percent, message), publishClosedProject);
+    const commitRoute: ProjectLoadCommitRoute = 'load-project';
+    if (!load.ok) throw new Error(load.error ?? 'project load failed');
+    const warning = load.embeddedPresetWarnings;
+    const needsConfirmation = warning?.requiresConfirmation === true ||
+      (warning?.filamentSlotChanges?.length ?? 0) > 0;
+    if (needsConfirmation) {
+      setOperation('waiting-for-project-confirmation', 100, 'Review project compatibility');
+      let accepted = false;
       try {
-        if (options.signal?.aborted) throw new DOMException('project load aborted', 'AbortError');
-        let accepted = true;
-        if (needsConfirmation) {
-          setOperation('waiting-for-project-confirmation', 100, 'Review project compatibility');
-          accepted = await options.confirmProjectLoad?.(preflight) ?? false;
-        }
-        if (!accepted || options.signal?.aborted) {
-          await runtime.cancelProjectPreflight(preflight.preflightToken);
-          setOperation('cancelled');
-          return { status: 'cancelled', load: preflight };
-        }
-        load = await runtime.commitProjectPreflight(preflight.preflightToken, (percent, message) => setOperation('loading', percent, message));
-        commitRoute = 'preflight-commit';
-        if (!load.ok) throw new Error(load.error ?? 'project load failed');
+        accepted = await options.confirmProjectLoad?.(load) ?? false;
       } catch (error) {
-        // Confirmation cancellation, UI teardown, aborts, and commit errors
-        // all consume the native token.  Cleanup is best effort because the
-        // native commit path also clears a token after any terminal failure.
-        try { await runtime.cancelProjectPreflight(preflight.preflightToken); } catch { /* already consumed */ }
+        const closed = await runtime.closeProject();
+        if (closed.ok && closed.plateSession) publishClosedProject(closed.plateSession);
         throw error;
       }
-    } else {
-      load = await runtime.loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message));
-      commitRoute = 'load-project';
+      if (!accepted) {
+        const closed = await runtime.closeProject();
+        if (!closed.ok) throw new Error(closed.error ?? 'project close failed');
+        if (closed.plateSession) publishClosedProject(closed.plateSession);
+        setOperation('cancelled');
+        return { status: 'cancelled', load };
+      }
     }
-    if (!load.ok) throw new Error(load.error ?? 'project load failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from
@@ -274,7 +269,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     useSettingsStore.getState().setOverlay(load.projectConfigOverlay ?? emptyProjectConfigOverlay());
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtime);
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false });
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
     setOperation('completed', 100);
     return {
       status: 'ok',

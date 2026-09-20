@@ -37,6 +37,7 @@ import {
 import { usePlatform } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { isSerialSliceBusy } from '../../../runtimeExecution';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import {
   addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS,
@@ -67,7 +68,8 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
   children: ReactNode;
 }) {
   const platform = usePlatform();
-  const busy = useSlicerStore((s) => s.status === 'slicing');
+  const slicerStatus = useSlicerStore((s) => s.status);
+  const busy = isSerialSliceBusy(platform.runtime, slicerStatus);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuObject, setMenuObject] = useState<ModelObjectStructure | null>(null);

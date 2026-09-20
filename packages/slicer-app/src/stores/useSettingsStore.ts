@@ -46,6 +46,8 @@ interface SettingsState {
   setValues: (values: Record<string, string>) => void;
   setOverlay: (overlay: ProjectConfigOverlay) => void;
   setModelLoaded: (v: boolean) => void;
+  /** Update the loaded flag after an incremental SceneDelta without scheduling a full mesh read. */
+  setModelLoadedFromSceneDelta: (v: boolean) => void;
   /** Re-fetch the current model mesh (delete etc.) without toggling load state. */
   refreshModel: () => void;
 }
@@ -100,5 +102,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     values: effectiveValues(s.baseValues, overlay),
   })),
   setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),
+  setModelLoadedFromSceneDelta: (modelLoaded) => set({ modelLoaded }),
   refreshModel: () => set((s) => ({ modelRevision: s.modelRevision + 1 })),
 }));

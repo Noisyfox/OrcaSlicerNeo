@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -69,6 +70,34 @@ assert.equal(setProject('wipe_tower_wall_type', 'rectangle').ok, true);
 assert.equal(assertNoPlateCoordinates().plates.length, 1);
 let projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
+
+// A settled second read must reconstruct the response from the runtime-only
+// per-plate cache, without repeating any plate-local model/Print work.
+callJson('orc_take_performance_profile');
+const cachedProjection = callJson('orc_get_prime_tower_projection');
+const cachedProfile = callJson('orc_take_performance_profile');
+const cachedSample = cachedProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+assert.ok(cachedSample, JSON.stringify(cachedProfile));
+assert.equal(cachedSample.stages_ms.used_slot_scan, 0, JSON.stringify(cachedSample));
+assert.equal(cachedSample.stages_ms.direct_wipe_tower_estimate, 0, JSON.stringify(cachedSample));
+assert.equal(cachedSample.stages_ms.print_apply_wipe_tower_data_fallback, 0, JSON.stringify(cachedSample));
+assert.ok(cachedSample.per_plate_stages_ms.every((plate) => plate.total === 0), JSON.stringify(cachedSample));
+assert.deepEqual(cachedProjection, projection);
+
+// Z translation changes the model height used by the tower estimate and must
+// invalidate the owning plate even when membership stays on the same plate.
+assert.equal(callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+  [0, 0, 100, 100, 1]).ok, true);
+assert.equal(callJson('orc_recompute_plate_membership').ok, true);
+callJson('orc_take_performance_profile');
+callJson('orc_get_prime_tower_projection');
+const zMoveProfile = callJson('orc_take_performance_profile');
+const zMoveSample = zMoveProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+assert.ok(zMoveSample, JSON.stringify(zMoveProfile));
+assert.ok(zMoveSample.per_plate_stages_ms.some((plate) => plate.total > 0), JSON.stringify(zMoveSample));
+assert.equal(callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+  [0, 0, 100, 100, 0]).ok, true);
+assert.equal(callJson('orc_recompute_plate_membership').ok, true);
 
 // Printer transitions recompute the native footprint without publishing a
 // user history entry or dirtying the project.
@@ -139,10 +168,10 @@ assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
 
 // Slice-time advisory warnings are returned with successful slice results;
 // deliberately exercise each accepted tower collision class independently.
-function sliceCurrentPlate() {
+async function sliceCurrentPlate() {
   const current = assertNoPlateCoordinates();
-  const result = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', current.current_plate_id,
-    current.input_revisions[current.current_plate_id]]);
+  const result = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+    ['{}', current.current_plate_id, current.input_revisions[current.current_plate_id]]);
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.ok(Array.isArray(result.warnings), JSON.stringify(result));
   return result;
@@ -153,24 +182,25 @@ let current = assertNoPlateCoordinates();
 const moved = request('orc_move_prime_tower', { version: 1, plate_id: current.current_plate_id,
   revision: current.input_revisions[current.current_plate_id], x: 105, y: 128 });
 assert.equal(moved.ok, true, JSON.stringify(moved));
-const modelSlice = sliceCurrentPlate();
+const modelSlice = await sliceCurrentPlate();
 assert.ok(modelSlice.warnings.includes('Prime Tower intersects a model.'), JSON.stringify(modelSlice));
 
 assert.equal(setProject('bed_exclude_area', collisionArea).ok, true);
-const exclusionSlice = sliceCurrentPlate();
+const exclusionSlice = await sliceCurrentPlate();
 assert.ok(exclusionSlice.warnings.includes('Prime Tower intersects an exclusion area.'), JSON.stringify(exclusionSlice));
 const combinedPlate = assertNoPlateCoordinates();
-const combinedCollisionAndInvalidConfig = callJson('orc_slice_plate', ['string', 'string', 'number'],
+const combinedCollisionAndInvalidConfig = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify({ nozzle_temperature: [1, 2] }), combinedPlate.current_plate_id,
     combinedPlate.input_revisions[combinedPlate.current_plate_id]]);
 assert.notEqual(combinedCollisionAndInvalidConfig.ok, true, JSON.stringify(combinedCollisionAndInvalidConfig));
 
 assert.equal(setProject('wrapping_exclude_area', collisionArea).ok, true);
-const wrappingSlice = sliceCurrentPlate();
+const wrappingSlice = await sliceCurrentPlate();
 assert.ok(wrappingSlice.warnings.includes('Prime Tower intersects a wrapping-detection area.'), JSON.stringify(wrappingSlice));
 
 // Unrelated native validation remains a hard error.
-const hardError = callJson('orc_slice', ['string'], [JSON.stringify({ nozzle_temperature: [1, 2] })]);
+const hardError = await callAsyncTask(callJson, 'orc_slice', ['string'],
+  [JSON.stringify({ nozzle_temperature: [1, 2] })]);
 assert.notEqual(hardError.ok, true, JSON.stringify(hardError));
 
 console.log(JSON.stringify({ ok: true, historyEntries: colourCommit.undoEntries.length,

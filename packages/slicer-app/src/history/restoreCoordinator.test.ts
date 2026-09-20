@@ -13,22 +13,26 @@ const context: HistoryContext = {
   activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
 };
 const status: HistoryStatus = {
+  bytesUsed: 0, byteBudget: 256 * 1024 * 1024,
   canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
   savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false,
-  bytesUsed: 0, byteBudget: 256 * 1024 * 1024, optionalBytesReleased: 0,
   evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0',
   oversizedEntryRetained: false, disabled: false,
   activeTransactionId: null, revision: 1,
 };
-const fullImpact = {
-  version: 1 as const, model: 'full' as const, plateSession: true, filamentRack: true,
+const deltaImpact = {
+  version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: true,
   projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
 };
 const directImpact = {
-  ...fullImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,
+  ...deltaImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,
+};
+const sceneDelta = {
+  version: 1 as const, objectIds: [] as const, volumeIds: [] as const,
+  instanceIds: [] as const, plateIds: ['plate-1'] as const, objectOrder: [] as const,
 };
 const success = (revision = 1): RestoreResult => ({ ok: true, context,
-  status: { ...status, revision }, impact: fullImpact });
+  status: { ...status, revision }, impact: deltaImpact, sceneDelta });
 
 function fakeScene(activeDrag = false) {
   return {
@@ -58,23 +62,28 @@ describe('history restore coordinator', () => {
     expect(undoHistory).not.toHaveBeenCalled();
   });
 
-  it('cancels and awaits slicing before restoring, then invalidates its output', async () => {
-    let releaseSlice!: () => void;
-    const slice = new Promise<void>((resolve) => { releaseSlice = resolve; });
-    useSlicerStore.getState().setStatus('slicing');
-    const cancelAndWait = vi.fn(async () => { releaseSlice(); await slice; });
+  it('restores immediately while cancellation remains pending and invalidates every plate result', async () => {
+    const slicer = useSlicerStore.getState();
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 2, resultGeneration: '2', sliceTaskId: '2' });
+    slicer.setStatus('slicing');
+    slicer.setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
+    const cancellation = new Promise<never>(() => undefined);
+    const events: string[] = [];
+    const cancel = vi.fn(() => { events.push('cancel'); return cancellation; });
+    const undoHistory = vi.fn(async () => { events.push('undo'); return success(); });
     const refreshModel = vi.fn(async () => undefined);
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(async () => ({ ok: true })), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
+      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel, getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
-      sliceCoordinator: { cancelAndWait },
       refreshModel,
     });
     const restore = coordinator.restore('undo');
-    await Promise.resolve();
-    expect(useHistoryRestoreStore.getState().phase).toBe('cancelling-slice');
-    expect(cancelAndWait).toHaveBeenCalledOnce();
-    releaseSlice();
+    await vi.waitFor(() => expect(undoHistory).toHaveBeenCalledOnce());
+    expect(cancel).not.toHaveBeenCalled();
+    expect(events[0]).toBe('undo');
+    expect(useSlicerStore.getState().plateResults).toEqual({});
+    expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
     await expect(restore).resolves.toBe(true);
     expect(refreshModel).toHaveBeenCalledOnce();
     expect(useSlicerStore.getState().status).toBe('idle');
@@ -97,6 +106,28 @@ describe('history restore coordinator', () => {
     expect(useHistoryRestoreStore.getState().error).toBe('invalid staged model');
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
     expect(useProjectStore.getState()).toMatchObject({ dirty: true, dirtyReasons: ['model-transform'] });
+  });
+
+  it('rejects a direct serial restore without clearing the live slice or requesting cancellation', async () => {
+    useSlicerStore.getState().setStatus('slicing');
+    useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
+    const undoHistory = vi.fn(async () => success());
+    const cancel = vi.fn();
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: {
+        undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel,
+        getRuntimeExecutionState: () => ({ threaded: false, sliceActive: true,
+          serialSliceActive: true, serialTerminalEpoch: '0' }),
+        getFilamentSessionSnapshot: vi.fn(), getHistoryStatus: vi.fn(async () => status),
+      },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(),
+    });
+    await expect(coordinator.restore('undo')).resolves.toBe(false);
+    expect(undoHistory).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState().status).toBe('slicing');
+    expect(useSlicerStore.getState().activeSliceTarget).toEqual({ plateId: 'plate-1', inputRevision: 1 });
+    expect(useHistoryRestoreStore.getState().error).toBe('slice_busy');
   });
 
   it('projects Worker dirty state after undoing to and redoing away from a saved checkpoint', async () => {
@@ -132,7 +163,6 @@ describe('history restore coordinator', () => {
     const restore = coordinator.restore('undo');
     await vi.waitFor(() => expect(refreshModel).toHaveBeenCalledOnce());
     expect(useHistoryRestoreStore.getState().phase).toBe('restoring');
-    expect(useHistoryRestoreStore.getState().snapshotSuppressed).toBe(true);
     const redo = coordinator.restore('redo');
     expect(redo).not.toBe(restore);
 
@@ -168,12 +198,15 @@ describe('history restore coordinator', () => {
 
     await expect(coordinator.restore('undo')).resolves.toBe(false);
     expect(useHistoryRestoreStore.getState()).toMatchObject({
-      phase: 'idle', error: 'mesh projection failed', snapshotSuppressed: false,
+      phase: 'idle', error: 'mesh projection failed',
     });
   });
 
-  it('reports split full/direct restore projection counters without retaining history data', async () => {
-    const direct: RestoreResult = { ok: true, context, status, impact: directImpact };
+  it('reports SceneDelta restores as direct projections without retaining history data', async () => {
+    const direct: RestoreResult = { ok: true, context, status, impact: directImpact, sceneDelta };
+    useSlicerStore.getState().setPlateResult({
+      plateId: 'plate-2', inputStamp: 2, resultGeneration: '8', sliceTaskId: '8',
+    });
     const coordinator = createHistoryRestoreCoordinator({
       runtime: {
         undoHistory: vi.fn(async () => direct), redoHistory: vi.fn(async () => success(2)), jumpHistory: vi.fn(),
@@ -184,17 +217,18 @@ describe('history restore coordinator', () => {
     });
 
     await expect(coordinator.restore('undo')).resolves.toBe(true);
+    expect(useSlicerStore.getState().plateResults).toEqual({});
     let diagnostics = useHistoryDiagnosticsStore.getState().app;
     expect(diagnostics.directRestore.count).toBe(1);
     expect(diagnostics.fullRestore.count).toBe(0);
     expect(diagnostics.projection.count).toBe(1);
-    expect(diagnostics.directPrimeTowerModelReloads).toBe(0);
     expect(diagnostics.fullRestoreModelReloads).toBe(0);
 
     await expect(coordinator.restore('redo')).resolves.toBe(true);
     diagnostics = useHistoryDiagnosticsStore.getState().app;
-    expect(diagnostics.fullRestore.count).toBe(1);
-    expect(diagnostics.fullRestoreModelReloads).toBe(1);
+    expect(diagnostics.directRestore.count).toBe(2);
+    expect(diagnostics.fullRestore.count).toBe(0);
+    expect(diagnostics.fullRestoreModelReloads).toBe(0);
     expect(diagnostics.filamentRefresh.count).toBe(2);
   });
 
@@ -208,23 +242,6 @@ describe('history restore coordinator', () => {
     await expect(coordinator.restore('undo')).resolves.toBe(true);
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
     expect(useHistoryRestoreStore.getState().error).toBeNull();
-  });
-
-  it('passes a narrow Prime Tower receipt through without publishing a filament rack', async () => {
-    const narrow: RestoreResult = { ok: true, context, status, impact: {
-      version: 1, model: 'none', plateSession: true, filamentRack: false,
-      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate',
-    }, primeTowerReceipt: { version: 1, state: 'available', plateId: 'plate-1', revision: 7,
-      position: { x: 12, y: 34 }, footprint: { minX: 12, maxX: 32, minY: 34, maxY: 50 } } };
-    const refreshModel = vi.fn(async () => undefined);
-    const publishRestoredFilamentRack = vi.fn(async () => undefined);
-    const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => narrow), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
-      sceneInteraction: fakeScene(), refreshModel, publishRestoredFilamentRack,
-    });
-    await expect(coordinator.restore('undo')).resolves.toBe(true);
-    expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, expect.any(Number), narrow.primeTowerReceipt);
-    expect(publishRestoredFilamentRack).not.toHaveBeenCalled();
   });
 
   it('executes every rapid same-direction intent serially instead of joining or dropping it', async () => {
