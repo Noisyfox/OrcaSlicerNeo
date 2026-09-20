@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Date:** 2026-09-20
-**Status:** Implementation in progress — Steps 1–4 accepted
+**Status:** Implementation in progress — Steps 1–5 accepted
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
@@ -191,3 +191,29 @@ Parent acceptance checks passed: WASM client tests 160/160, application tests
 580/580, both package typechecks, and staged history/precedence harness coverage
 including explicit part and deleted-object tombstones. The immutable Odyssey source
 fixture remained unchanged.
+
+### Step 5 — Shared Project / Scoped React surface
+
+Accepted on 2026-09-20. The Settings surface now has a transient `Project | Scoped`
+toggle. Both modes use the same metadata-derived native catalogue: Project mode reads
+and writes only the Project map, while Scoped mode resolves the active Plate, Object,
+or ModelVolume from Neo's existing selection contract. A mixed non-empty selection is
+explicitly non-writable and never falls back to a Plate. The projection hides Plate
+provenance for Object and Volume selections, shows selection-local provenance and
+mixed values, and supports categories, search, typed and serialized draft fields,
+individual/category/all-local reset, and non-interactive local-override markers in
+the existing Object List. Generic material, Custom G-code, Layer Range, unknown, and
+scene-owned coordinate keys remain excluded.
+
+The mode resets to Project when a project session is initialized or reset and is not
+persisted. Every configuration command captures its native targets and enters one
+project-history transaction. Scoped commands now share the existing pending-field
+queue, so a Slice command waits for an immediately preceding blur commit before it
+reads the effective configuration.
+
+Parent acceptance checks passed:
+
+- `pnpm --filter @orca/slicer-app test -- --run` — 77 files, 588 tests passed.
+- `pnpm --filter @orca/slicer-app typecheck` — passed.
+- `pnpm --filter @orca/slicer-wasm test -- --run` — 5 files, 161 tests passed.
+- `git diff --check` — passed (only Windows line-ending warnings).

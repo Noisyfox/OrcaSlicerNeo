@@ -262,8 +262,26 @@ const char* error_json(const std::string& message)
 json option_metadata_json()
 {
     const auto& defs = print_config_def.options;
+    // Keep scope eligibility in the native PrintConfig class slices.  The
+    // renderer derives its catalogue from this metadata; it must not guess
+    // which arbitrary FFF keys happen to deserialize on a target.
+    const PrintConfig project_config;
+    const PrintObjectConfig object_config;
+    const PrintRegionConfig region_config;
     json output = json::object();
-    for (const auto& [key, def] : defs) output[key] = option_def_to_json(def);
+    for (const auto& [key, def] : defs) {
+        json entry = option_def_to_json(def);
+        json scopes = json::array();
+        const bool project = project_config.option(key) != nullptr;
+        const bool object = object_config.option(key) != nullptr || region_config.option(key) != nullptr;
+        const bool part = region_config.option(key) != nullptr;
+        if (project) scopes.push_back("project");
+        if (project) scopes.push_back("plate");
+        if (object) scopes.push_back("object");
+        if (part) scopes.push_back("part");
+        entry["scopes"] = std::move(scopes);
+        output[key] = std::move(entry);
+    }
     return output;
 }
 

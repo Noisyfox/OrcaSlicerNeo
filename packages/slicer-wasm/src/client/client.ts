@@ -13,6 +13,7 @@ import type {
   PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
   PrimeTowerMoveResultOrError,
   NativeScopedConfigTarget, NativeScopedConfigTargetIdentity, NativeScopedConfigResultOrError,
+  NativeScopedConfigMutationRequest,
   NativeScopedConfigTransport, NativeScopedConfigFullTransport, NativeScopedConfigTargetReplacement,
   ConfigurationStatus,
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
@@ -1585,6 +1586,24 @@ export function createClient(
       });
       const raw = callJson(m, 'orc_mutate_native_scoped_config', ['string'], [request]);
       return normalizeNativeScopedConfig(raw);
+    },
+
+    async mutateNativeScopedConfig(request: NativeScopedConfigMutationRequest): Promise<NativeScopedConfigResultOrError> {
+      const m = await module();
+      const targets = request.targets.map((target) => target.id === undefined
+        ? { scope: target.scope }
+        : { scope: target.scope, id: String(target.id) });
+      const payload: Record<string, unknown> = {
+        version: 1,
+        operation: request.operation,
+        targets,
+      };
+      if (request.key !== undefined) payload.key = request.key;
+      if (request.value !== undefined) payload.value = request.value;
+      if (request.category !== undefined) payload.category = request.category;
+      return normalizeNativeScopedConfig(
+        callJson(m, 'orc_mutate_native_scoped_config', ['string'], [JSON.stringify(payload)]),
+      );
     },
 
     async revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {

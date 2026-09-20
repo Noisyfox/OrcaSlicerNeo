@@ -271,6 +271,18 @@ export interface NativeScopedConfigTarget {
   readonly id?: number | string;
 }
 
+export type NativeScopedConfigMutationOperation = 'set' | 'reset' | 'reset-category' | 'reset-all';
+
+/** One atomic native scoped-configuration transaction request. */
+export interface NativeScopedConfigMutationRequest {
+  readonly version: 1;
+  readonly operation: NativeScopedConfigMutationOperation;
+  readonly targets: readonly NativeScopedConfigTarget[];
+  readonly key?: string;
+  readonly value?: string;
+  readonly category?: string;
+}
+
 export interface ConfigurationCorrection {
   readonly key: string;
   readonly requested: string;
@@ -395,6 +407,8 @@ export interface OptionMeta {
   min?: number;
   max?: number;
   default?: string;
+  /** Native config classes in which this option has local override meaning. */
+  scopes?: readonly NativeScopedConfigScope[];
 }
 
 export type OptionMetadata = Record<string, OptionMeta>;
@@ -1225,6 +1239,8 @@ export interface SlicerClient {
   getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
   /** Set one native scoped value and return the affected plate projection. */
   setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError>;
+  /** Apply one atomic set/reset operation to one or more native targets. */
+  mutateNativeScopedConfig(request: NativeScopedConfigMutationRequest): Promise<NativeScopedConfigResultOrError>;
   /** Refresh the native scoped configuration projection after a preset transition. */
   revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
   /** Read the engine-resolved, atomic picker state for initial loading. */

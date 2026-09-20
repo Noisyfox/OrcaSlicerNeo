@@ -4,6 +4,8 @@ import type {
   NativeScopedConfigSnapshot, NativeScopedConfigTransport,
 } from '@slicer/client';
 
+export type ConfigurationSurfaceMode = 'project' | 'scoped';
+
 export const emptyNativeScopedConfig = (): NativeScopedConfigSnapshot => ({
   project: {}, objects: {}, parts: {}, plates: {},
 });
@@ -82,6 +84,8 @@ interface SettingsState {
   nativeScopedConfigRevision: number | null;
   /** True after an affected receipt exposes a revision gap or unknown target. */
   nativeScopedConfigRefreshRequired: boolean;
+  /** Transient Project/Scoped editor mode. It is never part of native state. */
+  configurationMode: ConfigurationSurfaceMode;
   modelLoaded: boolean;
   /** Advances on every successful add or clear so repeated adds reload the viewport. */
   modelRevision: number;
@@ -94,6 +98,7 @@ interface SettingsState {
   setValues: (values: Record<string, string>) => void;
   applyNativeScopedConfigTransport: (transport: NativeScopedConfigTransport) => NativeScopedConfigApplyResult;
   resetNativeScopedConfig: () => void;
+  setConfigurationMode: (mode: ConfigurationSurfaceMode) => void;
   setModelLoaded: (v: boolean) => void;
   /** Update the loaded flag after an incremental SceneDelta without scheduling a full mesh read. */
   setModelLoadedFromSceneDelta: (v: boolean) => void;
@@ -114,6 +119,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   nativeScopedConfig: emptyNativeScopedConfig(),
   nativeScopedConfigRevision: null,
   nativeScopedConfigRefreshRequired: false,
+  configurationMode: 'project',
   modelLoaded: false,
   modelRevision: 0,
   setMetadata: (metadata) => set({ metadata }),
@@ -133,6 +139,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       nativeScopedConfig,
       nativeScopedConfigRevision: null,
       nativeScopedConfigRefreshRequired: false,
+      configurationMode: 'project',
       values: effectiveValues(baseValues, nativeScopedConfig),
     };
   }),
@@ -195,9 +202,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       nativeScopedConfig,
       nativeScopedConfigRevision: null,
       nativeScopedConfigRefreshRequired: false,
+      configurationMode: 'project',
       values: effectiveValues(s.baseValues, nativeScopedConfig),
     };
   }),
+  setConfigurationMode: (configurationMode) => set({ configurationMode }),
   setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),
   setModelLoadedFromSceneDelta: (modelLoaded) => set({ modelLoaded }),
   refreshModel: () => set((s) => ({ modelRevision: s.modelRevision + 1 })),

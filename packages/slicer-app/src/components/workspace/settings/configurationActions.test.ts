@@ -4,7 +4,12 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { commitOptionFieldChange } from './OptionField';
-import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import {
+  commitScopedConfigurationMutation,
+  commitSharedConfigurationMutation,
+  invalidateAfterSharedConfigurationMutation,
+  waitForConfigurationMutations,
+} from './configurationActions';
 
 function affected(scope: 'project' | 'object' | 'part' | 'plate', values: Record<string, string>, id?: string) {
   return { version: 1 as const, revision: 1, kind: 'affected' as const,
@@ -154,5 +159,79 @@ describe('commitSharedConfigurationMutation', () => {
     await commitOptionFieldChange(platform, 'prime_tower_width', '21');
     expect(useSettingsStore.getState().nativeScopedConfig.project.prime_tower_width).toBe('21');
     expect(useSlicerStore.getState().error).toBe('[Warning] width was clamped');
+  });
+
+  it('keeps a multi-target reset inside one native history transaction', async () => {
+    const mutateNativeScopedConfig = vi.fn(async () => ({
+      ok: true as const,
+      nativeScopedConfig: affected('object', {}, '42'),
+      plateSession: mutation,
+    }));
+    const platform = { runtime: {
+      ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    await commitScopedConfigurationMutation(platform, {
+      version: 1,
+      operation: 'reset',
+      targets: [{ scope: 'object', id: 42 }, { scope: 'object', id: 43 }],
+      key: 'layer_height',
+    });
+    expect(mutateNativeScopedConfig).toHaveBeenCalledOnce();
+    expect(mutateNativeScopedConfig).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'reset', targets: [{ scope: 'object', id: 42 }, { scope: 'object', id: 43 }],
+    }));
+  });
+
+  it('routes a Project-mode set only to the native Project target', async () => {
+    const mutateNativeScopedConfig = vi.fn(async () => ({
+      ok: true as const,
+      nativeScopedConfig: affected('project', { layer_height: '0.3' }),
+      plateSession: mutation,
+    }));
+    const platform = { runtime: {
+      ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    await commitScopedConfigurationMutation(platform, {
+      version: 1,
+      operation: 'set',
+      targets: [{ scope: 'project' }],
+      key: 'layer_height',
+      value: '0.3',
+    });
+    expect(mutateNativeScopedConfig).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'set', targets: [{ scope: 'project' }], key: 'layer_height', value: '0.3',
+    }));
+  });
+
+  it('keeps the configuration queue pending until a deferred scoped commit settles', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const mutateNativeScopedConfig = vi.fn(async () => {
+      await gate;
+      return {
+        ok: true as const,
+        nativeScopedConfig: affected('project', { layer_height: '0.3' }),
+        plateSession: mutation,
+      };
+    });
+    const platform = { runtime: {
+      ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    const commit = commitScopedConfigurationMutation(platform, {
+      version: 1,
+      operation: 'set',
+      targets: [{ scope: 'project' }],
+      key: 'layer_height',
+      value: '0.3',
+    });
+    await vi.waitFor(() => expect(mutateNativeScopedConfig).toHaveBeenCalledOnce());
+    let settled = false;
+    const waiter = waitForConfigurationMutations().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await commit;
+    await waiter;
+    expect(settled).toBe(true);
   });
 });

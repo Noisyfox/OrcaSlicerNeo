@@ -25,6 +25,7 @@ export type {
   PrimeTowerProjection, PrimeTowerProjectionError, PrimeTowerProjectionResult,
   PrimeTowerMoveRequest, PrimeTowerMoveMutation, PrimeTowerMoveResult, PrimeTowerMoveResultOrError,
   NativeScopedConfigSnapshot, NativeScopedConfigScope, NativeScopedConfigTargetIdentity, NativeScopedConfigTarget,
+  NativeScopedConfigMutationOperation, NativeScopedConfigMutationRequest,
   NativeScopedConfigTargetReplacement, NativeScopedConfigFullTransport,
   NativeScopedConfigAffectedTransport, NativeScopedConfigTransport,
   NativeScopedConfigResult, NativeScopedConfigError, NativeScopedConfigResultOrError,

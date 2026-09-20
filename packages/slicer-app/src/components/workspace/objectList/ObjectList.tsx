@@ -22,6 +22,7 @@ import type { SceneInteractionController } from '../viewport/SceneInteractionCon
 import { FilamentAssignmentCell } from './FilamentAssignmentCell';
 import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 import { assignmentTargetsForSelection } from './filamentAssignment';
+import { isKeyEligibleForScope } from '../settings/scopedConfigurationProjection';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
@@ -51,6 +52,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const platform = usePlatform();
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const modelRevision = useSettingsStore((s) => s.modelRevision);
+  const configMetadata = useSettingsStore((s) => s.metadata);
+  const nativeScopedConfig = useSettingsStore((s) => s.nativeScopedConfig);
   const structure = useObjectListStore((s) => s.structure);
   const loaded = useObjectListStore((s) => s.loaded);
   const expanded = useObjectListStore((s) => s.expanded);
@@ -87,6 +90,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     () => projectObjectGroups(structure, plateSession),
     [structure, plateSession],
   );
+  const hasScopedMarker = (scope: 'object' | 'part' | 'plate', id: string | number): boolean => {
+    if (!configMetadata) return false;
+    const bucket = scope === 'object' ? nativeScopedConfig.objects : scope === 'part' ? nativeScopedConfig.parts : nativeScopedConfig.plates;
+    const values = bucket[String(id)];
+    if (!values) return false;
+    return Object.keys(values).some((key) => isKeyEligibleForScope(key, configMetadata[key] ?? { type: 'unknown' }, scope));
+  };
 
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
     const targets = assignmentTargetsForSelection({ kind, id }, projection);
@@ -333,6 +343,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             data-testid={`plate-group-label-${group.kind === 'unprintable' ? 'unprintable' : group.plateId}`}
           >
             <span>{group.label}</span>
+            {group.kind === 'plate' && group.plateId && hasScopedMarker('plate', group.plateId) && (
+              <span data-testid={`config-marker-plate-${group.plateId}`} aria-label="Plate has scoped overrides" className="ml-auto px-1 text-[0.65rem] text-muted-foreground">●</span>
+            )}
             {group.kind === 'unprintable' ? (
               <span data-testid="plate-group-validity-unprintable">Unprintable</span>
             ) : group.valid === false && (
@@ -406,6 +419,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                   className="w-32 rounded border bg-background px-1 text-xs"
                 />
               ) : obj.name}
+              {hasScopedMarker('object', obj.id) && <span data-testid={`config-marker-object-${obj.id}`} aria-label="Object has scoped overrides" className="ml-1 text-[0.65rem] text-muted-foreground">●</span>}
               {validity !== 'valid' && <ObjectValidityBadge validity={validity} objectId={obj.id} />}
             </Button>
             <div className="absolute right-0 top-0">
@@ -470,6 +484,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           className="w-28 rounded border bg-background px-1 text-xs"
                         />
                       ) : vol.name}
+                      {hasScopedMarker('part', vol.id) && <span data-testid={`config-marker-part-${vol.id}`} aria-label="Part has scoped overrides" className="ml-1 text-[0.65rem] text-muted-foreground">●</span>}
                     </Button>
                     <FilamentAssignmentCell
                       snapshot={filamentSnapshot}

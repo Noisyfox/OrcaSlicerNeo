@@ -673,6 +673,27 @@ describe('SlicerClient bridge contract', () => {
       snapshot: { project: { layer_height: '0.16' } } } });
   });
 
+  it('sends one typed multi-target reset request through the native command', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
+    const structure = await c.getModelStructure();
+    const objectId = structure.objects[0]?.id;
+    if (objectId === undefined) throw new Error('mock structure missing object ID');
+    await expect(c.mutateNativeScopedConfig({
+      version: 1,
+      operation: 'set',
+      targets: [{ scope: 'project' }, { scope: 'object', id: objectId }],
+      key: 'layer_height',
+      value: '0.2',
+    })).resolves.toMatchObject({ ok: true, nativeScopedConfig: { kind: 'affected' } });
+    await expect(c.mutateNativeScopedConfig({
+      version: 1,
+      operation: 'reset',
+      targets: [{ scope: 'project' }, { scope: 'object', id: objectId }],
+      key: 'layer_height',
+    })).resolves.toMatchObject({ ok: true, nativeScopedConfig: { kind: 'affected' } });
+  });
+
   it('retains deleted-target tombstones in the typed transport', async () => {
     const client = await createClient(async () => createMockModule({ nativeScopedConfigOverride: {
       version: 1, ok: true, native_scoped_config: {
