@@ -284,8 +284,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
           sliceTarget.inputRevision !== currentRevision)
         throw new Error('current plate slice result is stale or unavailable');
       const currentPlate = currentSession.plates.find((plate) => plate.plateId === currentSession.currentPlateId);
-      const membershipKnown = currentPlate?.instanceIds !== undefined || currentSession.instances !== undefined;
-      if (!currentPlate || currentPlate.valid === false || (membershipKnown && !(currentPlate.instanceIds?.length)))
+      if (!currentPlate || currentPlate.valid === false || !(currentPlate.instanceIds?.length))
         throw new Error(currentPlate?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
       const receipt = useSlicerStore.getState().plateResults[currentSession.currentPlateId]?.receipt;
       if (!receipt || receipt.inputStamp !== currentRevision)

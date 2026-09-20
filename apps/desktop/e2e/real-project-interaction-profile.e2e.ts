@@ -14,13 +14,8 @@ type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & {
   projection: Timing;
   filamentRefresh: Timing;
   primeTowerProjectionRead: Timing;
-  transformReceiptApplication: Timing;
   selectionRestore: Timing;
   fullRestoreModelReloads: number;
-  transformReceiptApplied: number;
-  transformReceiptFallbacks: number;
-  transformReceiptProofFailures: number;
-  transformReceiptProofLastFailure: string | null;
 } };
 type NativeSample = { operation: string; stagesMs: Record<string, number>; perPlateStagesMs?: Array<Record<string, number>> };
 type NativeProfile = { version: 1; samples: NativeSample[] };
@@ -583,14 +578,8 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     expectCalls(undoMemory.native, ['orc_history_undo']);
     expect(undoAfter.app.directRestore.count - undoBefore.app.directRestore.count,
       'real-project Move Undo must publish one stable-ID scene delta').toBe(1);
-    expect(undoAfter.app.transformReceiptApplied - undoBefore.app.transformReceiptApplied,
-      'timestamp history must not use the removed sparse transform receipt').toBe(0);
-    expect(undoAfter.app.transformReceiptFallbacks - undoBefore.app.transformReceiptFallbacks,
-      'real-project Move Undo must not fall back to a full projection reload').toBe(0);
     expect(undoAfter.app.fullRestoreModelReloads - undoBefore.app.fullRestoreModelReloads,
       'real-project Move Undo must not reload the full model projection').toBe(0);
-    expect(undoAfter.app.transformReceiptProofFailures - undoBefore.app.transformReceiptProofFailures,
-      'real-project Move Undo receipt proof must remain valid').toBe(0);
     expect.soft(restoredAt - undoClickAt,
       'real-project Move Undo restore fence must remain below the 500 ms regression boundary').toBeLessThan(500);
 
@@ -645,20 +634,12 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
           // renderer resources remain live.
           projectionMs: optionalTimingDelta(undoBefore.app.projection, undoAfter.app.projection),
           filamentRefreshMs: timingDelta(undoBefore.app.filamentRefresh, undoAfter.app.filamentRefresh, 'Undo filament refresh'),
-          // A matching narrow Prime Tower restore receipt patches the retained
-          // projection without a Worker read; mismatches still measure the
-          // authoritative fallback read here.
+          // Timestamp restore reads the authoritative Prime Tower projection.
           primeTowerProjectionReadMs: optionalTimingDelta(undoBefore.app.primeTowerProjectionRead,
             undoAfter.app.primeTowerProjectionRead),
-          transformReceiptApplicationMs: optionalTimingDelta(undoBefore.app.transformReceiptApplication,
-            undoAfter.app.transformReceiptApplication),
           selectionRestoreMs: optionalTimingDelta(undoBefore.app.selectionRestore,
             undoAfter.app.selectionRestore),
           fullRestoreModelReloads: undoAfter.app.fullRestoreModelReloads - undoBefore.app.fullRestoreModelReloads,
-          transformReceiptApplied: undoAfter.app.transformReceiptApplied - undoBefore.app.transformReceiptApplied,
-          transformReceiptFallbacks: undoAfter.app.transformReceiptFallbacks - undoBefore.app.transformReceiptFallbacks,
-          transformReceiptProofFailures: undoAfter.app.transformReceiptProofFailures - undoBefore.app.transformReceiptProofFailures,
-          transformReceiptProofLastFailure: undoAfter.app.transformReceiptProofLastFailure,
         },
         rendererBounds: {
           samples: rendererBoundsSamples.map(({ identity, durationMs }) => ({ identity, durationMs })),
@@ -688,9 +669,6 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       activeSlicePlateId: report.activeSliceMove.plateId,
       undoRestoredModelMs: report.undo.clickToRestoredModelMs,
       undoProjectionMs: report.undo.application.projectionMs,
-      undoTransformReceiptApplied: report.undo.application.transformReceiptApplied,
-      undoTransformReceiptFallbacks: report.undo.application.transformReceiptFallbacks,
-      undoTransformReceiptProofLastFailure: report.undo.application.transformReceiptProofLastFailure,
       wasmHeapBytes: undoMemory.native.wasm_heap_bytes,
       historyRetainedBytes: undoMemory.native.history.retained_estimated_bytes,
       sharedSourceMeshBytes: undoMemory.native.shared_source_mesh.total_bytes,

@@ -179,7 +179,6 @@ describe('buildMenuModel', () => {
       project: {
         hasContent: true,
         dirty: false,
-        flattenedMultiPlate: false,
         operation: { phase: 'idle', progress: 0, cancellable: false },
       },
     });
@@ -199,7 +198,6 @@ describe('buildMenuModel', () => {
       project: {
         hasContent: true,
         dirty: true,
-        flattenedMultiPlate: false,
         operation: { phase: 'waiting-for-load-choice', progress: 0, cancellable: false },
       },
       scene: { hasModel: true },
@@ -214,7 +212,6 @@ describe('buildMenuModel', () => {
       project: {
         hasContent: true,
         dirty: true,
-        flattenedMultiPlate: false,
         operation: { phase: 'model-import', progress: 0.5, cancellable: false },
       },
       scene: { hasModel: true },

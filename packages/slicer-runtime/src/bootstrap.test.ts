@@ -46,6 +46,7 @@ describe('portable runtime bootstrap', () => {
           receive({
             type: 'response', id: message.id, ok: true,
             result: {
+              instances: [],
               ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
               plates: [{ plateId: 'plate-session-1-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
             },
@@ -60,6 +61,7 @@ describe('portable runtime bootstrap', () => {
     });
     const snapshot = await runtime.getPlateSessionSnapshot();
     expect(snapshot).toEqual({
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
       plates: [{ plateId: 'plate-session-1-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
     });

@@ -39,6 +39,7 @@ function selectedController(volumes: readonly GLVolume[]): SceneInteractionContr
 const emptyProjection = {
   getModelStructure: vi.fn(async () => structureFor(glVolumeCollection.volumes)),
   getPlateSessionSnapshot: vi.fn(async () => ({
+    instances: [],
     ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [],
   })),
 };
@@ -67,7 +68,7 @@ function structureFor(volumes: readonly GLVolume[]) {
 function historyRuntime() {
   return {
     ...emptyProjection,
-    setModelTransforms: vi.fn(async (..._args: unknown[]) => ({ ok: true, plateSession: { ok: true, version: 1, currentPlateId: 'plate-1', plates: [], instanceTransforms: [] } })),
+    setModelTransforms: vi.fn(async (..._args: unknown[]) => ({ ok: true, plateSession: { instances: [], ok: true, version: 1, currentPlateId: 'plate-1', plates: [], instanceTransforms: [] } })),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
     getHistoryStatus: vi.fn(async () => ({ dirty: false, revision: 1 } as never)),
     runProjectHistoryTransaction: vi.fn(async (

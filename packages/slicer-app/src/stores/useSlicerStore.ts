@@ -113,8 +113,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     const target = { plateId: receipt.plateId, inputRevision: receipt.inputStamp };
     return {
       plateResults: { ...state.plateResults, [target.plateId]: { target, receipt, warnings: [...warnings] } },
-      // Keep the legacy active-result fields coherent for callers that only
-      // render the current plate.
+      // Publish the selected plate result to the toolbar and active preview.
       ...(state.sliceTarget?.plateId === target.plateId || state.activeSliceTarget?.plateId === target.plateId
         ? {
           sliceTarget: target,

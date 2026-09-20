@@ -95,7 +95,7 @@ export interface PlateSessionSnapshot {
   readonly version: 1;
   readonly plates: readonly PlateSessionPlate[];
   readonly currentPlateId: string;
-  instances?: readonly PlateSessionInstance[];
+  instances: readonly PlateSessionInstance[];
   instanceTransforms?: readonly PlateSessionInstanceTransform[];
   inputRevisions?: Readonly<Record<string, number>>;
   affectedPlateIdsBefore?: readonly string[];

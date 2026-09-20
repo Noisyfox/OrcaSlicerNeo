@@ -31,8 +31,8 @@ describe('per-plate result lifecycle', () => {
     const store = useSlicerStore.getState();
     store.setPlateResult(receipt('a', 1));
     store.setPlateResult(receipt('b', 1));
-    const previous = { ok: true, version: 1, currentPlateId: 'a', plates: [{ plateId: 'a' }, { plateId: 'b' }] } as unknown as PlateSessionMutation;
-    const mutation = { ok: true, version: 1, currentPlateId: 'b', plates: [{ plateId: 'b' }], dirtyReasons: ['plate-structure'], inputRevisions: { b: 1 }, instanceTransforms: [] } as unknown as PlateSessionMutation;
+    const previous = { instances: [], ok: true, version: 1, currentPlateId: 'a', plates: [{ plateId: 'a' }, { plateId: 'b' }] } as unknown as PlateSessionMutation;
+    const mutation = { instances: [], ok: true, version: 1, currentPlateId: 'b', plates: [{ plateId: 'b' }], dirtyReasons: ['plate-structure'], inputRevisions: { b: 1 }, instanceTransforms: [] } as unknown as PlateSessionMutation;
     applyPlateResultMutation(mutation, previous);
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['b']);
     expect(useSlicerStore.getState().status).toBe('done');

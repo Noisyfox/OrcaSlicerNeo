@@ -20,19 +20,9 @@ export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
   /** A direct restore may require it; a direct tower move normally does not. */
   readonly plateSessionSnapshot: HistoryTimingDiagnostic;
   readonly plateSessionTransforms: HistoryTimingDiagnostic;
-  readonly transformReceiptApplication: HistoryTimingDiagnostic;
   readonly selectionRestore: HistoryTimingDiagnostic;
-  /** A direct Prime Tower receipt must never enter model projection. */
-  readonly directPrimeTowerModelReloads: number;
-  /** Full receipts are allowed to rebuild the model and are counted explicitly. */
+  /** Count full-model projections separately from SceneDelta patches. */
   readonly fullRestoreModelReloads: number;
-  /** Count of validated direct Move receipts consumed by the renderer. */
-  readonly transformReceiptApplied: number;
-  /** Legacy diagnostic retained for already-recorded Move receipt failures. */
-  readonly transformReceiptFallbacks: number;
-  /** Last bounded reason a same-session Move proof was rejected. */
-  readonly transformReceiptProofFailures: number;
-  readonly transformReceiptProofLastFailure: string | null;
 }
 
 export interface HistoryObservabilitySnapshot {
@@ -56,10 +46,7 @@ interface HistoryDiagnosticsState extends HistoryObservabilitySnapshot {
   recordPrimeTowerEmit(durationMs: number): void;
   recordPlateSessionSnapshot(durationMs: number): void;
   recordPlateSessionTransforms(durationMs: number): void;
-  recordTransformReceiptApplication(durationMs: number): void;
   recordSelectionRestore(durationMs: number): void;
-  recordTransformReceipt(applied: boolean): void;
-  recordTransformReceiptProofFailure(reason: string): void;
   setTransport(diagnostics: HistoryTransportDiagnostics | null): void;
   reset(): void;
 }
@@ -96,10 +83,8 @@ function emptyApp(): HistoryAppDiagnostics {
     filamentPreferencePersistence: emptyTiming(), projection: emptyTiming(), primeTowerProjectionRead: emptyTiming(),
     primeTowerSetProjection: emptyTiming(), primeTowerReconcile: emptyTiming(), primeTowerEmit: emptyTiming(),
     plateSessionSnapshot: emptyTiming(),
-    plateSessionTransforms: emptyTiming(), transformReceiptApplication: emptyTiming(), selectionRestore: emptyTiming(),
-    directPrimeTowerModelReloads: 0, fullRestoreModelReloads: 0,
-    transformReceiptApplied: 0, transformReceiptFallbacks: 0,
-    transformReceiptProofFailures: 0, transformReceiptProofLastFailure: null,
+    plateSessionTransforms: emptyTiming(), selectionRestore: emptyTiming(),
+    fullRestoreModelReloads: 0,
   };
 }
 
@@ -136,9 +121,6 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
     app: {
       ...state.app,
       projection: addTiming(state.app.projection, durationMs),
-      // The direct path intentionally never calls getModelStructure or waits
-      // for GL replacement. Keep the zero visible as a regression guard.
-      directPrimeTowerModelReloads: state.app.directPrimeTowerModelReloads,
       fullRestoreModelReloads: state.app.fullRestoreModelReloads + (path === 'full' ? 1 : 0),
     },
   })),
@@ -160,20 +142,8 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
   recordPlateSessionTransforms: (durationMs) => set((state) => ({ app: {
     ...state.app, plateSessionTransforms: addTiming(state.app.plateSessionTransforms, durationMs),
   } })),
-  recordTransformReceiptApplication: (durationMs) => set((state) => ({ app: {
-    ...state.app, transformReceiptApplication: addTiming(state.app.transformReceiptApplication, durationMs),
-  } })),
   recordSelectionRestore: (durationMs) => set((state) => ({ app: {
     ...state.app, selectionRestore: addTiming(state.app.selectionRestore, durationMs),
-  } })),
-  recordTransformReceipt: (applied) => set((state) => ({ app: {
-    ...state.app,
-    transformReceiptApplied: state.app.transformReceiptApplied + (applied ? 1 : 0),
-    transformReceiptFallbacks: state.app.transformReceiptFallbacks + (applied ? 0 : 1),
-  } })),
-  recordTransformReceiptProofFailure: (reason) => set((state) => ({ app: {
-    ...state.app, transformReceiptProofFailures: state.app.transformReceiptProofFailures + 1,
-    transformReceiptProofLastFailure: reason,
   } })),
   setTransport: (diagnostics) => set({ worker: diagnostics?.worker ?? null, client: diagnostics?.client ?? null }),
   reset: () => set({ worker: null, client: null, app: emptyApp() }),

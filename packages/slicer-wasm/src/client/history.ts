@@ -7,7 +7,7 @@
  * retain a context alongside a model version without making React a second
  * model owner.
  */
-import type { PlateSessionInstanceTransform, PlateSessionSnapshot } from './types';
+import type { PlateSessionSnapshot } from './types';
 
 
 /** Stable native identities.  These are IDs, never positional indexes. */
@@ -83,8 +83,6 @@ export interface HistoryStatus {
   readonly dirty: boolean;
   readonly bytesUsed: number;
   readonly byteBudget: number;
-  /** Cumulative bytes released from optional/reconstructable history data. */
-  readonly optionalBytesReleased: number;
   /** Cumulative whole-entry evictions for this project session. */
   readonly evictedEntryCount: number;
   readonly lastEvictedEntryId: HistoryEntryId | null;
@@ -148,52 +146,6 @@ export interface SceneDelta {
   readonly objectOrder: readonly StableObjectId[];
 }
 
-/**
- * Minimal native fact published only for a committed direct Prime Tower
- * restore.  It is deliberately separate from the all-plate projection: a
- * future collection patch can update one plate without deriving state from a
- * stale renderer snapshot.
- */
-export type PrimeTowerRestoreReceipt = PrimeTowerRestoreAvailableReceipt | PrimeTowerRestoreClearedReceipt;
-
-export interface PrimeTowerRestoreAvailableReceipt {
-  readonly version: 1;
-  readonly state: 'available';
-  readonly plateId: string;
-  /** Native plate input revision after the committed restore. */
-  readonly revision: number;
-  readonly position: Readonly<{ x: number; y: number }>;
-  readonly footprint: Readonly<{ minX: number; maxX: number; minY: number; maxY: number }>;
-}
-
-/** A future direct frame may intentionally remove or disable a tower. */
-export interface PrimeTowerRestoreClearedReceipt {
-  readonly version: 1;
-  readonly state: 'cleared';
-  readonly plateId: string;
-  readonly revision: number;
-}
-
-/** Compact native receipt for an adjacent direct Move restore. */
-export interface TransformRestoreReceipt {
-  readonly version: 1;
-  readonly state: 'before' | 'after';
-  readonly beforeRevision: number;
-  readonly afterRevision: number;
-  readonly records: readonly TransformRestoreRecord[];
-}
-
-export interface TransformRestoreRecord {
-  readonly objectId: number;
-  readonly volumeId: number;
-  readonly instanceId: number;
-  readonly objectIndex: number;
-  readonly volumeIndex: number;
-  readonly instanceIndex: number;
-  readonly instanceTransform: import('./types').ModelTransform;
-  readonly volumeTransform: import('./types').ModelTransform;
-}
-
 /** A compact timing aggregate; it intentionally retains no operation history. */
 export interface HistoryTimingDiagnostic {
   readonly count: number;
@@ -240,12 +192,6 @@ export interface RestoreSuccess {
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
   readonly sceneDelta: SceneDelta;
-  /** Omitted for non-direct restores and malformed receipts. */
-  readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
-  /** Omitted for non-direct restores and malformed receipts. */
-  readonly transformReceipt?: TransformRestoreReceipt;
-  /** Compact transform receipt for a direct Add Plate restore. */
-  readonly instanceTransforms?: readonly PlateSessionInstanceTransform[];
 }
 
 export interface RestoreFailure {

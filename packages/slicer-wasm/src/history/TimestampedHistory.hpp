@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ProjectHistory.hpp"
+#include "ModelState.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -69,7 +69,6 @@ struct TimestampedObjectVersionInterval {
 struct TimestampedResourceDiagnostics {
     std::size_t bytes_used { 0 };
     std::size_t byte_budget { 0 };
-    std::size_t optional_bytes_released { 0 };
     std::size_t evicted_timestamp_count { 0 };
     LogicalTimestamp last_evicted_timestamp { 0 };
     bool oversized_nearest_history_retained { false };
@@ -119,7 +118,6 @@ public:
     std::size_t byte_budget() const;
     void set_byte_budget(std::size_t byte_budget);
     std::size_t bytes_used() const;
-    std::size_t release_optional_data();
     TimestampedResourceDiagnostics resource_diagnostics() const;
 
     std::size_t snapshot_count() const;

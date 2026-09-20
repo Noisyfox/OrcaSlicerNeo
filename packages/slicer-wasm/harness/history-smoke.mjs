@@ -288,7 +288,7 @@ const committed = callJson('orc_history_commit', ['string', 'string'], [tx.trans
 if (!committed.canUndo) throw new Error(`commit did not enable undo: ${JSON.stringify(committed)}`);
 if (!Number.isFinite(committed.bytesUsed) || committed.bytesUsed <= 512)
   throw new Error(`history accounting omitted native restore storage: ${JSON.stringify(committed)}`);
-for (const key of ['optionalBytesReleased', 'evictedEntryCount', 'bytesUsed', 'byteBudget']) {
+for (const key of ['evictedEntryCount', 'bytesUsed', 'byteBudget']) {
   if (!Number.isSafeInteger(committed[key]) || committed[key] < 0)
     throw new Error(`history resource diagnostic ${key} is not deterministic: ${JSON.stringify(committed)}`);
 }

@@ -281,7 +281,7 @@ paths, while a synchronous bridge-start failure releases immediately because
 no native revision was entered.
 
 The adapted history core lives in Neo-owned
-`packages/slicer-wasm/src/history/ProjectHistory.{hpp,cpp}`. `bridge.cpp`
+`packages/slicer-wasm/src/history/TimestampedHistory.{hpp,cpp}`. `bridge.cpp`
 exposes only the C API; the typed client, Worker RPC, shared runtime, and React
 controller are thin adapters. No `packages/slicer-wasm/cpp` submodule source is
 modified and no wx GUI source is compiled into WASM. Upstream history fixes are
@@ -340,9 +340,9 @@ The limit is configurable in a later preference surface and applies equally to
 Electron and Web; it deliberately does not derive from an imprecise browser
 physical-memory estimate.
 
-- Accounting includes every JS and WASM allocation held solely for history.
-- When the budget is exceeded, release optional/reconstructable data first,
-  then evict the oldest Undo history while preserving the current state and the
+- Accounting includes retained history roots, metadata, and each unique native
+  mesh owner once, even while the live model also shares that owner.
+- When the budget is exceeded, evict the oldest Undo history while preserving the current state and the
   most recent usable Undo/Redo path.
 - One atomic entry that alone exceeds the normal budget remains retained. This
   allows the operation that succeeded to be undone; subsequent commits resume
@@ -351,7 +351,7 @@ physical-memory estimate.
   control. The initial release has no disruptive notification.
 
 The Worker status contract exposes non-disruptive resource diagnostics:
-`bytesUsed`, `byteBudget`, cumulative `optionalBytesReleased`, cumulative
+`bytesUsed`, `byteBudget`, cumulative
 `evictedEntryCount`, `lastEvictedEntryId`, `oldestRetainedEntryId`, and
 `oversizedEntryRetained`. These values describe the current project session
 for diagnostics and automation; they do not create a toast, interrupt an
@@ -373,8 +373,9 @@ pointer identity even when several frames retain it. Orca's corresponding
 `UndoRedo.cpp::memsize()` is an estimate of its object-history representation:
 it charges object/interval structures, serialized bytes, and an immutable
 object only while the history is its sole owner (`use_count() == 1`), then
-releases optional data and older snapshots. Neo therefore preserves Orca's
-optional-release/LRU behavior while applying a stricter exhaustive contract to
+releases optional data and older snapshots. Neo retains native immutable mesh owners only, without duplicate resident/deferred
+byte representations or an optional-copy release phase. It applies oldest-first
+eviction and an explicit accounting contract to
 context, container capacities, labels/keys, and shared control/owned-allocation
 units across native and wasm64 hosts.
 
@@ -519,8 +520,9 @@ scope.
   time intervals. A snapshot visits the model graph, but unchanged objects,
   volumes, instances, plate session, and immutable mesh data reuse their prior
   retained versions instead of being serialized again. The fixed 256 MiB
-  session budget releases optional immutable data first and then oldest
-  retained timestamps, following Orca's ordering.
+  session budget evicts oldest retained timestamps while protecting the
+  current state and nearest usable history. Native mesh ownership is shared
+  directly; there is no legacy encoded-mesh fallback.
 - History never stores Print, G-code, preview, or other slicing output. Every
   successful Undo or Redo invalidates every plate's derived slicing result for
   this first implementation. It immediately advances the input revisions,

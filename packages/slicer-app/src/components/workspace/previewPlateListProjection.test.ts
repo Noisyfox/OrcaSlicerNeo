@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { projectPreviewPlateList } from './previewPlateListProjection';
 
 const snapshot: PlateSessionSnapshot = {
+  instances: [],
   ok: true,
   version: 1,
   currentPlateId: 'b',

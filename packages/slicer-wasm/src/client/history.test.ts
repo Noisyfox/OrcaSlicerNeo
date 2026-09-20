@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeHistoryContext, normalizePrimeTowerRestoreReceipt, normalizeTransformRestoreReceipt } from './client';
+import { normalizeHistoryContext } from './client';
 import type {
   HistoryContext, HistoryStatus, MockHistoryRuntime, RestoreResult,
   StableInstanceId, StableObjectId, StablePartId, StablePlateId,
@@ -29,7 +29,7 @@ const status: HistoryStatus = {
   dirty: true,
   bytesUsed: 128,
   byteBudget: 256 * 1024 * 1024,
-  optionalBytesReleased: 0, evictedEntryCount: 0, lastEvictedEntryId: null,
+  evictedEntryCount: 0, lastEvictedEntryId: null,
   oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
   disabled: false,
   activeTransactionId: null,
@@ -37,11 +37,6 @@ const status: HistoryStatus = {
 };
 
 describe('history contracts', () => {
-  const narrowImpact = {
-    version: 1 as const, model: 'none' as const, plateSession: true, filamentRack: false,
-    projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate' as const,
-  };
-
   it('keeps stable IDs distinct from positional context in a serializable shape', () => {
     const copy = JSON.parse(JSON.stringify(context)) as HistoryContext;
     expect(copy).toEqual(context);
@@ -73,53 +68,6 @@ describe('history contracts', () => {
     expect(await mock.getHistoryStatus?.()).toBe(status);
     expect(await mock.undoHistory?.()).toBe(restore);
     expect(mock.beginHistory).toBeUndefined();
-  });
-
-  it('normalizes only a versioned direct Prime Tower receipt and preserves the cleared state', () => {
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'available', plate_id: 'plate-1', revision: 7,
-      position: { x: 12.5, y: 34.5 }, footprint: { min_x: 10, max_x: 20, min_y: 30, max_y: 40 },
-    }, narrowImpact, true)).toEqual({
-      version: 1, state: 'available', plateId: 'plate-1', revision: 7,
-      position: { x: 12.5, y: 34.5 }, footprint: { minX: 10, maxX: 20, minY: 30, maxY: 40 },
-    });
-    expect(normalizePrimeTowerRestoreReceipt(
-      { version: 1, state: 'cleared', plate_id: 'plate-1', revision: 8 }, narrowImpact, true,
-    )).toEqual({ version: 1, state: 'cleared', plateId: 'plate-1', revision: 8 });
-  });
-
-  it('drops malformed or non-direct receipts so the caller keeps its projection fallback', () => {
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'available', plate_id: 'plate-1', revision: 7,
-      position: { x: Number.NaN, y: 34.5 }, footprint: { min_x: 10, max_x: 20, min_y: 30, max_y: 40 },
-    }, narrowImpact, true)).toBeUndefined();
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
-    }, { ...narrowImpact, model: 'delta' }, true)).toBeUndefined();
-    expect(normalizePrimeTowerRestoreReceipt({
-      version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
-    }, narrowImpact, false)).toBeUndefined();
-  });
-
-  it('normalizes a complete direct Move receipt and rejects malformed transforms', () => {
-    const impact = {
-      version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: false,
-      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
-    };
-    const transform = { offset: [1, 2, 3], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1], matrix: [
-      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1,
-    ] };
-    expect(normalizeTransformRestoreReceipt({ version: 1, state: 'before', before_revision: 3,
-      after_revision: 4, records: [{ object_id: 101, volume_id: 202, instance_id: 303,
-        object_index: 0, volume_index: 0, instance_index: 0,
-        instance_transform: transform, volume_transform: transform }] }, impact, true, true)).toMatchObject({
-      version: 1, state: 'before', beforeRevision: 3, afterRevision: 4,
-      records: [{ objectId: 101, volumeId: 202, instanceId: 303, objectIndex: 0 }],
-    });
-    expect(normalizeTransformRestoreReceipt({ version: 1, state: 'before', before_revision: 3,
-      after_revision: 4, records: [{ object_id: 101, volume_id: 202, instance_id: 303,
-        object_index: 0, volume_index: 0, instance_index: 0,
-        instance_transform: { ...transform, offset: [Number.NaN, 0, 0] }, volume_transform: transform }] }, impact, true, true)).toBeUndefined();
   });
 
   it('normalizes native session proof and drops malformed session data', () => {

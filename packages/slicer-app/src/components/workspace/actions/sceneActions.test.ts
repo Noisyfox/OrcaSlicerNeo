@@ -12,6 +12,18 @@ vi.mock('@orca/slicer-runtime', () => ({
 
 import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { glVolumeCollection } from '../viewport/GLVolume';
+
+// Model loading is owned by the viewport; publish its revision at the store
+// boundary so action tests exercise the same wait as production.
+let unsubscribeModelPublication: (() => void) | undefined;
+beforeEach(() => {
+  glVolumeCollection.clear(useSettingsStore.getState().modelRevision);
+  unsubscribeModelPublication = useSettingsStore.subscribe((state) => {
+    glVolumeCollection.clear(state.modelRevision);
+  });
+});
+afterEach(() => { unsubscribeModelPublication?.(); });
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
   const addModel = vi.fn(async (_bytes: Uint8Array, _ext: string, _name: string) => result);

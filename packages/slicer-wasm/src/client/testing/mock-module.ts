@@ -359,7 +359,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyDisabled = false;
   let savedHistoryCursor: number | null = null;
   let savedHistoryCheckpointEvicted = false;
-  let historyOptionalBytesReleased = 0;
   let historyEvictedEntryCount = 0;
   let historyLastEvictedEntryId: string | null = null;
 
@@ -412,7 +411,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ...(redo ? { redoLabel: redo.label } : {}), undoEntries, redoEntries,
       cursor: historyCursor, savedCheckpoint: savedHistoryCursor, savedCheckpointEvicted: savedHistoryCheckpointEvicted,
       dirty, bytesUsed: JSON.stringify(historyEntries).length,
-      optionalBytesReleased: historyOptionalBytesReleased,
       evictedEntryCount: historyEvictedEntryCount,
       lastEvictedEntryId: historyLastEvictedEntryId,
       oldestRetainedEntryId: historyEntries[0]?.id ?? null,
@@ -429,23 +427,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function resetHistory(): void {
     historyEntries = []; historyCursor = 0; historyTransaction = null; historyNestedTransactions.length = 0;
     savedHistoryCursor = null; savedHistoryCheckpointEvicted = false;
-    historyOptionalBytesReleased = 0;
     historyEvictedEntryCount = 0;
     historyLastEvictedEntryId = null;
     historyRevision++; historyDisabled = false;
   }
-  function primeTowerRestoreReceipt(plateId: string): unknown {
-    const projection = primeTowerProjection() as any;
-    const plate = projection.plates?.find((candidate: any) => candidate.plate_id === plateId);
-    const revision = plateInputRevisions[plateId];
-    if (!plate || !Number.isSafeInteger(revision))
-      return { version: 1, state: 'cleared', plate_id: plateId, revision: 0 };
-    if (plate.eligible !== true)
-      return { version: 1, state: 'cleared', plate_id: plateId, revision };
-    return { version: 1, state: 'available', plate_id: plateId, revision,
-      position: clone(plate.position), footprint: clone(plate.footprint) };
-  }
-  function historyRestore(entry: MockHistoryEntry, narrowPrimeTower = false, primeTowerPlateId?: string) {
+  function historyRestore(entry: MockHistoryEntry) {
     restoreHistoryState(entry);
     historyRevision++;
     const states = [...historyEntries, entry];
@@ -457,14 +443,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       plate_ids: [...new Set(states.flatMap((state) => state.plateIds))].sort(),
       object_order: entry.objectMeta.map((object) => object.id),
     };
-    return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot(true) }, status: historyStatus(), entryId: entry.id,
+    return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() }, status: historyStatus(), entryId: entry.id,
       scene_delta: sceneDelta,
-      ...(narrowPrimeTower && primeTowerPlateId
-        ? { narrow: true, prime_tower_receipt: primeTowerRestoreReceipt(primeTowerPlateId) } : {}),
-      impact: narrowPrimeTower
-        ? { version: 1, model: 'none', plateSession: true, filamentRack: false, projectOverlay: true,
-          selectionContext: true, primeTower: true, preview: 'current-plate' }
-        : { version: 1, model: 'delta', plateSession: true, filamentRack: true, projectOverlay: true,
+      impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, projectOverlay: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function plateStride(): number {
@@ -495,36 +476,38 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins = [[0, 0, 0]];
     currentPlateId = plateSessionId;
     plateInputRevisions = { [plateSessionId]: 0 };
+    objectPlateIds = objectMeta.map(() => plateSessionId);
   }
   resetPlateSession();
-  function plateSessionSnapshot(includeMutation = false) {
+  function plateSessionSnapshot() {
     const result: Record<string, unknown> = {
       ok: true,
       version: 1,
       current_plate_id: currentPlateId,
       input_revisions: { ...plateInputRevisions },
-      plates: plateIds.map((id, index) => includeMutation ? ({
+      plates: plateIds.map((id, index) => ({
         plate_id: id, display_index: index, origin: plateOrigins[index], name: `Plate ${index + 1}`,
-        instance_ids: [], out_of_bounds_instance_ids: [], valid: true,
-      }) : ({ plate_id: id, display_index: index, origin: plateOrigins[index], name: `Plate ${index + 1}` })),
+        instance_ids: instanceMeta.flatMap((instances, objectIndex) =>
+          objectPlateIds[objectIndex] === id ? instances.map((instance) => instance.id) : []),
+        out_of_bounds_instance_ids: [], valid: true,
+      })),
     };
-    if (includeMutation) {
-      result.instance_transforms = [];
-      result.instances = objectTransforms.flatMap((transforms, objectIndex) =>
-        transforms.map((_transform, instanceIndex) => {
-          const instance = instanceMeta[objectIndex]?.[instanceIndex];
-          return {
-            instance_id: instance?.id ?? 0,
-            object_id: objectMeta[objectIndex]?.id ?? 0,
-            object_index: objectIndex,
-            instance_index: instanceIndex,
-            plate_id: objectPlateIds[objectIndex] ?? currentPlateId,
-            member: true,
-            unprintable: false,
-            out_of_bounds: false,
-          };
-        }));
-    }
+    result.instance_transforms = [];
+    result.instances = objectTransforms.flatMap((transforms, objectIndex) =>
+      transforms.map((_transform, instanceIndex) => {
+        const instance = instanceMeta[objectIndex]?.[instanceIndex];
+        return {
+          instance_id: instance?.id ?? 0,
+          object_id: objectMeta[objectIndex]?.id ?? 0,
+          object_index: objectIndex,
+          instance_index: instanceIndex,
+          plate_id: objectPlateIds[objectIndex] ?? currentPlateId,
+          member: true,
+          unprintable: false,
+          out_of_bounds: false,
+        };
+      }));
+
     return result;
   }
 
@@ -841,7 +824,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   ) {
     const affected = [...new Set([...before, ...after])];
     for (const id of affected) if (plateIds.includes(id)) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
-    const result = plateSessionSnapshot(true) as Record<string, unknown>;
+    const result = plateSessionSnapshot() as Record<string, unknown>;
     result.instance_transforms = instanceTransforms;
     result.affected_plate_ids_before = before;
     result.affected_plate_ids_after = after;
@@ -1194,7 +1177,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         restoreHistoryState(nested.before);
         historyNestedTransactions.pop();
         historyRevision++;
-        return { ok: true, context: clone(nested.beforeContext), status: historyStatus(), scene_delta: {
+        return { ok: true, context: { ...clone(nested.beforeContext), plateSession: plateSessionSnapshot() }, status: historyStatus(), scene_delta: {
           version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
           object_order: objectMeta.map((object) => object.id),
         } };
@@ -1205,7 +1188,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const context = historyTransaction.beforeContext;
       historyTransaction = null;
       if (modelChanged) historyRevision++;
-      return { ok: true, context: clone(context), status: historyStatus(), scene_delta: {
+      return { ok: true, context: { ...clone(context), plateSession: plateSessionSnapshot() }, status: historyStatus(), scene_delta: {
         version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
         object_order: objectMeta.map((object) => object.id),
       } };
@@ -1222,10 +1205,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // The baseline is the valid restore target for the first project edit.
       if (!historyEntries[target] || (target > 0 && !project(historyEntries[target])))
         target = 0;
-      const source = historyEntries[currentProject];
       historyCursor = target;
-      const primeTowerPlateId = source?.label === 'Move Prime Tower' ? source.context?.primeTowerMove?.plateId : undefined;
-      return historyRestore(historyEntries[target], typeof primeTowerPlateId === 'string', primeTowerPlateId);
+      return historyRestore(historyEntries[target]);
     },
     orc_history_redo() {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -1233,12 +1214,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       let target = historyCursor + 1;
       while (target < historyEntries.length && !project(historyEntries[target])) target++;
       if (target >= historyEntries.length) return { error: 'no redo history' };
-      const source = historyEntries[historyCursor];
       historyCursor = target;
-      const primeTowerPlateId = historyEntries[target]?.label === 'Move Prime Tower'
-        ? historyEntries[target].context?.primeTowerMove?.plateId
-        : source?.label === 'Move Prime Tower' ? source.context?.primeTowerMove?.plateId : undefined;
-      return historyRestore(historyEntries[target], typeof primeTowerPlateId === 'string', primeTowerPlateId);
+      return historyRestore(historyEntries[target]);
     },
     orc_history_jump(entryId: string, direction: 'undo' | 'redo') {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -1263,8 +1240,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         historyCursor = index;
       }
       const current = historyEntries[historyCursor];
-      const primeTowerPlateId = current?.label === 'Move Prime Tower' ? current.context?.primeTowerMove?.plateId : undefined;
-      return historyRestore(current, typeof primeTowerPlateId === 'string', primeTowerPlateId);
+      return historyRestore(current);
     },
     orc_history_status() {
       return historyStatus();
@@ -1375,7 +1351,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       plateOrigins.push([0, 0, 0]);
       currentPlateId = id;
       const changed = reflowMockPlateOrigins();
-      const result = plateSessionSnapshot(true) as Record<string, unknown>;
+      const result = plateSessionSnapshot() as Record<string, unknown>;
       result.instance_transforms = changed;
       result.project_config_overlay = overlayProjection();
       return result;
@@ -1396,7 +1372,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
         return next;
       });
-      return plateSessionSnapshot(true);
+      return plateSessionSnapshot();
     },
     orc_delete_plate(plateId: string) {
       if (plateIds.length <= 1) return { error: 'at least one plate must remain' };
@@ -1413,13 +1389,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return result;
     },
     orc_recompute_plate_membership() {
-      return plateSessionSnapshot(true);
+      return plateSessionSnapshot();
     },
     orc_mark_shared_configuration_mutation() {
       const affected = [...plateIds];
       const changed = reflowMockPlateOrigins();
       for (const id of affected) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
-      const result = plateSessionSnapshot(true) as Record<string, unknown>;
+      const result = plateSessionSnapshot() as Record<string, unknown>;
       result.instance_transforms = changed;
       result.affected_plate_ids_before = affected;
       result.affected_plate_ids_after = affected;
@@ -1533,7 +1509,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       modelLoaded = false;
       sliced = false;
       resetPlateSession();
-      return { ok: true, plate_session: plateSessionSnapshot(true) };
+      return { ok: true, plate_session: plateSessionSnapshot() };
     },
     orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string, closeBeforeLoad = true) {
       if (!geometryOnly && closeBeforeLoad) bridge.orc_close_project();
@@ -1572,7 +1548,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
         project_config_overlay: geometryOnly ? undefined : overlayProjection(),
-        plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
+        plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(),
       };
     },
     orc_load_project_after_close(_ptr: number, len: number, displayName: string) {
@@ -1866,7 +1842,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectTransforms[transform.objectIdx][transform.instanceIdx] = clone(transform.instanceTransform as ReturnType<typeof identityTransform>);
         objectVolumeTransforms[transform.objectIdx][transform.volumeIdx] = clone(transform.volumeTransform as ReturnType<typeof identityTransform>);
       }
-      return plateSessionSnapshot(true);
+      return plateSessionSnapshot();
     },
     orc_get_model_mesh() {
       if (!modelLoaded) return { error: 'no model loaded' };

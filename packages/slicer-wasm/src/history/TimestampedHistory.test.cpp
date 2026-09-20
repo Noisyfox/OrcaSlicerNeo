@@ -251,24 +251,6 @@ int main()
     CHECK(branch.undo(branch_3, restored));
     CHECK(restored.roots.session.history_context == bytes(9));
 
-    // Reconstructable immutable data is released before any timestamp.
-    TimestampedHistory optional_data;
-    auto optional_roots = roots(1, { object(1, 1, 1) });
-    ImmutableMesh optional_mesh;
-    optional_mesh.key = "mesh-1";
-    optional_mesh.resident = std::make_shared<const Bytes>(bytes(8, 512));
-    optional_mesh.deferred = std::make_shared<const Bytes>(bytes(9, 8));
-    optional_mesh.optional = true;
-    optional_roots.model.immutable_meshes.push_back(optional_mesh);
-    CHECK(optional_data.begin_operation("mesh", optional_roots));
-    CHECK(optional_data.commit_operation(optional_roots));
-    const auto optional_bytes_before = optional_data.bytes_used();
-    optional_data.set_byte_budget(optional_bytes_before - 128);
-    CHECK(optional_data.snapshot_count() == 1);
-    CHECK(optional_data.resource_diagnostics().optional_bytes_released >= 512);
-    CHECK(optional_data.resource_diagnostics().evicted_timestamp_count == 0);
-    CHECK(optional_data.bytes_used() <= optional_data.byte_budget());
-
     // Old timestamps are evicted before the nearest usable predecessor. If a
     // saved checkpoint is among them, dirty state becomes conservative.
     TimestampedHistory budget;

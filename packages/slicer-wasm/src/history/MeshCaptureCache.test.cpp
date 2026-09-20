@@ -1,9 +1,8 @@
 #include "../bridge_history.hpp"
 
 #include <iostream>
-#include <sstream>
 
-#include <cereal/archives/binary.hpp>
+#include "TimestampedHistory.hpp"
 
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -17,7 +16,9 @@
 } while (false)
 
 using namespace Slic3r;
-using Slic3r::Neo::History::RestoreState;
+using Slic3r::Neo::History::TimestampedHistory;
+using Slic3r::Neo::History::TimestampedRoots;
+using Slic3r::Neo::History::TimestampedRestore;
 using Slic3r::Neo::History::Codec::MeshCaptureCache;
 using Slic3r::Neo::History::Codec::MutableObjectCaptureCache;
 using Slic3r::Neo::History::Codec::capture_model_state;
@@ -31,13 +32,6 @@ static Model model_with_cube(double side)
     object->add_instance();
     object->add_volume(TriangleMesh(its_make_cube(side, side, side)));
     return model;
-}
-
-static RestoreState restore_state(const Slic3r::Neo::History::ModelState& model)
-{
-    RestoreState restored;
-    restored.model = model;
-    return restored;
 }
 
 int main()
@@ -59,8 +53,6 @@ int main()
     CHECK(first.immutable_meshes.size() == 1);
     CHECK(second.immutable_meshes.size() == 1);
     CHECK(first.immutable_meshes.front().key == second.immutable_meshes.front().key);
-    CHECK(first.immutable_meshes.front().resident == nullptr);
-    CHECK(first.immutable_meshes.front().deferred == nullptr);
     CHECK(first.immutable_meshes.front().native != nullptr);
     CHECK(first.immutable_meshes.front().native == second.immutable_meshes.front().native);
     CHECK(first.mutable_objects.front().id == original_object_id.id);
@@ -75,7 +67,7 @@ int main()
     CHECK(cache.serialized_mesh_count() == 0);
     CHECK(model_state_equal(first, capture_model_state(original, cache)));
     CHECK(cache.serialized_mesh_count() == 1);
-    Model restored_original = stage_model(original, restore_state(first));
+    Model restored_original = stage_model(original, first);
     CHECK(restored_original.objects.front()->id() == original_object_id);
     CHECK(restored_original.objects.front()->volumes.front()->id() == original_volume_id);
     CHECK(restored_original.objects.front()->instances.front()->id() == original_instance_id);
@@ -92,64 +84,61 @@ int main()
     MeshCaptureCache restore_cache;
     CHECK(model_state_equal(first, capture_model_state(restored_original, restore_cache)));
 
-    // Explicitly byte-backed states remain restorable for compatibility with
-    // test fixtures and any state deliberately downgraded by a later gate.
-    std::ostringstream mesh_stream(std::ios::binary | std::ios::out);
-    cereal::BinaryOutputArchive mesh_archive(mesh_stream);
-    mesh_archive(*first.immutable_meshes.front().native);
-    const std::string encoded_mesh = mesh_stream.str();
-    Slic3r::Neo::History::ModelState byte_fallback = first;
-    byte_fallback.immutable_meshes.front().native.reset();
-    byte_fallback.immutable_meshes.front().native_bytes = 0;
-    byte_fallback.immutable_meshes.front().resident = std::make_shared<const Slic3r::Neo::History::Bytes>(
-        Slic3r::Neo::History::Bytes(encoded_mesh.begin(), encoded_mesh.end()));
-    Model restored_fallback = stage_model(original, restore_state(byte_fallback));
-    CHECK(restored_fallback.objects.front()->volumes.front()->mesh().facets_count() ==
-          original.objects.front()->volumes.front()->mesh().facets_count());
-    CHECK(restored_fallback.objects.front()->volumes.front()->get_mesh_shared_ptr().get() !=
-          first.immutable_meshes.front().native.get());
+    // A missing native owner is an invalid history root, never a byte fallback.
+    auto missing_mesh = first;
+    missing_mesh.immutable_meshes.front().native.reset();
+    bool rejected_missing_mesh = false;
+    try { stage_model(original, missing_mesh); }
+    catch (const std::runtime_error&) { rejected_missing_mesh = true; }
+    CHECK(rejected_missing_mesh);
 
-    // ProjectHistory retains and restores the same native shared owner across
-    // both navigation directions; it does not decode a byte fallback.
-    Slic3r::Neo::History::ProjectHistory native_history;
-    CHECK(native_history.commit("base", Slic3r::Neo::History::Category::Project, first, {}));
+    // TimestampedHistory retains and restores the same native shared owner across
+    // both navigation directions.
+    TimestampedHistory native_history;
+    CHECK(native_history.begin_operation("edit", TimestampedRoots{first}));
     original.objects.front()->config.touch();
     const auto changed = capture_model_state(original, cache);
-    CHECK(native_history.commit("edit", Slic3r::Neo::History::Category::Project, changed, {}));
-    RestoreState native_restored;
-    CHECK(native_history.undo(native_restored));
-    Model native_undo = stage_model(original, native_restored);
+    CHECK(native_history.commit_operation(TimestampedRoots{changed}));
+    TimestampedRestore native_restored;
+    CHECK(native_history.undo(TimestampedRoots{changed}, native_restored));
+    Model native_undo = stage_model(original, native_restored.roots.model);
     CHECK(native_undo.objects.front()->volumes.front()->get_mesh_shared_ptr().get() ==
           first.immutable_meshes.front().native.get());
     CHECK(native_history.redo(native_restored));
-    Model native_redo = stage_model(original, native_restored);
+    Model native_redo = stage_model(original, native_restored.roots.model);
     CHECK(native_redo.objects.front()->volumes.front()->get_mesh_shared_ptr().get() ==
           first.immutable_meshes.front().native.get());
 
-    // Native mesh accounting is omitted while the live caller shares the
-    // owner, then charged once history becomes the sole owner. Eviction drops
-    // that ownership instead of leaving an unbounded native cache behind.
+    // Timestamp history charges each retained native mesh once, including while
+    // the live model shares its owner. Eviction drops that ownership instead
+    // of leaving an unbounded native cache behind.
     auto sole_mesh = std::make_shared<const TriangleMesh>(its_make_cube(18.0, 18.0, 18.0));
     Slic3r::Neo::History::ModelState native_state;
-    native_state.immutable_meshes.push_back({"native-only", {}, {}, false, sole_mesh, sole_mesh->memsize()});
+    native_state.immutable_meshes.push_back({"native-only", sole_mesh, sole_mesh->memsize()});
     Slic3r::Neo::History::ModelState no_native_state = native_state;
     no_native_state.immutable_meshes.front().native.reset();
-    Slic3r::Neo::History::ProjectHistory native_budget(1u << 20);
-    CHECK(native_budget.commit("native", Slic3r::Neo::History::Category::Project, native_state, {}));
-    Slic3r::Neo::History::ProjectHistory no_native_budget(1u << 20);
-    CHECK(no_native_budget.commit("native", Slic3r::Neo::History::Category::Project, no_native_state, {}));
-    CHECK(native_budget.bytes_used() == no_native_budget.bytes_used());
+    TimestampedHistory native_budget(1u << 20);
+    CHECK(native_budget.begin_operation("native", TimestampedRoots{native_state}));
+    CHECK(native_budget.commit_operation(TimestampedRoots{native_state}));
+    TimestampedHistory no_native_budget(1u << 20);
+    CHECK(no_native_budget.begin_operation("native", TimestampedRoots{no_native_state}));
+    CHECK(no_native_budget.commit_operation(TimestampedRoots{no_native_state}));
+    CHECK(native_budget.bytes_used() - no_native_budget.bytes_used() == sole_mesh->memsize());
+    const auto shared_bytes = native_budget.bytes_used();
+    CHECK(native_budget.begin_operation("second", TimestampedRoots{native_state}));
     native_state.immutable_meshes.front().native.reset();
     std::weak_ptr<const TriangleMesh> sole_mesh_weak = sole_mesh;
     sole_mesh.reset();
-    CHECK(native_budget.bytes_used() > no_native_budget.bytes_used());
+    CHECK(shared_bytes > no_native_budget.bytes_used());
     native_budget.set_byte_budget(1);
     Slic3r::Neo::History::ModelState no_mesh_after;
     no_mesh_after.serialized = {1};
-    CHECK(native_budget.commit("second", Slic3r::Neo::History::Category::Project, no_mesh_after, {}));
     no_mesh_after.serialized = {2};
-    CHECK(native_budget.commit("third", Slic3r::Neo::History::Category::Project, no_mesh_after, {}));
-    CHECK(native_budget.resource_diagnostics().evicted_entry_count > 0);
+    CHECK(native_budget.commit_operation(TimestampedRoots{no_mesh_after}));
+    CHECK(native_budget.begin_operation("third", TimestampedRoots{no_mesh_after}));
+    no_mesh_after.serialized = {3};
+    CHECK(native_budget.commit_operation(TimestampedRoots{no_mesh_after}));
+    CHECK(native_budget.resource_diagnostics().evicted_timestamp_count > 0);
     CHECK(sole_mesh_weak.expired());
 
     CHECK(cache.serialized_mesh_count() == 1);
@@ -164,7 +153,7 @@ int main()
           replacement.immutable_meshes.front().key);
     CHECK(cache.serialized_mesh_count() == 2);
 
-    Model restored_replacement = stage_model(replaced, restore_state(replacement));
+    Model restored_replacement = stage_model(replaced, replacement);
     CHECK(model_state_equal(replacement, capture_model_state(restored_replacement, restore_cache)));
 
     // A non-zero ModelConfig timestamp is the Orca-style archive gate. The
@@ -197,9 +186,9 @@ int main()
     CHECK(object_third.mutable_objects[1].data == object_second.mutable_objects[1].data);
     CHECK(object_third.mutable_objects[0].instance_transforms !=
           object_second.mutable_objects[0].instance_transforms);
-    Model transformed_restore = stage_model(objects, restore_state(object_third));
+    Model transformed_restore = stage_model(objects, object_third);
     Slic3r::Neo::History::Codec::RestoreTimings reuse_timings;
-    Model reused_restore = stage_model(objects, restore_state(object_first), &reuse_timings, &object_third);
+    Model reused_restore = stage_model(objects, object_first, &reuse_timings, &object_third);
     CHECK(reuse_timings.reused_objects == 2);
     CHECK(reuse_timings.deserialized_objects == 0);
     CHECK(reused_restore.objects[0]->id() == objects.objects[0]->id());
@@ -213,7 +202,7 @@ int main()
     mixed_live.objects[1]->name = "changed archive";
     const auto changed_archive = capture_model_state(mixed_live, object_mesh_cache, mixed_cache);
     Slic3r::Neo::History::Codec::RestoreTimings mixed_timings;
-    Model mixed_restore = stage_model(mixed_live, restore_state(object_first), &mixed_timings, &changed_archive);
+    Model mixed_restore = stage_model(mixed_live, object_first, &mixed_timings, &changed_archive);
     CHECK(mixed_timings.reused_objects == 1);
     CHECK(mixed_timings.deserialized_objects == 1);
     CHECK(mixed_restore.objects[1]->name == reused_restore.objects[1]->name);
@@ -296,7 +285,7 @@ int main()
     metadata_volume->set_offset(Vec3d(3, 4, 5));
     auto metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
     CHECK(metadata_before.mutable_objects[0].data == metadata_after.mutable_objects[0].data);
-    CHECK(stage_model(metadata_model, restore_state(metadata_after)).objects[0]->volumes[0]->get_offset() == Vec3d(3, 4, 5));
+    CHECK(stage_model(metadata_model, metadata_after).objects[0]->volumes[0]->get_offset() == Vec3d(3, 4, 5));
     metadata_before = metadata_after;
     metadata_volume->source.is_converted_from_inches = true;
     metadata_after = capture_model_state(metadata_model, metadata_mesh_cache, metadata_cache);
@@ -321,15 +310,16 @@ int main()
     // Consecutive retained states still restore complete, self-sufficient
     // object records. This exercises both navigation directions after the
     // timestamp-gated captures rather than reconstructing deltas.
-    Slic3r::Neo::History::ProjectHistory history;
-    CHECK(history.commit("base", Slic3r::Neo::History::Category::Project, object_first, {}));
-    CHECK(history.commit("one object", Slic3r::Neo::History::Category::Project, object_third, {}));
+    TimestampedHistory history;
+    CHECK(history.begin_operation("one object", TimestampedRoots{object_first}));
+    CHECK(history.commit_operation(TimestampedRoots{object_third}));
+    CHECK(history.begin_operation("second object", TimestampedRoots{object_third}));
     objects.objects[1]->config.touch();
     const auto object_fourth = capture_model_state(objects, object_mesh_cache, object_cache);
-    CHECK(history.commit("second object", Slic3r::Neo::History::Category::Project, object_fourth, {}));
-    RestoreState restored_state;
-    CHECK(history.undo(restored_state));
-    Model restored_third = stage_model(objects, restored_state);
+    CHECK(history.commit_operation(TimestampedRoots{object_fourth}));
+    TimestampedRestore restored_state;
+    CHECK(history.undo(TimestampedRoots{object_fourth}, restored_state));
+    Model restored_third = stage_model(objects, restored_state.roots.model);
     CHECK(restored_third.objects[0]->instances[0]->get_offset() == Vec3d(4.0, 2.0, 1.0));
     CHECK(prime_model_capture_cache(restored_third, object_third, object_cache));
     CHECK(model_state_equal(object_third, capture_model_state(restored_third, object_mesh_cache, object_cache)));
@@ -339,11 +329,11 @@ int main()
           object_third.mutable_objects[0].instance_ids[1]);
     CHECK(restored_third.objects[1]->instances[0]->id().id ==
           object_third.mutable_objects[1].instance_ids[0]);
-    CHECK(history.undo(restored_state));
-    Model restored_first = stage_model(objects, restored_state);
+    CHECK(history.undo(TimestampedRoots{object_third}, restored_state));
+    Model restored_first = stage_model(objects, restored_state.roots.model);
     CHECK(model_state_equal(object_first, capture_model_state(restored_first, object_mesh_cache)));
     CHECK(history.redo(restored_state));
-    Model restored_again = stage_model(objects, restored_state);
+    Model restored_again = stage_model(objects, restored_state.roots.model);
     CHECK(restored_again.objects[0]->instances[0]->get_offset() == Vec3d(4.0, 2.0, 1.0));
     CHECK(prime_model_capture_cache(restored_again, object_third, object_cache));
     CHECK(model_state_equal(object_third, capture_model_state(restored_again, object_mesh_cache, object_cache)));

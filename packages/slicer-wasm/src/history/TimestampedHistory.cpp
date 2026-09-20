@@ -29,9 +29,7 @@ bool mutable_equal(const MutableObject& lhs, const MutableObject& rhs)
 
 bool mesh_equal(const ImmutableMesh& lhs, const ImmutableMesh& rhs)
 {
-    return lhs.key == rhs.key && lhs.optional == rhs.optional && lhs.native == rhs.native &&
-           lhs.native_bytes == rhs.native_bytes && shared_bytes_equal(lhs.resident, rhs.resident) &&
-           shared_bytes_equal(lhs.deferred, rhs.deferred);
+    return lhs.key == rhs.key && lhs.native == rhs.native && lhs.native_bytes == rhs.native_bytes;
 }
 
 std::size_t string_bytes(const std::string& value)
@@ -137,14 +135,7 @@ void merge_scene_delta(SceneDelta& target, const SceneDelta& source)
 } // namespace
 
 struct TimestampedHistory::Impl {
-    struct StoredMesh {
-        std::string key;
-        std::shared_ptr<const Bytes> resident;
-        std::shared_ptr<const Bytes> deferred;
-        bool optional { false };
-        std::shared_ptr<const ::Slic3r::TriangleMesh> native;
-        std::size_t native_bytes { 0 };
-    };
+    using StoredMesh = ImmutableMesh;
 
     struct Snapshot {
         LogicalTimestamp timestamp { 0 };
@@ -184,7 +175,6 @@ struct TimestampedHistory::Impl {
     std::optional<Operation> operation;
     std::optional<LogicalTimestamp> saved_timestamp;
     bool saved_checkpoint_evicted { false };
-    std::size_t optional_bytes_released { 0 };
     std::size_t evicted_timestamp_count { 0 };
     LogicalTimestamp last_evicted_timestamp { 0 };
     bool oversized_nearest_history_retained { false };
@@ -201,27 +191,6 @@ struct TimestampedHistory::Impl {
     {
         if (previous && *previous == source) return previous;
         return std::make_shared<const Bytes>(source);
-    }
-
-    static ImmutableMesh materialize_mesh(const StoredMesh& mesh)
-    {
-        ImmutableMesh result;
-        result.key = mesh.key;
-        result.resident = mesh.resident;
-        result.deferred = mesh.deferred;
-        result.optional = mesh.optional;
-        result.native = mesh.native;
-        result.native_bytes = mesh.native_bytes;
-        return result;
-    }
-
-    static bool stored_mesh_matches(const StoredMesh& stored, const ImmutableMesh& source)
-    {
-        const ImmutableMesh retained = materialize_mesh(stored);
-        if (mesh_equal(retained, source)) return true;
-        return stored.optional && source.optional && stored.key == source.key && stored.native == source.native &&
-               stored.native_bytes == source.native_bytes && shared_bytes_equal(stored.deferred, source.deferred) &&
-               (stored.deferred || stored.native);
     }
 
     bool roots_equal(const Snapshot& snapshot, const TimestampedRoots& roots) const
@@ -242,7 +211,7 @@ struct TimestampedHistory::Impl {
             if (found == snapshot.objects.end() || !mutable_equal(*found->second, source)) return false;
         }
         for (std::size_t index = 0; index < snapshot.meshes.size(); ++index) {
-            if (!stored_mesh_matches(*snapshot.meshes[index], roots.model.immutable_meshes[index])) return false;
+            if (!mesh_equal(*snapshot.meshes[index], roots.model.immutable_meshes[index])) return false;
         }
         return true;
     }
@@ -286,14 +255,11 @@ struct TimestampedHistory::Impl {
             if (previous) {
                 const auto found = std::find_if(previous->meshes.begin(), previous->meshes.end(),
                     [&source](const auto& candidate) { return candidate->key == source.key; });
-                if (found != previous->meshes.end() && stored_mesh_matches(**found, source)) archive = *found;
+                if (found != previous->meshes.end() && mesh_equal(**found, source)) archive = *found;
             }
             if (!archive) {
                 archive = std::make_shared<StoredMesh>();
                 archive->key = source.key;
-                archive->resident = source.resident;
-                archive->deferred = source.deferred;
-                archive->optional = source.optional;
                 archive->native = source.native;
                 archive->native_bytes = source.native_bytes;
             }
@@ -360,7 +326,7 @@ struct TimestampedHistory::Impl {
             restored.roots.model.mutable_objects.push_back(*object->second);
         }
         restored.roots.model.immutable_meshes.reserve(snapshot.meshes.size());
-        for (const auto& mesh : snapshot.meshes) restored.roots.model.immutable_meshes.push_back(materialize_mesh(*mesh));
+        for (const auto& mesh : snapshot.meshes) restored.roots.model.immutable_meshes.push_back(*mesh);
         restored.roots.session.plate_session = *snapshot.plate_session;
         restored.roots.session.history_context = *snapshot.history_context;
         restored.roots.project_config_overlay = *snapshot.project_config_overlay;
@@ -469,23 +435,6 @@ struct TimestampedHistory::Impl {
         return result;
     }
 
-    std::size_t release_optional_data()
-    {
-        const std::size_t released_before = optional_bytes_released;
-        std::unordered_set<StoredMesh*> visited;
-        for (const auto& [timestamp, snapshot] : snapshots) {
-            for (const auto& mesh : snapshot->meshes) {
-                if (!visited.insert(mesh.get()).second || !mesh->optional || !mesh->resident ||
-                    (!mesh->deferred && !mesh->native))
-                    continue;
-                if (mesh->deferred && mesh->deferred.get() == mesh->resident.get()) continue;
-                optional_bytes_released += mesh->resident->capacity();
-                mesh->resident.reset();
-            }
-        }
-        return optional_bytes_released - released_before;
-    }
-
     std::size_t bytes_used() const
     {
         std::size_t result = kImplBytes + entries.capacity() * kEntryBytes + intervals.capacity() * kIntervalBytes;
@@ -515,8 +464,6 @@ struct TimestampedHistory::Impl {
             for (const auto& mesh : snapshot->meshes) {
                 if (!meshes.insert(mesh.get()).second) continue;
                 result += kMeshArchiveBytes + string_bytes(mesh->key);
-                add_blob(mesh->resident);
-                add_blob(mesh->deferred);
                 if (mesh->native && native_meshes.insert(mesh->native.get()).second)
                     result += std::max(mesh->native_bytes, std::size_t(64));
             }
@@ -540,7 +487,6 @@ struct TimestampedHistory::Impl {
 
     void enforce_budget()
     {
-        if (bytes_used() > byte_budget) release_optional_data();
         while (bytes_used() > byte_budget) {
             const auto protected_set = protected_timestamps();
             const auto candidate = std::find_if(snapshots.begin(), snapshots.end(), [&protected_set](const auto& item) {
@@ -764,11 +710,10 @@ void TimestampedHistory::set_byte_budget(std::size_t byte_budget)
 }
 
 std::size_t TimestampedHistory::bytes_used() const { return m_impl->bytes_used(); }
-std::size_t TimestampedHistory::release_optional_data() { return m_impl->release_optional_data(); }
 
 TimestampedResourceDiagnostics TimestampedHistory::resource_diagnostics() const
 {
-    return { m_impl->bytes_used(), m_impl->byte_budget, m_impl->optional_bytes_released,
+    return { m_impl->bytes_used(), m_impl->byte_budget,
              m_impl->evicted_timestamp_count, m_impl->last_evicted_timestamp,
              m_impl->oversized_nearest_history_retained };
 }

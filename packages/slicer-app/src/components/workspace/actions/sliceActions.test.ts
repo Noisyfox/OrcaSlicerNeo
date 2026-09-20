@@ -20,6 +20,7 @@ describe('slice result publication', () => {
     });
     const runtime = {
       getPlateSessionSnapshot: vi.fn(async () => ({
+        instances: [],
         ok: true, currentPlateId: 'plate-1',
         plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], instanceIds: [1] }],
         inputRevisions: { 'plate-1': 7 },

@@ -226,7 +226,7 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
     if (!plateSession.ok) return { ok: false, error: plateSession.error };
     result.plateSession = plateSession;
   }
-  const rawStatus = raw.configuration_status ?? raw.configurationStatus;
+  const rawStatus = raw.configuration_status;
   if (rawStatus !== undefined) {
     const status = normalizeConfigurationStatus(rawStatus, true);
     if (!status || status.state !== 'ready') return { ok: false, error: 'invalid project configuration status' };
@@ -581,7 +581,7 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate session response' };
   const value = raw as Record<string, unknown>;
   if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'plate session request failed' };
-  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates)) {
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates) || !Array.isArray(value.instances)) {
     return { ok: false, error: 'invalid plate session response' };
   }
   const plates = value.plates.map((entry): PlateSessionPlate | null => {
@@ -634,30 +634,28 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (!plates.some((plate) => plate!.plateId === value.current_plate_id)) {
     return { ok: false, error: 'invalid plate session current identity' };
   }
+  const instances = value.instances.map((entry) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
+      .every((id) => Number.isSafeInteger(id)) || typeof item.plate_id !== 'string' ||
+        typeof item.member !== 'boolean' || typeof item.unprintable !== 'boolean' ||
+        typeof item.out_of_bounds !== 'boolean') return null;
+    return { instanceId: item.instance_id as number, objectId: item.object_id as number,
+      objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
+      plateId: item.plate_id, member: item.member, unprintable: item.unprintable,
+      outOfBounds: item.out_of_bounds,
+      ...(typeof item.parked === 'boolean' ? { parked: item.parked } : {}),
+    };
+  });
+  if (instances.some((instance) => instance === null)) return { ok: false, error: 'invalid plate session instances' };
   const result: PlateSessionSnapshot = {
     ok: true,
     version: 1,
     currentPlateId: value.current_plate_id,
     plates: plates as PlateSessionPlate[],
+    instances: instances as NonNullable<typeof instances[number]>[],
   };
-  if (Array.isArray(value.instances)) {
-    const instances = value.instances.map((entry) => {
-      if (!entry || typeof entry !== 'object') return null;
-      const item = entry as Record<string, unknown>;
-      if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
-        .every((id) => Number.isSafeInteger(id)) || typeof item.plate_id !== 'string' ||
-          typeof item.member !== 'boolean' || typeof item.unprintable !== 'boolean' ||
-          typeof item.out_of_bounds !== 'boolean') return null;
-      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
-        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
-        plateId: item.plate_id, member: item.member, unprintable: item.unprintable,
-        outOfBounds: item.out_of_bounds,
-        ...(typeof item.parked === 'boolean' ? { parked: item.parked } : {}),
-      };
-    });
-    if (instances.some((instance) => instance === null)) return { ok: false, error: 'invalid plate session instances' };
-    result.instances = instances as NonNullable<typeof instances[number]>[];
-  }
   if (Array.isArray(value.instance_transforms)) {
     const transforms = value.instance_transforms.map((entry) => {
       if (!entry || typeof entry !== 'object') return null;
@@ -953,7 +951,6 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     savedCheckpoint: saved === null ? null : typeof saved === 'number' && Number.isSafeInteger(saved) ? saved : null,
     savedCheckpointEvicted: bool('savedCheckpointEvicted'), dirty: bool('dirty'),
     bytesUsed: integer('bytesUsed'), byteBudget: integer('byteBudget'), disabled: bool('disabled'),
-    optionalBytesReleased: integer('optionalBytesReleased'),
     evictedEntryCount: integer('evictedEntryCount'),
     lastEvictedEntryId: typeof value.lastEvictedEntryId === 'string' ? value.lastEvictedEntryId : null,
     oldestRetainedEntryId: typeof value.oldestRetainedEntryId === 'string' ? value.oldestRetainedEntryId : null,
@@ -991,25 +988,9 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   const impact = normalizeRestoreImpact(value.impact);
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
-  const primeTowerReceipt = normalizePrimeTowerRestoreReceipt(value.prime_tower_receipt, impact, value.narrow);
-  const transformReceipt = normalizeTransformRestoreReceipt(value.transform_receipt, impact, value.direct, value.narrow);
-  let instanceTransforms: import('./types').PlateSessionInstanceTransform[] | undefined;
-  if (Array.isArray(value.instance_transforms)) {
-    const transforms = value.instance_transforms.map((entry) => {
-      if (!entry || typeof entry !== 'object') return null;
-      const item = entry as Record<string, unknown>;
-      if (![item.instance_id, item.object_id].every((id) => Number.isSafeInteger(id) && (id as number) > 0) ||
-        ![item.object_index, item.instance_index].every((id) => Number.isSafeInteger(id) && (id as number) >= 0) ||
-        !item.world_transform || typeof item.world_transform !== 'object') return null;
-      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
-        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
-        worldTransform: item.world_transform as import('./types').ModelTransform };
-    });
-    if (transforms.some((transform) => transform === null)) return historyFailure(raw, 'invalid history instance transforms');
-    instanceTransforms = transforms as import('./types').PlateSessionInstanceTransform[];
-  }
   const context = normalizeHistoryContext(value.context);
-  if (!context) return historyFailure(raw, 'invalid history context');
+  if (!context || (impact.plateSession && !context.plateSession))
+    return historyFailure(raw, 'invalid history plate session context');
   return {
     ok: true,
     context,
@@ -1017,105 +998,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
     sceneDelta,
-    ...(primeTowerReceipt ? { primeTowerReceipt } : {}),
-    ...(transformReceipt ? { transformReceipt } : {}),
-    ...(instanceTransforms ? { instanceTransforms } : {}),
   };
-}
-
-/**
- * Normalize the adjacent Move receipt without weakening the full-restore
- * fallback. Native deliberately keeps the impact descriptor broad; only an
- * explicitly direct/narrow response with the complete receipt is eligible
- * for renderer-local projection. A same-session missing/incompatible receipt
- * is a safety fallback, not a cross-version compatibility path.
- */
-export function normalizeTransformRestoreReceipt(
-  raw: unknown,
-  impact: import('./history').RestoreImpact,
-  direct: unknown,
-  narrow: unknown,
-): import('./history').TransformRestoreReceipt | undefined {
-  if (direct !== true || narrow !== true || impact.model !== 'delta' || !impact.plateSession ||
-      !impact.projectOverlay || !impact.selectionContext || impact.filamentRack || impact.preview !== 'all' ||
-      !raw || typeof raw !== 'object') return undefined;
-  const value = raw as Record<string, unknown>;
-  if (value.version !== 1 || (value.state !== 'before' && value.state !== 'after') ||
-      !Number.isSafeInteger(value.before_revision) || (value.before_revision as number) < 0 ||
-      !Number.isSafeInteger(value.after_revision) || (value.after_revision as number) < 0 ||
-      (value.after_revision as number) !== (value.before_revision as number) + 1 ||
-      !Array.isArray(value.records) || value.records.length === 0) return undefined;
-  const finiteTuple = (entry: unknown, length: number): entry is number[] =>
-    Array.isArray(entry) && entry.length === length && entry.every((item) => typeof item === 'number' && Number.isFinite(item));
-  const normalizeTransform = (entry: unknown): import('./types').ModelTransform | undefined => {
-    if (!entry || typeof entry !== 'object') return undefined;
-    const transform = entry as Record<string, unknown>;
-    if (!finiteTuple(transform.offset, 3) || !finiteTuple(transform.rotation, 3) ||
-        !finiteTuple(transform.scale, 3) || !finiteTuple(transform.mirror, 3)) return undefined;
-    if (transform.matrix !== undefined && !finiteTuple(transform.matrix, 16)) return undefined;
-    return {
-      offset: [...transform.offset] as [number, number, number],
-      rotation: [...transform.rotation] as [number, number, number],
-      scale: [...transform.scale] as [number, number, number],
-      mirror: [...transform.mirror] as [number, number, number],
-      ...(transform.matrix !== undefined ? { matrix: [...transform.matrix] as import('./types').ModelTransform['matrix'] } : {}),
-    };
-  };
-  const seen = new Set<string>();
-  const records = value.records.map((entry) => {
-    if (!entry || typeof entry !== 'object') return null;
-    const item = entry as Record<string, unknown>;
-    const ids = [item.object_id, item.volume_id, item.instance_id];
-    const indexes = [item.object_index, item.volume_index, item.instance_index];
-    if (!ids.every((id) => Number.isSafeInteger(id) && (id as number) > 0) ||
-        !indexes.every((index) => Number.isSafeInteger(index) && (index as number) >= 0)) return null;
-    const key = `${item.object_index}:${item.volume_index}:${item.instance_index}`;
-    if (seen.has(key)) return null;
-    seen.add(key);
-    const instanceTransform = normalizeTransform(item.instance_transform);
-    const volumeTransform = normalizeTransform(item.volume_transform);
-    if (!instanceTransform || !volumeTransform) return null;
-    return {
-      objectId: item.object_id as number, volumeId: item.volume_id as number, instanceId: item.instance_id as number,
-      objectIndex: item.object_index as number, volumeIndex: item.volume_index as number, instanceIndex: item.instance_index as number,
-      instanceTransform, volumeTransform,
-    };
-  });
-  if (records.some((record) => record === null)) return undefined;
-  return {
-    version: 1, state: value.state, beforeRevision: value.before_revision as number,
-    afterRevision: value.after_revision as number, records: records as import('./history').TransformRestoreRecord[],
-  };
-}
-
-/**
- * Receipts are an optional acceleration contract. Invalid same-session data is
- * ignored so callers retain the authoritative projection fallback.
- */
-export function normalizePrimeTowerRestoreReceipt(
-  raw: unknown,
-  impact: import('./history').RestoreImpact,
-  narrow: unknown,
-): import('./history').PrimeTowerRestoreReceipt | undefined {
-  if (narrow !== true || impact.model !== 'none' || !impact.primeTower || !raw || typeof raw !== 'object') return undefined;
-  const value = raw as Record<string, unknown>;
-  if (value.version !== 1 || typeof value.plate_id !== 'string' || value.plate_id.length === 0 ||
-      !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return undefined;
-  if (value.state === 'cleared') {
-    return { version: 1, state: 'cleared', plateId: value.plate_id, revision: value.revision as number };
-  }
-  if (value.state !== 'available' || !value.position || typeof value.position !== 'object' ||
-      !value.footprint || typeof value.footprint !== 'object') return undefined;
-  const position = value.position as Record<string, unknown>;
-  const footprint = value.footprint as Record<string, unknown>;
-  const finite = (entry: unknown): entry is number => typeof entry === 'number' && Number.isFinite(entry);
-  if (![position.x, position.y, footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite) ||
-      (footprint.max_x as number) < (footprint.min_x as number) ||
-      (footprint.max_y as number) < (footprint.min_y as number)) return undefined;
-  return { version: 1, state: 'available', plateId: value.plate_id, revision: value.revision as number,
-    position: { x: position.x as number, y: position.y as number },
-    footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
-      minY: footprint.min_y as number, maxY: footprint.max_y as number } };
 }
 
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
@@ -2370,7 +2253,7 @@ export function createClient(
         offset, text: '', eof: true,
       };
       const actualOffset = Number(r.offset);
-      const byteLength = Number(r.bytes_length ?? r.length ?? 0);
+      const byteLength = Number(r.bytes_length);
       if (!Number.isSafeInteger(actualOffset) || actualOffset < 0 ||
           !Number.isSafeInteger(byteLength) || byteLength < 0 ||
           byteLength > PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES || !r.bytes_ptr)

@@ -8,6 +8,7 @@ import { emptyProjectConfigOverlay, useSettingsStore } from '../../stores/useSet
 import { applyPlateSessionResponse, applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
 
 const plateA: PlateSessionSnapshot = {
+  instances: [],
   ok: true,
   version: 1,
   currentPlateId: 'a',
@@ -44,6 +45,7 @@ describe('plate selection actions', () => {
 
     expect(clearSelection).toHaveBeenCalledOnce();
     expect(usePlateSessionStore.getState().snapshot).toMatchObject({
+      instances: [],
       currentPlateId: 'b', plates: plateA.plates, inputRevisions: plateA.inputRevisions,
     });
     expect(getPlateSessionSnapshot).not.toHaveBeenCalled();
@@ -76,6 +78,7 @@ describe('plate selection actions', () => {
     })).toBe(true);
 
     expect(usePlateSessionStore.getState().snapshot).toMatchObject({
+      instances: [],
       currentPlateId: 'a', inputRevisions: { a: 2, b: 1 },
       plates: [{ plateId: 'a' }, { plateId: 'b' }],
     });

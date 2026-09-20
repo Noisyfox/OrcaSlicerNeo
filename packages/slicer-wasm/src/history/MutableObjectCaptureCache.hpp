@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-#include "ProjectHistory.hpp"
+#include "ModelState.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 
 namespace Slic3r::Neo::History::Codec {

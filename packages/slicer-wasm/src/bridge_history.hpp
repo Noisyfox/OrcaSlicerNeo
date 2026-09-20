@@ -72,7 +72,7 @@ bool prime_model_capture_cache(const Model& model, const ModelState& roots,
 // Reconstruct a transient model from a retained history state. model_template
 // supplies the non-history model defaults needed while materializing a fresh
 // object graph; it is never accessed through bridge-global state.
-Model stage_model(const Model& model_template, const RestoreState& restored,
+Model stage_model(const Model& model_template, const ModelState& restored,
                   RestoreTimings* timings = nullptr, const ModelState* live_roots = nullptr);
 
 bool model_state_equal(const ModelState& lhs, const ModelState& rhs);

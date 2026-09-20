@@ -7,6 +7,7 @@ import { commitOptionFieldChange } from './OptionField';
 import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 
 const mutation = {
+  instances: [],
   ok: true as const,
   version: 1 as const,
   currentPlateId: 'plate-1',

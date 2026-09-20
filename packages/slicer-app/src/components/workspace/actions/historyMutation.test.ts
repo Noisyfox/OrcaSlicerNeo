@@ -12,7 +12,7 @@ import { acquireProjectMutationLease } from '../../../history/projectMutationGat
 const status: HistoryStatus = {
   canUndo: true, canRedo: false, undoLabel: 'Delete', undoEntries: [], redoEntries: [],
   cursor: 1, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
-  bytesUsed: 1, byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+  bytesUsed: 1, byteBudget: 10, evictedEntryCount: 0,
   lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
   disabled: false, activeTransactionId: null, revision: 2,
 };
@@ -39,6 +39,7 @@ function transactionRuntime() {
     getFilamentSessionSnapshot,
     getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
     getPlateSessionSnapshot: vi.fn(async () => ({
+      instances: [],
       ok: true as const,
       version: 1 as const,
       currentPlateId: 'plate-a',
@@ -55,6 +56,7 @@ describe('structural history transaction boundary', () => {
       projection: { objectIds: new Set([42]), volumeIds: new Set(), instanceIds: new Set() },
     });
     usePlateSessionStore.getState().setSnapshot({
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-a', plates: [{ plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
     });
     useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
@@ -135,7 +137,7 @@ describe('structural history transaction boundary', () => {
       getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false, dirtyReasons: undefined })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
       getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
-      getPlateSessionSnapshot: vi.fn(async () => ({ ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
+      getPlateSessionSnapshot: vi.fn(async () => ({ instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
 
@@ -168,6 +170,7 @@ describe('structural history transaction boundary', () => {
         }],
       }),
       getPlateSessionSnapshot: async () => ({
+        instances: [],
         ok: true as const, version: 1 as const, currentPlateId: 'plate-b',
         plates: [{ plateId: 'plate-b', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], name: 'Plate 2' }],
       }),
@@ -262,7 +265,7 @@ describe('structural history transaction boundary', () => {
           revisions: { session: 4, project: 4, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
       }),
       getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
-      getPlateSessionSnapshot: vi.fn(async () => ({ ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
+      getPlateSessionSnapshot: vi.fn(async () => ({ instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     await runProjectHistoryMutation(failure, 'Rename Object', async () => ({ ok: true }));
     expect(failurePending).toEqual([1]);

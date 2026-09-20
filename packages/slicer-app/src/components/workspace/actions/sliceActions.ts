@@ -77,8 +77,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   usePlateSessionStore.getState().setSnapshot(session);
   const current = session.plates.find((plate) => plate.plateId === session.currentPlateId);
   const revision = session.inputRevisions?.[session.currentPlateId];
-  const membershipKnown = current?.instanceIds !== undefined || session.instances !== undefined;
-  if (!current || current.valid === false || (membershipKnown && !(current.instanceIds?.length)) ||
+  if (!current || current.valid === false || !(current.instanceIds?.length) ||
       !Number.isSafeInteger(revision)) {
     setFailure(current?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
     return;

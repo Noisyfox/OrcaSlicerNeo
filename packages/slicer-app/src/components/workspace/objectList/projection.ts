@@ -84,12 +84,6 @@ export function projectObjectGroups(
     (target ?? unprintable).objects.push(object);
   }
   if (unprintable.objects.length > 0) groups.push(unprintable);
-  // A legacy/mock snapshot may not carry membership yet. Keep the list
-  // usable without inventing a plate assignment; such objects are unprintable
-  // until the authoritative snapshot arrives.
-  if (groups.length === 0 && structure.length > 0) {
-    groups.push(unprintable);
-  }
   return groups;
 }
 

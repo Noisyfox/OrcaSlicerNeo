@@ -82,10 +82,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.
       hydrateProfileSnapshot(r);
-      if (typeof platform.runtime.revalidateProjectConfigOverlay === 'function') {
-        const revalidated = await platform.runtime.revalidateProjectConfigOverlay();
-        if (revalidated.ok) setOverlay(revalidated.overlay);
-      }
+      const revalidated = await platform.runtime.revalidateProjectConfigOverlay();
+      if (revalidated.ok) setOverlay(revalidated.overlay);
       // The result belongs to the old profile combination. One action clears
       // export, toolpath-layer state, progress, and completed status together.
       invalidateAfterSharedConfigurationMutation();

@@ -96,7 +96,6 @@ export interface MenuProjectState {
     message?: string;
     cancellable: boolean;
   };
-  flattenedMultiPlate: boolean;
 }
 
 /** Shared-app-to-host menu synchronization and host command boundary. */

@@ -83,6 +83,7 @@ describe('syncModelTransforms', () => {
   it('recomputes membership once after the complete global transform snapshot', async () => {
     const setModelTransform = vi.fn().mockResolvedValue({ ok: true });
     const recomputePlateMembership = vi.fn().mockResolvedValue({
+      instances: [],
       ok: true,
       version: 1,
       currentPlateId: 'plate-1',

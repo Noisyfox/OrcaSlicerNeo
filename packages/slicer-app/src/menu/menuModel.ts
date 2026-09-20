@@ -87,7 +87,6 @@ export function deriveMenuItemStates(
     hasContent: snapshot.scene.hasModel,
     dirty: false,
     operation: { phase: 'idle' as const, progress: 0, cancellable: false },
-    flattenedMultiPlate: false,
   };
   const ready = snapshot.boot.phase === 'ready';
   const slicing = snapshot.slicer.status === 'slicing';
@@ -136,7 +135,6 @@ export function buildMenuStateSnapshot(
     hasContent: snapshot.scene.hasModel,
     dirty: false,
     operation: { phase: 'idle' as const, progress: 0, cancellable: false },
-    flattenedMultiPlate: false,
   };
   return {
     ...snapshot,

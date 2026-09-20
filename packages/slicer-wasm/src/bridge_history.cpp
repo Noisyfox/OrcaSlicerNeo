@@ -313,7 +313,7 @@ json restore_timestamped_result(const Runtime& runtime,
     const bool model_matches_target = Neo::History::Codec::model_state_equal(live_model_state, restored.roots.model);
     Model staged_model = model_matches_target
         ? Model(state().model)
-        : Neo::History::Codec::stage_model(state().model, {restored.roots.model, {}, {}}, &restore_timings,
+        : Neo::History::Codec::stage_model(state().model, restored.roots.model, &restore_timings,
                                           &live_model_state);
     const json plate_session = bytes_json(restored.roots.session.plate_session);
     auto staged_plates = build_history_plate_session(plate_session, staged_model);
@@ -817,7 +817,7 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
     result.immutable_meshes.reserve(native_meshes_by_key.size());
     for (auto& [key, mesh] : native_meshes_by_key) {
         const std::size_t native_bytes = mesh ? mesh->memsize() : 0;
-        result.immutable_meshes.push_back({std::move(key), {}, {}, false, std::move(mesh), native_bytes});
+        result.immutable_meshes.push_back({std::move(key), std::move(mesh), native_bytes});
     }
     if (timings) {
         timings->immutable_mesh_retention_ms += Neo::Bridge::Performance::now_ms() - immutable_result_started_at;
@@ -826,24 +826,14 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
     return result;
 }
 
-Model stage_model(const Model& model_template, const RestoreState& restored,
+Model stage_model(const Model& model_template, const ModelState& restored,
                   RestoreTimings* timings, const ModelState* live_roots)
 {
     NeoHistoryArchiveContext archive_context;
     const double mesh_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
-    for (const auto& mesh : restored.model.immutable_meshes) {
-        if (mesh.native) {
-            archive_context.input_meshes.emplace(mesh.key, mesh.native);
-            continue;
-        }
-        const auto& encoded = mesh.resident ? *mesh.resident : (mesh.deferred ? *mesh.deferred : Bytes{});
-        if (encoded.empty()) throw std::runtime_error("history mesh data is unavailable");
-        std::string bytes(encoded.begin(), encoded.end());
-        std::istringstream stream(bytes, std::ios::binary | std::ios::in);
-        auto native_mesh = std::make_shared<TriangleMesh>();
-        cereal::BinaryInputArchive archive(stream);
-        archive(*native_mesh);
-        archive_context.input_meshes.emplace(mesh.key, std::move(native_mesh));
+    for (const auto& mesh : restored.immutable_meshes) {
+        if (!mesh.native) throw std::runtime_error("history mesh data is unavailable");
+        archive_context.input_meshes.emplace(mesh.key, mesh.native);
     }
     if (timings)
         timings->immutable_mesh_reconnect_ms += Neo::Bridge::Performance::now_ms() - mesh_started_at;
@@ -865,7 +855,7 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
         reusable_objects.emplace(object->id().id, object);
     std::vector<ModelObject*> restored_order;
     InstanceIdentityGraph instance_identity_graph;
-    for (const auto& object : restored.model.mutable_objects) {
+    for (const auto& object : restored.mutable_objects) {
         // Shared archive identity proves all non-transform mutable fields are
         // unchanged. Reuse the native graph without decoding painting or
         // rebuilding its volumes; overlays remain the authoritative matrices.
@@ -990,17 +980,12 @@ bool model_state_equal(const ModelState& lhs, const ModelState& rhs)
     for (std::size_t index = 0; index < lhs.immutable_meshes.size(); ++index) {
         const auto& left = lhs.immutable_meshes[index];
         const auto& right = rhs.immutable_meshes[index];
-        const auto bytes_equal = [](const auto& a, const auto& b) {
-            return (!a && !b) || (a && b && *a == *b);
-        };
         const auto native_equal = [](const auto& a, const auto& b) {
             if (!a || !b) return bool(a) == bool(b);
             std::owner_less<std::shared_ptr<const TriangleMesh>> less;
             return !less(a, b) && !less(b, a);
         };
-        if (left.key != right.key || left.optional != right.optional ||
-            !bytes_equal(left.resident, right.resident) || !bytes_equal(left.deferred, right.deferred))
-            return false;
+        if (left.key != right.key) return false;
         if (!native_equal(left.native, right.native)) return false;
         if (left.native_bytes != right.native_bytes) return false;
     }
@@ -1201,7 +1186,6 @@ json history_status_json(const BridgeState& state)
         {"savedCheckpointEvicted", state.history.saved_checkpoint_evicted()},
         {"dirty", state.history.project_modified()},
         {"bytesUsed", state.history.bytes_used()}, {"byteBudget", state.history.byte_budget()},
-        {"optionalBytesReleased", resources.optional_bytes_released},
         {"evictedEntryCount", resources.evicted_timestamp_count},
         {"lastEvictedEntryId", resources.last_evicted_timestamp == 0
             ? json(nullptr) : json(std::string("ts-") + std::to_string(resources.last_evicted_timestamp))},

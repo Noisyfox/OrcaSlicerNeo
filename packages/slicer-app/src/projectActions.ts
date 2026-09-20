@@ -28,8 +28,6 @@ export interface ProjectActionOptions {
   /** Explicit acceptance after the closed-session project load reports warnings. */
   confirmProjectLoad?: (load: ProjectLoadResult) => Promise<boolean> | boolean;
   decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
-  /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
-  confirmFlattenedSave?: () => Promise<boolean> | boolean;
   signal?: AbortSignal;
   /** Renderer cleanup hook used after a successful New Project runtime reset. */
   sceneResetTarget?: SceneResetTarget | null;
@@ -128,9 +126,7 @@ async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 
   const decision = await options.decideDirty?.(operationName, input) ?? 'cancel';
   if (decision === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; }
   if (decision === 'dont-save') return null;
-  if (useProjectStore.getState().flattenedMultiPlate && options.confirmFlattenedSave) {
-    if (!await options.confirmFlattenedSave()) { setOperation('cancelled'); return { status: 'cancelled' }; }
-  }
+
   const saved = await saveProject(platform);
   return saved.status === 'ok' ? null : saved;
 }
@@ -206,7 +202,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
             useProjectStore.getState().recordPlateMutation(published.plateSession);
           }
           else useProjectStore.getState().markDirty('model-import');
-          useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
+          useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, scope: existing.scope });
           useSettingsStore.getState().setModelLoaded(true);
         },
       },
@@ -273,7 +269,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     useSettingsStore.getState().setOverlay(load.projectConfigOverlay ?? emptyProjectConfigOverlay());
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtime);
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false });
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
     setOperation('completed', 100);
     return {
       status: 'ok',

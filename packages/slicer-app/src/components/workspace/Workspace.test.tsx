@@ -42,6 +42,7 @@ const platform = {
 } as unknown as PlatformCapabilities;
 
 const twoPlateSnapshot: PlateSessionSnapshot = {
+  instances: [],
   ok: true,
   version: 1,
   currentPlateId: 'plate-a',
@@ -212,7 +213,7 @@ describe('Workspace ownership', () => {
     const restore = {
       ok: true as const,
       context: { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: 'plate-a', gizmo: null, projectConfigOverlay: {}, plateSession: twoPlateSnapshot },
-      status: { canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0, byteBudget: 1, optionalBytesReleased: 0, evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false, disabled: false, activeTransactionId: null, revision: 1 },
+      status: { canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0, byteBudget: 1, evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false, disabled: false, activeTransactionId: null, revision: 1 },
       sceneDelta: { version: 1 as const, objectIds: [], volumeIds: [], instanceIds: [], plateIds: ['plate-a', 'plate-b'], objectOrder: [] },
       impact: { version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: false, projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const },
     };
@@ -251,7 +252,7 @@ describe('Workspace ownership', () => {
     expect(runtime.getPlateSessionSnapshot).toHaveBeenCalledTimes(plateReadsBeforeRestore);
     expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(projectionReadsBeforeRestore + 1);
     expect(useHistoryDiagnosticsStore.getState().app).toMatchObject({
-      directRestore: { count: 1 }, projection: { count: 1 }, directPrimeTowerModelReloads: 0,
+      directRestore: { count: 1 }, projection: { count: 1 },
     });
   });
 

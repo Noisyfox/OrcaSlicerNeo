@@ -47,8 +47,8 @@ describe('Preview multi-plate scene projection', () => {
     expect(ends).toEqual(endsBefore);
   });
 
-  it('keeps legacy snapshots renderable when membership rows are absent', () => {
+  it('hides models until authoritative plate membership is available', () => {
     const volumes = [volume(0, 0), volume(0, 1)];
-    expect(previewVolumesForCurrentPlate(volumes, snapshot({ instances: undefined }))).toEqual(volumes);
+    expect(previewVolumesForCurrentPlate(volumes, null)).toEqual([]);
   });
 });

@@ -86,6 +86,7 @@ describe('useSliceResult', () => {
     const runtime = { getSliceResult: vi.fn() };
     const platform = { runtime, chrome: { kind: 'desktop' } } as unknown as PlatformCapabilities;
     usePlateSessionStore.getState().setSnapshot({
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-2',
       plates: [{ plateId: 'plate-2', displayIndex: 1, origin: [250, 0, 0], name: 'Plate 2' }],
       inputRevisions: { 'plate-2': 0 },
@@ -104,6 +105,7 @@ describe('useSliceResult', () => {
     const runtime = { getSliceResult: vi.fn(async () => arcSliceResult()) };
     const platform = { runtime, chrome: { kind: 'desktop' } } as unknown as PlatformCapabilities;
     usePlateSessionStore.getState().setSnapshot({
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-1',
       plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
       inputRevisions: { 'plate-1': 1 },
@@ -169,6 +171,7 @@ describe('useSliceResult', () => {
     } as unknown as PlatformCapabilities;
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     usePlateSessionStore.getState().setSnapshot({
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-1',
       plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
       inputRevisions: { 'plate-1': 1 },
@@ -205,6 +208,7 @@ describe('useSliceResult', () => {
     } as unknown as PlatformCapabilities;
     const onToolpath = vi.fn<(toolpath: ToolpathGeometry) => void>();
     usePlateSessionStore.getState().setSnapshot({
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-1',
       plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
       inputRevisions: { 'plate-1': 1 },
@@ -251,6 +255,7 @@ describe('useSliceResult', () => {
     const platform = { runtime, chrome: { kind: 'desktop' } } as unknown as PlatformCapabilities;
     const onToolpath = vi.fn<(toolpath: ToolpathGeometry) => void>();
     const plate = (currentPlateId: string) => ({
+      instances: [],
       ok: true as const, version: 1 as const, currentPlateId,
       plates: [
         { plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0] as const, name: 'Plate 1' },

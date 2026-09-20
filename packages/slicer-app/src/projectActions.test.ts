@@ -18,6 +18,7 @@ const snapshot: ProfileSnapshot = {
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
 };
 const freshPlateSession: PlateSessionMutation = {
+  instances: [],
   ok: true,
   version: 1,
   currentPlateId: 'new-plate-1',
@@ -341,7 +342,7 @@ describe('transactional project actions', () => {
     expect(resetForModel).toHaveBeenCalledOnce();
     expect(useSettingsStore.getState()).toMatchObject({ modelLoaded: false, values: {} });
     expect(useSlicerStore.getState()).toMatchObject({ status: 'idle', resultExported: false, sliceTarget: null, plateResults: {} });
-    expect(usePlateSessionStore.getState().snapshot).toMatchObject({ currentPlateId: 'new-plate-1', plates: [{ plateId: 'new-plate-1' }] });
+    expect(usePlateSessionStore.getState().snapshot).toMatchObject({ instances: [], currentPlateId: 'new-plate-1', plates: [{ plateId: 'new-plate-1' }] });
   });
 
   it('does not clear the renderer projection when runtime New fails', async () => {
@@ -462,7 +463,6 @@ describe('transactional project actions', () => {
     const first = { displayName: 'project.3mf', bytes: new Uint8Array([1]), location: {} as ProjectInput['location'] };
     const result = await openProjectInputs(platform, [first, { displayName: 'part.stl', bytes: new Uint8Array([2]) }], { loadBehaviour: 'load_all' });
     expect(result.status).toBe('ok');
-    expect(useProjectStore.getState().flattenedMultiPlate).toBe(false);
     expect(useProjectStore.getState().notices.some((notice) => notice.kind === 'multi-plate')).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ function historyStatus(revision: number, dirty = true): HistoryStatus {
   return {
     canUndo: dirty, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
     savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
-    byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+    byteBudget: 10, evictedEntryCount: 0,
     lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
     disabled: false, activeTransactionId: null, revision,
   };
@@ -94,6 +94,7 @@ describe('filament session store lifecycle', () => {
       revisions: { session: 2, project: 2, result: 0, plates: { 'plate-a': 2, 'plate-b': 1 } },
     };
     const plateSession: PlateSessionSnapshot = {
+      instances: [],
       ok: true, version: 1, currentPlateId: 'plate-a',
       plates: [
         { plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate A' },

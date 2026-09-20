@@ -13,9 +13,9 @@ const context: HistoryContext = {
   activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
 };
 const status: HistoryStatus = {
+  bytesUsed: 0, byteBudget: 256 * 1024 * 1024,
   canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
   savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false,
-  bytesUsed: 0, byteBudget: 256 * 1024 * 1024, optionalBytesReleased: 0,
   evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0',
   oversizedEntryRetained: false, disabled: false,
   activeTransactionId: null, revision: 1,
@@ -222,7 +222,6 @@ describe('history restore coordinator', () => {
     expect(diagnostics.directRestore.count).toBe(1);
     expect(diagnostics.fullRestore.count).toBe(0);
     expect(diagnostics.projection.count).toBe(1);
-    expect(diagnostics.directPrimeTowerModelReloads).toBe(0);
     expect(diagnostics.fullRestoreModelReloads).toBe(0);
 
     await expect(coordinator.restore('redo')).resolves.toBe(true);
@@ -243,24 +242,6 @@ describe('history restore coordinator', () => {
     await expect(coordinator.restore('undo')).resolves.toBe(true);
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
     expect(useHistoryRestoreStore.getState().error).toBeNull();
-  });
-
-  it('passes a narrow Prime Tower receipt through without publishing a filament rack', async () => {
-    const narrow: RestoreResult = { ok: true, context, status, sceneDelta, impact: {
-      version: 1, model: 'none', plateSession: true, filamentRack: false,
-      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate',
-    }, primeTowerReceipt: { version: 1, state: 'available', plateId: 'plate-1', revision: 7,
-      position: { x: 12, y: 34 }, footprint: { minX: 12, maxX: 32, minY: 34, maxY: 50 } } };
-    const refreshModel = vi.fn(async () => undefined);
-    const publishRestoredFilamentRack = vi.fn(async () => undefined);
-    const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => narrow), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
-      sceneInteraction: fakeScene(), refreshModel, publishRestoredFilamentRack,
-    });
-    await expect(coordinator.restore('undo')).resolves.toBe(true);
-    if (!narrow.ok) throw new Error('expected successful restore fixture');
-    expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, sceneDelta, expect.any(Number));
-    expect(publishRestoredFilamentRack).not.toHaveBeenCalled();
   });
 
   it('executes every rapid same-direction intent serially instead of joining or dropping it', async () => {

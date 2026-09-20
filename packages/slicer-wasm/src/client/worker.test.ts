@@ -332,7 +332,7 @@ describe('worker protocol', () => {
     expect(workerClient.getHistoryDiagnostics().worker.directRestore).toMatchObject({ count: 2, lastMs: 1 });
   });
 
-  it('round-trips a direct Prime Tower restore receipt without an all-plate projection read', async () => {
+  it('round-trips a Prime Tower restore through the current SceneDelta contract', async () => {
     const module = createMockModule({ primeTowerFixture: true });
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);
@@ -346,11 +346,12 @@ describe('worker protocol', () => {
     const restored = await workerClient.undoHistory();
     expect(restored.ok).toBe(true);
     if (!restored.ok) return;
-    expect(restored.primeTowerReceipt).toMatchObject({
-      version: 1, state: 'available', plateId, revision: 0,
-      position: { x: 30, y: 40 }, footprint: { minX: 27, maxX: 57, minY: 37, maxY: 77 },
-    });
+    expect(restored.impact).toMatchObject({ model: 'delta', preview: 'all' });
+    expect(restored.context.plateSession?.currentPlateId).toBe(plateId);
+    const restoredProjection = await workerClient.getPrimeTowerProjection();
+    if (!restoredProjection.ok) throw new Error(restoredProjection.error);
+    expect(restoredProjection.plates[0]?.position).toEqual({ x: 30, y: 40 });
     const diagnostics = workerClient.getHistoryDiagnostics();
-    expect(diagnostics.worker.reads?.primeTowerProjection.count).toBe(1);
+    expect(diagnostics.worker.reads?.primeTowerProjection.count).toBe(2);
   });
 });

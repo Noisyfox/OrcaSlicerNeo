@@ -402,10 +402,8 @@ export function Workspace({
           recordProjection: _projection, recordPrimeTowerProjectionRead: _projectionRead,
           recordPrimeTowerSetProjection: _setProjection, recordPrimeTowerReconcile: _reconcile,
           recordPrimeTowerEmit: _emit, recordPlateSessionSnapshot: _plateSession,
-          recordPlateSessionTransforms: _plateTransforms, recordTransformReceiptApplication: _receiptApplication,
+          recordPlateSessionTransforms: _plateTransforms,
           recordSelectionRestore: _selectionRestore,
-          recordTransformReceiptProofFailure: _proofFailure,
-          recordTransformReceipt: _transformReceipt,
           setTransport: _transport, reset: _reset, ...snapshot } = useHistoryDiagnosticsStore.getState();
         return snapshot;
       },

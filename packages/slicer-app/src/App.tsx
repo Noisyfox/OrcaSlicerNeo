@@ -76,7 +76,6 @@ export default function App() {
     hasContent: s.hasContent,
     dirty: s.dirty,
     scope: s.scope,
-    flattenedMultiPlate: s.flattenedMultiPlate,
     notices: s.notices,
     operation: s.operation,
   })));
@@ -84,7 +83,7 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
-  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | 'project-confirm' | null>(null);
+  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'notice' | 'project-confirm' | null>(null);
   const [loadInput, setLoadInput] = useState<ProjectInput | null>(null);
   const [dirtyOperation, setDirtyOperation] = useState<'new' | 'open' | 'close'>('open');
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
@@ -92,7 +91,6 @@ export default function App() {
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectLoadResult | null>(null);
   const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
   const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
-  const flattenResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const projectConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
   // The receipt comes from the same action that has applied the native result,
   // reset history, and published the project session. Production UI does not
@@ -162,9 +160,6 @@ export default function App() {
   const decideDirty = useCallback((operation: 'new' | 'open' | 'close') => new Promise<DirtyProjectDecision>((resolve) => {
     setDirtyOperation(operation); dirtyResolver.current = resolve; setDialog('dirty');
   }), []);
-  const confirmFlatten = useCallback(() => new Promise<boolean>((resolve) => {
-    flattenResolver.current = resolve; setDialog('flatten');
-  }), []);
   const confirmProjectLoad = useCallback((load: ProjectLoadResult) => new Promise<boolean>((resolve) => {
     setProjectConfirmation(load);
     projectConfirmationResolver.current = resolve;
@@ -178,43 +173,34 @@ export default function App() {
     }
   }, [setError]);
   const runNewProject = useCallback(async () => {
-    const result = await newProject(platform, { decideDirty, confirmFlattenedSave: confirmFlatten, sceneResetTarget: sceneInteractionRef.current });
+    const result = await newProject(platform, { decideDirty, sceneResetTarget: sceneInteractionRef.current });
     reportProjectFailure(result);
     if (result.status === 'ok') setActiveTab('prepare');
-  }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [decideDirty, platform, reportProjectFailure]);
   const runOpenProject = useCallback(async () => {
     projectLoadReceiptRef.current = null;
-    const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
+    const result = await openProject(platform, { chooseLoad, decideDirty, confirmProjectLoad });
     if (result.status === 'ok' && result.loadReceipt) projectLoadReceiptRef.current = result.loadReceipt;
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
-  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
     let allow = true;
     if (await projectDirtyStatus(platform)) {
       const decision = await decideDirty('close');
       if (decision === 'cancel') allow = false;
       else if (decision === 'save') {
-        if (useProjectStore.getState().flattenedMultiPlate && !(await confirmFlatten())) {
-          allow = false;
-        } else {
-          const result = await saveProject(platform);
-          reportProjectFailure(result);
-          allow = result.status === 'ok';
-        }
+        const result = await saveProject(platform);
+        reportProjectFailure(result);
+        allow = result.status === 'ok';
       }
     }
     await platform.lifecycle?.respondClose(allow);
-  }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [decideDirty, platform, reportProjectFailure]);
   const runSaveProject = useCallback(async (asCopy = false) => {
-    if (projectState.flattenedMultiPlate) {
-      setDialog(null);
-      const confirmed = await confirmFlatten();
-      if (!confirmed) return;
-    }
     const result = asCopy ? await saveProjectAs(platform) : await saveProject(platform);
     reportProjectFailure(result);
-  }, [confirmFlatten, platform, projectState.flattenedMultiPlate, reportProjectFailure]);
+  }, [platform, reportProjectFailure]);
   const openPreferences = useCallback(async () => {
     try { setPreferences(await platform.preferences.load()); } catch { setPreferences(null); }
     setDialog('preferences');
@@ -239,7 +225,6 @@ export default function App() {
     project: {
       hasContent: projectState.hasContent,
       dirty: projectState.dirty,
-      flattenedMultiPlate: projectState.flattenedMultiPlate,
       operation: {
         phase: projectState.operation.phase,
         progress: projectState.operation.progress / 100,
@@ -514,13 +499,13 @@ export default function App() {
           }))) };
       if (dropped.status === 'cancelled') return;
       if (dropped.status === 'failed') { reportProjectFailure(dropped); return; }
-       const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
+       const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmProjectLoad });
       reportProjectFailure(result);
       if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
     } catch (error) {
       reportProjectFailure({ status: 'failed', error });
     }
-  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const handleDroppedModelFiles = useCallback(async (files: File[]) => {
     try {
       await addDroppedModels(platform, sceneInteractionRef.current, () => Promise.all(files.map(async (file) => ({
@@ -616,13 +601,6 @@ export default function App() {
         open={dialog === 'notice' && notices.length > 0}
         notices={notices}
         onClose={() => { setDialog(null); setExtraNotice(null); }}
-      />
-      <ProjectNoticeDialog
-        notices={projectState.flattenedMultiPlate && dialog === 'flatten' ? [{ kind: 'multi-plate', message: 'This project contains multiple plates. Saving will flatten it into a single-plate project.' }] : []}
-        title="Flatten project before saving?"
-        testId="project-flatten-dialog"
-        onClose={() => { flattenResolver.current?.(false); flattenResolver.current = null; setDialog(null); }}
-        onContinue={() => { flattenResolver.current?.(true); flattenResolver.current = null; setDialog(null); }}
       />
       <ProjectProgressDialog
         operation={projectState.operation}

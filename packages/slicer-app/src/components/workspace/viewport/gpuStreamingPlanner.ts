@@ -82,8 +82,6 @@ export interface GpuStreamingPage {
   readonly oversized: boolean;
   /** True when this page is one piece of a layer split by hard capacity. */
   readonly oversizedLayer: boolean;
-  readonly atlasWidth: number;
-  readonly atlasHeight: number;
   readonly atlasTexelCount: number;
   /** Physical geometry atlas dimensions for the three float texels/segment. */
   readonly geometryAtlasWidth: number;
@@ -474,9 +472,6 @@ function makePage(
     lastLayer,
     oversized,
     oversizedLayer,
-    // atlasWidth/Height remain the geometry atlas compatibility aliases.
-    atlasWidth: geometryAtlasWidth,
-    atlasHeight: geometryAtlasHeight,
     atlasTexelCount,
     geometryAtlasWidth,
     geometryAtlasHeight,

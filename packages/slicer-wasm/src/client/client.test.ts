@@ -325,7 +325,7 @@ describe('SlicerClient bridge contract', () => {
     const receipt = (revision = 1, dirty = true) => ({
       canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
       savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
-      byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+      byteBudget: 10, evictedEntryCount: 0,
       lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
       disabled: false, activeTransactionId: null, revision,
     });
@@ -527,6 +527,7 @@ describe('SlicerClient bridge contract', () => {
     if (!first.ok) throw new Error(first.error);
     expect(first.plates).toEqual([{
       plateId: first.currentPlateId,
+      instanceIds: [], outOfBoundsInstanceIds: [], valid: true,
       displayIndex: 0,
       origin: [0, 0, 0],
       name: 'Plate 1',
@@ -580,7 +581,11 @@ describe('SlicerClient bridge contract', () => {
     expect(recomputed.instanceTransforms).toEqual([]);
   });
 
-  it('rejects malformed opaque plate metadata instead of silently dropping it', async () => {
+  it.each([
+    ['malformed opaque metadata', (payload: Record<string, any>) => { payload.plates[0].opaque_metadata = [{ key: 'future-key', value: 42 }]; }],
+    ['missing membership', (payload: Record<string, any>) => { delete payload.instances; }],
+    ['invalid membership', (payload: Record<string, any>) => { payload.instances = {}; }],
+  ] as const)('rejects %s instead of projecting an incomplete plate session', async (_label, corrupt) => {
     const module = createMockModule();
     const originalCall = module.ccall;
     module.ccall = (name, ret, argTypes, args) => {
@@ -588,7 +593,7 @@ describe('SlicerClient bridge contract', () => {
       if (name !== 'orc_get_plate_session_snapshot') return pointer;
       const payload = JSON.parse(module.UTF8ToString(Number(pointer))) as Record<string, any>;
       module._free(Number(pointer));
-      payload.plates[0].opaque_metadata = [{ key: 'future-key', value: 42 }];
+      corrupt(payload);
       const bytes = new TextEncoder().encode(JSON.stringify(payload));
       const replacement = module._malloc(bytes.byteLength + 1);
       module.HEAPU8.set(bytes, replacement);
