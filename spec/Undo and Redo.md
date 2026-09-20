@@ -109,11 +109,12 @@ future new projects. The rack preference is not itself part of history and no
 other global preference is changed. See
 [`Multi-Filament Support.md`](Multi-Filament%20Support.md#103-per-printer-remembered-rack).
 
-Project-owned overrides are canonical Worker `ProjectConfigOverlay` state,
-scoped to the project, object, part, or plate as applicable. They are validated
-against the selected base preset, participate in slicing and supported 3MF
-project persistence, and are restored by history. A system preset switch
-changes the base configuration but does not discard a valid project overlay.
+Native Project, Plate, `ModelObject`, and `ModelVolume` configuration are the
+canonical scoped configuration owners. The Worker publishes a disposable snapshot
+to React, never an additional overlay state root. Local native values are
+validated against the selected base preset, participate in slicing and supported
+3MF project persistence, and are restored by history. A system preset switch
+changes the base configuration but does not discard a representable local value.
 
 ## 5. History Granularity
 
@@ -493,13 +494,13 @@ scope.
   ID-less-upstream `ModelInstance` archive. New identities continue to be
   allocated only by native construction APIs; no sidecar ID namespace or new
   global generator is introduced.
-- The object graph has two additional Worker-owned roots. `PlateSession`
-  contains plate topology, membership, and plate-scoped configuration; the
-  project-scoped portion of `ProjectConfigOverlay` is a Neo-specific third
-  root. Object and part overrides belong to `Model`, while plate overrides
-  belong to `PlateSession`, so no scope is serialized twice. The project root
-  is intentionally history-tracked even though Orca keeps its `PresetBundle`
-  project configuration outside `UndoRedo`; preset selection remains outside.
+- The object graph has native configuration roots: `Model` owns object and part
+  configuration, `PlateSession` owns plate configuration, and the native Project
+  config is its own exact history root. The Worker-to-React scoped snapshot is a
+  projection, not a serialized root, so no scope is serialized twice. The Project
+  root is intentionally history-tracked even though Orca keeps its
+  `PresetBundle` project configuration outside `UndoRedo`; preset selection
+  remains outside.
 - An outer transaction captures its predecessor before the first model write.
   It commits one named snapshot and leaves the resulting topmost state
   unarchived. The first Undo captures that topmost state only when required as

@@ -20,16 +20,16 @@ function callJson(name, types = [], args = []) {
 }
 function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
 function setProject(key, value) {
-  return callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
+  return callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
 }
 function arrays() {
-  const overlay = callJson('orc_get_project_config_overlay');
-  assert.equal(overlay.ok, true, JSON.stringify(overlay));
+  const snapshot = callJson('orc_get_native_scoped_config');
+  assert.equal(snapshot.ok, true, JSON.stringify(snapshot));
   const projection = callJson('orc_get_prime_tower_projection');
   const values = Object.fromEntries([['wipe_tower_x', 'x'], ['wipe_tower_y', 'y']].map(([key, axis]) => [key,
-    (overlay.overlay.project[key] ?? String(projection.plates[0].position[axis])).split(',').map(Number)]));
+    (snapshot.native_scoped_config.project[key] ?? String(projection.plates[0].position[axis])).split(',').map(Number)]));
   assert.ok(Object.values(values).every((items) => items.length > 0 && items.every(Number.isFinite)),
-    JSON.stringify({ overlay, projection, values }));
+    JSON.stringify({ snapshot, projection, values }));
   return values;
 }
 function assertNoPlateCoordinates() {
@@ -40,12 +40,12 @@ function assertNoPlateCoordinates() {
 }
 function transaction(label, edit) {
   const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-    activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+    activePlateId: null, gizmo: null, nativeScopedConfig: {} };
   const begun = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], [label, 'project', JSON.stringify(context), '']);
   assert.equal(begun.ok, true, JSON.stringify(begun));
   const result = edit();
   assert.equal(result.ok, true, JSON.stringify(result));
-  context.projectConfigOverlay = callJson('orc_get_project_config_overlay').overlay;
+  context.nativeScopedConfig = callJson('orc_get_native_scoped_config').native_scoped_config;
   const committed = callJson('orc_history_commit', ['string', 'string'], [begun.transactionId, JSON.stringify(context)]);
   assert.equal(committed.canUndo, true, JSON.stringify(committed));
   return committed;

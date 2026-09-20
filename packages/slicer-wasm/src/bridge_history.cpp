@@ -23,7 +23,7 @@
 #include "bridge_performance.hpp"
 #include "bridge_filament.hpp"
 #include "bridge_plate.hpp"
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "history/InstanceIdentity.hpp"
@@ -54,9 +54,8 @@ using Neo::Bridge::HistoryMetadata::parse_history_context;
 using Neo::Bridge::HistoryMetadata::parse_history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
 using Neo::Bridge::PlateSession::plate_session_snapshot_json;
-using Neo::Bridge::ProjectOverlay::empty_project_config_overlay;
-using Neo::Bridge::ProjectOverlay::apply_plate_overlay_to_configs;
-using Neo::Bridge::ProjectOverlay::valid_project_config_overlay;
+using Neo::Bridge::ScopedConfig::empty_native_scoped_config_snapshot;
+using Neo::Bridge::ScopedConfig::native_scoped_config_snapshot;
 using Neo::Bridge::SlicingPipeline::invalidate_preview_source;
 using Neo::History::Codec::capture_model_state;
 namespace {
@@ -111,25 +110,25 @@ json config_values(const Slic3r::ConfigBase& config)
     return values;
 }
 
-json overlay_from_history_roots(const Neo::History::TimestampedRoots& roots,
-                                const Model& model,
-                                const std::vector<BridgeState::PlateSessionPlate>& plates)
+json native_scoped_config_from_history_roots(const Neo::History::TimestampedRoots& roots,
+                                             const Model& model,
+                                             const std::vector<BridgeState::PlateSessionPlate>& plates)
 {
-    json overlay = empty_project_config_overlay();
-    overlay["project"] = bytes_json(roots.project_config_overlay);
-    if (!overlay["project"].is_object())
+    json snapshot = empty_native_scoped_config_snapshot();
+    snapshot["project"] = bytes_json(roots.project_config);
+    if (!snapshot["project"].is_object())
         throw std::runtime_error("invalid history project configuration root");
     for (const auto* object : model.objects) {
         const json object_values = config_values(object->config.get());
-        if (!object_values.empty()) overlay["objects"][std::to_string(object->id().id)] = object_values;
+        if (!object_values.empty()) snapshot["objects"][std::to_string(object->id().id)] = object_values;
         for (const auto* volume : object->volumes) {
             const json part_values = config_values(volume->config.get());
-            if (!part_values.empty()) overlay["parts"][std::to_string(volume->id().id)] = part_values;
+            if (!part_values.empty()) snapshot["parts"][std::to_string(volume->id().id)] = part_values;
         }
     }
     for (const auto& plate : plates)
-        if (!plate.settings_metadata.empty()) overlay["plates"][plate.id] = plate.settings_metadata;
-    return overlay;
+        if (!plate.settings_metadata.empty()) snapshot["plates"][plate.id] = plate.settings_metadata;
+    return snapshot;
 }
 
 json context_from_history_roots(const Neo::History::TimestampedRoots& roots,
@@ -138,7 +137,7 @@ json context_from_history_roots(const Neo::History::TimestampedRoots& roots,
 {
     json context = bytes_json(roots.session.history_context);
     context["plateSession"] = bytes_json(roots.session.plate_session);
-    context["projectConfigOverlay"] = overlay_from_history_roots(roots, model, plates);
+    context["nativeScopedConfig"] = native_scoped_config_from_history_roots(roots, model, plates);
     return context;
 }
 
@@ -267,7 +266,7 @@ std::vector<BridgeState::PlateSessionPlate> build_history_plate_session(const js
         plate.settings_metadata = record["settings"];
         plate.opaque_metadata = record["opaque_metadata"];
         plate.future_metadata = record["future_metadata"];
-        Neo::Bridge::ProjectOverlay::apply_overlay_to_config(plate.settings, plate.settings_metadata);
+        Neo::Bridge::ScopedConfig::apply_native_config_values(plate.settings, plate.settings_metadata);
         restored_plates.push_back(std::move(plate));
     }
     return restored_plates;
@@ -293,13 +292,13 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
 
 void validate_filament_history_mutable_state(
     PresetBundle& catalog, const Neo::Bridge::Filament::State::StagedMutableState& staged,
-    Model& model, const std::vector<BridgeState::PlateSessionPlate>& plates, const json& overlay)
+    Model& model, const std::vector<BridgeState::PlateSessionPlate>& plates, const json& snapshot)
 {
     const auto& printer = catalog.printers.get_edited_preset().config;
     validate_filament_candidate_components(staged.names, staged.project_config, printer,
         std::max(1, catalog.get_printer_extruder_count()),
         printer.opt_bool("single_extruder_multi_material") || catalog.is_bbl_vendor(),
-        model, plates, overlay);
+        model, plates, snapshot);
 }
 
 json restore_timestamped_result(const Runtime& runtime,
@@ -323,19 +322,18 @@ json restore_timestamped_result(const Runtime& runtime,
     const bool filament_changed = history_state_json(state().presets) != context["filamentState"];
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> staged_filament_state;
     if (filament_changed) staged_filament_state.emplace(stage_mutable(state().presets, context["filamentState"]));
-    const json staged_overlay = context["projectConfigOverlay"];
-    apply_plate_overlay_to_configs(staged_plates, staged_overlay);
+    const json staged_snapshot = context["nativeScopedConfig"];
     if (staged_filament_state)
         validate_filament_history_mutable_state(state().presets, *staged_filament_state, staged_model,
-                                                staged_plates, staged_overlay);
+                                                staged_plates, staged_snapshot);
     else
-        validate_filament_candidate(state().presets, staged_model, staged_plates, staged_overlay, false);
+        validate_filament_candidate(state().presets, staged_model, staged_plates, staged_snapshot, false);
 
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> before_filament_state;
     if (filament_changed) before_filament_state.emplace(stage_mutable(state().presets, history_state_json(state().presets)));
     Model before_model = state().model;
     const auto before_plates = state().plate_session_plates;
-    const auto before_overlay = state().project_config_overlay;
+    const auto before_project_config = state().presets.project_config;
     const auto before_plate_revisions = state().plate_input_revisions;
     const auto before_membership = state().instance_plate_ids;
     const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
@@ -350,8 +348,8 @@ json restore_timestamped_result(const Runtime& runtime,
         state().model = std::move(staged_model);
         state().mutable_object_capture_cache.clear();
         restore_history_plate_session(plate_session, state().model);
-        state().project_config_overlay = staged_overlay;
-        apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
+        Neo::Bridge::ScopedConfig::apply_native_config_values(
+            state().presets.project_config, staged_snapshot.value("project", json::object()));
         Neo::Bridge::PlateSession::normalize_coordinate_arrays(
             state().presets.project_config, state().plate_session_plates.size());
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
@@ -369,13 +367,13 @@ json restore_timestamped_result(const Runtime& runtime,
         if (!Neo::History::Codec::prime_model_capture_cache(
                 state().model, restored.roots.model, state().mutable_object_capture_cache))
             state().mutable_object_capture_cache.clear();
-        restore_timings.plate_session_project_overlay_restore_ms =
+        restore_timings.plate_session_native_config_restore_ms =
             Neo::Bridge::Performance::now_ms() - roots_restore_started_at;
     } catch (...) {
         if (before_filament_state) apply_mutable(state(), state().presets, std::move(*before_filament_state));
         state().model = std::move(before_model);
         state().plate_session_plates = before_plates;
-        state().project_config_overlay = before_overlay;
+        state().presets.project_config = before_project_config;
         state().plate_input_revisions = before_plate_revisions;
         state().instance_plate_ids = before_membership;
         state().plate_out_of_bounds_ids = before_out_of_bounds;
@@ -400,7 +398,8 @@ json restore_timestamped_result(const Runtime& runtime,
     if (usage_unchanged) {
         std::set<std::string> plates;
         const bool plate_settings_unchanged = !filament_changed &&
-            before_overlay.value("project", json::object()) == staged_overlay.value("project", json::object()) &&
+            before_live_context.value("nativeScopedConfig", json::object()).value("project", json::object()) ==
+                staged_snapshot.value("project", json::object()) &&
             before_live_context.contains("plateSession") &&
             before_live_context["plateSession"].value("plates", json()) == plate_session.value("plates", json());
         if (plate_settings_unchanged) {
@@ -445,12 +444,12 @@ json restore_timestamped_result(const Runtime& runtime,
                 {"entryId", history_entry_id(entry_id)},
                 {"scene_delta", std::move(scene_delta)},
                 {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
-                            {"filamentRack", true}, {"projectOverlay", true}, {"selectionContext", true},
+                            {"filamentRack", true}, {"nativeScopedConfig", true}, {"selectionContext", true},
                             {"primeTower", true}, {"preview", "all"}}}};
     Neo::Bridge::Performance::record("history_restore", {
         {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},
         {"immutable_mesh_reconnect", restore_timings.immutable_mesh_reconnect_ms},
-        {"plate_session_project_overlay_restore", restore_timings.plate_session_project_overlay_restore_ms},
+        {"plate_session_native_config_restore", restore_timings.plate_session_native_config_restore_ms},
         {"total", Neo::Bridge::Performance::now_ms() - restore_started_at},
     });
     return result;
@@ -1035,8 +1034,8 @@ json parse_history_context(const char* context_cstr)
         !(context["activePlateId"].is_null() || context["activePlateId"].is_string()) ||
         !context.contains("gizmo") ||
         !(context["gizmo"].is_null() || context["gizmo"].is_object()) ||
-        !context.contains("projectConfigOverlay") ||
-        !context["projectConfigOverlay"].is_object())
+        !context.contains("nativeScopedConfig") ||
+        !context["nativeScopedConfig"].is_object())
         throw std::runtime_error("invalid history context");
     if (context.contains("filamentState") &&
         (!context["filamentState"].is_object() || context["filamentState"].value("version", 0) != 1))
@@ -1065,7 +1064,8 @@ json default_history_context(const BridgeState& state,
         {"selection", {{"mode", "object"}, {"objectIds", json::array()},
                         {"partIds", json::array()}, {"instanceIds", json::array()}}},
         {"activePlateId", state.current_plate_id.empty() ? json(nullptr) : json(state.current_plate_id)},
-        {"gizmo", nullptr}, {"projectConfigOverlay", state.project_config_overlay},
+        {"gizmo", nullptr},
+        {"nativeScopedConfig", Neo::Bridge::ScopedConfig::native_scoped_config_snapshot()},
         {"plateSession", plate_session},
         {"filamentState", filament_state},
     };
@@ -1082,7 +1082,7 @@ json canonical_history_context(const BridgeState& state,
     context["activePlateId"] = state.current_plate_id.empty()
         ? json(nullptr) : json(state.current_plate_id);
     context["plateSession"] = plate_session;
-    context["projectConfigOverlay"] = state.project_config_overlay;
+    context["nativeScopedConfig"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
     // Filament presets, colours, routing, matrices, and per-project config
     // are not part of ModelState. Every authoritative history context must
     // therefore carry the current native filament state.
@@ -1094,7 +1094,7 @@ History::TimestampedRoots capture_history_roots(BridgeState& state, const json& 
                                                 History::Codec::CaptureTimings* timings)
 {
     if (!context.is_object() || !context.contains("plateSession") ||
-        !context.contains("projectConfigOverlay"))
+        !context.contains("nativeScopedConfig"))
         throw std::runtime_error("history context is missing canonical roots");
     History::TimestampedRoots roots;
     roots.model = History::Codec::capture_model_state(
@@ -1113,9 +1113,9 @@ History::TimestampedRoots capture_history_roots(BridgeState& state, const json& 
     roots.session.plate_session = HistoryRuntime::json_bytes(plate_session);
     json editing_context = context;
     editing_context.erase("plateSession");
-    editing_context.erase("projectConfigOverlay");
+    editing_context.erase("nativeScopedConfig");
     roots.session.history_context = HistoryRuntime::json_bytes(editing_context);
-    roots.project_config_overlay = HistoryRuntime::json_bytes(context["projectConfigOverlay"]["project"]);
+    roots.project_config = HistoryRuntime::json_bytes(context["nativeScopedConfig"]["project"]);
     return roots;
 }
 
@@ -1317,7 +1317,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const bool unchanged = Neo::History::Codec::model_state_equal(tx.before_roots.model, after_roots.model) &&
             tx.before_roots.session.plate_session == after_roots.session.plate_session &&
             tx.before_roots.session.history_context == after_roots.session.history_context &&
-            tx.before_roots.project_config_overlay == after_roots.project_config_overlay;
+            tx.before_roots.project_config == after_roots.project_config;
         if (unchanged) {
             if (!state().history.abort_operation()) return error_json("history no-op cleanup failed");
             state().active_history_transaction.reset();
@@ -1368,7 +1368,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             return Neo::History::Codec::model_state_equal(left.model, right.model) &&
                 left.session.plate_session == right.session.plate_session &&
                 left.session.history_context == right.session.history_context &&
-                left.project_config_overlay == right.project_config_overlay;
+                left.project_config == right.project_config;
         };
         if (!state().nested_history_transactions.empty()) {
             auto tx = state().nested_history_transactions.back();

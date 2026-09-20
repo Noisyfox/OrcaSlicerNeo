@@ -92,7 +92,7 @@ assert.equal(assigned.ok, true, JSON.stringify(assigned));
 session = assigned.result.snapshot;
 assert.equal(session.assignments.objects.find((entry) => entry.id === second.id)?.effective_slot, alternate.slot);
 
-const tower = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+const tower = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
   ['project', '', 'enable_prime_tower', '1']);
 assert.equal(tower.ok, true, JSON.stringify(tower));
 

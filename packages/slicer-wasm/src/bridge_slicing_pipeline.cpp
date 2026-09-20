@@ -84,17 +84,6 @@ const char* error_json_from_exception(const std::exception& e) {
     return error_json(error_message_from_exception(e));
 }
 
-template <class Config>
-void apply_overlay_to_config(Config& config, const json& values)
-{
-    if (!values.is_object()) return;
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        if (!it.value().is_string()) continue;
-        try { config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
-        catch (...) { /* invalid retained values are ignored at slice time */ }
-    }
-}
 } // namespace
 
 void invalidate_preview_result_only()
@@ -790,10 +779,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         const DynamicPrintConfig native_full_config = state().presets.full_config(false);
         // Plater's full_config() is assembled from every active filament
         // preset. The renderer settings projection uses scalars for compact
-        // values, so restore native multi-slot vectors before the scoped
-        // Worker overlays are composed. Explicit JSON arrays remain
-        // authoritative, while project and plate vector overrides remain
-        // authoritative over this compatibility restoration.
+        // values, so restore native multi-slot vectors before plate-local
+        // settings are composed. Explicit JSON arrays remain authoritative.
         for (const std::string& key : native_full_config.keys()) {
             const auto* native_option = native_full_config.option(key);
             const auto* requested_option = config.option(key, false);
@@ -805,13 +792,11 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
                 config.set_key_value(key, native_option->clone());
         }
         // Compose the same scopes as Orca's BackgroundSlicingProcess::apply:
-        // the global/profile config (including the project config) is the
-        // base, Neo's Worker-owned project overlay is applied next, and the
-        // target plate's config is applied last so plate-local values win.
+        // the global/profile config (including the native project config) is
+        // the base and the target plate's native config is applied last.
         // PlateData carries native per-plate filament/tool mappings (for
         // example an H2D plate can map logical slots 1 and 2 to physical tools
         // 2 and 1) which are not part of the global PresetBundle config.
-        apply_overlay_to_config(config, state().project_config_overlay["project"]);
         if (const auto* plate = find_plate(plate_id))
             config.apply(plate->settings, true);
         config.normalize_fdm();

@@ -6,7 +6,7 @@ import type { HistoryContext } from './history';
 
 const context = (activePlateId: string | null = null): HistoryContext => ({
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId, gizmo: null, projectConfigOverlay: {},
+  activePlateId, gizmo: null, nativeScopedConfig: {},
 });
 
 class Channel implements WorkerTransport {
@@ -293,7 +293,7 @@ describe('Worker-owned project history protocol', () => {
     await client.resetHistory(before);
     const selectedAfterA: HistoryContext = {
       selection: { mode: 'part', objectIds: [11], partIds: [22], instanceIds: [33] },
-      activePlateId: firstPlateId, gizmo: { type: 'move' }, projectConfigOverlay: {},
+      activePlateId: firstPlateId, gizmo: { type: 'move' }, nativeScopedConfig: {},
     };
     await client.runProjectHistoryTransaction('Mutation A', 'project', before,
       async () => client.addShape('Cube'), selectedAfterA);
@@ -307,7 +307,7 @@ describe('Worker-owned project history protocol', () => {
     // selection changes intentionally make no history call.
     const selectedBeforeB: HistoryContext = {
       selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-      activePlateId: secondPlateId, gizmo: null, projectConfigOverlay: {},
+      activePlateId: secondPlateId, gizmo: null, nativeScopedConfig: {},
     };
     expect((await client.selectPlate(secondPlateId)).ok).toBe(true);
     const afterUiChanges = await client.getHistoryStatus();

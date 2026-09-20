@@ -234,7 +234,7 @@ describe('selection restoration', () => {
       resetHistory: vi.fn(async () => { calls.push('reset-history'); return { dirty: false, canUndo: false, undoEntries: [] } as never; }),
     }, { ...prefs, rememberedFilamentRacks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#abcdef' }] } } }, {
       selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null,
-      projectConfigOverlay: { project: {}, objects: {}, parts: {}, plates: {} },
+      nativeScopedConfig: { project: {}, objects: {}, parts: {}, plates: {} },
     });
     expect(calls).toEqual(['select-printer', 'select-print', 'get-rack', 'apply-rack', 'reset-history', 'get-rack']);
     expect(result.filament).toBe(finalRack);

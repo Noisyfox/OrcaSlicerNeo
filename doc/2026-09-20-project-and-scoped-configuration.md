@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Date:** 2026-09-20
-**Status:** Implementation in progress — Step 1 accepted
+**Status:** Implementation in progress — Steps 1–2 accepted
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
@@ -112,3 +112,32 @@ Parent acceptance checks passed:
 - `pnpm --filter @orca/desktop test:e2e:real-project-profile` — passed (the real
   visible Electron/WASM profile; Playwright `.last-run.json` reports `passed`).
 - Final source identity check — unchanged at the length and SHA-256 above.
+
+### Step 2 — Native persistence authority and sidecar removal
+
+Accepted on 2026-09-20. `project_config_overlay`, its C ABI, typed client and
+runtime transport, Worker/mock state, React-store authority, and the
+`Metadata/orca_neo_config_overlay_v1.json` production read/write/replay path have
+been removed without an internal compatibility alias. Native Project, Plate,
+`ModelObject`, and `ModelVolume` configuration is the sole persisted authority;
+the Worker-to-React map is explicitly a disposable native snapshot. Existing
+plate-session and filament metadata are separate, non-configuration sidecars and
+remain outside this decision.
+
+Normal export omits the removed sidecar. A focused negative test injects it into an
+otherwise valid archive and proves that opening the archive preserves the native
+values and slice result without parsing or replaying the injected data.
+Geometry-only import clears imported object and volume values while preserving only
+the valid native object `extruder` assignment. This step deliberately leaves
+versioned receipts, revision-gap recovery, and exact key-erasing history roots to
+later approved steps.
+
+Parent acceptance checks passed:
+
+- `pnpm typecheck` and `pnpm --filter @orca/slicer-wasm test` — passed; the latter
+  reports 159/159 tests.
+- Native scoped-configuration persistence and native interoperability harnesses —
+  passed independently on both serial and threaded WASM artifacts.
+- `git diff --check` — passed (only line-ending warnings); the immutable Odyssey
+  source remains 45,586,816 bytes with SHA-256
+  `6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425`.

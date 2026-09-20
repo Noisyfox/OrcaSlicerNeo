@@ -485,7 +485,7 @@ context. It excludes global preset selection, global/system preferences, full
       approved 256 MiB cross-host budget and eviction policy.
 - [x] Implement the Worker/WASM history contract and coherent restore path.
 - [x] Make the Worker authoritative for history context, committed transforms,
-      and project configuration overlays.
+      and native scoped configuration.
 - [x] Integrate semantic command/gesture/selection/active-plate transactions
       with the saved-checkpoint dirty-state model; every exposed project
       mutation must use that boundary. Then add UI/key bindings and directional

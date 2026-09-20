@@ -32,7 +32,7 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import type { PlateSessionSnapshot, ProjectConfigOverlay } from '@slicer/client';
+import type { PlateSessionSnapshot, NativeScopedConfigSnapshot } from '@slicer/client';
 import { readSceneDeltaProjection } from './viewport/sceneDeltaProjection';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
@@ -83,7 +83,7 @@ function primeTowerSessionInputs(): readonly unknown[] {
     JSON.stringify(plateSession ? {
       inputRevisions: plateSession.inputRevisions,
     } : null),
-    JSON.stringify(useSettingsStore.getState().overlay),
+    JSON.stringify(useSettingsStore.getState().nativeScopedConfig),
   ];
 }
 
@@ -134,7 +134,7 @@ export function Workspace({
   const structure = useObjectListStore((s) => s.structure);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
-  const settingsOverlay = useSettingsStore((s) => s.overlay);
+  const settingsNativeScopedConfig = useSettingsStore((s) => s.nativeScopedConfig);
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const historyRestorePhase = useHistoryRestoreStore((s) => s.phase);
   const historyRestoreRevision = useHistoryRestoreStore((s) => s.revision);
@@ -258,7 +258,7 @@ export function Workspace({
     if (historyRestorePhase !== 'idle' || projectMutationPendingCount !== 0) return;
     void refreshPrimeTowerProjection();
   }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision,
-    plateSession, projectMutationPendingCount, refreshPrimeTowerProjection, settingsOverlay, structure]);
+    plateSession, projectMutationPendingCount, refreshPrimeTowerProjection, settingsNativeScopedConfig, structure]);
   useEffect(() => {
     if (plateSession) wipeTowerVolumes.setCurrentPlate(plateSession.currentPlateId, plateSession);
   }, [plateSession?.currentPlateId, wipeTowerVolumes]);
@@ -318,10 +318,10 @@ export function Workspace({
           projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
           return;
         }
-        if (impact.projectOverlay) {
-          const overlay = context.projectConfigOverlay;
-          if (overlay && typeof overlay === 'object' && 'project' in overlay && 'objects' in overlay && 'parts' in overlay && 'plates' in overlay)
-            useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
+        if (impact.nativeScopedConfig) {
+          const snapshot = context.nativeScopedConfig;
+          if (snapshot && typeof snapshot === 'object' && 'project' in snapshot && 'objects' in snapshot && 'parts' in snapshot && 'plates' in snapshot)
+            useSettingsStore.getState().setNativeScopedConfig(snapshot as unknown as NativeScopedConfigSnapshot);
         }
 
         if (freshPlateSession?.instanceTransforms) {

@@ -53,7 +53,6 @@ using Neo::Bridge::Filament::State::config_metadata_json;
 using Neo::Bridge::Filament::State::history_state_json;
 using Neo::Bridge::HistoryMetadata::default_history_context;
 using Neo::Bridge::Profiles::preset_snapshot_json;
-using namespace Neo::Bridge::ProjectOverlay;
 using namespace Neo::Bridge::ModelOperations;
 using namespace Neo::Bridge::PlateSession;
 using namespace Neo::Bridge::SlicingPipeline;
@@ -61,8 +60,6 @@ using namespace Neo::Bridge::SlicingPipeline;
 static constexpr int kMaxPlateCount = 36;
 static constexpr const char* kNeoPlateMetadataEntry = "Metadata/orca_neo_plate_session_v1.json";
 static constexpr const char* kNeoPlateMetadataSchema = "org.orcaslicerneo.plate-session";
-static constexpr const char* kNeoConfigOverlayEntry = "Metadata/orca_neo_config_overlay_v1.json";
-static constexpr const char* kNeoConfigOverlaySchema = "org.orcaslicerneo.config-overlay";
 static constexpr const char* kNeoFilamentStateEntry = "Metadata/orca_neo_filament_state_v1.json";
 static constexpr const char* kNeoFilamentStateSchema = "org.orcaslicerneo.filament-state";
 
@@ -112,7 +109,6 @@ json close_project_session()
     invalidate_preview_source();
 
     bridge_state.model = Model{};
-    bridge_state.project_config_overlay = empty_project_config_overlay();
     bridge_state.pending_membership_instance_ids.clear();
     bridge_state.presets.reset_project_embedded_presets();
     reset_plate_session_state();
@@ -667,20 +663,10 @@ static const char* orc_load_project_impl(const char* data, int len,
         const auto model_config = read_archive_entry(path, "Metadata/model_settings.config");
         const auto project_settings = read_archive_entry(path, "Metadata/project_settings.config");
         const auto neo_entry = read_archive_entry(path, kNeoPlateMetadataEntry);
-        const auto overlay_entry = read_archive_entry(path, kNeoConfigOverlayEntry);
         const auto filament_entry = read_archive_entry(path, kNeoFilamentStateEntry);
         std::optional<json> neo_metadata;
-        std::optional<json> overlay_metadata;
         std::optional<json> filament_state_metadata;
         if (neo_entry) neo_metadata = parse_neo_plate_metadata(*neo_entry);
-        if (overlay_entry) {
-            const json parsed = json::parse(*overlay_entry);
-            if (!parsed.is_object() || parsed.value("schema", "") != kNeoConfigOverlaySchema ||
-                parsed.value("version", 0) != 1 || !valid_project_config_overlay(parsed["overlay"]))
-                throw Slic3r::RuntimeError("corrupt Neo configuration overlay metadata");
-            overlay_metadata = parsed["overlay"];
-            strip_plate_coordinate_overrides(*overlay_metadata);
-        }
         if (filament_entry) {
             const json parsed = json::parse(*filament_entry);
             if (!parsed.is_object() || parsed.value("schema", "") != kNeoFilamentStateSchema ||
@@ -842,7 +828,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 apply_project_sidecar(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
-                                            overlay_metadata.value_or(empty_project_config_overlay()),
+                                            json{{"project", json::object()}, {"objects", json::object()},
+                                                 {"parts", json::object()}, {"plates", json::object()}},
                                             true, true);
             }
             // The GUI refreshes its active preset controls after this native
@@ -860,7 +847,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 apply_project_sidecar(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
-                                            overlay_metadata.value_or(empty_project_config_overlay()),
+                                            json{{"project", json::object()}, {"objects", json::object()},
+                                                 {"parts", json::object()}, {"plates", json::object()}},
                                             true, true);
             }
             candidate.update_compatible(PresetSelectCompatibleType::Always);
@@ -875,7 +863,6 @@ static const char* orc_load_project_impl(const char* data, int len,
 
         std::vector<BridgeState::PlateSessionPlate> staged_plates;
         std::string staged_current_plate_id;
-        json staged_overlay = overlay_metadata.value_or(empty_project_config_overlay());
         if (!geometry_only) {
             // Build the incoming plate session while the candidate is still
             // isolated.  Plate settings are part of filament validation, so
@@ -885,9 +872,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 plate_data, raw_records, neo_metadata,
                 current_plate_session_sequence() + 1,
                 staged_current_plate_id);
-            apply_plate_metadata_to_configs(staged_plates);
-            apply_plate_overlay_to_configs(staged_plates, staged_overlay);
-            apply_overlay_to_config(candidate.project_config, staged_overlay["project"]);
+            Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(staged_plates);
             Neo::Bridge::PlateSession::normalize_coordinate_arrays(candidate.project_config, staged_plates.size());
         }
 
@@ -897,7 +882,8 @@ static const char* orc_load_project_impl(const char* data, int len,
         // fresh empty model, PresetBundle, or history baseline.
         if (!geometry_only)
             validate_filament_candidate(candidate, imported, staged_plates,
-                                        staged_overlay,
+                                        json{{"project", json::object()}, {"objects", json::object()},
+                                             {"parts", json::object()}, {"plates", json::object()}},
                                         false, filament_state_metadata.has_value());
 
         if (geometry_only) {
@@ -918,7 +904,6 @@ static const char* orc_load_project_impl(const char* data, int len,
                 PresetBundle presets;
                 Neo::History::TimestampedHistory history;
                 json history_live_context;
-                json overlay;
                 std::vector<BridgeState::PlateSessionPlate> plates;
                 std::string current_plate;
                 std::map<std::size_t, std::string> instance_plate_ids;
@@ -941,7 +926,6 @@ static const char* orc_load_project_impl(const char* data, int len,
             // project load establishes its clean baseline in this fresh core.
             state().history = Neo::History::TimestampedHistory(rollback.history.byte_budget());
             rollback.history_live_context = std::move(state().history_live_context);
-            rollback.overlay = std::move(state().project_config_overlay);
             rollback.plates = std::move(state().plate_session_plates);
             rollback.current_plate = std::move(state().current_plate_id);
             rollback.instance_plate_ids = std::move(state().instance_plate_ids);
@@ -962,20 +946,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 // provenance report; PresetBundle copy is the established
                 // bridge staging boundary.
                 state().presets = candidate;
-                state().project_config_overlay = overlay_metadata.value_or(empty_project_config_overlay());
                 initialize_plate_session_from_records(plate_data, raw_records, neo_metadata);
-                for (auto& object : state().model.objects) {
-                    const auto it = state().project_config_overlay["objects"].find(std::to_string(object->id().id));
-                    if (it != state().project_config_overlay["objects"].end()) apply_overlay_to_config(object->config, it.value());
-                    for (auto& volume : object->volumes) {
-                        const auto part_it = state().project_config_overlay["parts"].find(std::to_string(volume->id().id));
-                        if (part_it != state().project_config_overlay["parts"].end()) apply_overlay_to_config(volume->config, part_it.value());
-                    }
-                }
-                apply_plate_metadata_to_configs(state().plate_session_plates);
-                apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
-                apply_overlay_to_config(state().presets.project_config,
-                                        state().project_config_overlay["project"]);
+                Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(state().plate_session_plates);
                 Neo::Bridge::PlateSession::normalize_coordinate_arrays(
                     state().presets.project_config, state().plate_session_plates.size());
                 // Results are deliberately not loaded from PlateData.
@@ -998,7 +970,6 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().presets = std::move(rollback.presets);
                 state().history = std::move(rollback.history);
                 state().history_live_context = std::move(rollback.history_live_context);
-                state().project_config_overlay = std::move(rollback.overlay);
                 state().plate_session_plates = std::move(rollback.plates);
                 PlateSession::reconcile_plate_runtime_registry();
                 state().current_plate_id = std::move(rollback.current_plate);
@@ -1078,8 +1049,10 @@ static const char* orc_load_project_impl(const char* data, int len,
         // it never has to issue a second read after native replacement.
         if (!geometry_only)
             out["preset_snapshot"] = preset_snapshot_json();
+        // Return a disposable projection rebuilt from native config owners;
+        // the native configs themselves remain the only persisted authority.
         if (!geometry_only)
-            out["project_config_overlay"] = project_config_overlay_result()["overlay"];
+            out["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
         if (geometry_only) {
             const auto mutation = plate_mutation_snapshot({}, {"model-import"},
                 reflow_instance_transforms(geometry_added_instances));
@@ -1233,9 +1206,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         const std::string metadata = plate_metadata_json(owned).dump();
         if (!append_archive_entry(path, kNeoPlateMetadataEntry, metadata))
             throw Slic3r::RuntimeError("Neo plate metadata append failed");
-        const std::string overlay = project_config_overlay_metadata().dump();
-        if (!append_archive_entry(path, kNeoConfigOverlayEntry, overlay))
-            throw Slic3r::RuntimeError("Neo configuration overlay metadata append failed");
         const json filament_state = json{{"schema", kNeoFilamentStateSchema}, {"version", 1},
                                          {"state", history_state_json(state().presets)}};
         if (!append_archive_entry(path, kNeoFilamentStateEntry, filament_state.dump()))

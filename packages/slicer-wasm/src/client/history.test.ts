@@ -14,7 +14,7 @@ const context: HistoryContext = {
   },
   activePlateId: 'plate-session-1-plate-1' as StablePlateId,
   gizmo: { type: 'move', state: { axis: 'x', visible: true } },
-  projectConfigOverlay: { object: { infillDensity: 0.2 } },
+  nativeScopedConfig: { object: { infillDensity: 0.2 } },
 };
 
 const status: HistoryStatus = {
@@ -58,7 +58,7 @@ describe('history contracts', () => {
       plateIds: ['plate-session-1-plate-1'], objectOrder: [101],
     }, impact: {
       version: 1, model: 'delta', plateSession: true, filamentRack: true,
-      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+      nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
     } };
     const mock: MockHistoryRuntime = {
       getHistoryStatus: async () => status,

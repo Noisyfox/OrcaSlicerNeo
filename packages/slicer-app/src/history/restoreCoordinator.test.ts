@@ -10,7 +10,7 @@ import { useHistoryDiagnosticsStore } from './historyDiagnostics';
 
 const context: HistoryContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+  activePlateId: 'plate-1', gizmo: null, nativeScopedConfig: {},
 };
 const status: HistoryStatus = {
   bytesUsed: 0, byteBudget: 256 * 1024 * 1024,
@@ -22,7 +22,7 @@ const status: HistoryStatus = {
 };
 const deltaImpact = {
   version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: true,
-  projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
+  nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' as const,
 };
 const directImpact = {
   ...deltaImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,

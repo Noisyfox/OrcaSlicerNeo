@@ -1,4 +1,4 @@
-import { emptyProjectConfigOverlay, useSettingsStore } from '../../../stores/useSettingsStore';
+import { emptyNativeScopedConfig, useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { glVolumeCollection } from '../viewport/GLVolume';
 
@@ -19,7 +19,7 @@ export interface SceneResetTarget {
 export function resetSceneState(target?: SceneResetTarget | null, options?: { clearSettings?: boolean }): void {
   glVolumeCollection.clear();
   if (options?.clearSettings) {
-    useSettingsStore.getState().setOverlay(emptyProjectConfigOverlay());
+    useSettingsStore.getState().setNativeScopedConfig(emptyNativeScopedConfig());
     useSettingsStore.getState().setValues({});
   }
   useSettingsStore.getState().setModelLoaded(false);

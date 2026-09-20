@@ -23,7 +23,7 @@ function request(name, body) {
   return callJson(name, ['string'], [JSON.stringify(body)]);
 }
 function setProject(key, value) {
-  const result = callJson('orc_set_project_config_override',
+  const result = callJson('orc_set_native_scoped_config',
     ['string', 'string', 'string', 'string'], ['project', '', key, value]);
   assert.equal(result.ok, true, JSON.stringify(result));
   return result;
@@ -80,8 +80,8 @@ assert.equal(secondAssignment.ok, true, JSON.stringify(secondAssignment));
 
 // Deliberately different coordinates make an index regression observable in
 // the emitted Prime Tower moves. Coordinates are changed only through the
-// native narrow movement command; the resulting project overlay remains one
-// complete native array.
+// native narrow movement command; the resulting project configuration remains
+// one complete native array.
 assert.equal(callJson('orc_select_plate', ['string'], [firstPlate]).ok, true);
 let plateRevision = revisions();
 let moved = request('orc_move_prime_tower', {

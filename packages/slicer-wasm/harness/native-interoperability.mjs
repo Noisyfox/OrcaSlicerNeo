@@ -226,8 +226,12 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
   const rejected = callJson(Module, 'orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, overLimit.length, 0, 'over-limit.3mf']);
   Module._free(ptr);
   const afterReject = callJson(Module, 'orc_get_plate_session_snapshot');
-  check('over-36 project is rejected without mutating the active session', rejected.ok !== true &&
-    JSON.stringify(afterReject) === JSON.stringify(beforeReject), JSON.stringify(rejected));
+  const afterRejectStructure = callJson(Module, 'orc_get_model_structure');
+  check('over-36 replacement is rejected with a fresh empty baseline', rejected.ok !== true &&
+    afterReject.ok === true && afterReject.plates?.length === 1 &&
+    !beforeReject.plates.some((plate) => plate.plate_id === afterReject.current_plate_id) &&
+    afterRejectStructure.ok === true && afterRejectStructure.objects?.length === 0,
+    JSON.stringify({ rejected, session: afterReject, structure: afterRejectStructure }));
   check('fixture reload remains a two-plate project after rejection', restored.ok === true && beforeReject.plates.length === 2);
 }
 

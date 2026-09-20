@@ -81,7 +81,7 @@ function callJson(name, types = [], args = []) {
   const result = JSON.parse(Module.UTF8ToString(ptr)); Module._free(ptr); return result;
 }
 function setProject(key, value) {
-  const result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
+  const result = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
   assert.equal(result.ok, true, JSON.stringify(result));
 }
 const init = callJson('orc_init', ['string'], ['']);

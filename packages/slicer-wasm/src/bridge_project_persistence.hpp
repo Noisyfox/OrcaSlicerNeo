@@ -19,7 +19,7 @@
 #include <vector>
 
 #include "bridge_state.hpp"
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -45,6 +45,6 @@ struct ImportedPlateRecord {
 // transactions or duplicating native validation rules.
 void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const std::vector<BridgeState::PlateSessionPlate>& plates,
-                                 const json& overlay, bool strict_slot_arrays = true,
+                                 const json& snapshot, bool strict_slot_arrays = true,
                                  bool require_all_slot_arrays = false);
 } // namespace Slic3r::Neo::Bridge::ProjectPersistence

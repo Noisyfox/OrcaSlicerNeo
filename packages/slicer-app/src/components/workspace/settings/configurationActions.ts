@@ -1,5 +1,5 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { PlateSessionMutation, PlateSessionMutationResult, ProjectConfigOverrideTarget } from '@slicer/client';
+import type { PlateSessionMutation, PlateSessionMutationResult, NativeScopedConfigTarget } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -20,7 +20,7 @@ async function commitSharedConfigurationMutationNow(
   platform: PlatformCapabilities,
   optionKey?: string,
   value?: string,
-  target: ProjectConfigOverrideTarget = { scope: 'project' },
+  target: NativeScopedConfigTarget = { scope: 'project' },
 ): Promise<PlateSessionMutation> {
   let mutation: PlateSessionMutationResult | undefined;
   try {
@@ -29,13 +29,13 @@ async function commitSharedConfigurationMutationNow(
       'Change Project Configuration',
       async () => {
         if (optionKey !== undefined) {
-          const result = await platform.runtime.setProjectConfigOverride(target, optionKey, value ?? '');
+          const result = await platform.runtime.setNativeScopedConfig(target, optionKey, value ?? '');
           if (!result.ok) throw new Error(result.error);
           if (result.configurationStatus?.state === 'ready' && result.configurationStatus.errors.length > 0)
             throw new Error(result.configurationStatus.errors.join('; '));
           if (result.configurationStatus?.state === 'ready' && result.configurationStatus.warnings.length > 0)
             useSlicerStore.getState().setError(`[Warning] ${result.configurationStatus.warnings.join('; ')}`);
-          useSettingsStore.getState().setOverlay(result.overlay);
+          useSettingsStore.getState().setNativeScopedConfig(result.nativeScopedConfig);
           if (result.plateSession === undefined) throw new Error('configuration override returned no plate session');
           return result.plateSession;
         }
@@ -77,7 +77,7 @@ export function commitSharedConfigurationMutation(
   platform: PlatformCapabilities,
   optionKey?: string,
   value?: string,
-  target?: ProjectConfigOverrideTarget,
+  target?: NativeScopedConfigTarget,
 ): Promise<PlateSessionMutation> {
   const task = configurationMutationQueue.then(() =>
     commitSharedConfigurationMutationNow(platform, optionKey, value, target));

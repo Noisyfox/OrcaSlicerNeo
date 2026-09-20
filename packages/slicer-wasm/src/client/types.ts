@@ -104,7 +104,7 @@ export interface PlateSessionSnapshot {
   dirtyReasons?: readonly string[];
   /** Present on structural plate mutations that normalize native per-plate
    * configuration arrays. Ordinary snapshots and transform mutations omit it. */
-  projectConfigOverlay?: ProjectConfigOverlay;
+  nativeScopedConfig?: NativeScopedConfigSnapshot;
 }
 
 /** Narrow authoritative receipt returned by pure plate navigation. */
@@ -211,22 +211,23 @@ export interface PrimeTowerMoveResult {
 
 export type PrimeTowerMoveResultOrError = AtomicCommandResult<PrimeTowerMoveResult>;
 
-/** Worker-owned project configuration overrides. Keys are native option names;
+/** Disposable Worker projection of native project/plate/object/part configs.
+ * Keys are native option names;
  * values are their native serialized representations. IDs are stable object /
  * part IDs, never renderer indices. Prime Tower X/Y are intentionally absent:
  * their native project-level arrays are edited only by the typed scene move
- * command, never through this generic overlay. */
-export interface ProjectConfigOverlay {
+ * command, never through a second state root. */
+export interface NativeScopedConfigSnapshot {
   readonly project: Readonly<Record<string, string>>;
   readonly objects: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly parts: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly plates: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
-export type ProjectConfigScope = 'project' | 'object' | 'part' | 'plate';
+export type NativeScopedConfigScope = 'project' | 'object' | 'part' | 'plate';
 
-export interface ProjectConfigOverrideTarget {
-  readonly scope: ProjectConfigScope;
+export interface NativeScopedConfigTarget {
+  readonly scope: NativeScopedConfigScope;
   readonly id?: number | string;
 }
 
@@ -250,22 +251,22 @@ export interface ConfigurationErrorStatus {
 
 export type ConfigurationStatus = ConfigurationReadyStatus | ConfigurationErrorStatus;
 
-export interface ProjectConfigOverlayResult {
+export interface NativeScopedConfigResult {
   readonly ok: true;
-  readonly overlay: ProjectConfigOverlay;
+  readonly nativeScopedConfig: NativeScopedConfigSnapshot;
   readonly plateSession?: PlateSessionMutation;
   /** Native option parse/normalization feedback for configuration commands. */
   readonly configurationStatus?: ConfigurationReadyStatus;
 }
 
-export interface ProjectConfigOverlayError {
+export interface NativeScopedConfigError {
   readonly ok?: false;
   readonly error: string;
   readonly errorCode?: string;
   readonly status?: ConfigurationErrorStatus;
 }
 
-export type ProjectConfigOverlayResultOrError = ProjectConfigOverlayResult | ProjectConfigOverlayError;
+export type NativeScopedConfigResultOrError = NativeScopedConfigResult | NativeScopedConfigError;
 
 /** A malformed or rejected plate-session command has no partial state. */
 export interface PlateSessionSnapshotError {
@@ -321,9 +322,9 @@ export interface ProfileSnapshot {
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printable_area?: Array<[number, number]>;
   /**
-   * Effective native project/process configuration before the Neo overlay.
+   * Effective native project/process configuration before local scoped values.
    * The settings UI uses this as its base value source; slicing remains
-   * Worker-owned and applies the same native config plus the overlay.
+   * Worker-owned and composes the native project and plate configs.
    */
   project_config?: Record<string, string>;
 }
@@ -430,8 +431,8 @@ export interface ProjectLoadResult {
   presetSnapshot?: ProfileSnapshot;
   /** Authoritative plate membership returned by the native model transaction. */
   plateSession?: PlateSessionMutation;
-  /** Project/object/part overrides plus retained plate metadata. */
-  projectConfigOverlay?: ProjectConfigOverlay;
+  /** Native project/object/part configuration plus retained plate metadata. */
+  nativeScopedConfig?: NativeScopedConfigSnapshot;
   error?: string;
 }
 
@@ -1177,12 +1178,12 @@ export interface SlicerClient {
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
   markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
-  /** Read canonical Worker-owned project/object/part/plate overrides. */
-  getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
-  /** Set one supported override and return the affected plate projection. */
-  setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError>;
-  /** Revalidate retained overrides after a base preset transition. */
-  revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
+  /** Read a disposable projection of native project/object/part/plate config. */
+  getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
+  /** Set one native scoped value and return the affected plate projection. */
+  setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError>;
+  /** Refresh the native scoped configuration projection after a preset transition. */
+  revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getProfileSnapshot(): Promise<ProfileSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;

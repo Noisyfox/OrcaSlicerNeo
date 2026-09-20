@@ -311,7 +311,7 @@ describe('SceneInteractionController', () => {
     };
     const context: HistoryContext = {
       selection: { mode: 'object', objectIds: [100, 999], partIds: [], instanceIds: [] },
-      activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+      activePlateId: 'plate-1', gizmo: null, nativeScopedConfig: {},
     };
     controller.restoreHistoryContext(context, structure);
     expect(controller.selectedVolumes()).toEqual([volumes[0]]);
@@ -329,7 +329,7 @@ describe('SceneInteractionController', () => {
     };
     const context: HistoryContext = {
       selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-      activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+      activePlateId: 'plate-1', gizmo: null, nativeScopedConfig: {},
     };
     controller.restoreHistoryContext(context, structure, [volumes[0].id, '999:999:999']);
     expect(controller.selectedVolumes()).toEqual([volumes[0]]);

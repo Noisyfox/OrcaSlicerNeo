@@ -25,7 +25,7 @@ function call(name, types = [], args = []) {
 }
 function snapshot() { return call('orc_get_plate_session_snapshot'); }
 function project(key, value) {
-  call('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+  call('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
     ['project', '', key, value]);
 }
 function projection() {
@@ -43,7 +43,7 @@ function assertCached(read, ids) {
 }
 function move(entry, offset) {
   const context = JSON.stringify({ selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-    activePlateId: snapshot().current_plate_id, gizmo: null, projectConfigOverlay: {} });
+    activePlateId: snapshot().current_plate_id, gizmo: null, nativeScopedConfig: {} });
   const transaction = call('orc_history_begin', ['string', 'string', 'string', 'string'],
     ['Move', 'project', context, '']);
   const transform = { ...entry.instance_transform, offset };

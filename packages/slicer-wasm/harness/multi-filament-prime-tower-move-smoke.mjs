@@ -22,14 +22,14 @@ function callJson(name, types = [], args = []) {
 }
 function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
 function setProject(key, value) {
-  const result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
+  const result = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
   assert.equal(result.ok, true, JSON.stringify(result)); return result;
 }
 function session() { return callJson('orc_get_plate_session_snapshot'); }
 function projectArray(key) {
-  const result = callJson('orc_get_project_config_overlay');
+  const result = callJson('orc_get_native_scoped_config');
   assert.equal(result.ok, true, JSON.stringify(result));
-  const encoded = result.overlay.project[key];
+  const encoded = result.native_scoped_config.project[key];
   assert.equal(typeof encoded, 'string', `${key} must be a serialized project array`);
   const values = encoded.split(',').map(Number);
   assert.ok(values.length > 0 && values.every(Number.isFinite), `${key}: ${encoded}`);
@@ -215,7 +215,7 @@ const mixedTowerCoordinates = { x: projectArray('wipe_tower_x'), y: projectArray
 const mixedTowerEntryId = historyEntryId('Move Prime Tower');
 const mixedHistoryContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {},
+  activePlateId: null, gizmo: null, nativeScopedConfig: {},
 };
 const mixedTransaction = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Prime Tower mixed structural model', 'project', JSON.stringify(mixedHistoryContext), '']);
@@ -245,7 +245,7 @@ const towerUndo = callJson('orc_history_undo');
 assert.equal(towerUndo.ok, true, JSON.stringify(towerUndo));
 assert.deepEqual(towerUndo.impact, {
   version: 1, model: 'delta', plateSession: true, filamentRack: true,
-  projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+  nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
 }, JSON.stringify(towerUndo));
 assert.deepEqual(modelShape(), mixedModelBefore);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedCoordinatesBefore);

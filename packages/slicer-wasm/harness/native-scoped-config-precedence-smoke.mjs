@@ -6,6 +6,7 @@
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -13,11 +14,12 @@ const opts = {};
 for (let i = 2; i < argv.length; i += 2) opts[argv[i]?.replace(/^--/, '')] = argv[i + 1];
 const modulePath = opts.module ?? argv[2];
 if (!modulePath) {
-  console.error('usage: node config-overlay-precedence-smoke.mjs --module out/orca_slice.js');
+  console.error('usage: node native-scoped-config-precedence-smoke.mjs --module out/orca_slice.js');
   process.exit(2);
 }
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
+const encoder = new TextEncoder();
 const factory = await loadModuleFactory(modulePath);
 const Module = await factory({ noInitialRun: true, printErr: console.error });
 await installProfilePackages(Module, createNodeProfileSource(resolve(repoRoot, 'packages/profile-resources/dist')));
@@ -67,27 +69,27 @@ requireOk('add model', callJson('orc_add_shape', ['string', 'string'], ['Cube', 
 let session = requireOk('plate session', callJson('orc_get_plate_session_snapshot'));
 const plateId = session.current_plate_id;
 
-requireOk('set project override', callJson('orc_set_project_config_override',
+requireOk('set project override', callJson('orc_set_native_scoped_config',
   ['string', 'string', 'string', 'string'], ['project', '', 'layer_height', '0.24']));
-requireOk('set project Prepare override', callJson('orc_set_project_config_override',
+requireOk('set project Prepare override', callJson('orc_set_native_scoped_config',
   ['string', 'string', 'string', 'string'], ['project', '', 'enable_prime_tower', '1']));
-requireOk('set project Prepare mode', callJson('orc_set_project_config_override',
+requireOk('set project Prepare mode', callJson('orc_set_native_scoped_config',
   ['string', 'string', 'string', 'string'], ['project', '', 'timelapse_type', '1']));
 session = requireOk('plate session after project override', callJson('orc_get_plate_session_snapshot'));
 const revisionAfterProject = session.input_revisions[plateId];
-requireOk('set plate override', callJson('orc_set_project_config_override',
+requireOk('set plate override', callJson('orc_set_native_scoped_config',
   ['string', 'string', 'string', 'string'], ['plate', plateId, 'layer_height', '0.16']));
-requireOk('set plate Prepare mode', callJson('orc_set_project_config_override',
+requireOk('set plate Prepare mode', callJson('orc_set_native_scoped_config',
   ['string', 'string', 'string', 'string'], ['plate', plateId, 'timelapse_type', '0']));
 session = requireOk('plate session after plate override', callJson('orc_get_plate_session_snapshot'));
 const revision = session.input_revisions[plateId];
 if (!(revision > revisionAfterProject))
   throw new Error(`plate override did not advance the target revision: ${JSON.stringify(session)}`);
 
-let overlay = requireOk('read overlay', callJson('orc_get_project_config_overlay')).overlay;
-if (overlay.project?.layer_height !== '0.24' ||
-    !Object.values(overlay.plates ?? {}).some((values) => values?.layer_height === '0.16'))
-  throw new Error(`conflicting project/plate overrides were not retained: ${JSON.stringify(overlay)}`);
+let nativeScopedConfig = requireOk('read native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config;
+if (nativeScopedConfig.project?.layer_height !== '0.24' ||
+    !Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
+  throw new Error(`conflicting project/plate native values were not retained: ${JSON.stringify(nativeScopedConfig)}`);
 
 function prepareProjectionForPlate(expectedPlateId) {
   const projection = requireOk('Prepare projection', callJson('orc_get_prime_tower_projection'));
@@ -108,17 +110,25 @@ if (Math.abs(first.steps[0] - 0.16) >= 0.005)
 
 const exportedProject = requireOk('export project', callJson('orc_export_project'));
 const projectBytes = readAndFree(exportedProject.bytes_ptr, exportedProject.bytes_length);
+const exportedEntries = readZipEntries(projectBytes);
+if (exportedEntries.some((entry) => entry.name === 'Metadata/orca_neo_config_overlay_v1.json'))
+  throw new Error('ordinary native 3MF save emitted the removed config overlay sidecar');
+const projectWithLegacySidecar = writeStoredZip([
+  ...exportedEntries,
+  { name: 'Metadata/orca_neo_config_overlay_v1.json',
+    content: encoder.encode(JSON.stringify({ schema: 'removed', project: { layer_height: '0.42' } })) },
+]);
 requireOk('clear model', callJson('orc_clear_model'));
-const projectPtr = writeBytes(projectBytes);
+const projectPtr = writeBytes(projectWithLegacySidecar);
 const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
-  [projectPtr, projectBytes.byteLength, 0, 'config-overlay-precedence.3mf']);
+  [projectPtr, projectWithLegacySidecar.byteLength, 0, 'native-scoped-config-precedence.3mf']);
 Module._free(projectPtr);
 requireOk('reload project', loaded);
 
-overlay = requireOk('read round-tripped overlay', callJson('orc_get_project_config_overlay')).overlay;
-if (overlay.project?.layer_height !== '0.24' ||
-    !Object.values(overlay.plates ?? {}).some((values) => values?.layer_height === '0.16'))
-  throw new Error(`conflicting overrides did not round-trip: ${JSON.stringify(overlay)}`);
+nativeScopedConfig = requireOk('read round-tripped native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config;
+if (nativeScopedConfig.project?.layer_height !== '0.24' ||
+    !Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
+  throw new Error(`native scoped values did not round-trip: ${JSON.stringify(nativeScopedConfig)}`);
 
 session = requireOk('round-tripped plate session', callJson('orc_get_plate_session_snapshot'));
 const reloadedPlate = session.current_plate_id;
@@ -131,13 +141,58 @@ const second = firstExportedLayerSteps(sliced.receipt);
 if (Math.abs(second.steps[0] - 0.16) >= 0.005)
   throw new Error(`plate override did not win after round-trip: ${JSON.stringify(second.steps)}`);
 
+// Geometry-only import deliberately keeps only the native object extruder
+// assignment. Object and volume/part overrides are cleared on the appended
+// object, even when the source archive contains those native values.
+const sourceStructure = requireOk('read source structure', callJson('orc_get_model_structure'));
+const sourceObject = sourceStructure.objects?.[0];
+const sourceVolume = sourceObject?.volumes?.[0];
+if (!sourceObject?.id || !sourceVolume?.id)
+  throw new Error(`source structure did not expose object and volume IDs: ${JSON.stringify(sourceStructure)}`);
+const sourceExtruderMutation = requireOk('set source object extruder', callJson('orc_set_native_scoped_config',
+  ['string', 'string', 'string', 'string'], ['object', String(sourceObject.id), 'extruder', '1']));
+const expectedExtruder = sourceExtruderMutation.native_scoped_config?.objects?.[String(sourceObject.id)]?.extruder;
+if (typeof expectedExtruder !== 'string')
+  throw new Error(`source object extruder assignment was not returned by native snapshot: ${JSON.stringify(sourceExtruderMutation)}`);
+requireOk('set source object override', callJson('orc_set_native_scoped_config',
+  ['string', 'string', 'string', 'string'], ['object', String(sourceObject.id), 'layer_height', '0.24']));
+requireOk('set source part override', callJson('orc_set_native_scoped_config',
+  ['string', 'string', 'string', 'string'], ['part', String(sourceVolume.id), 'layer_height', '0.28']));
+const geometrySource = requireOk('export geometry-only source', callJson('orc_export_project'));
+const geometrySourceBytes = readAndFree(geometrySource.bytes_ptr, geometrySource.bytes_length);
+const sourceObjectIds = new Set((sourceStructure.objects ?? []).map((object) => String(object.id)));
+const geometryPtr = writeBytes(geometrySourceBytes);
+const geometry = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+  [geometryPtr, geometrySourceBytes.byteLength, 1, 'native-scoped-config-geometry-only.3mf']);
+Module._free(geometryPtr);
+requireOk('geometry-only import', geometry);
+const afterGeometryStructure = requireOk('read geometry-only structure', callJson('orc_get_model_structure'));
+const importedObject = (afterGeometryStructure.objects ?? []).find(
+  (object) => !sourceObjectIds.has(String(object.id)));
+if (!importedObject)
+  throw new Error(`geometry-only import did not append an object: ${JSON.stringify(afterGeometryStructure)}`);
+const afterGeometryConfig = requireOk('read geometry-only native config',
+  callJson('orc_get_native_scoped_config')).native_scoped_config;
+const importedObjectConfig = afterGeometryConfig.objects?.[String(importedObject.id)] ?? {};
+if (importedObjectConfig.extruder !== expectedExtruder || Object.prototype.hasOwnProperty.call(importedObjectConfig, 'layer_height'))
+  throw new Error(`geometry-only import did not retain only object extruder assignment: expected=${expectedExtruder} actual=${JSON.stringify(importedObjectConfig)}`);
+for (const volume of importedObject.volumes ?? []) {
+  const importedPartConfig = afterGeometryConfig.parts?.[String(volume.id)] ?? {};
+  if (Object.prototype.hasOwnProperty.call(importedPartConfig, 'layer_height'))
+    throw new Error(`geometry-only import retained part override: ${JSON.stringify(importedPartConfig)}`);
+}
+
 console.log(JSON.stringify({
   ok: true,
-  projectLayerHeight: overlay.project.layer_height,
+  projectLayerHeight: nativeScopedConfig.project.layer_height,
   plateLayerHeight: '0.16',
   beforeRoundTripSteps: first.steps,
   afterRoundTripSteps: second.steps,
   beforeRoundTripPrepareForced: firstPrepare.forced,
   afterRoundTripPrepareForced: secondPrepare.forced,
+  exportedEntryNames: exportedEntries.map((entry) => entry.name),
+  legacySidecarIgnored: true,
+  geometryOnlyObjectConfig: importedObjectConfig,
+  geometryOnlyExpectedExtruder: expectedExtruder,
   loadedMode: loaded.mode,
 }));

@@ -130,13 +130,13 @@ let plates = callJson('orc_get_plate_session_snapshot');
 const addPlate = callJson('orc_add_plate'); assert.equal(addPlate.ok, true, JSON.stringify(addPlate));
 plates = callJson('orc_get_plate_session_snapshot');
 const plateIds = plates.plates.map((p) => p.plate_id);
-let result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+let result = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
   ['project', '', 'enable_prime_tower', '0']);
 assert.equal(result.ok, true, JSON.stringify(result));
 assert.deepEqual(result.plate_session.affected_plate_ids, plateIds);
 assert.equal(result.configuration_status.state, 'ready');
-assert.equal(result.overlay.project.enable_prime_tower, '0');
-result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+assert.equal(result.native_scoped_config.project.enable_prime_tower, '0');
+result = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
   ['project', '', 'prime_tower_width', '25']);
 assert.equal(result.ok, true, JSON.stringify(result));
 assert.equal(result.configuration_status.state, 'ready');
@@ -147,19 +147,19 @@ assert.equal(result.configuration_status.state, 'ready');
 const beforePlate = callJson('orc_get_plate_session_snapshot');
 const coordinateX = plateIds.map((_, index) => String(10 + index * 10)).join(',');
 const coordinateY = plateIds.map((_, index) => String(11 + index * 10)).join(',');
-result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+result = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
   ['project', '', 'wipe_tower_x', coordinateX]);
 assert.equal(result.ok, false, JSON.stringify(result));
-result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+result = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
   ['project', '', 'wipe_tower_y', coordinateY]);
 assert.equal(result.ok, false, JSON.stringify(result));
-const rejectedConfigBefore = callJson('orc_get_project_config_overlay');
+const rejectedConfigBefore = callJson('orc_get_native_scoped_config');
 const rejectedPlateBefore = callJson('orc_get_plate_session_snapshot');
 const rejectedHistoryBefore = callJson('orc_history_status');
-const rejectedConfig = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+const rejectedConfig = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
   ['unsupported', '', 'enable_prime_tower', '1']);
 assert.equal(rejectedConfig.ok, false, JSON.stringify(rejectedConfig));
-assert.deepEqual(callJson('orc_get_project_config_overlay'), rejectedConfigBefore, 'rejected native scope leaves overlay unchanged');
+assert.deepEqual(callJson('orc_get_native_scoped_config'), rejectedConfigBefore, 'rejected native scope leaves native scoped config unchanged');
 assert.deepEqual(callJson('orc_get_plate_session_snapshot').input_revisions, rejectedPlateBefore.input_revisions,
   'rejected native scope leaves plate revisions unchanged');
 assert.deepEqual(callJson('orc_history_status'), rejectedHistoryBefore, 'rejected native scope leaves history unchanged');

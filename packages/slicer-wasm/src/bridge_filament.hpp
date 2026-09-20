@@ -57,7 +57,7 @@ json command_error(const char* code, const std::string& message);
 
 void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const std::vector<BridgeState::PlateSessionPlate>& plates,
-                                 const json& overlay, bool strict_slot_arrays = true,
+                                 const json& snapshot, bool strict_slot_arrays = true,
                                  bool require_all_slot_arrays = false);
 void validate_filament_candidate_components(
     const std::vector<std::string>& filament_presets,
@@ -67,7 +67,7 @@ void validate_filament_candidate_components(
     bool flexible_slots,
     Model& model,
     const std::vector<BridgeState::PlateSessionPlate>& plates,
-    const json& overlay,
+    const json& snapshot,
     bool strict_slot_arrays = true,
     bool require_all_slot_arrays = false);
 void recalculate_filament_flush(PresetBundle& bundle);

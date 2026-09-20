@@ -33,7 +33,7 @@ function requireStatus(label, value) {
 }
 
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
 requireOk('clear model', callJson('orc_clear_model'));
 const historyBaseline = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);

@@ -60,7 +60,7 @@ export default function App() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
-  const setOverlay = useSettingsStore((s) => s.setOverlay);
+  const setNativeScopedConfig = useSettingsStore((s) => s.setNativeScopedConfig);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const status = useSlicerStore((s) => s.status);
@@ -433,7 +433,7 @@ export default function App() {
         const init = await platform.runtime.init();
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
         const metadata = await platform.runtime.getOptionMetadata();
-        const overlay = await platform.runtime.getProjectConfigOverlay();
+        const nativeScopedConfig = await platform.runtime.getNativeScopedConfig();
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
@@ -441,16 +441,16 @@ export default function App() {
           selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
           activePlateId: null,
           gizmo: null,
-          projectConfigOverlay: (overlay.ok ? overlay.overlay : {
+          nativeScopedConfig: (nativeScopedConfig.ok ? nativeScopedConfig.nativeScopedConfig : {
             project: {}, objects: {}, parts: {}, plates: {},
-          }) as unknown as HistoryContext['projectConfigOverlay'],
+          }) as unknown as HistoryContext['nativeScopedConfig'],
         });
         if (cancelled) return;
         useFilamentSessionStore.setState({ snapshot: restored.filament, rejected: null });
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
         hydrateProfileSnapshot(restored.snapshot);
-        if (overlay.ok) setOverlay(overlay.overlay);
+        if (nativeScopedConfig.ok) setNativeScopedConfig(nativeScopedConfig.nativeScopedConfig);
         useProjectStore.getState().setProject({
           systemPresets: {
             printer: restored.snapshot.printer.name,
@@ -469,7 +469,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [hydrateProfileSnapshot, setMetadata, setOverlay, setError, platform.preferences, platform.runtime]);
+  }, [hydrateProfileSnapshot, setMetadata, setNativeScopedConfig, setError, platform.preferences, platform.runtime]);
 
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;

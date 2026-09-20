@@ -303,7 +303,7 @@ describe('worker protocol', () => {
     const { workerClient, channel } = setup();
     const context = {
       selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
-      activePlateId: null, gizmo: null, projectConfigOverlay: {},
+      activePlateId: null, gizmo: null, nativeScopedConfig: {},
     };
     await workerClient.runProjectHistoryTransaction('Add Cube', 'project', context,
       async () => workerClient.addShape('Cube'), context);

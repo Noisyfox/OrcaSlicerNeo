@@ -6,7 +6,7 @@ const context: HistoryContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null,
   gizmo: null,
-  projectConfigOverlay: {},
+  nativeScopedConfig: {},
 };
 
 const pending = (expectedObjectCount: number): PendingHistoryContext => ({

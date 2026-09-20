@@ -51,13 +51,6 @@ struct BridgeState {
     // cancel operations resolve this registry; no singleton Print or result
     // owner remains in BridgeState.
     PlateRuntimeRegistry plate_runtime_registry;
-    // Project-owned overrides are kept in the Worker/WASM session. React only
-    // receives a render projection and never becomes their source of truth.
-    nlohmann::json project_config_overlay =
-        nlohmann::json{{"project", nlohmann::json::object()},
-                       {"objects", nlohmann::json::object()},
-                       {"parts", nlohmann::json::object()},
-                       {"plates", nlohmann::json::object()}};
     // History is deliberately Worker/WASM owned. TimestampedHistory retains
     // the canonical three roots and names every operation with explicit
     // before/after logical timestamps.

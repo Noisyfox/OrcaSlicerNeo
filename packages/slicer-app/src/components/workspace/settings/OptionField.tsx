@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/settings/OptionField.tsx
-import type { OptionMeta, ProjectConfigOverrideTarget } from '@slicer/client';
+import type { OptionMeta, NativeScopedConfigTarget } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useEffect, useRef, useState } from 'react';
 import { errorText } from '@orca/slicer-runtime';
@@ -15,7 +15,7 @@ export async function commitOptionFieldChange(
   platform: Parameters<typeof commitSharedConfigurationMutation>[0],
   optionKey: string,
   next: string,
-  target: ProjectConfigOverrideTarget = { scope: 'project' },
+  target: NativeScopedConfigTarget = { scope: 'project' },
 ): Promise<void> {
   const mutation = await commitSharedConfigurationMutation(platform, optionKey, next, target);
   invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
@@ -24,13 +24,13 @@ export async function commitOptionFieldChange(
 export function OptionField({ optionKey, meta, target = { scope: 'project' } }: {
   optionKey: string;
   meta: OptionMeta;
-  target?: ProjectConfigOverrideTarget;
+  target?: NativeScopedConfigTarget;
 }) {
   const platform = usePlatform();
   const value = useSettingsStore((s) => {
     if (target.scope === 'project') return s.values[optionKey] ?? meta.default ?? '';
     const id = target.id === undefined ? '' : String(target.id);
-    return s.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
+    return s.nativeScopedConfig[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
       ?? meta.default ?? '';
   });
   const [draft, setDraft] = useState(value);
@@ -47,7 +47,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
       const id = target.id === undefined ? '' : String(target.id);
       const effective = target.scope === 'project'
         ? state.values[optionKey]
-        : state.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
+        : state.nativeScopedConfig[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
       setDraft(effective ?? next);
     } catch (error) {
       setError(errorText(error));

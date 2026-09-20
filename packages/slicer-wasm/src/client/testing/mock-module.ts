@@ -82,7 +82,7 @@ export interface MockModuleOptions {
   /** Optional raw mutation response override for client normalization tests. */
   filamentMutation?: unknown;
   /** Optional raw project-configuration response override for normalization tests. */
-  projectConfigOverride?: unknown;
+  nativeScopedConfigOverride?: unknown;
   /** Optional raw Prime Tower projection override for normalization tests. */
   primeTowerProjection?: unknown;
   /** Optional raw native performance profile override for normalization tests. */
@@ -314,23 +314,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let currentPlateId = '';
   let plateInputRevisions: Record<string, number> = {};
   let objectPlateIds: string[] = [];
-  type MockOverlay = {
+  type MockNativeScopedConfig = {
     project: Record<string, string>;
     objects: Record<string, Record<string, string>>;
     parts: Record<string, Record<string, string>>;
     plates: Record<string, Record<string, string>>;
   };
-  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {}, plates: {} });
-  function overlayProjection(): MockOverlay {
+  const emptyNativeScopedConfig = (): MockNativeScopedConfig => ({ project: {}, objects: {}, parts: {}, plates: {} });
+  function nativeScopedConfigProjection(): MockNativeScopedConfig {
     // Prime Tower coordinates remain one native project-level array pair;
     // plate buckets carry only ordinary plate-local overrides.
-    return clone(projectConfigOverlay);
+    return clone(nativeScopedConfig);
   }
   const sliceWarnings = opts.sliceWarnings ? [...opts.sliceWarnings] : [];
-  let projectConfigOverlay = opts.primeTowerFixture
-    ? { ...emptyOverlay(), project: { enable_prime_tower: '1' } }
-    : emptyOverlay();
-  let exportedProjectConfigOverlay = emptyOverlay();
+  let nativeScopedConfig = opts.primeTowerFixture
+    ? { ...emptyNativeScopedConfig(), project: { enable_prime_tower: '1' } }
+    : emptyNativeScopedConfig();
+  let exportedNativeScopedConfig = emptyNativeScopedConfig();
   let primeTowerProjectionState: any;
 
   type MockHistoryState = {
@@ -345,7 +345,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateIds: string[];
     plateOrigins: Array<[number, number, number]>;
     plateInputRevisions: Record<string, number>;
-    projectConfigOverlay: MockOverlay;
+    nativeScopedConfig: MockNativeScopedConfig;
     primeTowerProjection?: unknown;
   };
   type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project'; context: any };
@@ -367,7 +367,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
-      projectConfigOverlay, primeTowerProjection: primeTowerProjectionState });
+      nativeScopedConfig, primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
     modelLoaded = snapshot.modelLoaded;
@@ -381,7 +381,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateIds = clone(snapshot.plateIds);
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
-    projectConfigOverlay = clone(snapshot.projectConfigOverlay ?? emptyOverlay());
+    nativeScopedConfig = clone(snapshot.nativeScopedConfig ?? emptyNativeScopedConfig());
     primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
@@ -421,7 +421,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function validateHistoryContext(context: any): void {
     if (!context || typeof context !== 'object' || !context.selection ||
-        !context.projectConfigOverlay || !('activePlateId' in context) || !('gizmo' in context))
+        !context.nativeScopedConfig || !('activePlateId' in context) || !('gizmo' in context))
       throw new Error('invalid history context');
   }
   function resetHistory(): void {
@@ -445,7 +445,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     };
     return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() }, status: historyStatus(), entryId: entry.id,
       scene_delta: sceneDelta,
-      impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, projectOverlay: true,
+      impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function plateStride(): number {
@@ -515,7 +515,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (primeTowerProjectionState !== undefined) return clone(primeTowerProjectionState);
     const area = { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 };
     if (opts.primeTowerFixture) {
-      const enabled = projectConfigOverlay.project.enable_prime_tower !== '0';
+      const enabled = nativeScopedConfig.project.enable_prime_tower !== '0';
       return {
         ok: true, version: 1, current_plate_id: currentPlateId, build_area: area,
         plates: plateIds.map((plateId, index) => ({
@@ -583,17 +583,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     target.footprint = { min_x: target.footprint.min_x + x - old.x, max_x: target.footprint.max_x + x - old.x,
       min_y: target.footprint.min_y + y - old.y, max_y: target.footprint.max_y + y - old.y };
     primeTowerProjectionState = next;
-    const xValues = (projectConfigOverlay.project.wipe_tower_x ?? '').split(',').filter(Boolean);
-    const yValues = (projectConfigOverlay.project.wipe_tower_y ?? '').split(',').filter(Boolean);
+    const xValues = (nativeScopedConfig.project.wipe_tower_x ?? '').split(',').filter(Boolean);
+    const yValues = (nativeScopedConfig.project.wipe_tower_y ?? '').split(',').filter(Boolean);
     xValues[plate.display_index] = String(x);
     yValues[plate.display_index] = String(y);
-    projectConfigOverlay.project.wipe_tower_x = xValues.join(',');
-    projectConfigOverlay.project.wipe_tower_y = yValues.join(',');
+    nativeScopedConfig.project.wipe_tower_x = xValues.join(',');
+    nativeScopedConfig.project.wipe_tower_y = yValues.join(',');
     historyRevision += 1;
     if (slicedPlateId === request.plate_id) sliced = false;
     plateMutation('prime-tower-position');
     const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-      activePlateId: currentPlateId, gizmo: null, projectConfigOverlay: clone(projectConfigOverlay),
+      activePlateId: currentPlateId, gizmo: null, nativeScopedConfig: clone(nativeScopedConfig),
       primeTowerMove: { plateId: request.plate_id, before: old, after: { x, y } } };
     if (historyEntries.length === 0) {
       historyEntries.push({ ...beforeState, id: 'entry-0', label: '', category: 'project', context: clone(context) });
@@ -1150,7 +1150,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
         instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
         plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
-        projectConfigOverlay: previous.projectConfigOverlay } : null;
+        nativeScopedConfig: previous.nativeScopedConfig } : null;
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
       if (changed) {
@@ -1353,7 +1353,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const changed = reflowMockPlateOrigins();
       const result = plateSessionSnapshot() as Record<string, unknown>;
       result.instance_transforms = changed;
-      result.project_config_overlay = overlayProjection();
+      result.native_scoped_config = nativeScopedConfigProjection();
       return result;
     },
     orc_reorder_plates(plateIdsJson: string) {
@@ -1385,7 +1385,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
       const changed = reflowMockPlateOrigins();
       const result = plateMutation('plate-delete', [plateId], plateIds, changed) as Record<string, unknown>;
-      result.project_config_overlay = overlayProjection();
+      result.native_scoped_config = nativeScopedConfigProjection();
       return result;
     },
     orc_recompute_plate_membership() {
@@ -1403,11 +1403,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       result.dirty_reasons = ['shared-configuration'];
       return result;
     },
-    orc_get_project_config_overlay() {
-      return { ok: true, overlay: overlayProjection() };
+    orc_get_native_scoped_config() {
+      return { ok: true, native_scoped_config: nativeScopedConfigProjection() };
     },
-    orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
-      if (opts.projectConfigOverride !== undefined) return opts.projectConfigOverride;
+    orc_set_native_scoped_config(scope: string, id: string, optionKey: string, value: string) {
+      if (opts.nativeScopedConfigOverride !== undefined) return opts.nativeScopedConfigOverride;
       if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
       if (!optionKey) return { error: 'option key is required' };
       if (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y')
@@ -1427,30 +1427,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           return { ok: false, error: scope === 'object' ? 'object not found' : 'part not found', error_code: 'unsupported_reference' };
         affected = objectPlateIds[objectIndex] ? [objectPlateIds[objectIndex]] : [];
       }
-      const bucket = scope === 'project' ? projectConfigOverlay.project
-        : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
-          : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
-            : (projectConfigOverlay.plates[id] ??= {});
+      const bucket = scope === 'project' ? nativeScopedConfig.project
+        : scope === 'object' ? (nativeScopedConfig.objects[id] ??= {})
+          : scope === 'part' ? (nativeScopedConfig.parts[id] ??= {})
+            : (nativeScopedConfig.plates[id] ??= {});
       const effective = value;
       bucket[optionKey] = effective;
       const mutation = scope === 'project'
         ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
         : plateMutation(`${scope}-configuration`, affected, affected);
-      return { ok: true, overlay: overlayProjection(), plate_session: mutation,
+      return { ok: true, native_scoped_config: nativeScopedConfigProjection(), plate_session: mutation,
         configuration_status: { state: 'ready', corrections: effective === value ? [] : [{ key: optionKey, requested: value, effective }], warnings: [], errors: [] } };
     },
-    orc_revalidate_project_config_overlay() {
+    orc_revalidate_native_scoped_config() {
       // The native bridge validates against the current option metadata. The
       // fixture exposes the same contract while retaining valid keys.
-      for (const key of Object.keys(projectConfigOverlay.project))
-        if (!(key in metadata)) delete projectConfigOverlay.project[key];
-      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts, projectConfigOverlay.plates]) {
+      for (const key of Object.keys(nativeScopedConfig.project))
+        if (!(key in metadata)) delete nativeScopedConfig.project[key];
+      for (const scope of [nativeScopedConfig.objects, nativeScopedConfig.parts, nativeScopedConfig.plates]) {
         for (const [id, values] of Object.entries(scope)) {
           for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
           if (Object.keys(values).length === 0) delete scope[id];
         }
       }
-      return { ok: true, overlay: overlayProjection() };
+      return { ok: true, native_scoped_config: nativeScopedConfigProjection() };
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -1505,7 +1505,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
-      projectConfigOverlay = emptyOverlay();
+      nativeScopedConfig = emptyNativeScopedConfig();
       modelLoaded = false;
       sliced = false;
       resetPlateSession();
@@ -1517,8 +1517,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       publishProgress(0, geometryOnly ? 'Preparing geometry import' : 'Preparing project load');
       publishProgress(10, 'Reading project metadata');
       if (!geometryOnly) {
-        projectConfigOverlay = emptyOverlay();
-        projectConfigOverlay = clone(exportedProjectConfigOverlay);
+        nativeScopedConfig = emptyNativeScopedConfig();
+        nativeScopedConfig = clone(exportedNativeScopedConfig);
       }
       appendMockObject(displayName || undefined);
       publishProgress(55, geometryOnly ? 'Preparing imported geometry' : 'Reading project settings');
@@ -1547,7 +1547,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly && hasProjectWarning,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
-        project_config_overlay: geometryOnly ? undefined : overlayProjection(),
+        native_scoped_config: geometryOnly ? undefined : nativeScopedConfigProjection(),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(),
       };
     },
@@ -1586,7 +1586,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
-      projectConfigOverlay = emptyOverlay();
+      nativeScopedConfig = emptyNativeScopedConfig();
       modelLoaded = false;
       if (filamentSessionState !== undefined)
         filamentSessionState.assignments = { objects: [], parts: [], modifiers: [] };
@@ -2124,10 +2124,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
-      exportedProjectConfigOverlay = clone(projectConfigOverlay);
+      exportedNativeScopedConfig = clone(nativeScopedConfig);
       const archive = new TextEncoder().encode(JSON.stringify({
         format: 'bbs-3mf', objects: buildStructure(), plate_count: 1,
-        project_config_overlay: exportedProjectConfigOverlay,
+        native_scoped_config: exportedNativeScopedConfig,
       }));
       const ptr = malloc(Math.max(1, archive.length));
       HEAPU8.set(archive, ptr);
@@ -2262,9 +2262,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_delete_plate: { ret: 'number', args: ['string'] },
     orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
-    orc_get_project_config_overlay: { ret: 'number', args: [] },
-    orc_set_project_config_override: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
-    orc_revalidate_project_config_overlay: { ret: 'number', args: [] },
+    orc_get_native_scoped_config: { ret: 'number', args: [] },
+    orc_set_native_scoped_config: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
+    orc_revalidate_native_scoped_config: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },

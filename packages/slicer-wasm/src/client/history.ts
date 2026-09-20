@@ -47,8 +47,8 @@ export interface HistoryContext {
   readonly selection: HistorySelection;
   readonly activePlateId: StablePlateId | null;
   readonly gizmo: HistoryGizmoContext | null;
-  /** Project/object/part overrides and retained plate metadata, never global preset preferences. */
-  readonly projectConfigOverlay: HistoryJsonObject;
+  /** Disposable projection of native Project/Object/Part/Plate config, never global preset preferences. */
+  readonly nativeScopedConfig: HistoryJsonObject;
   /** Native-canonical session projection, present on Worker restore results. */
   readonly plateSession?: PlateSessionSnapshot;
 }
@@ -125,7 +125,7 @@ export interface RestoreImpact {
   readonly model: 'delta' | 'none';
   readonly plateSession: boolean;
   readonly filamentRack: boolean;
-  readonly projectOverlay: boolean;
+  readonly nativeScopedConfig: boolean;
   readonly selectionContext: boolean;
   readonly primeTower: boolean;
   readonly preview: 'all' | 'current-plate';

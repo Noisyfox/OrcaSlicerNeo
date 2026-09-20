@@ -3,7 +3,7 @@ import type { PlateSessionMutation, ProjectLoadResult, SlicerClient } from '@sli
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
-import { emptyProjectConfigOverlay, useSettingsStore } from './stores/useSettingsStore';
+import { emptyNativeScopedConfig, useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
@@ -89,7 +89,7 @@ function projectedHistoryContext(): HistoryContext {
     selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
     activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
     gizmo: null,
-    projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
+    nativeScopedConfig: useSettingsStore.getState().nativeScopedConfig as unknown as HistoryContext['nativeScopedConfig'],
   };
 }
 async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus> {
@@ -266,7 +266,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
     useSettingsStore.getState().hydrateProfileSnapshot(snapshot);
-    useSettingsStore.getState().setOverlay(load.projectConfigOverlay ?? emptyProjectConfigOverlay());
+    useSettingsStore.getState().setNativeScopedConfig(load.nativeScopedConfig ?? emptyNativeScopedConfig());
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtime);
     useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });

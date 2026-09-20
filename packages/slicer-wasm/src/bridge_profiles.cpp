@@ -20,6 +20,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
 #include "bridge_prime_tower.hpp"
+#include "bridge_scoped_config.hpp"
 
 using namespace Slic3r;
 
@@ -83,7 +84,7 @@ void validate_profile_transition()
     Filament::Commands::recalculate_filament_flush(bundle);
     Filament::Commands::validate_filament_candidate(
         bundle, state().model, state().plate_session_plates,
-        state().project_config_overlay, true, true);
+        Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);
     // Printer changes are a silent lifecycle transition. Normalize the
     // project-owned arrays only after the native candidate is valid so the
     // returned projection and the next slice observe identical coordinates.
@@ -276,8 +277,7 @@ json preset_snapshot_json()
                 {"print", preset_selection_json(state().presets.prints)},
                 {"printable_area", selected_printer_printable_area_json()},
                 // Embedded project settings and the selected Process preset
-                // are both part of the native effective configuration even
-                // when the Neo overlay is empty.  Use the same merged config
+                // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to
                 // metadata defaults that disagree with slicing.
                 {"project_config", Filament::State::config_metadata_json(state().presets.full_config())}};

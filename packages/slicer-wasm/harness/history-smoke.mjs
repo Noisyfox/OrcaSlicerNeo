@@ -116,7 +116,7 @@ function assertLiveSessionIntegrity(snapshot, label) {
     JSON.stringify({ model, snapshot }));
 }
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 if (!init.ok) throw new Error(JSON.stringify(init));
 // A freshly created project exercises the first ordinary body move: Undo must
@@ -163,7 +163,7 @@ const restoreSamples = (freshMoveUndoProfile.samples ?? []).filter((sample) => s
 const restoreStages = [
   'immutable_mesh_reconnect',
   'model_staging_deserialization',
-  'plate_session_project_overlay_restore',
+  'plate_session_native_config_restore',
   'total',
 ];
 historyCheck('fresh-project move Undo exposes bounded native restore stages', restoreSamples.length === 1 &&
@@ -175,7 +175,7 @@ historyCheck('fresh-project move Undo exposes bounded native restore stages', re
 historyCheck('fresh-project move Undo returns the SceneDelta timestamped-restore ABI response', freshMoveUndo.ok === true &&
   freshMoveUndo.context && typeof freshMoveUndo.context === 'object' &&
   freshMoveUndo.impact?.model === 'delta' && freshMoveUndo.impact?.plateSession === true &&
-  freshMoveUndo.impact?.projectOverlay === true && freshMoveUndo.impact?.preview === 'all' &&
+  freshMoveUndo.impact?.nativeScopedConfig === true && freshMoveUndo.impact?.preview === 'all' &&
   !Object.hasOwn(freshMoveUndo, 'direct') && !Object.hasOwn(freshMoveUndo, 'transform_receipt'),
   JSON.stringify(freshMoveUndo));
 const freshPlateIds = freshMoveUndo.context.plateSession.plates.map((plate) => plate.plate_id);
@@ -397,7 +397,7 @@ const configuredPlateId = plateAfterRedo.current_plate_id;
 const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Plate Config', 'project', JSON.stringify(context), '']);
 if (!configTx.ok || typeof configTx.transactionId !== 'string') throw new Error(JSON.stringify(configTx));
-const configured = callJson('orc_set_project_config_override',
+const configured = callJson('orc_set_native_scoped_config',
   ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_x', '101,202']);
 if (configured.ok || configured.error_code !== 'unsupported_reference')
   throw new Error(`generic X/Y setting unexpectedly accepted: ${JSON.stringify(configured)}`);
@@ -806,18 +806,18 @@ let structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
 const structuralBaselineIdentity = modelIdentity(callJson('orc_get_model_structure', [], []));
 assertLiveSessionIntegrity(structuralBaseline, 'structural baseline');
 function coordinateArraysMatchPlateCount(session) {
-  const overlay = callJson('orc_get_project_config_overlay');
+  const snapshot = callJson('orc_get_native_scoped_config');
   return ['wipe_tower_x', 'wipe_tower_y'].every((key) =>
-    typeof overlay.overlay.project?.[key] === 'string' && overlay.overlay.project[key].split(',').length === session.plates.length) &&
+    typeof snapshot.native_scoped_config.project?.[key] === 'string' && snapshot.native_scoped_config.project[key].split(',').length === session.plates.length) &&
     session.plates.every((plate, index) => !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x') &&
       !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_y'));
 }
 function coordinateArrayAt(session, plateId, key) {
   const plate = session.plates.find((entry) => entry.plate_id === plateId);
   if (!plate) throw new Error(`missing coordinate plate ${plateId}`);
-  const overlay = callJson('orc_get_project_config_overlay');
-  if (typeof overlay.overlay.project?.[key] !== 'string') throw new Error(`${key} is not serialized`);
-  return overlay.overlay.project[key].split(',').map(Number);
+  const snapshot = callJson('orc_get_native_scoped_config');
+  if (typeof snapshot.native_scoped_config.project?.[key] !== 'string') throw new Error(`${key} is not serialized`);
+  return snapshot.native_scoped_config.project[key].split(',').map(Number);
 }
 function coordinateIdentityValues(session, expected) {
   return Object.entries(expected).every(([plateId, values]) =>
@@ -827,7 +827,7 @@ function coordinateIdentityValues(session, expected) {
     }));
 }
 function setProjectCoordinate(key, value) {
-  const result = callJson('orc_set_project_config_override',
+  const result = callJson('orc_set_native_scoped_config',
     ['string', 'string', 'string', 'string'], ['project', '', key, String(value)]);
   if (!result.ok) throw new Error(`set project ${key} failed: ${JSON.stringify(result)}`);
 }

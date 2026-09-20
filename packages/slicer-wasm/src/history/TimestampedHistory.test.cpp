@@ -40,7 +40,7 @@ static TimestampedRoots roots(std::uint8_t marker, std::vector<MutableObject> ob
     result.session.plate_session = bytes(plate);
     result.session.history_context = bytes(context);
     if (plate != 0) result.session.scene_plate_ids = {"plate-" + std::to_string(plate)};
-    result.project_config_overlay = bytes(project);
+    result.project_config = bytes(project);
     return result;
 }
 
@@ -128,12 +128,12 @@ int main()
     // a plate/context/config mixture from another frame.
     CHECK(restored.roots.session.plate_session == bytes(3));
     CHECK(restored.roots.session.history_context == bytes(13));
-    CHECK(restored.roots.project_config_overlay == bytes(23));
+    CHECK(restored.roots.project_config == bytes(23));
     CHECK(sequence.restore(0, nullptr, restored));
     CHECK(restored.roots.model.serialized == bytes(10));
     CHECK(restored.roots.session.plate_session == bytes(1));
     CHECK(restored.roots.session.history_context == bytes(11));
-    CHECK(restored.roots.project_config_overlay == bytes(21));
+    CHECK(restored.roots.project_config == bytes(21));
 
     // Snapshot manifests share unchanged object archives. Only object 2 gets
     // a second retained version at timestamp 1.

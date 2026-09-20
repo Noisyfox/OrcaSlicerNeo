@@ -45,7 +45,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
-  const setOverlay = useSettingsStore((s) => s.setOverlay);
+  const setNativeScopedConfig = useSettingsStore((s) => s.setNativeScopedConfig);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
 
@@ -82,8 +82,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.
       hydrateProfileSnapshot(r);
-      const revalidated = await platform.runtime.revalidateProjectConfigOverlay();
-      if (revalidated.ok) setOverlay(revalidated.overlay);
+      const revalidated = await platform.runtime.revalidateNativeScopedConfig();
+      if (revalidated.ok) setNativeScopedConfig(revalidated.nativeScopedConfig);
       // The result belongs to the old profile combination. One action clears
       // export, toolpath-layer state, progress, and completed status together.
       invalidateAfterSharedConfigurationMutation();

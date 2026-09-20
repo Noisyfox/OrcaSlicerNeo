@@ -12,7 +12,7 @@ import type {
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
   PrimeTowerMoveResultOrError,
-  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
+  NativeScopedConfigTarget, NativeScopedConfigResultOrError, NativeScopedConfigSnapshot,
   ConfigurationStatus,
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
@@ -172,28 +172,28 @@ function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): Config
     warnings: raw.warnings as string[], errors: raw.errors as string[] };
 }
 
-function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResultOrError {
-  if (!isRecord(raw)) return { ok: false, error: 'invalid project configuration response' };
+function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrError {
+  if (!isRecord(raw)) return { ok: false, error: 'invalid native scoped configuration response' };
   if (raw.ok !== true) {
-    if (raw.ok !== false || typeof raw.error !== 'string') return { ok: false, error: 'invalid project configuration error envelope' };
+    if (raw.ok !== false || typeof raw.error !== 'string') return { ok: false, error: 'invalid native scoped configuration error envelope' };
     const result: { ok: false; error: string; errorCode?: string; status?: { state: 'error'; error: string } } = { ok: false, error: raw.error };
     if (raw.error_code !== undefined) {
-      if (typeof raw.error_code !== 'string') return { ok: false, error: 'invalid project configuration error code' };
+      if (typeof raw.error_code !== 'string') return { ok: false, error: 'invalid native scoped configuration error code' };
       result.errorCode = raw.error_code;
     }
     if (raw.status !== undefined) {
       const status = normalizeConfigurationStatus(raw.status, false);
-      if (!status || status.state !== 'error') return { ok: false, error: 'invalid project configuration error status' };
+      if (!status || status.state !== 'error') return { ok: false, error: 'invalid native scoped configuration error status' };
       result.status = status;
     }
     return result;
   }
-  const overlay = raw.overlay;
-  if (!isRecord(overlay)) return { ok: false, error: 'invalid project configuration overlay' };
-  if (Object.keys(overlay).length !== 4 || !Object.hasOwn(overlay, 'project') ||
-      !Object.hasOwn(overlay, 'objects') || !Object.hasOwn(overlay, 'parts') ||
-      !Object.hasOwn(overlay, 'plates'))
-    return { ok: false, error: 'invalid project configuration overlay' };
+  const snapshot = raw.native_scoped_config;
+  if (!isRecord(snapshot)) return { ok: false, error: 'invalid native scoped configuration snapshot' };
+  if (Object.keys(snapshot).length !== 4 || !Object.hasOwn(snapshot, 'project') ||
+      !Object.hasOwn(snapshot, 'objects') || !Object.hasOwn(snapshot, 'parts') ||
+      !Object.hasOwn(snapshot, 'plates'))
+    return { ok: false, error: 'invalid native scoped configuration snapshot' };
   const normalizeBucket = (value: unknown): Record<string, string> | null => {
     if (!isRecord(value)) return null;
     const entries: Record<string, string> = {};
@@ -203,7 +203,7 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
     }
     return entries;
   };
-  const project = normalizeBucket(overlay.project);
+  const project = normalizeBucket(snapshot.project);
   const normalizeScopedBucket = (value: unknown): Record<string, Record<string, string>> | null => {
     if (!isRecord(value)) return null;
     const result: Record<string, Record<string, string>> = {};
@@ -214,12 +214,12 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
     }
     return result;
   };
-  const objects = normalizeScopedBucket(overlay.objects);
-  const parts = normalizeScopedBucket(overlay.parts);
-  const plates = normalizeScopedBucket(overlay.plates);
-  if (!project || !objects || !parts || !plates) return { ok: false, error: 'invalid project configuration overlay' };
-  const result: { ok: true; overlay: ProjectConfigOverlay; plateSession?: unknown; configurationStatus?: unknown } = {
-    ok: true, overlay: { project, objects, parts, plates },
+  const objects = normalizeScopedBucket(snapshot.objects);
+  const parts = normalizeScopedBucket(snapshot.parts);
+  const plates = normalizeScopedBucket(snapshot.plates);
+  if (!project || !objects || !parts || !plates) return { ok: false, error: 'invalid native scoped configuration snapshot' };
+  const result: { ok: true; nativeScopedConfig: NativeScopedConfigSnapshot; plateSession?: unknown; configurationStatus?: unknown } = {
+    ok: true, nativeScopedConfig: { project, objects, parts, plates },
   };
   if (raw.plate_session !== undefined) {
     const plateSession = normalizePlateMutationResult(raw.plate_session);
@@ -229,10 +229,10 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
   const rawStatus = raw.configuration_status;
   if (rawStatus !== undefined) {
     const status = normalizeConfigurationStatus(rawStatus, true);
-    if (!status || status.state !== 'ready') return { ok: false, error: 'invalid project configuration status' };
+    if (!status || status.state !== 'ready') return { ok: false, error: 'invalid native scoped configuration status' };
     result.configurationStatus = status;
   }
-  return result as ProjectConfigOverlayResultOrError;
+  return result as NativeScopedConfigResultOrError;
 }
 
 function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult {
@@ -689,10 +689,10 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (after) result.affectedPlateIdsAfter = after;
   if (affected) result.affectedPlateIds = affected;
   if (reasons) result.dirtyReasons = reasons;
-  if (value.project_config_overlay !== undefined) {
-    const overlay = normalizeProjectConfigOverlay({ ok: true, overlay: value.project_config_overlay });
-    if (!overlay.ok) return { ok: false, error: 'invalid plate session project configuration overlay' };
-    result.projectConfigOverlay = overlay.overlay;
+  if (value.native_scoped_config !== undefined) {
+    const snapshot = normalizeNativeScopedConfig({ ok: true, native_scoped_config: value.native_scoped_config });
+    if (!snapshot.ok) return { ok: false, error: 'invalid plate session native scoped configuration' };
+    result.nativeScopedConfig = snapshot.nativeScopedConfig;
   }
   return result;
 }
@@ -1004,13 +1004,13 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
   const fallback: import('./history').RestoreImpact = {
     version: 1, model: 'delta', plateSession: true, filamentRack: true,
-    projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+    nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const value = raw as Record<string, unknown>;
   if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
-      typeof value.projectOverlay !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
+      typeof value.nativeScopedConfig !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
       (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
   return value as unknown as import('./history').RestoreImpact;
@@ -1492,22 +1492,22 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
     },
 
-    async getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+    async getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
-      return normalizeProjectConfigOverlay(callJson(m, 'orc_get_project_config_overlay', [], []));
+      return normalizeNativeScopedConfig(callJson(m, 'orc_get_native_scoped_config', [], []));
     },
 
-    async setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError> {
+    async setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
       const scopeId = target.id === undefined ? '' : String(target.id);
-      const raw = callJson(m, 'orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+      const raw = callJson(m, 'orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
         [target.scope, scopeId, optionKey, value]);
-      return normalizeProjectConfigOverlay(raw);
+      return normalizeNativeScopedConfig(raw);
     },
 
-    async revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+    async revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
-      return normalizeProjectConfigOverlay(callJson(m, 'orc_revalidate_project_config_overlay', [], []));
+      return normalizeNativeScopedConfig(callJson(m, 'orc_revalidate_native_scoped_config', [], []));
     },
 
     async getProfileSnapshot(): Promise<ProfileSnapshotResult> {
@@ -1625,8 +1625,8 @@ export function createClient(
             const plateSession = normalizePlateMutationResult(r.plate_session);
             return plateSession.ok ? { plateSession } : {};
           })() : {}),
-          ...(r.project_config_overlay && typeof r.project_config_overlay === 'object'
-            ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
+          ...(r.native_scoped_config && typeof r.native_scoped_config === 'object'
+            ? { nativeScopedConfig: r.native_scoped_config as NativeScopedConfigSnapshot } : {}),
         };
       } finally {
         drainTaskMessages(m);

@@ -37,14 +37,14 @@ function sameJson(left, right) {
 }
 
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 const session = () => requireOk('plate session', callJson('orc_get_plate_session_snapshot'));
 const stamps = () => session().input_revisions;
 const begin = (label) => requireOk(`begin ${label}`, callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], [label, 'project', JSON.stringify(context), '']));
 const commit = (label, tx) => requireStatus(`commit ${label}`, callJson('orc_history_commit',
   ['string', 'string'], [tx.transactionId, JSON.stringify(context)]));
-const setOverride = (scope, id, key, value) => callJson('orc_set_project_config_override',
+const setOverride = (scope, id, key, value) => callJson('orc_set_native_scoped_config',
   ['string', 'string', 'string', 'string'], [scope, id ?? '', key, value]);
 const select = (plateId) => requireOk(`select ${plateId}`, callJson('orc_select_plate', ['string'], [plateId]));
 const receipts = new Map();
@@ -109,15 +109,15 @@ requireStatus('reset history baseline', callJson('orc_history_reset', ['string']
 
 for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
-// Rejection is atomic: neither overlay, stamps, nor any valid presentation is
+// Rejection is atomic: neither native configuration, stamps, nor any valid presentation is
 // touched when native option parsing fails.
 const beforeRejectSession = session();
-const beforeRejectOverlay = requireOk('overlay before rejection', callJson('orc_get_project_config_overlay'));
+const beforeRejectSnapshot = requireOk('snapshot before rejection', callJson('orc_get_native_scoped_config'));
 const rejected = setOverride('plate', plateA, 'layer_height', 'not-a-number');
 if (rejected.ok || rejected.error_code !== 'native_validation_failure')
   throw new Error(`invalid plate override was not rejected: ${JSON.stringify(rejected)}`);
 if (!sameJson(session(), beforeRejectSession) ||
-    !sameJson(requireOk('overlay after rejection', callJson('orc_get_project_config_overlay')), beforeRejectOverlay))
+    !sameJson(requireOk('snapshot after rejection', callJson('orc_get_native_scoped_config')), beforeRejectSnapshot))
   throw new Error('rejected configuration changed authoritative state');
 for (const plateId of [plateA, plateB, plateC]) requireOk(`result retained after rejection ${plateId}`, result(plateId));
 
@@ -227,7 +227,7 @@ for (const plateId of [plateA, plateB, plateC]) requireStale(`plate stale after 
 for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
 // Printer/process profile activation enters through this shared marker rather
-// than the overlay setter, but it has the same all-plate invalidation contract.
+// than the native scoped setter, but it has the same all-plate invalidation contract.
 before = stamps();
 const presetEdit = requireOk('shared preset mutation', callJson('orc_mark_shared_configuration_mutation'));
 after = stamps();

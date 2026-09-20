@@ -1,16 +1,16 @@
 import { create } from 'zustand';
-import type { FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot, ProjectConfigOverlay } from '@slicer/client';
+import type { FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot, NativeScopedConfigSnapshot } from '@slicer/client';
 
-export const emptyProjectConfigOverlay = (): ProjectConfigOverlay => ({
+export const emptyNativeScopedConfig = (): NativeScopedConfigSnapshot => ({
   project: {}, objects: {}, parts: {}, plates: {},
 });
 
-export function projectOverlayValues(overlay: ProjectConfigOverlay): Record<string, string> {
-  return { ...overlay.project };
+export function nativeScopedConfigValues(snapshot: NativeScopedConfigSnapshot): Record<string, string> {
+  return { ...snapshot.project };
 }
 
-function effectiveValues(baseValues: Record<string, string>, overlay: ProjectConfigOverlay): Record<string, string> {
-  return { ...baseValues, ...projectOverlayValues(overlay) };
+function effectiveValues(baseValues: Record<string, string>, snapshot: NativeScopedConfigSnapshot): Record<string, string> {
+  return { ...baseValues, ...nativeScopedConfigValues(snapshot) };
 }
 
 interface SettingsState {
@@ -29,22 +29,22 @@ interface SettingsState {
   selectedPrint: string;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printableArea: Array<[number, number]>;
-  /** Native effective profile/project configuration before Neo's overlay. */
+  /** Native effective profile/project configuration before local edits. */
   baseValues: Record<string, string>;
   values: Record<string, string>;
-  /** Render projection of the Worker-owned project configuration overlay. */
-  overlay: ProjectConfigOverlay;
+  /** Disposable projection of native scoped configuration. */
+  nativeScopedConfig: NativeScopedConfigSnapshot;
   modelLoaded: boolean;
   /** Advances on every successful add or clear so repeated adds reload the viewport. */
   modelRevision: number;
   setMetadata: (m: OptionMetadata) => void;
-  /** Replace all picker state from one atomic compatibility snapshot. */
+  /** Replace all picker state from one atomic native snapshot. */
   hydrateProfileSnapshot: (snapshot: ProfileSnapshot) => void;
   setPresets: (printers: PresetInfo[], prints: PresetInfo[], filamentCatalog: FilamentCatalogItem[]) => void;
   setSelections: (printer: string, print: string) => void;
   setValue: (key: string, value: string) => void;
   setValues: (values: Record<string, string>) => void;
-  setOverlay: (overlay: ProjectConfigOverlay) => void;
+  setNativeScopedConfig: (snapshot: NativeScopedConfigSnapshot) => void;
   setModelLoaded: (v: boolean) => void;
   /** Update the loaded flag after an incremental SceneDelta without scheduling a full mesh read. */
   setModelLoadedFromSceneDelta: (v: boolean) => void;
@@ -62,13 +62,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   printableArea: [[0, 0], [220, 0], [220, 220], [0, 220]],
   baseValues: {},
   values: {},
-  overlay: emptyProjectConfigOverlay(),
+  nativeScopedConfig: emptyNativeScopedConfig(),
   modelLoaded: false,
   modelRevision: 0,
   setMetadata: (metadata) => set({ metadata }),
   hydrateProfileSnapshot: (snapshot) => set(() => {
     const baseValues = snapshot.project_config ?? {};
-    const overlay = emptyProjectConfigOverlay();
+    const nativeScopedConfig = emptyNativeScopedConfig();
     return {
       printers: snapshot.printers,
       prints: snapshot.prints,
@@ -77,10 +77,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       selectedPrint: snapshot.print.name,
       printableArea: snapshot.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
       baseValues,
-      // A profile/project replacement starts with no old project overlay. The
-      // caller applies the replacement project's overlay in a separate step.
-      overlay,
-      values: effectiveValues(baseValues, overlay),
+      // A profile/project replacement starts with no scoped local values. The
+      // caller applies the replacement project's native snapshot separately.
+      nativeScopedConfig,
+      values: effectiveValues(baseValues, nativeScopedConfig),
     };
   }),
   setPresets: (printers, prints, filamentCatalog) => set({
@@ -91,15 +91,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSelections: (selectedPrinter, selectedPrint) => set({ selectedPrinter, selectedPrint }),
   setValue: (key, value) => set((s) => {
     const baseValues = { ...s.baseValues, [key]: value };
-    return { baseValues, values: effectiveValues(baseValues, s.overlay) };
+    return { baseValues, values: effectiveValues(baseValues, s.nativeScopedConfig) };
   }),
-  setValues: (baseValues) => set((s) => ({ baseValues, values: effectiveValues(baseValues, s.overlay) })),
-  setOverlay: (overlay) => set((s) => ({
-    overlay,
-    // A loaded 3MF may select a Process preset with enable_prime_tower=1
-    // without storing a Neo overlay entry. Re-derive from the immutable base
-    // so removing an override restores that native value.
-    values: effectiveValues(s.baseValues, overlay),
+  setValues: (baseValues) => set((s) => ({ baseValues, values: effectiveValues(baseValues, s.nativeScopedConfig) })),
+  setNativeScopedConfig: (nativeScopedConfig) => set((s) => ({
+    nativeScopedConfig,
+    // Re-derive from the immutable base so the renderer always reflects
+    // native scope values after a committed response.
+    values: effectiveValues(s.baseValues, nativeScopedConfig),
   })),
   setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),
   setModelLoadedFromSceneDelta: (modelLoaded) => set({ modelLoaded }),

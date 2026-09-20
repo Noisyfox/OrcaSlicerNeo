@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------
-// Project configuration overlay for the Neo WASM bridge.
+// Native scoped configuration commands for the Neo WASM bridge.
 // ----------------------------------------------------------------
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 
 #include <cstdlib>
 #include <cstring>
@@ -27,7 +27,7 @@
 using namespace Slic3r;
 using nlohmann::json;
 
-namespace Slic3r::Neo::Bridge::ProjectOverlay {
+namespace Slic3r::Neo::Bridge::ScopedConfig {
 
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
@@ -35,8 +35,6 @@ using Neo::Bridge::Filament::State::config_metadata_json;
 using Neo::Bridge::ModelOperations::find_object_by_id;
 using Neo::Bridge::ModelOperations::find_volume_by_id;
 using namespace Neo::Bridge::PlateSession;
-
-static constexpr const char* kNeoConfigOverlaySchema = "org.orcaslicerneo.config-overlay";
 
 namespace {
 
@@ -113,7 +111,7 @@ void restore_model_mutation_snapshot(ModelMutationSnapshot& snapshot) noexcept
 }
 
 template <class Config>
-void apply_overlay_generic(Config& config, const json& values)
+void apply_native_values_generic(Config& config, const json& values)
 {
     if (!values.is_object()) return;
     ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
@@ -126,19 +124,19 @@ void apply_overlay_generic(Config& config, const json& values)
 
 } // namespace
 
-json empty_project_config_overlay()
+json empty_native_scoped_config_snapshot()
 {
     return json{{"project", json::object()}, {"objects", json::object()},
                 {"parts", json::object()}, {"plates", json::object()}};
 }
 
-bool valid_project_config_overlay(const json& overlay)
+bool valid_native_scoped_config_snapshot(const json& snapshot)
 {
-    if (!overlay.is_object() || overlay.size() != 4) return false;
+    if (!snapshot.is_object() || snapshot.size() != 4) return false;
     for (const char* scope : {"project", "objects", "parts", "plates"})
-        if (!overlay.contains(scope) || !overlay[scope].is_object()) return false;
+        if (!snapshot.contains(scope) || !snapshot[scope].is_object()) return false;
     for (const char* scope : {"project", "objects", "parts", "plates"}) {
-        for (auto it = overlay[scope].begin(); it != overlay[scope].end(); ++it) {
+        for (auto it = snapshot[scope].begin(); it != snapshot[scope].end(); ++it) {
             if (scope == std::string("project")) {
                 if (!it.value().is_string()) return false;
                 continue;
@@ -151,30 +149,20 @@ bool valid_project_config_overlay(const json& overlay)
     return true;
 }
 
-void strip_plate_coordinate_overrides(json& overlay)
+void apply_native_config_values(DynamicPrintConfig& config, const json& values)
 {
-    if (!overlay.is_object() || !overlay.contains("plates") || !overlay["plates"].is_object()) return;
-    for (auto& values : overlay["plates"]) {
-        if (!values.is_object()) continue;
-        values.erase("wipe_tower_x");
-        values.erase("wipe_tower_y");
-    }
+    apply_native_values_generic(config, values);
 }
 
-void apply_overlay_to_config(DynamicPrintConfig& config, const json& values)
+void apply_native_config_values(ModelConfig& config, const json& values)
 {
-    apply_overlay_generic(config, values);
-}
-
-void apply_overlay_to_config(ModelConfig& config, const json& values)
-{
-    apply_overlay_generic(config, values);
+    apply_native_values_generic(config, values);
 }
 
 void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>& plates)
 {
     for (auto& plate : plates) {
-        apply_overlay_to_config(plate.settings, plate.settings_metadata);
+        apply_native_config_values(plate.settings, plate.settings_metadata);
         plate.settings.erase("wipe_tower_x");
         plate.settings.erase("wipe_tower_y");
         if (plate.settings_metadata.is_object()) {
@@ -185,99 +173,88 @@ void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>
     }
 }
 
-void apply_plate_overlay_to_configs(std::vector<BridgeState::PlateSessionPlate>& plates,
-                                    const json& overlay)
+json native_scoped_config_snapshot()
 {
-    if (!overlay.is_object() || !overlay.contains("plates") || !overlay["plates"].is_object()) return;
-    for (std::size_t index = 0; index < plates.size(); ++index) {
-        auto& plate = plates[index];
-        const json* values = nullptr;
-        if (const auto exact = overlay["plates"].find(plate.id); exact != overlay["plates"].end()) {
-            values = &exact.value();
-        } else {
-            const std::string suffix = "-plate-" + std::to_string(index + 1);
-            for (auto it = overlay["plates"].begin(); it != overlay["plates"].end(); ++it) {
-                if (it.key().size() >= suffix.size() &&
-                    it.key().compare(it.key().size() - suffix.size(), suffix.size(), suffix) == 0) {
-                    values = &it.value();
-                    break;
-                }
-            }
+    json snapshot = empty_native_scoped_config_snapshot();
+    const auto append_config = [](json& destination, const ConfigBase& config) {
+        for (const std::string& key : config.keys()) {
+            const auto* option = config.option(key);
+            if (option == nullptr) continue;
+            try { destination[key] = option->serialize(); }
+            catch (...) { /* retain only values the native config can serialize */ }
         }
-        if (values == nullptr || !values->is_object()) continue;
-        json candidate = *values;
-        candidate.erase("wipe_tower_x");
-        candidate.erase("wipe_tower_y");
-        apply_overlay_to_config(plate.settings, candidate);
-        plate.settings_metadata = config_metadata_json(plate.settings);
+    };
+
+    append_config(snapshot["project"], state().presets.project_config);
+    for (const auto* object : state().model.objects) {
+        if (object == nullptr) continue;
+        json object_values = json::object();
+        append_config(object_values, object->config.get());
+        if (!object_values.empty())
+            snapshot["objects"][std::to_string(object->id().id)] = std::move(object_values);
+        for (const auto* volume : object->volumes) {
+            if (volume == nullptr) continue;
+            json volume_values = json::object();
+            append_config(volume_values, volume->config.get());
+            if (!volume_values.empty())
+                snapshot["parts"][std::to_string(volume->id().id)] = std::move(volume_values);
+        }
     }
+    for (const auto& plate : state().plate_session_plates) {
+        json plate_values = json::object();
+        append_config(plate_values, plate.settings);
+        plate_values.erase("wipe_tower_x");
+        plate_values.erase("wipe_tower_y");
+        if (!plate_values.empty()) snapshot["plates"][plate.id] = std::move(plate_values);
+    }
+    return snapshot;
 }
 
-json project_config_overlay_metadata()
+json native_scoped_config_result()
 {
-    return json{{"schema", kNeoConfigOverlaySchema}, {"version", 1},
-                {"overlay", state().project_config_overlay}};
+    return json{{"ok", true}, {"native_scoped_config", native_scoped_config_snapshot()}};
 }
 
-json project_config_overlay_result()
-{
-    json overlay = state().project_config_overlay;
-    json& plates = overlay["plates"];
-    if (!plates.is_object()) plates = json::object();
-    // Coordinates are one native project-level array pair. Never recreate a
-    // plate bucket projection: it would become a second authoritative store
-    // and would make generic overlay/history callers appear to own X/Y.
-    for (auto& values : plates)
-        if (values.is_object()) {
-            values.erase("wipe_tower_x");
-            values.erase("wipe_tower_y");
-        }
-    return json{{"ok", true}, {"overlay", std::move(overlay)}};
-}
-
-} // namespace Slic3r::Neo::Bridge::ProjectOverlay
+} // namespace Slic3r::Neo::Bridge::ScopedConfig
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE const char* orc_get_project_config_overlay() {
+EMSCRIPTEN_KEEPALIVE const char* orc_get_native_scoped_config() {
     try {
-        return Slic3r::Neo::Bridge::ProjectOverlay::duplicate_json(
-            Slic3r::Neo::Bridge::ProjectOverlay::project_config_overlay_result().dump());
+        return Slic3r::Neo::Bridge::ScopedConfig::duplicate_json(
+            Slic3r::Neo::Bridge::ScopedConfig::native_scoped_config_result().dump());
     } catch (const std::exception& e) {
-        return Slic3r::Neo::Bridge::ProjectOverlay::error_json(e.what());
+        return Slic3r::Neo::Bridge::ScopedConfig::error_json(e.what());
     } catch (...) {
-        return Slic3r::Neo::Bridge::ProjectOverlay::error_json("unknown C++ exception");
+        return Slic3r::Neo::Bridge::ScopedConfig::error_json("unknown C++ exception");
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* scope_cstr,
-                                                                   const char* id_cstr,
-                                                                   const char* option_key_cstr,
-                                                                   const char* value_cstr) {
+EMSCRIPTEN_KEEPALIVE const char* orc_set_native_scoped_config(const char* scope_cstr,
+                                                               const char* id_cstr,
+                                                               const char* option_key_cstr,
+                                                               const char* value_cstr) {
     using namespace Slic3r::Neo::Bridge;
-    using ProjectOverlay::apply_overlay_to_config;
-    using ProjectOverlay::native_configuration_status;
-    using ProjectOverlay::native_configuration_error_json;
-    using ProjectOverlay::project_config_overlay_result;
+    using ScopedConfig::native_configuration_status;
+    using ScopedConfig::native_configuration_error_json;
+    using ScopedConfig::native_scoped_config_result;
     std::string scope;
     std::string id;
-    std::optional<ProjectOverlay::ModelMutationSnapshot> before_model;
+    std::optional<ScopedConfig::ModelMutationSnapshot> before_model;
     std::optional<DynamicPrintConfig> before_project_config;
     std::optional<std::vector<BridgeState::PlateSessionPlate>> before_plates;
-    std::optional<json> before_overlay;
     std::optional<std::map<std::string, std::uint64_t>> before_revisions;
     std::optional<std::map<std::string, std::set<std::size_t>>> before_out_of_bounds;
     std::optional<std::set<std::size_t>> before_pending;
     std::optional<PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;
     const auto rollback = [&]() noexcept {
-        if (!before_model || !before_project_config || !before_plates || !before_overlay ||
+        if (!before_model || !before_project_config || !before_plates ||
             !before_revisions || !before_out_of_bounds || !before_pending || !before_lifecycle) return;
         try {
-            ProjectOverlay::restore_model_mutation_snapshot(*before_model);
+            ScopedConfig::restore_model_mutation_snapshot(*before_model);
             state().mutable_object_capture_cache.clear();
             state().presets.project_config = std::move(*before_project_config);
             state().plate_session_plates = std::move(*before_plates);
-            state().project_config_overlay = std::move(*before_overlay);
             state().plate_input_revisions = std::move(*before_revisions);
             state().plate_out_of_bounds_ids = std::move(*before_out_of_bounds);
             state().pending_membership_instance_ids = std::move(*before_pending);
@@ -292,7 +269,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         const std::string key = option_key_cstr ? option_key_cstr : "";
         const std::string value = value_cstr ? value_cstr : "";
         const auto configuration_error = [](const std::string& code, const std::string& message) {
-            return ProjectOverlay::native_configuration_error_json(code, message);
+            return ScopedConfig::native_configuration_error_json(code, message);
         };
         if (scope != "project" && scope != "object" && scope != "part" && scope != "plate")
             return configuration_error("invalid_command", "invalid project configuration scope");
@@ -318,7 +295,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         };
         if (scope == "project") {
             project_candidate = state().presets.project_config;
-            apply_overlay_to_config(project_candidate, state().project_config_overlay["project"]);
             project_candidate.set_deserialize(key, value, substitutions);
             configuration_status = native_configuration_status(project_candidate, key, value);
             effective_value = effective_for(project_candidate);
@@ -356,20 +332,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         // From this point onward the command publishes native state. Keep one
         // exact rollback image so a late allocation/validation failure cannot
         // advance stamps, move plate origins, or withdraw a valid result.
-        before_model.emplace(ProjectOverlay::capture_model_mutation_snapshot(state().model));
+        before_model.emplace(ScopedConfig::capture_model_mutation_snapshot(state().model));
         before_project_config.emplace(state().presets.project_config);
         before_plates.emplace(state().plate_session_plates);
-        before_overlay.emplace(state().project_config_overlay);
         before_revisions.emplace(state().plate_input_revisions);
         before_out_of_bounds.emplace(state().plate_out_of_bounds_ids);
         before_pending.emplace(state().pending_membership_instance_ids);
         before_lifecycle.emplace(state().plate_runtime_registry.capture_lifecycle());
 
-        json& bucket = scope == "project" ? state().project_config_overlay["project"]
-            : scope == "object" ? state().project_config_overlay["objects"][id]
-            : scope == "part" ? state().project_config_overlay["parts"][id]
-            : state().project_config_overlay["plates"][id];
-        bucket[key] = effective_value;
         if (scope == "project") {
             state().presets.project_config = std::move(project_candidate);
         } else if (scope == "object") {
@@ -384,42 +354,26 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
             ? PlateSession::shared_configuration_mutation_snapshot()
             : PlateSession::configuration_mutation_snapshot(
                 affected_plates, {scope + "-configuration"});
-        json result = project_config_overlay_result();
+        json result = native_scoped_config_result();
         result["plate_session"] = mutation;
         if (configuration_status.has_value()) result["configuration_status"] = *configuration_status;
-        return ProjectOverlay::duplicate_json(result.dump());
+        return ScopedConfig::duplicate_json(result.dump());
     } catch (const Slic3r::BadOptionValueException& e) {
         rollback();
-        return native_configuration_error_json("native_validation_failure", e.what());
+        return ScopedConfig::native_configuration_error_json("native_validation_failure", e.what());
     } catch (const std::exception& e) {
         rollback();
-        return native_configuration_error_json("native_validation_failure", e.what());
+        return ScopedConfig::native_configuration_error_json("native_validation_failure", e.what());
     } catch (...) {
         rollback();
-        return native_configuration_error_json("native_validation_failure", "unknown C++ exception");
+        return ScopedConfig::native_configuration_error_json("native_validation_failure", "unknown C++ exception");
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_project_config_overlay() {
-    using namespace Slic3r::Neo::Bridge::ProjectOverlay;
+EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_native_scoped_config() {
+    using namespace Slic3r::Neo::Bridge::ScopedConfig;
     try {
-        for (const char* scope : {"project", "objects", "parts", "plates"}) {
-            auto& values = state().project_config_overlay[scope];
-            for (auto it = values.begin(); it != values.end();) {
-                if (scope == std::string("project")) {
-                    if (print_config_def.options.find(it.key()) == print_config_def.options.end()) it = values.erase(it);
-                    else ++it;
-                } else {
-                    if (!it.value().is_object()) { it = values.erase(it); continue; }
-                    for (auto option = it.value().begin(); option != it.value().end();) {
-                        if (!option.value().is_string() || print_config_def.options.find(option.key()) == print_config_def.options.end()) option = it.value().erase(option);
-                        else ++option;
-                    }
-                    ++it;
-                }
-            }
-        }
-        return duplicate_json(project_config_overlay_result().dump());
+        return duplicate_json(native_scoped_config_result().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }
 }
