@@ -124,6 +124,11 @@ describe('Worker-owned project history protocol', () => {
 
     const undone = await client.undoHistory();
     expect(undone.ok).toBe(true);
+    if (!undone.ok) throw new Error('undo failed');
+    expect(undone.context.plateSession).toMatchObject({
+      currentPlateId: twoPlates.currentPlateId, instances: [],
+    });
+    expect(undone.sceneDelta.objectOrder).toEqual([]);
     expect((await client.getModelStructure()).objects).toHaveLength(0);
     const restoredPlates = await client.getPlateSessionSnapshot();
     expect(restoredPlates.ok).toBe(true);
@@ -267,6 +272,8 @@ describe('Worker-owned project history protocol', () => {
     expect(undone.context.activePlateId).toBe('plate-1');
     const redone = await client.redoHistory();
     expect(redone.ok).toBe(true);
+    if (!redone.ok) throw new Error('redo failed');
+    expect(redone.context.plateSession?.instances).toHaveLength(1);
     if (!redone.ok) throw new Error('missing saved-frame redo');
     expect(redone.status.dirty).toBe(false);
     const reset = await client.resetHistory(context('fresh'));

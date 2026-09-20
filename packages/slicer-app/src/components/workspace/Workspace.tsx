@@ -340,7 +340,9 @@ export function Workspace({
         useObjectListStore.getState().setLoaded(projection.structure.length > 0);
         useSettingsStore.getState().setModelLoadedFromSceneDelta(projection.structure.length > 0);
         if (freshPlateSession) usePlateSessionStore.getState().setSnapshot(freshPlateSession);
-        glVolumeCollection.patch(projection.volumes, revision);
+        // GL publication is keyed by the settings model revision. The
+        // independent history revision only fences stale restore requests.
+        glVolumeCollection.patch(projection.volumes, useSettingsStore.getState().modelRevision);
         const structure = { ok: true as const, objects: projection.structure };
         if (impact.selectionContext) {
           const selectionStartedAt = historyDiagnosticNow();

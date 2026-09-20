@@ -457,7 +457,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       plate_ids: [...new Set(states.flatMap((state) => state.plateIds))].sort(),
       object_order: entry.objectMeta.map((object) => object.id),
     };
-    return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id,
+    return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot(true) }, status: historyStatus(), entryId: entry.id,
       scene_delta: sceneDelta,
       ...(narrowPrimeTower && primeTowerPlateId
         ? { narrow: true, prime_tower_receipt: primeTowerRestoreReceipt(primeTowerPlateId) } : {}),
