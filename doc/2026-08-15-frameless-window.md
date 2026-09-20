@@ -7,12 +7,12 @@ custom one (`TitleBar.tsx`, M2). Window controls stay native:
 - **Windows/Linux:** the native min/max/close buttons are drawn by the OS in
   the top-right via the **Window Controls Overlay**
   (`titleBarOverlay: { color, symbolColor, height }`), themed to match the
-  bar (`#1a1a1a` = the dark `--card` token, `#e6e6e6` symbols, 36px = the
-  `h-9` bar). Bonus: Windows 11 snap-layout flyout on the maximize button
+  bar (`#181818` = the dark `--card` token, `#e6e6e6` symbols, 32px = the
+  `h-8` bar). Bonus: Windows 11 snap-layout flyout on the maximize button
   works again.
 - **macOS:** the traffic lights float over the top-left of the custom bar
-  (`trafficLightPosition: { x: 12, y: 11 }` centers the 14px lights in the
-  36px bar). The renderer exposes `window.orca.platform` (preload) and pads
+  (`trafficLightPosition: { x: 12, y: 9 }` centers the 14px lights in the
+  32px bar). The renderer exposes `window.orca.platform` (preload) and pads
   the label `pl-20` on darwin so it clears the lights.
 
 ## Why
@@ -45,4 +45,6 @@ the custom bar while delegating the controls back to the OS.
 - Windows `titleBarOverlay` colors are hardcoded to the current dark theme;
   when the app grows a light theme the main process must match it
   (`env(titlebar-area-*)` + a theme-aware color are the natural follow-up).
-- No unit/e2e tests touch the title bar, so nothing needed updating there.
+- `TitleBar.test.tsx` and `apps/desktop/e2e/titlebar-menu.e2e.ts` cover the
+  shared titlebar menu and its no-drag controls. Real macOS traffic-light
+  placement still needs manual verification.

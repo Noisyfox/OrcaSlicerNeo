@@ -15,6 +15,11 @@ background. Quitting matches the original OrcaSlicer desktop behavior.
 
 ## Implementation
 
+- `apps/desktop/src/main/index.ts` intercepts the native window close event and
+  asks the renderer's lifecycle bridge for a decision. During startup, before
+  the runtime has a project-history session, the shared app immediately allows
+  the close request; once boot is ready, dirty projects use the existing
+  close-confirmation flow.
 - `apps/desktop/src/main/index.ts`: `window-all-closed` now calls `app.quit()`
   unconditionally (was `if (process.platform !== 'darwin')`).
 - The `app.on('activate')` handler was removed — with quit-on-close the app

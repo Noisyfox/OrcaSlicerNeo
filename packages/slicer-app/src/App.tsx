@@ -185,6 +185,14 @@ export default function App() {
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
   }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
+    // Startup has not created a project history session yet. Querying the
+    // Worker here can block the native close handshake while init/profile
+    // restoration is still in progress, leaving the loading screen unable to
+    // close. There is no dirty project to protect until boot is ready.
+    if (boot !== 'ready') {
+      await platform.lifecycle?.respondClose(true);
+      return;
+    }
     let allow = true;
     if (await projectDirtyStatus(platform)) {
       const decision = await decideDirty('close');
@@ -196,7 +204,7 @@ export default function App() {
       }
     }
     await platform.lifecycle?.respondClose(allow);
-  }, [decideDirty, platform, reportProjectFailure]);
+  }, [boot, decideDirty, platform, reportProjectFailure]);
   const runSaveProject = useCallback(async (asCopy = false) => {
     const result = asCopy ? await saveProjectAs(platform) : await saveProject(platform);
     reportProjectFailure(result);
