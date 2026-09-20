@@ -1272,8 +1272,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             nested.coalesced = true;
             nested.parent_id = parent_target;
             nested.base_history_revision = state().history_revision;
-            nested.before_plate_runtime_lifecycle = state().plate_runtime_registry.capture_lifecycle();
-            nested.before_plate_input_revisions = state().plate_input_revisions;
             state().nested_history_transactions.push_back(std::move(nested));
             return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
         }
@@ -1292,10 +1290,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         transaction.base_history_revision = state().history_revision;
         state().active_history_transaction = std::move(transaction);
         state().history_live_context = before_context;
-        state().active_history_transaction->before_plate_runtime_lifecycle =
-            state().plate_runtime_registry.capture_lifecycle();
-        state().active_history_transaction->before_plate_input_revisions =
-            state().plate_input_revisions;
         Neo::Bridge::Performance::Timings begin_stages{
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at}};
         begin_stages.push_back({"capture_collection_cache", capture_timings.collection_cache_ms});

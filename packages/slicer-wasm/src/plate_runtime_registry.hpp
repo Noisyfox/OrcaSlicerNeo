@@ -107,22 +107,16 @@ public:
     };
     using Retirements = std::vector<Retirement>;
 
-    // Runtime-only lifecycle metadata used to make plate-structure rollback
-    // atomic without copying or serializing the native Print/result objects.
-    // The pointer identities ensure a restored metadata record is never
-    // applied to a freshly-created replacement entry.
+    // Rollback retains only presentation availability and its identity guards.
+    // G-code data and native result ownership remain in the registry entry;
+    // restoring availability never loads a renderer Preview projection.
     struct LifecycleSnapshot {
-        const Print* print = nullptr;
-        const GCodeProcessorResult* gcode_result = nullptr;
+        std::uint64_t incarnation_id = 0;
         PresentationLifecycle presentation = PresentationLifecycle::Invalid;
         std::optional<std::uint64_t> completed_input_revision;
         std::optional<std::uint64_t> completed_slice_task_id;
         std::uint64_t result_generation = 0;
-        std::string gcode_path;
-        std::size_t gcode_size = 0;
-        std::vector<std::size_t> gcode_line_ends;
-        bool gcode_text_available = false;
-        bool native_core_materialized = false;
+        std::optional<std::uint64_t> active_slice_task_id;
     };
     using LifecycleSnapshots = std::map<std::string, LifecycleSnapshot>;
 

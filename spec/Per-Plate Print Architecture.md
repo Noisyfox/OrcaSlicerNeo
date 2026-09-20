@@ -299,6 +299,17 @@ affected entries.
 
 ### 2.5 No proactive core-result eviction
 
+Runtime lifecycle rollback snapshots contain only presentation availability
+and guards for the entry incarnation, result generation, completed input/task,
+and active task identities. G-code paths, bytes, line indexes, and native result
+owners stay in the registry entry and are never copied into these snapshots.
+Rollback restores availability only while all identities still match; it cannot
+rewind a newer result, expose an older result during a new job, or revive a
+deleted entry. Neither rollback nor history restore materializes Preview data.
+The user enters Preview to load an eligible result; invalid results follow the
+existing slicing flow. Successful Undo/Redo still invalidates all plate results
+as specified in [Undo and Redo](Undo%20and%20Redo.md).
+
 Every per-plate Print, GCodeResult, generated G-code, and completed native
 step cache remains resident until native processing itself replaces it, the
 plate entry is destroyed, or the project session closes. Neo does not reset or

@@ -1,6 +1,7 @@
 #include "plate_runtime_registry.hpp"
 
 #include <iostream>
+#include <type_traits>
 
 #define CHECK(condition) do { \
     if (!(condition)) { \
@@ -11,8 +12,79 @@
 
 using Slic3r::Neo::Bridge::PlateRuntimeRegistry;
 
+// A snapshot must stay bounded regardless of the retained G-code size.
+static_assert(std::is_trivially_copyable_v<PlateRuntimeRegistry::LifecycleSnapshot>);
+static_assert(sizeof(PlateRuntimeRegistry::LifecycleSnapshot) <= 128);
+
 int main()
 {
+    {
+        PlateRuntimeRegistry rollback_registry;
+        rollback_registry.reconcile({"plate-rollback"});
+        auto* entry = rollback_registry.find("plate-rollback");
+        {
+            auto job = rollback_registry.begin_slice("plate-rollback", 1, 0);
+            CHECK(rollback_registry.mark_process_completed(job, 0, 0));
+        }
+        entry->result_generation = 1;
+        entry->gcode_path = "/registry-lifecycle-test.gcode";
+        entry->gcode_size = 8 * 1024 * 1024;
+        entry->gcode_line_ends.assign(1024 * 1024, 8);
+        entry->gcode_text_available = true;
+        PlateRuntimeRegistry::mark_presentation_valid(*entry, 0);
+        const auto* line_index = entry->gcode_line_ends.data();
+        const auto* print = entry->print.get();
+        const auto* result = entry->gcode_result.get();
+        const auto available = rollback_registry.capture_lifecycle();
+
+        rollback_registry.invalidate_presentations({"plate-rollback"});
+        CHECK(!PlateRuntimeRegistry::is_publishable(*entry, 0));
+        rollback_registry.restore_lifecycle(available);
+        CHECK(PlateRuntimeRegistry::is_publishable(*entry, 0));
+        CHECK(entry->print.get() == print && entry->gcode_result.get() == result);
+        CHECK(entry->gcode_path == "/registry-lifecycle-test.gcode");
+        CHECK(entry->gcode_size == 8 * 1024 * 1024);
+        CHECK(entry->gcode_line_ends.data() == line_index);
+        CHECK(entry->gcode_line_ends.size() == 1024 * 1024);
+        CHECK(entry->gcode_line_ends.back() == 8);
+        CHECK(entry->gcode_text_available && entry->native_core_materialized);
+
+        // A new job on the same input must not expose the retained old result.
+        {
+            auto job = rollback_registry.begin_slice("plate-rollback", 2, 0);
+            rollback_registry.restore_lifecycle(available);
+            CHECK(entry->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
+            CHECK(!PlateRuntimeRegistry::is_publishable(*entry, 0));
+            CHECK(rollback_registry.mark_process_completed(job, 0, 0));
+        }
+        rollback_registry.restore_lifecycle(available);
+        CHECK(entry->completed_slice_task_id == 2);
+        CHECK(!PlateRuntimeRegistry::is_publishable(*entry, 0));
+
+        // Even on the same native objects, a replaced result cannot be rewound.
+        PlateRuntimeRegistry::mark_presentation_valid(*entry, 0);
+        const auto previous_generation = rollback_registry.capture_lifecycle();
+        ++entry->result_generation;
+        entry->gcode_size = 16;
+        entry->gcode_line_ends = {8, 16};
+        rollback_registry.invalidate_presentations({"plate-rollback"});
+        rollback_registry.restore_lifecycle(previous_generation);
+        CHECK(!PlateRuntimeRegistry::is_publishable(*entry, 0));
+        CHECK(entry->result_generation == 2);
+        CHECK(entry->gcode_size == 16);
+        CHECK(entry->gcode_line_ends == std::vector<std::size_t>({8, 16}));
+
+        // Reusing the plate id never revives an earlier incarnation's result.
+        rollback_registry.reconcile({});
+        rollback_registry.reconcile({"plate-rollback"});
+        entry = rollback_registry.find("plate-rollback");
+        rollback_registry.restore_lifecycle(available);
+        CHECK(!PlateRuntimeRegistry::is_publishable(*entry, 0));
+        CHECK(entry->result_generation == 0);
+        CHECK(entry->gcode_path.empty() && entry->gcode_line_ends.empty());
+        CHECK(!entry->gcode_text_available && !entry->native_core_materialized);
+    }
+
     PlateRuntimeRegistry registry;
 
     registry.reconcile({"plate-a"});

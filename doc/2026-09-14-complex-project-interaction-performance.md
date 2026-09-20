@@ -7,6 +7,59 @@ history, renderer-local adjacent Move restore, bounded Prime Tower projection,
 and the exact-u1 visible real-WASM performance gate
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
+## Lifecycle snapshot refinement (2026-09-20)
+
+Per-plate rollback snapshots retain only presentation availability and the
+incarnation, result generation, completed input/task, and active task identities
+needed to validate that availability. They do not retain or copy G-code paths,
+bytes, line indexes, or native result owners. Restore changes availability only
+when these identities still match; it never rewinds a newer result or applies an
+old snapshot to a replacement plate entry. The registry remains the sole owner
+of generated G-code and native slice output.
+
+History transactions no longer retain unused lifecycle/input-revision backups.
+Local command failure paths keep their lightweight availability rollback.
+Successful Undo/Redo continues to invalidate every plate's derived result.
+Neither rollback nor history restore loads a Preview payload or GPU resources.
+The user enters Preview to load an eligible retained result; an invalid result
+requires slicing through the existing Preview-entry flow. Prepare Prime Tower
+projection and transaction publication ordering remain unchanged.
+
+This reduces edit-time transient memory on desktop and mobile without changing
+input interactions. Mobile support remains at the existing application level.
+Verification covers same-result rollback, replaced-result/plate/task rejection,
+retained G-code ownership, and lazy Preview loading. The native test retains a
+million-entry G-code line index while capturing/restoring availability, and
+requires the snapshot value to be trivially copyable and at most 128 bytes.
+
+Validation on 2026-09-20:
+
+- `pnpm --filter @orca/slicer-app exec vitest run src/components/workspace/viewport/useSliceResult.test.tsx src/history/restoreCoordinator.test.ts`:
+  20 tests passed, including leaving Preview, restoring availability in Prepare
+  without a payload read, and loading only on explicit Preview re-entry.
+- `pnpm test`: 917 tests passed. `pnpm typecheck`: passed.
+- `scripts\build-windows.bat quick -j 8`: threaded and serial builds passed.
+- In the activated emsdk environment,
+  `emmake ninja -C packages/slicer-wasm/.work/<variant>/build plate_runtime_registry_test -j 8`
+  passed for both `threaded` and `serial`. Each generated `.js` test launcher
+  was copied beside itself as `.cjs` for Node's CommonJS loader, then
+  `node packages/slicer-wasm/.work/<variant>/build/plate_runtime_registry_test.cjs`
+  passed for both variants.
+- `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/<variant>/orca_slice.js packages/slicer-wasm/fixtures/cube.stl`:
+  passed for both variants, including actual slicing, Preview reads and export.
+- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js`:
+  passed.
+- With `VITE_USE_MOCK=1`, `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`
+  passed. `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts -g 'full v1 flow|shared history toolbar'`
+  passed the import/slice/Preview/export flow. The existing history-toolbar
+  case failed at `app.e2e.ts:550` because Slice remained enabled after Undo;
+  a focused rerun with `-g 'shared history toolbar'` reproduced that failure.
+  This change modifies no production renderer or mock-runtime code executed
+  by that case; its failure is recorded without changing the unrelated test.
+- `git diff --check` and the changed local specification link passed.
+  Full Web/Electron release matrices and the exact-u1 performance profile were
+  not run: no host seam or Prepare geometry/cache logic changes in this piece.
+
 ## Problem
 
 Complex 3MF projects can stall after moving an object and while adding or

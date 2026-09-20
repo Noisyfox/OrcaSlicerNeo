@@ -276,11 +276,9 @@ PlateRuntimeRegistry::LifecycleSnapshots PlateRuntimeRegistry::capture_lifecycle
     LifecycleSnapshots snapshots;
     for (const auto& [plate_id, entry] : entries_)
         snapshots.emplace(plate_id, LifecycleSnapshot{
-            entry->print.get(), entry->gcode_result.get(), entry->presentation,
+            entry->incarnation_id, entry->presentation,
             entry->completed_input_revision, entry->completed_slice_task_id,
-            entry->result_generation, entry->gcode_path, entry->gcode_size,
-            entry->gcode_line_ends, entry->gcode_text_available,
-            entry->native_core_materialized});
+            entry->result_generation, entry->active_slice_task_id});
     return snapshots;
 }
 
@@ -290,21 +288,15 @@ void PlateRuntimeRegistry::restore_lifecycle(const LifecycleSnapshots& snapshots
     for (const auto& [plate_id, snapshot] : snapshots) {
         const auto live = entries_.find(plate_id);
         auto* entry = live == entries_.end() ? nullptr : live->second.get();
-        // A deleted entry may have been reconciled back as a fresh
-        // incarnation.  Its newly allocated native objects must remain
-        // presentation-invalid rather than inheriting stale metadata.
-        if (entry == nullptr || entry->print.get() != snapshot.print ||
-            entry->gcode_result.get() != snapshot.gcode_result)
+        // A replacement entry, result, or job cannot inherit availability
+        // from an earlier snapshot, even when the input revision is unchanged.
+        if (entry == nullptr || entry->incarnation_id != snapshot.incarnation_id ||
+            entry->result_generation != snapshot.result_generation ||
+            entry->completed_input_revision != snapshot.completed_input_revision ||
+            entry->completed_slice_task_id != snapshot.completed_slice_task_id ||
+            entry->active_slice_task_id != snapshot.active_slice_task_id)
             continue;
         entry->presentation = snapshot.presentation;
-        entry->completed_input_revision = snapshot.completed_input_revision;
-        entry->completed_slice_task_id = snapshot.completed_slice_task_id;
-        entry->result_generation = snapshot.result_generation;
-        entry->gcode_path = snapshot.gcode_path;
-        entry->gcode_size = snapshot.gcode_size;
-        entry->gcode_line_ends = snapshot.gcode_line_ends;
-        entry->gcode_text_available = snapshot.gcode_text_available;
-        entry->native_core_materialized = snapshot.native_core_materialized;
     }
 }
 

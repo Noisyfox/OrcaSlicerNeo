@@ -78,10 +78,6 @@ struct BridgeState {
         // target the model revision that transaction captured.  This prevents
         // a delayed renderer gesture from mutating a newly restored branch.
         std::uint64_t base_history_revision { 0 };
-        PlateRuntimeRegistry::LifecycleSnapshots before_plate_runtime_lifecycle;
-        // Abort restores the live runtime stamps captured at transaction
-        // start.  History navigation deliberately uses fresh stamps instead.
-        std::map<std::string, std::uint64_t> before_plate_input_revisions;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish

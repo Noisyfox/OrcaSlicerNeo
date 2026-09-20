@@ -100,7 +100,7 @@ describe('useSliceResult', () => {
     expect(runtime.getSliceResult).not.toHaveBeenCalled();
   });
 
-  it('does not materialize a renderer projection outside Preview', async () => {
+  it('reloads restored availability only when the user re-enters Preview', async () => {
     const runtime = { getSliceResult: vi.fn(async () => arcSliceResult()) };
     const platform = { runtime, chrome: { kind: 'desktop' } } as unknown as PlatformCapabilities;
     usePlateSessionStore.getState().setSnapshot({
@@ -115,11 +115,46 @@ describe('useSliceResult', () => {
     root = createRoot(container);
 
     await act(async () => {
+      root?.render(<PlatformProvider value={platform}><PreviewProbe /></PlatformProvider>);
+    });
+    expect(runtime.getSliceResult).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('ready');
+
+    await act(async () => {
       root?.render(<PlatformProvider value={platform}><PreviewProbe enabled={false} /></PlatformProvider>);
+    });
+    await act(async () => {
+      useSlicerStore.getState().invalidateSliceResult();
+    });
+    await act(async () => {
+      // A failed edit can restore the same result's availability in Prepare.
+      useSlicerStore.getState().setPlateResult(receipt);
+      useSlicerStore.getState().activatePlateResult('plate-1', 1);
     });
 
     expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('needs-slicing');
-    expect(runtime.getSliceResult).not.toHaveBeenCalled();
+    expect(runtime.getSliceResult).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><PreviewProbe /></PlatformProvider>);
+    });
+    expect(runtime.getSliceResult).toHaveBeenCalledTimes(2);
+    expect(runtime.getSliceResult).toHaveBeenLastCalledWith(receipt);
+    expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('ready');
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><PreviewProbe enabled={false} /></PlatformProvider>);
+    });
+    await act(async () => {
+      // Successful history navigation invalidates the result; entering Preview
+      // must wait for a new Slice instead of fetching the old generation.
+      useSlicerStore.getState().invalidateSliceResult();
+    });
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><PreviewProbe /></PlatformProvider>);
+    });
+    expect(runtime.getSliceResult).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[data-testid="projection-status"]')?.textContent).toBe('needs-slicing');
   });
 
   it('keeps a failed preview projection local while the completed Slice stays usable', async () => {
