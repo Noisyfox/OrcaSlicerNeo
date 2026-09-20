@@ -35,16 +35,23 @@ async function commitSharedConfigurationMutationNow(
             throw new Error(result.configurationStatus.errors.join('; '));
           if (result.configurationStatus?.state === 'ready' && result.configurationStatus.warnings.length > 0)
             useSlicerStore.getState().setError(`[Warning] ${result.configurationStatus.warnings.join('; ')}`);
-          useSettingsStore.getState().setNativeScopedConfig(result.nativeScopedConfig);
           if (result.plateSession === undefined) throw new Error('configuration override returned no plate session');
-          return result.plateSession;
+          return { ...result.plateSession, nativeScopedConfig: result.nativeScopedConfig };
         }
         return platform.runtime.markSharedConfigurationMutation();
       },
       null,
       {
-        publish: async (published) => {
+        publish: async (published, status) => {
           if (!published.ok) return;
+          if (status?.nativeScopedConfig) {
+            const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(status.nativeScopedConfig);
+            if (outcome === 'refresh-required') {
+              const refreshed = await platform.runtime.getNativeScopedConfig();
+              if (!refreshed.ok || useSettingsStore.getState().applyNativeScopedConfigTransport(refreshed.nativeScopedConfig) !== 'applied')
+                throw new Error(refreshed.ok ? 'native scoped configuration refresh was not accepted' : refreshed.error);
+            }
+          }
           mutation = published;
           const activeJob = useSlicerStore.getState().activeSliceTarget;
           if (activeJob && (published.affectedPlateIds ?? []).includes(activeJob.plateId)) {

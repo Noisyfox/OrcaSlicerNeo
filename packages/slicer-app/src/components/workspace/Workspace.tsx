@@ -32,7 +32,7 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import type { PlateSessionSnapshot, NativeScopedConfigSnapshot } from '@slicer/client';
+import type { PlateSessionSnapshot, NativeScopedConfigFullTransport } from '@slicer/client';
 import { readSceneDeltaProjection } from './viewport/sceneDeltaProjection';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
@@ -302,7 +302,7 @@ export function Workspace({
     historyRestoreRef.current = createHistoryRestoreCoordinator({
       runtime: platform.runtime,
       sceneInteraction,
-      refreshModel: async (context, impact, sceneDelta, revision) => {
+      refreshModel: async (context, impact, sceneDelta, nativeScopedConfig: NativeScopedConfigFullTransport, revision) => {
         if (impact.model !== 'delta')
           throw new Error('ordinary history restore requires a SceneDelta projection');
         const freshPlateSession = impact.plateSession ? context.plateSession : undefined;
@@ -319,9 +319,11 @@ export function Workspace({
           return;
         }
         if (impact.nativeScopedConfig) {
-          const snapshot = context.nativeScopedConfig;
-          if (snapshot && typeof snapshot === 'object' && 'project' in snapshot && 'objects' in snapshot && 'parts' in snapshot && 'plates' in snapshot)
-            useSettingsStore.getState().setNativeScopedConfig(snapshot as unknown as NativeScopedConfigSnapshot);
+          const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(
+            nativeScopedConfig,
+          );
+          if (outcome === 'refresh-required')
+            throw new Error('history restore scoped configuration requires a full refresh');
         }
 
         if (freshPlateSession?.instanceTransforms) {

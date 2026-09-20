@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { readFile } from 'node:fs/promises';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
-import { setNativeScopedConfig } from './native-scoped-command.mjs';
+import { mutateNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
@@ -149,6 +149,12 @@ delete freshMove.matrix;
 historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transforms', ['string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify([{ objectIdx: freshBody.object_idx, volumeIdx: freshBody.volume_idx,
     instanceIdx: freshBody.instance_idx, instanceTransform: freshMove, volumeTransform: freshBody.volume_transform }])]).ok === true);
+const freshScopedConfigMutation = mutateNativeScopedConfig(callJson, 'set', [
+  { scope: 'object', id: String(freshStableIds[0].object_id) },
+  { scope: 'part', id: String(freshStableIds[0].volume_ids[0]) },
+], { key: 'layer_height', value: '0.2' });
+historyCheck('fresh-project move transaction records object and part scoped config targets',
+  freshScopedConfigMutation.ok === true, JSON.stringify(freshScopedConfigMutation));
 const freshMoveCommit = callJson('orc_history_commit', ['string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify(context)]);
 if (!freshMoveCommit.canUndo) throw new Error(`fresh Cube move commit failed: ${JSON.stringify(freshMoveCommit)}`);
@@ -179,6 +185,11 @@ historyCheck('fresh-project move Undo returns the SceneDelta timestamped-restore
   freshMoveUndo.impact?.nativeScopedConfig === true && freshMoveUndo.impact?.preview === 'all' &&
   !Object.hasOwn(freshMoveUndo, 'direct') && !Object.hasOwn(freshMoveUndo, 'transform_receipt'),
   JSON.stringify(freshMoveUndo));
+const freshMoveRemovedTargets = new Set((freshMoveUndo.native_scoped_config?.removed_targets ?? [])
+  .map((target) => `${target.scope}:${target.id ?? ''}`));
+historyCheck('fresh-project move Undo publishes a scoped tombstone for the erased part map',
+  freshMoveRemovedTargets.has(`part:${freshStableIds[0].volume_ids[0]}`),
+  JSON.stringify({ freshMoveRemovedTargets: [...freshMoveRemovedTargets], native_scoped_config: freshMoveUndo.native_scoped_config }));
 const freshPlateIds = freshMoveUndo.context.plateSession.plates.map((plate) => plate.plate_id);
 assertSceneDelta('fresh-project move Undo publishes the exact stable-ID delta', freshMoveUndo,
   freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
@@ -211,6 +222,11 @@ const freshCubeUndo = callJson('orc_history_undo', [], []);
 historyCheck('second Undo removes the fresh-project Cube', freshCubeUndo.ok === true &&
   callJson('orc_get_model_structure', [], []).objects.length === 0,
   JSON.stringify({ freshCubeUndo, status: callJson('orc_history_status', [], []) }));
+const freshCubeRemovedTargets = new Set((freshCubeUndo.native_scoped_config?.removed_targets ?? [])
+  .map((target) => `${target.scope}:${target.id ?? ''}`));
+historyCheck('second Undo publishes an explicit native scoped tombstone for the deleted object',
+  freshCubeRemovedTargets.has(`object:${freshStableIds[0].object_id}`),
+  JSON.stringify({ freshCubeRemovedTargets: [...freshCubeRemovedTargets], native_scoped_config: freshCubeUndo.native_scoped_config }));
 assertSceneDelta('second Undo publishes the exact delete delta', freshCubeUndo,
   freshStableIds, freshPlateIds, []);
 const freshCubeRedo = callJson('orc_history_redo', [], []);
@@ -807,8 +823,9 @@ const structuralBaselineIdentity = modelIdentity(callJson('orc_get_model_structu
 assertLiveSessionIntegrity(structuralBaseline, 'structural baseline');
 function coordinateArraysMatchPlateCount(session) {
   const snapshot = callJson('orc_get_native_scoped_config');
+  const values = snapshot.native_scoped_config?.snapshot;
   return ['wipe_tower_x', 'wipe_tower_y'].every((key) =>
-    typeof snapshot.native_scoped_config.project?.[key] === 'string' && snapshot.native_scoped_config.project[key].split(',').length === session.plates.length) &&
+    typeof values?.project?.[key] === 'string' && values.project[key].split(',').length === session.plates.length) &&
     session.plates.every((plate, index) => !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x') &&
       !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_y'));
 }
@@ -816,8 +833,9 @@ function coordinateArrayAt(session, plateId, key) {
   const plate = session.plates.find((entry) => entry.plate_id === plateId);
   if (!plate) throw new Error(`missing coordinate plate ${plateId}`);
   const snapshot = callJson('orc_get_native_scoped_config');
-  if (typeof snapshot.native_scoped_config.project?.[key] !== 'string') throw new Error(`${key} is not serialized`);
-  return snapshot.native_scoped_config.project[key].split(',').map(Number);
+  const values = snapshot.native_scoped_config?.snapshot;
+  if (typeof values?.project?.[key] !== 'string') throw new Error(`${key} is not serialized`);
+  return values.project[key].split(',').map(Number);
 }
 function coordinateIdentityValues(session, expected) {
   return Object.entries(expected).every(([plateId, values]) =>

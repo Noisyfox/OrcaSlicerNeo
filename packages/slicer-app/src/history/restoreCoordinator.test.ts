@@ -31,7 +31,12 @@ const sceneDelta = {
   version: 1 as const, objectIds: [] as const, volumeIds: [] as const,
   instanceIds: [] as const, plateIds: ['plate-1'] as const, objectOrder: [] as const,
 };
+const nativeScopedConfig = {
+  version: 1 as const, revision: 1, kind: 'full' as const,
+  snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+};
 const success = (revision = 1): RestoreResult => ({ ok: true, context,
+  nativeScopedConfig: { ...nativeScopedConfig, revision },
   status: { ...status, revision }, impact: deltaImpact, sceneDelta });
 
 function fakeScene(activeDrag = false) {
@@ -203,7 +208,7 @@ describe('history restore coordinator', () => {
   });
 
   it('reports SceneDelta restores as direct projections without retaining history data', async () => {
-    const direct: RestoreResult = { ok: true, context, status, impact: directImpact, sceneDelta };
+    const direct: RestoreResult = { ok: true, context, status, nativeScopedConfig, impact: directImpact, sceneDelta };
     useSlicerStore.getState().setPlateResult({
       plateId: 'plate-2', inputStamp: 2, resultGeneration: '8', sliceTaskId: '8',
     });

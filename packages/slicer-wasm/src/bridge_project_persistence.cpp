@@ -52,6 +52,7 @@ using Neo::Bridge::Filament::State::apply_filament_state_metadata;
 using Neo::Bridge::Filament::State::config_metadata_json;
 using Neo::Bridge::Filament::State::history_state_json;
 using Neo::Bridge::HistoryMetadata::default_history_context;
+using Neo::Bridge::HistoryMetadata::history_status_json;
 using Neo::Bridge::Profiles::preset_snapshot_json;
 using namespace Neo::Bridge::ModelOperations;
 using namespace Neo::Bridge::PlateSession;
@@ -1080,8 +1081,6 @@ static const char* orc_load_project_impl(const char* data, int len,
         invalidate_preview_source();
         if (geometry_only) {
             rebuild_plate_membership(true);
-        } else {
-            // Replacement loads establish a fresh clean Worker session above.
         }
         publish_slicer_progress(90, "Finalizing project");
 
@@ -1140,8 +1139,11 @@ static const char* orc_load_project_impl(const char* data, int len,
             out["preset_snapshot"] = preset_snapshot_json();
         // Return a disposable projection rebuilt from native config owners;
         // the native configs themselves remain the only persisted authority.
-        if (!geometry_only)
-            out["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+        if (!geometry_only) {
+            out["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+                state().history_revision);
+            out["history_status"] = history_status_json(state());
+        }
         if (geometry_only) {
             const auto mutation = plate_mutation_snapshot({}, {"model-import"},
                 reflow_instance_transforms(geometry_added_instances));

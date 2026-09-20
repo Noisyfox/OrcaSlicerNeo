@@ -43,8 +43,14 @@ export function applyPlateSessionResponse(
   // Add/Delete Plate may normalize the native wipe-tower coordinate arrays.
   // Publish the native snapshot carried by that same atomic receipt before any later
   // Move restore proof compares the retained renderer state with history.
-  if (result.nativeScopedConfig)
-    useSettingsStore.getState().setNativeScopedConfig(result.nativeScopedConfig);
+  if (result.nativeScopedConfig) {
+    const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+    if (outcome === 'refresh-required') {
+      void platform.runtime.getNativeScopedConfig().then((full) => {
+        if (full.ok) useSettingsStore.getState().applyNativeScopedConfigTransport(full.nativeScopedConfig);
+      }).catch(() => undefined);
+    }
+  }
   usePlateSessionStore.getState().setSnapshot(result);
   if (result.instanceTransforms) {
     applyPlateSessionTransforms({ instanceTransforms: result.instanceTransforms }, glVolumeCollection.volumes);

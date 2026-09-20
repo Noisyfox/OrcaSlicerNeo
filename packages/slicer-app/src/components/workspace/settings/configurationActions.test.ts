@@ -6,6 +6,16 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { commitOptionFieldChange } from './OptionField';
 import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 
+function affected(scope: 'project' | 'object' | 'part' | 'plate', values: Record<string, string>, id?: string) {
+  return { version: 1 as const, revision: 1, kind: 'affected' as const,
+    replacements: [{ scope, ...(scope === 'project' ? {} : { id: id ?? '42' }), values }], removedTargets: [] as const };
+}
+const baseline = {
+  version: 1 as const, revision: 0, kind: 'full' as const,
+  snapshot: { project: {}, objects: { '42': {} }, parts: {}, plates: { 'plate-1': {} } },
+  removedTargets: [] as const,
+};
+
 const mutation = {
   instances: [],
   ok: true as const,
@@ -26,8 +36,11 @@ function runProjectHistoryTransaction<T>(
   _before: unknown,
   mutationCallback: (transactionId: string) => Promise<T>,
   _after: unknown | (() => unknown | Promise<unknown>),
-): Promise<{ result: T; status: never }> {
-  return mutationCallback('tx-1').then((result) => ({ result, status: undefined as never }));
+): Promise<{ result: T; status: { revision: number; nativeScopedConfig?: unknown } }> {
+  return mutationCallback('tx-1').then((result) => ({ result, status: {
+    revision: 1,
+    nativeScopedConfig: (result as unknown as { nativeScopedConfig?: unknown }).nativeScopedConfig,
+  } }));
 }
 
 const historyProjectionRuntime = {
@@ -40,13 +53,15 @@ describe('commitSharedConfigurationMutation', () => {
     useProjectStore.getState().reset();
     useSlicerStore.getState().clearPlateResults();
     useSlicerStore.setState({ error: null });
+    useSettingsStore.getState().resetNativeScopedConfig();
+    useSettingsStore.getState().applyNativeScopedConfigTransport(baseline);
   });
 
   it('routes an option-field commit through the typed runtime before recording it', async () => {
     const mark = vi.fn(async () => mutation);
     const setNativeScopedConfig = vi.fn(async () => ({
       ok: true as const,
-      nativeScopedConfig: { project: { layer_height: '0.3' }, objects: {}, parts: {}, plates: {} },
+      nativeScopedConfig: affected('project', { layer_height: '0.3' }),
       plateSession: mutation,
     }));
     const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
@@ -80,7 +95,7 @@ describe('commitSharedConfigurationMutation', () => {
   it('keeps the native effective correction for a project setting', async () => {
     const setNativeScopedConfig = vi.fn(async () => ({
       ok: true as const,
-      nativeScopedConfig: { project: { prime_tower_width: '20' }, objects: {}, parts: {}, plates: {} },
+      nativeScopedConfig: affected('project', { prime_tower_width: '20' }),
       configurationStatus: { state: 'ready' as const, corrections: [{ key: 'prime_tower_width', requested: 'invalid', effective: '20' }], warnings: [], errors: [] },
       plateSession: mutation,
     }));
@@ -97,7 +112,7 @@ describe('commitSharedConfigurationMutation', () => {
     slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
     const setNativeScopedConfig = vi.fn(async () => ({
       ok: true as const,
-      nativeScopedConfig: { project: {}, objects: { '42': { layer_height: '0.15' } }, parts: {}, plates: {} },
+      nativeScopedConfig: affected('object', { layer_height: '0.15' }, '42'),
       plateSession: { ...mutation, inputRevisions: { 'plate-1': 9 }, affectedPlateIds: ['plate-1'] },
     }));
     const platform = { runtime: { ...historyProjectionRuntime, setNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
@@ -119,13 +134,13 @@ describe('commitSharedConfigurationMutation', () => {
     const setNativeScopedConfig = vi.fn()
       .mockResolvedValueOnce({
         ok: true as const,
-        nativeScopedConfig: { project: { prime_tower_width: '20' }, objects: {}, parts: {}, plates: {} },
+        nativeScopedConfig: affected('project', { prime_tower_width: '20' }),
         configurationStatus: { state: 'ready' as const, corrections: [], warnings: ['width was clamped'], errors: [] },
         plateSession: mutation,
       })
       .mockResolvedValueOnce({
         ok: true as const,
-        nativeScopedConfig: { project: { prime_tower_width: '21' }, objects: {}, parts: {}, plates: {} },
+        nativeScopedConfig: { ...affected('project', { prime_tower_width: '21' }), revision: 2 },
         configurationStatus: { state: 'ready' as const, corrections: [], warnings: [], errors: [] },
         plateSession: mutation,
       });

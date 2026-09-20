@@ -351,7 +351,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project'; context: any };
   let historyEntries: MockHistoryEntry[] = [];
   let historyCursor = 0;
-  let historyTransaction: { id: string; label: string; category: 'project'; before: MockHistoryState; beforeContext: any } | null = null;
+  let historyTransaction: { id: string; label: string; category: 'project'; before: MockHistoryState; beforeContext: any; targets: Array<{ scope: 'project' | 'object' | 'part' | 'plate'; id: string }> } | null = null;
   const historyNestedTransactions: Array<{ id: string; before: MockHistoryState; beforeContext: any }> = [];
   let nextHistoryTransactionId = 1;
   let nextHistoryEntryId = 1;
@@ -363,6 +363,38 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  type MockScopedTarget = { scope: 'project' | 'object' | 'part' | 'plate'; id?: string };
+  function nativeScopedConfigRemovedTargets(before: MockNativeScopedConfig, after: MockNativeScopedConfig): MockScopedTarget[] {
+    return (['objects', 'parts', 'plates'] as const).flatMap((bucket) => {
+      const scope = bucket === 'objects' ? 'object' : bucket === 'parts' ? 'part' : 'plate';
+      return Object.keys(before[bucket])
+        .filter((id) => !(id in after[bucket]))
+        .map((id) => ({ scope, id }));
+    });
+  }
+  function nativeScopedConfigFullTransport(removedTargets: MockScopedTarget[] = []) {
+    return { version: 1, revision: historyRevision, kind: 'full' as const,
+      snapshot: nativeScopedConfigProjection(), removed_targets: clone(removedTargets) };
+  }
+  function nativeScopedConfigAffectedTransport(
+    targets: Array<{ scope: 'project' | 'object' | 'part' | 'plate'; id: string }>,
+    removedTargets: MockScopedTarget[] = [],
+  ) {
+    const seen = new Set<string>();
+    const removed = new Set(removedTargets.map((target) => `${target.scope}:${target.id ?? ''}`));
+    const replacements = targets.flatMap((target) => {
+      const identity = `${target.scope}:${target.id}`;
+      if (seen.has(identity) || removed.has(identity)) return [];
+      seen.add(identity);
+      const values = target.scope === 'project' ? nativeScopedConfig.project
+        : target.scope === 'object' ? nativeScopedConfig.objects[target.id]
+          : target.scope === 'part' ? nativeScopedConfig.parts[target.id]
+            : nativeScopedConfig.plates[target.id];
+      return [{ scope: target.scope, ...(target.scope === 'project' ? {} : { id: target.id }), values: clone(values ?? {}) }];
+    });
+    return { version: 1, revision: historyRevision, kind: 'affected' as const,
+      replacements, removed_targets: clone(removedTargets) };
+  }
   primeTowerProjectionState = opts.primeTowerProjection !== undefined ? clone(opts.primeTowerProjection) : undefined;
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
@@ -432,8 +464,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyRevision++; historyDisabled = false;
   }
   function historyRestore(entry: MockHistoryEntry) {
+    const before = nativeScopedConfigProjection();
     restoreHistoryState(entry);
     historyRevision++;
+    const removedTargets = nativeScopedConfigRemovedTargets(before, nativeScopedConfigProjection());
     const states = [...historyEntries, entry];
     const sceneDelta = {
       version: 1,
@@ -443,7 +477,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       plate_ids: [...new Set(states.flatMap((state) => state.plateIds))].sort(),
       object_order: entry.objectMeta.map((object) => object.id),
     };
-    return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() }, status: historyStatus(), entryId: entry.id,
+    return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
+      native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
       scene_delta: sceneDelta,
       impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
@@ -1129,7 +1164,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         savedHistoryCursor = 0;
       }
       const id = `tx-${nextHistoryTransactionId++}`;
-      historyTransaction = { id, label, category: 'project', before: captureHistoryState(), beforeContext: clone(beforeContext) };
+      historyTransaction = { id, label, category: 'project', before: captureHistoryState(), beforeContext: clone(beforeContext), targets: [] };
       return { ok: true, transactionId: id, status: historyStatus() };
     },
     orc_history_commit(transactionId: string, afterContextJson: string) {
@@ -1165,8 +1200,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         historyCursor = historyEntries.length - 1;
         historyRevision++;
       }
+      const committedTargets = historyTransaction.targets;
+      const removedTargets = nativeScopedConfigRemovedTargets(
+        historyTransaction.before.nativeScopedConfig, nativeScopedConfigProjection());
       historyTransaction = null;
-      return historyStatus();
+      const status = historyStatus() as Record<string, unknown>;
+      if (changed) status.native_scoped_config = committedTargets.length > 0
+        ? nativeScopedConfigAffectedTransport(committedTargets, removedTargets)
+        : nativeScopedConfigFullTransport(removedTargets);
+      return status;
     },
     orc_history_abort(transactionId: string) {
       if (!historyTransaction) return { error: 'history transaction is not active' };
@@ -1174,21 +1216,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ? historyNestedTransactions[historyNestedTransactions.length - 1] : undefined;
       if (nested) {
         if (transactionId !== nested.id) return { error: 'history transaction is stale or belongs to another writer' };
+        const before = nativeScopedConfigProjection();
         restoreHistoryState(nested.before);
+        const removedTargets = nativeScopedConfigRemovedTargets(before, nativeScopedConfigProjection());
         historyNestedTransactions.pop();
         historyRevision++;
-        return { ok: true, context: { ...clone(nested.beforeContext), plateSession: plateSessionSnapshot() }, status: historyStatus(), scene_delta: {
+        return { ok: true, context: { ...clone(nested.beforeContext), plateSession: plateSessionSnapshot() },
+          native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
           version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
           object_order: objectMeta.map((object) => object.id),
         } };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
+      const before = nativeScopedConfigProjection();
       restoreHistoryState(historyTransaction.before);
+      const removedTargets = nativeScopedConfigRemovedTargets(before, nativeScopedConfigProjection());
       const context = historyTransaction.beforeContext;
       historyTransaction = null;
       if (modelChanged) historyRevision++;
-      return { ok: true, context: { ...clone(context), plateSession: plateSessionSnapshot() }, status: historyStatus(), scene_delta: {
+      return { ok: true, context: { ...clone(context), plateSession: plateSessionSnapshot() },
+        native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
         version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
         object_order: objectMeta.map((object) => object.id),
       } };
@@ -1353,7 +1401,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const changed = reflowMockPlateOrigins();
       const result = plateSessionSnapshot() as Record<string, unknown>;
       result.instance_transforms = changed;
-      result.native_scoped_config = nativeScopedConfigProjection();
+      result.native_scoped_config = nativeScopedConfigFullTransport();
       return result;
     },
     orc_reorder_plates(plateIdsJson: string) {
@@ -1385,7 +1433,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
       const changed = reflowMockPlateOrigins();
       const result = plateMutation('plate-delete', [plateId], plateIds, changed) as Record<string, unknown>;
-      result.native_scoped_config = nativeScopedConfigProjection();
+      result.native_scoped_config = nativeScopedConfigFullTransport();
       return result;
     },
     orc_recompute_plate_membership() {
@@ -1404,17 +1452,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return result;
     },
     orc_get_native_scoped_config() {
-      return { ok: true, native_scoped_config: nativeScopedConfigProjection() };
+      return { version: 1, ok: true, native_scoped_config: nativeScopedConfigFullTransport() };
     },
     orc_mutate_native_scoped_config(requestJson: string) {
       if (opts.nativeScopedConfigOverride !== undefined) return opts.nativeScopedConfigOverride;
       let request: any;
       try { request = JSON.parse(requestJson); } catch {
-        return { ok: false, error: 'mutation request is not valid JSON', error_code: 'invalid_command',
+        return { version: 1, ok: false, error: 'mutation request is not valid JSON', error_code: 'invalid_command',
           status: { state: 'error', error: 'mutation request is not valid JSON' } };
       }
       const fail = (error: string, errorCode = 'invalid_command') =>
-        ({ ok: false, error, error_code: errorCode, status: { state: 'error', error } });
+        ({ version: 1, ok: false, error, error_code: errorCode, status: { state: 'error', error } });
       if (!request || request.version !== 1 || typeof request.operation !== 'string' || !Array.isArray(request.targets) || request.targets.length === 0)
         return fail('invalid native mutation request');
       if (!['set', 'reset', 'reset-category', 'reset-all'].includes(request.operation))
@@ -1506,13 +1554,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return fail(error instanceof Error ? error.message : 'native configuration validation failed', 'native_validation_failure');
       }
       nativeScopedConfig = next;
+      if (historyTransaction) {
+        for (const target of targets) historyTransaction.targets.push(target);
+      }
       let mutation: Record<string, unknown> | undefined;
       if (dirtyReasons.size > 0) {
         mutation = projectChanged
           ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
           : plateMutation([...dirtyReasons][0], [...affected], [...affected]);
       }
-      const result: Record<string, unknown> = { ok: true, native_scoped_config: nativeScopedConfigProjection(),
+      if (dirtyReasons.size > 0 && !historyTransaction) historyRevision++;
+      const result: Record<string, unknown> = { version: 1, ok: true,
+        native_scoped_config: nativeScopedConfigAffectedTransport(targets),
         configuration_status: { state: 'ready', corrections, warnings: [], errors: [] } };
       if (mutation) result.plate_session = mutation;
       return result;
@@ -1528,7 +1581,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           if (Object.keys(values).length === 0) delete scope[id];
         }
       }
-      return { ok: true, native_scoped_config: nativeScopedConfigProjection() };
+      return { version: 1, ok: true, native_scoped_config: nativeScopedConfigFullTransport() };
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -1604,6 +1657,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       publishProgress(75, geometryOnly ? 'Finalizing geometry import' : 'Applying project settings');
       publishProgress(90, 'Finalizing project');
       publishProgress(100, geometryOnly ? 'Geometry import complete' : 'Project load complete');
+      if (!geometryOnly) {
+        historyEntries = [];
+        historyCursor = 0;
+        historyTransaction = null;
+        historyNestedTransactions.length = 0;
+        savedHistoryCursor = 0;
+        savedHistoryCheckpointEvicted = false;
+        historyRevision++;
+      }
       return {
         ok: true, objects: objectTransforms.length,
         instances: objectTransforms.reduce((total, instances) => total + instances.length, 0),
@@ -1625,7 +1687,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly && hasProjectWarning,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
-        native_scoped_config: geometryOnly ? undefined : nativeScopedConfigProjection(),
+        native_scoped_config: geometryOnly ? undefined : nativeScopedConfigFullTransport(),
+        history_status: geometryOnly ? undefined : historyStatus(),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(),
       };
     },

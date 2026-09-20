@@ -7,7 +7,10 @@
 // ----------------------------------------------------------------
 #pragma once
 
+#include <cstdint>
+#include <utility>
 #include <string>
+#include <set>
 #include <vector>
 
 #include "bridge_state.hpp"
@@ -17,6 +20,8 @@
 namespace Slic3r::Neo::Bridge::ScopedConfig {
 
 using json = nlohmann::json;
+using NativeScopedConfigTarget = std::pair<std::string, std::string>;
+using NativeScopedConfigTargets = std::vector<NativeScopedConfigTarget>;
 
 json empty_native_scoped_config_snapshot();
 bool valid_native_scoped_config_snapshot(const json& snapshot);
@@ -28,5 +33,19 @@ void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>
 
 json native_scoped_config_result();
 json native_scoped_config_snapshot();
+NativeScopedConfigTargets native_scoped_config_removed_targets(
+    const json& before_snapshot, const json& after_snapshot);
+json native_scoped_config_full_transport(std::uint64_t revision);
+json native_scoped_config_full_transport(
+    std::uint64_t revision, const NativeScopedConfigTargets& removed_targets);
+json native_scoped_config_affected_transport(
+    const json& snapshot,
+    const NativeScopedConfigTargets& targets,
+    std::uint64_t revision);
+json native_scoped_config_affected_transport(
+    const json& snapshot,
+    const NativeScopedConfigTargets& targets,
+    std::uint64_t revision,
+    const NativeScopedConfigTargets& removed_targets);
 
 } // namespace Slic3r::Neo::Bridge::ScopedConfig

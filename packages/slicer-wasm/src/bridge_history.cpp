@@ -55,6 +55,9 @@ using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
 using Neo::Bridge::PlateSession::plate_session_snapshot_json;
 using Neo::Bridge::ScopedConfig::empty_native_scoped_config_snapshot;
 using Neo::Bridge::ScopedConfig::native_scoped_config_snapshot;
+using Neo::Bridge::ScopedConfig::native_scoped_config_removed_targets;
+using Neo::Bridge::ScopedConfig::native_scoped_config_affected_transport;
+using Neo::Bridge::ScopedConfig::native_scoped_config_full_transport;
 using Neo::Bridge::ScopedConfig::replace_native_config_values;
 using Neo::Bridge::SlicingPipeline::invalidate_preview_source;
 using Neo::History::Codec::capture_model_state;
@@ -352,6 +355,7 @@ json restore_timestamped_result(const Runtime& runtime,
     const auto before_current_plate = state().current_plate_id;
     const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
     const auto before_live_context = state().history_live_context;
+    const auto before_native_scoped_config = native_scoped_config_snapshot();
     const double roots_restore_started_at = Neo::Bridge::Performance::now_ms();
     try {
         if (staged_filament_state) apply_mutable(state(), state().presets, std::move(*staged_filament_state));
@@ -570,6 +574,10 @@ json restore_timestamped_result(const Runtime& runtime,
         scene_delta["object_order"] = restored.scene_delta.object_order;
     }
     json result{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
+                {"native_scoped_config", Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+                    state().history_revision,
+                    native_scoped_config_removed_targets(
+                        before_native_scoped_config, native_scoped_config_snapshot()))},
                 {"entryId", history_entry_id(entry_id)},
                 {"scene_delta", std::move(scene_delta)},
                 {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
@@ -1463,6 +1471,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         if (!state().history.commit_operation(after_roots)) return error_json("history commit rejected");
         HistoryMetadata::advance_history_epoch(state());
         state().history_live_context = after_context;
+        const auto removed_native_scoped_config_targets = native_scoped_config_removed_targets(
+            tx.before_context.value("nativeScopedConfig", empty_native_scoped_config_snapshot()),
+            native_scoped_config_snapshot());
         const double commit_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
@@ -1475,7 +1486,22 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         commit_stages.push_back({"capture_immutable_mesh_retention", capture_timings.immutable_mesh_retention_ms});
         commit_stages.push_back({"capture_model_state", capture_timings.total_ms});
         Neo::Bridge::Performance::record("history_commit", std::move(commit_stages));
-        return duplicate_json(history_status_json().dump());
+        json response = history_status_json();
+        if (!tx.native_scoped_config_targets.empty()) {
+            std::vector<std::pair<std::string, std::string>> targets(
+                tx.native_scoped_config_targets.begin(), tx.native_scoped_config_targets.end());
+            response["native_scoped_config"] = native_scoped_config_affected_transport(
+                native_scoped_config_snapshot(), targets, state().history_revision,
+                removed_native_scoped_config_targets);
+        } else {
+            // Structural transactions can normalize plate-local settings
+            // without submitting a scoped-config command.  Publish one full
+            // replacement at the same committed revision so the application
+            // never has to infer those changes from a stale pre-commit map.
+            response["native_scoped_config"] = native_scoped_config_full_transport(
+                state().history_revision, removed_native_scoped_config_targets);
+        }
+        return duplicate_json(response.dump());
     } catch (const std::exception& e) {
         state().mutable_object_capture_cache.clear();
         return error_json(e.what());

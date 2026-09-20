@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { emptyNativeScopedConfig, useSettingsStore } from '../../stores/useSettingsStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { applyPlateSessionResponse, applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
 
 const plateA: PlateSessionSnapshot = {
@@ -30,7 +30,7 @@ describe('plate selection actions', () => {
     usePlateSessionStore.getState().reset();
     useProjectStore.getState().reset();
     useSlicerStore.getState().clearPlateResults();
-    useSettingsStore.getState().setNativeScopedConfig(emptyNativeScopedConfig());
+    useSettingsStore.getState().resetNativeScopedConfig();
   });
 
   it('clears selection after an authoritative switch without touching history', async () => {
@@ -88,8 +88,14 @@ describe('plate selection actions', () => {
   it('publishes the native snapshot carried by a structural plate receipt', () => {
     usePlateSessionStore.getState().setSnapshot(plateA);
     const nativeScopedConfig = {
+      version: 1 as const,
+      revision: 1,
+      kind: 'full' as const,
+      snapshot: {
       project: { wipe_tower_x: '15,15,15', wipe_tower_y: '220,220,220' },
       objects: {}, parts: {}, plates: {},
+      },
+      removedTargets: [],
     };
     const result = {
       ...plateA,
@@ -99,6 +105,6 @@ describe('plate selection actions', () => {
     };
 
     expect(applyPlateSessionResponse({ runtime: {} } as unknown as PlatformCapabilities, result)).toBe(true);
-    expect(useSettingsStore.getState().nativeScopedConfig).toEqual(nativeScopedConfig);
+    expect(useSettingsStore.getState().nativeScopedConfig).toEqual(nativeScopedConfig.snapshot);
   });
 });

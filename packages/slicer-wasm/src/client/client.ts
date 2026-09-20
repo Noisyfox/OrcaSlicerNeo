@@ -12,7 +12,8 @@ import type {
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
   PrimeTowerMoveResultOrError,
-  NativeScopedConfigTarget, NativeScopedConfigResultOrError, NativeScopedConfigSnapshot,
+  NativeScopedConfigTarget, NativeScopedConfigTargetIdentity, NativeScopedConfigResultOrError,
+  NativeScopedConfigTransport, NativeScopedConfigFullTransport, NativeScopedConfigTargetReplacement,
   ConfigurationStatus,
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
@@ -172,28 +173,61 @@ function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): Config
     warnings: raw.warnings as string[], errors: raw.errors as string[] };
 }
 
-function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrError {
-  if (!isRecord(raw)) return { ok: false, error: 'invalid native scoped configuration response' };
-  if (raw.ok !== true) {
-    if (raw.ok !== false || typeof raw.error !== 'string') return { ok: false, error: 'invalid native scoped configuration error envelope' };
-    const result: { ok: false; error: string; errorCode?: string; status?: { state: 'error'; error: string } } = { ok: false, error: raw.error };
-    if (raw.error_code !== undefined) {
-      if (typeof raw.error_code !== 'string') return { ok: false, error: 'invalid native scoped configuration error code' };
-      result.errorCode = raw.error_code;
+function normalizeNativeScopedConfigTargetIdentity(raw: unknown): NativeScopedConfigTargetIdentity | null {
+  if (!isRecord(raw) || typeof raw.scope !== 'string' ||
+      !['project', 'object', 'part', 'plate'].includes(raw.scope)) return null;
+  const scope = raw.scope as NativeScopedConfigTargetIdentity['scope'];
+  if (scope === 'project') {
+    if (raw.id !== undefined) return null;
+  } else if (typeof raw.id !== 'string' || raw.id.length === 0) return null;
+  return { scope, ...(scope === 'project' ? {} : { id: raw.id as string }) };
+}
+
+function normalizeNativeScopedConfigTargetReplacement(raw: unknown): NativeScopedConfigTargetReplacement | null {
+  if (!isRecord(raw) || typeof raw.scope !== 'string' ||
+      !['project', 'object', 'part', 'plate'].includes(raw.scope) || !isRecord(raw.values)) return null;
+  const scope = raw.scope as NativeScopedConfigTargetReplacement['scope'];
+  if (scope === 'project') {
+    if (raw.id !== undefined) return null;
+  } else if (typeof raw.id !== 'string' || raw.id.length === 0) return null;
+  const normalizeBucket = (value: unknown): Record<string, string> | null => {
+    if (!isRecord(value)) return null;
+    const entries: Record<string, string> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item !== 'string') return null;
+      entries[key] = item;
     }
-    if (raw.status !== undefined) {
-      const status = normalizeConfigurationStatus(raw.status, false);
-      if (!status || status.state !== 'error') return { ok: false, error: 'invalid native scoped configuration error status' };
-      result.status = status;
-    }
-    return result;
+    return entries;
+  };
+  const values = normalizeBucket(raw.values);
+  if (!values) return null;
+  return {
+    scope,
+    ...(scope === 'project' ? {} : { id: raw.id as string }),
+    values,
+  };
+}
+
+function normalizeNativeScopedConfigTransport(raw: unknown): NativeScopedConfigTransport | null {
+  if (!isRecord(raw) || raw.version !== 1 || !Number.isSafeInteger(raw.revision) ||
+      (raw.revision as number) < 0 || (raw.kind !== 'full' && raw.kind !== 'affected') ||
+      !Array.isArray(raw.removed_targets)) return null;
+  const removedTargets = raw.removed_targets.map(normalizeNativeScopedConfigTargetIdentity);
+  if (removedTargets.some((target) => target === null)) return null;
+  if (raw.kind === 'affected') {
+    if (!Array.isArray(raw.replacements)) return null;
+    const replacements = raw.replacements.map(normalizeNativeScopedConfigTargetReplacement);
+    if (replacements.some((target) => target === null)) return null;
+    return {
+      version: 1, revision: raw.revision as number, kind: 'affected',
+      replacements: replacements as NativeScopedConfigTargetReplacement[],
+      removedTargets: removedTargets as NativeScopedConfigTargetIdentity[],
+    };
   }
-  const snapshot = raw.native_scoped_config;
-  if (!isRecord(snapshot)) return { ok: false, error: 'invalid native scoped configuration snapshot' };
-  if (Object.keys(snapshot).length !== 4 || !Object.hasOwn(snapshot, 'project') ||
-      !Object.hasOwn(snapshot, 'objects') || !Object.hasOwn(snapshot, 'parts') ||
-      !Object.hasOwn(snapshot, 'plates'))
-    return { ok: false, error: 'invalid native scoped configuration snapshot' };
+  if (!isRecord(raw.snapshot) || Object.keys(raw.snapshot).length !== 4 ||
+      !Object.hasOwn(raw.snapshot, 'project') || !Object.hasOwn(raw.snapshot, 'objects') ||
+      !Object.hasOwn(raw.snapshot, 'parts') || !Object.hasOwn(raw.snapshot, 'plates')) return null;
+  const snapshot = raw.snapshot as Record<string, unknown>;
   const normalizeBucket = (value: unknown): Record<string, string> | null => {
     if (!isRecord(value)) return null;
     const entries: Record<string, string> = {};
@@ -217,19 +251,44 @@ function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrEr
   const objects = normalizeScopedBucket(snapshot.objects);
   const parts = normalizeScopedBucket(snapshot.parts);
   const plates = normalizeScopedBucket(snapshot.plates);
-  if (!project || !objects || !parts || !plates) return { ok: false, error: 'invalid native scoped configuration snapshot' };
-  const result: { ok: true; nativeScopedConfig: NativeScopedConfigSnapshot; plateSession?: unknown; configurationStatus?: unknown } = {
-    ok: true, nativeScopedConfig: { project, objects, parts, plates },
+  if (!project || !objects || !parts || !plates) return null;
+  return {
+    version: 1, revision: raw.revision as number, kind: 'full',
+    snapshot: { project, objects, parts, plates },
+    removedTargets: removedTargets as NativeScopedConfigTargetIdentity[],
+  };
+}
+
+function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrError {
+  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid native scoped configuration response' };
+  if (raw.ok !== true) {
+    if (raw.version !== 1 || raw.ok !== false || typeof raw.error !== 'string') return { ok: false, version: 1, error: 'invalid native scoped configuration error envelope' };
+    const result: { ok: false; version: 1; error: string; errorCode?: string; status?: { state: 'error'; error: string } } = { ok: false, version: 1, error: raw.error };
+    if (raw.error_code !== undefined) {
+      if (typeof raw.error_code !== 'string') return { ok: false, version: 1, error: 'invalid native scoped configuration error code' };
+      result.errorCode = raw.error_code;
+    }
+    if (raw.status !== undefined) {
+      const status = normalizeConfigurationStatus(raw.status, false);
+      if (!status || status.state !== 'error') return { ok: false, version: 1, error: 'invalid native scoped configuration error status' };
+      result.status = status;
+    }
+    return result;
+  }
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+  if (!nativeScopedConfig) return { ok: false, version: 1, error: 'invalid native scoped configuration transport' };
+  const result: { ok: true; nativeScopedConfig: NativeScopedConfigTransport; plateSession?: unknown; configurationStatus?: unknown } = {
+    ok: true, nativeScopedConfig,
   };
   if (raw.plate_session !== undefined) {
     const plateSession = normalizePlateMutationResult(raw.plate_session);
-    if (!plateSession.ok) return { ok: false, error: plateSession.error };
+    if (!plateSession.ok) return { ok: false, version: 1, error: plateSession.error };
     result.plateSession = plateSession;
   }
   const rawStatus = raw.configuration_status;
   if (rawStatus !== undefined) {
     const status = normalizeConfigurationStatus(rawStatus, true);
-    if (!status || status.state !== 'ready') return { ok: false, error: 'invalid native scoped configuration status' };
+    if (!status || status.state !== 'ready') return { ok: false, version: 1, error: 'invalid native scoped configuration status' };
     result.configurationStatus = status;
   }
   return result as NativeScopedConfigResultOrError;
@@ -690,9 +749,9 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (affected) result.affectedPlateIds = affected;
   if (reasons) result.dirtyReasons = reasons;
   if (value.native_scoped_config !== undefined) {
-    const snapshot = normalizeNativeScopedConfig({ ok: true, native_scoped_config: value.native_scoped_config });
-    if (!snapshot.ok) return { ok: false, error: 'invalid plate session native scoped configuration' };
-    result.nativeScopedConfig = snapshot.nativeScopedConfig;
+    const transport = normalizeNativeScopedConfigTransport(value.native_scoped_config);
+    if (!transport) return { ok: false, error: 'invalid plate session native scoped configuration' };
+    result.nativeScopedConfig = transport;
   }
   return result;
 }
@@ -942,6 +1001,13 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     });
   };
   const saved = value.savedCheckpoint;
+  const revision = integer('revision');
+  let nativeScopedConfig: NativeScopedConfigTransport | undefined;
+  if (value.native_scoped_config !== undefined) {
+    nativeScopedConfig = normalizeNativeScopedConfigTransport(value.native_scoped_config) ?? undefined;
+    if (!nativeScopedConfig || nativeScopedConfig.revision !== revision)
+      throw new Error('invalid history scoped configuration transport');
+  }
   return {
     canUndo: bool('canUndo'), canRedo: bool('canRedo'),
     ...(typeof value.undoLabel === 'string' ? { undoLabel: value.undoLabel } : {}),
@@ -956,7 +1022,8 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     oldestRetainedEntryId: typeof value.oldestRetainedEntryId === 'string' ? value.oldestRetainedEntryId : null,
     oversizedEntryRetained: bool('oversizedEntryRetained'),
     activeTransactionId: typeof value.activeTransactionId === 'string' ? value.activeTransactionId : null,
-    revision: integer('revision'),
+    revision,
+    ...(nativeScopedConfig ? { nativeScopedConfig } : {}),
   };
 }
 
@@ -985,6 +1052,12 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (value.ok !== true) return historyFailure(raw, 'history restore failed');
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(value.native_scoped_config);
+  if (!nativeScopedConfig || nativeScopedConfig.kind !== 'full')
+    return historyFailure(raw, 'invalid history scoped configuration transport');
+  const status = normalizeHistoryStatus(value.status);
+  if (nativeScopedConfig.revision !== status.revision)
+    return historyFailure(raw, 'history scoped configuration revision mismatch');
   const impact = normalizeRestoreImpact(value.impact);
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
@@ -994,7 +1067,8 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   return {
     ok: true,
     context,
-    status: normalizeHistoryStatus(value.status),
+    nativeScopedConfig,
+    status,
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
     sceneDelta,
@@ -1577,6 +1651,26 @@ export function createClient(
         }
         const r = callJson(m, nativeName, argumentTypes, args) as Record<string, unknown>;
         if (!r.ok) return r as unknown as ProjectLoadResult;
+        let nativeScopedConfig: NativeScopedConfigFullTransport | undefined;
+        let historyStatus: HistoryStatus | undefined;
+        if (mode === 'project') {
+          const parsedConfig = normalizeNativeScopedConfigTransport(r.native_scoped_config);
+          if (!parsedConfig || parsedConfig.kind !== 'full') {
+            return { ok: false, objects: 0, instances: 0,
+              error: 'invalid project scoped configuration transport' };
+          }
+          nativeScopedConfig = parsedConfig;
+          try {
+            historyStatus = normalizeHistoryStatus(r.history_status);
+          } catch {
+            return { ok: false, objects: 0, instances: 0,
+              error: 'invalid project history status' };
+          }
+          if (nativeScopedConfig.revision !== historyStatus.revision) {
+            return { ok: false, objects: 0, instances: 0,
+              error: 'project scoped configuration revision mismatch' };
+          }
+        }
         const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
         return {
           ok: true,
@@ -1633,8 +1727,8 @@ export function createClient(
             const plateSession = normalizePlateMutationResult(r.plate_session);
             return plateSession.ok ? { plateSession } : {};
           })() : {}),
-          ...(r.native_scoped_config && typeof r.native_scoped_config === 'object'
-            ? { nativeScopedConfig: r.native_scoped_config as NativeScopedConfigSnapshot } : {}),
+          ...(nativeScopedConfig ? { nativeScopedConfig } : {}),
+          ...(historyStatus ? { historyStatus } : {}),
         };
       } finally {
         drainTaskMessages(m);

@@ -104,7 +104,7 @@ export interface PlateSessionSnapshot {
   dirtyReasons?: readonly string[];
   /** Present on structural plate mutations that normalize native per-plate
    * configuration arrays. Ordinary snapshots and transform mutations omit it. */
-  nativeScopedConfig?: NativeScopedConfigSnapshot;
+  nativeScopedConfig?: NativeScopedConfigTransport;
 }
 
 /** Narrow authoritative receipt returned by pure plate navigation. */
@@ -226,6 +226,46 @@ export interface NativeScopedConfigSnapshot {
 
 export type NativeScopedConfigScope = 'project' | 'object' | 'part' | 'plate';
 
+/** Stable identity of a native target removed by a committed transaction. */
+export interface NativeScopedConfigTargetIdentity {
+  readonly scope: NativeScopedConfigScope;
+  /** Project has no id; every entity target uses its stable native id. */
+  readonly id?: string;
+}
+
+/** One complete local map replacement in an incremental configuration receipt. */
+export interface NativeScopedConfigTargetReplacement {
+  readonly scope: NativeScopedConfigScope;
+  /** Project has no id; every entity target uses its stable native id. */
+  readonly id?: string;
+  /** The complete local map after the committed mutation. An empty map is
+   * meaningful and clears the previous target map. */
+  readonly values: Readonly<Record<string, string>>;
+}
+
+/** Versioned full projection published at load/history/explicit refresh. */
+export interface NativeScopedConfigFullTransport {
+  readonly version: 1;
+  readonly revision: number;
+  readonly kind: 'full';
+  readonly snapshot: NativeScopedConfigSnapshot;
+  readonly removedTargets: readonly NativeScopedConfigTargetIdentity[];
+}
+
+/** Versioned replacement receipt published by an ordinary scoped mutation. */
+export interface NativeScopedConfigAffectedTransport {
+  readonly version: 1;
+  readonly revision: number;
+  readonly kind: 'affected';
+  readonly replacements: readonly NativeScopedConfigTargetReplacement[];
+  /** Stable targets deleted by the same native transaction. */
+  readonly removedTargets: readonly NativeScopedConfigTargetIdentity[];
+}
+
+export type NativeScopedConfigTransport =
+  | NativeScopedConfigFullTransport
+  | NativeScopedConfigAffectedTransport;
+
 export interface NativeScopedConfigTarget {
   readonly scope: NativeScopedConfigScope;
   readonly id?: number | string;
@@ -253,13 +293,14 @@ export type ConfigurationStatus = ConfigurationReadyStatus | ConfigurationErrorS
 
 export interface NativeScopedConfigResult {
   readonly ok: true;
-  readonly nativeScopedConfig: NativeScopedConfigSnapshot;
+  readonly nativeScopedConfig: NativeScopedConfigTransport;
   readonly plateSession?: PlateSessionMutation;
   /** Native option parse/normalization feedback for configuration commands. */
   readonly configurationStatus?: ConfigurationReadyStatus;
 }
 
 export interface NativeScopedConfigError {
+  readonly version: 1;
   readonly ok?: false;
   readonly error: string;
   readonly errorCode?: string;
@@ -431,8 +472,10 @@ export interface ProjectLoadResult {
   presetSnapshot?: ProfileSnapshot;
   /** Authoritative plate membership returned by the native model transaction. */
   plateSession?: PlateSessionMutation;
-  /** Native project/object/part configuration plus retained plate metadata. */
-  nativeScopedConfig?: NativeScopedConfigSnapshot;
+  /** Full native scoped configuration receipt published with the load. */
+  nativeScopedConfig?: NativeScopedConfigFullTransport;
+  /** History baseline published with the same load revision. */
+  historyStatus?: import('./history').HistoryStatus;
   error?: string;
 }
 

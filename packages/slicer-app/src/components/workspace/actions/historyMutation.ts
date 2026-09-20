@@ -78,6 +78,22 @@ export interface HistoryContextReceipt {
   activePlateId: string | null;
 }
 
+/** Replace the pre-commit scoped receipt with the receipt emitted by the
+ * native history commit.  The mutation command runs while a transaction is
+ * active, so its immediate revision intentionally precedes the commit
+ * revision.  Only this committed receipt may reach renderer projections. */
+function attachCommittedScopedConfig<T>(result: T, status: HistoryStatus | null): T {
+  const receipt = status?.nativeScopedConfig;
+  if (!receipt || !result || typeof result !== 'object') return result;
+  const candidate = result as Record<string, unknown>;
+  if ('nativeScopedConfig' in candidate)
+    return { ...candidate, nativeScopedConfig: receipt } as T;
+  const plateSession = candidate.plateSession;
+  if (plateSession && typeof plateSession === 'object')
+    return { ...candidate, plateSession: { ...(plateSession as Record<string, unknown>), nativeScopedConfig: receipt } } as T;
+  return result;
+}
+
 export interface ProjectHistoryMutationOptions<T extends MutationResponse = MutationResponse> {
   /** Supply authoritative successor facts already returned by the operation.
    * Omit for compound operations that require a fresh native projection. */
@@ -228,8 +244,9 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
       } else {
         await refreshFilamentSession(runtime, undefined, lease);
       }
-      await publish?.(response.result, response.status);
-      return response;
+      const committedResult = attachCommittedScopedConfig(response.result, response.status);
+      await publish?.(committedResult, response.status);
+      return { ...response, result: committedResult };
     } finally {
       lease.release();
       useHistoryDiagnosticsStore.getState().recordMutation(historyDiagnosticNow() - startedAt);

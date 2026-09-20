@@ -3,8 +3,9 @@ import type { PlateSessionMutation, ProjectLoadResult, SlicerClient } from '@sli
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
-import { emptyNativeScopedConfig, useSettingsStore } from './stores/useSettingsStore';
+import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
+import { refreshFilamentSession } from './stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
@@ -266,9 +267,15 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
     useSettingsStore.getState().hydrateProfileSnapshot(snapshot);
-    useSettingsStore.getState().setNativeScopedConfig(load.nativeScopedConfig ?? emptyNativeScopedConfig());
+    if (!load.nativeScopedConfig || load.nativeScopedConfig.kind !== 'full')
+      throw new Error('project load did not return a full scoped configuration snapshot');
+    const configOutcome = useSettingsStore.getState().applyNativeScopedConfigTransport(load.nativeScopedConfig);
+    if (configOutcome !== 'applied') throw new Error('project load scoped configuration snapshot was not accepted');
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
-    const history = await resetHistory(runtime);
+    const history = load.historyStatus;
+    if (!history) throw new Error('project load did not return its history status');
+    const filament = await refreshFilamentSession(runtime);
+    if (!filament.ok) throw new Error(filament.error ?? 'project load filament session refresh failed');
     useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
     setOperation('completed', 100);
     return {

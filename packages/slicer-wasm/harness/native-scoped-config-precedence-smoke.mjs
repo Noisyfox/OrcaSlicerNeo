@@ -83,7 +83,7 @@ const revision = session.input_revisions[plateId];
 if (!(revision > revisionAfterProject))
   throw new Error(`plate override did not advance the target revision: ${JSON.stringify(session)}`);
 
-let nativeScopedConfig = requireOk('read native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config;
+let nativeScopedConfig = requireOk('read native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config.snapshot;
 if (nativeScopedConfig.project?.layer_height !== '0.24' ||
     !Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
   throw new Error(`conflicting project/plate native values were not retained: ${JSON.stringify(nativeScopedConfig)}`);
@@ -122,7 +122,7 @@ const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'str
 Module._free(projectPtr);
 requireOk('reload project', loaded);
 
-nativeScopedConfig = requireOk('read round-tripped native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config;
+nativeScopedConfig = requireOk('read round-tripped native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config.snapshot;
 if (nativeScopedConfig.project?.layer_height !== '0.24' ||
     !Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
   throw new Error(`native scoped values did not round-trip: ${JSON.stringify(nativeScopedConfig)}`);
@@ -147,7 +147,9 @@ const sourceVolume = sourceObject?.volumes?.[0];
 if (!sourceObject?.id || !sourceVolume?.id)
   throw new Error(`source structure did not expose object and volume IDs: ${JSON.stringify(sourceStructure)}`);
 const sourceExtruderMutation = requireOk('set source object extruder', setScoped('object', String(sourceObject.id), 'extruder', '1'));
-const expectedExtruder = sourceExtruderMutation.native_scoped_config?.objects?.[String(sourceObject.id)]?.extruder;
+const expectedExtruder = sourceExtruderMutation.native_scoped_config?.replacements?.find(
+  (replacement) => replacement.scope === 'object' && replacement.id === String(sourceObject.id),
+)?.values?.extruder;
 if (typeof expectedExtruder !== 'string')
   throw new Error(`source object extruder assignment was not returned by native snapshot: ${JSON.stringify(sourceExtruderMutation)}`);
 requireOk('set source object override', setScoped('object', String(sourceObject.id), 'layer_height', '0.24'));
@@ -166,7 +168,7 @@ const importedObject = (afterGeometryStructure.objects ?? []).find(
 if (!importedObject)
   throw new Error(`geometry-only import did not append an object: ${JSON.stringify(afterGeometryStructure)}`);
 const afterGeometryConfig = requireOk('read geometry-only native config',
-  callJson('orc_get_native_scoped_config')).native_scoped_config;
+  callJson('orc_get_native_scoped_config')).native_scoped_config.snapshot;
 const importedObjectConfig = afterGeometryConfig.objects?.[String(importedObject.id)] ?? {};
 if (importedObjectConfig.extruder !== expectedExtruder || Object.prototype.hasOwnProperty.call(importedObjectConfig, 'layer_height'))
   throw new Error(`geometry-only import did not retain only object extruder assignment: expected=${expectedExtruder} actual=${JSON.stringify(importedObjectConfig)}`);

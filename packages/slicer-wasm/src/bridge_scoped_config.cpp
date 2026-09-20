@@ -21,6 +21,7 @@
 #include <emscripten/emscripten.h>
 
 #include "bridge_filament.hpp"
+#include "bridge_history.hpp"
 #include "bridge_model_operations.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
@@ -49,15 +50,10 @@ const char* duplicate_json(const std::string& value)
     return out;
 }
 
-const char* error_json(const std::string& message)
-{
-    return duplicate_json(json{{"error", message}}.dump());
-}
-
 const char* native_configuration_error_json(const std::string& code,
                                             const std::string& message)
 {
-    return duplicate_json(json{{"ok", false}, {"error", message}, {"error_code", code},
+    return duplicate_json(json{{"version", 1}, {"ok", false}, {"error", message}, {"error_code", code},
                                {"status", {{"state", "error"}, {"error", message}}}}.dump());
 }
 
@@ -483,9 +479,97 @@ json native_scoped_config_snapshot()
     return snapshot;
 }
 
+json native_scoped_config_target_identity(const NativeScopedConfigTarget& target)
+{
+    json identity{{"scope", target.first}};
+    if (target.first != "project") identity["id"] = target.second;
+    return identity;
+}
+
+json native_scoped_config_removed_targets_json(const NativeScopedConfigTargets& targets)
+{
+    json removed = json::array();
+    for (const auto& target : targets) removed.push_back(native_scoped_config_target_identity(target));
+    return removed;
+}
+
+NativeScopedConfigTargets native_scoped_config_removed_targets(
+    const json& before_snapshot, const json& after_snapshot)
+{
+    NativeScopedConfigTargets removed;
+    if (!valid_native_scoped_config_snapshot(before_snapshot) ||
+        !valid_native_scoped_config_snapshot(after_snapshot))
+        return removed;
+    for (const char* scope : {"objects", "parts", "plates"}) {
+        for (auto it = before_snapshot.at(scope).begin(); it != before_snapshot.at(scope).end(); ++it)
+            if (!after_snapshot.at(scope).contains(it.key()))
+                removed.emplace_back(scope == std::string("objects") ? "object" :
+                                         scope == std::string("parts") ? "part" : "plate",
+                                     it.key());
+    }
+    return removed;
+}
+
+json native_scoped_config_full_transport(std::uint64_t revision)
+{
+    return native_scoped_config_full_transport(revision, {});
+}
+
+json native_scoped_config_full_transport(
+    std::uint64_t revision, const NativeScopedConfigTargets& removed_targets)
+{
+    return json{{"version", 1}, {"revision", revision}, {"kind", "full"},
+                {"snapshot", native_scoped_config_snapshot()},
+                {"removed_targets", native_scoped_config_removed_targets_json(removed_targets)}};
+}
+
+json native_scoped_config_affected_transport(
+    const json& snapshot,
+    const NativeScopedConfigTargets& targets,
+    std::uint64_t revision)
+{
+    return native_scoped_config_affected_transport(snapshot, targets, revision, {});
+}
+
+json native_scoped_config_affected_transport(
+    const json& snapshot,
+    const NativeScopedConfigTargets& targets,
+    std::uint64_t revision,
+    const NativeScopedConfigTargets& removed_targets)
+{
+    json replacements = json::array();
+    std::set<std::pair<std::string, std::string>> seen;
+    const std::set<std::pair<std::string, std::string>> removed(
+        removed_targets.begin(), removed_targets.end());
+    for (const auto& [scope, id] : targets) {
+        if (!seen.emplace(scope, id).second) continue;
+        if (removed.find({scope, id}) != removed.end()) continue;
+        json values = json::object();
+        const json* bucket = nullptr;
+        if (scope == "project") bucket = &snapshot.at("project");
+        else if (scope == "object") {
+            const auto it = snapshot.at("objects").find(id);
+            if (it != snapshot.at("objects").end()) bucket = &it.value();
+        } else if (scope == "part") {
+            const auto it = snapshot.at("parts").find(id);
+            if (it != snapshot.at("parts").end()) bucket = &it.value();
+        } else {
+            const auto it = snapshot.at("plates").find(id);
+            if (it != snapshot.at("plates").end()) bucket = &it.value();
+        }
+        if (bucket != nullptr) values = *bucket;
+        json replacement = {{"scope", scope}, {"values", std::move(values)}};
+        if (scope != "project") replacement["id"] = id;
+        replacements.push_back(std::move(replacement));
+    }
+    return json{{"version", 1}, {"revision", revision}, {"kind", "affected"},
+                {"replacements", std::move(replacements)},
+                {"removed_targets", native_scoped_config_removed_targets_json(removed_targets)}};
+}
+
 json native_scoped_config_result()
 {
-    return json{{"ok", true}, {"native_scoped_config", native_scoped_config_snapshot()}};
+    return json{{"ok", true}, {"native_scoped_config", native_scoped_config_full_transport(state().history_revision)}};
 }
 
 } // namespace Slic3r::Neo::Bridge::ScopedConfig
@@ -497,9 +581,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_native_scoped_config() {
         return Slic3r::Neo::Bridge::ScopedConfig::duplicate_json(
             Slic3r::Neo::Bridge::ScopedConfig::native_scoped_config_result().dump());
     } catch (const std::exception& e) {
-        return Slic3r::Neo::Bridge::ScopedConfig::error_json(e.what());
+        return Slic3r::Neo::Bridge::ScopedConfig::native_configuration_error_json(
+            "native_validation_failure", e.what());
     } catch (...) {
-        return Slic3r::Neo::Bridge::ScopedConfig::error_json("unknown C++ exception");
+        return Slic3r::Neo::Bridge::ScopedConfig::native_configuration_error_json(
+            "native_validation_failure", "unknown C++ exception");
     }
 }
 
@@ -600,6 +686,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                 PrimeTower::invalidate_projection_cache();
                 throw;
             }
+            // Application transactions advance the shared revision at their
+            // history commit. Direct bridge callers have no enclosing
+            // transaction, so the native mutation itself is the commit.
+            if (!state().active_history_transaction)
+                Neo::Bridge::HistoryMetadata::advance_history_epoch(state());
+        }
+        std::vector<std::pair<std::string, std::string>> targets;
+        targets.reserve(request.targets.size());
+        for (const auto& target : request.targets)
+            targets.emplace_back(target.scope, target.id);
+        result["native_scoped_config"] = ScopedConfig::native_scoped_config_affected_transport(
+            ScopedConfig::native_scoped_config_snapshot(), targets, state().history_revision);
+        if (state().active_history_transaction) {
+            for (const auto& target : request.targets)
+                state().active_history_transaction->native_scoped_config_targets.emplace(target.scope, target.id);
         }
         result["configuration_status"] = std::move(configuration_status);
         return ScopedConfig::duplicate_json(result.dump());
@@ -618,8 +719,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_native_scoped_config() {
     using namespace Slic3r::Neo::Bridge::ScopedConfig;
     try {
         return duplicate_json(native_scoped_config_result().dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
+    } catch (const std::exception& e) {
+        return native_configuration_error_json("native_validation_failure", e.what());
+    } catch (...) {
+        return native_configuration_error_json("native_validation_failure", "unknown C++ exception");
+    }
 }
 
 } // extern "C"

@@ -7,7 +7,7 @@
  * retain a context alongside a model version without making React a second
  * model owner.
  */
-import type { PlateSessionSnapshot } from './types';
+import type { NativeScopedConfigFullTransport, NativeScopedConfigTransport, PlateSessionSnapshot } from './types';
 
 
 /** Stable native identities.  These are IDs, never positional indexes. */
@@ -93,6 +93,8 @@ export interface HistoryStatus {
   readonly disabled: boolean;
   readonly activeTransactionId: HistoryTransactionId | null;
   readonly revision: number;
+  /** Commit-only scoped configuration receipt published at this revision. */
+  readonly nativeScopedConfig?: NativeScopedConfigTransport;
 }
 
 export type HistoryErrorCode =
@@ -188,6 +190,8 @@ export interface HistoryTransportDiagnostics {
 export interface RestoreSuccess {
   readonly ok: true;
   readonly context: HistoryContext;
+  /** Full native scoped projection published atomically with this restore. */
+  readonly nativeScopedConfig: NativeScopedConfigFullTransport;
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;

@@ -1,7 +1,11 @@
 // packages/slicer-app/src/stores/useSettingsStore.test.ts
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { emptyNativeScopedConfig, useSettingsStore } from './useSettingsStore';
 import type { ProfileSnapshot } from '@slicer/client';
+
+function full(snapshot: ReturnType<typeof emptyNativeScopedConfig>, revision = 1) {
+  return { version: 1 as const, revision, kind: 'full' as const, snapshot, removedTargets: [] as const };
+}
 
 const bootSnapshot: ProfileSnapshot = {
   ok: true,
@@ -13,6 +17,11 @@ const bootSnapshot: ProfileSnapshot = {
 };
 
 describe('useSettingsStore', () => {
+  beforeEach(() => {
+    useSettingsStore.getState().resetNativeScopedConfig();
+    useSettingsStore.getState().setValues({});
+  });
+
   it('setValue merges into values', () => {
     const s = useSettingsStore.getState();
     s.setValues({ layer_height: '0.2' });
@@ -56,18 +65,18 @@ describe('useSettingsStore', () => {
       enable_prime_tower: '1', prime_tower_width: '28',
     });
 
-    useSettingsStore.getState().setNativeScopedConfig({
+    useSettingsStore.getState().applyNativeScopedConfigTransport(full({
       project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
-    });
+    }));
     expect(useSettingsStore.getState().values).toMatchObject({
       enable_prime_tower: '0', prime_tower_width: '28',
     });
   });
 
   it('does not carry old scoped values into a new profile snapshot', () => {
-    useSettingsStore.getState().setNativeScopedConfig({
+    useSettingsStore.getState().applyNativeScopedConfigTransport(full({
       project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
-    });
+    }));
     useSettingsStore.getState().hydrateProfileSnapshot({
       ...bootSnapshot,
       project_config: { enable_prime_tower: '1' },
@@ -82,10 +91,10 @@ describe('useSettingsStore', () => {
       ...bootSnapshot,
       project_config: { enable_prime_tower: '1' },
     });
-    useSettingsStore.getState().setNativeScopedConfig({
+    useSettingsStore.getState().applyNativeScopedConfigTransport(full({
       project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
-    });
-    useSettingsStore.getState().setNativeScopedConfig(emptyNativeScopedConfig());
+    }));
+    useSettingsStore.getState().resetNativeScopedConfig();
 
     expect(useSettingsStore.getState().values.enable_prime_tower).toBe('1');
   });
@@ -95,13 +104,50 @@ describe('useSettingsStore', () => {
       ...bootSnapshot,
       project_config: { enable_prime_tower: '1' },
     });
-    useSettingsStore.getState().setNativeScopedConfig({
+    useSettingsStore.getState().applyNativeScopedConfigTransport(full({
       project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
-    });
-    useSettingsStore.getState().setNativeScopedConfig(emptyNativeScopedConfig());
+    }));
+    useSettingsStore.getState().resetNativeScopedConfig();
     useSettingsStore.getState().setValues({});
 
     expect(useSettingsStore.getState().baseValues).toEqual({});
     expect(useSettingsStore.getState().values).toEqual({});
+  });
+
+  it('replaces an affected target map instead of retaining erased keys', () => {
+    useSettingsStore.getState().applyNativeScopedConfigTransport(full({
+      project: {}, objects: { '42': { keep: '1', erased: 'old' } }, parts: {}, plates: {},
+    }, 1));
+    expect(useSettingsStore.getState().applyNativeScopedConfigTransport({
+      version: 1, revision: 2, kind: 'affected',
+      replacements: [{ scope: 'object', id: '42', values: { keep: '2' } }], removedTargets: [],
+    })).toBe('applied');
+    expect(useSettingsStore.getState().nativeScopedConfig.objects['42']).toEqual({ keep: '2' });
+  });
+
+  it('uses tombstones to remove targets and fences stale or gapped receipts', () => {
+    useSettingsStore.getState().applyNativeScopedConfigTransport(full({
+      project: {}, objects: {}, parts: {}, plates: { 'plate-1': { layer_height: '0.2' } },
+    }, 1));
+    expect(useSettingsStore.getState().applyNativeScopedConfigTransport({
+      version: 1, revision: 2, kind: 'affected', replacements: [],
+      removedTargets: [{ scope: 'plate', id: 'plate-1' }],
+    })).toBe('applied');
+    expect(useSettingsStore.getState().nativeScopedConfig.plates).toEqual({});
+    expect(useSettingsStore.getState().applyNativeScopedConfigTransport({
+      version: 1, revision: 2, kind: 'affected', replacements: [], removedTargets: [],
+    })).toBe('refresh-required');
+    expect(useSettingsStore.getState().applyNativeScopedConfigTransport({
+      version: 1, revision: 4, kind: 'affected', replacements: [], removedTargets: [],
+    })).toBe('refresh-required');
+    expect(useSettingsStore.getState().nativeScopedConfigRefreshRequired).toBe(true);
+    expect(useSettingsStore.getState().applyNativeScopedConfigTransport(full({
+      project: { layer_height: '0.3' }, objects: {}, parts: {}, plates: {},
+    }, 2))).toBe('applied');
+    expect(useSettingsStore.getState().nativeScopedConfigRefreshRequired).toBe(false);
+    expect(useSettingsStore.getState().applyNativeScopedConfigTransport(full({
+      project: { layer_height: '0.3' }, objects: {}, parts: {}, plates: {},
+    }, 3))).toBe('applied');
+    expect(useSettingsStore.getState().nativeScopedConfig.project.layer_height).toBe('0.3');
   });
 });

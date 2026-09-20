@@ -77,7 +77,10 @@ function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) =
   };
   const runtime = {
         selectProfile: vi.fn(selectProfile),
-        revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: { project: {}, objects: {}, parts: {}, plates: {} } })),
+        revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
+          version: 1 as const, revision: 0, kind: 'full' as const,
+          snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+        } })),
         getFilamentSessionSnapshot: vi.fn(async () => resolvedRack),
         applyRememberedFilamentRack: vi.fn(async () => resolvedRack),
         markSharedConfigurationMutation: vi.fn(async () => ({

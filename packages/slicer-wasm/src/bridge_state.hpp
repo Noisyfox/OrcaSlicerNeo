@@ -76,6 +76,10 @@ struct BridgeState {
         // target the model revision that transaction captured.  This prevents
         // a delayed renderer gesture from mutating a newly restored branch.
         std::uint64_t base_history_revision { 0 };
+        // Scoped configuration targets touched by this transaction.  The
+        // commit response turns these identities into complete map
+        // replacements at the committed revision.
+        std::set<std::pair<std::string, std::string>> native_scoped_config_targets;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish

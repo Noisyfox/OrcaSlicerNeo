@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Date:** 2026-09-20
-**Status:** Implementation in progress — Steps 1–3 accepted
+**Status:** Implementation in progress — Steps 1–4 accepted
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
@@ -174,3 +174,20 @@ Parent acceptance checks passed against freshly staged `out/serial` and
   undo/redo operations within its existing 100 ms budget.
 - `pnpm --filter @orca/slicer-wasm test` — 159/159 passed;
   `pnpm --filter @orca/slicer-wasm typecheck` and `git diff --check` — passed.
+
+### Step 4 — Versioned bridge/client/runtime transport
+
+Accepted on 2026-09-20. Native scoped configuration now crosses the bridge as a
+version-1 transport with a monotonic committed revision. Open, history restore,
+and explicit refresh publish a complete snapshot; ordinary edits publish complete
+per-target replacements. Deleted object, part, and plate targets are expressed as
+stable `removed_targets` tombstones. The client/store replaces complete maps,
+never shallow-merges them, and marks stale, gapped, or unknown-target receipts
+refresh-required until it accepts a full snapshot. History commit publishes its
+scene, plate, history status, and native scoped-config receipt at the same
+revision.
+
+Parent acceptance checks passed: WASM client tests 160/160, application tests
+580/580, both package typechecks, and staged history/precedence harness coverage
+including explicit part and deleted-object tombstones. The immutable Odyssey source
+fixture remained unchanged.

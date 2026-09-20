@@ -673,7 +673,8 @@ json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_pla
     // Publish that same authoritative native snapshot with the structural receipt so
     // the renderer cannot retain a pre-insertion snapshot and unnecessarily
     // reject a later adjacent Move restore receipt.
-    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+        state().history_revision);
     state().pending_membership_instance_ids.clear();
     return result;
 }
@@ -694,7 +695,8 @@ json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_
     result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
     result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
     result["dirty_reasons"] = {"plate-structure"};
-    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+        state().history_revision);
     state().pending_membership_instance_ids.clear();
     return result;
 }
@@ -1028,7 +1030,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_plates(const char* plate_ids_json)
         result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
         result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
         result["dirty_reasons"] = {"plate-structure"};
-        result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+        result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+            state().history_revision);
         return dup_json(result.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

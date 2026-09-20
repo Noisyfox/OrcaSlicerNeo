@@ -53,7 +53,10 @@ describe('history contracts', () => {
   });
 
   it('allows future callers to type a mock runtime without enabling history', async () => {
-    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1', sceneDelta: {
+    const restore: RestoreResult = { ok: true, context, status, nativeScopedConfig: {
+      version: 1, revision: status.revision, kind: 'full',
+      snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+    }, entryId: 'entry-1', sceneDelta: {
       version: 1, objectIds: [101], volumeIds: [202], instanceIds: [303],
       plateIds: ['plate-session-1-plate-1'], objectOrder: [101],
     }, impact: {

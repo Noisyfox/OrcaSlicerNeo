@@ -60,7 +60,7 @@ export default function App() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
-  const setNativeScopedConfig = useSettingsStore((s) => s.setNativeScopedConfig);
+  const applyNativeScopedConfigTransport = useSettingsStore((s) => s.applyNativeScopedConfigTransport);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const status = useSlicerStore((s) => s.status);
@@ -434,6 +434,8 @@ export default function App() {
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
         const metadata = await platform.runtime.getOptionMetadata();
         const nativeScopedConfig = await platform.runtime.getNativeScopedConfig();
+        if (!nativeScopedConfig.ok || nativeScopedConfig.nativeScopedConfig.kind !== 'full')
+          throw new Error(nativeScopedConfig.ok ? 'boot scoped configuration is not a full snapshot' : nativeScopedConfig.error);
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
@@ -441,16 +443,15 @@ export default function App() {
           selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
           activePlateId: null,
           gizmo: null,
-          nativeScopedConfig: (nativeScopedConfig.ok ? nativeScopedConfig.nativeScopedConfig : {
-            project: {}, objects: {}, parts: {}, plates: {},
-          }) as unknown as HistoryContext['nativeScopedConfig'],
+          nativeScopedConfig: nativeScopedConfig.nativeScopedConfig.snapshot as unknown as HistoryContext['nativeScopedConfig'],
         });
         if (cancelled) return;
         useFilamentSessionStore.setState({ snapshot: restored.filament, rejected: null });
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
         hydrateProfileSnapshot(restored.snapshot);
-        if (nativeScopedConfig.ok) setNativeScopedConfig(nativeScopedConfig.nativeScopedConfig);
+        if (applyNativeScopedConfigTransport(nativeScopedConfig.nativeScopedConfig) === 'stale')
+          throw new Error('boot scoped configuration snapshot was stale');
         useProjectStore.getState().setProject({
           systemPresets: {
             printer: restored.snapshot.printer.name,
@@ -469,7 +470,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [hydrateProfileSnapshot, setMetadata, setNativeScopedConfig, setError, platform.preferences, platform.runtime]);
+  }, [applyNativeScopedConfigTransport, hydrateProfileSnapshot, setMetadata, setError, platform.preferences, platform.runtime]);
 
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;
