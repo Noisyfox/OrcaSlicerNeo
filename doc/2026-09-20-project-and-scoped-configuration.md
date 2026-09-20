@@ -1,7 +1,8 @@
 # Project and Scoped Configuration
 
 **Date:** 2026-09-20
-**Status:** Implementation in progress — Steps 1–6 accepted
+**Status:** Implementation in progress — Steps 1–7 accepted; fixed external Orca
+round-trip input remains to be provisioned
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
@@ -246,3 +247,33 @@ Parent acceptance checks passed:
 - `pnpm --filter @orca/slicer-wasm test -- --run` — 5 files, 165 tests passed.
 - `pnpm --filter @orca/slicer-app test -- --run` — 77 files, 592 tests passed.
 - `pnpm typecheck` and `git diff --check` — passed (only Windows line-ending warnings).
+
+### Step 7 — 3MF interoperability and compatibility acceptance
+
+Accepted on 2026-09-20 for the self-contained native and compatibility coverage. The
+named serial and threaded scoped-configuration interoperability harnesses generate a
+temporary native BBS 3MF golden and verify normalized Project, two Plate, Object,
+normal Part, parameter-modifier, negative-volume, and support-blocker maps. They
+also verify preservation of Layer Range data, normal Neo save/open round trip, no
+removed overlay sidecar on save or replay on open, and the established unknown-key
+fallback (`compatibility: bambu`, project settings remain available, unknown key is
+not re-emitted). No source user project is written.
+
+The same harness implements the normal Neo -> Orca -> Neo stage as a strict optional
+input: it copies a fixed Orca-saved archive to a temporary directory, then compares
+the recognized normalized maps, Layer Range data, and absence of the removed sidecar.
+`--require-orca` fails if that external input is absent; no archive is fabricated.
+This workstation has neither a provisioned fixed Orca-saved archive nor an Orca
+executable, so the external invocation itself remains an explicitly recorded release
+qualification input rather than a claimed pass. The fixture README records the pinned
+upstream core revision and exact provisioning command.
+
+Parent acceptance checks passed:
+
+- `pnpm --filter @orca/slicer-wasm scoped-config-interoperability` — serial native
+  golden, own round trip, sidecar-negative, and unknown-fallback checks passed.
+- `pnpm --filter @orca/slicer-wasm scoped-config-interoperability:threaded` — the
+  same threaded checks passed.
+- `node --check packages/slicer-wasm/harness/scoped-config-interoperability.mjs` and
+  `git diff --check` — passed. The strict missing-external-input path was verified to
+  fail rather than report a false Orca round trip.
