@@ -23,6 +23,7 @@ bool valid_native_scoped_config_snapshot(const json& snapshot);
 
 void apply_native_config_values(DynamicPrintConfig& config, const json& values);
 void apply_native_config_values(ModelConfig& config, const json& values);
+void replace_native_config_values(DynamicPrintConfig& config, const json& values);
 void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>& plates);
 
 json native_scoped_config_result();

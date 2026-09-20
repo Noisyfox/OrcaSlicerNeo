@@ -31,10 +31,8 @@ const exported = callJson('orc_export_project'); assert.equal(exported.ok, true,
 const bytes = readBytes(exported.bytes_ptr, exported.bytes_length);
 const sidecar = metadataEntry(bytes, 'Metadata/orca_neo_filament_state_v1.json');
 assert.equal(sidecar?.state?.filament_presets?.length, 64, 'writer must preserve all 64 ordered presets');
-const vectorLength = (value) => Array.isArray(value)
-  ? value.length : String(value ?? '').split(/[,\s]+/).filter(Boolean).length;
-assert.equal(vectorLength(sidecar.state.project_config.filament_map), 64);
-assert.equal(vectorLength(sidecar.state.project_config.flush_volumes_matrix), 4096);
+assert.equal(Object.hasOwn(sidecar.state, 'project_config'), false,
+  'filament sidecar must not mirror native Project config');
 function loadProject(mode, displayName) {
   const pointer = Module._malloc(bytes.length); Module.HEAPU8.set(bytes, pointer);
   const result = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],

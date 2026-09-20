@@ -65,6 +65,11 @@ struct BridgeState {
         std::string label;
         nlohmann::json before_context;
         History::TimestampedRoots before_roots;
+        // Runtime-only rollback state for an aborted transaction. History
+        // roots intentionally normalize input revisions, while an abort must
+        // restore the exact pre-edit presentation guards and stamps.
+        std::map<std::string, std::uint64_t> before_plate_input_revisions;
+        PlateRuntimeRegistry::LifecycleSnapshots before_lifecycle;
         bool coalesced { false };
         std::string parent_id;
         // Every command submitted through an active transaction must still

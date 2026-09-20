@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const [moduleArg] = argv.slice(2);
@@ -44,8 +45,7 @@ const begin = (label) => requireOk(`begin ${label}`, callJson('orc_history_begin
   ['string', 'string', 'string', 'string'], [label, 'project', JSON.stringify(context), '']));
 const commit = (label, tx) => requireStatus(`commit ${label}`, callJson('orc_history_commit',
   ['string', 'string'], [tx.transactionId, JSON.stringify(context)]));
-const setOverride = (scope, id, key, value) => callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], [scope, id ?? '', key, value]);
+const setOverride = (scope, id, key, value) => setNativeScopedConfig(callJson, scope, id, key, value);
 const select = (plateId) => requireOk(`select ${plateId}`, callJson('orc_select_plate', ['string'], [plateId]));
 const receipts = new Map();
 const result = (plateId) => {

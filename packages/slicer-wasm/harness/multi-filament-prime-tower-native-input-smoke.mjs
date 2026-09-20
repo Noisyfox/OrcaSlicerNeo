@@ -6,6 +6,7 @@ import { argv } from 'node:process';
 import { resolve } from 'node:path';
 import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -81,7 +82,7 @@ function callJson(name, types = [], args = []) {
   const result = JSON.parse(Module.UTF8ToString(ptr)); Module._free(ptr); return result;
 }
 function setProject(key, value) {
-  const result = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
+  const result = setNativeScopedConfig(callJson, 'project', undefined, key, value);
   assert.equal(result.ok, true, JSON.stringify(result));
 }
 const init = callJson('orc_init', ['string'], ['']);

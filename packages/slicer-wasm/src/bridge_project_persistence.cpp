@@ -48,7 +48,7 @@ namespace Slic3r::Neo::Bridge::ProjectPersistence {
 
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
-using Neo::Bridge::Filament::State::apply_project_sidecar;
+using Neo::Bridge::Filament::State::apply_filament_state_metadata;
 using Neo::Bridge::Filament::State::config_metadata_json;
 using Neo::Bridge::Filament::State::history_state_json;
 using Neo::Bridge::HistoryMetadata::default_history_context;
@@ -62,6 +62,68 @@ static constexpr const char* kNeoPlateMetadataEntry = "Metadata/orca_neo_plate_s
 static constexpr const char* kNeoPlateMetadataSchema = "org.orcaslicerneo.plate-session";
 static constexpr const char* kNeoFilamentStateEntry = "Metadata/orca_neo_filament_state_v1.json";
 static constexpr const char* kNeoFilamentStateSchema = "org.orcaslicerneo.filament-state";
+
+// BBS project_settings.config already stores the merged native PrintConfig.
+// Keep a native marker there for the additional local Project keys which are
+// outside PresetBundle's historical s_project_options list.  This is not a
+// Neo sidecar: the marker and its values travel with the ordinary native
+// project-settings config and are ignored by older readers as an ordinary
+// known ConfigOptionStrings field.
+static constexpr const char* kNativeProjectOverrideMarker = "different_settings_to_system";
+
+const std::set<std::string>& canonical_project_config_keys()
+{
+    static const std::set<std::string> keys = {
+        "flush_volumes_vector", "flush_volumes_matrix",
+        "filament_colour", "filament_colour_type", "filament_multi_colour",
+        "wipe_tower_x", "wipe_tower_y", "wipe_tower_rotation_angle",
+        "curr_bed_type", "flush_multiplier", "flush_multiplier_fast",
+        "prime_volume_mode", "nozzle_volume_type", "filament_map_mode",
+        "filament_map", "filament_volume_map", "filament_nozzle_map",
+        "has_filament_switcher", "enable_filament_dynamic_map",
+    };
+    return keys;
+}
+
+bool is_native_project_override_key(const std::string& key)
+{
+    if (canonical_project_config_keys().find(key) != canonical_project_config_keys().end())
+        return false;
+    const auto* definition = Slic3r::print_config_def.get(key);
+    if (definition == nullptr || key == "extruder" || key == "wipe_tower_x" || key == "wipe_tower_y")
+        return false;
+    // Filament/rack/material and test-only cutter inputs stay owned by the
+    // native filament/device authorities, never by the Project local map.
+    if (key.find("filament") != std::string::npos || key.find("rack") != std::string::npos ||
+        key.find("ams") != std::string::npos || key == "nozzle_volume" ||
+        key == "nozzle_flush_dataset" || key == "enable_long_retraction_when_cut" ||
+        key == "long_retractions_when_cut" || key == "retraction_distances_when_cut" ||
+        key == "filament_diameter" || key == "filament_flush_temp")
+        return false;
+    for (const auto& [unused, placeholders] : Slic3r::custom_gcode_specific_placeholders())
+        if (std::find(placeholders.begin(), placeholders.end(), key) != placeholders.end())
+            return false;
+    return true;
+}
+
+std::vector<std::string> native_project_override_keys(const DynamicPrintConfig& config)
+{
+    std::vector<std::string> keys;
+    for (const auto& key : config.keys())
+        if (is_native_project_override_key(key)) keys.push_back(key);
+    return keys;
+}
+
+void restore_native_project_overrides(PresetBundle& bundle,
+                                      const DynamicPrintConfig& imported_config,
+                                      const std::vector<std::string>& keys)
+{
+    for (const auto& key : keys) {
+        if (!is_native_project_override_key(key)) continue;
+        const auto* value = imported_config.option(key);
+        if (value != nullptr) bundle.project_config.set_key_value(key, value->clone());
+    }
+}
 
 const char* duplicate_json(const std::string& value)
 {
@@ -733,6 +795,9 @@ static const char* orc_load_project_impl(const char* data, int len,
         // archive that contains no geometry to append.
         if (!loaded || (geometry_only && imported.objects.empty()))
             throw Slic3r::RuntimeError("Loading of a project file failed.");
+        std::vector<std::string> imported_project_override_keys;
+        if (const auto* marker = imported_config.opt<ConfigOptionStrings>(kNativeProjectOverrideMarker))
+            imported_project_override_keys = marker->values;
         publish_slicer_progress(55, geometry_only ? "Preparing imported geometry" : "Reading project settings");
         if (neo_metadata) {
             const size_t native_plate_count = std::max<size_t>(1, raw_records.empty() ? plate_data.size() : raw_records.size());
@@ -790,6 +855,28 @@ static const char* orc_load_project_impl(const char* data, int len,
 
         ++state().full_preset_bundle_copy_count;
         PresetBundle candidate = state().presets;
+        if (!geometry_only) {
+            // Replacement loads must start from the native Project option set,
+            // not from the previous session's edited map.  load_config_model
+            // applies the project options present in the incoming archive, so
+            // retaining keys which are absent there would make a stale
+            // filament/test fixture survive a project round trip.  Rebuild
+            // the canonical Project map from PrintConfig defaults before
+            // applying the archive; filament/rack state is handled by its
+            // dedicated native authorities below.
+            static const t_config_option_keys project_option_keys = {
+                "flush_volumes_vector", "flush_volumes_matrix",
+                "filament_colour", "filament_colour_type", "filament_multi_colour",
+                "wipe_tower_x", "wipe_tower_y", "wipe_tower_rotation_angle",
+                "curr_bed_type", "flush_multiplier", "flush_multiplier_fast",
+                "prime_volume_mode", "nozzle_volume_type", "filament_map_mode",
+                "filament_map", "filament_volume_map", "filament_nozzle_map",
+                "has_filament_switcher", "enable_filament_dynamic_map",
+            };
+            DynamicPrintConfig clean_project_config;
+            clean_project_config.apply_only(FullPrintConfig::defaults(), project_option_keys, true);
+            candidate.project_config = std::move(clean_project_config);
+        }
         std::vector<std::string> requested_filament_slots;
         bool filament_sidecar_applied = false;
         if (!geometry_only)
@@ -818,14 +905,14 @@ static const char* orc_load_project_impl(const char* data, int len,
             // candidate preserves the transaction while also handling a
             // parentless project preset (such as Lily.3mf) exactly as Orca.
             candidate.load_config_model(project_name, imported_config, file_version);
-            // The Neo sidecar is a lossless request layered on top of the
+            // The Neo filament metadata is a lossless request layered on top of the
             // interoperable BBS input.  Apply it before the native
             // compatibility pass so an unavailable/incompatible requested
             // value cannot overwrite the native fallback afterwards.
             if (filament_state_metadata) {
                 requested_filament_slots = filament_state_metadata->value(
                     "filament_presets", std::vector<std::string>{});
-                apply_project_sidecar(candidate, *filament_state_metadata);
+                apply_filament_state_metadata(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
                                             json{{"project", json::object()}, {"objects", json::object()},
@@ -844,7 +931,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             // apply the same request-before-compatibility ordering here.
             if (!filament_sidecar_applied) {
                 requested_filament_slots = filament_state_metadata->value("filament_presets", std::vector<std::string>{});
-                apply_project_sidecar(candidate, *filament_state_metadata);
+                apply_filament_state_metadata(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
                                             json{{"project", json::object()}, {"objects", json::object()},
@@ -854,6 +941,8 @@ static const char* orc_load_project_impl(const char* data, int len,
             candidate.update_compatible(PresetSelectCompatibleType::Always);
             candidate.update_multi_material_filament_presets();
         }
+        if (!geometry_only)
+            restore_native_project_overrides(candidate, imported_config, imported_project_override_keys);
         publish_slicer_progress(75, geometry_only ? "Finalizing geometry import" : "Applying project settings");
 
         ProjectPresetWarningDetails warning_details;
@@ -1186,6 +1275,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
             owned.push_back(std::move(plate));
         }
         DynamicPrintConfig config = state().presets.full_config_secure();
+        if (auto* marker = config.option<ConfigOptionStrings>(kNativeProjectOverrideMarker, true))
+            marker->values = native_project_override_keys(state().presets.project_config);
         StoreParams params;
         params.path = path;
         params.model = &state().model;

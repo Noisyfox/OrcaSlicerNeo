@@ -65,7 +65,7 @@ export interface MockModule {
 
 export interface MockModuleOptions {
   sliceFixture?: MockSliceFixture;
-  metadataKeys?: Record<string, { type: string; enum_values?: string[] }>;
+  metadataKeys?: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string }>;
   printErr?: (msg: string) => void;
   /** Number of instances initially exposed by getModelMesh. */
   instanceCount?: number;
@@ -138,7 +138,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { id: 2, role: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
     ],
   };
-  const metadata: Record<string, { type: string; enum_values?: string[] }> =
+  const metadata: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string }> =
     opts.metadataKeys ?? {
       layer_height: { type: 'float' },
       wall_loops: { type: 'int' },
@@ -1406,38 +1406,116 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_native_scoped_config() {
       return { ok: true, native_scoped_config: nativeScopedConfigProjection() };
     },
-    orc_set_native_scoped_config(scope: string, id: string, optionKey: string, value: string) {
+    orc_mutate_native_scoped_config(requestJson: string) {
       if (opts.nativeScopedConfigOverride !== undefined) return opts.nativeScopedConfigOverride;
-      if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
-      if (!optionKey) return { error: 'option key is required' };
-      if (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y')
-        return { ok: false, error: 'prime tower coordinates are scene-only', error_code: 'unsupported_reference' };
-      if (scope !== 'project' && !id) return { error: 'scope id is required' };
-      let affected: string[];
-      if (scope === 'project') {
-        affected = [...plateIds];
-      } else if (scope === 'plate') {
-        if (!plateIds.includes(id)) return { ok: false, error: 'plate not found', error_code: 'unsupported_reference' };
-        affected = [id];
-      } else {
-        const objectIndex = scope === 'object'
-          ? objectMeta.findIndex((object) => String(object.id) === id)
-          : volumeMeta.findIndex((volumes) => volumes.some((volume) => String(volume.id) === id));
-        if (objectIndex < 0)
-          return { ok: false, error: scope === 'object' ? 'object not found' : 'part not found', error_code: 'unsupported_reference' };
-        affected = objectPlateIds[objectIndex] ? [objectPlateIds[objectIndex]] : [];
+      let request: any;
+      try { request = JSON.parse(requestJson); } catch {
+        return { ok: false, error: 'mutation request is not valid JSON', error_code: 'invalid_command',
+          status: { state: 'error', error: 'mutation request is not valid JSON' } };
       }
-      const bucket = scope === 'project' ? nativeScopedConfig.project
-        : scope === 'object' ? (nativeScopedConfig.objects[id] ??= {})
-          : scope === 'part' ? (nativeScopedConfig.parts[id] ??= {})
-            : (nativeScopedConfig.plates[id] ??= {});
-      const effective = value;
-      bucket[optionKey] = effective;
-      const mutation = scope === 'project'
-        ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
-        : plateMutation(`${scope}-configuration`, affected, affected);
-      return { ok: true, native_scoped_config: nativeScopedConfigProjection(), plate_session: mutation,
-        configuration_status: { state: 'ready', corrections: effective === value ? [] : [{ key: optionKey, requested: value, effective }], warnings: [], errors: [] } };
+      const fail = (error: string, errorCode = 'invalid_command') =>
+        ({ ok: false, error, error_code: errorCode, status: { state: 'error', error } });
+      if (!request || request.version !== 1 || typeof request.operation !== 'string' || !Array.isArray(request.targets) || request.targets.length === 0)
+        return fail('invalid native mutation request');
+      if (!['set', 'reset', 'reset-category', 'reset-all'].includes(request.operation))
+        return fail('unsupported native mutation operation');
+      const values: Record<string, string> = request.operation === 'set'
+        ? (request.values && typeof request.values === 'object' && !Array.isArray(request.values)
+          ? request.values
+          : typeof request.key === 'string' && typeof request.value === 'string' ? { [request.key]: request.value } : {})
+        : request.operation === 'reset' && typeof request.key === 'string' ? { [request.key]: '' } : {};
+      if ((request.operation === 'set' && Object.keys(values).length === 0) ||
+          (request.operation === 'reset' && Object.keys(values).length !== 1) ||
+          (request.operation === 'reset-category' && typeof request.category !== 'string'))
+        return fail('invalid native mutation operation payload');
+      const targets: Array<{ scope: 'project' | 'object' | 'part' | 'plate'; id: string }> = [];
+      const seen = new Set<string>();
+      for (const target of request.targets) {
+        if (!target || !['project', 'object', 'part', 'plate'].includes(target.scope)) return fail('invalid project configuration scope');
+        const scope = target.scope as 'project' | 'object' | 'part' | 'plate';
+        const id = target.id === undefined ? '' : String(target.id);
+        if (scope !== 'project' && !id) return fail('scope id is required');
+        if (scope === 'project' && id) return fail('project mutation target must not have an id');
+        const identity = `${scope}:${id}`;
+        if (seen.has(identity)) return fail('duplicate mutation target');
+        seen.add(identity);
+        targets.push({ scope, id });
+      }
+      const next = clone(nativeScopedConfig);
+      const affected = new Set<string>();
+      const dirtyReasons = new Set<string>();
+      let projectChanged = false;
+      const corrections: Array<{ key: string; requested: string; effective: string }> = [];
+      const resettable = (key: string) => key !== 'extruder' && !key.includes('filament') && !key.includes('rack') && !key.includes('ams') && !key.includes('gcode');
+      const clamp = (key: string, value: string): string => {
+        const option = metadata[key];
+        if (!option) throw new Error(`unsupported project configuration option: ${key}`);
+        if (!['float', 'int', 'percent'].includes(option.type)) return value;
+        const numeric = Number(value.replace(/%$/, ''));
+        if (!Number.isFinite(numeric)) throw new Error('invalid native configuration value');
+        const bounded = Math.min(option.max ?? Number.POSITIVE_INFINITY, Math.max(option.min ?? Number.NEGATIVE_INFINITY, numeric));
+        return option.type === 'int' ? String(Math.trunc(bounded)) : `${bounded}${value.endsWith('%') ? '%' : ''}`;
+      };
+      try {
+        for (const target of targets) {
+          let bucket: Record<string, string>;
+          if (target.scope === 'project') bucket = next.project;
+          else if (target.scope === 'object') {
+            const index = objectMeta.findIndex((object) => String(object.id) === target.id);
+            if (index < 0) return fail('object not found', 'unsupported_reference');
+            bucket = next.objects[target.id] ??= {};
+            if (objectPlateIds[index]) affected.add(objectPlateIds[index]);
+          } else if (target.scope === 'part') {
+            const index = volumeMeta.findIndex((volumes) => volumes.some((volume) => String(volume.id) === target.id));
+            if (index < 0) return fail('part not found', 'unsupported_reference');
+            bucket = next.parts[target.id] ??= {};
+            if (objectPlateIds[index]) affected.add(objectPlateIds[index]);
+          } else {
+            if (!plateIds.includes(target.id)) return fail('plate not found', 'unsupported_reference');
+            bucket = next.plates[target.id] ??= {};
+            affected.add(target.id);
+          }
+          const before = JSON.stringify(bucket);
+          if (request.operation === 'set') {
+            for (const [key, value] of Object.entries(values)) {
+              if (key === 'wipe_tower_x' || key === 'wipe_tower_y') return fail('prime tower coordinates are scene-only', 'unsupported_reference');
+              const effective = clamp(key, value);
+              bucket[key] = effective;
+              if (effective !== value && !corrections.some((item) => item.key === key && item.effective === effective))
+                corrections.push({ key, requested: value, effective });
+            }
+          } else if (request.operation === 'reset') {
+            const key = Object.keys(values)[0];
+            if (!(key in metadata)) return fail(`unsupported project configuration option: ${key}`, 'unsupported_reference');
+            if (key === 'wipe_tower_x' || key === 'wipe_tower_y') return fail('prime tower coordinates are scene-only', 'unsupported_reference');
+            delete bucket[key];
+          } else {
+            for (const key of Object.keys(bucket)) {
+              if (!resettable(key)) continue;
+              if (request.operation === 'reset-category' && metadata[key]?.category !== request.category) continue;
+              delete bucket[key];
+            }
+          }
+          if (target.scope === 'project' && before !== JSON.stringify(bucket)) {
+            projectChanged = true;
+            for (const id of plateIds) affected.add(id);
+          }
+          if (before !== JSON.stringify(bucket)) dirtyReasons.add(`${target.scope}-configuration`);
+        }
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : 'native configuration validation failed', 'native_validation_failure');
+      }
+      nativeScopedConfig = next;
+      let mutation: Record<string, unknown> | undefined;
+      if (dirtyReasons.size > 0) {
+        mutation = projectChanged
+          ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
+          : plateMutation([...dirtyReasons][0], [...affected], [...affected]);
+      }
+      const result: Record<string, unknown> = { ok: true, native_scoped_config: nativeScopedConfigProjection(),
+        configuration_status: { state: 'ready', corrections, warnings: [], errors: [] } };
+      if (mutation) result.plate_session = mutation;
+      return result;
     },
     orc_revalidate_native_scoped_config() {
       // The native bridge validates against the current option metadata. The
@@ -2263,7 +2341,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
     orc_get_native_scoped_config: { ret: 'number', args: [] },
-    orc_set_native_scoped_config: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
+    orc_mutate_native_scoped_config: { ret: 'number', args: ['string'] },
     orc_revalidate_native_scoped_config: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },

@@ -8,6 +8,7 @@ import { argv } from 'node:process';
 import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const opts = {};
@@ -28,6 +29,7 @@ function callJson(name, argTypes = [], args = []) {
   const ptr = Number(Module.ccall(name, 'number', argTypes, args));
   try { return JSON.parse(Module.UTF8ToString(ptr)); } finally { Module._free(ptr); }
 }
+const setScoped = (scope, id, key, value) => setNativeScopedConfig(callJson, scope, id, key, value);
 
 function writeBytes(bytes) {
   const ptr = Number(Module._malloc(bytes.byteLength));
@@ -69,18 +71,13 @@ requireOk('add model', callJson('orc_add_shape', ['string', 'string'], ['Cube', 
 let session = requireOk('plate session', callJson('orc_get_plate_session_snapshot'));
 const plateId = session.current_plate_id;
 
-requireOk('set project override', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['project', '', 'layer_height', '0.24']));
-requireOk('set project Prepare override', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['project', '', 'enable_prime_tower', '1']));
-requireOk('set project Prepare mode', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['project', '', 'timelapse_type', '1']));
+requireOk('set project override', setScoped('project', undefined, 'layer_height', '0.24'));
+requireOk('set project Prepare override', setScoped('project', undefined, 'enable_prime_tower', '1'));
+requireOk('set project Prepare mode', setScoped('project', undefined, 'timelapse_type', '1'));
 session = requireOk('plate session after project override', callJson('orc_get_plate_session_snapshot'));
 const revisionAfterProject = session.input_revisions[plateId];
-requireOk('set plate override', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['plate', plateId, 'layer_height', '0.16']));
-requireOk('set plate Prepare mode', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['plate', plateId, 'timelapse_type', '0']));
+requireOk('set plate override', setScoped('plate', plateId, 'layer_height', '0.16'));
+requireOk('set plate Prepare mode', setScoped('plate', plateId, 'timelapse_type', '0'));
 session = requireOk('plate session after plate override', callJson('orc_get_plate_session_snapshot'));
 const revision = session.input_revisions[plateId];
 if (!(revision > revisionAfterProject))
@@ -149,15 +146,12 @@ const sourceObject = sourceStructure.objects?.[0];
 const sourceVolume = sourceObject?.volumes?.[0];
 if (!sourceObject?.id || !sourceVolume?.id)
   throw new Error(`source structure did not expose object and volume IDs: ${JSON.stringify(sourceStructure)}`);
-const sourceExtruderMutation = requireOk('set source object extruder', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['object', String(sourceObject.id), 'extruder', '1']));
+const sourceExtruderMutation = requireOk('set source object extruder', setScoped('object', String(sourceObject.id), 'extruder', '1'));
 const expectedExtruder = sourceExtruderMutation.native_scoped_config?.objects?.[String(sourceObject.id)]?.extruder;
 if (typeof expectedExtruder !== 'string')
   throw new Error(`source object extruder assignment was not returned by native snapshot: ${JSON.stringify(sourceExtruderMutation)}`);
-requireOk('set source object override', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['object', String(sourceObject.id), 'layer_height', '0.24']));
-requireOk('set source part override', callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['part', String(sourceVolume.id), 'layer_height', '0.28']));
+requireOk('set source object override', setScoped('object', String(sourceObject.id), 'layer_height', '0.24'));
+requireOk('set source part override', setScoped('part', String(sourceVolume.id), 'layer_height', '0.28'));
 const geometrySource = requireOk('export geometry-only source', callJson('orc_export_project'));
 const geometrySourceBytes = readAndFree(geometrySource.bytes_ptr, geometrySource.bytes_length);
 const sourceObjectIds = new Set((sourceStructure.objects ?? []).map((object) => String(object.id)));

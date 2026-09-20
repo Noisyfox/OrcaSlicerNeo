@@ -1499,9 +1499,17 @@ export function createClient(
 
     async setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
-      const scopeId = target.id === undefined ? '' : String(target.id);
-      const raw = callJson(m, 'orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
-        [target.scope, scopeId, optionKey, value]);
+      const mutationTarget = target.id === undefined
+        ? { scope: target.scope }
+        : { scope: target.scope, id: String(target.id) };
+      const request = JSON.stringify({
+        version: 1,
+        operation: 'set',
+        targets: [mutationTarget],
+        key: optionKey,
+        value,
+      });
+      const raw = callJson(m, 'orc_mutate_native_scoped_config', ['string'], [request]);
       return normalizeNativeScopedConfig(raw);
     },
 

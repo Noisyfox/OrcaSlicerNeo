@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const opts = {};
@@ -43,14 +44,14 @@ assert.equal(projection.plates[0].height, 0, 'hidden one-filament proxy has no v
 
 // Smooth timelapse is a native forced case: one actually used filament is
 // enough once the native feature is enabled.
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'enable_prime_tower', '1']);
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'timelapse_type', '1']);
+setNativeScopedConfig(callJson, 'project', undefined, 'enable_prime_tower', '1');
+setNativeScopedConfig(callJson, 'project', undefined, 'timelapse_type', '1');
 projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
 assert.equal(projection.plates[0].forced, true);
 assert.deepEqual(projection.plates[0].used_slots, [1]);
 assertDirectEstimateProfile('smooth timelapse');
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'timelapse_type', '0']);
+setNativeScopedConfig(callJson, 'project', undefined, 'timelapse_type', '0');
 
 // Paint/assign a second slot: eligibility, native dimensions, and equal bands
 // are all returned by C++, including the dark-colour render adjustment.
@@ -62,10 +63,10 @@ const assigned = request('orc_assign_filament', {
   targets: [{ kind: 'object', id: objectId }],
 });
 assert.equal(assigned.ok, true, JSON.stringify(assigned));
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'prime_tower_width', '25']);
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'prime_tower_brim_width', '7']);
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_rotation_angle', '90']);
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_wall_type', 'rectangle']);
+setNativeScopedConfig(callJson, 'project', undefined, 'prime_tower_width', '25');
+setNativeScopedConfig(callJson, 'project', undefined, 'prime_tower_brim_width', '7');
+setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_rotation_angle', '90');
+setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_wall_type', 'rectangle');
 projection = callJson('orc_get_prime_tower_projection');
 const tower = projection.plates[0];
 assert.equal(tower.eligible, true, JSON.stringify(tower));
@@ -82,7 +83,7 @@ assert.equal(tower.bands[0].opacity, 0.66);
 assertDirectEstimateProfile('multifilament rectangle');
 
 // Rib-wall towers use the native estimated depth for both dimensions.
-callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_wall_type', 'rib']);
+setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_wall_type', 'rib');
 projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].width, projection.plates[0].depth);
 assertDirectEstimateProfile('multifilament rib');

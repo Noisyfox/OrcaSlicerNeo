@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { awaitAsyncTask } from './async-task-mailbox.mjs';
 
@@ -25,8 +26,7 @@ function call(name, types = [], args = []) {
 }
 function snapshot() { return call('orc_get_plate_session_snapshot'); }
 function project(key, value) {
-  call('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
-    ['project', '', key, value]);
+  setNativeScopedConfig(call, 'project', undefined, key, value);
 }
 function projection() {
   call('orc_take_performance_profile');

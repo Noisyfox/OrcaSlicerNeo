@@ -3,8 +3,9 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
-import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
+import { callAsyncTask, exportGcode, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const options = {};
@@ -92,8 +93,7 @@ assert.equal(assigned.ok, true, JSON.stringify(assigned));
 session = assigned.result.snapshot;
 assert.equal(session.assignments.objects.find((entry) => entry.id === second.id)?.effective_slot, alternate.slot);
 
-const tower = callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'],
-  ['project', '', 'enable_prime_tower', '1']);
+const tower = setNativeScopedConfig(callJson, 'project', undefined, 'enable_prime_tower', '1');
 assert.equal(tower.ok, true, JSON.stringify(tower));
 
 const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'],
@@ -132,7 +132,9 @@ assert.notDeepEqual(
   JSON.stringify(palette),
 );
 
-const gcode = Buffer.from(Module.FS.readFile('/out.gcode')).toString('utf8');
+const exported = exportGcode(callJson, validForPreview.receipt);
+assert.equal(exported.ok, true, JSON.stringify(exported));
+const gcode = Buffer.from(Module.FS.readFile(exported.path)).toString('utf8');
 const toolChanges = [...gcode.matchAll(/^T(\d+)\s*$/gm)]
   .map((match) => Number(match[1]))
   .filter((tool) => tool >= 0 && tool < 64);

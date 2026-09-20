@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Date:** 2026-09-20
-**Status:** Implementation in progress — Steps 1–2 accepted
+**Status:** Implementation in progress — Steps 1–3 accepted
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
@@ -141,3 +141,36 @@ Parent acceptance checks passed:
 - `git diff --check` — passed (only line-ending warnings); the immutable Odyssey
   source remains 45,586,816 bytes with SHA-256
   `6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425`.
+
+### Step 3 — Native mutation, exact history roots, and invalidation
+
+Accepted on 2026-09-20. The former single-key native mutation ABI is replaced by
+one canonical JSON request for atomic multi-target `set`, `reset`,
+`reset-category`, and `reset-all` operations. It stages every target before
+publication, parses through native PrintConfig, clamps direct numeric limits, and
+leaves native state, plate revisions, and history unchanged on parse or target
+failure. Individual reset erases the local key. Category and all resets preserve
+the approved excluded domains: extruder, filament/rack/material fields, Layer
+Range, Custom G-code, and scene-only coordinates.
+
+The Project history root is now a complete native map replacement: restoration
+removes keys absent from the historical root instead of merging them. Project
+configuration is absent from both the filament/rack history root and the filament
+metadata sidecar; ordinary native project settings retain valid local Project
+values. Invalidation is the target union: Project affects all plates; Plate only
+itself; Object and Part every plate containing one of the target object's
+instances. History restore applies the same minimal-set rule.
+
+Parent acceptance checks passed against freshly staged `out/serial` and
+`out/threaded` artifacts:
+
+- Native mutation smoke on serial and threaded WASM — passed (atomic rollback,
+  clamp, bad parse no-op, erase reset Undo/Redo, and reset exclusions).
+- Native persistence precedence smoke on serial and threaded WASM — passed
+  (no removed sidecar, injected legacy sidecar ignored, native round trip, and
+  geometry-only extruder-only import).
+- Threaded history smoke, serial configuration-scope invalidation smoke, and
+  threaded multi-filament command smoke — passed; the latter reports all measured
+  undo/redo operations within its existing 100 ms budget.
+- `pnpm --filter @orca/slicer-wasm test` — 159/159 passed;
+  `pnpm --filter @orca/slicer-wasm typecheck` and `git diff --check` — passed.

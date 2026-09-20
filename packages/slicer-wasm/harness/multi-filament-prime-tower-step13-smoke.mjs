@@ -5,6 +5,7 @@ import { argv } from 'node:process';
 import { resolve } from 'node:path';
 import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const opts = {};
@@ -20,7 +21,7 @@ function callJson(name, types = [], args = []) {
 }
 function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
 function setProject(key, value) {
-  return callJson('orc_set_native_scoped_config', ['string', 'string', 'string', 'string'], ['project', '', key, value]);
+  return setNativeScopedConfig(callJson, 'project', undefined, key, value);
 }
 function arrays() {
   const snapshot = callJson('orc_get_native_scoped_config');

@@ -500,7 +500,9 @@ scope.
   projection, not a serialized root, so no scope is serialized twice. The Project
   root is intentionally history-tracked even though Orca keeps its
   `PresetBundle` project configuration outside `UndoRedo`; preset selection
-  remains outside.
+  remains outside. Restoring that root is exact replacement, so a key absent
+  from the historical map is erased rather than merged from live state. Filament
+  and rack history state does not duplicate Project configuration.
 - An outer transaction captures its predecessor before the first model write.
   It commits one named snapshot and leaves the resulting topmost state
   unarchived. The first Undo captures that topmost state only when required as

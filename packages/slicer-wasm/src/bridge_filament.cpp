@@ -22,18 +22,16 @@ json history_state_json(const PresetBundle& bundle)
     return json{
         {"version", 1},
         {"filament_presets", bundle.filament_presets},
-        {"project_config", config_metadata_json(bundle.project_config)},
         {"edited_filament_config", config_metadata_json(bundle.filaments.get_edited_preset().config)},
         {"ams_multi_colour_filment", bundle.ams_multi_color_filment},
     };
 }
 
-void apply_project_sidecar(PresetBundle& bundle, const json& encoded)
+void apply_filament_state_metadata(PresetBundle& bundle, const json& encoded)
 {
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
-        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object())
+        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64)
         throw std::runtime_error("invalid project filament sidecar state");
 
     std::vector<std::string> names;
@@ -50,14 +48,6 @@ void apply_project_sidecar(PresetBundle& bundle, const json& encoded)
     bundle.filament_presets = names;
     for (std::size_t index = 0; index < names.size(); ++index)
         bundle.set_filament_preset(index, names[index]);
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    for (auto it = encoded["project_config"].begin(); it != encoded["project_config"].end(); ++it) {
-        if (!it.value().is_string()) throw std::runtime_error("invalid history project config value");
-        try { bundle.project_config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
-        catch (const std::exception& e) {
-            throw std::runtime_error(std::string("invalid history project config: ") + e.what());
-        }
-    }
 }
 
 static void apply_serialized_config_values(DynamicPrintConfig& config, const json& values)
@@ -75,12 +65,10 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
 {
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
-        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object())
+        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64)
         throw std::runtime_error("invalid history filament state");
     StagedMutableState staged {
-        {}, catalog.project_config, catalog.ams_multi_color_filment,
-        catalog.filaments.get_edited_preset() };
+        {}, catalog.ams_multi_color_filment, catalog.filaments.get_edited_preset() };
     staged.names.reserve(encoded["filament_presets"].size());
     for (const auto& value : encoded["filament_presets"]) {
         if (!value.is_string() || value.get<std::string>().empty())
@@ -90,7 +78,6 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
             throw std::runtime_error("history filament preset is unavailable");
         staged.names.push_back(name);
     }
-    apply_serialized_config_values(staged.project_config, encoded["project_config"]);
     if (const auto edited = encoded.find("edited_filament_config"); edited != encoded.end()) {
         if (!edited->is_object()) throw std::runtime_error("invalid history edited filament config");
         apply_serialized_config_values(staged.edited_filament.config, *edited);
@@ -109,7 +96,6 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
     bundle.filament_presets = std::move(staged.names);
     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index)
         bundle.set_filament_preset(index, bundle.filament_presets[index]);
-    bundle.project_config = std::move(staged.project_config);
     bundle.ams_multi_color_filment = std::move(staged.ams_multi_colour_filment);
     bundle.filaments.get_edited_preset() = std::move(staged.edited_filament);
     ++bridge.history_minimal_mutable_restore_count;

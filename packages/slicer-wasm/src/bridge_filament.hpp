@@ -32,11 +32,10 @@ namespace State {
 json config_metadata_json(const DynamicPrintConfig& config);
 json history_state_json(const PresetBundle& bundle);
 
-void apply_project_sidecar(PresetBundle& bundle, const json& encoded);
+void apply_filament_state_metadata(PresetBundle& bundle, const json& encoded);
 
 struct StagedMutableState {
     std::vector<std::string> names;
-    DynamicPrintConfig project_config;
     std::vector<std::vector<std::string>> ams_multi_colour_filment;
     Preset edited_filament;
 };

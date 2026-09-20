@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { metadataEntry } from './native-3mf-parser.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const opts = {};
@@ -192,14 +193,11 @@ const exported64 = callJson('orc_export_project');
 assert.equal(exported64.ok, true, JSON.stringify(exported64));
 const project64 = readBytes(exported64.bytes_ptr, exported64.bytes_length);
 const sidecar64 = metadataEntry(project64, 'Metadata/orca_neo_filament_state_v1.json');
-assert.ok(sidecar64?.state?.project_config, '64-slot project must carry the Neo filament sidecar');
+assert.ok(sidecar64?.state?.filament_presets, '64-slot project must carry the Neo filament sidecar');
+assert.equal(Object.hasOwn(sidecar64.state, 'project_config'), false,
+  'filament sidecar must not mirror native Project config');
 assert.equal(Object.hasOwn(sidecar64.state, 'selected_filament_preset'), false,
   'multi-filament sidecar must not serialize a single selected filament');
-const sidecarVectorLength = (value) => Array.isArray(value)
-  ? value.length
-  : String(value ?? '').split(/[,\s]+/).filter(Boolean).length;
-assert.equal(sidecarVectorLength(sidecar64.state.project_config.filament_map), 64);
-assert.equal(sidecarVectorLength(sidecar64.state.project_config.flush_volumes_matrix), 4096);
 const reloaded64 = loadProject(project64, 'capacity-64-roundtrip.3mf');
 assert.equal(reloaded64.ok, true, JSON.stringify(reloaded64));
 const session64 = callJson('orc_get_filament_session_snapshot');
@@ -433,7 +431,7 @@ assert.equal(ordinaryCommit.canUndo, true, JSON.stringify(ordinaryCommit));
 const fallbackDiagnosticsBefore = callJson('orc_history_restore_diagnostics');
 const fallbackUndo = callJson('orc_history_undo');
 assert.equal(fallbackUndo.ok, true, 'direct-missing fallback undo');
-assert.equal(fallbackUndo.impact?.model, 'full', JSON.stringify(fallbackUndo));
+assert.equal(fallbackUndo.impact?.model, 'delta', JSON.stringify(fallbackUndo));
 const fallbackRedo = callJson('orc_history_redo');
 assert.equal(fallbackRedo.ok, true, 'direct-missing fallback redo');
 assert.equal(fallbackRedo.impact?.filamentRack, true, JSON.stringify(fallbackRedo));
@@ -448,12 +446,12 @@ const ordinaryMutation = request('orc_set_filament_slot_colour', {
 assert.equal(ordinaryMutation.ok, true, JSON.stringify(ordinaryMutation));
 const filamentUndo = callJson('orc_history_undo');
 assert.equal(filamentUndo.ok, true);
-assert.equal(filamentUndo.impact?.model, 'full', JSON.stringify(filamentUndo));
+assert.equal(filamentUndo.impact?.model, 'delta', JSON.stringify(filamentUndo));
 assert.equal(filamentUndo.impact?.filamentRack, true, JSON.stringify(filamentUndo));
 assert.equal(semantic(callJson('orc_get_filament_session_snapshot')), ordinaryBeforeFilament);
 const filamentRedo = callJson('orc_history_redo');
 assert.equal(filamentRedo.ok, true);
-assert.equal(filamentRedo.impact?.model, 'full', JSON.stringify(filamentRedo));
+assert.equal(filamentRedo.impact?.model, 'delta', JSON.stringify(filamentRedo));
 assert.equal(semantic(callJson('orc_get_filament_session_snapshot')), semantic(ordinaryMutation.result.snapshot));
 
 // Real object/part and unrelated filament-valued settings are part of the
@@ -467,11 +465,9 @@ snapshot = callJson('orc_get_filament_session_snapshot');
 const structureBeforeReference = callJson('orc_get_model_structure');
 const objectId = structureBeforeReference.objects[0]?.id;
 assert.ok(objectId, JSON.stringify(structureBeforeReference));
-const assignedObject = callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['object', String(objectId), 'extruder', '2']);
+const assignedObject = setNativeScopedConfig(callJson, 'object', String(objectId), 'extruder', '2');
 assert.equal(assignedObject.ok, true, JSON.stringify(assignedObject));
-const unrelated = callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['project', '', 'filament_flush_temp', '200,210']);
+const unrelated = setNativeScopedConfig(callJson, 'project', undefined, 'filament_flush_temp', '200,210');
 assert.equal(unrelated.ok, true, JSON.stringify(unrelated));
 const unrelatedBefore = JSON.stringify(unrelated.native_scoped_config.project.filament_flush_temp);
 const remapped = request('orc_delete_filament_slot', { version: 1, revision: snapshot.revisions.session, slot: 1 });

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { readFile } from 'node:fs/promises';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
@@ -397,8 +398,7 @@ const configuredPlateId = plateAfterRedo.current_plate_id;
 const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Plate Config', 'project', JSON.stringify(context), '']);
 if (!configTx.ok || typeof configTx.transactionId !== 'string') throw new Error(JSON.stringify(configTx));
-const configured = callJson('orc_set_native_scoped_config',
-  ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_x', '101,202']);
+const configured = setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_x', '101,202');
 if (configured.ok || configured.error_code !== 'unsupported_reference')
   throw new Error(`generic X/Y setting unexpectedly accepted: ${JSON.stringify(configured)}`);
 const configuredCommit = callJson('orc_history_commit', ['string', 'string'],
@@ -827,8 +827,7 @@ function coordinateIdentityValues(session, expected) {
     }));
 }
 function setProjectCoordinate(key, value) {
-  const result = callJson('orc_set_native_scoped_config',
-    ['string', 'string', 'string', 'string'], ['project', '', key, String(value)]);
+  const result = setNativeScopedConfig(callJson, 'project', undefined, key, String(value));
   if (!result.ok) throw new Error(`set project ${key} failed: ${JSON.stringify(result)}`);
 }
 const coordinateBaselineReset = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);

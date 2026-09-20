@@ -44,7 +44,6 @@ namespace Slic3r::Neo::Bridge::HistoryRuntime {
 
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
-using Neo::Bridge::Filament::Commands::validate_filament_candidate;
 using Neo::Bridge::Filament::Commands::validate_filament_candidate_components;
 using Neo::Bridge::Filament::State::apply_mutable;
 using Neo::Bridge::Filament::State::history_state_json;
@@ -56,6 +55,7 @@ using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
 using Neo::Bridge::PlateSession::plate_session_snapshot_json;
 using Neo::Bridge::ScopedConfig::empty_native_scoped_config_snapshot;
 using Neo::Bridge::ScopedConfig::native_scoped_config_snapshot;
+using Neo::Bridge::ScopedConfig::replace_native_config_values;
 using Neo::Bridge::SlicingPipeline::invalidate_preview_source;
 using Neo::History::Codec::capture_model_state;
 namespace {
@@ -87,6 +87,15 @@ json current_context(const Runtime& runtime)
         context = Neo::Bridge::HistoryMetadata::default_history_context(
             state(), plate_session_snapshot_json(), runtime.filament_history_state());
     return canonical_history_context(runtime, std::move(context));
+}
+
+void restore_transaction_runtime_snapshot(const BridgeState::HistoryTransaction& transaction)
+{
+    state().plate_input_revisions = transaction.before_plate_input_revisions;
+    state().plate_runtime_registry.restore_lifecycle(transaction.before_lifecycle);
+    if (state().history_live_context.is_object() && state().history_live_context.contains("plateSession"))
+        state().history_live_context["plateSession"]["input_revisions"] =
+            Neo::Bridge::PlateSession::plate_revisions_json();
 }
 
 Neo::History::Bytes json_bytes(const json& value)
@@ -290,12 +299,14 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
 }
 
 
-void validate_filament_history_mutable_state(
-    PresetBundle& catalog, const Neo::Bridge::Filament::State::StagedMutableState& staged,
+void validate_filament_history_candidate(
+    PresetBundle& catalog, const std::vector<std::string>& filament_presets,
     Model& model, const std::vector<BridgeState::PlateSessionPlate>& plates, const json& snapshot)
 {
     const auto& printer = catalog.printers.get_edited_preset().config;
-    validate_filament_candidate_components(staged.names, staged.project_config, printer,
+    DynamicPrintConfig project_config = catalog.project_config;
+    replace_native_config_values(project_config, snapshot.value("project", json::object()));
+    validate_filament_candidate_components(filament_presets, project_config, printer,
         std::max(1, catalog.get_printer_extruder_count()),
         printer.opt_bool("single_extruder_multi_material") || catalog.is_bbl_vendor(),
         model, plates, snapshot);
@@ -323,11 +334,10 @@ json restore_timestamped_result(const Runtime& runtime,
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> staged_filament_state;
     if (filament_changed) staged_filament_state.emplace(stage_mutable(state().presets, context["filamentState"]));
     const json staged_snapshot = context["nativeScopedConfig"];
-    if (staged_filament_state)
-        validate_filament_history_mutable_state(state().presets, *staged_filament_state, staged_model,
-                                                staged_plates, staged_snapshot);
-    else
-        validate_filament_candidate(state().presets, staged_model, staged_plates, staged_snapshot, false);
+    validate_filament_history_candidate(
+        state().presets,
+        staged_filament_state ? staged_filament_state->names : state().presets.filament_presets,
+        staged_model, staged_plates, staged_snapshot);
 
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> before_filament_state;
     if (filament_changed) before_filament_state.emplace(stage_mutable(state().presets, history_state_json(state().presets)));
@@ -348,19 +358,138 @@ json restore_timestamped_result(const Runtime& runtime,
         state().model = std::move(staged_model);
         state().mutable_object_capture_cache.clear();
         restore_history_plate_session(plate_session, state().model);
-        Neo::Bridge::ScopedConfig::apply_native_config_values(
+        // The Project history root is an exact local-map replacement.  Start
+        // from an empty native config so keys absent from the restored root
+        // are erased instead of being merged into the current project map.
+        replace_native_config_values(
             state().presets.project_config, staged_snapshot.value("project", json::object()));
         Neo::Bridge::PlateSession::normalize_coordinate_arrays(
             state().presets.project_config, state().plate_session_plates.size());
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
-        std::set<std::string> all_plates;
+        // A history restore publishes only the plates whose native input
+        // changed.  Project/filament roots and model topology still fan out
+        // to every plate; a plate-local root stays local, while object/part
+        // roots use the restored instance membership.
+        std::set<std::string> affected_plates;
+        const auto all_plate_ids = [&]() {
+            std::set<std::string> ids;
+            for (const auto& plate : state().plate_session_plates) ids.insert(plate.id);
+            return ids;
+        };
+        const auto add_instance_plates = [](const std::map<std::size_t, std::string>& membership,
+                                            const std::size_t instance_id,
+                                            std::set<std::string>& destination) {
+            const auto found = membership.find(instance_id);
+            if (found != membership.end() && !found->second.empty()) destination.insert(found->second);
+        };
+        std::set<std::string> model_transform_affected_plates;
+        bool model_shape_or_transform_changed = before_model.objects.size() != state().model.objects.size();
+        for (std::size_t index = 0; !model_shape_or_transform_changed && index < before_model.objects.size(); ++index) {
+            const auto* before_object = before_model.objects[index];
+            const auto* after_object = state().model.objects[index];
+            if (before_object->id() != after_object->id() ||
+                before_object->volumes.size() != after_object->volumes.size() ||
+                before_object->instances.size() != after_object->instances.size()) {
+                model_shape_or_transform_changed = true;
+                break;
+            }
+            for (std::size_t volume_index = 0; volume_index < before_object->volumes.size(); ++volume_index) {
+                if (before_object->volumes[volume_index]->id() != after_object->volumes[volume_index]->id()) {
+                    model_shape_or_transform_changed = true;
+                    break;
+                }
+                if (before_object->volumes[volume_index]->get_transformation() !=
+                    after_object->volumes[volume_index]->get_transformation()) {
+                    for (const auto* instance : before_object->instances)
+                        add_instance_plates(before_membership, instance->id().id, model_transform_affected_plates);
+                    for (const auto* instance : after_object->instances)
+                        add_instance_plates(state().instance_plate_ids, instance->id().id, model_transform_affected_plates);
+                }
+            }
+            for (std::size_t instance_index = 0; !model_shape_or_transform_changed &&
+                                                   instance_index < before_object->instances.size(); ++instance_index) {
+                const auto* before_instance = before_object->instances[instance_index];
+                const auto* after_instance = after_object->instances[instance_index];
+                if (before_instance->id() != after_instance->id()) {
+                    model_shape_or_transform_changed = true;
+                    break;
+                }
+                if (before_instance->get_transformation() != after_instance->get_transformation()) {
+                    add_instance_plates(before_membership, before_instance->id().id, model_transform_affected_plates);
+                    add_instance_plates(state().instance_plate_ids, after_instance->id().id, model_transform_affected_plates);
+                }
+            }
+        }
+        const auto normalized_out_of_bounds = [](const auto& values) {
+            std::map<std::string, std::set<std::size_t>> normalized;
+            for (const auto& [plate_id, instance_ids] : values)
+                if (!instance_ids.empty()) normalized.emplace(plate_id, instance_ids);
+            return normalized;
+        };
+        const bool project_changed = before_project_config != state().presets.project_config;
+        const bool membership_changed = before_membership != state().instance_plate_ids ||
+            before_parked != state().parked_instance_ids ||
+            normalized_out_of_bounds(before_out_of_bounds) != normalized_out_of_bounds(state().plate_out_of_bounds_ids);
+        if (filament_changed || model_shape_or_transform_changed || project_changed) {
+            affected_plates = all_plate_ids();
+        } else {
+            affected_plates.insert(model_transform_affected_plates.begin(), model_transform_affected_plates.end());
+            if (membership_changed) {
+                std::set<std::size_t> membership_ids;
+                for (const auto& [instance_id, plate_id] : before_membership) membership_ids.insert(instance_id);
+                for (const auto& [instance_id, plate_id] : state().instance_plate_ids) membership_ids.insert(instance_id);
+                for (const auto& [plate_id, instance_ids] : before_out_of_bounds)
+                    membership_ids.insert(instance_ids.begin(), instance_ids.end());
+                for (const auto& [plate_id, instance_ids] : state().plate_out_of_bounds_ids)
+                    membership_ids.insert(instance_ids.begin(), instance_ids.end());
+                for (const auto instance_id : membership_ids) {
+                    add_instance_plates(before_membership, instance_id, affected_plates);
+                    add_instance_plates(state().instance_plate_ids, instance_id, affected_plates);
+                }
+            }
+            for (const auto& plate : state().plate_session_plates) {
+                const auto before = std::find_if(before_plates.begin(), before_plates.end(),
+                    [&](const auto& candidate) { return candidate.id == plate.id; });
+                if (before == before_plates.end() || before->settings != plate.settings)
+                    affected_plates.insert(plate.id);
+            }
+            for (const auto* object : state().model.objects) {
+                const auto before = std::find_if(before_model.objects.begin(), before_model.objects.end(),
+                    [&](const auto* candidate) { return candidate->id() == object->id(); });
+                if (before == before_model.objects.end() || (*before)->config.get() == object->config.get())
+                    continue;
+                std::set<std::size_t> instance_ids;
+                for (const auto* instance : object->instances) instance_ids.insert(instance->id().id);
+                const auto plates = Neo::Bridge::PlateSession::member_plate_ids_for_instances(instance_ids);
+                affected_plates.insert(plates.begin(), plates.end());
+            }
+            for (const auto* object : state().model.objects) {
+                const auto before = std::find_if(before_model.objects.begin(), before_model.objects.end(),
+                    [&](const auto* candidate) { return candidate->id() == object->id(); });
+                if (before == before_model.objects.end()) continue;
+                for (const auto* volume : object->volumes) {
+                    const auto before_volume = std::find_if((*before)->volumes.begin(), (*before)->volumes.end(),
+                        [&](const auto* candidate) { return candidate->id() == volume->id(); });
+                    if (before_volume == (*before)->volumes.end() || (*before_volume)->config.get() == volume->config.get())
+                        continue;
+                    std::set<std::size_t> instance_ids;
+                    for (const auto* instance : object->instances) instance_ids.insert(instance->id().id);
+                    const auto plates = Neo::Bridge::PlateSession::member_plate_ids_for_instances(instance_ids);
+                    affected_plates.insert(plates.begin(), plates.end());
+                }
+            }
+        }
         std::map<std::string, std::uint64_t> restored_plate_revisions;
         for (const auto& plate : state().plate_session_plates) {
-            all_plates.insert(plate.id);
-            restored_plate_revisions.emplace(plate.id, allocate_plate_input_stamp(state()));
+            const auto before_revision = before_plate_revisions.find(plate.id);
+            const auto revision = affected_plates.find(plate.id) != affected_plates.end() ||
+                before_revision == before_plate_revisions.end()
+                ? allocate_plate_input_stamp(state())
+                : before_revision->second;
+            restored_plate_revisions.emplace(plate.id, revision);
         }
         state().plate_input_revisions = std::move(restored_plate_revisions);
-        state().plate_runtime_registry.invalidate_presentations(all_plates);
+        state().plate_runtime_registry.invalidate_presentations(affected_plates);
         state().history_live_context = context;
         state().history_live_context["plateSession"]["input_revisions"] =
             Neo::Bridge::PlateSession::plate_revisions_json();
@@ -1083,9 +1212,10 @@ json canonical_history_context(const BridgeState& state,
         ? json(nullptr) : json(state.current_plate_id);
     context["plateSession"] = plate_session;
     context["nativeScopedConfig"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
-    // Filament presets, colours, routing, matrices, and per-project config
-    // are not part of ModelState. Every authoritative history context must
-    // therefore carry the current native filament state.
+    // Filament presets, colours, routing, and matrices are not part of
+    // ModelState. Every authoritative history context must therefore carry
+    // the current native filament state; the project config is a dedicated
+    // native-scoped history root.
     context["filamentState"] = filament_state;
     return context;
 }
@@ -1253,6 +1383,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             nested.label = label;
             nested.before_context = before_context;
             nested.before_roots = HistoryMetadata::capture_history_roots(state(), before_context);
+            nested.before_plate_input_revisions = state().plate_input_revisions;
+            nested.before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
             nested.coalesced = true;
             nested.parent_id = parent_target;
             nested.base_history_revision = state().history_revision;
@@ -1271,6 +1403,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         transaction.label = label;
         transaction.before_context = before_context;
         transaction.before_roots = std::move(before_roots);
+        transaction.before_plate_input_revisions = state().plate_input_revisions;
+        transaction.before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         transaction.base_history_revision = state().history_revision;
         state().active_history_transaction = std::move(transaction);
         state().history_live_context = before_context;
@@ -1384,6 +1518,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             const Neo::History::TimestampedRestore predecessor{
                 state().history.current_timestamp(), tx.before_roots};
             json result = restore_timestamped_result(runtime, predecessor, 0);
+            restore_transaction_runtime_snapshot(tx);
+            result["context"] = state().history_live_context;
             result.erase("entryId");
             return duplicate_json(result.dump());
         }
@@ -1403,6 +1539,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
                                        {"status", history_status_json()}}.dump());
         }
         json result = restore_timestamped_result(runtime, predecessor, 0);
+        restore_transaction_runtime_snapshot(tx);
+        result["context"] = state().history_live_context;
         result.erase("entryId");
         return duplicate_json(result.dump());
     } catch (const std::exception& e) {
