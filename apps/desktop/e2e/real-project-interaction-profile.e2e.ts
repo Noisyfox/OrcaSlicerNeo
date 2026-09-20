@@ -2,7 +2,8 @@
 // This file is launched only by scripts/run-real-project-profile.mjs, whose
 // build uses VITE_REAL_PROJECT_PROFILE=1 and the profile-threaded WASM module.
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { performance as nodePerformance } from 'node:perf_hooks';
@@ -78,10 +79,43 @@ type BedState = {
 };
 
 const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
+const EXPECTED_PROJECT_BYTES = 45_586_816;
+const EXPECTED_PROJECT_SHA256 = '6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425';
+const SOURCE_PROJECT_PATH = resolve(process.env.ORCA_REAL_PROJECT_FIXTURE_SOURCE?.trim() || EXPECTED_PROJECT_PATH);
 const PROJECT_PATH = resolve(process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim() || EXPECTED_PROJECT_PATH);
+const EXPECTED_COPY_PATH = resolve(process.env.ORCA_REAL_PROJECT_FIXTURE_COPY?.trim() || PROJECT_PATH);
+const PROFILE_MODE = process.env.VITE_REAL_PROJECT_PROFILE === '1' || process.env.NEO_REAL_PROJECT_PROFILE === '1';
+
+function readFixtureIdentity(path: string): { bytes: number; sha256: string } | null {
+  try {
+    const bytes = readFileSync(path);
+    return { bytes: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex') };
+  } catch {
+    return null;
+  }
+}
+
+const sourceIdentityAtStart = readFixtureIdentity(SOURCE_PROJECT_PATH);
+const copyIdentityAtStart = readFixtureIdentity(PROJECT_PATH);
+const identityMatches = sourceIdentityAtStart?.bytes === EXPECTED_PROJECT_BYTES &&
+  sourceIdentityAtStart.sha256 === EXPECTED_PROJECT_SHA256 &&
+  copyIdentityAtStart?.bytes === EXPECTED_PROJECT_BYTES &&
+  copyIdentityAtStart.sha256 === EXPECTED_PROJECT_SHA256 &&
+  SOURCE_PROJECT_PATH.toLowerCase() === resolve(EXPECTED_PROJECT_PATH).toLowerCase() &&
+  PROJECT_PATH.toLowerCase() === EXPECTED_COPY_PATH.toLowerCase() &&
+  PROJECT_PATH.toLowerCase() !== SOURCE_PROJECT_PATH.toLowerCase() &&
+  basename(PROJECT_PATH).toLowerCase() === basename(EXPECTED_PROJECT_PATH).toLowerCase();
+if (PROFILE_MODE && !identityMatches) {
+  throw new Error(`real-project profile requires the immutable source and a same-basename temporary copy: ${JSON.stringify({
+    source: SOURCE_PROJECT_PATH,
+    copy: PROJECT_PATH,
+    expectedCopy: EXPECTED_COPY_PATH,
+    sourceIdentity: sourceIdentityAtStart,
+    copyIdentity: copyIdentityAtStart,
+  })}`);
+}
 const ENABLED = process.env.ORCA_E2E_REAL === '1' && process.env.ORCA_E2E_VISIBLE === '1' &&
-  process.env.VITE_USE_MOCK === '0' && process.env.VITE_REAL_PROJECT_PROFILE === '1' &&
-  PROJECT_PATH.toLowerCase() === resolve(EXPECTED_PROJECT_PATH).toLowerCase() && existsSync(PROJECT_PATH);
+  process.env.VITE_USE_MOCK === '0' && process.env.VITE_REAL_PROJECT_PROFILE === '1' && identityMatches;
 const DESKTOP_ROOT = resolve(__dirname, '..');
 
 test.skip(!ENABLED, 'requires the dedicated visible real-project profile runner and exact u1 fixture');
@@ -583,17 +617,29 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     expect.soft(restoredAt - undoClickAt,
       'real-project Move Undo restore fence must remain below the 500 ms regression boundary').toBeLessThan(500);
 
+    const redoClickAt = nodePerformance.now();
+    let redoRestoredAt = 0;
     await page.getByTestId('history-redo').click();
     await expect.poll(async () => {
       const redone = await readCenters();
-      return redone.length === movedCenters.length && redone.every((center, index) =>
+      const restored = redone.length === movedCenters.length && redone.every((center, index) =>
         center.every((value, axis) => Math.abs(value - movedCenters[index][axis]) <= 1e-6));
+      if (restored && redoRestoredAt === 0) redoRestoredAt = nodePerformance.now();
+      return restored;
     }, { timeout: 30_000, intervals: [10] }).toBe(true);
     await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
     await expect(page.getByTestId('history-undo')).toBeEnabled();
 
     const report = {
-      fixture: { name: basename(PROJECT_PATH), bytes: statSync(PROJECT_PATH).size, nativePlates: 11 },
+      fixture: {
+        name: basename(PROJECT_PATH),
+        sourcePath: SOURCE_PROJECT_PATH,
+        copyPath: PROJECT_PATH,
+        bytes: statSync(PROJECT_PATH).size,
+        sourceIdentity: sourceIdentityAtStart,
+        copyIdentity: copyIdentityAtStart,
+        nativePlates: 11,
+      },
       addPlate: {
         clickToVisibleUndoMs: addVisibleMs,
         applicationMs: timingDelta(addBefore.app.mutation, addAfter.app.mutation, 'Add Plate application'),
@@ -647,6 +693,58 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
           maxMs: Math.max(...rendererBoundsSamples.map((sample) => sample.durationMs)),
         },
       },
+      samples: [
+        {
+          id: 'add-plate.click-to-visible-undo',
+          scenario: 'add-plate',
+          direction: 'mutation',
+          wallMs: addVisibleMs,
+          workerMs: addAfter.worker.mutation.lastMs,
+          clientMs: addAfter.client.mutation.lastMs,
+          applicationMs: addAfter.app.mutation.lastMs,
+          nativeStages: addNative.samples,
+          jsWasmCalls: addMemory.native.js_wasm_calls,
+        },
+        {
+          id: 'move.pointer-up-to-visible-undo',
+          scenario: 'object-move',
+          direction: 'mutation',
+          wallMs: moveVisibleMs,
+          workerMs: moveAfter.worker.mutation.lastMs,
+          clientMs: moveAfter.client.mutation.lastMs,
+          applicationMs: moveAfter.app.mutation.lastMs,
+          nativeStages: moveNative.samples,
+          jsWasmCalls: moveMemory.native.js_wasm_calls,
+        },
+        {
+          id: 'active-slice-move.edit-to-visible-undo',
+          scenario: 'active-slice-object-move',
+          direction: 'mutation',
+          wallMs: activeMoveVisibleMs,
+          workerMs: activeMoveAfter.worker.mutation.lastMs,
+          clientMs: activeMoveAfter.client.mutation.lastMs,
+          applicationMs: activeMoveAfter.app.mutation.lastMs,
+          nativeStages: activeMoveNative.samples,
+          jsWasmCalls: activeMoveMemory.native.js_wasm_calls,
+        },
+        {
+          id: 'undo.click-to-editable-restored',
+          scenario: 'object-move',
+          direction: 'undo',
+          wallMs: restoredAt - undoClickAt,
+          workerMs: undoAfter.worker.restore.lastMs,
+          clientMs: undoAfter.client.restore.lastMs,
+          applicationMs: undoAfter.app.restore.lastMs,
+          nativeStages: undoNative.samples,
+          jsWasmCalls: undoMemory.native.js_wasm_calls,
+        },
+        {
+          id: 'redo.click-to-restored-object',
+          scenario: 'object-move',
+          direction: 'redo',
+          wallMs: redoRestoredAt - redoClickAt,
+        },
+      ],
       attribution: { baseline, afterAddPlate: addMemory, afterMove: moveMemory, afterUndo: undoMemory },
       deltas: {
         wasmHeapAfterAdd: addMemory.native.wasm_heap_bytes - baseline.native.wasm_heap_bytes,
@@ -680,6 +778,9 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       gpuProjectionEstimatedBytes: undoMemory.renderer.gpuProjectionEstimatedBytes,
     }));
     console.log('[real-project-interaction-profile]', JSON.stringify(report));
+    const outputPath = process.env.ORCA_REAL_PROJECT_PROFILE_OUTPUT?.trim();
+    if (!outputPath) throw new Error('ORCA_REAL_PROJECT_PROFILE_OUTPUT is required for raw baseline output');
+    writeFileSync(outputPath, `${JSON.stringify(report)}\n`);
   } finally {
     await app.close();
   }

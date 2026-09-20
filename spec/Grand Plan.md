@@ -383,6 +383,28 @@ and drives structural operations through the typed client.
       gated, and restored production WASM/Electron artifacts pass exclusion
       scans
 
+## Milestone 19: Project and Scoped Configuration
+
+> [!info] Interactive design in progress 2026-09-20. Normative specification:
+> [`Project and Scoped Configuration.md`](Project%20and%20Scoped%20Configuration.md).
+> The living implementation record is
+> [`2026-09-20-project-and-scoped-configuration.md`](../doc/2026-09-20-project-and-scoped-configuration.md).
+
+Add an Orca-like Project / Scoped configuration switch to the shared parameter
+surface. The feature will provide project, plate, object, and part/modifier
+overrides with stable identities, native eligibility classes, inherited-value
+visibility, erase-only reset, and effective-value composition consistent with
+the native slicing engine.
+
+- [ ] Complete the interactive behavioural design and implementation plan.
+- [ ] Implement Worker-owned scoped configuration mutations and canonical snapshots
+      through the shared runtime boundary, with React-derived effective-value editing
+      projection.
+- [ ] Implement shared Project / Scoped UI, same-scope mixed-value multi-edit,
+      explicit inheritance source, and target-level reset.
+- [ ] Add persistence, history, invalidation, and cross-host acceptance
+      coverage.
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.

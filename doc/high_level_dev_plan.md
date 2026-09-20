@@ -548,6 +548,20 @@ context. It excludes global preset selection, global/system preferences, full
       Vite build-time branches, and restored production artifacts are scanned
       for every profile ABI, call site, hook, and sentinel.
 
+### Milestone 19 — Project and Scoped Configuration
+
+> **Status: interactive design in progress 2026-09-20.** The normative record
+> is [`spec/Project and Scoped Configuration.md`](../spec/Project%20and%20Scoped%20Configuration.md);
+> its living implementation record is
+> [`doc/2026-09-20-project-and-scoped-configuration.md`](2026-09-20-project-and-scoped-configuration.md).
+
+- [ ] Add the shared parameter-surface Project / Scoped switch.
+- [ ] Provide stable Worker-owned project, plate, object, and part/modifier
+      overrides with native eligibility and effective-value composition.
+- [ ] Add same-scope multi-edit, mixed-value presentation, source-aware
+      inheritance, erase-only reset, persistence/history/invalidation, and
+      Electron plus serial/threaded Web acceptance.
+
 ## G-code preview GPU streaming renderer (2026-09-02)
 
 The WebGL2 streaming/indexed-segment backend has passed functional, lifetime,
