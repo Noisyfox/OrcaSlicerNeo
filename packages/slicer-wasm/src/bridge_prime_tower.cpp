@@ -199,9 +199,12 @@ std::string adjusted_colour(const std::string& value)
 DynamicPrintConfig effective_config(const BridgeState::PlateSessionPlate& plate)
 {
     DynamicPrintConfig config = state().presets.full_config();
-    config.apply(plate.settings, true);
     Neo::Bridge::ProjectOverlay::apply_overlay_to_config(
         config, state().project_config_overlay["project"]);
+    // Match Orca's BackgroundSlicingProcess::apply: a plate config is layered
+    // over the global/project config, so plate-local values are effective for
+    // this plate's Prepare projection and subsequent Slice.
+    config.apply(plate.settings, true);
     config.normalize_fdm();
     return config;
 }
