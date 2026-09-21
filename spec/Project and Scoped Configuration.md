@@ -213,6 +213,22 @@ write it and opens do not read, migrate, or replay it. A legacy project whose se
 exists only in that sidecar intentionally loses that setting; native 3MF locations are
 the sole supported persistence source.
 
+### 9.1 No Neo-private project metadata
+
+Neo writes no `Metadata/orca_neo_*` member to a project 3MF and does not read,
+migrate, preserve, or replay one when opening a project. This includes the former
+configuration overlay as well as private plate-session and filament-state entries.
+The archive contains only the standard BBS/Orca project data emitted by the native
+writer.
+
+The standard BBS plate data remains responsible for persisted plate structure,
+membership, names, locks, and plate-local configuration. Neo's currently selected
+plate and virtual editing layout are session-only and are reconstructed
+deterministically on open. Standard BBS project configuration and embedded preset
+records remain responsible for project filament selection and editable filament
+settings, as in OrcaSlicer. Live AMS/device state stays in Neo's device-management
+and runtime session boundaries; it is never serialized in the project or user profile.
+
 ## 10. Base-preset transitions
 
 Changing the printer, process, or filament base presets is allowed even when a

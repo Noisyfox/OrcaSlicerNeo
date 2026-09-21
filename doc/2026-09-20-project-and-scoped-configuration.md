@@ -6,6 +6,21 @@ Orca round-trip input remains to be provisioned for release qualification
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
+
+## 2026-09-21 persistence-boundary correction
+
+Neo-private `Metadata/orca_neo_*` archive members are prohibited. New saves must
+write no such member, and opens must not read, migrate, preserve, or replay one.
+This supersedes the prior decision that the private plate-session and filament-state
+members were permissible non-configuration sidecars.
+
+The Orca-compatible BBS writer is the sole project persistence path. It retains
+native plate structure, membership, names, locks, scoped configuration, project
+configuration, and embedded presets. On open, Neo reconstructs its selected plate
+and virtual layout as runtime session state. Filament selection and edited filament
+settings are restored only through the standard BBS project config and embedded
+presets, matching OrcaSlicer; live AMS/device state belongs to Neo's device-management
+and runtime session, not the project or user profile.
 This living record contains the implementation sequence and verification evidence. It
 intentionally does not duplicate the normative decisions.
 
