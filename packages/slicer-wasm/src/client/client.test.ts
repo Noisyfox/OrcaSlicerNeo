@@ -4,7 +4,7 @@
 // contract that Task 7 implements in C++.
 import { afterEach, describe, it, expect } from 'vitest';
 import { createMockModule, type MockFeature } from './testing/mock-module';
-import { createClient } from './client';
+import { createClient, normalizeSceneDelta } from './client';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
 
@@ -13,6 +13,16 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('validates the native retained-geometry proof and its complete transform transport', () => {
+    const transform = { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
+    const native = { version: 1, object_ids: [1], volume_ids: [2], instance_ids: [3], plate_ids: ['plate-1'],
+      object_order: [1], retained_renderer_object_ids: [1], retained_volume_transforms: [{ volume_id: 2, transform }] };
+    expect(normalizeSceneDelta(native)).toMatchObject({ retainedRendererObjectIds: [1],
+      retainedVolumeTransforms: [{ volumeId: 2, transform }] });
+    expect(normalizeSceneDelta({ ...native, retained_renderer_object_ids: [99] })).toBeUndefined();
+    expect(normalizeSceneDelta({ ...native, retained_volume_transforms: undefined })).toBeUndefined();
+    expect(normalizeSceneDelta({ ...native, retained_volume_transforms: [{ volume_id: 99, transform }] })).toBeUndefined();
+  });
   const originalPerformanceMemory = Object.getOwnPropertyDescriptor(performance, 'memory');
 
   afterEach(() => {
@@ -1670,6 +1680,31 @@ describe('SlicerClient bridge contract', () => {
     expect(second.ok).toBe(true);
     expect(texts).not.toContain('late old progress');
     expect(texts).toContain('slice 100%');
+  });
+
+  it('reports only admitted pending slice tasks and clears them after terminal delivery', async () => {
+    const module = createMockModule({ threaded: true });
+    const originalCall = module.ccall.bind(module);
+    let holdMailbox = true;
+    module.ccall = ((name, ret, argTypes, args) => {
+      if (name === 'orc_history_restore_diagnostics' || (name === 'orc_drain_async_task_mailbox' && holdMailbox)) {
+        const bytes = new TextEncoder().encode(name === 'orc_history_restore_diagnostics' ? '{}' : '{"messages":[]}');
+        const pointer = Number(module._malloc(bytes.length + 1));
+        module.HEAPU8.set(bytes, pointer);
+        module.HEAPU8[pointer + bytes.length] = 0;
+        return pointer;
+      }
+      return originalCall(name, ret, argTypes, args);
+    }) as typeof module.ccall;
+    const c = createClient(async () => module);
+    await c.init();
+    await c.addModel(new Uint8Array(4), 'stl');
+    expect(await c.getNativeHistoryDiagnostics!()).toMatchObject({ pendingSliceTaskCount: 0 });
+    const slicing = c.slice({});
+    await expect.poll(async () => (await c.getNativeHistoryDiagnostics!()).pendingSliceTaskCount).toBe(1);
+    holdMailbox = false;
+    expect((await slicing).ok).toBe(true);
+    expect(await c.getNativeHistoryDiagnostics!()).toMatchObject({ pendingSliceTaskCount: 0 });
   });
 
   it('beforeInit runs once across repeated init calls (StrictMode double-mount)', async () => {

@@ -389,6 +389,15 @@ export function Workspace({
   }
   const historyRestore = historyRestoreRef.current;
   useEffect(() => {
+    if (import.meta.env.VITE_SCOPED_CONFIGURATION_GATE !== '1') return;
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void import('../../history/scopedConfigurationGate').then(({ installScopedConfigurationGate }) => {
+      if (!disposed) cleanup = installScopedConfigurationGate(platform, historyRestore);
+    });
+    return () => { disposed = true; cleanup?.(); };
+  }, [platform, historyRestore]);
+  useEffect(() => {
     const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
     if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
     const w = window as unknown as {

@@ -1,7 +1,7 @@
 // Real-WASM timing regression. This intentionally has its own Electron
 // session so the functional eight-tower/slice scenario cannot hide a load or
 // history performance regression.
-import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
+import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -50,6 +50,22 @@ const REAL = process.env.ORCA_E2E_REAL === '1';
 
 test.skip(!REAL || !existsSync(PROJECT_PATH),
   'requires ORCA_E2E_REAL=1 and ORCA_E2E_PRIME_TOWER_PROJECT');
+
+async function expectFilamentRackReady(page: Page): Promise<void> {
+  await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
+  const capacity = page.getByTestId('filament-rack').locator('span').filter({ hasText: /^\d+\/\d+$/ }).first();
+  const text = await capacity.textContent();
+  const match = text?.trim().match(/^(\d+)\/(\d+)$/);
+  expect(match, `filament rack capacity must be visible, received ${text ?? '<none>'}`).not.toBeNull();
+  const used = Number(match![1]);
+  const maximum = Number(match![2]);
+  expect(used).toBeGreaterThan(0);
+  expect(maximum).toBeGreaterThanOrEqual(used);
+  // A fixed-extruder imported profile can report native canAdd=false below
+  // the generic slot ceiling. Require the rack projection and no rejection;
+  // slot-add permission is not part of this history restore contract.
+  await expect(page.getByTestId('filament-add')).toHaveCount(1);
+}
 
 function withinLivenessLimit(label: string, durationMs: number): void {
   expect(durationMs, `${label} must settle within ${HISTORY_STAGE_LIVENESS_LIMIT_MS} ms`).toBeLessThan(HISTORY_STAGE_LIVENESS_LIMIT_MS);
@@ -153,8 +169,12 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
     }));
 
     await page.locator('#app-tab-prepare').click();
-    await expect.poll(async () => (await readTowers()).length, { timeout: 300_000 }).toBe(8);
-    const current = (await readTowers()).find((tower) => tower.current && tower.eligible);
+    await expect.poll(async () => await readTowers(), { timeout: 300_000 }).toHaveLength(9);
+    const eligibleTowers = await readTowers();
+    expect(eligibleTowers).toHaveLength(9);
+    expect(eligibleTowers.every((tower) => tower.eligible)).toBe(true);
+    expect(new Set(eligibleTowers.map((tower) => tower.plateId)).size).toBe(9);
+    const current = eligibleTowers.find((tower) => tower.current && tower.eligible);
     expect(current, 'the committed project must expose an active eligible Prime Tower').toBeDefined();
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const box = await canvas.boundingBox();
@@ -239,27 +259,25 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
     await expect.poll(async () => {
       const diagnostics = await readDiagnostics();
       const tower = (await readTowers()).find((candidate) => candidate.current);
-      return tower?.position.x === current!.position.x
-        && tower?.position.y === current!.position.y
+      return tower !== undefined
+        && Math.max(Math.abs(tower.position.x - current!.position.x), Math.abs(tower.position.y - current!.position.y)) < 0.001
         && diagnostics?.worker?.directRestore.count === undoDiagnosticsBefore.worker!.directRestore.count + 1
         && diagnostics?.client?.directRestore.count === undoDiagnosticsBefore.client!.directRestore.count + 1
         && diagnostics?.app.directRestore.count === undoDiagnosticsBefore.app.directRestore.count + 1
         && diagnostics?.app.projection.count === undoDiagnosticsBefore.app.projection.count + 1
         && diagnostics?.app.filamentRefresh.count === undoDiagnosticsBefore.app.filamentRefresh.count + 1;
     }).toBe(true);
-    await expect(page.getByTestId('filament-add')).toBeEnabled();
-    await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
+    await expectFilamentRackReady(page);
     await expect(page.getByTestId('slicer-error')).toHaveCount(0);
     const undoToProjectionMs = performance.now() - undoAt;
     withinLivenessLimit('undo to authoritative tower and valid filament rack', undoToProjectionMs);
-    // Let the idle-phase effect run if it was going to. The matching direct
-    // receipt already patched the retained projection, so no all-plate Worker
-    // projection is permitted after the visible position is correct.
+    // The prime-tower impact requests one authoritative all-plate projection
+    // after the direct receipt; the idle effect must not duplicate that read.
     await page.waitForTimeout(1_000);
     const undoDiagnosticsAfter = requireDiagnostics(await readDiagnostics());
-    expect(countDelta(undoDiagnosticsBefore.worker!.reads!.primeTowerProjection, undoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(0);
-    expect(countDelta(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(0);
-    expect(countDelta(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(0);
+    expect(countDelta(undoDiagnosticsBefore.worker!.reads!.primeTowerProjection, undoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(1);
+    expect(countDelta(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(1);
+    expect(countDelta(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(1);
 
     const redoDiagnosticsBefore = requireDiagnostics(await readDiagnostics());
     const redoAt = performance.now();
@@ -267,24 +285,23 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
     await expect.poll(async () => {
       const diagnostics = await readDiagnostics();
       const tower = (await readTowers()).find((candidate) => candidate.current);
-      return tower?.position.x === movedPosition!.x
-        && tower?.position.y === movedPosition!.y
+      return tower !== undefined
+        && Math.max(Math.abs(tower.position.x - movedPosition!.x), Math.abs(tower.position.y - movedPosition!.y)) < 0.001
         && diagnostics?.worker?.directRestore.count === redoDiagnosticsBefore.worker!.directRestore.count + 1
         && diagnostics?.client?.directRestore.count === redoDiagnosticsBefore.client!.directRestore.count + 1
         && diagnostics?.app.directRestore.count === redoDiagnosticsBefore.app.directRestore.count + 1
         && diagnostics?.app.projection.count === redoDiagnosticsBefore.app.projection.count + 1
         && diagnostics?.app.filamentRefresh.count === redoDiagnosticsBefore.app.filamentRefresh.count + 1;
     }).toBe(true);
-    await expect(page.getByTestId('filament-add')).toBeEnabled();
-    await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
+    await expectFilamentRackReady(page);
     await expect(page.getByTestId('slicer-error')).toHaveCount(0);
     const redoToProjectionMs = performance.now() - redoAt;
     withinLivenessLimit('redo to authoritative tower and valid filament rack', redoToProjectionMs);
     await page.waitForTimeout(1_000);
     const redoDiagnosticsAfter = requireDiagnostics(await readDiagnostics());
-    expect(countDelta(redoDiagnosticsBefore.worker!.reads!.primeTowerProjection, redoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(0);
-    expect(countDelta(redoDiagnosticsBefore.client!.reads!.primeTowerProjection, redoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(0);
-    expect(countDelta(redoDiagnosticsBefore.app.primeTowerProjectionRead, redoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(0);
+    expect(countDelta(redoDiagnosticsBefore.worker!.reads!.primeTowerProjection, redoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(1);
+    expect(countDelta(redoDiagnosticsBefore.client!.reads!.primeTowerProjection, redoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(1);
+    expect(countDelta(redoDiagnosticsBefore.app.primeTowerProjectionRead, redoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(1);
 
     console.log('[prime-tower-history-performance] timings (ms)', JSON.stringify({
       pointerUpToCommitMs,

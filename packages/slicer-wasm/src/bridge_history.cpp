@@ -16,6 +16,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -315,6 +316,32 @@ void validate_filament_history_candidate(
         model, plates, snapshot);
 }
 
+// A history archive includes configuration and painting state in addition to
+// renderer geometry. Compare the live native graphs for this one restore;
+// configuration-only and transform edits do not require retransferring unchanged
+// meshes. Authoritative transforms arrive in the same committed response.
+bool renderer_object_unchanged(const ModelObject& before, const ModelObject& after)
+{
+    if (before.id() != after.id() || before.name != after.name || before.printable != after.printable ||
+        before.volumes.size() != after.volumes.size() || before.instances.size() != after.instances.size())
+        return false;
+    for (std::size_t i = 0; i < before.volumes.size(); ++i) {
+        const auto& left = *before.volumes[i];
+        const auto& right = *after.volumes[i];
+        if (left.id() != right.id() || left.name != right.name || left.type() != right.type() ||
+            left.get_mesh_shared_ptr() != right.get_mesh_shared_ptr() || left.extruder_id() != right.extruder_id() ||
+            !left.mmu_segmentation_facets.equals(right.mmu_segmentation_facets) ||
+            !left.supported_facets.equals(right.supported_facets) ||
+            !left.seam_facets.equals(right.seam_facets) || !left.fuzzy_skin_facets.equals(right.fuzzy_skin_facets))
+            return false;
+    }
+    for (std::size_t i = 0; i < before.instances.size(); ++i)
+        if (before.instances[i]->id() != after.instances[i]->id() ||
+            before.instances[i]->printable != after.instances[i]->printable)
+            return false;
+    return true;
+}
+
 json restore_timestamped_result(const Runtime& runtime,
                                 const Neo::History::TimestampedRestore& restored,
                                 const std::uint64_t entry_id)
@@ -518,15 +545,46 @@ json restore_timestamped_result(const Runtime& runtime,
         state().mutable_object_capture_cache.clear();
         throw;
     }
-    // Transform overlays do not change an object's filament usage. Keep the
-    // pointer-free usage summaries in that case; membership and effective
-    // configuration are checked by the projection reader on every lookup.
+    // Keep the existing pointer-free usage summaries when their actual native
+    // inputs are unchanged. A different object archive may change only layer
+    // height or wall count; it does not necessarily change painted filament use.
+    // Membership and effective global configuration are checked by the reader.
     bool usage_unchanged = live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size();
     for (std::size_t index = 0; usage_unchanged && index < live_model_state.mutable_objects.size(); ++index) {
         const auto& before = live_model_state.mutable_objects[index];
         const auto& after = restored.roots.model.mutable_objects[index];
-        usage_unchanged = before.id == after.id && before.data == after.data &&
+        usage_unchanged = before.id == after.id &&
             before.volume_ids == after.volume_ids && before.instance_ids == after.instance_ids;
+        if (!usage_unchanged || before.data == after.data) continue;
+        const auto& old_object = *before_model.objects[index];
+        const auto& new_object = *state().model.objects[index];
+        for (const char* key : {"extruder", "support_interface_filament", "support_filament", "enable_support",
+                               "raft_layers", "outer_wall_filament_id", "inner_wall_filament_id",
+                               "sparse_infill_filament_id", "internal_solid_filament_id",
+                               "top_surface_filament_id", "bottom_surface_filament_id"}) {
+            const auto* old_value = old_object.config.option(key);
+            const auto* new_value = new_object.config.option(key);
+            if (bool(old_value) != bool(new_value) ||
+                (old_value && old_value->serialize() != new_value->serialize())) usage_unchanged = false;
+        }
+        if (old_object.layer_config_ranges.size() != new_object.layer_config_ranges.size()) usage_unchanged = false;
+        auto old_range = old_object.layer_config_ranges.begin();
+        auto new_range = new_object.layer_config_ranges.begin();
+        for (; usage_unchanged && old_range != old_object.layer_config_ranges.end(); ++old_range, ++new_range)
+            if (old_range->first != new_range->first || old_range->second.get() != new_range->second.get())
+                usage_unchanged = false;
+        for (std::size_t volume_index = 0; usage_unchanged && volume_index < old_object.volumes.size(); ++volume_index) {
+            const auto& old_volume = *old_object.volumes[volume_index];
+            const auto& new_volume = *new_object.volumes[volume_index];
+            usage_unchanged = old_volume.type() == new_volume.type() &&
+                old_volume.get_mesh_shared_ptr() == new_volume.get_mesh_shared_ptr() &&
+                old_volume.extruder_id() == new_volume.extruder_id() &&
+                // ObjectWithTimestamp's archive stores the content timestamp,
+                // not its incidental ObjectBase ID. Volume identity above is
+                // authoritative; compare painting content as well as timestamp.
+                old_volume.mmu_segmentation_facets.equals(new_volume.mmu_segmentation_facets) &&
+                old_volume.mmu_segmentation_facets.timestamp() == new_volume.mmu_segmentation_facets.timestamp();
+        }
     }
     if (usage_unchanged) {
         std::set<std::string> plates;
@@ -561,8 +619,57 @@ json restore_timestamped_result(const Runtime& runtime,
     }
     HistoryMetadata::advance_history_epoch(state());
     json response_context = state().history_live_context;
+    json restored_instance_transforms = json::array();
+    for (const auto& ref : Neo::Bridge::PlateSession::plate_instance_refs())
+        restored_instance_transforms.push_back(Neo::Bridge::PlateSession::instance_transform_record(ref));
+    response_context["plateSession"]["instance_transforms"] = std::move(restored_instance_transforms);
+    std::vector<Neo::History::ObjectID> retained_renderer_object_ids;
+    json retained_volume_transforms = json::array();
+    for (const auto id : restored.scene_delta.object_ids) {
+        const auto before = std::find_if(before_model.objects.begin(), before_model.objects.end(),
+            [id](const auto* object) { return object->id().id == id; });
+        const auto after = std::find_if(state().model.objects.begin(), state().model.objects.end(),
+            [id](const auto* object) { return object->id().id == id; });
+        if (before != before_model.objects.end() && after != state().model.objects.end() &&
+            renderer_object_unchanged(**before, **after)) {
+            retained_renderer_object_ids.push_back(id);
+            for (const auto* volume : (*after)->volumes)
+                retained_volume_transforms.push_back(json{{"volume_id", volume->id().id},
+                    {"transform", Neo::Bridge::PlateSession::session_transform_json(volume->get_transformation())}});
+        }
+    }
+    // Rack contents and per-entity material assignment are separate native
+    // roots, but both change the renderer's filament-session projection.
+    const auto material_assignments = [](const json& snapshot) {
+        json result = json::object();
+        // Exact project inputs read by filament_session_snapshot_json:
+        // slot colours, mappings, flushing and inherited routing.
+        const auto project = snapshot.value("project", json::object());
+        for (const char* key : {"filament_colour", "filament_map", "filament_volume_map", "filament_nozzle_map",
+                               "filament_map_2", "flush_volumes_matrix", "flush_volumes_vector",
+                               "support_filament", "support_interface_filament", "outer_wall_filament_id",
+                               "inner_wall_filament_id", "sparse_infill_filament_id", "internal_solid_filament_id",
+                               "top_surface_filament_id", "bottom_surface_filament_id"})
+            if (project.contains(key)) result["project"][key] = project[key];
+        for (const auto* scope : {"objects", "parts"}) {
+            const auto found = snapshot.find(scope);
+            if (found == snapshot.end() || !found->is_object()) continue;
+            for (const auto& [id, values] : found->items()) {
+                for (const char* key : {"extruder", "support_filament", "support_interface_filament",
+                                       "outer_wall_filament_id", "inner_wall_filament_id", "sparse_infill_filament_id",
+                                       "internal_solid_filament_id", "top_surface_filament_id", "bottom_surface_filament_id"})
+                    if (values.contains(key)) result[scope][id][key] = values[key];
+            }
+        }
+        return result;
+    };
+    const bool filament_projection_changed = filament_changed ||
+        retained_renderer_object_ids.size() != restored.scene_delta.object_ids.size() ||
+        material_assignments(before_native_scoped_config) != material_assignments(staged_snapshot);
     json scene_delta{{"version", 1},
                      {"object_ids", restored.scene_delta.object_ids},
+                     {"retained_renderer_object_ids", retained_renderer_object_ids},
+                     {"retained_volume_transforms", retained_volume_transforms},
                      {"volume_ids", restored.scene_delta.volume_ids},
                      {"instance_ids", restored.scene_delta.instance_ids},
                      {"plate_ids", restored.scene_delta.plate_ids}};
@@ -581,7 +688,7 @@ json restore_timestamped_result(const Runtime& runtime,
                 {"entryId", history_entry_id(entry_id)},
                 {"scene_delta", std::move(scene_delta)},
                 {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
-                            {"filamentRack", true}, {"nativeScopedConfig", true}, {"selectionContext", true},
+                            {"filamentRack", filament_projection_changed}, {"nativeScopedConfig", true}, {"selectionContext", true},
                             {"primeTower", true}, {"preview", "all"}}}};
     Neo::Bridge::Performance::record("history_restore", {
         {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},
@@ -621,6 +728,13 @@ namespace {
 struct NeoHistoryArchiveContext {
     std::map<const Slic3r::TriangleMesh*, std::string> output_mesh_keys;
     std::map<std::string, std::shared_ptr<const Slic3r::TriangleMesh>> input_meshes;
+    // Borrowed cursors for this one synchronous decode, never retained. The
+    // manifest and live graph already own every ID, mesh and optional hull.
+    const Slic3r::ModelObject* input_live_object = nullptr;
+    const std::vector<Slic3r::Neo::History::ObjectID>* input_volume_ids = nullptr;
+    std::size_t input_volume_index = 0;
+    const Slic3r::ModelVolume* input_live_volume = nullptr;
+    const Slic3r::ModelVolume* input_loading_volume = nullptr;
 };
 using NeoHistoryOutputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryOutputArchive>;
 using NeoHistoryInputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryInputArchive>;
@@ -671,7 +785,24 @@ inline void load(BinaryInputArchive& archive, T*& object)
     bool present = false;
     archive(present);
     object = present ? cereal::access::construct<T>() : nullptr;
+    if constexpr (std::is_same_v<T, Slic3r::ModelVolume>) {
+        auto& context = cereal::get_user_data<NeoHistoryArchiveContext>(archive);
+        context.input_live_volume = nullptr;
+        context.input_loading_volume = object;
+        if (object && context.input_live_object && context.input_volume_ids &&
+            context.input_volume_index < context.input_volume_ids->size()) {
+            const auto id = (*context.input_volume_ids)[context.input_volume_index];
+            for (const auto* volume : context.input_live_object->volumes)
+                if (volume->id().id == id) { context.input_live_volume = volume; break; }
+        }
+        ++context.input_volume_index;
+    }
     if (object) archive(*object);
+    if constexpr (std::is_same_v<T, Slic3r::ModelVolume>) {
+        auto& context = cereal::get_user_data<NeoHistoryArchiveContext>(archive);
+        context.input_live_volume = nullptr;
+        context.input_loading_volume = nullptr;
+    }
 }
 
 template<class T>
@@ -700,7 +831,19 @@ inline void load_optional(BinaryInputArchive& archive, std::shared_ptr<const T>&
     bool present = false;
     archive(present);
     if (present) archive(value);
-    else value.reset();
+    else {
+        value.reset();
+        if constexpr (std::is_same_v<T, Slic3r::TriangleMesh>) {
+            const auto& context = cereal::get_user_data<NeoHistoryArchiveContext>(archive);
+            // Reuse only the hull ALREADY owned by this exact live volume and
+            // immutable mesh. A missing/mismatched identity follows native
+            // ModelVolume::load's full rebuild path. No additional owner,
+            // cache entry, key, or lifetime is introduced.
+            if (context.input_live_volume && context.input_loading_volume &&
+                context.input_live_volume->get_mesh_shared_ptr() == context.input_loading_volume->get_mesh_shared_ptr())
+                value = context.input_live_volume->get_convex_hull_shared_ptr();
+        }
+    }
 }
 
 template <class Archive> struct specialize<Archive, Slic3r::ModelInstance*, specialization::non_member_load_save> {};
@@ -973,11 +1116,9 @@ Model stage_model(const Model& model_template, const ModelState& restored,
     }
     if (timings)
         timings->immutable_mesh_reconnect_ms += Neo::Bridge::Performance::now_ms() - mesh_started_at;
-    // ModelVolume's upstream undo archive deliberately omits ObjectBase, so
-    // deserializing an object creates volumes with invalid IDs. Re-encode each
-    // decoded volume into a normal ModelObject-created volume: the latter owns
-    // a valid runtime ID while the archive restores every mutable field and
-    // reconnects the retained immutable mesh.
+    // ModelVolume's upstream undo archive omits ObjectBase and its owner link.
+    // Restore the separately retained IDs, then use the public volume-copy
+    // operation to repair owner links. Encoding painting again is unnecessary.
     for (const auto& [key, mesh] : archive_context.input_meshes)
         archive_context.output_mesh_keys.emplace(mesh.get(), key);
 
@@ -1032,6 +1173,11 @@ Model stage_model(const Model& model_template, const ModelState& restored,
         ModelObject* native_object = rebuilt_model.add_object();
         restored_order.push_back(native_object);
         NeoHistoryInputArchive archive(archive_context, stream);
+        archive_context.input_live_object = nullptr;
+        for (const auto* candidate : model_template.objects)
+            if (candidate->id().id == object.id) { archive_context.input_live_object = candidate; break; }
+        archive_context.input_volume_ids = &object.volume_ids;
+        archive_context.input_volume_index = 0;
         archive(*native_object);
         if (object.id == 0 || native_object->id().id != object.id)
             throw std::runtime_error("history object identity is unavailable");
@@ -1042,26 +1188,15 @@ Model stage_model(const Model& model_template, const ModelState& restored,
             std::any_of(object.volume_ids.begin(), object.volume_ids.end(),
                         [](Neo::History::ObjectID id) { return id == 0; }))
             throw std::runtime_error("history volume identities are unavailable");
-        std::vector<Bytes> decoded_volumes;
-        decoded_volumes.reserve(decoded_volume_count);
-        for (const ModelVolume* decoded : native_object->volumes) {
-            std::ostringstream volume_stream(std::ios::binary | std::ios::out);
-            NeoHistoryOutputArchive volume_archive(archive_context, volume_stream);
-            volume_archive(*decoded);
-            const std::string encoded = volume_stream.str();
-            decoded_volumes.emplace_back(encoded.begin(), encoded.end());
-        }
-        for (std::size_t index = 0; index < decoded_volume_count; ++index)
-            native_object->delete_volume(0);
-        for (std::size_t index = 0; index < decoded_volumes.size(); ++index) {
-            const Bytes& encoded = decoded_volumes[index];
-            TriangleMesh placeholder;
-            ModelVolume* materialized = native_object->add_volume(
-                std::move(placeholder), ModelVolumeType::MODEL_PART, false);
-            std::string volume_bytes(encoded.begin(), encoded.end());
-            std::istringstream volume_stream(volume_bytes, std::ios::binary | std::ios::in);
-            NeoHistoryInputArchive volume_archive(archive_context, volume_stream);
-            volume_archive(*materialized);
+        // Retire decoded children through a temporary native owner. Calling
+        // delete_volume while replacing them would invoke its user-edit
+        // single-volume transform baking and assign a new last-volume ID.
+        Model decoded_owner;
+        ModelObject* decoded_object = decoded_owner.add_object();
+        decoded_object->volumes = std::move(native_object->volumes);
+        native_object->volumes.clear();
+        for (std::size_t index = 0; index < decoded_volume_count; ++index) {
+            ModelVolume* decoded = decoded_object->volumes[index];
             // ModelVolume::load deliberately skips ObjectBase. Feed the
             // separately retained native ID through the base serializer after
             // loading the mutable volume payload.
@@ -1071,7 +1206,11 @@ Model stage_model(const Model& model_template, const ModelState& restored,
             const std::string id_bytes = id_output.str();
             std::istringstream id_input(id_bytes, std::ios::binary | std::ios::in);
             cereal::BinaryInputArchive id_reader(id_input);
-            id_reader(cereal::base_class<ObjectBase>(materialized));
+            id_reader(cereal::base_class<ObjectBase>(decoded));
+            // add_volume(const ModelVolume&) preserves every native child ID,
+            // copies painted vectors directly, and supplies the proper owner.
+            // The immutable mesh remains shared; nothing new is retained.
+            ModelVolume* materialized = native_object->add_volume(*decoded);
             materialized->set_transformation(
                 transformation_from_overlay(object.volume_transforms[index]));
         }
@@ -1346,6 +1485,9 @@ json restore_diagnostics_json(const BridgeState& state)
     json out = {
         {"minimalMutableRestoreCount", state.history_minimal_mutable_restore_count},
         {"fullPresetBundleCopyCount", state.full_preset_bundle_copy_count},
+        {"serializedMeshCount", state.mesh_capture_cache.serialized_mesh_count()},
+        {"serializedObjectCount", state.mutable_object_capture_cache.serialized_object_count()},
+        {"reusedObjectCount", state.mutable_object_capture_cache.reused_object_count()},
     };
     out["currentContextBytes"] = state.history_live_context.dump().size();
     const auto revision = state.plate_input_revisions.find(state.current_plate_id);

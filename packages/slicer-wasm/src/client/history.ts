@@ -7,7 +7,7 @@
  * retain a context alongside a model version without making React a second
  * model owner.
  */
-import type { NativeScopedConfigFullTransport, NativeScopedConfigTransport, PlateSessionSnapshot } from './types';
+import type { ModelTransform, NativeScopedConfigFullTransport, NativeScopedConfigTransport, PlateSessionSnapshot } from './types';
 
 
 /** Stable native identities.  These are IDs, never positional indexes. */
@@ -142,6 +142,11 @@ export interface RestoreImpact {
 export interface SceneDelta {
   readonly version: 1;
   readonly objectIds: readonly StableObjectId[];
+  /** Native proof that currently displayed geometry and structure are unchanged.
+   * Volume transforms follow below; instance transforms come from the same
+   * committed plate-session receipt. */
+  readonly retainedRendererObjectIds?: readonly StableObjectId[];
+  readonly retainedVolumeTransforms?: readonly { volumeId: StablePartId; transform: ModelTransform }[];
   readonly volumeIds: readonly StablePartId[];
   readonly instanceIds: readonly StableInstanceId[];
   readonly plateIds: readonly StablePlateId[];

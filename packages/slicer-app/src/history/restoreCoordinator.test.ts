@@ -54,6 +54,19 @@ describe('history restore coordinator', () => {
     useHistoryDiagnosticsStore.getState().reset();
   });
 
+  it('does not reread an unchanged filament projection after a committed native restore', async () => {
+    const result = { ...success(), impact: { ...deltaImpact, filamentRack: false } } as RestoreResult;
+    const getFilamentSessionSnapshot = vi.fn();
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => result), redoHistory: vi.fn(), jumpHistory: vi.fn(),
+        cancel: vi.fn(), getFilamentSessionSnapshot, getHistoryStatus: vi.fn(async () => status) },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(async () => undefined),
+    });
+    await expect(coordinator.restore('undo')).resolves.toBe(true);
+    expect(getFilamentSessionSnapshot).not.toHaveBeenCalled();
+    expect(useHistoryRestoreStore.getState().phase).toBe('idle');
+  });
+
   it('consumes the first shortcut by cancelling a draft drag', async () => {
     const scene = fakeScene(true) as { activeDrag: object | null; cancelDrag: ReturnType<typeof vi.fn> };
     const undoHistory = vi.fn(async () => success());

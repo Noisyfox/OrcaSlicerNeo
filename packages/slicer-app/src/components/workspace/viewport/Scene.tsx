@@ -187,10 +187,15 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         // modelLoaded flips before the asynchronous mesh publication, so an
         // e2e poll must not select a volume from the previous collection.
         // The collection revision can be published a few instructions before
-        // React commits the matching `glVolumes` state. Require identity as
-        // well, so a poll cannot select through that publication window.
+        // React commits the matching `glVolumes` state. Require revision and
+        // element identity as well, so a poll cannot select through that
+        // publication window. `useModelLoader` deliberately exposes a fresh
+        // array snapshot, so comparing the array object itself would reject
+        // every valid snapshot even when all published GLVolume identities
+        // match.
         if (glVolumeCollection.revision !== useSettingsStore.getState().modelRevision
-          || glVolumeCollection.volumes !== glVolumes) return false;
+          || glVolumeCollection.volumes.length !== glVolumes.length
+          || glVolumeCollection.volumes.some((volume, index) => volume !== glVolumes[index])) return false;
         const hit = glVolumes.find((volume) => volume.buffer.instanceIdx === instanceIdx);
         // sceneInteraction is null until the viewport mounts; fail the poll
         // (false) rather than throwing so the e2e hook is retryable.

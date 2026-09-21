@@ -705,6 +705,12 @@ test('redoes a moved Cube after undoing both Move and Add Cube without stale ide
 
     await undo.click();
     await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    // Restoring the native Move transaction restores model/selection state,
+    // not the transient gizmo panel. Re-select the surviving object and enter
+    // Move mode before asserting its restored coordinate.
+    await objectRows.first().click();
+    const restoredMoveButton = page.getByTestId('gizmo-btn-move');
+    if (await restoredMoveButton.getAttribute('aria-pressed') !== 'true') await restoredMoveButton.click();
     await expect(page.getByTestId('move-x')).toHaveValue(beforeMoveX);
     await undo.click();
     await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
@@ -1173,10 +1179,11 @@ test('object list: context menu follows the selection (mock)', async () => {
     const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
     const menu = page.locator('[data-testid="objectlist-ctx-menu"][data-open]');
     await list.locator('[data-testid^="object-expand-"]').first().click();
+    const objectButton = objectRows.first().getByRole('button').first();
 
     // Select the whole object, then right-click one of its instance rows: the
     // menu is the object's menu, not the clicked line's instance menu.
-    await objectRows.first().click({ position: { x: 40, y: 4 } });
+    await objectButton.click();
     await list.locator('[data-testid^="instance-"]').first().click({ button: 'right' });
     await expect(menu).toBeVisible();
     await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
@@ -1187,7 +1194,7 @@ test('object list: context menu follows the selection (mock)', async () => {
     // Same from a part row of the fully-selected object: the object menu
     // (split-parts is part-menu-only and must not appear). Escape clears the
     // selection, so re-select the object first.
-    await objectRows.first().click({ position: { x: 40, y: 4 } });
+    await objectButton.click();
     await list.locator('[data-testid^="part-"]').first().click({ button: 'right' });
     await expect(menu).toBeVisible();
     await expect(menu.getByTestId('objectlist-clone')).toBeVisible();

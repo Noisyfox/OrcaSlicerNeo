@@ -93,6 +93,100 @@ the approved semantics in the normative specification.
 
 ## Accepted implementation evidence
 
+### Step 8 — Current verification scope (not yet accepted)
+
+The release history runner is `pnpm verify:scoped-configuration`.
+It rebuilds both release WASM variants, verifies staged artifact hashes and the
+active runtime, and runs three fresh Electron processes per variant. Each idle
+scenario records first Undo separately, five warm-up pairs, and twenty measured
+pairs. Threaded active-slice samples are a separate named population, admitted by
+the native bridge rather than merely requested at the renderer proxy. Diagnostics
+read the existing Worker pending-task count without adding storage. The runner
+waits for a positive count before dispatch and rechecks it inside the timed event;
+that diagnostic roundtrip is included in latency. Earlier request-pending runs
+remain separate non-acceptance scheduling evidence, not native-active proof. Raw JSON
+and command logs remain in the printed temporary report directory even on failure;
+the source fixture is verified before and after, and each process gets a fresh
+copy through the existing fixture-copy helper.
+
+The ordinary timing boundary is a renderer DOM event invoking the production
+history coordinator through canonical publication, idle readiness, and two
+animation frames. Configured-entity deletion additionally retains that full
+duration but gates the explicitly separate interval after coordinator completion
+and an explicit GL-volume revision readiness wait through the next editable frame. Thus its reported
+post-readiness statistic excludes React's complex-model loading duration;
+configuration maps, stable entity identities, and transforms are still checked
+against the predecessor and successor after every restore. Neither interval is
+substituted silently for the other.
+
+The candidate optimization adds no React or C++ cache. A native restore compares
+its transient before/after graphs and marks touched objects whose displayed mesh,
+and structure are unchanged. The existing SceneDelta patch retains only those
+already displayed GLVolumes; restored volume transforms arrive in that patch and
+instance transforms in the same authoritative plate receipt. Native filament
+roots, project colour/mapping/flushing/routing inputs, local material/routing
+keys and changed entity presentation still trigger the full filament projection
+read. Colour and project/object support-routing Undo/Redo have native regression
+coverage; unrelated configuration keys alone do not force that projection.
+Latency acceptance remains 200 ms per eligible sample; the 100 ms warm median is
+reported independently and does not waive failures.
+
+Native staging uses an owned transient copy of each already decoded volume to
+repair its parent link, preserving the separately retained stable IDs and painting
+without another cereal encode/decode cycle. Retiring decoded children does not call
+the user-edit `delete_volume` operation, which can bake transforms and reassign the
+last volume's identity. No extra model survives the restore operation.
+
+Restore also avoids clearing the pre-existing pointer-free used-slot summary
+when object/volume identity, mesh, painting content/timestamp, material-usage
+options and layer ranges are unchanged. The existing reader still validates
+membership and effective global configuration. This changes only invalidation
+for semantically irrelevant config/transform edits: no new cache, retained data,
+cache key, or lifetime policy is introduced. Native history smoke contrasts
+layer-height Undo/Redo (no full usage scan) with support-enable Undo/Redo (full
+invalidation); painted-model restoration remains covered by the same smoke.
+
+The synchronous decode may also borrow an already-live immutable convex hull
+only after exact stable-volume and immutable-mesh identity checks. Borrowed
+archive cursors die with that decode; no map, cache, key, retained owner or
+lifetime is added. A mismatch uses the original native hull rebuild. Native
+codec tests assert pointer reuse for the exact match and a freshly rebuilt hull
+for both volume-identity and mesh-identity mismatches.
+
+The full 2026-09-21 run is preserved at
+`C:\Users\noisyfox\AppData\Local\Temp\orca-scoped-gate-1789971131996`.
+All six release performance cells passed: three serial processes recorded 624
+samples each and three threaded processes recorded 676 each. All 3,150 eligible
+first/measured samples were at most 176.80 ms; all 156 threaded active-slice
+samples proved a positive admitted-task count inside the event. Most warm medians
+remain above the 100 ms target (maximum scenario median 158.94 ms). The configured
+delete post-readiness maxima were 6.38–7.67 ms; separately retained full event
+maxima were 672.69–719.70 ms and are not presented as sub-200 ms full restores.
+
+The later host-contract repair supplied metadata scopes to mocks, preserved the
+Scene revision/element guard, updated the scoped catalogue selectors, and proved
+that the native 11-plate project yields nine distinct eligible tower plates. The
+threaded object-move profile now checks the authoritative full-staging stage
+contract and passed with click-to-restored-projection at 193.58 ms. The real
+threaded prime project also passed. For serial, both actual first and second plate
+slices completed from fixture copies when the explicit slice-completion boundary
+was raised from 300 to 600 seconds (the first produced 108,064,445 bytes of G-code
+after about five and a half minutes); the enclosing Playwright timeout is 900
+seconds. This does not weaken the actual `Sliced` assertion.
+
+The strict external-Orca check remains unavailable because no fixed Orca-saved
+archive or Orca executable is provisioned. It is not fabricated or waived, so Step
+8 remains pending that external release-qualification input. The production renderer
+was restored and the immutable source length/SHA-256 matched again after all runs.
+
+The runner subsequently supplies a fresh verified fixture copy to each Web
+variant as well. Supplemental logs in the same report directory verify all
+8 tests passed in threaded and serial, including real project-load progress.
+The first serial supplemental attempt failed before tests started with Node's
+Windows `UV_HANDLE_CLOSING` assertion; that log remains, and a separately logged
+serial retry passed. These supplements do not erase the original full-run skips
+or the unresolved desktop/external-Orca failures.
+
 ### Step 1 — Fixture-safe baseline and history measurement harness
 
 Accepted on 2026-09-20. The profile now pins the licensed source project by its

@@ -7,7 +7,7 @@
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 
-import type { ProjectLoadResult, VolumeType } from '../types';
+import type { NativeScopedConfigScope, ProjectLoadResult, VolumeType } from '../types';
 
 export interface MockFeature {
   id: number;
@@ -65,7 +65,7 @@ export interface MockModule {
 
 export interface MockModuleOptions {
   sliceFixture?: MockSliceFixture;
-  metadataKeys?: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string }>;
+  metadataKeys?: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }>;
   printErr?: (msg: string) => void;
   /** Number of instances initially exposed by getModelMesh. */
   instanceCount?: number;
@@ -138,18 +138,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { id: 2, role: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
     ],
   };
-  const metadata: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string }> =
+  const metadata: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }> =
     opts.metadataKeys ?? {
-      layer_height: { type: 'float' },
-      wall_loops: { type: 'int' },
-      sparse_infill_density: { type: 'percent' },
-      sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'] },
-      enable_support: { type: 'bool' },
-      nozzle_temperature: { type: 'float' },
-      enable_prime_tower: { type: 'bool' },
-      prime_tower_width: { type: 'float' },
-      printable_area: { type: 'points' },
-      gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
+      // Keep the mock catalogue aligned with bridge_profiles.cpp: project and
+      // plate are PrintConfig/GCodeConfig keys, object includes
+      // PrintObjectConfig and PrintRegionConfig, and part is the
+      // PrintRegionConfig subset. The React catalogue must consume this
+      // authoritative scope list instead of treating every mock key as global.
+      layer_height: { type: 'float', scopes: ['object'] },
+      wall_loops: { type: 'int', scopes: ['object', 'part'] },
+      sparse_infill_density: { type: 'percent', scopes: ['object', 'part'] },
+      sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'], scopes: ['object', 'part'] },
+      enable_support: { type: 'bool', scopes: ['object'] },
+      nozzle_temperature: { type: 'float', scopes: ['project', 'plate'] },
+      enable_prime_tower: { type: 'bool', scopes: ['project', 'plate'] },
+      prime_tower_width: { type: 'float', scopes: ['project', 'plate'] },
+      printable_area: { type: 'points', scopes: ['project', 'plate'] },
+      gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'], scopes: ['project', 'plate'] },
     };
   const projectWarningFixture = {
     modifiedPrinterGcode: false,

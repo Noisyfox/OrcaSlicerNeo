@@ -323,7 +323,11 @@ export function restoreProjectHistory(
       }
       if (result.status) projectHistoryStatus(result.status);
       const filamentStartedAt = historyDiagnosticNow();
-      await refreshFilamentSession(runtime, undefined, lease);
+      if (result.ok && !result.impact.filamentRack) {
+        projectFilamentHistoryRevision(result.status.revision, result.context.plateSession?.inputRevisions);
+      } else {
+        await refreshFilamentSession(runtime, undefined, lease);
+      }
       useHistoryDiagnosticsStore.getState().recordFilamentRefresh(historyDiagnosticNow() - filamentStartedAt);
       if (result.ok) {
         await publish?.(result);

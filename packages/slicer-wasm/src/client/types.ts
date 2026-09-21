@@ -1230,6 +1230,8 @@ export interface SlicerClient {
   getRuntimeMemory(): Promise<RuntimeMemorySnapshot>;
   /** Diagnostic-only native timing samples. Present in real WASM builds. */
   takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
+  /** Existing native history archive/reuse counters for acceptance diagnostics. */
+  getNativeHistoryDiagnostics?(): Promise<Record<string, unknown>>;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,

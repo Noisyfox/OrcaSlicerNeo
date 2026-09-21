@@ -193,6 +193,16 @@ historyCheck('fresh-project move Undo publishes a scoped tombstone for the erase
 const freshPlateIds = freshMoveUndo.context.plateSession.plates.map((plate) => plate.plate_id);
 assertSceneDelta('fresh-project move Undo publishes the exact stable-ID delta', freshMoveUndo,
   freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
+historyCheck('instance transform and scoped config Undo retains unchanged renderer geometry',
+  JSON.stringify(freshMoveUndo.scene_delta.retained_renderer_object_ids) ===
+    JSON.stringify(freshStableIds.map((object) => object.object_id)) &&
+  freshMoveUndo.scene_delta.retained_volume_transforms?.length === 1 &&
+  freshMoveUndo.context.plateSession.instance_transforms?.length === 1 &&
+  Math.abs(freshMoveUndo.context.plateSession.instance_transforms[0].world_transform.offset[0] -
+    freshBody.instance_transform.offset[0]) < 1e-8 &&
+  freshMoveUndo.impact.filamentRack === false, JSON.stringify({ delta: freshMoveUndo.scene_delta,
+    before: freshBeforeMoveStructure, after: callJson('orc_get_model_structure'), impact: freshMoveUndo.impact,
+    transforms: freshMoveUndo.context.plateSession.instance_transforms }));
 const freshScenePatch = callJson('orc_get_model_scene_patch', ['string'],
   [JSON.stringify(freshMoveUndo.scene_delta.object_ids)]);
 historyCheck('fresh-project move Undo targeted patch returns only the touched native object',
@@ -479,6 +489,9 @@ if (!restoredBeforeEdit.ok || restoredBeforeEdit.objects.length !== 2 ||
   throw new Error(`undo did not rebuild the exact two-object model: ${JSON.stringify(restoredBeforeEdit)}`);
 const redone = callJson('orc_history_redo', [], []);
 if (!redone.ok || !redone.status.canUndo) throw new Error(`redo failed: ${JSON.stringify(redone)}`);
+historyCheck('renderer retention rejects changed native presentation',
+  !undone.scene_delta.retained_renderer_object_ids.includes(targetId) &&
+  !redone.scene_delta.retained_renderer_object_ids.includes(targetId), JSON.stringify({ undone, redone }));
 const restored = callJson('orc_get_model_structure', [], []);
 if (!restored.ok || restored.objects.length !== 2 || restored.objects[0].printable !== false ||
     restored.objects[1].printable !== true)
@@ -1365,4 +1378,56 @@ historyCheck('accounting diagnostic restore redoes successfully',
   accountingRedo.ok === true && accountingRedo.status?.bytesUsed === accountingUndo.status?.bytesUsed &&
   callJson('orc_get_model_structure', [], []).objects.length === 2,
   JSON.stringify({ accountingRedo, model: callJson('orc_get_model_structure', [], []) }));
+// Existing used-slot summaries must survive only semantically irrelevant
+// history changes. This adds no summary, retained data, key, or lifetime.
+const usageObjectId = callJson('orc_get_model_structure', [], []).objects[0].id;
+for (const [key, value, preservesUsage] of [
+  ['layer_height', '0.27', true],
+  ['enable_support', '1', false],
+  ['transform', '', true],
+]) {
+  const usageTransaction = beginHistory(`Usage invalidation ${key}`);
+  if (key === 'transform') {
+    const body = callJson('orc_get_model_mesh', [], []).objects[0];
+    const transform = { ...body.instance_transform,
+      offset: [body.instance_transform.offset[0] + 2, body.instance_transform.offset[1], body.instance_transform.offset[2]] };
+    delete transform.matrix;
+    historyCheck('usage fixture moves instance', callJson('orc_set_model_transforms', ['string', 'string'],
+      [usageTransaction, JSON.stringify([{ objectIdx: body.object_idx, volumeIdx: body.volume_idx,
+        instanceIdx: body.instance_idx, instanceTransform: transform, volumeTransform: body.volume_transform }])]).ok === true);
+  } else {
+    historyCheck(`usage fixture sets ${key}`, setNativeScopedConfig(callJson,
+      'object', usageObjectId, key, value).ok === true);
+  }
+  commitHistory(`Usage invalidation ${key}`, usageTransaction);
+  callJson('orc_get_prime_tower_projection', [], []);
+  for (const direction of ['undo', 'redo']) {
+    callJson('orc_take_performance_profile', [], []);
+    historyCheck(`usage fixture ${direction} ${key}`,
+      callJson(`orc_history_${direction}`, [], []).ok === true);
+    callJson('orc_get_prime_tower_projection', [], []);
+    const usageProfile = callJson('orc_take_performance_profile', [], []);
+    const projection = usageProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+    const fallback = projection?.stages_ms?.used_slot_full_scan_fallback;
+    historyCheck(`${direction} ${key} ${preservesUsage ? 'preserves' : 'invalidates'} existing usage summary`,
+      preservesUsage ? fallback === 0 : fallback > 0, JSON.stringify(usageProfile));
+  }
+}
+for (const [operation, payload] of [
+  ['orc_set_filament_slot_colour', { slot: 1, colour: '#123456' }],
+  ['orc_set_filament_routing', { selector: 'support-base', slot: 1, targets: [{ kind: 'project', id: 0 }] }],
+  ['orc_set_filament_routing', { selector: 'support-interface', slot: 1, targets: [{ kind: 'object', id: usageObjectId }] }],
+]) {
+  const filamentSnapshot = callJson('orc_get_filament_session_snapshot', [], []);
+  const changed = callJson(operation, ['string'], [JSON.stringify({
+    version: 1, revision: filamentSnapshot.revisions.session, ...payload,
+  })]);
+  historyCheck(`filament projection fixture ${operation} ${payload.selector ?? 'colour'}`,
+    changed.ok === true, JSON.stringify(changed));
+  for (const direction of ['undo', 'redo']) {
+    const restored = callJson(`orc_history_${direction}`, [], []);
+    historyCheck(`${direction} refreshes filament projection for ${payload.selector ?? 'colour'}`,
+      restored.ok === true && restored.impact.filamentRack === true, JSON.stringify(restored));
+  }
+}
 console.log(`history smoke passed (${moduleArg})`);

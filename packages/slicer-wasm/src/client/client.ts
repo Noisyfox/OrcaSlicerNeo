@@ -1126,11 +1126,31 @@ export function normalizeSceneDelta(raw: unknown): import('./history').SceneDelt
   const volumeIds = nativeIds('volume_ids');
   const instanceIds = nativeIds('instance_ids');
   const objectOrder = nativeIds('object_order');
+  const retainedRendererObjectIds = value.retained_renderer_object_ids === undefined
+    ? undefined : nativeIds('retained_renderer_object_ids');
   if (value.version !== 1 || !objectIds || !volumeIds || !instanceIds || !objectOrder ||
       !Array.isArray(value.plate_ids) ||
       !value.plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
       new Set(value.plate_ids).size !== value.plate_ids.length) return undefined;
+  if (value.retained_renderer_object_ids !== undefined && (!retainedRendererObjectIds ||
+      retainedRendererObjectIds.some((id) => !objectIds.includes(id) || !objectOrder.includes(id)))) return undefined;
+  let retainedVolumeTransforms: import('./history').SceneDelta['retainedVolumeTransforms'];
+  if (value.retained_volume_transforms !== undefined) {
+    if (!Array.isArray(value.retained_volume_transforms)) return undefined;
+    const transforms = value.retained_volume_transforms.map((item) => {
+      if (!item || !Number.isSafeInteger(item.volume_id) || item.volume_id <= 0) return null;
+      const transform = normalizeModelTransform(item.transform);
+      return transform ? { volumeId: item.volume_id as number, transform } : null;
+    });
+    if (transforms.some((item) => item === null)) return undefined;
+    retainedVolumeTransforms = transforms as NonNullable<typeof transforms[number]>[];
+    if (new Set(retainedVolumeTransforms.map((item) => item.volumeId)).size !== retainedVolumeTransforms.length ||
+        retainedVolumeTransforms.some((item) => !volumeIds.includes(item.volumeId))) return undefined;
+  }
+  if (retainedRendererObjectIds?.length && !retainedVolumeTransforms?.length) return undefined;
   return { version: 1, objectIds, volumeIds, instanceIds,
+    ...(retainedRendererObjectIds ? { retainedRendererObjectIds } : {}),
+    ...(retainedVolumeTransforms ? { retainedVolumeTransforms } : {}),
     plateIds: value.plate_ids as string[], objectOrder };
 }
 
@@ -1592,6 +1612,12 @@ export function createClient(
     async getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
       return normalizeNativeScopedConfig(callJson(m, 'orc_get_native_scoped_config', [], []));
+    },
+    async getNativeHistoryDiagnostics(): Promise<Record<string, unknown>> {
+      const native = callJson(await module(), 'orc_history_restore_diagnostics', [], []) as Record<string, unknown>;
+      // This existing map is populated only after native admission returns an
+      // accepted task; the renderer proxy's in-flight request count is earlier.
+      return { ...native, pendingSliceTaskCount: pendingSliceTasks.size };
     },
 
     async setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError> {

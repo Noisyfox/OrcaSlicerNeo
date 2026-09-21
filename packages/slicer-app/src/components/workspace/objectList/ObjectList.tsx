@@ -162,7 +162,18 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   /** The volume IDs a row selects, re-anchoring a part row to the selection's
    *  single instance (Orca: a part is never selected across all instances). */
   function rowVolumeIds(row: SelectableRow, anchor: number): string[] {
-    if (row.kind === 'part') return [`${row.target.objectIdx}:${row.target.volumeIdx}:${anchor}`];
+    if (row.kind === 'part') {
+      // `SelectableRow.target` stores renderer indices, while Selection owns
+      // stable object/volume/instance IDs. Reconstruct the anchored stable ID
+      // instead of comparing an index tuple with GLVolume.id; the latter made
+      // a fully selected object's part context menu look like a fresh part
+      // selection after a right-click.
+      const object = structure.find((candidate) => candidate.index === row.target.objectIdx)
+        ?? structure[row.target.objectIdx];
+      const volume = object?.volumes[row.target.volumeIdx ?? -1];
+      const instance = object?.instances[anchor];
+      if (object && volume && instance) return [`${object.id}:${volume.id}:${instance.id}`];
+    }
     return row.volumeIds;
   }
 

@@ -16,7 +16,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { commitScopedConfigurationMutation } from './configurationActions';
+import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import {
   localKeysForTarget,
   projectScopedConfigurationFields,
@@ -186,7 +186,8 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key, value,
     };
-    await commitScopedConfigurationMutation(platform, request);
+    const mutation = await commitScopedConfigurationMutation(platform, request);
+    invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
   };
   const resetField = async (field: ScopedConfigurationField) => {
     if ((mode === 'scoped' && resolution.scope === 'invalid') || !field.local) return;
@@ -195,7 +196,8 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key,
     };
-    await commitScopedConfigurationMutation(platform, request);
+    const mutation = await commitScopedConfigurationMutation(platform, request);
+    invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
   };
   const resetCategory = async (category: string) => {
     if (mode === 'scoped' && resolution.scope === 'invalid') return;
@@ -206,7 +208,10 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), category,
     };
-    try { await commitScopedConfigurationMutation(platform, request); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    try {
+      const mutation = await commitScopedConfigurationMutation(platform, request);
+      invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const resetAll = async () => {
     if (mode === 'scoped' && resolution.scope === 'invalid') return;
@@ -214,7 +219,10 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     const hasLocal = targets.some((target) => localKeysForTarget(snapshot, target).some((key) => allFields.some((field) => field.key === key && field.resettable)));
     if (!hasLocal) return;
     const request: NativeScopedConfigMutationRequest = { version: 1, operation: 'reset-all', targets: targetRequestTargets(targets) };
-    try { await commitScopedConfigurationMutation(platform, request); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    try {
+      const mutation = await commitScopedConfigurationMutation(platform, request);
+      invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
   if (!metadata) return <div className="p-3 text-xs text-muted-foreground">Loading configuration…</div>;
