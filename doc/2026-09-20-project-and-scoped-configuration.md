@@ -1,8 +1,8 @@
 # Project and Scoped Configuration
 
 **Date:** 2026-09-20
-**Status:** Implementation in progress — Steps 1–7 accepted; fixed external Orca
-round-trip input remains to be provisioned
+**Status:** Local implementation accepted — Steps 1–8 complete; fixed external
+Orca round-trip input remains to be provisioned for release qualification
 
 The normative, incrementally accepted feature specification is
 [`Project and Scoped Configuration`](../spec/Project%20and%20Scoped%20Configuration.md).
@@ -93,7 +93,7 @@ the approved semantics in the normative specification.
 
 ## Accepted implementation evidence
 
-### Step 8 — Current verification scope (not yet accepted)
+### Step 8 — Release performance and local verification (accepted pending external qualification)
 
 The release history runner is `pnpm verify:scoped-configuration`.
 It rebuilds both release WASM variants, verifies staged artifact hashes and the
@@ -175,9 +175,10 @@ after about five and a half minutes); the enclosing Playwright timeout is 900
 seconds. This does not weaken the actual `Sliced` assertion.
 
 The strict external-Orca check remains unavailable because no fixed Orca-saved
-archive or Orca executable is provisioned. It is not fabricated or waived, so Step
-8 remains pending that external release-qualification input. The production renderer
-was restored and the immutable source length/SHA-256 matched again after all runs.
+archive or Orca executable is provisioned. It is not fabricated or waived: local
+Step 8 acceptance is complete, while release qualification remains pending that
+external input. The production renderer was restored and the immutable source
+length/SHA-256 matched again after all runs.
 
 The runner subsequently supplies a fresh verified fixture copy to each Web
 variant as well. Supplemental logs in the same report directory verify all
@@ -186,6 +187,29 @@ The first serial supplemental attempt failed before tests started with Node's
 Windows `UV_HANDLE_CLOSING` assertion; that log remains, and a separately logged
 serial retry passed. These supplements do not erase the original full-run skips
 or the unresolved desktop/external-Orca failures.
+
+#### Serial real-project slice boundary follow-up (2026-09-21)
+
+The focused `prime-tower-project.e2e.ts` real serial path was also run with a
+fresh copy of the pinned Odyssey project. Its two actual Print operations each
+cover the imported 743-layer first plate and complete in roughly five and a
+half minutes; the run passed in 10.5 minutes and emitted a 108,064,445-byte
+G-code file. The original 300-second assertion and the Playwright real-WASM
+file budget of 480 seconds were therefore below the measured serial workload:
+the first attempt reached the latter budget while the renderer remained
+responsive and consumed CPU. The two actual `Sliced` waits now use a 600-second
+boundary, and this test sets a 900-second file budget so the test runner cannot
+terminate before that boundary. The completed-slice assertion remains required;
+no slice is skipped and no timeout is treated as success.
+
+The candidate-to-`d5309f4` diff contains no native slicing implementation
+change; the native bridge delta is confined to history restore, and the
+runtime delta only selects the already-built serial artifact for this gate.
+This identifies the old timeout as an invalid test boundary rather than a
+candidate slicing regression. Evidence is retained at
+`C:\Users\noisyfox\AppData\Local\Temp\orca-prime-tower-e2e-6Uf8zp`; both the
+source fixture and its temporary copy remained 45,586,816 bytes with SHA-256
+`6DB07E50B4692F95BFEF65595E9FCD0BF902C9660B7B1D7BC1A4F98B4D7D2425`.
 
 ### Step 1 — Fixture-safe baseline and history measurement harness
 
