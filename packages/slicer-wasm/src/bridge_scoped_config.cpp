@@ -41,10 +41,11 @@ using namespace Neo::Bridge::PlateSession;
 
 bool is_editable_plate_override_key(const std::string& key)
 {
-    // Keep this list in lockstep with OrcaSlicer's editable plate override
-    // surface. The native BBS reader/writer also carries structural and
-    // derived PlateData fields; those remain native state but are not generic
-    // scoped mutation targets.
+    // This is Neo's generic scoped-API surface: native plate override keys
+    // that the BBS reader/writer can round-trip. It intentionally differs
+    // from Orca's dedicated GUI Tab::plate_keys helper list. Native BBS also
+    // carries structural and derived PlateData fields; those remain native
+    // state but are not generic scoped mutation targets.
     static const std::set<std::string> keys = {
         "curr_bed_type",
         "print_sequence",

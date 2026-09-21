@@ -23,9 +23,11 @@ using json = nlohmann::json;
 using NativeScopedConfigTarget = std::pair<std::string, std::string>;
 using NativeScopedConfigTargets = std::vector<NativeScopedConfigTarget>;
 
-// These are the per-plate configuration keys exposed as editable scoped
-// overrides by Neo. Native BBS plate metadata/config contains additional
-// structural and derived fields that remain outside the generic scope surface.
+// These are the per-plate keys exposed by Neo's generic scoped API: values the
+// native BBS reader/writer can round-trip. The set intentionally differs from
+// Orca's dedicated GUI Tab::plate_keys helper list. Native BBS plate
+// metadata/config contains additional structural and derived fields that
+// remain outside the generic scope surface.
 bool is_editable_plate_override_key(const std::string& key);
 
 json empty_native_scoped_config_snapshot();
