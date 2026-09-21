@@ -31,7 +31,7 @@ function mutate(operation, targets, payload = {}) {
 const projectTarget = { scope: 'project' };
 const setProject = (key, value) => mutate('set', [projectTarget], { key, value: String(value) });
 const resetProject = (key) => mutate('reset', [projectTarget], { key });
-const snapshot = () => requireOk('native snapshot', callJson('orc_get_native_scoped_config')).native_scoped_config;
+const snapshot = () => requireOk('native snapshot', callJson('orc_get_native_scoped_config')).native_scoped_config.snapshot;
 const session = () => requireOk('plate session', callJson('orc_get_plate_session_snapshot'));
 const status = () => callJson('orc_history_status');
 const historyContext = {
@@ -47,6 +47,21 @@ const objectId = String(structure.objects[0]?.id);
 const partId = String(structure.objects[0]?.volumes[0]?.id);
 if (!objectId || objectId === 'undefined' || !partId || partId === 'undefined')
   throw new Error(`mutation fixture has no object/part: ${JSON.stringify(structure)}`);
+
+// Native routing slots remain project-owned for slicing/history, but are not
+// generic Project/Scoped catalogue entries or mutation targets.
+const optionMetadata = callJson('orc_get_option_metadata');
+for (const key of ['wipe_tower_filament', 'support_filament', 'support_interface_filament',
+  'outer_wall_filament_id', 'inner_wall_filament_id', 'sparse_infill_filament_id',
+  'internal_solid_filament_id', 'top_surface_filament_id', 'bottom_surface_filament_id']) {
+  if ((optionMetadata[key]?.scopes ?? []).length !== 0)
+    throw new Error(`native routing key leaked into generic catalogue: ${key}: ${JSON.stringify(optionMetadata[key])}`);
+}
+const routingBefore = snapshot();
+const routingRejected = setProject('support_filament', '1');
+if (routingRejected.ok || routingRejected.error_code !== 'unsupported_reference' ||
+    JSON.stringify(snapshot()) !== JSON.stringify(routingBefore))
+  throw new Error(`generic routing mutation was not rejected atomically: ${JSON.stringify(routingRejected)}`);
 
 // Two targets are staged first and committed only after both native parses
 // succeed. The shared key is independently materialized in each native map.
@@ -73,7 +88,10 @@ if (JSON.stringify(snapshot()) !== JSON.stringify(beforeFailureSnapshot) ||
 
 const clamped = setProject('preferred_orientation', '1000');
 requireOk('native clamp', clamped);
-const clampedValue = Number(snapshot().project?.preferred_orientation);
+// preferred_orientation is an edited-Print-preset option, not a native
+// project_config key; inspect the native full effective config for its result.
+const clampedValue = Number(requireOk('effective preset snapshot', callJson('orc_get_preset_snapshot'))
+  .project_config?.preferred_orientation);
 if (!Number.isFinite(clampedValue) || clampedValue >= 1000 ||
     clamped.configuration_status?.corrections?.length !== 1)
   throw new Error(`native bound clamp was not reported: ${JSON.stringify(clamped)}`);
@@ -115,7 +133,9 @@ const filamentColour = snapshot().project?.filament_colour;
 if (typeof filamentColour === 'string') requireOk('materialize filament exclusion', setProject('filament_colour', filamentColour));
 requireOk('reset all eligible keys', mutate('reset-all', [projectTarget]));
 const afterAll = snapshot().project ?? {};
-if (!Object.hasOwn(afterAll, 'extruder') ||
+const afterAllEffective = requireOk('effective preset snapshot after reset all', callJson('orc_get_preset_snapshot'))
+  .project_config ?? {};
+if (afterAllEffective.extruder !== '1' ||
     (typeof filamentColour === 'string' && afterAll.filament_colour !== filamentColour))
   throw new Error(`Reset All erased an excluded key: ${JSON.stringify(afterAll)}`);
 

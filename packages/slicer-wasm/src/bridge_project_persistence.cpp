@@ -28,6 +28,7 @@
 #include "bridge_profiles.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
+#include "bridge_scoped_config.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/miniz_extension.hpp"
@@ -58,67 +59,6 @@ using namespace Neo::Bridge::PlateSession;
 using namespace Neo::Bridge::SlicingPipeline;
 
 static constexpr int kMaxPlateCount = 36;
-
-// BBS project_settings.config already stores the merged native PrintConfig.
-// Keep a native marker there for the additional local Project keys which are
-// outside PresetBundle's historical s_project_options list. The marker and
-// its values travel with the ordinary native project-settings config and are
-// ignored by older readers as an ordinary known ConfigOptionStrings field.
-static constexpr const char* kNativeProjectOverrideMarker = "different_settings_to_system";
-
-const std::set<std::string>& canonical_project_config_keys()
-{
-    static const std::set<std::string> keys = {
-        "flush_volumes_vector", "flush_volumes_matrix",
-        "filament_colour", "filament_colour_type", "filament_multi_colour",
-        "wipe_tower_x", "wipe_tower_y", "wipe_tower_rotation_angle",
-        "curr_bed_type", "flush_multiplier", "flush_multiplier_fast",
-        "prime_volume_mode", "nozzle_volume_type", "filament_map_mode",
-        "filament_map", "filament_volume_map", "filament_nozzle_map",
-        "has_filament_switcher", "enable_filament_dynamic_map",
-    };
-    return keys;
-}
-
-bool is_native_project_override_key(const std::string& key)
-{
-    if (canonical_project_config_keys().find(key) != canonical_project_config_keys().end())
-        return false;
-    const auto* definition = Slic3r::print_config_def.get(key);
-    if (definition == nullptr || key == "extruder" || key == "wipe_tower_x" || key == "wipe_tower_y")
-        return false;
-    // Filament/rack/material and test-only cutter inputs stay owned by the
-    // native filament/device authorities, never by the Project local map.
-    if (key.find("filament") != std::string::npos || key.find("rack") != std::string::npos ||
-        key.find("ams") != std::string::npos || key == "nozzle_volume" ||
-        key == "nozzle_flush_dataset" || key == "enable_long_retraction_when_cut" ||
-        key == "long_retractions_when_cut" || key == "retraction_distances_when_cut" ||
-        key == "filament_diameter" || key == "filament_flush_temp")
-        return false;
-    for (const auto& [unused, placeholders] : Slic3r::custom_gcode_specific_placeholders())
-        if (std::find(placeholders.begin(), placeholders.end(), key) != placeholders.end())
-            return false;
-    return true;
-}
-
-std::vector<std::string> native_project_override_keys(const DynamicPrintConfig& config)
-{
-    std::vector<std::string> keys;
-    for (const auto& key : config.keys())
-        if (is_native_project_override_key(key)) keys.push_back(key);
-    return keys;
-}
-
-void restore_native_project_overrides(PresetBundle& bundle,
-                                      const DynamicPrintConfig& imported_config,
-                                      const std::vector<std::string>& keys)
-{
-    for (const auto& key : keys) {
-        if (!is_native_project_override_key(key)) continue;
-        const auto* value = imported_config.option(key);
-        if (value != nullptr) bundle.project_config.set_key_value(key, value->clone());
-    }
-}
 
 const char* duplicate_json(const std::string& value)
 {
@@ -677,9 +617,6 @@ static const char* orc_load_project_impl(const char* data, int len,
         // archive that contains no geometry to append.
         if (!loaded || (geometry_only && imported.objects.empty()))
             throw Slic3r::RuntimeError("Loading of a project file failed.");
-        std::vector<std::string> imported_project_override_keys;
-        if (const auto* marker = imported_config.opt<ConfigOptionStrings>(kNativeProjectOverrideMarker))
-            imported_project_override_keys = marker->values;
         publish_slicer_progress(55, geometry_only ? "Preparing imported geometry" : "Reading project settings");
         imported.add_default_instances();
 
@@ -788,8 +725,6 @@ static const char* orc_load_project_impl(const char* data, int len,
             candidate.update_compatible(PresetSelectCompatibleType::Always);
             candidate.update_multi_material_filament_presets();
         }
-        if (!geometry_only)
-            restore_native_project_overrides(candidate, imported_config, imported_project_override_keys);
         publish_slicer_progress(75, geometry_only ? "Finalizing geometry import" : "Applying project settings");
 
         ProjectPresetWarningDetails warning_details;
@@ -1088,12 +1023,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
             owned.push_back(std::move(plate));
         }
         DynamicPrintConfig config = state().presets.full_config_secure();
-        if (auto* marker = config.option<ConfigOptionStrings>(kNativeProjectOverrideMarker, true))
-            marker->values = native_project_override_keys(state().presets.project_config);
         StoreParams params;
         params.path = path;
         params.model = &state().model;
         params.plate_data_list = plates;
+        // The edited Print preset is a separate native copy.  Mirror it into
+        // the selected project-embedded record immediately before the
+        // standard BBS exporter enumerates embedded presets; no private
+        // archive metadata is needed for this owner boundary.
+        Neo::Bridge::ScopedConfig::sync_project_print_preset_storage();
         params.project_presets = state().presets.get_current_project_embedded_presets();
         params.config = &config;
         params.strategy = SaveStrategy::ShareMesh |

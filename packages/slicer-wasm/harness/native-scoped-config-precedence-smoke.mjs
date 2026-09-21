@@ -112,8 +112,25 @@ const projectBytes = readAndFree(exportedProject.bytes_ptr, exportedProject.byte
 const exportedEntries = readZipEntries(projectBytes);
 if (exportedEntries.some((entry) => privateNeoEntryNames.includes(entry.name)))
   throw new Error('ordinary native 3MF save emitted Neo-private project metadata');
-const projectWithLegacySidecar = writeStoredZip([
-  ...exportedEntries,
+const projectSettingsEntry = exportedEntries.find((entry) => entry.name === 'Metadata/project_settings.config');
+if (!projectSettingsEntry)
+  throw new Error('ordinary native 3MF save omitted project_settings.config');
+const nativeProjectSettings = JSON.parse(new TextDecoder().decode(projectSettingsEntry.content));
+const nativeDifferentSettings = nativeProjectSettings.different_settings_to_system;
+const nativeDifferentKeys = Array.isArray(nativeDifferentSettings)
+  ? nativeDifferentSettings.flatMap((value) => String(value).split(';').filter(Boolean)) : [];
+if (!nativeDifferentKeys.includes('layer_height') || !nativeDifferentKeys.includes('timelapse_type'))
+  throw new Error(`native edited Print difference was not emitted by the upstream archive path: ${JSON.stringify(nativeDifferentSettings)}`);
+// This value is the standard Orca/BBS project-settings field.  It must remain
+// native preset-difference input; Neo must not treat it as a list of Project
+// scope keys to restore after load.
+const projectWithNativeDifferentSettings = writeStoredZip([
+  ...exportedEntries.map((entry) => entry.name === projectSettingsEntry.name
+    ? { ...entry, content: encoder.encode(JSON.stringify({
+        ...nativeProjectSettings,
+        different_settings_to_system: nativeDifferentSettings,
+      })) }
+    : entry),
   { name: 'Metadata/orca_neo_config_overlay_v1.json',
     content: encoder.encode(JSON.stringify({ schema: 'removed', project: { layer_height: '0.42' } })) },
   { name: 'Metadata/orca_neo_plate_session_v1.json',
@@ -122,18 +139,19 @@ const projectWithLegacySidecar = writeStoredZip([
     content: encoder.encode(JSON.stringify({ schema: 'removed', state: { filament_presets: ['invalid'] } })) },
 ]);
 requireOk('clear model', callJson('orc_clear_model'));
-const projectPtr = writeBytes(projectWithLegacySidecar);
+const projectPtr = writeBytes(projectWithNativeDifferentSettings);
 const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
-  [projectPtr, projectWithLegacySidecar.byteLength, 0, 'native-scoped-config-precedence.3mf']);
+  [projectPtr, projectWithNativeDifferentSettings.byteLength, 0, 'native-scoped-config-precedence.3mf']);
 Module._free(projectPtr);
 requireOk('reload project', loaded);
 
 nativeScopedConfig = requireOk('read round-tripped native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config.snapshot;
 if (nativeScopedConfig.project?.layer_height !== '0.24' ||
+    nativeScopedConfig.project?.timelapse_type !== '1' ||
     !Object.values(nativeScopedConfig.plates ?? {}).some((values) =>
       values?.curr_bed_type === 'Engineering Plate' && values?.spiral_mode === '1') ||
     Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
-  throw new Error(`native BBS scoped values did not round-trip: ${JSON.stringify(nativeScopedConfig)}`);
+  throw new Error(`native BBS scoped values did not round-trip through standard owner paths: ${JSON.stringify(nativeScopedConfig)}`);
 
 session = requireOk('round-tripped plate session', callJson('orc_get_plate_session_snapshot'));
 const reloadedPlate = session.current_plate_id;
@@ -194,6 +212,8 @@ console.log(JSON.stringify({
   projectLayerHeight: nativeScopedConfig.project.layer_height,
   plateBedType: Object.values(nativeScopedConfig.plates ?? {}).find((values) => values?.curr_bed_type)?.curr_bed_type,
   plateSpiralMode: Object.values(nativeScopedConfig.plates ?? {}).find((values) => values?.spiral_mode)?.spiral_mode,
+  nativeDifferentSettings: nativeProjectSettings.different_settings_to_system,
+  nativeDifferentSettingsDidNotBecomeProjectScope: true,
   beforeRoundTripSteps: first.steps,
   afterRoundTripSteps: second.steps,
   exportedEntryNames: exportedEntries.map((entry) => entry.name),

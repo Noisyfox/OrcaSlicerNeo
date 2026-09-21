@@ -35,6 +35,26 @@ including BBS structural/derived fields such as `enable_filament_dynamic_map` an
 `has_filament_switcher`, and are preserved through history and the standard BBS
 writer.
 
+The Project owner boundary follows Orca's native preset split. In addition to
+`PresetBundle::s_project_options`, the existing bridge-owned routing slots
+`wipe_tower_filament`, `support_filament`, `support_interface_filament`,
+`outer_wall_filament_id`, `inner_wall_filament_id`, `sparse_infill_filament_id`,
+`internal_solid_filament_id`, `top_surface_filament_id`, and
+`bottom_surface_filament_id` remain in native `project_config`, the Project
+history root, and effective slicing. Dedicated filament-routing commands own
+those slots; they are excluded from the generic Project/Scoped catalogue and
+set/reset surface, and are not written to or interpreted through
+`different_settings_to_system`. Other editable Project Print options are stored
+as edited-Print-preset differences and use the standard embedded-preset/full-config
+round-trip path. The first ordinary Project Print mutation that changes an
+effective value materializes the selected Print preset through the native
+`save_current_preset(..., save_to_project=true)` path with the selected preset as
+parent; equal-value requests, native Project-owner keys, and routing commands do
+not create a child. Preset identity/inheritance bookkeeping is not a generic
+Project override. Native project-embedded Print selection and parent-relative
+overrides are recorded in the native history context so Undo/Redo can remove and
+recreate the child without a session sidecar.
+
 ## Approved implementation sequence
 
 Each numbered step is implemented by one new subagent. That subagent must complete its
@@ -306,6 +326,11 @@ project settings retain valid local Project values. Invalidation is the target u
 itself; Object and Part every plate containing one of the target object's
 instances. History restore applies the same minimal-set rule.
 
+The complete Project root includes the controlled native routing extension described
+above, even though those slots remain outside the generic Project/Scoped catalogue
+and resettable surface. This keeps dedicated routing Undo/Redo and effective slice
+configuration on the same native authority as Orca.
+
 Parent acceptance checks passed against freshly staged `out/serial` and
 `out/threaded` artifacts:
 
@@ -421,3 +446,29 @@ Parent acceptance checks passed:
 - `node --check packages/slicer-wasm/harness/scoped-config-interoperability.mjs` and
   `git diff --check` — passed. The strict missing-external-input path was verified to
   fail rather than report a false Orca round trip.
+
+### Step 8 — Orca-aligned Project Print preset ownership
+
+Accepted on 2026-09-21. The generic Project scope now follows the native Orca split:
+the controlled `PresetBundle::s_project_options` set and bridge-owned filament
+routing slots remain in `project_config`, while other editable Print options are
+stored as parent-relative differences in a project-embedded Print preset. The
+bridge materializes that child only immediately before the first ordinary mutation
+that changes an effective value, through
+`PresetCollection::save_current_preset(..., save_to_project=true)`; equal-value
+requests and Project-owner/routing keys do not create one. Native preset identity
+fields (`inherits`, preset IDs, compatibility aggregates, and
+`different_settings_to_system`) are not exposed as generic Project overrides.
+
+Native project-embedded Print selection and parent-relative overrides are captured
+in the history context. Undo removes stale native children and restores the parent;
+Redo reconstructs the child through `PresetCollection` and reapplies the native
+override diff. No sidecar, archive metadata, migration alias, or renderer/native
+cache is involved.
+
+Focused checks passed on both serial and threaded staged artifacts:
+
+- `pnpm --filter @orca/slicer-wasm native-project-preset-history-smoke`;
+- `pnpm --filter @orca/slicer-wasm native-project-preset-history-smoke:threaded`;
+- `pnpm --filter @orca/slicer-wasm scoped-config-interoperability`;
+- `pnpm --filter @orca/slicer-wasm scoped-config-interoperability:threaded`.

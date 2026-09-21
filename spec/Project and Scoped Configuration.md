@@ -230,6 +230,30 @@ for project filament selection and editable filament settings, as in OrcaSlicer.
 Live AMS/device state stays in Neo's device-management and runtime session
 boundaries; it is never serialized in the project or user profile.
 
+The native Project owner boundary is the upstream `PresetBundle::s_project_options`
+set plus Neo's controlled bridge-owned filament-routing extension:
+`wipe_tower_filament`, `support_filament`, `support_interface_filament`,
+`outer_wall_filament_id`, `inner_wall_filament_id`, `sparse_infill_filament_id`,
+`internal_solid_filament_id`, `top_surface_filament_id`, and
+`bottom_surface_filament_id`. These existing routing slots stay in native
+`project_config`, the Project history root, and the effective slice configuration
+because the dedicated filament-routing commands and native slicer already treat
+them as Project authority. They are deliberately not generic Project/Scoped
+catalogue keys and are rejected by the generic set/reset API; they are never
+encoded in or interpreted through `different_settings_to_system`. Other editable
+Project-scope Print options are local differences in the edited Print preset and
+round-trip through the standard embedded-preset/full-config path.
+
+When the first ordinary Project Print mutation changes an effective value, Neo
+materializes the selected native Print preset through Orca's
+`PresetCollection::save_current_preset(..., save_to_project=true)` path, with the
+selected preset as its parent. Equal-value requests, native Project-owner keys,
+and bridge-owned routing keys do not create that child. The child selection and
+its real parent-difference values are native Print-preset state captured in the
+project history context, so Undo/Redo restores the selection and embedded preset
+without a session sidecar. Native preset bookkeeping such as `inherits` and
+`print_settings_id` is never exposed as a generic Project override.
+
 Neo exposes a Plate-scoped parameter only when Orca's native BBS
 `Metadata/model_settings.config` writer can round-trip it. The supported native
 keys are `curr_bed_type`, `print_sequence`, `first_layer_print_sequence`,
@@ -385,6 +409,10 @@ filament-profile field. Object, Part, and Modifier material assignment remains s
 in Neo's existing typed filament-assignment controls and Worker commands, with their
 separate rack/session and Undo/Redo semantics. The generic surface must neither
 duplicate nor bypass that authority, including through its target-level Reset All.
+The bridge-owned Project filament-routing slots listed in section 9.1 follow the
+same boundary: their native values remain available to slicing and history, but
+they do not enter the generic catalogue or resettable key set and can be changed
+only by the dedicated routing commands.
 
 Initially, every otherwise eligible parameter remains present and editable regardless
 of feature dependencies on other parameters. The surface does not disable or hide a
@@ -458,6 +486,18 @@ including removal of keys absent from the target root. Filament/rack history sta
 longer serializes Project config; it retains only filament presets, edited filament
 state, slot colours, and related rack data. The two roots remain independently
 structurally shared when unchanged.
+
+The Project history root includes both the upstream native Project options and the
+bridge-owned routing slots from section 9.1. Restoring that root therefore restores
+the routing authority used by the effective slice, while the generic Project/Scoped
+catalogue still cannot edit or reset those slots.
+
+The history context also records native project-embedded Print preset selection and
+the parent-relative editable overrides needed to reconstruct a child after an
+Undo removes it. This is native preset state, not a Neo archive member or session
+sidecar. A first ordinary Project Print edit creates the child only when the
+effective value actually changes; no-op edits and Project-owner routing edits do
+not create one.
 
 A user command that changes both Project config and filament/rack state creates one
 atomic history entry. Restore applies both native roots together, while an unchanged
