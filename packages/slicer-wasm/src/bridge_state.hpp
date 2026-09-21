@@ -117,9 +117,6 @@ struct BridgeState {
         // colliding with the bridge's own schema. Values are intentionally
         // strings because that is the native model_settings.config wire type.
         nlohmann::json opaque_metadata = nlohmann::json::array();
-        // Future Neo per-plate fields are copied through without interpreting
-        // them, so newer producers can round-trip them through this version.
-        nlohmann::json future_metadata = nlohmann::json::object();
     };
     std::vector<PlateSessionPlate> plate_session_plates;
     std::string current_plate_id;

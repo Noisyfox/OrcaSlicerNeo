@@ -43,7 +43,7 @@ function sessionShape(snapshot) {
     plates: (snapshot.plates ?? []).map((plate) => ({
       plate_id: plate.plate_id, display_index: plate.display_index, origin: plate.origin,
       name: plate.name, locked: plate.locked, settings: plate.settings,
-      opaque_metadata: plate.opaque_metadata, future_metadata: plate.future_metadata,
+      opaque_metadata: plate.opaque_metadata,
       instance_ids: [...(plate.instance_ids ?? [])].sort((a, b) => a - b),
       out_of_bounds_instance_ids: [...(plate.out_of_bounds_instance_ids ?? [])].sort((a, b) => a - b),
       instance_keys: plateMembers(plate.instance_ids ?? []),
@@ -738,9 +738,9 @@ assertTransformEqual(modelMesh().instance_transform, branchReplacement, 'branch 
 // compaction/reorder path and exercises the same ordered session snapshot.
 const fixtureArchive = await readFile(resolve(repoRoot,
   'packages/slicer-wasm/fixtures/native-interoperability/orca-native-multi-plate.3mf'));
-// The pinned Neo metadata intentionally records both locks as false for the
-// interoperability fixture.  Change only the in-memory fixture copy so the
-// history baseline contains a real imported locked plate.
+// Change only the in-memory model_settings copy so the history baseline
+// contains a real imported locked plate; no Neo-private archive member is
+// involved.
 const fixtureEntries = readZipEntries(fixtureArchive);
 const fixturePaintStates = ['4', '8', '4', '8', '4', '8', '4', '8', '4', '8', '4', '8'];
 const fixtureModelEntry = fixtureEntries.find((entry) => entry.name === '3D/3dmodel.model');
@@ -753,19 +753,16 @@ fixtureModelEntry.content = new TextEncoder().encode(fixtureModelText.replace(
     ? source.replace('/>', ` paint_color="${fixturePaintStates[paintedTriangle++]}"/>`)
     : source,
 ));
+const fixtureSettingsEntry = fixtureEntries.find((entry) => entry.name === 'Metadata/model_settings.config');
+if (!fixtureSettingsEntry) throw new Error('native history fixture is missing Metadata/model_settings.config');
+let fixtureLockIndex = 0;
+const fixtureSettingsText = new TextDecoder().decode(fixtureSettingsEntry.content).replace(
+  /<metadata key="lock" value="false"\/>/g,
+  (source) => fixtureLockIndex++ === 1 ? source.replace('value="false"', 'value="true"') : source,
+);
+fixtureSettingsEntry.content = new TextEncoder().encode(fixtureSettingsText);
 historyCheck('paint the native structural history fixture',
   paintedTriangle === fixturePaintStates.length, `painted=${paintedTriangle}`);
-const fixtureMetadata = {
-  schema: 'org.orcaslicerneo.plate-session', version: 1, current_plate_index: 0,
-  plates: [
-    { plate_index: 0, origin: [0, 0, 0], name: 'Native Plate 1', locked: false,
-      settings: {}, opaque_metadata: [{ key: 'native_future_key', value: 'native-future-value' }] },
-    { plate_index: 1, origin: [248.4, 0, 0], name: 'Native Plate 2', locked: true,
-      settings: {}, opaque_metadata: [{ key: 'native_second_key', value: 'native-second-value' }] },
-  ],
-};
-fixtureEntries.push({ name: 'Metadata/orca_neo_plate_session_v1.json',
-  content: new TextEncoder().encode(JSON.stringify(fixtureMetadata)) });
 const fixtureBytes = writeStoredZip(fixtureEntries);
 let fixturePtr = writeBytes(fixtureBytes);
 const loadedFixture = callJson('orc_load_project',

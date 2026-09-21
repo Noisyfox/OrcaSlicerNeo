@@ -276,7 +276,7 @@ json option_metadata_json()
         const bool object = object_config.option(key) != nullptr || region_config.option(key) != nullptr;
         const bool part = region_config.option(key) != nullptr;
         if (project) scopes.push_back("project");
-        if (project) scopes.push_back("plate");
+        if (project && ScopedConfig::is_editable_plate_override_key(key)) scopes.push_back("plate");
         if (object) scopes.push_back("object");
         if (part) scopes.push_back("part");
         entry["scopes"] = std::move(scopes);

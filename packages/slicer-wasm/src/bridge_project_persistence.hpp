@@ -1,10 +1,9 @@
 // ----------------------------------------------------------------
 // Project archive persistence for the Neo WASM bridge.
 //
-// This module owns 3MF staging, native project interoperability, Neo sidecar
-// round-trip, preflight tokens, atomic replacement, geometry-only import, and
-// project export.  History transactions never call this module's full-bundle
-// staging boundary.
+// This module owns 3MF staging, native project interoperability, preflight
+// tokens, atomic replacement, geometry-only import, and project export.
+// History transactions never call this module's full-bundle staging boundary.
 // ----------------------------------------------------------------
 #pragma once
 
@@ -34,10 +33,7 @@ struct ImportedPlateRecord {
     bool invalid_index = false;
     std::string name;
     bool locked = false;
-    json settings = json::object();
     json opaque_metadata = json::array();
-    json future_metadata = json::object();
-    std::vector<std::pair<int, int>> instances;
 };
 
 // This narrow adapter is implemented by the bridge's existing filament

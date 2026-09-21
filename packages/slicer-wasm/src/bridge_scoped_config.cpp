@@ -39,6 +39,26 @@ using Neo::Bridge::ModelOperations::find_object_by_id;
 using Neo::Bridge::ModelOperations::find_volume_by_id;
 using namespace Neo::Bridge::PlateSession;
 
+bool is_editable_plate_override_key(const std::string& key)
+{
+    // Keep this list in lockstep with OrcaSlicer's editable plate override
+    // surface. The native BBS reader/writer also carries structural and
+    // derived PlateData fields; those remain native state but are not generic
+    // scoped mutation targets.
+    static const std::set<std::string> keys = {
+        "curr_bed_type",
+        "print_sequence",
+        "first_layer_print_sequence",
+        "other_layers_print_sequence",
+        "other_layers_print_sequence_nums",
+        "spiral_mode",
+        "filament_map_mode",
+        "filament_map",
+        "filament_volume_map",
+    };
+    return keys.find(key) != keys.end();
+}
+
 namespace {
 
 const char* duplicate_json(const std::string& value)
@@ -314,11 +334,16 @@ MutationRequest parse_request(const char* request_json)
 
 void validate_set_keys(const MutationRequest& request)
 {
-    if (request.operation != "set") return;
+    if (request.operation != "set" && request.operation != "reset") return;
     for (const auto& [key, value] : request.values) {
         const ConfigOptionDef& definition = require_definition(key);
         if (key == "wipe_tower_x" || key == "wipe_tower_y")
             throw MutationCommandError("unsupported_reference", "prime tower coordinates are scene-only");
+        if (std::any_of(request.targets.begin(), request.targets.end(), [](const MutationTarget& target) {
+                return target.scope == "plate";
+            }) && !is_editable_plate_override_key(key))
+            throw MutationCommandError("unsupported_reference",
+                                       "configuration option " + key + " is not supported for plate scope");
         (void) definition;
         (void) value;
     }
@@ -432,12 +457,6 @@ void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>
 {
     for (auto& plate : plates) {
         apply_native_config_values(plate.settings, plate.settings_metadata);
-        plate.settings.erase("wipe_tower_x");
-        plate.settings.erase("wipe_tower_y");
-        if (plate.settings_metadata.is_object()) {
-            plate.settings_metadata.erase("wipe_tower_x");
-            plate.settings_metadata.erase("wipe_tower_y");
-        }
         plate.settings_metadata = config_metadata_json(plate.settings);
     }
 }
@@ -471,7 +490,13 @@ json native_scoped_config_snapshot()
     }
     for (const auto& plate : state().plate_session_plates) {
         json plate_values = json::object();
-        append_config(plate_values, plate.settings);
+        for (const std::string& key : plate.settings.keys()) {
+            if (!is_editable_plate_override_key(key)) continue;
+            const auto* option = plate.settings.option(key);
+            if (option == nullptr) continue;
+            try { plate_values[key] = option->serialize(); }
+            catch (...) { /* retain only values the native config can serialize */ }
+        }
         plate_values.erase("wipe_tower_x");
         plate_values.erase("wipe_tower_y");
         if (!plate_values.empty()) snapshot["plates"][plate.id] = std::move(plate_values);

@@ -123,6 +123,15 @@ json config_values(const Slic3r::ConfigBase& config)
     return values;
 }
 
+json plate_scoped_projection(const json& values)
+{
+    json projected = json::object();
+    if (!values.is_object()) return projected;
+    for (auto it = values.begin(); it != values.end(); ++it)
+        if (Neo::Bridge::ScopedConfig::is_editable_plate_override_key(it.key())) projected[it.key()] = it.value();
+    return projected;
+}
+
 json native_scoped_config_from_history_roots(const Neo::History::TimestampedRoots& roots,
                                              const Model& model,
                                              const std::vector<BridgeState::PlateSessionPlate>& plates)
@@ -139,8 +148,13 @@ json native_scoped_config_from_history_roots(const Neo::History::TimestampedRoot
             if (!part_values.empty()) snapshot["parts"][std::to_string(volume->id().id)] = part_values;
         }
     }
-    for (const auto& plate : plates)
-        if (!plate.settings_metadata.empty()) snapshot["plates"][plate.id] = plate.settings_metadata;
+    // History retains the complete native plate metadata in its plate-session
+    // root.  Only the explicitly editable Plate keys belong in this disposable
+    // scoped-config projection.
+    for (const auto& plate : plates) {
+        const json projected = plate_scoped_projection(plate.settings_metadata);
+        if (!projected.empty()) snapshot["plates"][plate.id] = projected;
+    }
     return snapshot;
 }
 
@@ -179,7 +193,6 @@ void validate_history_plate_session(const json& session, const Model& model)
             !plate.contains("locked") || !plate["locked"].is_boolean() ||
             !plate.contains("settings") || !plate["settings"].is_object() ||
             !plate.contains("opaque_metadata") || !plate["opaque_metadata"].is_array() ||
-            !plate.contains("future_metadata") || !plate["future_metadata"].is_object() ||
             !plate.contains("instance_ids") || !plate["instance_ids"].is_array() ||
             !plate.contains("out_of_bounds_instance_ids") || !plate["out_of_bounds_instance_ids"].is_array())
             throw std::runtime_error("invalid history plate record");
@@ -278,7 +291,6 @@ std::vector<BridgeState::PlateSessionPlate> build_history_plate_session(const js
         plate.locked = record["locked"].get<bool>();
         plate.settings_metadata = record["settings"];
         plate.opaque_metadata = record["opaque_metadata"];
-        plate.future_metadata = record["future_metadata"];
         Neo::Bridge::ScopedConfig::apply_native_config_values(plate.settings, plate.settings_metadata);
         restored_plates.push_back(std::move(plate));
     }

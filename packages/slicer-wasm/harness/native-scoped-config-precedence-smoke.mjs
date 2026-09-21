@@ -8,7 +8,7 @@ import { argv } from 'node:process';
 import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
-import { setNativeScopedConfig } from './native-scoped-command.mjs';
+import { resetNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const opts = {};
@@ -21,6 +21,11 @@ if (!modulePath) {
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const encoder = new TextEncoder();
+const privateNeoEntryNames = [
+  'Metadata/orca_neo_config_overlay_v1.json',
+  'Metadata/orca_neo_plate_session_v1.json',
+  'Metadata/orca_neo_filament_state_v1.json',
+];
 const factory = await loadModuleFactory(modulePath);
 const Module = await factory({ noInitialRun: true, printErr: console.error });
 await installProfilePackages(Module, createNodeProfileSource(resolve(repoRoot, 'packages/profile-resources/dist')));
@@ -76,8 +81,14 @@ requireOk('set project Prepare override', setScoped('project', undefined, 'enabl
 requireOk('set project Prepare mode', setScoped('project', undefined, 'timelapse_type', '1'));
 session = requireOk('plate session after project override', callJson('orc_get_plate_session_snapshot'));
 const revisionAfterProject = session.input_revisions[plateId];
-requireOk('set plate override', setScoped('plate', plateId, 'layer_height', '0.16'));
-requireOk('set plate Prepare mode', setScoped('plate', plateId, 'timelapse_type', '0'));
+requireOk('set native plate bed type', setScoped('plate', plateId, 'curr_bed_type', 'Engineering Plate'));
+requireOk('set native plate spiral mode', setScoped('plate', plateId, 'spiral_mode', '1'));
+const unsupportedPlateOverride = setScoped('plate', plateId, 'layer_height', '0.16');
+if (unsupportedPlateOverride.ok || unsupportedPlateOverride.error_code !== 'unsupported_reference')
+  throw new Error(`unsupported plate option was not rejected: ${JSON.stringify(unsupportedPlateOverride)}`);
+const unsupportedPlateReset = resetNativeScopedConfig(callJson, 'plate', plateId, 'layer_height');
+if (unsupportedPlateReset.ok || unsupportedPlateReset.error_code !== 'unsupported_reference')
+  throw new Error(`unsupported plate reset was not rejected: ${JSON.stringify(unsupportedPlateReset)}`);
 session = requireOk('plate session after plate override', callJson('orc_get_plate_session_snapshot'));
 const revision = session.input_revisions[plateId];
 if (!(revision > revisionAfterProject))
@@ -85,35 +96,30 @@ if (!(revision > revisionAfterProject))
 
 let nativeScopedConfig = requireOk('read native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config.snapshot;
 if (nativeScopedConfig.project?.layer_height !== '0.24' ||
-    !Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
-  throw new Error(`conflicting project/plate native values were not retained: ${JSON.stringify(nativeScopedConfig)}`);
-
-function prepareProjectionForPlate(expectedPlateId) {
-  const projection = requireOk('Prepare projection', callJson('orc_get_prime_tower_projection'));
-  const plate = projection.plates?.find((candidate) => candidate.plate_id === expectedPlateId);
-  if (!plate || plate.forced !== false)
-    throw new Error(`plate override did not win in Prepare effective config: ${JSON.stringify(projection)}`);
-  return plate;
-}
-
-const firstPrepare = prepareProjectionForPlate(plateId);
+    !Object.values(nativeScopedConfig.plates ?? {}).some((values) =>
+      values?.curr_bed_type === 'Engineering Plate' && values?.spiral_mode === '1'))
+  throw new Error(`native project/plate values were not retained: ${JSON.stringify(nativeScopedConfig)}`);
 
 let sliced = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', plateId, revision]);
 requireOk('slice before round-trip', sliced);
 let first = firstExportedLayerSteps(sliced.receipt);
-if (Math.abs(first.steps[0] - 0.16) >= 0.005)
-  throw new Error(`plate override did not win before round-trip: ${JSON.stringify(first.steps)}`);
+if (Math.abs(first.steps[0] - 0.24) >= 0.005)
+  throw new Error(`project layer height did not reach the slice: ${JSON.stringify(first.steps)}`);
 
 const exportedProject = requireOk('export project', callJson('orc_export_project'));
 const projectBytes = readAndFree(exportedProject.bytes_ptr, exportedProject.bytes_length);
 const exportedEntries = readZipEntries(projectBytes);
-if (exportedEntries.some((entry) => entry.name === 'Metadata/orca_neo_config_overlay_v1.json'))
-  throw new Error('ordinary native 3MF save emitted the removed config overlay sidecar');
+if (exportedEntries.some((entry) => privateNeoEntryNames.includes(entry.name)))
+  throw new Error('ordinary native 3MF save emitted Neo-private project metadata');
 const projectWithLegacySidecar = writeStoredZip([
   ...exportedEntries,
   { name: 'Metadata/orca_neo_config_overlay_v1.json',
     content: encoder.encode(JSON.stringify({ schema: 'removed', project: { layer_height: '0.42' } })) },
+  { name: 'Metadata/orca_neo_plate_session_v1.json',
+    content: encoder.encode(JSON.stringify({ schema: 'removed', current_plate_index: 1 })) },
+  { name: 'Metadata/orca_neo_filament_state_v1.json',
+    content: encoder.encode(JSON.stringify({ schema: 'removed', state: { filament_presets: ['invalid'] } })) },
 ]);
 requireOk('clear model', callJson('orc_clear_model'));
 const projectPtr = writeBytes(projectWithLegacySidecar);
@@ -124,19 +130,24 @@ requireOk('reload project', loaded);
 
 nativeScopedConfig = requireOk('read round-tripped native scoped config', callJson('orc_get_native_scoped_config')).native_scoped_config.snapshot;
 if (nativeScopedConfig.project?.layer_height !== '0.24' ||
-    !Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
-  throw new Error(`native scoped values did not round-trip: ${JSON.stringify(nativeScopedConfig)}`);
+    !Object.values(nativeScopedConfig.plates ?? {}).some((values) =>
+      values?.curr_bed_type === 'Engineering Plate' && values?.spiral_mode === '1') ||
+    Object.values(nativeScopedConfig.plates ?? {}).some((values) => values?.layer_height === '0.16'))
+  throw new Error(`native BBS scoped values did not round-trip: ${JSON.stringify(nativeScopedConfig)}`);
 
 session = requireOk('round-tripped plate session', callJson('orc_get_plate_session_snapshot'));
 const reloadedPlate = session.current_plate_id;
-const secondPrepare = prepareProjectionForPlate(reloadedPlate);
 const reloadedRevision = session.input_revisions[reloadedPlate];
 sliced = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', reloadedPlate, reloadedRevision]);
 requireOk('slice after round-trip', sliced);
 const second = firstExportedLayerSteps(sliced.receipt);
-if (Math.abs(second.steps[0] - 0.16) >= 0.005)
-  throw new Error(`plate override did not win after round-trip: ${JSON.stringify(second.steps)}`);
+if (Math.abs(second.steps[0] - 0.24) >= 0.005)
+  throw new Error(`project layer height did not survive round-trip: ${JSON.stringify(second.steps)}`);
+const reloadedExport = requireOk('export after private metadata input', callJson('orc_export_project'));
+const reloadedEntries = readZipEntries(readAndFree(reloadedExport.bytes_ptr, reloadedExport.bytes_length));
+if (reloadedEntries.some((entry) => privateNeoEntryNames.includes(entry.name)))
+  throw new Error('private Neo metadata was reproduced after an ignored input');
 
 // Geometry-only import deliberately keeps only the native object extruder
 // assignment. Object and volume/part overrides are cleared on the appended
@@ -181,13 +192,12 @@ for (const volume of importedObject.volumes ?? []) {
 console.log(JSON.stringify({
   ok: true,
   projectLayerHeight: nativeScopedConfig.project.layer_height,
-  plateLayerHeight: '0.16',
+  plateBedType: Object.values(nativeScopedConfig.plates ?? {}).find((values) => values?.curr_bed_type)?.curr_bed_type,
+  plateSpiralMode: Object.values(nativeScopedConfig.plates ?? {}).find((values) => values?.spiral_mode)?.spiral_mode,
   beforeRoundTripSteps: first.steps,
   afterRoundTripSteps: second.steps,
-  beforeRoundTripPrepareForced: firstPrepare.forced,
-  afterRoundTripPrepareForced: secondPrepare.forced,
   exportedEntryNames: exportedEntries.map((entry) => entry.name),
-  legacySidecarIgnored: true,
+  neoPrivateMetadataIgnored: true,
   geometryOnlyObjectConfig: importedObjectConfig,
   geometryOnlyExpectedExtruder: expectedExtruder,
   loadedMode: loaded.mode,

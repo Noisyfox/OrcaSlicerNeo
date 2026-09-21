@@ -42,6 +42,11 @@ if (!modulePath) {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const legacySidecar = manifest.legacySidecar;
+const privateNeoEntries = manifest.legacyPrivateEntries ?? [
+  legacySidecar,
+  'Metadata/orca_neo_plate_session_v1.json',
+  'Metadata/orca_neo_filament_state_v1.json',
+];
 const unknownKey = manifest.unknownKeyFallback.key;
 
 function check(label, condition, detail = '') {
@@ -246,7 +251,7 @@ try {
   await writeFile(goldenPath, golden.bytes);
   const entries = readZipEntries(golden.bytes);
   check('golden native archive is a ZIP with model settings', entries.some(({ name }) => name === 'Metadata/model_settings.config'));
-  check('golden save has no removed configuration sidecar', !entries.some(({ name }) => name === legacySidecar));
+  check('golden save has no Neo-private project metadata', !entries.some(({ name }) => privateNeoEntries.includes(name)));
   check('golden preserves inaccessible Layer Range data', compareLayerRanges(parseLayerRanges(golden.bytes), manifest.golden.layerRanges));
   check('golden covers Project, Plate, Object, and every ModelVolume type',
     golden.normalized.objects.length === 1 && golden.normalized.objects[0].volumes.length === manifest.golden.volumes.length &&
@@ -265,10 +270,15 @@ try {
     JSON.stringify({ before: selectedScope(golden.normalized), after: selectedScope(reloaded) }));
   const reloadedExport = exportProject(Module);
   check('Layer Range survives Neo save after reopen', compareLayerRanges(parseLayerRanges(reloadedExport), manifest.golden.layerRanges));
-  check('Neo reopen/save still omits the removed sidecar', !readZipEntries(reloadedExport).some(({ name }) => name === legacySidecar));
+  check('Neo reopen/save still omits Neo-private project metadata',
+    !readZipEntries(reloadedExport).some(({ name }) => privateNeoEntries.includes(name)));
 
-  const legacy = addEntry(golden.bytes, legacySidecar,
+  let legacy = addEntry(golden.bytes, legacySidecar,
     JSON.stringify({ schema: 'removed', version: 1, project: { layer_height: '0.42', wall_loops: '99' } }));
+  legacy = addEntry(legacy, 'Metadata/orca_neo_plate_session_v1.json',
+    JSON.stringify({ schema: 'removed', version: 1, current_plate_index: 1 }));
+  legacy = addEntry(legacy, 'Metadata/orca_neo_filament_state_v1.json',
+    JSON.stringify({ schema: 'removed', version: 1, state: { filament_presets: ['invalid'] } }));
   const legacyLoaded = loadProject(Module, legacy, 'legacy-sidecar-negative.3mf');
   const legacySnapshot = normalizedSnapshot(Module);
   check('legacy config sidecar is ignored on open', legacyLoaded.ok === true &&
@@ -276,7 +286,8 @@ try {
     legacySnapshot.project.layer_height !== '0.42' &&
     !Object.hasOwn(legacySnapshot.project, 'wall_loops'));
   const legacyExport = exportProject(Module);
-  check('legacy config sidecar is not reproduced on save', !readZipEntries(legacyExport).some(({ name }) => name === legacySidecar));
+  check('legacy Neo-private metadata is not reproduced on save',
+    !readZipEntries(legacyExport).some(({ name }) => privateNeoEntries.includes(name)));
 
   const unknown = unknownKeyArchive(golden.bytes);
   const unknownLoaded = loadProject(Module, unknown, 'unknown-key-fallback.3mf');
@@ -306,7 +317,8 @@ try {
       orcaLoaded.ok === true && JSON.stringify(selectedScope(orcaNormalized)) === JSON.stringify(selectedScope(golden.normalized)),
       JSON.stringify({ expected: selectedScope(golden.normalized), actual: selectedScope(orcaNormalized) }));
     check('Orca round trip preserves inaccessible Layer Range data', compareLayerRanges(parseLayerRanges(orcaBytes), manifest.golden.layerRanges));
-    check('Orca round trip carries no removed Neo config sidecar', !readZipEntries(orcaBytes).some(({ name }) => name === legacySidecar));
+    check('Orca round trip carries no Neo-private project metadata',
+      !readZipEntries(orcaBytes).some(({ name }) => privateNeoEntries.includes(name)));
     console.log(`INFO Orca input copied to temporary path ${copied}`);
   } else if (opts['require-orca']) {
     check('fixed Orca archive is supplied', false, 'pass --orca-project <temporary or provisioned Orca save>');
@@ -325,7 +337,7 @@ try {
     },
     external_orca_checked: Boolean(opts['orca-project']),
     unknown_key_fallback_checked: true,
-    legacy_sidecar_negative_checked: true,
+    legacy_private_metadata_negative_checked: true,
   }));
 } catch (error) {
   console.error(error.stack ?? error);

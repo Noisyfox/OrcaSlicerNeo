@@ -135,11 +135,6 @@ export function verifyNativeProjectArchive(input) {
   return { plates, derivedArtifacts, entryNames: entries.map((entry) => entry.name) };
 }
 
-export function metadataEntry(input, name = 'Metadata/orca_neo_plate_session_v1.json') {
-  const entry = readZipEntries(input).find((item) => item.name === name);
-  return entry ? JSON.parse(decoder.decode(entry.content)) : null;
-}
-
 export function replaceEntry(input, name, content) {
   const entries = readZipEntries(input);
   const encoded = content instanceof Uint8Array ? content : encoder.encode(content);
@@ -147,8 +142,4 @@ export function replaceEntry(input, name, content) {
   if (index < 0) throw new Error(`ZIP entry not found: ${name}`);
   entries[index] = { ...entries[index], content: encoded };
   return writeStoredZip(entries);
-}
-
-export function removeEntries(input, predicate) {
-  return writeStoredZip(readZipEntries(input).filter((entry) => !predicate(entry.name)));
 }

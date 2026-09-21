@@ -261,7 +261,6 @@ json plate_session_snapshot_json(const json& instance_transforms, bool include_m
             {"valid", plate_valid}, {"locked", plate.locked},
             {"settings", plate.settings_metadata},
             {"opaque_metadata", plate.opaque_metadata},
-            {"future_metadata", plate.future_metadata},
         });
     }
     json result{

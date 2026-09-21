@@ -59,9 +59,9 @@ Repeat with the threaded script when validating the threaded module.
 The test compares normalized native maps by object, volume, and plate display
 order. It does not compare runtime IDs or ZIP/XML byte order. A genuinely
 unknown project option is reported as an explicit compatibility fallback and
-is not counted as a native round trip. The removed
-`Metadata/orca_neo_config_overlay_v1.json` entry is checked on both open and
-save.
+is not counted as a native round trip. The harness checks that all former
+`Metadata/orca_neo_*` entries are absent from saves and are ignored when
+injected into an input archive.
 
 The primary Odyssey project remains governed by the fixture-copy profile from
 Step 1; this Step 7 harness accepts a separately provisioned Orca output and

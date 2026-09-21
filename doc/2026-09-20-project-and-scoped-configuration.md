@@ -24,6 +24,17 @@ and runtime session, not the project or user profile.
 This living record contains the implementation sequence and verification evidence. It
 intentionally does not duplicate the normative decisions.
 
+The editable Plate-scope surface is constrained to the nine native keys that
+Orca's BBS `Metadata/model_settings.config` path can emit and read:
+`curr_bed_type`, `print_sequence`, `first_layer_print_sequence`,
+`other_layers_print_sequence`, `other_layers_print_sequence_nums`, `spiral_mode`,
+`filament_map_mode`, `filament_map`, and `filament_volume_map`. A Plate mutation for
+any other key is rejected with `unsupported_reference`; it is not retained in the
+editable scoped surface. The native `PlateData::config` and metadata remain intact,
+including BBS structural/derived fields such as `enable_filament_dynamic_map` and
+`has_filament_switcher`, and are preserved through history and the standard BBS
+writer.
+
 ## Approved implementation sequence
 
 Each numbered step is implemented by one new subagent. That subagent must complete its
@@ -48,8 +59,8 @@ the approved semantics in the normative specification.
    - Keep geometry-only import clearing semantics and preserve only its required native
      extruder assignment.
    - Acceptance: normal save writes no sidecar; open does not read/replay a legacy
-     sidecar; native scopes survive normal open/save; geometry-only import clears the
-     specified override scopes.
+     sidecar; native scopes survive normal open/save; unsupported Plate keys are
+     rejected; geometry-only import clears the specified override scopes.
 
 3. **Native scoped mutation, exact history roots, and invalidation**
    - Add Worker-owned typed set/reset/category-reset/reset-all operations over native
@@ -254,13 +265,14 @@ runtime transport, Worker/mock state, React-store authority, and the
 `Metadata/orca_neo_config_overlay_v1.json` production read/write/replay path have
 been removed without an internal compatibility alias. Native Project, Plate,
 `ModelObject`, and `ModelVolume` configuration is the sole persisted authority;
-the Worker-to-React map is explicitly a disposable native snapshot. Existing
-plate-session and filament metadata are separate, non-configuration sidecars and
-remain outside this decision.
+the Worker-to-React map is explicitly a disposable native snapshot. Plate
+selection, virtual layout, and live filament/device state are runtime session
+data and are not part of the archive.
 
 Normal export omits the removed sidecar. A focused negative test injects it into an
 otherwise valid archive and proves that opening the archive preserves the native
-values and slice result without parsing or replaying the injected data.
+values and slice result without parsing or replaying any injected Neo-private
+metadata. The native BBS writer now omits all `Metadata/orca_neo_*` members.
 Geometry-only import clears imported object and volume values while preserving only
 the valid native object `extruder` assignment. This step deliberately leaves
 versioned receipts, revision-gap recovery, and exact key-erasing history roots to
@@ -289,9 +301,8 @@ Range, Custom G-code, and scene-only coordinates.
 
 The Project history root is now a complete native map replacement: restoration
 removes keys absent from the historical root instead of merging them. Project
-configuration is absent from both the filament/rack history root and the filament
-metadata sidecar; ordinary native project settings retain valid local Project
-values. Invalidation is the target union: Project affects all plates; Plate only
+configuration is absent from the filament/rack history root; ordinary native
+project settings retain valid local Project values. Invalidation is the target union: Project affects all plates; Plate only
 itself; Object and Part every plate containing one of the target object's
 instances. History restore applies the same minimal-set rule.
 
@@ -301,7 +312,7 @@ Parent acceptance checks passed against freshly staged `out/serial` and
 - Native mutation smoke on serial and threaded WASM — passed (atomic rollback,
   clamp, bad parse no-op, erase reset Undo/Redo, and reset exclusions).
 - Native persistence precedence smoke on serial and threaded WASM — passed
-  (no removed sidecar, injected legacy sidecar ignored, native round trip, and
+  (no Neo-private metadata, injected legacy metadata ignored, native round trip, and
   geometry-only extruder-only import).
 - Threaded history smoke, serial configuration-scope invalidation smoke, and
   threaded multi-filament command smoke — passed; the latter reports all measured
@@ -388,13 +399,13 @@ named serial and threaded scoped-configuration interoperability harnesses genera
 temporary native BBS 3MF golden and verify normalized Project, two Plate, Object,
 normal Part, parameter-modifier, negative-volume, and support-blocker maps. They
 also verify preservation of Layer Range data, normal Neo save/open round trip, no
-removed overlay sidecar on save or replay on open, and the established unknown-key
+Neo-private metadata on save or replay on open, and the established unknown-key
 fallback (`compatibility: bambu`, project settings remain available, unknown key is
 not re-emitted). No source user project is written.
 
 The same harness implements the normal Neo -> Orca -> Neo stage as a strict optional
 input: it copies a fixed Orca-saved archive to a temporary directory, then compares
-the recognized normalized maps, Layer Range data, and absence of the removed sidecar.
+the recognized normalized maps, Layer Range data, and absence of Neo-private metadata.
 `--require-orca` fails if that external input is absent; no archive is fabricated.
 This workstation has neither a provisioned fixed Orca-saved archive nor an Orca
 executable, so the external invocation itself remains an explicitly recorded release
@@ -404,7 +415,7 @@ upstream core revision and exact provisioning command.
 Parent acceptance checks passed:
 
 - `pnpm --filter @orca/slicer-wasm scoped-config-interoperability` — serial native
-  golden, own round trip, sidecar-negative, and unknown-fallback checks passed.
+  golden, own round trip, private-metadata-negative, and unknown-fallback checks passed.
 - `pnpm --filter @orca/slicer-wasm scoped-config-interoperability:threaded` — the
   same threaded checks passed.
 - `node --check packages/slicer-wasm/harness/scoped-config-interoperability.mjs` and

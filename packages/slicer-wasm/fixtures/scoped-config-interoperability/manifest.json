@@ -35,5 +35,10 @@
     "key": "neo_step7_genuinely_unknown_key",
     "value": "must-not-be-a-native-roundtrip"
   },
-  "legacySidecar": "Metadata/orca_neo_config_overlay_v1.json"
+  "legacySidecar": "Metadata/orca_neo_config_overlay_v1.json",
+  "legacyPrivateEntries": [
+    "Metadata/orca_neo_config_overlay_v1.json",
+    "Metadata/orca_neo_plate_session_v1.json",
+    "Metadata/orca_neo_filament_state_v1.json"
+  ]
 }

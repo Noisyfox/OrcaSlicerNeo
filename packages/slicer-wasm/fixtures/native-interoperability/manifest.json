@@ -39,7 +39,7 @@
         {
           "display_index": 1,
           "name": "Native Plate 2",
-          "locked": false,
+          "locked": true,
           "instance_membership": [{ "object_index": 1, "instance_index": 0 }],
           "local_offsets": [[103.5, 127.5, 10]],
           "opaque_metadata": [{ "key": "native_second_key", "value": "native-second-value" }]

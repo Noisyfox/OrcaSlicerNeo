@@ -140,21 +140,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   };
   const metadata: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }> =
     opts.metadataKeys ?? {
-      // Keep the mock catalogue aligned with bridge_profiles.cpp: project and
-      // plate are PrintConfig/GCodeConfig keys, object includes
-      // PrintObjectConfig and PrintRegionConfig, and part is the
-      // PrintRegionConfig subset. The React catalogue must consume this
-      // authoritative scope list instead of treating every mock key as global.
-      layer_height: { type: 'float', scopes: ['object'] },
+      // Keep the mock catalogue aligned with bridge_profiles.cpp. Plate scope
+      // is limited to the explicit editable override keys; native BBS plate
+      // metadata/config fields outside this catalogue are not generic targets.
+      layer_height: { type: 'float', scopes: ['project', 'object'] },
       wall_loops: { type: 'int', scopes: ['object', 'part'] },
       sparse_infill_density: { type: 'percent', scopes: ['object', 'part'] },
       sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'], scopes: ['object', 'part'] },
       enable_support: { type: 'bool', scopes: ['object'] },
-      nozzle_temperature: { type: 'float', scopes: ['project', 'plate'] },
-      enable_prime_tower: { type: 'bool', scopes: ['project', 'plate'] },
-      prime_tower_width: { type: 'float', scopes: ['project', 'plate'] },
-      printable_area: { type: 'points', scopes: ['project', 'plate'] },
-      gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'], scopes: ['project', 'plate'] },
+      nozzle_temperature: { type: 'float', scopes: ['project'] },
+      enable_prime_tower: { type: 'bool', scopes: ['project'] },
+      prime_tower_width: { type: 'float', scopes: ['project'] },
+      printable_area: { type: 'points', scopes: ['project'] },
+      gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'], scopes: ['project'] },
+      curr_bed_type: { type: 'enum', enum_values: ['Cool Plate', 'Engineering Plate', 'Textured PEI Plate'], scopes: ['project', 'plate'] },
+      print_sequence: { type: 'enum', enum_values: ['by layer', 'by object'], scopes: ['project', 'plate'] },
+      first_layer_print_sequence: { type: 'ints', scopes: ['project', 'plate'] },
+      other_layers_print_sequence: { type: 'ints', scopes: ['project', 'plate'] },
+      other_layers_print_sequence_nums: { type: 'int', scopes: ['project', 'plate'] },
+      spiral_mode: { type: 'bool', scopes: ['project', 'plate'] },
+      filament_map_mode: { type: 'enum', enum_values: ['Auto', 'Manual'], scopes: ['project', 'plate'] },
+      filament_map: { type: 'ints', scopes: ['project', 'plate'] },
+      filament_volume_map: { type: 'ints', scopes: ['project', 'plate'] },
     };
   const projectWarningFixture = {
     modifiedPrinterGcode: false,
@@ -1547,6 +1554,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           if (request.operation === 'set') {
             for (const [key, value] of Object.entries(values)) {
               if (key === 'wipe_tower_x' || key === 'wipe_tower_y') return fail('prime tower coordinates are scene-only', 'unsupported_reference');
+              if (target.scope === 'plate' && !metadata[key]?.scopes?.includes('plate'))
+                return fail(`configuration option ${key} is not supported for plate scope`, 'unsupported_reference');
               const effective = clamp(key, value);
               bucket[key] = effective;
               if (effective !== value && !corrections.some((item) => item.key === key && item.effective === effective))
@@ -1556,6 +1565,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             const key = Object.keys(values)[0];
             if (!(key in metadata)) return fail(`unsupported project configuration option: ${key}`, 'unsupported_reference');
             if (key === 'wipe_tower_x' || key === 'wipe_tower_y') return fail('prime tower coordinates are scene-only', 'unsupported_reference');
+            if (target.scope === 'plate' && !metadata[key]?.scopes?.includes('plate'))
+              return fail(`configuration option ${key} is not supported for plate scope`, 'unsupported_reference');
             delete bucket[key];
           } else {
             for (const key of Object.keys(bucket)) {
@@ -1597,7 +1608,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (!(key in metadata)) delete nativeScopedConfig.project[key];
       for (const scope of [nativeScopedConfig.objects, nativeScopedConfig.parts, nativeScopedConfig.plates]) {
         for (const [id, values] of Object.entries(scope)) {
-          for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
+          for (const key of Object.keys(values)) {
+            if (!(key in metadata) || (scope === nativeScopedConfig.plates && !metadata[key]?.scopes?.includes('plate')))
+              delete values[key];
+          }
           if (Object.keys(values).length === 0) delete scope[id];
         }
       }

@@ -671,16 +671,11 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
           ? { key: item.key, value: item.value } : null;
       }) : undefined;
     if (hasOpaqueMetadata && (!opaqueMetadata || opaqueMetadata.some((entry) => entry === null))) return null;
-    const hasFutureMetadata = plate.future_metadata !== undefined;
-    const futureMetadata = hasFutureMetadata && plate.future_metadata && typeof plate.future_metadata === 'object' && !Array.isArray(plate.future_metadata)
-      ? plate.future_metadata as Readonly<Record<string, unknown>> : undefined;
-    if (hasFutureMetadata && !futureMetadata) return null;
     return {
       ...normalized,
       ...(typeof plate.locked === 'boolean' ? { locked: plate.locked } : {}),
       ...(settings ? { settings } : {}),
       ...(opaqueMetadata ? { opaqueMetadata: opaqueMetadata as { key: string; value: string }[] } : {}),
-      ...(futureMetadata ? { futureMetadata } : {}),
       ...(Array.isArray(plate.instance_ids) && plate.instance_ids.every((id) => Number.isSafeInteger(id))
         ? { instanceIds: plate.instance_ids as number[] } : {}),
       ...(Array.isArray(plate.out_of_bounds_instance_ids) && plate.out_of_bounds_instance_ids.every((id) => Number.isSafeInteger(id))

@@ -191,9 +191,9 @@ configuration authority:
 - Object overrides are stored in `ModelObject::config`.
 - Part and modifier overrides are stored in their `ModelVolume::config`.
 
-Neo may use transient or migration metadata, but it must never establish a
-second readable configuration authority. A project saved by Neo must preserve
-these scoped settings when opened by OrcaSlicer.
+Neo may keep session-only state in runtime memory, but it must not persist a
+second configuration authority. A project saved by Neo must preserve these
+scoped settings when opened by OrcaSlicer.
 
 On project open, valid recognized native values are restored at their native
 scope. The shared UI exposes only the eligible keys in this specification, but
@@ -222,12 +222,25 @@ The archive contains only the standard BBS/Orca project data emitted by the nati
 writer.
 
 The standard BBS plate data remains responsible for persisted plate structure,
-membership, names, locks, and plate-local configuration. Neo's currently selected
-plate and virtual editing layout are session-only and are reconstructed
-deterministically on open. Standard BBS project configuration and embedded preset
-records remain responsible for project filament selection and editable filament
-settings, as in OrcaSlicer. Live AMS/device state stays in Neo's device-management
-and runtime session boundaries; it is never serialized in the project or user profile.
+membership, names, locks, and the complete native `PlateData::config` and
+metadata needed by Orca's slicing path. Neo's currently selected plate and virtual
+editing layout are session-only and are reconstructed deterministically on open.
+Standard BBS project configuration and embedded preset records remain responsible
+for project filament selection and editable filament settings, as in OrcaSlicer.
+Live AMS/device state stays in Neo's device-management and runtime session
+boundaries; it is never serialized in the project or user profile.
+
+Neo exposes a Plate-scoped parameter only when Orca's native BBS
+`Metadata/model_settings.config` writer can round-trip it. The supported native
+keys are `curr_bed_type`, `print_sequence`, `first_layer_print_sequence`,
+`other_layers_print_sequence`, `other_layers_print_sequence_nums`, `spiral_mode`,
+`filament_map_mode`, `filament_map`, and `filament_volume_map`. A set or reset
+request for any other key at Plate scope is rejected with `unsupported_reference`;
+the key is not exposed as an editable scoped override. Other native BBS plate
+fields (including structural or derived metadata such as
+`enable_filament_dynamic_map` and `has_filament_switcher`) remain intact in the
+native plate state, history frames, and standard BBS save path, but are not part
+of the generic editable Plate-scope surface.
 
 ## 10. Base-preset transitions
 

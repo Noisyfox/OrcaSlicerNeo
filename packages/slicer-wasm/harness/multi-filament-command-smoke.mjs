@@ -5,7 +5,7 @@ import { argv } from 'node:process';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
-import { metadataEntry } from './native-3mf-parser.mjs';
+import { readZipEntries } from './native-3mf-parser.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -192,12 +192,8 @@ assert.deepEqual(callJson('orc_get_filament_session_snapshot'), capacitySnapshot
 const exported64 = callJson('orc_export_project');
 assert.equal(exported64.ok, true, JSON.stringify(exported64));
 const project64 = readBytes(exported64.bytes_ptr, exported64.bytes_length);
-const sidecar64 = metadataEntry(project64, 'Metadata/orca_neo_filament_state_v1.json');
-assert.ok(sidecar64?.state?.filament_presets, '64-slot project must carry the Neo filament sidecar');
-assert.equal(Object.hasOwn(sidecar64.state, 'project_config'), false,
-  'filament sidecar must not mirror native Project config');
-assert.equal(Object.hasOwn(sidecar64.state, 'selected_filament_preset'), false,
-  'multi-filament sidecar must not serialize a single selected filament');
+assert.deepEqual(readZipEntries(project64).filter(({ name }) => name.startsWith('Metadata/orca_neo_')), [],
+  '64-slot project must not carry Neo-private project metadata');
 const reloaded64 = loadProject(project64, 'capacity-64-roundtrip.3mf');
 assert.equal(reloaded64.ok, true, JSON.stringify(reloaded64));
 const session64 = callJson('orc_get_filament_session_snapshot');
@@ -467,15 +463,19 @@ const objectId = structureBeforeReference.objects[0]?.id;
 assert.ok(objectId, JSON.stringify(structureBeforeReference));
 const assignedObject = setNativeScopedConfig(callJson, 'object', String(objectId), 'extruder', '2');
 assert.equal(assignedObject.ok, true, JSON.stringify(assignedObject));
-const unrelated = setNativeScopedConfig(callJson, 'project', undefined, 'filament_flush_temp', '200,210');
+const unrelated = setNativeScopedConfig(callJson, 'project', undefined, 'flush_multiplier', '1.15');
 assert.equal(unrelated.ok, true, JSON.stringify(unrelated));
-const unrelatedBefore = JSON.stringify(unrelated.native_scoped_config.project.filament_flush_temp);
+const unrelatedValues = unrelated.native_scoped_config?.replacements?.find((entry) => entry.scope === 'project')?.values;
+if (unrelatedValues?.flush_multiplier === undefined)
+  throw new Error(`project native config did not retain flush_multiplier: ${JSON.stringify(unrelated)}`);
+const unrelatedBefore = JSON.stringify(unrelatedValues.flush_multiplier);
+snapshot = callJson('orc_get_filament_session_snapshot');
 const remapped = request('orc_delete_filament_slot', { version: 1, revision: snapshot.revisions.session, slot: 1 });
 assert.equal(remapped.ok, true, JSON.stringify(remapped));
 assert.equal(remapped.result.snapshot.assignments.objects[0].explicit_slot, 1,
   JSON.stringify(remapped.result.snapshot.assignments));
 const unrelatedAfter = callJson('orc_get_native_scoped_config');
-assert.equal(JSON.stringify(unrelatedAfter.native_scoped_config.project.filament_flush_temp), unrelatedBefore,
+assert.equal(JSON.stringify(unrelatedAfter.native_scoped_config.snapshot.project.flush_multiplier), unrelatedBefore,
   JSON.stringify(unrelatedAfter));
 markStage('preset-and-reference-retention');
 

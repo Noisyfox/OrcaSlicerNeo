@@ -27,29 +27,6 @@ json history_state_json(const PresetBundle& bundle)
     };
 }
 
-void apply_filament_state_metadata(PresetBundle& bundle, const json& encoded)
-{
-    if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
-        !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
-        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64)
-        throw std::runtime_error("invalid project filament sidecar state");
-
-    std::vector<std::string> names;
-    names.reserve(encoded["filament_presets"].size());
-    for (const auto& value : encoded["filament_presets"]) {
-        if (!value.is_string() || value.get<std::string>().empty())
-            throw std::runtime_error("invalid history filament preset name");
-        const std::string name = value.get<std::string>();
-        if (bundle.filaments.find_preset(name, false, true) == nullptr)
-            throw std::runtime_error("history filament preset is unavailable");
-        names.push_back(name);
-    }
-    bundle.set_num_filaments(static_cast<unsigned int>(names.size()));
-    bundle.filament_presets = names;
-    for (std::size_t index = 0; index < names.size(); ++index)
-        bundle.set_filament_preset(index, names[index]);
-}
-
 static void apply_serialized_config_values(DynamicPrintConfig& config, const json& values)
 {
     if (!values.is_object()) return;

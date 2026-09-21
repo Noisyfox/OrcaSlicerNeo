@@ -672,10 +672,10 @@ describe('SlicerClient bridge contract', () => {
     if (!plateSession.ok) throw new Error(plateSession.error);
     const plateId = plateSession.currentPlateId;
     const plateRevision = plateSession.inputRevisions?.[plateId] ?? 0;
-    await expect(c.setNativeScopedConfig({ scope: 'plate', id: plateId }, 'layer_height', '0.12'))
+    await expect(c.setNativeScopedConfig({ scope: 'plate', id: plateId }, 'curr_bed_type', 'Engineering Plate'))
       .resolves.toMatchObject({
         nativeScopedConfig: { kind: 'affected',
-          replacements: [{ scope: 'plate', id: plateId, values: { layer_height: '0.12' } }] },
+          replacements: [{ scope: 'plate', id: plateId, values: { curr_bed_type: 'Engineering Plate' } }] },
         plateSession: { affectedPlateIds: [plateId], inputRevisions: { [plateId]: plateRevision + 1 } },
       });
     const revalidated = await c.revalidateNativeScopedConfig();

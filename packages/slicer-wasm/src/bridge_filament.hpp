@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------
 // Multi-filament bridge domain.
 //
-// The domain owns mutable filament state/history sidecars, atomic command
+// The domain owns mutable filament state/history, atomic command
 // transactions, the session projection, and their narrow ABI facade.  It
 // never copies the immutable PresetBundle catalogue and does not change the
 // bridge protocol or exported function signatures.
@@ -31,8 +31,6 @@ namespace State {
 
 json config_metadata_json(const DynamicPrintConfig& config);
 json history_state_json(const PresetBundle& bundle);
-
-void apply_filament_state_metadata(PresetBundle& bundle, const json& encoded);
 
 struct StagedMutableState {
     std::vector<std::string> names;

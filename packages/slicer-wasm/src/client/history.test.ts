@@ -77,7 +77,7 @@ describe('history contracts', () => {
     const nativeSession = {
       ok: true, version: 1, current_plate_id: 'plate-1',
       plates: [{ plate_id: 'plate-1', display_index: 0, origin: [0, 0, 0], name: 'Plate',
-        locked: false, settings: {}, opaque_metadata: [], future_metadata: {}, instance_ids: [303],
+        locked: false, settings: {}, opaque_metadata: [], instance_ids: [303],
         out_of_bounds_instance_ids: [], valid: true }],
       instances: [{ instance_id: 303, object_id: 101, object_index: 0, instance_index: 0,
         plate_id: 'plate-1', member: true, parked: false, unprintable: false, out_of_bounds: false }],

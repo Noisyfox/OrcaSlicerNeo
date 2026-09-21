@@ -56,8 +56,6 @@ export interface PlateSessionPlate {
   readonly instanceIds?: readonly number[];
   readonly outOfBoundsInstanceIds?: readonly number[];
   readonly valid?: boolean;
-  /** Forward-compatible native metadata retained for session comparisons. */
-  readonly futureMetadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface PlateSessionInstance {
