@@ -128,22 +128,6 @@ const char* native_configuration_error_json(const std::string& code,
                                {"status", {{"state", "error"}, {"error", message}}}}.dump());
 }
 
-template <typename Config>
-json native_configuration_status(const Config& config,
-                                  const std::map<std::string, std::string>& requested_values)
-{
-    json corrections = json::array();
-    for (const auto& [key, requested] : requested_values) {
-        const ConfigOption* option = config.option(key);
-        if (option == nullptr) continue;
-        const std::string effective = option->serialize();
-        if (effective != requested)
-            corrections.push_back({{"key", key}, {"requested", requested}, {"effective", effective}});
-    }
-    return json{{"state", "ready"}, {"corrections", std::move(corrections)},
-                {"warnings", json::array()}, {"errors", json::array()}};
-}
-
 struct ModelMutationSnapshot {
     std::vector<std::pair<ModelObject*, ModelConfig>> object_configs;
     std::vector<std::pair<ModelVolume*, ModelConfig>> volume_configs;
@@ -190,20 +174,6 @@ void apply_native_values_generic(Config& config, const json& values)
         try { config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
         catch (...) { /* invalid retained values are ignored at slice time */ }
     }
-}
-
-template <class Config>
-void replace_native_values_strict(Config& config, const json& values)
-{
-    if (!values.is_object()) throw std::runtime_error("native configuration values must be an object");
-    Config candidate;
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        if (!it.value().is_string())
-            throw std::runtime_error("native configuration values must be strings");
-        candidate.set_deserialize(it.key(), it.value().get<std::string>(), substitutions);
-    }
-    config = std::move(candidate);
 }
 
 struct MutationCommandError : std::runtime_error {
@@ -882,11 +852,6 @@ void apply_native_config_values(DynamicPrintConfig& config, const json& values)
 void apply_native_config_values(ModelConfig& config, const json& values)
 {
     apply_native_values_generic(config, values);
-}
-
-void replace_native_config_values(DynamicPrintConfig& config, const json& values)
-{
-    replace_native_values_strict(config, values);
 }
 
 void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>& plates)
