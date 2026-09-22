@@ -56,3 +56,22 @@ Plate input revisions are globally monotonic stamps. A mutation test therefore
 asserts strict advancement for affected plates and exact preservation for
 unaffected plates; it does not require a local `+1` sequence after unrelated
 plate operations have consumed stamps.
+
+## Final verification
+
+- `pnpm test`: 929 tests passed across all eight workspace packages/apps.
+- `pnpm typecheck`: all workspace projects passed.
+- `scripts\build-windows.bat quick --variant both`: serial and threaded WASM
+  rebuilt, validated, and staged successfully.
+- The affected native harness set passed for both variants, including scoped
+  invalidation, multi-filament routing/projection, prime-tower lifecycle and
+  collision validation, local slicing, and plate session lifecycle.
+- The full release gate's repository, dual smoke, mock Electron, real Electron,
+  Web serial/threaded, and scoped interoperability groups passed. The Windows
+  run necessarily skips the macOS native-menu case; real DRC/STEP, multi-
+  filament, and slice-error cases were covered by the real focused groups.
+- Clean serial performance replacement cells passed at 624 samples each with
+  zero functional failures and zero samples over the 200 ms budget. Reports are
+  in `%TEMP%\neo-final-serial-perf`.
+- Production renderer assets were restored after diagnostic runs and the real
+  project profile exclusion check passed.
