@@ -44,3 +44,15 @@ codes, plus the existing native filament-slot substitution flow. Validate after
 loading embedded presets and before `load_config_model`, matching Orca Plater.
 Do not supplement Orca's result with independent preset diffs. Cover both the clean
 roundtrip and actual warning conditions through the real native bridge.
+
+The generic Project override boundary now uses `Preset::print_options()` rather
+than the aggregate `print_config_def`. Printer and filament options therefore
+return `unsupported_reference` instead of being accepted and then overwritten
+by native preset assembly. Prime-tower exclusion and wrapping diagnostics are
+verified through temporary slice inputs, where Orca's native validation remains
+blocking and returns its original collision diagnostics.
+
+Plate input revisions are globally monotonic stamps. A mutation test therefore
+asserts strict advancement for affected plates and exact preservation for
+unaffected plates; it does not require a local `+1` sequence after unrelated
+plate operations have consumed stamps.

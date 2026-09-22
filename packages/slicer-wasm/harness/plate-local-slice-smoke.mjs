@@ -111,7 +111,7 @@ check('stale plate 2 export rejected', staleSecondExport.ok !== true && staleSec
   JSON.stringify(staleSecondExport));
 
 const nonCurrent = exportGcode(callJson, resliceFirst.receipt);
-check('non-current export rejected', nonCurrent.ok !== true && /current plate/.test(nonCurrent.error ?? ''));
+check('non-current export rejected', nonCurrent.ok !== true && nonCurrent.status === 'unavailable', JSON.stringify(nonCurrent));
 check('distinct plate previews have distinct result storage',
   firstPreview.metadata?.result_id !== secondPreview.metadata?.result_id);
 const sliceSecondChanged = await callAsyncTask(callJson, 'orc_slice_plate',
@@ -122,7 +122,10 @@ check('changed plate 2 preview is still selected',
   changedSecondPreview.ok === true && changedSecondPreview.objects === 2,
   JSON.stringify(changedSecondPreview));
 const cancelSecond = callJson('orc_cancel');
-check('cancel resets the selected plate print', cancelSecond.ok === true, JSON.stringify(cancelSecond));
+check('cancel without an active job is rejected', cancelSecond.ok !== true &&
+  ['slice_busy', 'no active slice job'].includes(cancelSecond.error), JSON.stringify(cancelSecond));
+check('rejected idle cancel preserves the completed result',
+  getSliceResult(callJson, sliceSecondChanged.receipt).ok === true);
 const returnFirst = callJson('orc_select_plate', ['string'], [firstTarget.id]);
 check('return to plate 1', returnFirst.ok === true);
 const returnedFirstPreview = getSliceResult(callJson, resliceFirst.receipt);

@@ -113,7 +113,7 @@ for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 // touched when native option parsing fails.
 const beforeRejectSession = session();
 const beforeRejectSnapshot = requireOk('snapshot before rejection', callJson('orc_get_native_scoped_config'));
-const rejected = setOverride('plate', plateA, 'layer_height', 'not-a-number');
+const rejected = setOverride('plate', plateA, 'print_sequence', 'not-a-sequence');
 if (rejected.ok || rejected.error_code !== 'native_validation_failure')
   throw new Error(`invalid plate override was not rejected: ${JSON.stringify(rejected)}`);
 if (!sameJson(session(), beforeRejectSession) ||
@@ -124,7 +124,7 @@ for (const plateId of [plateA, plateB, plateC]) requireOk(`result retained after
 // Plate-local mutation and its history restore touch A only.
 let before = stamps();
 const plateTx = begin('Plate Configuration');
-const plateEdit = requireOk('plate-local override', setOverride('plate', plateA, 'layer_height', '0.16'));
+const plateEdit = requireOk('plate-local override', setOverride('plate', plateA, 'print_sequence', 'by object'));
 if (!sameJson(plateEdit.plate_session.affected_plate_ids, [plateA]))
   throw new Error(`plate-local affected set is wrong: ${JSON.stringify(plateEdit)}`);
 let after = stamps();
@@ -151,7 +151,7 @@ await slice(plateA);
 // Aborting a published local edit restores both stamps and presentation.
 const beforeAbort = stamps();
 const abortTx = begin('Abort Plate Configuration');
-requireOk('temporary plate override', setOverride('plate', plateA, 'layer_height', '0.18'));
+requireOk('temporary plate override', setOverride('plate', plateA, 'print_sequence', 'by layer'));
 requireStale('A stale during aborted edit', result(plateA));
 requireOk('abort plate configuration', callJson('orc_history_abort', ['string'], [abortTx.transactionId]));
 if (!sameJson(stamps(), beforeAbort)) throw new Error(`abort did not restore stamps: ${JSON.stringify({ beforeAbort, after: stamps() })}`);
@@ -218,7 +218,7 @@ for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
 // Project configuration remains the shared/global boundary.
 before = stamps();
-const globalEdit = requireOk('global override', setOverride('project', '', 'layer_height', '0.20'));
+const globalEdit = requireOk('global override', setOverride('project', '', 'layer_height', '0.24'));
 after = stamps();
 expectScope('global edit', before, after, [plateA, plateB, plateC], []);
 if (!sameJson(globalEdit.plate_session.affected_plate_ids, [plateA, plateB, plateC]))

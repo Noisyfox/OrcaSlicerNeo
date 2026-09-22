@@ -28,7 +28,7 @@ function arrays() {
   assert.equal(snapshot.ok, true, JSON.stringify(snapshot));
   const projection = callJson('orc_get_prime_tower_projection');
   const values = Object.fromEntries([['wipe_tower_x', 'x'], ['wipe_tower_y', 'y']].map(([key, axis]) => [key,
-    (snapshot.native_scoped_config.project[key] ?? String(projection.plates[0].position[axis])).split(',').map(Number)]));
+    (snapshot.native_scoped_config.snapshot.project[key] ?? String(projection.plates[0].position[axis])).split(',').map(Number)]));
   assert.ok(Object.values(values).every((items) => items.length > 0 && items.every(Number.isFinite)),
     JSON.stringify({ snapshot, projection, values }));
   return values;
@@ -186,18 +186,32 @@ assert.equal(moved.ok, true, JSON.stringify(moved));
 const modelSlice = await sliceCurrentPlate();
 assert.ok(modelSlice.warnings.includes('Prime Tower intersects a model.'), JSON.stringify(modelSlice));
 
-assert.equal(setProject('bed_exclude_area', collisionArea).ok, true);
-const exclusionSlice = await sliceCurrentPlate();
-assert.ok(exclusionSlice.warnings.includes('Prime Tower intersects an exclusion area.'), JSON.stringify(exclusionSlice));
+const rejectedPrinterOption = setProject('bed_exclude_area', collisionArea);
+assert.equal(rejectedPrinterOption.ok, false, JSON.stringify(rejectedPrinterOption));
+assert.equal(rejectedPrinterOption.error_code, 'unsupported_reference', JSON.stringify(rejectedPrinterOption));
+const exclusionContext = assertNoPlateCoordinates();
+const exclusionSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  [JSON.stringify({ bed_exclude_area: collisionArea }), exclusionContext.current_plate_id,
+    exclusionContext.input_revisions[exclusionContext.current_plate_id]]);
+assert.notEqual(exclusionSlice.ok, true, JSON.stringify(exclusionSlice));
+assert.match(exclusionSlice.error ?? '', /Prime Tower is too close to an exclusion area, and collisions will be caused/,
+  JSON.stringify(exclusionSlice));
 const combinedPlate = assertNoPlateCoordinates();
 const combinedCollisionAndInvalidConfig = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify({ nozzle_temperature: [1, 2] }), combinedPlate.current_plate_id,
     combinedPlate.input_revisions[combinedPlate.current_plate_id]]);
 assert.notEqual(combinedCollisionAndInvalidConfig.ok, true, JSON.stringify(combinedCollisionAndInvalidConfig));
 
-assert.equal(setProject('wrapping_exclude_area', collisionArea).ok, true);
-const wrappingSlice = await sliceCurrentPlate();
-assert.ok(wrappingSlice.warnings.includes('Prime Tower intersects a wrapping-detection area.'), JSON.stringify(wrappingSlice));
+const rejectedWrappingOption = setProject('wrapping_exclude_area', collisionArea);
+assert.equal(rejectedWrappingOption.ok, false, JSON.stringify(rejectedWrappingOption));
+assert.equal(rejectedWrappingOption.error_code, 'unsupported_reference', JSON.stringify(rejectedWrappingOption));
+const wrappingContext = assertNoPlateCoordinates();
+const wrappingSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  [JSON.stringify({ enable_wrapping_detection: '1', wrapping_exclude_area: collisionArea }), wrappingContext.current_plate_id,
+    wrappingContext.input_revisions[wrappingContext.current_plate_id]]);
+assert.notEqual(wrappingSlice.ok, true, JSON.stringify(wrappingSlice));
+assert.match(wrappingSlice.error ?? '', /Prime Tower is too close to clumping detection area, and collisions will be caused/,
+  JSON.stringify(wrappingSlice));
 
 // Unrelated native validation remains a hard error.
 const hardError = await callAsyncTask(callJson, 'orc_slice', ['string'],
@@ -207,5 +221,5 @@ assert.notEqual(hardError.ok, true, JSON.stringify(hardError));
 console.log(JSON.stringify({ ok: true, historyEntries: colourCommit.undoEntries.length,
   fullPresetBundleCopyCount: callJson('orc_history_restore_diagnostics').fullPresetBundleCopyCount,
   normalizedCoordinates: arrays(), effectiveWidth: wideSetting.configuration_status?.corrections,
-  warnings: { model: modelSlice.warnings.length, exclusion: exclusionSlice.warnings.length, wrapping: wrappingSlice.warnings.length },
+  diagnostics: { modelWarnings: modelSlice.warnings.length, exclusion: exclusionSlice.error, wrapping: wrappingSlice.error },
   hardError: true }));

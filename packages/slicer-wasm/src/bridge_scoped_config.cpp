@@ -374,8 +374,15 @@ bool is_project_print_override_key(const std::string& key)
         "print_compatible_printers",
         "filament_ids",
     };
+    // A Project Print override is stored in the edited Print preset.  Merely
+    // being present in the aggregate FFF config is not sufficient: printer
+    // and filament options are also present there, but the native full-config
+    // assembly applies those presets after the Print preset and would silently
+    // overwrite an incorrectly accepted override.  Keep the bridge boundary
+    // aligned with Orca's actual Print-preset ownership list.
+    const auto& print_options = Preset::print_options();
     return profile_metadata_keys.find(key) == profile_metadata_keys.end() &&
-        Slic3r::print_config_def.get(key) != nullptr;
+        std::find(print_options.begin(), print_options.end(), key) != print_options.end();
 }
 
 std::vector<std::string> edited_print_override_keys()

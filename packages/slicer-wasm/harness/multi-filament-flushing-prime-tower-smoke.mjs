@@ -135,7 +135,8 @@ let result = setNativeScopedConfig(callJson, 'project', undefined, 'enable_prime
 assert.equal(result.ok, true, JSON.stringify(result));
 assert.deepEqual(result.plate_session.affected_plate_ids, plateIds);
 assert.equal(result.configuration_status.state, 'ready');
-assert.equal(result.native_scoped_config.project.enable_prime_tower, '0');
+assert.equal(result.native_scoped_config.kind, 'affected');
+assert.equal(result.native_scoped_config.replacements.find(entry => entry.scope === 'project').values.enable_prime_tower, '0');
 result = setNativeScopedConfig(callJson, 'project', undefined, 'prime_tower_width', '25');
 assert.equal(result.ok, true, JSON.stringify(result));
 assert.equal(result.configuration_status.state, 'ready');

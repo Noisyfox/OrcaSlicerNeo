@@ -58,6 +58,7 @@ setNativeScopedConfig(callJson, 'project', undefined, 'timelapse_type', '0');
 const second = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'second projection cube']);
 assert.equal(second.ok, true, JSON.stringify(second));
 const objectId = callJson('orc_get_model_structure').objects[1].id;
+session = callJson('orc_get_filament_session_snapshot');
 const assigned = request('orc_assign_filament', {
   version: 1, revision: session.revisions.session, slot: 2,
   targets: [{ kind: 'object', id: objectId }],

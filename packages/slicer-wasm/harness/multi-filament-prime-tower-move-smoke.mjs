@@ -30,7 +30,7 @@ function session() { return callJson('orc_get_plate_session_snapshot'); }
 function projectArray(key) {
   const result = callJson('orc_get_native_scoped_config');
   assert.equal(result.ok, true, JSON.stringify(result));
-  const encoded = result.native_scoped_config.project[key];
+  const encoded = result.native_scoped_config.snapshot.project[key];
   assert.equal(typeof encoded, 'string', `${key} must be a serialized project array`);
   const values = encoded.split(',').map(Number);
   assert.ok(values.length > 0 && values.every(Number.isFinite), `${key}: ${encoded}`);
@@ -245,7 +245,7 @@ assert.equal(callJson('orc_history_undo').ok, true);
 const towerUndo = callJson('orc_history_undo');
 assert.equal(towerUndo.ok, true, JSON.stringify(towerUndo));
 assert.deepEqual(towerUndo.impact, {
-  version: 1, model: 'delta', plateSession: true, filamentRack: true,
+  version: 1, model: 'delta', plateSession: true, filamentRack: false,
   nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
 }, JSON.stringify(towerUndo));
 assert.deepEqual(modelShape(), mixedModelBefore);

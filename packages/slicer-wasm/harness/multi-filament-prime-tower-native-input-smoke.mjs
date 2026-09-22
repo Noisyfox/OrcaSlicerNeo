@@ -85,6 +85,16 @@ function setProject(key, value) {
   const result = setNativeScopedConfig(callJson, 'project', undefined, key, value);
   assert.equal(result.ok, true, JSON.stringify(result));
 }
+function setRouting(selector, slot) {
+  const snapshot = callJson('orc_get_filament_session_snapshot');
+  const targets = selector.startsWith('support-') ? [{ kind: 'project', id: 0 }] :
+    callJson('orc_get_model_structure').objects.map(object => ({ kind: 'object', id: object.id }));
+  const result = callJson('orc_set_filament_routing', ['string'], [JSON.stringify({
+    version: 1, revision: snapshot.revisions.session, selector, slot,
+    targets,
+  })]);
+  assert.equal(result.ok, true, JSON.stringify(result));
+}
 const init = callJson('orc_init', ['string'], ['']);
 assert.equal(init.ok, true, JSON.stringify(init));
 const archive = buildPaintedProject();
@@ -94,8 +104,8 @@ Module._free(pointer); assert.equal(loaded.ok, true, JSON.stringify(loaded));
 
 setProject('enable_prime_tower', '1'); setProject('prime_tower_width', '25'); setProject('wipe_tower_wall_type', 'rectangle');
 setProject('print_sequence', 'by object');
-for (const key of ['support_filament', 'support_interface_filament', 'outer_wall_filament_id', 'inner_wall_filament_id',
-  'sparse_infill_filament_id', 'internal_solid_filament_id', 'top_surface_filament_id', 'bottom_surface_filament_id']) setProject(key, '0');
+for (const selector of ['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+  'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']) setRouting(selector, 0);
 setProject('enable_support', '0'); setProject('raft_layers', '0');
 let projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
@@ -103,10 +113,10 @@ assert.deepEqual(projection.plates[0].used_slots, [1, 2, 4], 'painted slots plus
 
 // Native feature/support routing adds the remaining slot through the exact
 // fallback families used by PartPlate::get_extruders(true).
-setProject('enable_support', '1'); setProject('support_filament', '4'); setProject('support_interface_filament', '3');
-setProject('outer_wall_filament_id', '2'); setProject('inner_wall_filament_id', '2');
-setProject('sparse_infill_filament_id', '3'); setProject('internal_solid_filament_id', '3');
-setProject('top_surface_filament_id', '4'); setProject('bottom_surface_filament_id', '4');
+setProject('enable_support', '1'); setRouting('support-base', 4); setRouting('support-interface', 3);
+setRouting('outer-wall', 2); setRouting('inner-wall', 2);
+setRouting('sparse-infill', 3); setRouting('internal-solid-infill', 3);
+setRouting('top-surface', 4); setRouting('bottom-surface', 4);
 projection = callJson('orc_get_prime_tower_projection');
 assert.deepEqual(projection.plates[0].used_slots, [1, 2, 3, 4]);
 setProject('wipe_tower_wall_type', 'rib');
