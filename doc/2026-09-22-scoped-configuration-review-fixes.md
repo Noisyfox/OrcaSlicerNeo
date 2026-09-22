@@ -37,6 +37,10 @@ unrelated-map identity, and native multi-target rollback. Run repository tests
 and typechecks, targeted Electron UI coverage, and quick builds plus focused
 native configuration harnesses for serial and threaded WASM.
 
-Full qualification also exercises the saved project's compatibility confirmation
-before checking its reload receipt. The release gate must complete this user
-step explicitly instead of waiting indefinitely behind the confirmation dialog.
+Full qualification requires a Process-only override to save and reopen without
+a compatibility confirmation. Embedded preset presence alone is not a warning:
+confirmation follows the pinned Orca `PresetBundle::validate_presets` return
+codes, plus the existing native filament-slot substitution flow. Validate after
+loading embedded presets and before `load_config_model`, matching Orca Plater.
+Do not supplement Orca's result with independent preset diffs. Cover both the clean
+roundtrip and actual warning conditions through the real native bridge.

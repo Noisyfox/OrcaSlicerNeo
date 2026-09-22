@@ -174,8 +174,11 @@ test('release scoped configuration full history matrix', async () => {
       await page.getByTestId('menu-file-trigger').click();
       const reopenAt = Date.now();
       await page.getByTestId('file-open-project').click();
-      await expect(page.getByTestId('project-load-confirmation-dialog')).toBeVisible({ timeout: 300_000 });
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+      await page.waitForFunction((name) =>
+        (window as any).__orcaE2e?.projectLoadEvidence?.()?.receipt?.sourceDisplayName === name ||
+        document.querySelector('[data-testid="project-load-confirmation-dialog"]') !== null,
+      basename(savedPath), { timeout: 300_000 });
+      await expect(page.getByTestId('project-load-confirmation-dialog')).toHaveCount(0);
       await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e?.projectLoadEvidence?.()), { timeout: 300_000 })
         .toMatchObject({ receipt: { sourceDisplayName: basename(savedPath), sourceByteLength: saved.length } });
       await page.evaluate(() => (window as any).__orcaScopedConfigurationGate.ready());

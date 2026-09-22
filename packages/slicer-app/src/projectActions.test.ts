@@ -155,9 +155,9 @@ describe('transactional project actions', () => {
     expect(runtime.resetHistory).not.toHaveBeenCalled();
   });
 
-  it('commits a clean post-close load without opening a confirmation dialog', async () => {
+  it('commits an embedded Process preset without opening a confirmation dialog', async () => {
     const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
-      embeddedPresetWarnings: { present: false, count: 0, printerCount: 0, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
+      embeddedPresetWarnings: { present: true, count: 1, printerCount: 0, processCount: 1, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
     const { platform, runtime } = platformFor(result);
     const confirm = vi.fn(() => true);
     const opened = await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm });

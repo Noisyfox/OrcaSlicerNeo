@@ -390,110 +390,35 @@ struct ProjectPresetWarningDetails {
     json preset_evidence = json::array();
 };
 
-// Keep this classification in the bridge because PresetBundle's upstream
-// validate_presets() returns one mixed set of g-code keys.  The project
-// warning contract needs to tell the shared layer whether the modified code
-// came from the printer or filament profile.  The sets mirror Orca's
-// PresetBundle::gcodes_key_set at the pinned upstream revision.
+// Use the same result as Plater's project-load warning. Do not independently
+// diff embedded presets: that can warn for projects Orca accepts silently.
 ProjectPresetWarningDetails inspect_project_preset_warnings(
-    PresetBundle& bundle, DynamicPrintConfig& config,
-    const std::vector<Preset*>& project_presets, const std::string& path)
+    PresetBundle& bundle, DynamicPrintConfig& config, const std::string& path)
 {
     ProjectPresetWarningDetails details;
-    if (project_presets.empty())
-        return details;
-
-    // Run the same upstream validation used by Plater.  We still inspect each
-    // embedded preset below so the result can distinguish printer and
-    // filament g-code and expose evidence to callers.
-    std::set<std::string> upstream_different_gcodes;
-    try {
-        bundle.validate_presets(path, config, upstream_different_gcodes);
-    } catch (...) {
-        // Warning extraction must never turn a valid project load into a
-        // failed load when an older/generic project omits optional config.
-    }
-
-    const std::set<std::string> printer_gcode_keys = {
-        "layer_change_gcode", "machine_end_gcode", "machine_pause_gcode",
-        "machine_start_gcode", "template_custom_gcode",
-        "printing_by_object_gcode", "before_layer_change_gcode",
-        "time_lapse_gcode", "wrapping_detection_gcode"
-    };
-    const std::set<std::string> filament_gcode_keys = {
-        "filament_end_gcode", "filament_start_gcode", "change_filament_gcode"
-    };
-    auto trusted = [](const Preset* preset) {
-        return preset != nullptr &&
-            (preset->is_system || preset->is_default || preset->is_from_bundle());
-    };
-
-    auto inspect_collection = [&](Preset::Type type, PresetCollection& collection,
-                                  const char* type_name,
-                                  const std::set<std::string>& gcode_keys) {
-        for (const Preset* embedded : project_presets) {
-            if (!embedded || embedded->type != type)
-                continue;
-
-            std::string inherits = embedded->inherits();
-            const Preset* parent = inherits.empty() ? nullptr :
-                collection.find_preset(inherits, false);
-            bool has_matching_system_preset = trusted(parent);
-            if (!has_matching_system_preset) {
-                // This also honors Orca's renamed-system-preset lookup and is
-                // the authoritative missing-preset condition from upstream.
-                std::string validation_inherits = inherits;
-                has_matching_system_preset =
-                    collection.validate_preset(embedded->name, validation_inherits);
-                if (has_matching_system_preset && !trusted(parent))
-                    parent = collection.find_preset(validation_inherits, false);
-            }
-
-            std::vector<std::string> modified_keys;
-            if (trusted(parent)) {
-                for (const std::string& key : embedded->config.diff(parent->config)) {
-                    if (gcode_keys.find(key) != gcode_keys.end()) {
-                        modified_keys.push_back(key);
-                        details.modified_gcode_keys.insert(key);
-                        if (type == Preset::TYPE_PRINTER)
-                            details.modified_printer_gcode = true;
-                        else if (type == Preset::TYPE_FILAMENT)
-                            details.modified_filament_gcode = true;
-                    }
-                }
-            }
-            if (!has_matching_system_preset &&
-                (type == Preset::TYPE_PRINTER || type == Preset::TYPE_FILAMENT)) {
-                details.missing_system_preset = true;
-                details.missing_system_preset_types.push_back(type_name);
-            }
-
-            details.preset_evidence.push_back({
-                {"type", type_name},
-                {"name", embedded->name},
-                {"inherits", inherits},
-                {"has_matching_system_preset", has_matching_system_preset},
-                {"modified_gcode_keys", modified_keys},
-            });
+    std::set<std::string> evidence;
+    const int result = bundle.validate_presets(path, config, evidence);
+    if (result == VALIDATE_PRESETS_PRINTER_NOT_FOUND ||
+        result == VALIDATE_PRESETS_FILAMENTS_NOT_FOUND) {
+        details.missing_system_preset = true;
+        std::set<std::string> missing_types;
+        for (const std::string& name : evidence) {
+            const char* type = name == config.opt_string("printer_settings_id") ? "printer" : "filament";
+            missing_types.insert(type);
+            details.preset_evidence.push_back({{"type", type}, {"name", name},
+                {"has_matching_system_preset", false}, {"modified_gcode_keys", json::array()}});
         }
-    };
-
-    inspect_collection(Preset::TYPE_PRINTER, bundle.printers, "printer", printer_gcode_keys);
-    inspect_collection(Preset::TYPE_FILAMENT, bundle.filaments, "filament", filament_gcode_keys);
-
-    // Preserve any upstream g-code evidence that was present in the project
-    // config even when the corresponding embedded preset was omitted.  The
-    // final printer slot is emitted by PresetBundle::full_fff_config(), while
-    // filament slots precede it; this is intentionally supplemental to the
-    // per-preset comparison above.
-    for (const std::string& key : upstream_different_gcodes) {
-        if (printer_gcode_keys.find(key) != printer_gcode_keys.end())
-            details.modified_printer_gcode = true;
-        if (filament_gcode_keys.find(key) != filament_gcode_keys.end())
-            details.modified_filament_gcode = true;
-        if (printer_gcode_keys.find(key) != printer_gcode_keys.end() ||
-            filament_gcode_keys.find(key) != filament_gcode_keys.end())
-            details.modified_gcode_keys.insert(key);
+        for (const std::string& type : missing_types)
+            details.missing_system_preset_types.push_back(type);
+    } else if (result == VALIDATE_PRESETS_MODIFIED_GCODES) {
+        const std::set<std::string> filament_gcode_keys = {
+            "filament_end_gcode", "filament_start_gcode", "change_filament_gcode"
+        };
+        details.modified_gcode_keys = std::move(evidence);
+        for (const std::string& key : details.modified_gcode_keys) {
+            if (filament_gcode_keys.count(key)) details.modified_filament_gcode = true;
+            else details.modified_printer_gcode = true;
+        }
     }
     return details;
 }
@@ -705,9 +630,11 @@ static const char* orc_load_project_impl(const char* data, int len,
             else if (preset->type == Preset::TYPE_PRINT) ++process_preset_count;
             else if (preset->type == Preset::TYPE_FILAMENT) ++filament_preset_count;
         }
+        ProjectPresetWarningDetails warning_details;
         if (!geometry_only && (!project_presets.empty() || is_bbl_3mf || is_orca_3mf)) {
             candidate.load_project_embedded_presets(project_presets,
                 ForwardCompatibilitySubstitutionRule::Enable);
+            warning_details = inspect_project_preset_warnings(candidate, imported_config, load_path);
 
             // This is Orca's native project-load sequence after embedded
             // presets have been imported.  load_config_model delegates to
@@ -726,11 +653,6 @@ static const char* orc_load_project_impl(const char* data, int len,
             candidate.update_multi_material_filament_presets();
         }
         publish_slicer_progress(75, geometry_only ? "Finalizing geometry import" : "Applying project settings");
-
-        ProjectPresetWarningDetails warning_details;
-        if (!geometry_only)
-            warning_details = inspect_project_preset_warnings(
-                candidate, imported_config, project_presets, load_path);
 
         std::vector<BridgeState::PlateSessionPlate> staged_plates;
         std::string staged_current_plate_id;
@@ -879,7 +801,9 @@ static const char* orc_load_project_impl(const char* data, int len,
             {"modified_gcode_keys", warning_details.modified_gcode_keys},
             {"missing_system_preset_types", std::move(warning_details.missing_system_preset_types)},
             {"preset_evidence", std::move(warning_details.preset_evidence)},
-            {"requires_confirmation", !project_presets.empty()},
+            {"requires_confirmation", warning_details.modified_printer_gcode ||
+                                      warning_details.modified_filament_gcode ||
+                                      warning_details.missing_system_preset},
         };
         if (!geometry_only) {
             json slot_changes = json::array();

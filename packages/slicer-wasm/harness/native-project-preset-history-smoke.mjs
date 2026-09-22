@@ -7,6 +7,7 @@ import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
+import { readZipEntries, replaceEntry } from './native-3mf-parser.mjs';
 
 const [moduleArg] = argv.slice(2);
 if (!moduleArg) throw new Error('usage: node native-project-preset-history-smoke.mjs <out/orca_slice.js>');
@@ -109,5 +110,56 @@ check('Redo recreates and selects the native project Print child',
     nativePrintPreset: redo.context?.nativePrintPreset }));
 check('Redo restores the ordinary Project Print diff', nativeSnapshot().project.layer_height === '0.24',
   JSON.stringify(nativeSnapshot()));
+
+// A native Process child is ordinary project data, not a printer/filament
+// G-code warning. Exercise the writer and reader rather than mocking flags.
+requireOk('add roundtrip geometry', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Warning fixture']));
+const exported = requireOk('save Process override', callJson('orc_export_project'));
+const projectBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
+Module._free(Number(exported.bytes_ptr));
+function loadArchive(bytes, name) {
+  const ptr = Number(Module._malloc(bytes.length));
+  Module.HEAPU8.set(bytes, ptr);
+  try {
+    return requireOk(name, callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+      [ptr, bytes.length, 0, name]));
+  } finally { Module._free(ptr); }
+}
+const reloaded = loadArchive(projectBytes, 'process-only.3mf');
+const cleanWarning = reloaded.embedded_preset_warnings;
+check('Process-only save/reopen needs no compatibility confirmation',
+  cleanWarning.process_count > 0 && cleanWarning.modified_printer_gcode === false &&
+  cleanWarning.modified_filament_gcode === false && cleanWarning.missing_system_preset === false &&
+  cleanWarning.filament_slot_changes.length === 0 && cleanWarning.requires_confirmation === false,
+  JSON.stringify(cleanWarning));
+check('Process-only save/reopen preserves the edited value',
+  reloaded.preset_snapshot.project_config.layer_height === '0.24',
+  JSON.stringify(reloaded.preset_snapshot.project_config.layer_height));
+
+const entries = readZipEntries(projectBytes);
+const projectConfig = JSON.parse(new TextDecoder().decode(
+  entries.find(entry => entry.name === 'Metadata/project_settings.config').content));
+function withProjectConfig(changes) {
+  return replaceEntry(projectBytes, 'Metadata/project_settings.config',
+    JSON.stringify({ ...projectConfig, ...changes }));
+}
+// Match the pinned Orca validator's different_settings_to_system indexing.
+// It inspects slot 1 when filament_count is 2; do not invent a separate diff.
+const modified = loadArchive(withProjectConfig({
+  filament_diameter: [projectConfig.filament_diameter[0], projectConfig.filament_diameter[0]],
+  filament_settings_id: [projectConfig.filament_settings_id[0], projectConfig.filament_settings_id[0]],
+  inherits_group: ['', '', '', projectConfig.inherits_group?.at(-1) ?? ''],
+  different_settings_to_system: ['', 'filament_start_gcode', '', ''],
+}), 'modified-gcode.3mf').embedded_preset_warnings;
+check('Orca-reported modified filament G-code still requires confirmation',
+  modified.modified_filament_gcode === true && modified.requires_confirmation === true &&
+  modified.modified_gcode_keys.includes('filament_start_gcode'), JSON.stringify(modified));
+const missing = loadArchive(withProjectConfig({
+  printer_settings_id: 'Missing fixture system printer',
+  inherits_group: Array(projectConfig.filament_diameter.length + 2).fill(''),
+}), 'missing-system.3mf').embedded_preset_warnings;
+check('missing system printer still requires confirmation',
+  missing.missing_system_preset === true && missing.requires_confirmation === true,
+  JSON.stringify(missing));
 
 console.log(`native project Print preset history smoke passed (${moduleArg})`);
