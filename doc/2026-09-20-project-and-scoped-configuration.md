@@ -473,3 +473,18 @@ Focused checks passed on both serial and threaded staged artifacts:
 - `pnpm --filter @orca/slicer-wasm native-project-preset-history-smoke:threaded`;
 - `pnpm --filter @orca/slicer-wasm scoped-config-interoperability`;
 - `pnpm --filter @orca/slicer-wasm scoped-config-interoperability:threaded`.
+
+### 2026-09-23 — Orca-style local override label highlight
+
+The shared Project/Scoped settings surface colors only an editable option label
+orange (`#F1754E`) when the existing `ScopedConfigurationField.local` projection is
+true. Inherited values, source badges, value controls, mixed placeholders, and
+non-editable fields keep their normal appearance. Multi-target behavior follows the
+same projected `local` state used by Reset; the highlight clears when the post-reset
+projection reports no local override.
+
+Acceptance checks passed:
+
+- `pnpm --filter @orca/slicer-app test -- --run` — 78 files, 604 tests passed.
+- `pnpm --filter @orca/slicer-app typecheck` — passed.
+- `git diff --check` — passed (Windows line-ending warnings only).

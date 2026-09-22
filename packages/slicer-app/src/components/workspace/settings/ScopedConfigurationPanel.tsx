@@ -28,6 +28,7 @@ import {
 const SOURCE_LABEL: Record<string, string> = {
   preset: 'Preset', project: 'Project', plate: 'Plate', object: 'Object', part: 'Volume', mixed: 'Mixed',
 };
+const LOCAL_OVERRIDE_LABEL_COLOR = '#F1754E';
 
 function targetRequestTargets(targets: readonly ScopedConfigurationTarget[]): NativeScopedConfigTarget[] {
   return targets.map(({ scope, id }) => ({ scope, ...(id === undefined ? {} : { id }) }));
@@ -97,6 +98,7 @@ export function ScopedField({
   const row = 'flex items-center gap-1 py-0.5 min-h-7';
   const labelCls = 'w-32 shrink-0 truncate text-xs text-muted-foreground';
   const displayed = draft;
+  const hasEditableLocalOverride = field.local && field.resettable;
 
   let control;
   if (field.meta.type === 'bool' && !field.mixed) {
@@ -135,7 +137,14 @@ export function ScopedField({
   return (
     <div data-testid={`config-field-${field.key}`} className="space-y-0.5">
       <div className={row}>
-        <Label htmlFor={`scoped-${field.key}`} className={labelCls} title={label}>{label}</Label>
+        <Label
+          htmlFor={`scoped-${field.key}`}
+          data-testid={`config-option-label-${field.key}`}
+          data-local-override-highlight={hasEditableLocalOverride ? 'true' : 'false'}
+          className={labelCls}
+          style={hasEditableLocalOverride ? { color: LOCAL_OVERRIDE_LABEL_COLOR } : undefined}
+          title={label}
+        >{label}</Label>
         {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Mixed</span>}
         {control}
         {sourceBadge(field)}

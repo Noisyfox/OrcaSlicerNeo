@@ -313,6 +313,12 @@ The Scoped view is a complete catalogue of parameters eligible for its resolved
 scope, rather than an add-parameter-only list. Every parameter presents its
 selection-limited value, provenance, and a reset control whenever the resolved scope
 owns a local override. Reset deletes that local value as specified in section 5.
+When `field.local` is true for an editable/resettable option, only its option label is
+colored Orca orange (`#F1754E`). Inherited values remain unhighlighted; the value
+control, mixed-value placeholder, and source badge retain their normal colors. A
+multi-target field follows the projected `field.local` and reset semantics without
+recomputing target ownership in the view; after Reset, the updated projection removes
+the highlight.
 
 The catalogue is organized by native parameter category and supports a search across
 categories. Category expansion and the search query are transient session UI state.

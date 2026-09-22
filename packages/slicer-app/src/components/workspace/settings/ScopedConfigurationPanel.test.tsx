@@ -13,18 +13,24 @@ afterEach(async () => {
 });
 
 async function renderField(overrides: Partial<ScopedConfigurationField> = {},
-  onCommit = vi.fn(async (_field: ScopedConfigurationField, value: string) => value)) {
-  const field: ScopedConfigurationField = { key: 'layer_height', label: 'Layer height', category: 'Quality',
+  onCommit = vi.fn(async (_field: ScopedConfigurationField, value: string) => value),
+  onReset = vi.fn(async (_field: ScopedConfigurationField) => {})) {
+  let field: ScopedConfigurationField = { key: 'layer_height', label: 'Layer height', category: 'Quality',
     meta: { type: 'float' } as ScopedConfigurationField['meta'], value: '0.2', mixed: false,
     source: 'object', local: true, resettable: true, ...overrides };
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
-  await act(async () => root!.render(<ScopedField field={field}
+  const render = async () => act(async () => root!.render(<ScopedField field={field}
     targets={[{ scope: 'object', id: '42', label: 'Object' }]}
-    onCommit={onCommit} onReset={async () => {}} />));
+    onCommit={onCommit} onReset={onReset} />));
+  await render();
   const input = container.querySelector('input')!;
   await act(async () => input.focus());
+  const rerender = async (next: Partial<ScopedConfigurationField>) => {
+    field = { ...field, ...next };
+    await render();
+  };
   const change = async (value: string) => act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -32,7 +38,8 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
   const key = async (value: string) => act(async () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true }));
   });
-  return { input, change, key, onCommit };
+  const getLabel = () => container.querySelector<HTMLElement>('[data-testid="config-option-label-layer_height"]')!;
+  return { container, input, change, key, onCommit, onReset, rerender, getLabel };
 }
 
 describe('scoped field drafts', () => {
@@ -74,4 +81,47 @@ describe('scoped field drafts', () => {
     await key('Enter');
     expect(onCommit).toHaveBeenCalledOnce();
   });
+
+  it('highlights a local override label and removes the highlight after Reset updates the projection', async () => {
+    const { container, getLabel, onReset, rerender } = await renderField();
+    const label = getLabel();
+    expect(label.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(label.style.color).toBe('rgb(241, 117, 78)');
+    expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.style.color).toBe('');
+    expect(container.querySelector<HTMLElement>('[data-testid="config-source-layer_height"]')!.style.color).toBe('');
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="config-reset-layer_height"]')!.click());
+    expect(onReset).toHaveBeenCalledOnce();
+    await rerender({ local: false, source: 'project' });
+
+    expect(label.getAttribute('data-local-override-highlight')).toBe('false');
+    expect(label.style.color).toBe('');
+    expect(container.querySelector('[data-testid="config-reset-layer_height"]')).toBeNull();
+  });
+
+  it('does not highlight inherited values, mixed placeholders, or non-editable local fields', async () => {
+    const inherited = await renderField({ local: false, source: 'project' });
+    expect(inherited.getLabel().getAttribute('data-local-override-highlight')).toBe('false');
+    expect(inherited.getLabel().style.color).toBe('');
+    expect(inherited.input.style.color).toBe('');
+    expect(container.querySelector<HTMLElement>('[data-testid="config-source-layer_height"]')!.style.color).toBe('');
+
+    await afterEachCleanupRender();
+    const mixed = await renderField({ mixed: true, value: null, source: 'mixed' });
+    expect(mixed.getLabel().getAttribute('data-local-override-highlight')).toBe('true');
+    expect(mixed.getLabel().style.color).toBe('rgb(241, 117, 78)');
+    expect(mixed.input.placeholder).toBe('Mixed');
+    expect(mixed.input.style.color).toBe('');
+
+    await afterEachCleanupRender();
+    const nonEditable = await renderField({ local: true, resettable: false });
+    expect(nonEditable.getLabel().getAttribute('data-local-override-highlight')).toBe('false');
+    expect(nonEditable.getLabel().style.color).toBe('');
+    expect(container.querySelector('[data-testid="config-reset-layer_height"]')).toBeNull();
+  });
 });
+
+async function afterEachCleanupRender() {
+  await act(async () => root?.unmount());
+  container?.remove();
+}
