@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-22
 
-**Status:** In progress
+**Status:** Delivered
 
 ## Accepted scope
 
@@ -16,8 +16,12 @@
   sparse; an absent local map does not mean that the native entity is unknown.
 - Incremental renderer updates copy only changed configuration buckets and retain
   unrelated maps. Native rollback captures only values an operation can change.
-- Remove the reviewed old-host API aliases and migration paths. Orca/BBS file
-  interoperability and validation of external persisted data remain supported.
+- Remove the reviewed old-host API aliases and migration paths: menu snapshots
+  require Project state and the full current command set, model import uses its
+  current name, and dropped Electron files resolve only through webUtils.
+  Normalized preferences expose a required send-navigation boolean; the UI does
+  not migrate missing fields. Defaults and validation remain at the external
+  preferences boundary. Orca/BBS file interoperability remains supported.
 - Avoid repeated linear entity lookup during history restoration without changing
   the accepted result invalidation policy.
 

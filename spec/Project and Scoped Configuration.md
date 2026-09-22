@@ -541,7 +541,11 @@ React replaces its disposable projection from that snapshot. Ordinary successful
 mutations return only the complete normalized local maps for affected targets plus the
 monotonic revision. React replaces those target maps atomically, so erase/reset and
 structural deletion are represented without an unsafe shallow merge. A revision gap
-requires a full authoritative refresh.
+requires a full authoritative refresh. Stale or duplicate receipts are ignored.
+Local maps are sparse: absence means no explicit values, not an unknown native
+entity. A validated replacement may create a previously absent map, and removing an
+already absent map is harmless. Applying a batch copies each changed scope bucket
+once and preserves the identity of unrelated maps.
 
 For the primary fixture, the performance acceptance boundary is the renderer event
 that invokes Undo or Redo through publication of canonical state and the next editable

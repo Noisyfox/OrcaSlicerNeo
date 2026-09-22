@@ -98,8 +98,8 @@ the approved semantics in the normative specification.
      affected-target map replacements on ordinary mutations through the typed client and
      runtime boundary. Include monotonic revisions and deleted-target representation;
      remove overlay client APIs, mocks, and store authority.
-   - Acceptance: no shallow merge can retain erased keys; stale/gapped responses force a
-     full refresh; history/open responses publish scene, plate, history, and config at
+   - Acceptance: no shallow merge can retain erased keys; revision gaps force a
+     full refresh while stale/duplicate responses are ignored; history/open responses publish scene, plate, history, and config at
      one committed revision; shared code remains free of direct Emscripten access.
 
 5. **Shared Project / Scoped React surface**
@@ -352,8 +352,9 @@ version-1 transport with a monotonic committed revision. Open, history restore,
 and explicit refresh publish a complete snapshot; ordinary edits publish complete
 per-target replacements. Deleted object, part, and plate targets are expressed as
 stable `removed_targets` tombstones. The client/store replaces complete maps,
-never shallow-merges them, and marks stale, gapped, or unknown-target receipts
-refresh-required until it accepts a full snapshot. History commit publishes its
+never shallow-merges them, ignores stale/duplicate receipts, and requests a full
+snapshot for revision gaps. Local maps are sparse: first edits insert absent maps
+without a full refresh, and tombstones may remove an already absent map. History commit publishes its
 scene, plate, history status, and native scoped-config receipt at the same
 revision.
 

@@ -134,22 +134,6 @@ struct ModelMutationSnapshot {
     std::vector<std::pair<ModelInstance*, Geometry::Transformation>> instance_transforms;
 };
 
-ModelMutationSnapshot capture_model_mutation_snapshot(Model& model)
-{
-    ModelMutationSnapshot snapshot;
-    snapshot.object_configs.reserve(model.objects.size());
-    for (auto* object : model.objects) {
-        snapshot.object_configs.emplace_back(object, static_cast<const ModelConfig&>(object->config));
-        snapshot.volume_configs.reserve(snapshot.volume_configs.size() + object->volumes.size());
-        snapshot.instance_transforms.reserve(snapshot.instance_transforms.size() + object->instances.size());
-        for (auto* volume : object->volumes)
-            snapshot.volume_configs.emplace_back(volume, static_cast<const ModelConfig&>(volume->config));
-        for (auto* instance : object->instances)
-            snapshot.instance_transforms.emplace_back(instance, instance->get_transformation());
-    }
-    return snapshot;
-}
-
 void restore_model_mutation_snapshot(ModelMutationSnapshot& snapshot) noexcept
 {
     try {
@@ -207,6 +191,27 @@ struct ResolvedTarget {
     bool print_config_changed = false;
     bool changed = false;
 };
+
+// A local edit cannot change unrelated configs or instance transforms. Only
+// Project edits can reflow the virtual plate layout.
+ModelMutationSnapshot capture_model_mutation_snapshot(
+    const std::vector<ResolvedTarget>& targets, bool project_changed)
+{
+    ModelMutationSnapshot snapshot;
+    for (const auto& target : targets) {
+        if (!target.changed) continue;
+        if (target.object != nullptr)
+            snapshot.object_configs.emplace_back(target.object, target.object->config);
+        if (target.part != nullptr)
+            snapshot.volume_configs.emplace_back(target.part, target.part->config);
+    }
+    if (project_changed) {
+        for (auto* object : state().model.objects)
+            for (auto* instance : object->instances)
+                snapshot.instance_transforms.emplace_back(instance, instance->get_transformation());
+    }
+    return snapshot;
+}
 
 // Orca stores ordinary Project print edits as a project-embedded Print preset.
 // The bridge starts with a selected system/external preset, so materialize a
@@ -993,6 +998,52 @@ json native_scoped_config_affected_transport(
                 {"removed_targets", native_scoped_config_removed_targets_json(removed_targets)}};
 }
 
+json native_scoped_config_affected_transport(
+    const NativeScopedConfigTargets& targets, std::uint64_t revision)
+{
+    std::map<std::string, const ConfigBase*> configs;
+    std::set<std::string> object_ids, part_ids;
+    for (const auto& [scope, id] : targets) {
+        if (scope == "object") object_ids.insert(id);
+        if (scope == "part") part_ids.insert(id);
+    }
+    if (!object_ids.empty() || !part_ids.empty()) {
+        for (const auto* object : state().model.objects) {
+            const auto id = std::to_string(object->id().id);
+            if (object_ids.count(id)) configs.emplace("object:" + id, &object->config.get());
+            if (!part_ids.empty()) {
+                for (const auto* volume : object->volumes) {
+                    const auto volume_id = std::to_string(volume->id().id);
+                    if (part_ids.count(volume_id)) configs.emplace("part:" + volume_id, &volume->config.get());
+                }
+            }
+        }
+    }
+    json snapshot = empty_native_scoped_config_snapshot();
+    for (const auto& [scope, id] : targets) {
+        if (scope == "project") {
+            snapshot["project"] = native_project_scoped_config_snapshot();
+            continue;
+        }
+        const ConfigBase* config = nullptr;
+        if (scope == "plate") {
+            const auto* plate = find_plate(id);
+            if (plate != nullptr) config = &plate->settings;
+        } else {
+            const auto found = configs.find(scope + ":" + id);
+            if (found != configs.end()) config = found->second;
+        }
+        if (config == nullptr) throw std::runtime_error("scoped projection target disappeared");
+        json values = json::object();
+        for (const auto& key : config->keys()) {
+            if (scope == "plate" && !is_editable_plate_override_key(key)) continue;
+            append_serialized_option(values, *config, key);
+        }
+        snapshot[scope == "object" ? "objects" : scope == "part" ? "parts" : "plates"][id] = std::move(values);
+    }
+    return native_scoped_config_affected_transport(snapshot, targets, revision);
+}
+
 json native_scoped_config_result()
 {
     return json{{"ok", true}, {"native_scoped_config", native_scoped_config_full_transport(state().history_revision)}};
@@ -1059,7 +1110,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
 
         std::map<std::string, std::string> requested_values;
         if (request.operation == "set") requested_values = request.values;
-        json result = native_scoped_config_result();
+        json result{{"ok", true}};
         json configuration_status;
         if (!requested_values.empty()) {
             json corrections = json::array();
@@ -1099,7 +1150,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
         }
 
         if (any_changed) {
-            auto before_model = ScopedConfig::capture_model_mutation_snapshot(state().model);
+            auto before_model = ScopedConfig::capture_model_mutation_snapshot(resolved, project_changed);
             const auto before_project_config = state().presets.project_config;
             const auto before_print_config = state().presets.prints.get_edited_preset().config;
             const auto before_plates = state().plate_session_plates;
@@ -1130,7 +1181,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                 const auto mutation = project_changed
                     ? PlateSession::shared_configuration_mutation_snapshot()
                     : PlateSession::configuration_mutation_snapshot(affected_plates, reasons);
-                result = native_scoped_config_result();
                 result["plate_session"] = mutation;
             } catch (...) {
                 ScopedConfig::restore_model_mutation_snapshot(before_model);
@@ -1157,7 +1207,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
         for (const auto& target : request.targets)
             targets.emplace_back(target.scope, target.id);
         result["native_scoped_config"] = ScopedConfig::native_scoped_config_affected_transport(
-            ScopedConfig::native_scoped_config_snapshot(), targets, state().history_revision);
+            targets, state().history_revision);
         if (state().active_history_transaction) {
             for (const auto& target : request.targets)
                 state().active_history_transaction->native_scoped_config_targets.emplace(target.scope, target.id);

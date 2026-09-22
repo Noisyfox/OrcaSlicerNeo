@@ -392,6 +392,8 @@ json restore_timestamped_result(const Runtime& runtime,
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> before_filament_state;
     if (filament_changed) before_filament_state.emplace(stage_mutable(state().presets, history_state_json(state().presets)));
     Model before_model = state().model;
+    std::map<std::size_t, const ModelObject*> before_objects;
+    for (const auto* object : before_model.objects) before_objects.emplace(object->id().id, object);
     const auto before_plates = state().plate_session_plates;
     const auto before_project_config = state().presets.project_config;
     const auto before_print_config = state().presets.prints.get_edited_preset().config;
@@ -510,9 +512,8 @@ json restore_timestamped_result(const Runtime& runtime,
                     affected_plates.insert(plate.id);
             }
             for (const auto* object : state().model.objects) {
-                const auto before = std::find_if(before_model.objects.begin(), before_model.objects.end(),
-                    [&](const auto* candidate) { return candidate->id() == object->id(); });
-                if (before == before_model.objects.end() || (*before)->config.get() == object->config.get())
+                const auto before = before_objects.find(object->id().id);
+                if (before == before_objects.end() || before->second->config.get() == object->config.get())
                     continue;
                 std::set<std::size_t> instance_ids;
                 for (const auto* instance : object->instances) instance_ids.insert(instance->id().id);
@@ -520,13 +521,14 @@ json restore_timestamped_result(const Runtime& runtime,
                 affected_plates.insert(plates.begin(), plates.end());
             }
             for (const auto* object : state().model.objects) {
-                const auto before = std::find_if(before_model.objects.begin(), before_model.objects.end(),
-                    [&](const auto* candidate) { return candidate->id() == object->id(); });
-                if (before == before_model.objects.end()) continue;
+                const auto before = before_objects.find(object->id().id);
+                if (before == before_objects.end()) continue;
+                std::map<std::size_t, const ModelVolume*> before_volumes;
+                for (const auto* volume : before->second->volumes)
+                    before_volumes.emplace(volume->id().id, volume);
                 for (const auto* volume : object->volumes) {
-                    const auto before_volume = std::find_if((*before)->volumes.begin(), (*before)->volumes.end(),
-                        [&](const auto* candidate) { return candidate->id() == volume->id(); });
-                    if (before_volume == (*before)->volumes.end() || (*before_volume)->config.get() == volume->config.get())
+                    const auto before_volume = before_volumes.find(volume->id().id);
+                    if (before_volume == before_volumes.end() || before_volume->second->config.get() == volume->config.get())
                         continue;
                     std::set<std::size_t> instance_ids;
                     for (const auto* instance : object->instances) instance_ids.insert(instance->id().id);
@@ -653,15 +655,15 @@ json restore_timestamped_result(const Runtime& runtime,
     response_context["plateSession"]["instance_transforms"] = std::move(restored_instance_transforms);
     std::vector<Neo::History::ObjectID> retained_renderer_object_ids;
     json retained_volume_transforms = json::array();
+    std::map<std::size_t, const ModelObject*> after_objects;
+    for (const auto* object : state().model.objects) after_objects.emplace(object->id().id, object);
     for (const auto id : restored.scene_delta.object_ids) {
-        const auto before = std::find_if(before_model.objects.begin(), before_model.objects.end(),
-            [id](const auto* object) { return object->id().id == id; });
-        const auto after = std::find_if(state().model.objects.begin(), state().model.objects.end(),
-            [id](const auto* object) { return object->id().id == id; });
-        if (before != before_model.objects.end() && after != state().model.objects.end() &&
-            renderer_object_unchanged(**before, **after)) {
+        const auto before = before_objects.find(id);
+        const auto after = after_objects.find(id);
+        if (before != before_objects.end() && after != after_objects.end() &&
+            renderer_object_unchanged(*before->second, *after->second)) {
             retained_renderer_object_ids.push_back(id);
-            for (const auto* volume : (*after)->volumes)
+            for (const auto* volume : after->second->volumes)
                 retained_volume_transforms.push_back(json{{"volume_id", volume->id().id},
                     {"transform", Neo::Bridge::PlateSession::session_transform_json(volume->get_transformation())}});
         }
@@ -1653,7 +1655,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         state().history_live_context = after_context;
         const auto removed_native_scoped_config_targets = native_scoped_config_removed_targets(
             tx.before_context.value("nativeScopedConfig", empty_native_scoped_config_snapshot()),
-            native_scoped_config_snapshot());
+            after_context.at("nativeScopedConfig"));
         const double commit_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
@@ -1671,7 +1673,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             std::vector<std::pair<std::string, std::string>> targets(
                 tx.native_scoped_config_targets.begin(), tx.native_scoped_config_targets.end());
             response["native_scoped_config"] = native_scoped_config_affected_transport(
-                native_scoped_config_snapshot(), targets, state().history_revision,
+                after_context.at("nativeScopedConfig"), targets, state().history_revision,
                 removed_native_scoped_config_targets);
         } else {
             // Structural transactions can normalize plate-local settings

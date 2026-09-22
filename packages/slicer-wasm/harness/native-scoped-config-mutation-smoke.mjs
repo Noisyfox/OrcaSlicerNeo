@@ -73,6 +73,38 @@ if (snapshot().objects?.[objectId]?.wall_loops !== '3' ||
     snapshot().parts?.[partId]?.wall_loops !== '3')
   throw new Error(`multi-target set did not materialize both native maps: ${JSON.stringify(multiTarget)}`);
 
+// Repeating the same native values is a successful no-op, including inside
+// a history transaction. It must not allocate new plate input stamps.
+const beforeNoOpSession = session();
+const beforeNoOpStatus = status();
+const noOpTx = requireOk('begin no-op', callJson('orc_history_begin',
+  ['string', 'string', 'string', 'string'], ['No-op config', 'project', JSON.stringify(historyContext), '']));
+const noOp = requireOk('repeat multi-target set', mutate('set', [
+  { scope: 'object', id: objectId }, { scope: 'part', id: partId },
+], { values: { wall_loops: '3', top_shell_layers: '4' } }));
+if (noOp.plate_session || noOp.native_scoped_config.kind !== 'affected' ||
+    noOp.native_scoped_config.replacements.length !== 2)
+  throw new Error(`unexpected no-op receipt: ${JSON.stringify(noOp)}`);
+const afterNoOpStatus = callJson('orc_history_commit', ['string', 'string'],
+  [noOpTx.transactionId, JSON.stringify(historyContext)]);
+if (JSON.stringify(session()) !== JSON.stringify(beforeNoOpSession) ||
+    afterNoOpStatus.revision !== beforeNoOpStatus.revision ||
+    afterNoOpStatus.dirty !== beforeNoOpStatus.dirty ||
+    JSON.stringify(afterNoOpStatus.undoEntries) !== JSON.stringify(beforeNoOpStatus.undoEntries))
+  throw new Error('no-op modified plate inputs or history');
+
+// A local receipt contains only requested maps, even with other configured
+// entities present. Reset removes eligible keys and retains material authority.
+const beforeLocalReset = snapshot();
+const scopedReset = requireOk('reset object', mutate('reset-all', [{ scope: 'object', id: objectId }]));
+if (scopedReset.native_scoped_config.replacements.length !== 1 ||
+    Object.hasOwn(scopedReset.native_scoped_config.replacements[0].values, 'wall_loops') ||
+    Object.hasOwn(scopedReset.native_scoped_config.replacements[0].values, 'top_shell_layers') ||
+    scopedReset.native_scoped_config.replacements[0].values.extruder !== beforeLocalReset.objects[objectId]?.extruder ||
+    snapshot().parts[partId]?.wall_loops !== '3')
+  throw new Error(`local reset included or changed unrelated configuration: ${JSON.stringify(scopedReset)}`);
+requireOk('re-edit sparse object', mutate('set', [{ scope: 'object', id: objectId }], { key: 'wall_loops', value: '3' }));
+
 const beforeFailureSnapshot = snapshot();
 const beforeFailureSession = session();
 const beforeFailureStatus = status();

@@ -66,6 +66,9 @@ NativeScopedConfigTargets native_scoped_config_removed_targets(
 json native_scoped_config_full_transport(std::uint64_t revision);
 json native_scoped_config_full_transport(
     std::uint64_t revision, const NativeScopedConfigTargets& removed_targets);
+// Serialize only the requested live targets, never the complete project.
+json native_scoped_config_affected_transport(
+    const NativeScopedConfigTargets& targets, std::uint64_t revision);
 json native_scoped_config_affected_transport(
     const json& snapshot,
     const NativeScopedConfigTargets& targets,
