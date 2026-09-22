@@ -36,3 +36,7 @@ Cover draft input, Escape, no-op commands, sparse first edits and reset/re-edit,
 unrelated-map identity, and native multi-target rollback. Run repository tests
 and typechecks, targeted Electron UI coverage, and quick builds plus focused
 native configuration harnesses for serial and threaded WASM.
+
+Full qualification also exercises the saved project's compatibility confirmation
+before checking its reload receipt. The release gate must complete this user
+step explicitly instead of waiting indefinitely behind the confirmation dialog.
