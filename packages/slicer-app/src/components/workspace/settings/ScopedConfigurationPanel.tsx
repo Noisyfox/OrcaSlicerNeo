@@ -38,7 +38,7 @@ function valueForField(field: ScopedConfigurationField): string {
 }
 
 function isScalar(meta: OptionMeta): boolean {
-  return meta.type === 'float' || meta.type === 'int' || meta.type === 'percent' || meta.type === 'float_or_percent';
+  return meta.type === 'float' || meta.type === 'int';
 }
 
 function sourceBadge(field: ScopedConfigurationField) {
@@ -53,7 +53,7 @@ function sourceBadge(field: ScopedConfigurationField) {
   );
 }
 
-function ScopedField({
+export function ScopedField({
   field,
   targets,
   onCommit,
@@ -61,12 +61,13 @@ function ScopedField({
 }: {
   field: ScopedConfigurationField;
   targets: readonly ScopedConfigurationTarget[];
-  onCommit: (field: ScopedConfigurationField, value: string) => Promise<void>;
+  onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
   onReset: (field: ScopedConfigurationField) => Promise<void>;
 }) {
   const initial = valueForField(field);
   const [draft, setDraft] = useState(initial);
-  const [focused, setFocused] = useState(false);
+  const committing = useRef(false);
+  const cancelBlur = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const signature = `${targets.map((target) => `${target.scope}:${target.id ?? ''}`).join(',')}|${field.source}|${field.mixed ? 'mixed' : field.value ?? ''}`;
   const signatureRef = useRef(signature);
@@ -76,11 +77,18 @@ function ScopedField({
     setDraft(initial);
   }, [initial, signature]);
   const commit = async (value: string) => {
+    if (committing.current) return;
+    committing.current = true;
+    const submittedSignature = signatureRef.current;
     try {
-      await onCommit(field, value);
+      const effective = await onCommit(field, value);
+      if (signatureRef.current === submittedSignature) setDraft(effective);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (signatureRef.current === submittedSignature)
+        setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      committing.current = false;
     }
   };
   const onDiscrete = (value: string) => { setDraft(value); void commit(value); };
@@ -88,7 +96,7 @@ function ScopedField({
   const label = field.label;
   const row = 'flex items-center gap-1 py-0.5 min-h-7';
   const labelCls = 'w-32 shrink-0 truncate text-xs text-muted-foreground';
-  const displayed = field.mixed ? '' : draft;
+  const displayed = draft;
 
   let control;
   if (field.meta.type === 'bool' && !field.mixed) {
@@ -112,11 +120,13 @@ function ScopedField({
       max={field.meta.max}
       type={isScalar(field.meta) ? 'number' : 'text'}
       step={field.meta.type === 'int' ? 1 : 'any'}
-      onFocus={() => setFocused(true)}
-      onBlur={() => { setFocused(false); if (draft !== valueForField(field)) void commit(draft); }}
+      onBlur={() => {
+        if (cancelBlur.current) { cancelBlur.current = false; return; }
+        if (draft !== valueForField(field)) void commit(draft);
+      }}
       onKeyDown={(event) => {
-        if (event.key === 'Enter') { event.preventDefault(); setFocused(false); void commit(draft); }
-        if (event.key === 'Escape') { event.preventDefault(); setFocused(false); setDraft(valueForField(field)); event.currentTarget.blur(); }
+        if (event.key === 'Enter') { event.preventDefault(); if (draft !== valueForField(field)) void commit(draft); }
+        if (event.key === 'Escape') { event.preventDefault(); cancelBlur.current = true; setDraft(valueForField(field)); setError(null); event.currentTarget.blur(); }
       }}
       onChange={(event) => setDraft(event.target.value)}
       className="flex-1"
@@ -187,7 +197,12 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
         : resolution.targets), key: field.key, value,
     };
     const mutation = await commitScopedConfigurationMutation(platform, request);
-    invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    const current = useSettingsStore.getState();
+    const effective = projectScopedConfigurationFields({ mode, metadata: metadata!,
+      baseValues: current.baseValues, snapshot: current.nativeScopedConfig, resolution })
+      .find((candidate) => candidate.key === field.key);
+    return effective ? valueForField(effective) : value;
   };
   const resetField = async (field: ScopedConfigurationField) => {
     if ((mode === 'scoped' && resolution.scope === 'invalid') || !field.local) return;
@@ -197,7 +212,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
         : resolution.targets), key: field.key,
     };
     const mutation = await commitScopedConfigurationMutation(platform, request);
-    invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
   };
   const resetCategory = async (category: string) => {
     if (mode === 'scoped' && resolution.scope === 'invalid') return;
@@ -210,7 +225,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     };
     try {
       const mutation = await commitScopedConfigurationMutation(platform, request);
-      invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const resetAll = async () => {
@@ -221,7 +236,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     const request: NativeScopedConfigMutationRequest = { version: 1, operation: 'reset-all', targets: targetRequestTargets(targets) };
     try {
       const mutation = await commitScopedConfigurationMutation(platform, request);
-      invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 

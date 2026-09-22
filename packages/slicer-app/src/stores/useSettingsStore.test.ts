@@ -136,7 +136,7 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().nativeScopedConfig.plates).toEqual({});
     expect(useSettingsStore.getState().applyNativeScopedConfigTransport({
       version: 1, revision: 2, kind: 'affected', replacements: [], removedTargets: [],
-    })).toBe('refresh-required');
+    })).toBe('stale');
     expect(useSettingsStore.getState().applyNativeScopedConfigTransport({
       version: 1, revision: 4, kind: 'affected', replacements: [], removedTargets: [],
     })).toBe('refresh-required');
@@ -150,4 +150,26 @@ describe('useSettingsStore', () => {
     }, 3))).toBe('applied');
     expect(useSettingsStore.getState().nativeScopedConfig.project.layer_height).toBe('0.3');
   });
+  it('inserts sparse targets and preserves unrelated map identities across reset and re-edit', () => {
+    const store = useSettingsStore.getState();
+    store.resetNativeScopedConfig();
+    store.applyNativeScopedConfigTransport(full({ project: {}, objects: { keep: { wall_loops: '2' } },
+      parts: { keep: { wall_loops: '3' } }, plates: {} }, 0));
+    const before = useSettingsStore.getState().nativeScopedConfig;
+    const apply = (revision: number, values: Record<string, string>) => store.applyNativeScopedConfigTransport({
+      version: 1, revision, kind: 'affected', replacements: [{ scope: 'object', id: 'new', values }], removedTargets: [],
+    });
+    expect(apply(1, { wall_loops: '4' })).toBe('applied');
+    expect(useSettingsStore.getState().nativeScopedConfig.objects.new).toEqual({ wall_loops: '4' });
+    expect(apply(2, {})).toBe('applied');
+    expect(useSettingsStore.getState().nativeScopedConfig.objects.new).toBeUndefined();
+    expect(apply(3, { wall_loops: '5' })).toBe('applied');
+    const after = useSettingsStore.getState().nativeScopedConfig;
+    expect(after.objects.keep).toBe(before.objects.keep);
+    expect(after.parts).toBe(before.parts);
+    expect(after.project).toBe(before.project);
+    expect(before.objects.new).toBeUndefined();
+    expect(useSettingsStore.getState().nativeScopedConfigRefreshRequired).toBe(false);
+  });
+
 });

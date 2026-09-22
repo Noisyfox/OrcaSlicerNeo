@@ -18,7 +18,7 @@ export async function commitOptionFieldChange(
   target: NativeScopedConfigTarget = { scope: 'project' },
 ): Promise<void> {
   const mutation = await commitSharedConfigurationMutation(platform, optionKey, next, target);
-  invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+  if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
 }
 
 export function OptionField({ optionKey, meta, target = { scope: 'project' } }: {
@@ -62,10 +62,6 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   const cancelDraft = () => setDraft(value);
   const changeDiscrete = (next: string) => {
     setDraft(next);
-    // Scoped overrides cannot know their affected plate set until the native
-    // transaction returns. Shared project settings retain the existing
-    // immediate invalidation behavior.
-    if (target.scope === 'project') invalidateAfterSharedConfigurationMutation();
     void commit(next);
   };
   const label = meta.label ?? optionKey;

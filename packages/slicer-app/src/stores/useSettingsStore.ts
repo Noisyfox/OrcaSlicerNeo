@@ -25,35 +25,6 @@ function cloneSnapshot(snapshot: NativeScopedConfigSnapshot): NativeScopedConfig
   };
 }
 
-function replaceTarget(snapshot: NativeScopedConfigSnapshot, scope: 'project' | 'object' | 'part' | 'plate', id: string | undefined,
-  values: Readonly<Record<string, string>>): NativeScopedConfigSnapshot {
-  const next = cloneSnapshot(snapshot);
-  if (scope === 'project') return { ...next, project: { ...values } };
-  if (id === undefined) return next;
-  const key = scope === 'object' ? 'objects' : scope === 'part' ? 'parts' : 'plates';
-  const buckets = { ...next[key] };
-  if (Object.keys(values).length === 0) delete buckets[id];
-  else buckets[id] = { ...values };
-  return { ...next, [key]: buckets } as NativeScopedConfigSnapshot;
-}
-
-function removeTarget(snapshot: NativeScopedConfigSnapshot, scope: 'project' | 'object' | 'part' | 'plate', id: string | undefined): NativeScopedConfigSnapshot {
-  if (scope === 'project') return { ...cloneSnapshot(snapshot), project: {} };
-  if (id === undefined) return snapshot;
-  const next = cloneSnapshot(snapshot);
-  const key = scope === 'object' ? 'objects' : scope === 'part' ? 'parts' : 'plates';
-  const buckets = { ...next[key] };
-  delete buckets[id];
-  return { ...next, [key]: buckets } as NativeScopedConfigSnapshot;
-}
-
-function hasTarget(snapshot: NativeScopedConfigSnapshot, scope: 'project' | 'object' | 'part' | 'plate', id: string | undefined): boolean {
-  if (scope === 'project') return id === undefined;
-  if (id === undefined) return false;
-  const key = scope === 'object' ? 'objects' : scope === 'part' ? 'parts' : 'plates';
-  return Object.hasOwn(snapshot[key], id);
-}
-
 function effectiveValues(baseValues: Record<string, string>, snapshot: NativeScopedConfigSnapshot): Record<string, string> {
   return { ...baseValues, ...nativeScopedConfigValues(snapshot) };
 }
@@ -82,7 +53,7 @@ interface SettingsState {
   /** Revision of the last accepted native scoped transport, null before the
    * first full snapshot. */
   nativeScopedConfigRevision: number | null;
-  /** True after an affected receipt exposes a revision gap or unknown target. */
+  /** True after an affected receipt exposes a revision gap. */
   nativeScopedConfigRefreshRequired: boolean;
   /** Transient Project/Scoped editor mode. It is never part of native state. */
   configurationMode: ConfigurationSurfaceMode;
@@ -170,22 +141,35 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           values: effectiveValues(s.baseValues, transport.snapshot),
         };
       }
+      if (current !== null && transport.revision <= current) return s;
       if (current === null || refreshRequired || transport.revision !== current + 1) {
         outcome = 'refresh-required';
         return { nativeScopedConfigRefreshRequired: true };
       }
-      if (transport.replacements.some((replacement) =>
-        !hasTarget(s.nativeScopedConfig, replacement.scope, replacement.id)) ||
-        transport.removedTargets.some((removed) =>
-          !hasTarget(s.nativeScopedConfig, removed.scope, removed.id))) {
-        outcome = 'refresh-required';
-        return { nativeScopedConfigRefreshRequired: true };
-      }
-      let nativeScopedConfig = cloneSnapshot(s.nativeScopedConfig);
+      // Native validation owns entity existence. These are sparse local maps,
+      // so the first override legitimately inserts a previously absent target.
+      const nativeScopedConfig = { ...s.nativeScopedConfig };
+      const copied = new Set<'objects' | 'parts' | 'plates'>();
+      const replace = (scope: 'project' | 'object' | 'part' | 'plate', id: string | undefined,
+        values: Readonly<Record<string, string>>) => {
+        if (scope === 'project') {
+          nativeScopedConfig.project = { ...values };
+          return;
+        }
+        if (id === undefined) return;
+        const key = scope === 'object' ? 'objects' : scope === 'part' ? 'parts' : 'plates';
+        if (!copied.has(key)) {
+          nativeScopedConfig[key] = { ...nativeScopedConfig[key] };
+          copied.add(key);
+        }
+        const bucket = nativeScopedConfig[key] as Record<string, Readonly<Record<string, string>>>;
+        if (Object.keys(values).length === 0) delete bucket[id];
+        else bucket[id] = { ...values };
+      };
       for (const replacement of transport.replacements)
-        nativeScopedConfig = replaceTarget(nativeScopedConfig, replacement.scope, replacement.id, replacement.values);
+        replace(replacement.scope, replacement.id, replacement.values);
       for (const removed of transport.removedTargets)
-        nativeScopedConfig = removeTarget(nativeScopedConfig, removed.scope, removed.id);
+        replace(removed.scope, removed.id, {});
       outcome = 'applied';
       return {
         nativeScopedConfig,

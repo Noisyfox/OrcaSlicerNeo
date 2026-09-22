@@ -234,4 +234,25 @@ describe('commitSharedConfigurationMutation', () => {
     await waiter;
     expect(settled).toBe(true);
   });
+  it.each(['shared', 'scoped'])('accepts a %s no-op without invalidating results or refreshing configuration', async (path) => {
+    const noOp = vi.fn(async () => ({ ok: true as const, nativeScopedConfig: {
+      ...affected('project', {}), revision: 0,
+    } }));
+    const invalidate = vi.spyOn(useSlicerStore.getState(), 'invalidatePlateResults');
+    const refresh = vi.fn();
+    const platform = { runtime: { ...historyProjectionRuntime, setNativeScopedConfig: noOp,
+      mutateNativeScopedConfig: noOp, getNativeScopedConfig: refresh, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    try {
+      if (path === 'shared') await commitOptionFieldChange(platform, 'layer_height', '0.2');
+      else await expect(commitScopedConfigurationMutation(platform, { version: 1, operation: 'set',
+        targets: [{ scope: 'project' }], key: 'layer_height', value: '0.2' })).resolves.toBeNull();
+      expect(noOp).toHaveBeenCalledOnce();
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
+      expect(useProjectStore.getState().dirtyReasons).toEqual([]);
+      expect(useSlicerStore.getState().error).toBeNull();
+    } finally { invalidate.mockRestore(); }
+  });
+
 });
