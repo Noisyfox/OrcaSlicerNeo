@@ -7,6 +7,7 @@ import {
   createNativeMenuController,
   handleHostCommand,
   openFixedSource,
+  validateMenuStateSnapshot,
 } from './nativeMenu';
 
 function state(overrides: Partial<MenuStateSnapshot['items']> = {}): MenuStateSnapshot {
@@ -48,6 +49,18 @@ function fakeMenu() {
 }
 
 describe('Electron native menu boundary', () => {
+  it('requires the current project and complete command state', () => {
+    const current = state();
+    const { project: _project, ...oldProjectShape } = current;
+    expect(validateMenuStateSnapshot(oldProjectShape)).toBeNull();
+    const { 'new-project': _new, 'open-project': _open, 'save-project': _save,
+      'save-project-as': _saveAs, preferences: _preferences, ...oldItems } = current.items;
+    expect(validateMenuStateSnapshot({ ...current, items: oldItems })).toBeNull();
+    expect(validateMenuStateSnapshot({ ...current, project: { ...current.project,
+      operation: { phase: 'waiting-for-project-confirmation', progress: 0, cancellable: false },
+    } })).not.toBeNull();
+  });
+
   it('builds ordered File/Help template with startup-disabled state', () => {
     const template = buildNativeMenuTemplate(STARTUP_DISABLED_MENU_MODEL, STARTUP_DISABLED_MENU_STATE, vi.fn());
     expect(template.map((item) => item.label)).toEqual(['File', 'Help']);
