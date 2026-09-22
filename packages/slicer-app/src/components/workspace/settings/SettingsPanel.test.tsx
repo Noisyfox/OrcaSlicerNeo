@@ -71,7 +71,7 @@ function resetStores() {
 }
 
 function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) => Promise<ProfileSnapshotResult>) {
-  const preferences: UserPreferences = { version: 1, selectedProfiles: { printer: 'saved' }, ui: {} };
+  const preferences: UserPreferences = { version: 1, selectedProfiles: { printer: 'saved' }, ui: { switchToDeviceAfterSend: true } };
   const repository = {
     load: vi.fn(async () => preferences),
     save: vi.fn(async (next: UserPreferences) => { Object.assign(preferences, next); }),

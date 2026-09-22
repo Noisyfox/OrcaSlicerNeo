@@ -12,6 +12,7 @@ function state(chrome: PlatformChrome): MenuStateSnapshot {
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: true },
     result: { hasResult: false, exported: false },
+    project: { hasContent: true, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: chrome.kind === 'desktop', menuMode: chrome.menuMode },
   }, chrome);
 }

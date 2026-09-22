@@ -103,6 +103,7 @@ describe('Electron native menu boundary', () => {
       slicer: { status: 'done', progress: 1, error: null },
       scene: { hasModel: true },
       result: { hasResult: true, exported: false },
+      project: { hasContent: true, dirty: false, operation: { phase: 'idle' as const, progress: 0, cancellable: false } },
       host: { isElectron: true, menuMode: 'native' },
       items: {
         'new-project': { enabled: true, checked: false },

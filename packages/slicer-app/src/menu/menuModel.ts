@@ -42,16 +42,14 @@ export function buildMenuModel(
     item('file-slice', 'Slice', 'slice'),
     item('file-export-gcode', 'Export G-code', 'export-gcode'),
   ];
-  if (snapshot.project) {
-    fileItems.push(
-      separator('file-separator-before-project'),
-      item('file-new-project', 'New Project', 'new-project'),
-      item('file-open-project', 'Open Project…', 'open-project'),
-      item('file-save-project', 'Save Project', 'save-project'),
-      item('file-save-project-as', 'Save Project As…', 'save-project-as'),
-      item('file-preferences', 'Preferences…', 'preferences'),
-    );
-  }
+  fileItems.push(
+    separator('file-separator-before-project'),
+    item('file-new-project', 'New Project', 'new-project'),
+    item('file-open-project', 'Open Project…', 'open-project'),
+    item('file-save-project', 'Save Project', 'save-project'),
+    item('file-save-project-as', 'Save Project As…', 'save-project-as'),
+    item('file-preferences', 'Preferences…', 'preferences'),
+  );
 
   if (isElectron) {
     fileItems.push(separator('file-separator-before-quit'));
@@ -81,13 +79,7 @@ export function deriveMenuItemStates(
   snapshot: MenuStateSnapshotInput,
   chrome: PlatformChrome,
 ): MenuItemStates {
-  // Keep this selector tolerant of v1 snapshots produced by older hosts while
-  // they are being upgraded. New snapshots always include the project block.
-  const project = snapshot.project ?? {
-    hasContent: snapshot.scene.hasModel,
-    dirty: false,
-    operation: { phase: 'idle' as const, progress: 0, cancellable: false },
-  };
+  const project = snapshot.project;
   const ready = snapshot.boot.phase === 'ready';
   const slicing = snapshot.slicer.status === 'slicing';
   const serialSlicing = slicing && snapshot.slicer.threaded !== true;
@@ -131,14 +123,8 @@ export function buildMenuStateSnapshot(
   snapshot: MenuStateSnapshotInput,
   chrome: PlatformChrome,
 ): MenuStateSnapshot {
-  const project = snapshot.project ?? {
-    hasContent: snapshot.scene.hasModel,
-    dirty: false,
-    operation: { phase: 'idle' as const, progress: 0, cancellable: false },
-  };
   return {
     ...snapshot,
-    ...(snapshot.project ? { project } : {}),
     slicer: { ...snapshot.slicer, progress: snapshot.slicer.progress / 100 },
     items: deriveMenuItemStates(snapshot, chrome),
   };

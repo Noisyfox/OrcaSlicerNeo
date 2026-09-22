@@ -23,8 +23,6 @@ export const MODEL_FILE_ACCEPT = MODEL_FILE_EXTENSIONS.map((extension) => `.${ex
 export interface ModelImporter {
   pick(): Promise<ModelFile | null>;
 }
-/** @deprecated Use ModelImporter; retained as a naming bridge for host adapters. */
-export type ModelPicker = ModelImporter;
 
 /** Values persisted for the Orca/Bambu 3MF project-load policy. */
 export const PROJECT_LOAD_BEHAVIOURS = [
@@ -120,7 +118,7 @@ export interface UserPreferences {
     sidebarWidth?: number;
     deviceSidebarWidth?: number;
     /** Whether successful G-code sends should navigate to Device by default. */
-    switchToDeviceAfterSend?: boolean;
+    switchToDeviceAfterSend: boolean;
     /** Last usable G-code text overlay geometry. */
     gcodeTextWindow?: GcodeTextWindowGeometry;
   };
@@ -317,7 +315,7 @@ export interface PlatformMemory {
 }
 
 export interface PlatformCapabilities {
-  models: ModelPicker;
+  models: ModelImporter;
   exports: GcodeExporter;
   projects: ProjectFileCapability;
   preferences: UserPreferencesRepository;

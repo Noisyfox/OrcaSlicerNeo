@@ -67,7 +67,7 @@ describe('project dialogs', () => {
   });
 
   it('renders the four persisted load behaviour choices in the shadcn select', async () => {
-    await renderDialog(<ProjectPreferencesDialog open preferences={{ version: 1, projectLoadBehaviour: 'always_ask', selectedProfiles: {}, ui: {} }} onSave={vi.fn()} onClose={vi.fn()} />);
+    await renderDialog(<ProjectPreferencesDialog open preferences={{ version: 1, projectLoadBehaviour: 'always_ask', selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } }} onSave={vi.fn()} onClose={vi.fn()} />);
     expect(document.body.textContent).toContain('Project Load Behaviour');
     const trigger = document.querySelector('[data-testid="project-load-behaviour"]');
     expect(trigger?.getAttribute('role')).toBe('combobox');

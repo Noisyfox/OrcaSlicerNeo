@@ -19,6 +19,7 @@ function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapsh
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: false },
     result: { hasResult: false, exported: false },
+    project: { hasContent: true, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: false, menuMode: 'browser' },
     ...overrides,
   };

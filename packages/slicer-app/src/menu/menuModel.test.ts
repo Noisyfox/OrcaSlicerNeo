@@ -10,6 +10,8 @@ function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapsh
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: false },
     result: { hasResult: false, exported: false },
+    project: { hasContent: overrides.scene?.hasModel ?? false, dirty: false,
+      operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: false, menuMode: 'browser' },
     ...overrides,
   };
@@ -45,7 +47,8 @@ describe('buildMenuModel', () => {
     const model = buildMenuModel(state, windows);
     expect(model.menus.map((menu) => menu.label)).toEqual(['File', 'Help']);
     expect(menuItems(model, 'File').map((item) => item.label)).toEqual([
-      'Add Model', 'Clear Scene', 'Slice', 'Export G-code', '', 'Exit',
+      'Add Model', 'Clear Scene', 'Slice', 'Export G-code', '', 'New Project', 'Open Project…',
+      'Save Project', 'Save Project As…', 'Preferences…', '', 'Exit',
     ]);
     expect(menuItems(model, 'Help').map((item) => item.label)).toEqual(['AGPL-3.0 source']);
     expect(model.menus.flatMap((menu) => menu.items).every((item) => !('enabled' in item))).toBe(true);

@@ -75,7 +75,7 @@ describe('host contracts', () => {
     const runtime = {} as SlicerRuntime;
     await expect(importer.pick()).resolves.toMatchObject({ displayName: 'cube.stl' });
     await exporter.save('out.gcode', new Uint8Array());
-    await preferences.save({ ...prefs, ui: { sidebarWidth: 280 } });
+    await preferences.save({ ...prefs, ui: { ...prefs.ui, sidebarWidth: 280 } });
     await expect(preferences.load()).resolves.toMatchObject({ ui: { sidebarWidth: 280 } });
     await expect(profiles.fetch('manifest.json')).resolves.toEqual(profileBytes);
     expect(runtime).toBeDefined();
