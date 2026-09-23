@@ -197,7 +197,12 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
 export function invalidateAfterSharedConfigurationMutation(
   affectedPlateIds?: readonly string[],
   runtime?: Pick<SlicerClient, 'cancel' | 'getRuntimeExecutionState'>,
+  invalidateAllResults = false,
 ): void {
+  // A native receipt with an explicitly empty affected set is a no-op. Do
+  // not invalidate cached results or clear status for an unchanged mutation.
+  if (affectedPlateIds !== undefined && affectedPlateIds.length === 0) return;
+
   // A draft project edit has no native affected receipt yet, so it represents
   // the explicit shared-configuration boundary and hides every plate result.
   const existingStatus = useSlicerStore.getState().error;
@@ -206,10 +211,11 @@ export function invalidateAfterSharedConfigurationMutation(
     const active = store.activeSliceTarget;
     const cancel = active !== null && affectedPlateIds.includes(active.plateId) &&
       runtime?.getRuntimeExecutionState?.().threaded !== false;
-    // A shared preset change invalidates every cached plate result as a
-    // single renderer publication; the receipt still supplies the exact
-    // native affected set for cancellation and diagnostics.
-    store.invalidateSliceResult();
+    // Honor explicit invalidation semantics. Printer transitions mark their
+    // complete receipt as global; ordinary scoped edits retain unrelated
+    // plate results.
+    if (invalidateAllResults) store.invalidateSliceResult();
+    else store.invalidatePlateResults(affectedPlateIds);
     if (cancel) void runtime?.cancel().catch(() => undefined);
   } else useSlicerStore.getState().invalidateSliceResult();
   // Native configuration warnings are successful-command status, not stale

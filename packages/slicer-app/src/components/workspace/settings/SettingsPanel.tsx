@@ -86,6 +86,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
                     plateInputRevisions: transition.plateSession.inputRevisions ?? {} });
               invalidateAfterSharedConfigurationMutation(
                 transition.mutation.affectedPlateIds, platform.runtime,
+                transition.mutation.allPlateResultsInvalidated,
               );
             }
           });

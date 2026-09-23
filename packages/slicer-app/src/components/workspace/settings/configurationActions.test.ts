@@ -129,10 +129,27 @@ describe('commitSharedConfigurationMutation', () => {
     const slicer = useSlicerStore.getState();
     slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
     slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
+    useSlicerStore.setState({ error: 'existing status' });
+    const runtime = {
+      cancel: vi.fn(async () => undefined),
+      getRuntimeExecutionState: vi.fn(() => ({ threaded: true })),
+    } as unknown as Pick<import('@slicer/client').SlicerClient, 'cancel' | 'getRuntimeExecutionState'>;
 
-    invalidateAfterSharedConfigurationMutation([]);
+    invalidateAfterSharedConfigurationMutation([], runtime);
 
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-1', 'plate-2']);
+    expect(useSlicerStore.getState().error).toBe('existing status');
+    expect(runtime.cancel).not.toHaveBeenCalled();
+  });
+
+  it('invalidates every plate listed by a complete shared transition receipt', () => {
+    const slicer = useSlicerStore.getState();
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
+
+    invalidateAfterSharedConfigurationMutation(['plate-1', 'plate-2'], undefined, true);
+
+    expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual([]);
   });
 
   it('publishes native warnings without converting a successful commit into a failure', async () => {
