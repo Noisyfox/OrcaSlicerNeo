@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { readFile } from 'node:fs/promises';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { mutateNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
@@ -42,7 +43,7 @@ function sessionShape(snapshot) {
     plates: (snapshot.plates ?? []).map((plate) => ({
       plate_id: plate.plate_id, display_index: plate.display_index, origin: plate.origin,
       name: plate.name, locked: plate.locked, settings: plate.settings,
-      opaque_metadata: plate.opaque_metadata, future_metadata: plate.future_metadata,
+      opaque_metadata: plate.opaque_metadata,
       instance_ids: [...(plate.instance_ids ?? [])].sort((a, b) => a - b),
       out_of_bounds_instance_ids: [...(plate.out_of_bounds_instance_ids ?? [])].sort((a, b) => a - b),
       instance_keys: plateMembers(plate.instance_ids ?? []),
@@ -116,7 +117,7 @@ function assertLiveSessionIntegrity(snapshot, label) {
     JSON.stringify({ model, snapshot }));
 }
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 if (!init.ok) throw new Error(JSON.stringify(init));
 // A freshly created project exercises the first ordinary body move: Undo must
@@ -148,6 +149,12 @@ delete freshMove.matrix;
 historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transforms', ['string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify([{ objectIdx: freshBody.object_idx, volumeIdx: freshBody.volume_idx,
     instanceIdx: freshBody.instance_idx, instanceTransform: freshMove, volumeTransform: freshBody.volume_transform }])]).ok === true);
+const freshScopedConfigMutation = mutateNativeScopedConfig(callJson, 'set', [
+  { scope: 'object', id: String(freshStableIds[0].object_id) },
+  { scope: 'part', id: String(freshStableIds[0].volume_ids[0]) },
+], { key: 'layer_height', value: '0.2' });
+historyCheck('fresh-project move transaction records object and part scoped config targets',
+  freshScopedConfigMutation.ok === true, JSON.stringify(freshScopedConfigMutation));
 const freshMoveCommit = callJson('orc_history_commit', ['string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify(context)]);
 if (!freshMoveCommit.canUndo) throw new Error(`fresh Cube move commit failed: ${JSON.stringify(freshMoveCommit)}`);
@@ -163,7 +170,7 @@ const restoreSamples = (freshMoveUndoProfile.samples ?? []).filter((sample) => s
 const restoreStages = [
   'immutable_mesh_reconnect',
   'model_staging_deserialization',
-  'plate_session_project_overlay_restore',
+  'plate_session_native_config_restore',
   'total',
 ];
 historyCheck('fresh-project move Undo exposes bounded native restore stages', restoreSamples.length === 1 &&
@@ -175,12 +182,27 @@ historyCheck('fresh-project move Undo exposes bounded native restore stages', re
 historyCheck('fresh-project move Undo returns the SceneDelta timestamped-restore ABI response', freshMoveUndo.ok === true &&
   freshMoveUndo.context && typeof freshMoveUndo.context === 'object' &&
   freshMoveUndo.impact?.model === 'delta' && freshMoveUndo.impact?.plateSession === true &&
-  freshMoveUndo.impact?.projectOverlay === true && freshMoveUndo.impact?.preview === 'all' &&
+  freshMoveUndo.impact?.nativeScopedConfig === true && freshMoveUndo.impact?.preview === 'all' &&
   !Object.hasOwn(freshMoveUndo, 'direct') && !Object.hasOwn(freshMoveUndo, 'transform_receipt'),
   JSON.stringify(freshMoveUndo));
+const freshMoveRemovedTargets = new Set((freshMoveUndo.native_scoped_config?.removed_targets ?? [])
+  .map((target) => `${target.scope}:${target.id ?? ''}`));
+historyCheck('fresh-project move Undo publishes a scoped tombstone for the erased part map',
+  freshMoveRemovedTargets.has(`part:${freshStableIds[0].volume_ids[0]}`),
+  JSON.stringify({ freshMoveRemovedTargets: [...freshMoveRemovedTargets], native_scoped_config: freshMoveUndo.native_scoped_config }));
 const freshPlateIds = freshMoveUndo.context.plateSession.plates.map((plate) => plate.plate_id);
 assertSceneDelta('fresh-project move Undo publishes the exact stable-ID delta', freshMoveUndo,
   freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
+historyCheck('instance transform and scoped config Undo retains unchanged renderer geometry',
+  JSON.stringify(freshMoveUndo.scene_delta.retained_renderer_object_ids) ===
+    JSON.stringify(freshStableIds.map((object) => object.object_id)) &&
+  freshMoveUndo.scene_delta.retained_volume_transforms?.length === 1 &&
+  freshMoveUndo.context.plateSession.instance_transforms?.length === 1 &&
+  Math.abs(freshMoveUndo.context.plateSession.instance_transforms[0].world_transform.offset[0] -
+    freshBody.instance_transform.offset[0]) < 1e-8 &&
+  freshMoveUndo.impact.filamentRack === false, JSON.stringify({ delta: freshMoveUndo.scene_delta,
+    before: freshBeforeMoveStructure, after: callJson('orc_get_model_structure'), impact: freshMoveUndo.impact,
+    transforms: freshMoveUndo.context.plateSession.instance_transforms }));
 const freshScenePatch = callJson('orc_get_model_scene_patch', ['string'],
   [JSON.stringify(freshMoveUndo.scene_delta.object_ids)]);
 historyCheck('fresh-project move Undo targeted patch returns only the touched native object',
@@ -210,6 +232,11 @@ const freshCubeUndo = callJson('orc_history_undo', [], []);
 historyCheck('second Undo removes the fresh-project Cube', freshCubeUndo.ok === true &&
   callJson('orc_get_model_structure', [], []).objects.length === 0,
   JSON.stringify({ freshCubeUndo, status: callJson('orc_history_status', [], []) }));
+const freshCubeRemovedTargets = new Set((freshCubeUndo.native_scoped_config?.removed_targets ?? [])
+  .map((target) => `${target.scope}:${target.id ?? ''}`));
+historyCheck('second Undo publishes an explicit native scoped tombstone for the deleted object',
+  freshCubeRemovedTargets.has(`object:${freshStableIds[0].object_id}`),
+  JSON.stringify({ freshCubeRemovedTargets: [...freshCubeRemovedTargets], native_scoped_config: freshCubeUndo.native_scoped_config }));
 assertSceneDelta('second Undo publishes the exact delete delta', freshCubeUndo,
   freshStableIds, freshPlateIds, []);
 const freshCubeRedo = callJson('orc_history_redo', [], []);
@@ -397,8 +424,7 @@ const configuredPlateId = plateAfterRedo.current_plate_id;
 const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Plate Config', 'project', JSON.stringify(context), '']);
 if (!configTx.ok || typeof configTx.transactionId !== 'string') throw new Error(JSON.stringify(configTx));
-const configured = callJson('orc_set_project_config_override',
-  ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_x', '101,202']);
+const configured = setNativeScopedConfig(callJson, 'project', undefined, 'wipe_tower_x', '101,202');
 if (configured.ok || configured.error_code !== 'unsupported_reference')
   throw new Error(`generic X/Y setting unexpectedly accepted: ${JSON.stringify(configured)}`);
 const configuredCommit = callJson('orc_history_commit', ['string', 'string'],
@@ -463,6 +489,9 @@ if (!restoredBeforeEdit.ok || restoredBeforeEdit.objects.length !== 2 ||
   throw new Error(`undo did not rebuild the exact two-object model: ${JSON.stringify(restoredBeforeEdit)}`);
 const redone = callJson('orc_history_redo', [], []);
 if (!redone.ok || !redone.status.canUndo) throw new Error(`redo failed: ${JSON.stringify(redone)}`);
+historyCheck('renderer retention rejects changed native presentation',
+  !undone.scene_delta.retained_renderer_object_ids.includes(targetId) &&
+  !redone.scene_delta.retained_renderer_object_ids.includes(targetId), JSON.stringify({ undone, redone }));
 const restored = callJson('orc_get_model_structure', [], []);
 if (!restored.ok || restored.objects.length !== 2 || restored.objects[0].printable !== false ||
     restored.objects[1].printable !== true)
@@ -709,9 +738,9 @@ assertTransformEqual(modelMesh().instance_transform, branchReplacement, 'branch 
 // compaction/reorder path and exercises the same ordered session snapshot.
 const fixtureArchive = await readFile(resolve(repoRoot,
   'packages/slicer-wasm/fixtures/native-interoperability/orca-native-multi-plate.3mf'));
-// The pinned Neo metadata intentionally records both locks as false for the
-// interoperability fixture.  Change only the in-memory fixture copy so the
-// history baseline contains a real imported locked plate.
+// Change only the in-memory model_settings copy so the history baseline
+// contains a real imported locked plate; no Neo-private archive member is
+// involved.
 const fixtureEntries = readZipEntries(fixtureArchive);
 const fixturePaintStates = ['4', '8', '4', '8', '4', '8', '4', '8', '4', '8', '4', '8'];
 const fixtureModelEntry = fixtureEntries.find((entry) => entry.name === '3D/3dmodel.model');
@@ -724,19 +753,16 @@ fixtureModelEntry.content = new TextEncoder().encode(fixtureModelText.replace(
     ? source.replace('/>', ` paint_color="${fixturePaintStates[paintedTriangle++]}"/>`)
     : source,
 ));
+const fixtureSettingsEntry = fixtureEntries.find((entry) => entry.name === 'Metadata/model_settings.config');
+if (!fixtureSettingsEntry) throw new Error('native history fixture is missing Metadata/model_settings.config');
+let fixtureLockIndex = 0;
+const fixtureSettingsText = new TextDecoder().decode(fixtureSettingsEntry.content).replace(
+  /<metadata key="lock" value="false"\/>/g,
+  (source) => fixtureLockIndex++ === 1 ? source.replace('value="false"', 'value="true"') : source,
+);
+fixtureSettingsEntry.content = new TextEncoder().encode(fixtureSettingsText);
 historyCheck('paint the native structural history fixture',
   paintedTriangle === fixturePaintStates.length, `painted=${paintedTriangle}`);
-const fixtureMetadata = {
-  schema: 'org.orcaslicerneo.plate-session', version: 1, current_plate_index: 0,
-  plates: [
-    { plate_index: 0, origin: [0, 0, 0], name: 'Native Plate 1', locked: false,
-      settings: {}, opaque_metadata: [{ key: 'native_future_key', value: 'native-future-value' }] },
-    { plate_index: 1, origin: [248.4, 0, 0], name: 'Native Plate 2', locked: true,
-      settings: {}, opaque_metadata: [{ key: 'native_second_key', value: 'native-second-value' }] },
-  ],
-};
-fixtureEntries.push({ name: 'Metadata/orca_neo_plate_session_v1.json',
-  content: new TextEncoder().encode(JSON.stringify(fixtureMetadata)) });
 const fixtureBytes = writeStoredZip(fixtureEntries);
 let fixturePtr = writeBytes(fixtureBytes);
 const loadedFixture = callJson('orc_load_project',
@@ -806,18 +832,20 @@ let structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
 const structuralBaselineIdentity = modelIdentity(callJson('orc_get_model_structure', [], []));
 assertLiveSessionIntegrity(structuralBaseline, 'structural baseline');
 function coordinateArraysMatchPlateCount(session) {
-  const overlay = callJson('orc_get_project_config_overlay');
+  const snapshot = callJson('orc_get_native_scoped_config');
+  const values = snapshot.native_scoped_config?.snapshot;
   return ['wipe_tower_x', 'wipe_tower_y'].every((key) =>
-    typeof overlay.overlay.project?.[key] === 'string' && overlay.overlay.project[key].split(',').length === session.plates.length) &&
+    typeof values?.project?.[key] === 'string' && values.project[key].split(',').length === session.plates.length) &&
     session.plates.every((plate, index) => !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x') &&
       !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_y'));
 }
 function coordinateArrayAt(session, plateId, key) {
   const plate = session.plates.find((entry) => entry.plate_id === plateId);
   if (!plate) throw new Error(`missing coordinate plate ${plateId}`);
-  const overlay = callJson('orc_get_project_config_overlay');
-  if (typeof overlay.overlay.project?.[key] !== 'string') throw new Error(`${key} is not serialized`);
-  return overlay.overlay.project[key].split(',').map(Number);
+  const snapshot = callJson('orc_get_native_scoped_config');
+  const values = snapshot.native_scoped_config?.snapshot;
+  if (typeof values?.project?.[key] !== 'string') throw new Error(`${key} is not serialized`);
+  return values.project[key].split(',').map(Number);
 }
 function coordinateIdentityValues(session, expected) {
   return Object.entries(expected).every(([plateId, values]) =>
@@ -827,8 +855,7 @@ function coordinateIdentityValues(session, expected) {
     }));
 }
 function setProjectCoordinate(key, value) {
-  const result = callJson('orc_set_project_config_override',
-    ['string', 'string', 'string', 'string'], ['project', '', key, String(value)]);
+  const result = setNativeScopedConfig(callJson, 'project', undefined, key, String(value));
   if (!result.ok) throw new Error(`set project ${key} failed: ${JSON.stringify(result)}`);
 }
 const coordinateBaselineReset = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
@@ -1348,4 +1375,56 @@ historyCheck('accounting diagnostic restore redoes successfully',
   accountingRedo.ok === true && accountingRedo.status?.bytesUsed === accountingUndo.status?.bytesUsed &&
   callJson('orc_get_model_structure', [], []).objects.length === 2,
   JSON.stringify({ accountingRedo, model: callJson('orc_get_model_structure', [], []) }));
+// Existing used-slot summaries must survive only semantically irrelevant
+// history changes. This adds no summary, retained data, key, or lifetime.
+const usageObjectId = callJson('orc_get_model_structure', [], []).objects[0].id;
+for (const [key, value, preservesUsage] of [
+  ['layer_height', '0.27', true],
+  ['enable_support', '1', false],
+  ['transform', '', true],
+]) {
+  const usageTransaction = beginHistory(`Usage invalidation ${key}`);
+  if (key === 'transform') {
+    const body = callJson('orc_get_model_mesh', [], []).objects[0];
+    const transform = { ...body.instance_transform,
+      offset: [body.instance_transform.offset[0] + 2, body.instance_transform.offset[1], body.instance_transform.offset[2]] };
+    delete transform.matrix;
+    historyCheck('usage fixture moves instance', callJson('orc_set_model_transforms', ['string', 'string'],
+      [usageTransaction, JSON.stringify([{ objectIdx: body.object_idx, volumeIdx: body.volume_idx,
+        instanceIdx: body.instance_idx, instanceTransform: transform, volumeTransform: body.volume_transform }])]).ok === true);
+  } else {
+    historyCheck(`usage fixture sets ${key}`, setNativeScopedConfig(callJson,
+      'object', usageObjectId, key, value).ok === true);
+  }
+  commitHistory(`Usage invalidation ${key}`, usageTransaction);
+  callJson('orc_get_prime_tower_projection', [], []);
+  for (const direction of ['undo', 'redo']) {
+    callJson('orc_take_performance_profile', [], []);
+    historyCheck(`usage fixture ${direction} ${key}`,
+      callJson(`orc_history_${direction}`, [], []).ok === true);
+    callJson('orc_get_prime_tower_projection', [], []);
+    const usageProfile = callJson('orc_take_performance_profile', [], []);
+    const projection = usageProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+    const fallback = projection?.stages_ms?.used_slot_full_scan_fallback;
+    historyCheck(`${direction} ${key} ${preservesUsage ? 'preserves' : 'invalidates'} existing usage summary`,
+      preservesUsage ? fallback === 0 : fallback > 0, JSON.stringify(usageProfile));
+  }
+}
+for (const [operation, payload] of [
+  ['orc_set_filament_slot_colour', { slot: 1, colour: '#123456' }],
+  ['orc_set_filament_routing', { selector: 'support-base', slot: 1, targets: [{ kind: 'project', id: 0 }] }],
+  ['orc_set_filament_routing', { selector: 'support-interface', slot: 1, targets: [{ kind: 'object', id: usageObjectId }] }],
+]) {
+  const filamentSnapshot = callJson('orc_get_filament_session_snapshot', [], []);
+  const changed = callJson(operation, ['string'], [JSON.stringify({
+    version: 1, revision: filamentSnapshot.revisions.session, ...payload,
+  })]);
+  historyCheck(`filament projection fixture ${operation} ${payload.selector ?? 'colour'}`,
+    changed.ok === true, JSON.stringify(changed));
+  for (const direction of ['undo', 'redo']) {
+    const restored = callJson(`orc_history_${direction}`, [], []);
+    historyCheck(`${direction} refreshes filament projection for ${payload.selector ?? 'colour'}`,
+      restored.ok === true && restored.impact.filamentRack === true, JSON.stringify(restored));
+  }
+}
 console.log(`history smoke passed (${moduleArg})`);

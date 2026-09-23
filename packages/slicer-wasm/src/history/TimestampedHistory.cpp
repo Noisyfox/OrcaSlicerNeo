@@ -145,7 +145,7 @@ struct TimestampedHistory::Impl {
         std::vector<std::shared_ptr<StoredMesh>> meshes;
         std::shared_ptr<const Bytes> plate_session;
         std::shared_ptr<const Bytes> history_context;
-        std::shared_ptr<const Bytes> project_config_overlay;
+        std::shared_ptr<const Bytes> project_config;
     };
 
     struct Operation {
@@ -200,8 +200,8 @@ struct TimestampedHistory::Impl {
             snapshot.meshes.size() != roots.model.immutable_meshes.size() ||
             !snapshot.plate_session || *snapshot.plate_session != roots.session.plate_session ||
             !snapshot.history_context || *snapshot.history_context != roots.session.history_context ||
-            !snapshot.project_config_overlay ||
-            *snapshot.project_config_overlay != roots.project_config_overlay)
+            !snapshot.project_config ||
+            *snapshot.project_config != roots.project_config)
             return false;
 
         for (std::size_t index = 0; index < snapshot.object_order.size(); ++index) {
@@ -228,8 +228,8 @@ struct TimestampedHistory::Impl {
         snapshot->model_manifest = store_blob(roots.model.serialized, previous ? previous->model_manifest : nullptr);
         snapshot->plate_session = store_blob(roots.session.plate_session, previous ? previous->plate_session : nullptr);
         snapshot->history_context = store_blob(roots.session.history_context, previous ? previous->history_context : nullptr);
-        snapshot->project_config_overlay =
-            store_blob(roots.project_config_overlay, previous ? previous->project_config_overlay : nullptr);
+        snapshot->project_config =
+            store_blob(roots.project_config, previous ? previous->project_config : nullptr);
 
         snapshot->object_order.reserve(roots.model.mutable_objects.size());
         snapshot->objects.reserve(roots.model.mutable_objects.size());
@@ -304,8 +304,8 @@ struct TimestampedHistory::Impl {
         auto snapshot = std::make_shared<Snapshot>(prior);
         snapshot->plate_session = store_blob(roots.session.plate_session, prior.plate_session);
         snapshot->history_context = store_blob(roots.session.history_context, prior.history_context);
-        snapshot->project_config_overlay =
-            store_blob(roots.project_config_overlay, prior.project_config_overlay);
+        snapshot->project_config =
+            store_blob(roots.project_config, prior.project_config);
         existing->second = std::move(snapshot);
         return true;
     }
@@ -329,7 +329,7 @@ struct TimestampedHistory::Impl {
         for (const auto& mesh : snapshot.meshes) restored.roots.model.immutable_meshes.push_back(*mesh);
         restored.roots.session.plate_session = *snapshot.plate_session;
         restored.roots.session.history_context = *snapshot.history_context;
-        restored.roots.project_config_overlay = *snapshot.project_config_overlay;
+        restored.roots.project_config = *snapshot.project_config;
         result = std::move(restored);
         return true;
     }
@@ -452,7 +452,7 @@ struct TimestampedHistory::Impl {
             add_blob(snapshot->model_manifest);
             add_blob(snapshot->plate_session);
             add_blob(snapshot->history_context);
-            add_blob(snapshot->project_config_overlay);
+            add_blob(snapshot->project_config);
             for (const auto& [id, object] : snapshot->objects) {
                 if (!objects.insert(object.get()).second) continue;
                 add_blob(object->data);

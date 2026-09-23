@@ -32,7 +32,7 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import type { PlateSessionSnapshot, ProjectConfigOverlay } from '@slicer/client';
+import type { PlateSessionSnapshot, NativeScopedConfigFullTransport } from '@slicer/client';
 import { readSceneDeltaProjection } from './viewport/sceneDeltaProjection';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
@@ -83,7 +83,7 @@ function primeTowerSessionInputs(): readonly unknown[] {
     JSON.stringify(plateSession ? {
       inputRevisions: plateSession.inputRevisions,
     } : null),
-    JSON.stringify(useSettingsStore.getState().overlay),
+    JSON.stringify(useSettingsStore.getState().nativeScopedConfig),
   ];
 }
 
@@ -134,7 +134,7 @@ export function Workspace({
   const structure = useObjectListStore((s) => s.structure);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
-  const settingsOverlay = useSettingsStore((s) => s.overlay);
+  const settingsNativeScopedConfig = useSettingsStore((s) => s.nativeScopedConfig);
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const historyRestorePhase = useHistoryRestoreStore((s) => s.phase);
   const historyRestoreRevision = useHistoryRestoreStore((s) => s.revision);
@@ -258,7 +258,7 @@ export function Workspace({
     if (historyRestorePhase !== 'idle' || projectMutationPendingCount !== 0) return;
     void refreshPrimeTowerProjection();
   }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision,
-    plateSession, projectMutationPendingCount, refreshPrimeTowerProjection, settingsOverlay, structure]);
+    plateSession, projectMutationPendingCount, refreshPrimeTowerProjection, settingsNativeScopedConfig, structure]);
   useEffect(() => {
     if (plateSession) wipeTowerVolumes.setCurrentPlate(plateSession.currentPlateId, plateSession);
   }, [plateSession?.currentPlateId, wipeTowerVolumes]);
@@ -302,7 +302,7 @@ export function Workspace({
     historyRestoreRef.current = createHistoryRestoreCoordinator({
       runtime: platform.runtime,
       sceneInteraction,
-      refreshModel: async (context, impact, sceneDelta, revision) => {
+      refreshModel: async (context, impact, sceneDelta, nativeScopedConfig: NativeScopedConfigFullTransport, revision) => {
         if (impact.model !== 'delta')
           throw new Error('ordinary history restore requires a SceneDelta projection');
         const freshPlateSession = impact.plateSession ? context.plateSession : undefined;
@@ -318,10 +318,12 @@ export function Workspace({
           projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
           return;
         }
-        if (impact.projectOverlay) {
-          const overlay = context.projectConfigOverlay;
-          if (overlay && typeof overlay === 'object' && 'project' in overlay && 'objects' in overlay && 'parts' in overlay && 'plates' in overlay)
-            useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
+        if (impact.nativeScopedConfig) {
+          const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(
+            nativeScopedConfig,
+          );
+          if (outcome === 'refresh-required')
+            throw new Error('history restore scoped configuration requires a full refresh');
         }
 
         if (freshPlateSession?.instanceTransforms) {
@@ -386,6 +388,15 @@ export function Workspace({
     });
   }
   const historyRestore = historyRestoreRef.current;
+  useEffect(() => {
+    if (import.meta.env.VITE_SCOPED_CONFIGURATION_GATE !== '1') return;
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void import('../../history/scopedConfigurationGate').then(({ installScopedConfigurationGate }) => {
+      if (!disposed) cleanup = installScopedConfigurationGate(platform, historyRestore);
+    });
+    return () => { disposed = true; cleanup?.(); };
+  }, [platform, historyRestore]);
   useEffect(() => {
     const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
     if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;

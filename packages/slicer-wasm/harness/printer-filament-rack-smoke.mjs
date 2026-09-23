@@ -99,7 +99,7 @@ assert.equal(JSON.stringify(callJson('orc_get_filament_session_snapshot')), JSON
 const reset = callJson('orc_history_reset', ['string'], [JSON.stringify({
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null, gizmo: null,
-  projectConfigOverlay: { project: {}, objects: {}, parts: {}, plates: {} },
+  nativeScopedConfig: { project: {}, objects: {}, parts: {}, plates: {} },
 })]);
 assert.equal(reset.dirty, false);
 assert.equal(reset.canUndo, false);

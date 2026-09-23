@@ -181,15 +181,14 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     const revision = preferenceRevisionRef.current;
     let active = true;
     preferenceInteractionRef.current = false;
-    // The default is also the migration value for pre-existing preference
-    // documents that do not yet contain this field.
+    // Show the application default until the normalized repository value loads.
     setSwitchToDeviceAfterSend(true);
     const pendingSaves = preferenceSaveChainRef.current;
     void pendingSaves.then(() => platform.preferences.load()).then((prefs) => {
       if (!active || generation !== preferenceLoadGenerationRef.current
         || revision !== preferenceRevisionRef.current || preferenceInteractionRef.current) return;
       preferenceRef.current = prefs;
-      setSwitchToDeviceAfterSend(prefs.ui.switchToDeviceAfterSend ?? true);
+      setSwitchToDeviceAfterSend(prefs.ui.switchToDeviceAfterSend);
     }).catch((error) => {
       if (active && generation === preferenceLoadGenerationRef.current) {
         console.error('send navigation preference load failed; using default', error);

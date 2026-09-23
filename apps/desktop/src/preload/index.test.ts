@@ -35,6 +35,7 @@ describe('Electron preload bridge', () => {
       slicer: { status: 'idle' as const, progress: 0, error: null },
       scene: { hasModel: false },
       result: { hasResult: false, exported: false },
+      project: { hasContent: false, dirty: false, operation: { phase: 'idle' as const, progress: 0, cancellable: false } },
       host: { isElectron: true, menuMode: 'native' as const },
       items: {
         'new-project': { enabled: false }, 'open-project': { enabled: false },

@@ -2,15 +2,16 @@
 // placement), then the Move / Rotate / Scale gizmo toggles. The gizmos never
 // auto-open on selection — arming happens here, and an emptied selection
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
-// overlays the canvas (outside the R3F tree), so it subscribes through the
-// explicit-controller hook, like the transform panels.
+// overlays the canvas (outside the R3F tree). Selection and the armed gizmo
+// are observed separately so transform frames do not rerender the toolbar.
 import { FolderPlus, Move, Rotate3d, Scaling } from 'lucide-react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
-import { useSceneInteractionVersion } from './SceneInteractionContext';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
@@ -31,7 +32,17 @@ export function GizmoToolbar({
   sceneInteraction: SceneInteractionController | null;
   onModelAdded?: () => void;
 }) {
-  useSceneInteractionVersion(sceneInteraction ?? undefined);
+  const selection = sceneInteraction?.selection;
+  const subscribeSelection = useCallback(
+    (listener: () => void) => selection?.subscribe(listener) ?? (() => {}),
+    [selection],
+  );
+  const subscribeGizmo = useCallback(
+    (listener: () => void) => sceneInteraction?.subscribe(listener) ?? (() => {}),
+    [sceneInteraction],
+  );
+  useSyncExternalStore(subscribeSelection, () => selection?.revision ?? 0);
+  useSyncExternalStore(subscribeGizmo, () => sceneInteraction?.gizmo ?? null);
   const platform = usePlatform();
   // Boot loads the printer/process lists and the rack's filament catalogue
   // atomically; until they
@@ -50,36 +61,38 @@ export function GizmoToolbar({
       className="absolute top-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
       data-testid="gizmo-toolbar"
     >
-      <Button
-        size="icon"
-        variant="ghost"
-        onClick={() => { void addModel(platform, sceneInteraction, onModelAdded); }}
-        disabled={!presetsLoaded}
-        title="Add Model"
-        aria-label="Add Model"
-        data-testid="btn-add-model"
-      >
-        <FolderPlus />
-      </Button>
+      <TooltipFor content="Add Model" disabled={!presetsLoaded}>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => { void addModel(platform, sceneInteraction, onModelAdded); }}
+          disabled={!presetsLoaded}
+          aria-label="Add Model"
+          data-testid="btn-add-model"
+        >
+          <FolderPlus />
+        </Button>
+      </TooltipFor>
       <div className="mx-0.5 h-4 w-px bg-border/60" aria-hidden="true" />
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
         const disabled = towerSelected ? !towerMode : sceneInteraction.selection.empty;
         return (
-          <Button
-            key={mode}
-            variant="ghost"
-            size="icon"
-            title={label}
-            aria-pressed={armed}
-            disabled={disabled}
-            data-testid={testId}
-            className={cn(armed && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
-            onClick={() => sceneInteraction.toggleGizmo(mode)}
-          >
-            <Icon />
-          </Button>
+          <TooltipFor key={mode} content={label} disabled={disabled}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={label}
+              aria-pressed={armed}
+              disabled={disabled}
+              data-testid={testId}
+              className={cn(armed && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
+              onClick={() => sceneInteraction.toggleGizmo(mode)}
+            >
+              <Icon />
+            </Button>
+          </TooltipFor>
         );
       })}
     </div>

@@ -117,6 +117,14 @@ ModelInstance* find_instance_by_id(const std::size_t id) {
         for (auto& instance : object->instances) if (instance->id().id == id) return instance;
     return nullptr;
 }
+void append_instance_ids(const ModelObject& object, std::set<std::size_t>& ids) {
+    for (const auto* instance : object.instances)
+        ids.insert(instance->id().id);
+}
+void append_instance_ids(const ModelObjectPtrs& objects, std::set<std::size_t>& ids) {
+    for (const auto* object : objects)
+        if (object != nullptr) append_instance_ids(*object, ids);
+}
 const char* volume_type_string(const ModelVolumeType type) {
     switch (type) {
         case ModelVolumeType::MODEL_PART: return "model_part";
@@ -556,16 +564,27 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
         const auto ids = parse_positive_id_array(j);
         if (!ids) return error_json("no object ids");
         std::vector<std::size_t> new_object_ids;
+        std::set<std::size_t> affected_instances;
+        for (const std::size_t id : *ids) {
+            const ModelObject* object = find_object_by_id(id);
+            if (object == nullptr) return error_json("object not found");
+            append_instance_ids(*object, affected_instances);
+        }
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         for (const std::size_t id : *ids) {
             ModelObject* obj = find_object_by_id(id);
             if (obj == nullptr) return error_json("object not found");
             ModelObject* clone = state().model.add_object(*obj);
             new_object_ids.push_back(clone->id().id);
+            append_instance_ids(*clone, affected_instances);
         }
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
-                             {"objects", state().model.objects.size()}}.dump());
+                             {"objects", state().model.objects.size()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -588,6 +607,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
         for (std::size_t i = 0; i < count; ++i)
             if (objs[i]->id().id == *from_id) { from_idx = i; break; }
         if (from_idx == count) return error_json("object not found");
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*objs[from_idx], affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         const std::size_t dest = static_cast<std::size_t>(to_index);
         // Destination final index; to_index == count (or beyond) appends last.
         const std::size_t target = dest >= count ? count - 1 : dest;
@@ -596,8 +618,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
             objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(from_idx));
             objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(target), from_obj);
         }
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
+                             {"objects", model_structure_json()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -622,6 +648,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
         for (std::size_t i = 0; i < count; ++i)
             if (vols[i]->id().id == *from_id) { from_idx = i; break; }
         if (from_idx == count) return error_json("volume not found");
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*obj, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         const std::size_t dest = static_cast<std::size_t>(to_index);
         const std::size_t target = dest >= count ? count - 1 : dest;
         if (from_idx != target) {
@@ -631,8 +660,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
             obj->config.touch();
         }
         obj->invalidate_bounding_box();
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
+                             {"objects", model_structure_json()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -654,6 +687,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
         if (!vol->is_splittable()) return error_json("volume is not splittable");
 
         ModelObject* obj = vol->get_object();
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*obj, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         // Capture the object's current volume IDs so the generated part IDs can
         // be computed after the split (the original is re-IDed, so it is "new").
         std::vector<std::size_t> before_ids;
@@ -670,11 +706,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
             if (std::find(before_ids.begin(), before_ids.end(), v->id().id) == before_ids.end())
                 new_volume_ids.push_back(v->id().id);
 
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"parts", parts},
                              {"newVolumeIds", new_volume_ids},
-                             {"objects", model_structure_json()}}.dump());
+                             {"objects", model_structure_json()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -699,6 +738,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
             || (obj->volumes.size() == 1 && obj->volumes[0]->is_splittable());
         if (!splittable) return error_json("object is not splittable");
 
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*obj, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         ModelObjectPtrs new_objects;
         obj->split(&new_objects, /*remap_paint=*/false);
         // Remove the source; the split objects now own the geometry.
@@ -706,15 +748,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
 
         std::vector<std::size_t> new_object_ids;
         for (const ModelObject* o : new_objects)
+        {
             new_object_ids.push_back(o->id().id);
+            append_instance_ids(*o, affected_instances);
+        }
 
         if (auto_drop != 0.0)
             state().model.adjust_min_z();
 
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
-                             {"objects", state().model.objects.size()}}.dump());
+                             {"objects", state().model.objects.size()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -737,6 +785,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
             if (obj == nullptr) return error_json("object not found");
             sources.push_back(obj);
         }
+        std::set<std::size_t> affected_instances;
+        for (const ModelObject* source : sources)
+            append_instance_ids(*source, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
 
         auto& model = state().model;
         ModelObject* new_obj = model.add_object();
@@ -764,6 +816,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
             new_obj->add_instance();
         }
         new_obj->sort_volumes(true);
+        append_instance_ids(*new_obj, affected_instances);
 
         // Remove the source objects from the live model.
         std::sort(sources.begin(), sources.end());
@@ -771,10 +824,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
         for (ModelObject* src : sources)
             model.delete_object(src);
 
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"objectId", new_obj->id().id},
-                             {"objects", model.objects.size()}}.dump());
+                             {"objects", model.objects.size()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -805,6 +861,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
                 if (obj->instances[i]->id().id == iid) { to_remove.push_back(i); found = true; break; }
             if (!found) return error_json("instance not found");
         }
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*obj, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
 
         std::vector<std::size_t> new_object_ids;
         for (const std::size_t iid : *ids) {
@@ -817,6 +876,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
                 clone->add_volume(*vol);
             clone->add_instance(*src_inst);
             new_object_ids.push_back(clone->id().id);
+            append_instance_ids(*clone, affected_instances);
         }
 
         // Remove the selected instances from the source (descending index).
@@ -825,10 +885,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
             obj->delete_instance(i);
         obj->config.touch();
 
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
-                             {"objects", state().model.objects.size()}}.dump());
+                             {"objects", state().model.objects.size()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -847,6 +910,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
         if (obj == nullptr) return error_json("object not found");
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*obj, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         const BoundingBoxf3& bbox = obj->bounding_box_exact();
         const double width = static_cast<double>(bbox.size().x());
         const double step = width > 0.0 ? width + 30.0 : 30.0;
@@ -856,10 +922,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
         ModelInstance* inst = obj->add_instance();
         inst->set_offset(Slic3r::Vec3d(base.x() + step, base.y(), base.z()));
         obj->config.touch();
+        append_instance_ids(*obj, affected_instances);
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"objectId", obj->id().id},
-                             {"instanceId", inst->id().id}}.dump());
+                             {"instanceId", inst->id().id}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -877,12 +947,18 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
         ModelObject* obj = find_object_by_id(*id);
         if (obj == nullptr) return error_json("object not found");
         if (obj->instances.size() <= 1) return error_json("cannot remove the last instance");
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*obj, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         for (std::size_t i = 0; i < obj->instances.size(); ++i) {
             if (obj->instances[i]->id().id == *iid) {
                 obj->delete_instance(i);
                 obj->config.touch();
+                rebuild_plate_membership(true);
                 invalidate_preview_source();
-                return dup_json(json{{"ok", true}}.dump());
+                const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                               json::array(), &affected_instances);
+                return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
             }
         }
         return error_json("instance not found");
@@ -1227,6 +1303,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         if (!new_type) return error_json("invalid volume type");
         ModelVolume* vol = find_volume_by_id(*id);
         if (vol == nullptr) return error_json("volume not found");
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*vol->get_object(), affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         // Upstream last-solid-part guard (GUI_ObjectList): refuse to turn the
         // only MODEL_PART into a non-print volume.
         if (*new_type != ModelVolumeType::MODEL_PART && vol->is_the_only_one_part())
@@ -1236,8 +1315,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         // The type changes which volumes compose the print mesh; drop the cached
         // object bounds so a later getModelMesh / slice recomputes them.
         vol->get_object()->invalidate_bounding_box();
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true}}.dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1251,6 +1333,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
         if (obj == nullptr) return error_json("object not found");
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*obj, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         // Object row toggles are an aggregate: set the object-level gate AND
         // every instance so the per-instance rows and ModelInstance::is_printable()
         // stay consistent (model_object->printable is an extra gate that would
@@ -1260,8 +1345,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
         for (auto& inst : obj->instances)
             inst->printable = value;
         obj->config.touch();
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true}}.dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1275,10 +1363,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
         if (!id) return error_json("instance id must be a positive integer");
         ModelInstance* inst = find_instance_by_id(*id);
         if (inst == nullptr) return error_json("instance not found");
+        const std::set<std::size_t> affected_instances{inst->id().id};
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         inst->printable = printable != 0.0;
         inst->get_object()->config.touch();
+        rebuild_plate_membership(true);
         invalidate_preview_source();
-        return dup_json(json{{"ok", true}}.dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

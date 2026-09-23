@@ -78,8 +78,8 @@ export interface MenuStateSnapshot {
     hasResult: boolean;
     exported: boolean;
   };
-  /** Optional for snapshots produced by hosts before project persistence. */
-  project?: MenuProjectState;
+  /** Authoritative project state supplied by the shared application. */
+  project: MenuProjectState;
   host: {
     isElectron: boolean;
     menuMode: TitlebarMenuMode;

@@ -35,7 +35,7 @@ describe('Electron adapter', () => {
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
     expect(await adapter.preferences.load()).toEqual({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
-    await adapter.preferences.save({ version: 1, selectedProfiles: { printer: 'P', print: 'Q' }, ui: {} });
+    await adapter.preferences.save({ version: 1, selectedProfiles: { printer: 'P', print: 'Q' }, ui: { switchToDeviceAfterSend: true } });
     expect(save).toHaveBeenCalledWith({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Q' }, ui: { switchToDeviceAfterSend: true } });
   });
 
@@ -134,21 +134,11 @@ describe('Electron adapter', () => {
     await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array([1]) })).resolves.toEqual({ status: 'cancelled' });
   });
 
-  it('adopts dropped Electron files through native opaque locations', async () => {
-    const openDropped = vi.fn(async () => ({ canceled: false, locationToken: 'drop-token', displayName: 'drop.3mf', bytes: Uint8Array.from([9]).buffer, files: [{ locationToken: 'drop-token', displayName: 'drop.3mf', bytes: Uint8Array.from([9]).buffer }] }));
-    const { adapter } = setup({ projects: { open: vi.fn(), openMany: vi.fn(), openDropped, save: vi.fn(), saveAs: vi.fn() } });
-    const file = Object.assign({ name: 'drop.3mf', arrayBuffer: async () => Uint8Array.from([9]).buffer }, { path: 'C:\\drop.3mf' });
-    const result = await adapter.projects.openDropped?.([file]);
-    expect(openDropped).toHaveBeenCalledWith(['C:\\drop.3mf']);
-    expect(result).toMatchObject({ status: 'ok', inputs: [{ displayName: 'drop.3mf' }] });
-    expect(result?.status === 'ok' && result.inputs[0]?.location).toBeDefined();
-  });
-
-  it('resolves modern Electron dropped files through webUtils when File.path is absent', async () => {
+  it('resolves dropped files only through the current webUtils API', async () => {
     const getPathForFile = vi.fn(() => 'C:\\drop\\modern.3mf');
     const openDropped = vi.fn(async () => ({ canceled: false, locationToken: 'drop-token', displayName: 'modern.3mf', bytes: Uint8Array.from([9]).buffer, files: [{ locationToken: 'drop-token', displayName: 'modern.3mf', bytes: Uint8Array.from([9]).buffer }] }));
     const { adapter } = setup({ projects: { open: vi.fn(), openMany: vi.fn(), getPathForFile, openDropped, save: vi.fn(), saveAs: vi.fn() } });
-    const file = { name: 'modern.3mf', arrayBuffer: async () => Uint8Array.from([9]).buffer };
+    const file = { name: 'modern.3mf', path: 'obsolete-path', arrayBuffer: async () => Uint8Array.from([9]).buffer };
     await adapter.projects.openDropped?.([file]);
     expect(getPathForFile).toHaveBeenCalledWith(file);
     expect(openDropped).toHaveBeenCalledWith(['C:\\drop\\modern.3mf']);
@@ -210,7 +200,7 @@ describe('Electron adapter', () => {
     const load = vi.fn(async () => { throw new Error('unavailable'); });
     const save = vi.fn(async () => { throw new Error('unavailable'); });
     const { adapter } = setup({ preferences: { load, save } });
-    const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300 } };
+    const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } };
     await adapter.preferences.save(value);
     await expect(adapter.preferences.load()).resolves.toEqual({ ...value, projectLoadBehaviour: 'ask_when_relevant', ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } });
   });

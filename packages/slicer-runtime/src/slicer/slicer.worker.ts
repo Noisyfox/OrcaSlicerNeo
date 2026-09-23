@@ -68,7 +68,11 @@ const factory: OrcaModuleFactory = useMock
         if (!isolated) throw new Error('the real-project profile requires the visible threaded Electron runtime');
         return load('profile-threaded');
       }
-      const loaded = await loadWasmArtifact(isolated ? 'threaded' : 'serial', load, (error) => {
+      const gateVariant = import.meta.env.VITE_SCOPED_CONFIGURATION_GATE === '1'
+        ? import.meta.env.VITE_SCOPED_CONFIGURATION_GATE_VARIANT : undefined;
+      if (gateVariant === 'threaded' && !isolated) throw new Error('threaded release gate requires isolation');
+      const loaded = await loadWasmArtifact(gateVariant === 'serial' ? 'serial' : isolated ? 'threaded' : 'serial', load, (error) => {
+        if (gateVariant === 'threaded') throw error;
         console.warn('[slicer] threaded WASM failed to start; falling back to serial', error);
       });
       return loaded.module;

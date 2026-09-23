@@ -41,7 +41,9 @@ struct SceneDelta {
 struct TimestampedRoots {
     ModelState model;
     SessionHistoryRoot session;
-    Bytes project_config_overlay;
+    // Exact native Project configuration root. It contains the serialized
+    // local project config map, never a Neo overlay store.
+    Bytes project_config;
 };
 
 struct TimestampedEntryInfo {

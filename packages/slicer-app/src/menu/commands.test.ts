@@ -27,6 +27,7 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: true },
     result: { hasResult: false, exported: false },
+    project: { hasContent: true, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: true, menuMode: 'custom' },
     items,
   };

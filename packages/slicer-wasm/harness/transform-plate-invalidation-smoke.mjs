@@ -34,7 +34,7 @@ function requireStale(label, value) {
 }
 
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 const stampMap = () => callJson('orc_get_plate_session_snapshot').input_revisions;
 requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
 requireOk('clear model', callJson('orc_clear_model'));

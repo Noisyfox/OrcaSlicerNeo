@@ -8,11 +8,13 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, ProfileSnapshot, ProfileSnapshotResult,
-  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult, PlateSelectionResult,
+  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutation, PlateSessionMutationResult, PlateSelectionResult,
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
   PrimeTowerMoveResultOrError,
-  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
+  NativeScopedConfigTarget, NativeScopedConfigTargetIdentity, NativeScopedConfigResultOrError,
+  NativeScopedConfigMutationRequest,
+  NativeScopedConfigTransport, NativeScopedConfigFullTransport, NativeScopedConfigTargetReplacement,
   ConfigurationStatus,
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
@@ -172,28 +174,23 @@ function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): Config
     warnings: raw.warnings as string[], errors: raw.errors as string[] };
 }
 
-function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResultOrError {
-  if (!isRecord(raw)) return { ok: false, error: 'invalid project configuration response' };
-  if (raw.ok !== true) {
-    if (raw.ok !== false || typeof raw.error !== 'string') return { ok: false, error: 'invalid project configuration error envelope' };
-    const result: { ok: false; error: string; errorCode?: string; status?: { state: 'error'; error: string } } = { ok: false, error: raw.error };
-    if (raw.error_code !== undefined) {
-      if (typeof raw.error_code !== 'string') return { ok: false, error: 'invalid project configuration error code' };
-      result.errorCode = raw.error_code;
-    }
-    if (raw.status !== undefined) {
-      const status = normalizeConfigurationStatus(raw.status, false);
-      if (!status || status.state !== 'error') return { ok: false, error: 'invalid project configuration error status' };
-      result.status = status;
-    }
-    return result;
-  }
-  const overlay = raw.overlay;
-  if (!isRecord(overlay)) return { ok: false, error: 'invalid project configuration overlay' };
-  if (Object.keys(overlay).length !== 4 || !Object.hasOwn(overlay, 'project') ||
-      !Object.hasOwn(overlay, 'objects') || !Object.hasOwn(overlay, 'parts') ||
-      !Object.hasOwn(overlay, 'plates'))
-    return { ok: false, error: 'invalid project configuration overlay' };
+function normalizeNativeScopedConfigTargetIdentity(raw: unknown): NativeScopedConfigTargetIdentity | null {
+  if (!isRecord(raw) || typeof raw.scope !== 'string' ||
+      !['project', 'object', 'part', 'plate'].includes(raw.scope)) return null;
+  const scope = raw.scope as NativeScopedConfigTargetIdentity['scope'];
+  if (scope === 'project') {
+    if (raw.id !== undefined) return null;
+  } else if (typeof raw.id !== 'string' || raw.id.length === 0) return null;
+  return { scope, ...(scope === 'project' ? {} : { id: raw.id as string }) };
+}
+
+function normalizeNativeScopedConfigTargetReplacement(raw: unknown): NativeScopedConfigTargetReplacement | null {
+  if (!isRecord(raw) || typeof raw.scope !== 'string' ||
+      !['project', 'object', 'part', 'plate'].includes(raw.scope) || !isRecord(raw.values)) return null;
+  const scope = raw.scope as NativeScopedConfigTargetReplacement['scope'];
+  if (scope === 'project') {
+    if (raw.id !== undefined) return null;
+  } else if (typeof raw.id !== 'string' || raw.id.length === 0) return null;
   const normalizeBucket = (value: unknown): Record<string, string> | null => {
     if (!isRecord(value)) return null;
     const entries: Record<string, string> = {};
@@ -203,7 +200,45 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
     }
     return entries;
   };
-  const project = normalizeBucket(overlay.project);
+  const values = normalizeBucket(raw.values);
+  if (!values) return null;
+  return {
+    scope,
+    ...(scope === 'project' ? {} : { id: raw.id as string }),
+    values,
+  };
+}
+
+function normalizeNativeScopedConfigTransport(raw: unknown): NativeScopedConfigTransport | null {
+  if (!isRecord(raw) || raw.version !== 1 || !Number.isSafeInteger(raw.revision) ||
+      (raw.revision as number) < 0 || (raw.kind !== 'full' && raw.kind !== 'affected') ||
+      !Array.isArray(raw.removed_targets)) return null;
+  const removedTargets = raw.removed_targets.map(normalizeNativeScopedConfigTargetIdentity);
+  if (removedTargets.some((target) => target === null)) return null;
+  if (raw.kind === 'affected') {
+    if (!Array.isArray(raw.replacements)) return null;
+    const replacements = raw.replacements.map(normalizeNativeScopedConfigTargetReplacement);
+    if (replacements.some((target) => target === null)) return null;
+    return {
+      version: 1, revision: raw.revision as number, kind: 'affected',
+      replacements: replacements as NativeScopedConfigTargetReplacement[],
+      removedTargets: removedTargets as NativeScopedConfigTargetIdentity[],
+    };
+  }
+  if (!isRecord(raw.snapshot) || Object.keys(raw.snapshot).length !== 4 ||
+      !Object.hasOwn(raw.snapshot, 'project') || !Object.hasOwn(raw.snapshot, 'objects') ||
+      !Object.hasOwn(raw.snapshot, 'parts') || !Object.hasOwn(raw.snapshot, 'plates')) return null;
+  const snapshot = raw.snapshot as Record<string, unknown>;
+  const normalizeBucket = (value: unknown): Record<string, string> | null => {
+    if (!isRecord(value)) return null;
+    const entries: Record<string, string> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item !== 'string') return null;
+      entries[key] = item;
+    }
+    return entries;
+  };
+  const project = normalizeBucket(snapshot.project);
   const normalizeScopedBucket = (value: unknown): Record<string, Record<string, string>> | null => {
     if (!isRecord(value)) return null;
     const result: Record<string, Record<string, string>> = {};
@@ -214,25 +249,50 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
     }
     return result;
   };
-  const objects = normalizeScopedBucket(overlay.objects);
-  const parts = normalizeScopedBucket(overlay.parts);
-  const plates = normalizeScopedBucket(overlay.plates);
-  if (!project || !objects || !parts || !plates) return { ok: false, error: 'invalid project configuration overlay' };
-  const result: { ok: true; overlay: ProjectConfigOverlay; plateSession?: unknown; configurationStatus?: unknown } = {
-    ok: true, overlay: { project, objects, parts, plates },
+  const objects = normalizeScopedBucket(snapshot.objects);
+  const parts = normalizeScopedBucket(snapshot.parts);
+  const plates = normalizeScopedBucket(snapshot.plates);
+  if (!project || !objects || !parts || !plates) return null;
+  return {
+    version: 1, revision: raw.revision as number, kind: 'full',
+    snapshot: { project, objects, parts, plates },
+    removedTargets: removedTargets as NativeScopedConfigTargetIdentity[],
+  };
+}
+
+function normalizeNativeScopedConfig(raw: unknown): NativeScopedConfigResultOrError {
+  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid native scoped configuration response' };
+  if (raw.ok !== true) {
+    if (raw.version !== 1 || raw.ok !== false || typeof raw.error !== 'string') return { ok: false, version: 1, error: 'invalid native scoped configuration error envelope' };
+    const result: { ok: false; version: 1; error: string; errorCode?: string; status?: { state: 'error'; error: string } } = { ok: false, version: 1, error: raw.error };
+    if (raw.error_code !== undefined) {
+      if (typeof raw.error_code !== 'string') return { ok: false, version: 1, error: 'invalid native scoped configuration error code' };
+      result.errorCode = raw.error_code;
+    }
+    if (raw.status !== undefined) {
+      const status = normalizeConfigurationStatus(raw.status, false);
+      if (!status || status.state !== 'error') return { ok: false, version: 1, error: 'invalid native scoped configuration error status' };
+      result.status = status;
+    }
+    return result;
+  }
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+  if (!nativeScopedConfig) return { ok: false, version: 1, error: 'invalid native scoped configuration transport' };
+  const result: { ok: true; nativeScopedConfig: NativeScopedConfigTransport; plateSession?: unknown; configurationStatus?: unknown } = {
+    ok: true, nativeScopedConfig,
   };
   if (raw.plate_session !== undefined) {
     const plateSession = normalizePlateMutationResult(raw.plate_session);
-    if (!plateSession.ok) return { ok: false, error: plateSession.error };
+    if (!plateSession.ok) return { ok: false, version: 1, error: plateSession.error };
     result.plateSession = plateSession;
   }
   const rawStatus = raw.configuration_status;
   if (rawStatus !== undefined) {
     const status = normalizeConfigurationStatus(rawStatus, true);
-    if (!status || status.state !== 'ready') return { ok: false, error: 'invalid project configuration status' };
+    if (!status || status.state !== 'ready') return { ok: false, version: 1, error: 'invalid native scoped configuration status' };
     result.configurationStatus = status;
   }
-  return result as ProjectConfigOverlayResultOrError;
+  return result as NativeScopedConfigResultOrError;
 }
 
 function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult {
@@ -611,16 +671,11 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
           ? { key: item.key, value: item.value } : null;
       }) : undefined;
     if (hasOpaqueMetadata && (!opaqueMetadata || opaqueMetadata.some((entry) => entry === null))) return null;
-    const hasFutureMetadata = plate.future_metadata !== undefined;
-    const futureMetadata = hasFutureMetadata && plate.future_metadata && typeof plate.future_metadata === 'object' && !Array.isArray(plate.future_metadata)
-      ? plate.future_metadata as Readonly<Record<string, unknown>> : undefined;
-    if (hasFutureMetadata && !futureMetadata) return null;
     return {
       ...normalized,
       ...(typeof plate.locked === 'boolean' ? { locked: plate.locked } : {}),
       ...(settings ? { settings } : {}),
       ...(opaqueMetadata ? { opaqueMetadata: opaqueMetadata as { key: string; value: string }[] } : {}),
-      ...(futureMetadata ? { futureMetadata } : {}),
       ...(Array.isArray(plate.instance_ids) && plate.instance_ids.every((id) => Number.isSafeInteger(id))
         ? { instanceIds: plate.instance_ids as number[] } : {}),
       ...(Array.isArray(plate.out_of_bounds_instance_ids) && plate.out_of_bounds_instance_ids.every((id) => Number.isSafeInteger(id))
@@ -689,10 +744,10 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (after) result.affectedPlateIdsAfter = after;
   if (affected) result.affectedPlateIds = affected;
   if (reasons) result.dirtyReasons = reasons;
-  if (value.project_config_overlay !== undefined) {
-    const overlay = normalizeProjectConfigOverlay({ ok: true, overlay: value.project_config_overlay });
-    if (!overlay.ok) return { ok: false, error: 'invalid plate session project configuration overlay' };
-    result.projectConfigOverlay = overlay.overlay;
+  if (value.native_scoped_config !== undefined) {
+    const transport = normalizeNativeScopedConfigTransport(value.native_scoped_config);
+    if (!transport) return { ok: false, error: 'invalid plate session native scoped configuration' };
+    result.nativeScopedConfig = transport;
   }
   return result;
 }
@@ -907,6 +962,28 @@ function normalizeDeleteResult(raw: unknown): DeleteObjectsResult & DeleteVolume
     ...(plateSession?.ok ? { plateSession } : {}) };
 }
 
+/** Normalize structural model mutations that carry the native plate receipt.
+ * Structural operations must publish the same authoritative plate/session
+ * snapshot as deletes/imports so the application can reject stale slice
+ * results without maintaining an old-to-new renderer mapping. */
+function normalizeStructuralResult<T extends { ok: boolean }>(raw: unknown): T {
+  if (!raw || typeof raw !== 'object')
+    return { ok: false, error: 'invalid model mutation response' } as unknown as T;
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true)
+    return { ...value, ok: false,
+      error: typeof value.error === 'string' ? value.error : 'model mutation failed' } as unknown as T;
+  let plateSession: PlateSessionMutation | undefined;
+  if (value.plate_session !== undefined) {
+    const normalized = normalizePlateMutationResult(value.plate_session);
+    if (!normalized.ok)
+      return { ok: false, error: normalized.error ?? 'invalid plate mutation response' } as unknown as T;
+    plateSession = normalized;
+  }
+  const { plate_session: _plateSession, ...rest } = value;
+  return { ...rest, ...(plateSession ? { plateSession } : {}) } as T;
+}
+
 function normalizeClearResult(raw: unknown): ClearModelResult {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
   const value = raw as Record<string, unknown>;
@@ -942,6 +1019,13 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     });
   };
   const saved = value.savedCheckpoint;
+  const revision = integer('revision');
+  let nativeScopedConfig: NativeScopedConfigTransport | undefined;
+  if (value.native_scoped_config !== undefined) {
+    nativeScopedConfig = normalizeNativeScopedConfigTransport(value.native_scoped_config) ?? undefined;
+    if (!nativeScopedConfig || nativeScopedConfig.revision !== revision)
+      throw new Error('invalid history scoped configuration transport');
+  }
   return {
     canUndo: bool('canUndo'), canRedo: bool('canRedo'),
     ...(typeof value.undoLabel === 'string' ? { undoLabel: value.undoLabel } : {}),
@@ -956,7 +1040,8 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     oldestRetainedEntryId: typeof value.oldestRetainedEntryId === 'string' ? value.oldestRetainedEntryId : null,
     oversizedEntryRetained: bool('oversizedEntryRetained'),
     activeTransactionId: typeof value.activeTransactionId === 'string' ? value.activeTransactionId : null,
-    revision: integer('revision'),
+    revision,
+    ...(nativeScopedConfig ? { nativeScopedConfig } : {}),
   };
 }
 
@@ -985,6 +1070,12 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (value.ok !== true) return historyFailure(raw, 'history restore failed');
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(value.native_scoped_config);
+  if (!nativeScopedConfig || nativeScopedConfig.kind !== 'full')
+    return historyFailure(raw, 'invalid history scoped configuration transport');
+  const status = normalizeHistoryStatus(value.status);
+  if (nativeScopedConfig.revision !== status.revision)
+    return historyFailure(raw, 'history scoped configuration revision mismatch');
   const impact = normalizeRestoreImpact(value.impact);
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
@@ -994,7 +1085,8 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   return {
     ok: true,
     context,
-    status: normalizeHistoryStatus(value.status),
+    nativeScopedConfig,
+    status,
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
     sceneDelta,
@@ -1004,13 +1096,13 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
   const fallback: import('./history').RestoreImpact = {
     version: 1, model: 'delta', plateSession: true, filamentRack: true,
-    projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+    nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const value = raw as Record<string, unknown>;
   if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
-      typeof value.projectOverlay !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
+      typeof value.nativeScopedConfig !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
       (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
   return value as unknown as import('./history').RestoreImpact;
@@ -1029,11 +1121,31 @@ export function normalizeSceneDelta(raw: unknown): import('./history').SceneDelt
   const volumeIds = nativeIds('volume_ids');
   const instanceIds = nativeIds('instance_ids');
   const objectOrder = nativeIds('object_order');
+  const retainedRendererObjectIds = value.retained_renderer_object_ids === undefined
+    ? undefined : nativeIds('retained_renderer_object_ids');
   if (value.version !== 1 || !objectIds || !volumeIds || !instanceIds || !objectOrder ||
       !Array.isArray(value.plate_ids) ||
       !value.plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
       new Set(value.plate_ids).size !== value.plate_ids.length) return undefined;
+  if (value.retained_renderer_object_ids !== undefined && (!retainedRendererObjectIds ||
+      retainedRendererObjectIds.some((id) => !objectIds.includes(id) || !objectOrder.includes(id)))) return undefined;
+  let retainedVolumeTransforms: import('./history').SceneDelta['retainedVolumeTransforms'];
+  if (value.retained_volume_transforms !== undefined) {
+    if (!Array.isArray(value.retained_volume_transforms)) return undefined;
+    const transforms = value.retained_volume_transforms.map((item) => {
+      if (!item || !Number.isSafeInteger(item.volume_id) || item.volume_id <= 0) return null;
+      const transform = normalizeModelTransform(item.transform);
+      return transform ? { volumeId: item.volume_id as number, transform } : null;
+    });
+    if (transforms.some((item) => item === null)) return undefined;
+    retainedVolumeTransforms = transforms as NonNullable<typeof transforms[number]>[];
+    if (new Set(retainedVolumeTransforms.map((item) => item.volumeId)).size !== retainedVolumeTransforms.length ||
+        retainedVolumeTransforms.some((item) => !volumeIds.includes(item.volumeId))) return undefined;
+  }
+  if (retainedRendererObjectIds?.length && !retainedVolumeTransforms?.length) return undefined;
   return { version: 1, objectIds, volumeIds, instanceIds,
+    ...(retainedRendererObjectIds ? { retainedRendererObjectIds } : {}),
+    ...(retainedVolumeTransforms ? { retainedVolumeTransforms } : {}),
     plateIds: value.plate_ids as string[], objectOrder };
 }
 
@@ -1492,22 +1604,54 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
     },
 
-    async getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+    async getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
-      return normalizeProjectConfigOverlay(callJson(m, 'orc_get_project_config_overlay', [], []));
+      return normalizeNativeScopedConfig(callJson(m, 'orc_get_native_scoped_config', [], []));
+    },
+    async getNativeHistoryDiagnostics(): Promise<Record<string, unknown>> {
+      const native = callJson(await module(), 'orc_history_restore_diagnostics', [], []) as Record<string, unknown>;
+      // This existing map is populated only after native admission returns an
+      // accepted task; the renderer proxy's in-flight request count is earlier.
+      return { ...native, pendingSliceTaskCount: pendingSliceTasks.size };
     },
 
-    async setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError> {
+    async setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
-      const scopeId = target.id === undefined ? '' : String(target.id);
-      const raw = callJson(m, 'orc_set_project_config_override', ['string', 'string', 'string', 'string'],
-        [target.scope, scopeId, optionKey, value]);
-      return normalizeProjectConfigOverlay(raw);
+      const mutationTarget = target.id === undefined
+        ? { scope: target.scope }
+        : { scope: target.scope, id: String(target.id) };
+      const request = JSON.stringify({
+        version: 1,
+        operation: 'set',
+        targets: [mutationTarget],
+        key: optionKey,
+        value,
+      });
+      const raw = callJson(m, 'orc_mutate_native_scoped_config', ['string'], [request]);
+      return normalizeNativeScopedConfig(raw);
     },
 
-    async revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+    async mutateNativeScopedConfig(request: NativeScopedConfigMutationRequest): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
-      return normalizeProjectConfigOverlay(callJson(m, 'orc_revalidate_project_config_overlay', [], []));
+      const targets = request.targets.map((target) => target.id === undefined
+        ? { scope: target.scope }
+        : { scope: target.scope, id: String(target.id) });
+      const payload: Record<string, unknown> = {
+        version: 1,
+        operation: request.operation,
+        targets,
+      };
+      if (request.key !== undefined) payload.key = request.key;
+      if (request.value !== undefined) payload.value = request.value;
+      if (request.category !== undefined) payload.category = request.category;
+      return normalizeNativeScopedConfig(
+        callJson(m, 'orc_mutate_native_scoped_config', ['string'], [JSON.stringify(payload)]),
+      );
+    },
+
+    async revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
+      const m = await module();
+      return normalizeNativeScopedConfig(callJson(m, 'orc_revalidate_native_scoped_config', [], []));
     },
 
     async getProfileSnapshot(): Promise<ProfileSnapshotResult> {
@@ -1569,6 +1713,26 @@ export function createClient(
         }
         const r = callJson(m, nativeName, argumentTypes, args) as Record<string, unknown>;
         if (!r.ok) return r as unknown as ProjectLoadResult;
+        let nativeScopedConfig: NativeScopedConfigFullTransport | undefined;
+        let historyStatus: HistoryStatus | undefined;
+        if (mode === 'project') {
+          const parsedConfig = normalizeNativeScopedConfigTransport(r.native_scoped_config);
+          if (!parsedConfig || parsedConfig.kind !== 'full') {
+            return { ok: false, objects: 0, instances: 0,
+              error: 'invalid project scoped configuration transport' };
+          }
+          nativeScopedConfig = parsedConfig;
+          try {
+            historyStatus = normalizeHistoryStatus(r.history_status);
+          } catch {
+            return { ok: false, objects: 0, instances: 0,
+              error: 'invalid project history status' };
+          }
+          if (nativeScopedConfig.revision !== historyStatus.revision) {
+            return { ok: false, objects: 0, instances: 0,
+              error: 'project scoped configuration revision mismatch' };
+          }
+        }
         const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
         return {
           ok: true,
@@ -1625,8 +1789,8 @@ export function createClient(
             const plateSession = normalizePlateMutationResult(r.plate_session);
             return plateSession.ok ? { plateSession } : {};
           })() : {}),
-          ...(r.project_config_overlay && typeof r.project_config_overlay === 'object'
-            ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
+          ...(nativeScopedConfig ? { nativeScopedConfig } : {}),
+          ...(historyStatus ? { historyStatus } : {}),
         };
       } finally {
         drainTaskMessages(m);
@@ -1795,55 +1959,55 @@ export function createClient(
 
     async cloneObjects(objectIds: number[]): Promise<CloneObjectsResult> {
       const m = await module();
-      return callJson(m, 'orc_clone_objects', ['string'],
-                      [JSON.stringify(objectIds)]) as CloneObjectsResult;
+      return normalizeStructuralResult<CloneObjectsResult>(callJson(m, 'orc_clone_objects', ['string'],
+                      [JSON.stringify(objectIds)]));
     },
 
     async reorderObjects(fromObjectId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
-      return callJson(m, 'orc_reorder_objects', ['number', 'number'],
-                      [fromObjectId, toIndex]) as ReorderStructureResult;
+      return normalizeStructuralResult<ReorderStructureResult>(callJson(m, 'orc_reorder_objects', ['number', 'number'],
+                      [fromObjectId, toIndex]));
     },
 
     async reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
-      return callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
-                      [objectId, fromVolumeId, toIndex]) as ReorderStructureResult;
+      return normalizeStructuralResult<ReorderStructureResult>(callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
+                      [objectId, fromVolumeId, toIndex]));
     },
 
     async splitVolumeToParts(volumeId: number, maxExtruders = 1, remapPaint = false): Promise<SplitVolumeResult> {
       const m = await module();
-      return callJson(m, 'orc_split_volume_to_parts', ['number', 'number', 'number'],
-                      [volumeId, maxExtruders, remapPaint ? 1 : 0]) as SplitVolumeResult;
+      return normalizeStructuralResult<SplitVolumeResult>(callJson(m, 'orc_split_volume_to_parts', ['number', 'number', 'number'],
+                      [volumeId, maxExtruders, remapPaint ? 1 : 0]));
     },
 
     async splitObjectToObjects(objectId: number, autoDrop = false): Promise<SplitObjectResult> {
       const m = await module();
-      return callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
-                      [objectId, autoDrop ? 1 : 0]) as SplitObjectResult;
+      return normalizeStructuralResult<SplitObjectResult>(callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
+                      [objectId, autoDrop ? 1 : 0]));
     },
 
     async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {
       const m = await module();
-      return callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
-                      [JSON.stringify(objectIds), name]) as MergeObjectsResult;
+      return normalizeStructuralResult<MergeObjectsResult>(callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
+                      [JSON.stringify(objectIds), name]));
     },
 
     async separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult> {
       const m = await module();
-      return callJson(m, 'orc_instances_to_separate_objects', ['number', 'string'],
-                      [objectId, JSON.stringify(instanceIds)]) as SeparateInstancesResult;
+      return normalizeStructuralResult<SeparateInstancesResult>(callJson(m, 'orc_instances_to_separate_objects', ['number', 'string'],
+                      [objectId, JSON.stringify(instanceIds)]));
     },
 
     async addInstance(objectId: number): Promise<AddInstanceResult> {
       const m = await module();
-      return callJson(m, 'orc_add_instance', ['number'], [objectId]) as AddInstanceResult;
+      return normalizeStructuralResult<AddInstanceResult>(callJson(m, 'orc_add_instance', ['number'], [objectId]));
     },
 
     async removeInstance(objectId: number, instanceId: number): Promise<RemoveInstanceResult> {
       const m = await module();
-      return callJson(m, 'orc_remove_instance', ['number', 'number'],
-                      [objectId, instanceId]) as RemoveInstanceResult;
+      return normalizeStructuralResult<RemoveInstanceResult>(callJson(m, 'orc_remove_instance', ['number', 'number'],
+                      [objectId, instanceId]));
     },
 
     async renameObject(objectId: number, name: string): Promise<MutationResult> {
@@ -1860,20 +2024,20 @@ export function createClient(
 
     async setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult> {
       const m = await module();
-      return callJson(m, 'orc_set_volume_type', ['number', 'string'],
-                      [volumeId, type]) as MutationResult;
+      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_volume_type', ['number', 'string'],
+                      [volumeId, type]));
     },
 
     async setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult> {
       const m = await module();
-      return callJson(m, 'orc_set_object_printable', ['number', 'number'],
-                      [objectId, printable ? 1 : 0]) as MutationResult;
+      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_object_printable', ['number', 'number'],
+                      [objectId, printable ? 1 : 0]));
     },
 
     async setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult> {
       const m = await module();
-      return callJson(m, 'orc_set_instance_printable', ['number', 'number'],
-                      [instanceId, printable ? 1 : 0]) as MutationResult;
+      return normalizeStructuralResult<MutationResult>(callJson(m, 'orc_set_instance_printable', ['number', 'number'],
+                      [instanceId, printable ? 1 : 0]));
     },
 
     async slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {

@@ -1,16 +1,32 @@
 import { create } from 'zustand';
-import type { FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot, ProjectConfigOverlay } from '@slicer/client';
+import type {
+  FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot,
+  NativeScopedConfigSnapshot, NativeScopedConfigTransport,
+} from '@slicer/client';
 
-export const emptyProjectConfigOverlay = (): ProjectConfigOverlay => ({
+export type ConfigurationSurfaceMode = 'project' | 'scoped';
+
+export const emptyNativeScopedConfig = (): NativeScopedConfigSnapshot => ({
   project: {}, objects: {}, parts: {}, plates: {},
 });
 
-export function projectOverlayValues(overlay: ProjectConfigOverlay): Record<string, string> {
-  return { ...overlay.project };
+export function nativeScopedConfigValues(snapshot: NativeScopedConfigSnapshot): Record<string, string> {
+  return { ...snapshot.project };
 }
 
-function effectiveValues(baseValues: Record<string, string>, overlay: ProjectConfigOverlay): Record<string, string> {
-  return { ...baseValues, ...projectOverlayValues(overlay) };
+export type NativeScopedConfigApplyResult = 'applied' | 'stale' | 'refresh-required';
+
+function cloneSnapshot(snapshot: NativeScopedConfigSnapshot): NativeScopedConfigSnapshot {
+  return {
+    project: { ...snapshot.project },
+    objects: Object.fromEntries(Object.entries(snapshot.objects).map(([id, values]) => [id, { ...values }])),
+    parts: Object.fromEntries(Object.entries(snapshot.parts).map(([id, values]) => [id, { ...values }])),
+    plates: Object.fromEntries(Object.entries(snapshot.plates).map(([id, values]) => [id, { ...values }])),
+  };
+}
+
+function effectiveValues(baseValues: Record<string, string>, snapshot: NativeScopedConfigSnapshot): Record<string, string> {
+  return { ...baseValues, ...nativeScopedConfigValues(snapshot) };
 }
 
 interface SettingsState {
@@ -29,22 +45,31 @@ interface SettingsState {
   selectedPrint: string;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printableArea: Array<[number, number]>;
-  /** Native effective profile/project configuration before Neo's overlay. */
+  /** Native effective profile/project configuration before local edits. */
   baseValues: Record<string, string>;
   values: Record<string, string>;
-  /** Render projection of the Worker-owned project configuration overlay. */
-  overlay: ProjectConfigOverlay;
+  /** Disposable projection of native scoped configuration. */
+  nativeScopedConfig: NativeScopedConfigSnapshot;
+  /** Revision of the last accepted native scoped transport, null before the
+   * first full snapshot. */
+  nativeScopedConfigRevision: number | null;
+  /** True after an affected receipt exposes a revision gap. */
+  nativeScopedConfigRefreshRequired: boolean;
+  /** Transient Project/Scoped editor mode. It is never part of native state. */
+  configurationMode: ConfigurationSurfaceMode;
   modelLoaded: boolean;
   /** Advances on every successful add or clear so repeated adds reload the viewport. */
   modelRevision: number;
   setMetadata: (m: OptionMetadata) => void;
-  /** Replace all picker state from one atomic compatibility snapshot. */
+  /** Replace all picker state from one atomic native snapshot. */
   hydrateProfileSnapshot: (snapshot: ProfileSnapshot) => void;
   setPresets: (printers: PresetInfo[], prints: PresetInfo[], filamentCatalog: FilamentCatalogItem[]) => void;
   setSelections: (printer: string, print: string) => void;
   setValue: (key: string, value: string) => void;
   setValues: (values: Record<string, string>) => void;
-  setOverlay: (overlay: ProjectConfigOverlay) => void;
+  applyNativeScopedConfigTransport: (transport: NativeScopedConfigTransport) => NativeScopedConfigApplyResult;
+  resetNativeScopedConfig: () => void;
+  setConfigurationMode: (mode: ConfigurationSurfaceMode) => void;
   setModelLoaded: (v: boolean) => void;
   /** Update the loaded flag after an incremental SceneDelta without scheduling a full mesh read. */
   setModelLoadedFromSceneDelta: (v: boolean) => void;
@@ -62,13 +87,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   printableArea: [[0, 0], [220, 0], [220, 220], [0, 220]],
   baseValues: {},
   values: {},
-  overlay: emptyProjectConfigOverlay(),
+  nativeScopedConfig: emptyNativeScopedConfig(),
+  nativeScopedConfigRevision: null,
+  nativeScopedConfigRefreshRequired: false,
+  configurationMode: 'project',
   modelLoaded: false,
   modelRevision: 0,
   setMetadata: (metadata) => set({ metadata }),
   hydrateProfileSnapshot: (snapshot) => set(() => {
     const baseValues = snapshot.project_config ?? {};
-    const overlay = emptyProjectConfigOverlay();
+    const nativeScopedConfig = emptyNativeScopedConfig();
     return {
       printers: snapshot.printers,
       prints: snapshot.prints,
@@ -77,10 +105,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       selectedPrint: snapshot.print.name,
       printableArea: snapshot.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
       baseValues,
-      // A profile/project replacement starts with no old project overlay. The
-      // caller applies the replacement project's overlay in a separate step.
-      overlay,
-      values: effectiveValues(baseValues, overlay),
+      // A profile/project replacement starts with no scoped local values. The
+      // caller applies the replacement project's native snapshot separately.
+      nativeScopedConfig,
+      nativeScopedConfigRevision: null,
+      nativeScopedConfigRefreshRequired: false,
+      configurationMode: 'project',
+      values: effectiveValues(baseValues, nativeScopedConfig),
     };
   }),
   setPresets: (printers, prints, filamentCatalog) => set({
@@ -91,16 +122,75 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSelections: (selectedPrinter, selectedPrint) => set({ selectedPrinter, selectedPrint }),
   setValue: (key, value) => set((s) => {
     const baseValues = { ...s.baseValues, [key]: value };
-    return { baseValues, values: effectiveValues(baseValues, s.overlay) };
+    return { baseValues, values: effectiveValues(baseValues, s.nativeScopedConfig) };
   }),
-  setValues: (baseValues) => set((s) => ({ baseValues, values: effectiveValues(baseValues, s.overlay) })),
-  setOverlay: (overlay) => set((s) => ({
-    overlay,
-    // A loaded 3MF may select a Process preset with enable_prime_tower=1
-    // without storing a Neo overlay entry. Re-derive from the immutable base
-    // so removing an override restores that native value.
-    values: effectiveValues(s.baseValues, overlay),
-  })),
+  setValues: (baseValues) => set((s) => ({ baseValues, values: effectiveValues(baseValues, s.nativeScopedConfig) })),
+  applyNativeScopedConfigTransport: (transport) => {
+    let outcome: NativeScopedConfigApplyResult = 'stale';
+    set((s) => {
+      const current = s.nativeScopedConfigRevision;
+      const refreshRequired = s.nativeScopedConfigRefreshRequired;
+      if (transport.kind === 'full') {
+        if (current !== null && transport.revision < current) return s;
+        if (current !== null && transport.revision === current && !refreshRequired) return s;
+        outcome = 'applied';
+        return {
+          nativeScopedConfig: cloneSnapshot(transport.snapshot),
+          nativeScopedConfigRevision: transport.revision,
+          nativeScopedConfigRefreshRequired: false,
+          values: effectiveValues(s.baseValues, transport.snapshot),
+        };
+      }
+      if (current !== null && transport.revision <= current) return s;
+      if (current === null || refreshRequired || transport.revision !== current + 1) {
+        outcome = 'refresh-required';
+        return { nativeScopedConfigRefreshRequired: true };
+      }
+      // Native validation owns entity existence. These are sparse local maps,
+      // so the first override legitimately inserts a previously absent target.
+      const nativeScopedConfig = { ...s.nativeScopedConfig };
+      const copied = new Set<'objects' | 'parts' | 'plates'>();
+      const replace = (scope: 'project' | 'object' | 'part' | 'plate', id: string | undefined,
+        values: Readonly<Record<string, string>>) => {
+        if (scope === 'project') {
+          nativeScopedConfig.project = { ...values };
+          return;
+        }
+        if (id === undefined) return;
+        const key = scope === 'object' ? 'objects' : scope === 'part' ? 'parts' : 'plates';
+        if (!copied.has(key)) {
+          nativeScopedConfig[key] = { ...nativeScopedConfig[key] };
+          copied.add(key);
+        }
+        const bucket = nativeScopedConfig[key] as Record<string, Readonly<Record<string, string>>>;
+        if (Object.keys(values).length === 0) delete bucket[id];
+        else bucket[id] = { ...values };
+      };
+      for (const replacement of transport.replacements)
+        replace(replacement.scope, replacement.id, replacement.values);
+      for (const removed of transport.removedTargets)
+        replace(removed.scope, removed.id, {});
+      outcome = 'applied';
+      return {
+        nativeScopedConfig,
+        nativeScopedConfigRevision: transport.revision,
+        nativeScopedConfigRefreshRequired: false,
+        values: effectiveValues(s.baseValues, nativeScopedConfig),
+      };
+    });
+    return outcome;
+  },
+  resetNativeScopedConfig: () => set((s) => {
+    const nativeScopedConfig = emptyNativeScopedConfig();
+    return {
+      nativeScopedConfig,
+      nativeScopedConfigRevision: null,
+      nativeScopedConfigRefreshRequired: false,
+      configurationMode: 'project',
+      values: effectiveValues(s.baseValues, nativeScopedConfig),
+    };
+  }),
+  setConfigurationMode: (configurationMode) => set({ configurationMode }),
   setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),
   setModelLoadedFromSceneDelta: (modelLoaded) => set({ modelLoaded }),
   refreshModel: () => set((s) => ({ modelRevision: s.modelRevision + 1 })),

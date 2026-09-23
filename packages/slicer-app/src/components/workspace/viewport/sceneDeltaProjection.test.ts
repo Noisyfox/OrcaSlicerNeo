@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   ModelObjectBuffer,
   ModelObjectStructure,
@@ -6,7 +6,7 @@ import type {
   SceneDelta,
 } from '@slicer/client';
 import { GLVolume, glVolumeCollection } from './GLVolume';
-import { composeSceneDeltaProjection } from './sceneDeltaProjection';
+import { composeSceneDeltaProjection, readSceneDeltaProjection } from './sceneDeltaProjection';
 
 function structure(objectId: number, index: number): ModelObjectStructure {
   return {
@@ -62,6 +62,21 @@ function patch(objectOrder: number[], objectIds: number[], offset: number): Mode
 }
 
 describe('SceneDelta projection', () => {
+  it('uses the native unchanged-renderer proof without copying or rebuilding displayed meshes', async () => {
+    const current = structure(10, 0);
+    const volume = new GLVolume(buffer(10, 0));
+    const getModelScenePatch = vi.fn(async () => patch([10], [], 0));
+    const result = await readSceneDeltaProjection({ getModelScenePatch }, {
+      ...delta([10], ['plate-a']), objectIds: [10], retainedRendererObjectIds: [10],
+      retainedVolumeTransforms: [{ volumeId: 110, transform: { ...volume.volumeTransform, offset: [2, 3, 4] } }],
+    }, [current], [volume]);
+    expect(getModelScenePatch).toHaveBeenCalledWith([]);
+    expect(result.structure[0]).toBe(current);
+    expect(result.volumes[0]).toBe(volume);
+    expect(result.volumes[0].geometry).toBe(volume.geometry);
+    expect(result.volumes[0].volumeTransform.offset).toEqual([2, 3, 4]);
+    volume.dispose();
+  });
   it('publishes one collection update while retaining an unchanged GLVolume and geometry', () => {
     const retained = new GLVolume(buffer(40, 0));
     const replacement = new GLVolume(buffer(10, 1, 10));

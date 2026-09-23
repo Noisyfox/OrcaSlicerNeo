@@ -35,7 +35,7 @@ export function historyContextForScene(sceneInteraction: SceneInteractionControl
     },
     activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
     gizmo: sceneInteraction.gizmo ? { type: sceneInteraction.gizmo } : null,
-    projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
+    nativeScopedConfig: useSettingsStore.getState().nativeScopedConfig as unknown as HistoryContext['nativeScopedConfig'],
   };
 }
 

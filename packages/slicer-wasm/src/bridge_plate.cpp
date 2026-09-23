@@ -23,7 +23,7 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_filament.hpp"
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 
 using namespace Slic3r;
 using nlohmann::json;
@@ -84,10 +84,6 @@ static void adjust_plate_coordinate_arrays(const std::size_t index, const bool e
         }
     }
     normalize_coordinate_arrays(project_config, state().plate_session_plates.size());
-    state().project_config_overlay["project"]["wipe_tower_x"] =
-        project_config.option("wipe_tower_x")->serialize();
-    state().project_config_overlay["project"]["wipe_tower_y"] =
-        project_config.option("wipe_tower_y")->serialize();
 }
 
 json session_transform_json(const Slic3r::Geometry::Transformation& t)
@@ -265,7 +261,6 @@ json plate_session_snapshot_json(const json& instance_transforms, bool include_m
             {"valid", plate_valid}, {"locked", plate.locked},
             {"settings", plate.settings_metadata},
             {"opaque_metadata", plate.opaque_metadata},
-            {"future_metadata", plate.future_metadata},
         });
     }
     json result{
@@ -647,6 +642,8 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     result["affected_plate_ids_after"] = plate_id_array(after);
     result["affected_plate_ids"] = plate_id_array(affected);
     result["dirty_reasons"] = dirty_reasons;
+    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+        state().history_revision);
     // A completed transaction consumes any deferred transform markers. This
     // is important when a structural command (for example Add plate) follows
     // a transform write before the normal recompute call.
@@ -674,10 +671,11 @@ json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_pla
     result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
     result["dirty_reasons"] = {"plate-structure"};
     // Plate insertion normalizes the per-plate wipe-tower coordinate arrays.
-    // Publish that same authoritative overlay with the structural receipt so
-    // the renderer cannot retain a pre-insertion overlay and unnecessarily
+    // Publish that same authoritative native snapshot with the structural receipt so
+    // the renderer cannot retain a pre-insertion snapshot and unnecessarily
     // reject a later adjacent Move restore receipt.
-    result["project_config_overlay"] = state().project_config_overlay;
+    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+        state().history_revision);
     state().pending_membership_instance_ids.clear();
     return result;
 }
@@ -698,7 +696,8 @@ json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_
     result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
     result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
     result["dirty_reasons"] = {"plate-structure"};
-    result["project_config_overlay"] = state().project_config_overlay;
+    result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+        state().history_revision);
     state().pending_membership_instance_ids.clear();
     return result;
 }
@@ -1021,10 +1020,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_plates(const char* plate_ids_json)
             const auto [x, y] = tower_by_id.at(requested[index]);
             Neo::Bridge::PrimeTower::set_coordinate_settings(state().presets.project_config, index, x, y, 15., 220.);
         }
-        state().project_config_overlay["project"]["wipe_tower_x"] =
-            state().presets.project_config.option("wipe_tower_x")->serialize();
-        state().project_config_overlay["project"]["wipe_tower_y"] =
-            state().presets.project_config.option("wipe_tower_y")->serialize();
         for (const auto& [plate_id, revision] : next_revisions)
             state().plate_input_revisions[plate_id] = revision;
         Neo::Bridge::PrimeTower::invalidate_projection_cache(changed_origin_plates);
@@ -1036,7 +1031,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_plates(const char* plate_ids_json)
         result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
         result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
         result["dirty_reasons"] = {"plate-structure"};
-        result["project_config_overlay"] = state().project_config_overlay;
+        result["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+            state().history_revision);
         return dup_json(result.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1096,9 +1092,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
         }
         state().plate_session_plates.erase(state().plate_session_plates.begin() + static_cast<std::ptrdiff_t>(deleted_index));
         state().plate_input_revisions.erase(requested);
-        if (state().project_config_overlay.is_object() && state().project_config_overlay.contains("plates") &&
-            state().project_config_overlay["plates"].is_object())
-            state().project_config_overlay["plates"].erase(requested);
         adjust_plate_coordinate_arrays(deleted_index, true);
         for (size_t index = 0; index < state().plate_session_plates.size(); ++index) {
             auto& plate = state().plate_session_plates[index];

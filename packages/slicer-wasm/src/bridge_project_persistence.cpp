@@ -28,6 +28,7 @@
 #include "bridge_profiles.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
+#include "bridge_scoped_config.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/miniz_extension.hpp"
@@ -48,23 +49,16 @@ namespace Slic3r::Neo::Bridge::ProjectPersistence {
 
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
-using Neo::Bridge::Filament::State::apply_project_sidecar;
 using Neo::Bridge::Filament::State::config_metadata_json;
 using Neo::Bridge::Filament::State::history_state_json;
 using Neo::Bridge::HistoryMetadata::default_history_context;
+using Neo::Bridge::HistoryMetadata::history_status_json;
 using Neo::Bridge::Profiles::preset_snapshot_json;
-using namespace Neo::Bridge::ProjectOverlay;
 using namespace Neo::Bridge::ModelOperations;
 using namespace Neo::Bridge::PlateSession;
 using namespace Neo::Bridge::SlicingPipeline;
 
 static constexpr int kMaxPlateCount = 36;
-static constexpr const char* kNeoPlateMetadataEntry = "Metadata/orca_neo_plate_session_v1.json";
-static constexpr const char* kNeoPlateMetadataSchema = "org.orcaslicerneo.plate-session";
-static constexpr const char* kNeoConfigOverlayEntry = "Metadata/orca_neo_config_overlay_v1.json";
-static constexpr const char* kNeoConfigOverlaySchema = "org.orcaslicerneo.config-overlay";
-static constexpr const char* kNeoFilamentStateEntry = "Metadata/orca_neo_filament_state_v1.json";
-static constexpr const char* kNeoFilamentStateSchema = "org.orcaslicerneo.filament-state";
 
 const char* duplicate_json(const std::string& value)
 {
@@ -112,7 +106,6 @@ json close_project_session()
     invalidate_preview_source();
 
     bridge_state.model = Model{};
-    bridge_state.project_config_overlay = empty_project_config_overlay();
     bridge_state.pending_membership_instance_ids.clear();
     bridge_state.presets.reset_project_embedded_presets();
     reset_plate_session_state();
@@ -184,7 +177,6 @@ std::optional<std::string> xml_attribute(const std::string& xml, const size_t st
 std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
     const std::vector<PlateData*>& native_data,
     const std::vector<ImportedPlateRecord>& raw_records,
-    const std::optional<json>& neo_metadata,
     std::uint64_t sequence,
     std::string& current_plate_id);
 
@@ -237,28 +229,6 @@ std::vector<ImportedPlateRecord> parse_plate_records(const std::string& xml)
             }
             metadata = metadata_end + 2;
         }
-        size_t instance = cursor;
-        while ((instance = xml.find("<instance", instance)) != std::string::npos && instance < close) {
-            const size_t instance_end = xml.find("</instance>", instance);
-            if (instance_end == std::string::npos || instance_end > close) break;
-            int object_id = -1, instance_id = -1;
-            size_t im = instance;
-            while ((im = xml.find("<metadata", im)) != std::string::npos && im < instance_end) {
-                const size_t im_end = xml.find("/>", im);
-                if (im_end == std::string::npos || im_end > instance_end) break;
-                const auto key = xml_attribute(xml, im, im_end, "key");
-                const auto value = xml_attribute(xml, im, im_end, "value");
-                if (key && value) {
-                    try {
-                        if (*key == "object_id") object_id = std::stoi(*value);
-                        else if (*key == "instance_id") instance_id = std::stoi(*value);
-                    } catch (...) { object_id = instance_id = -1; }
-                }
-                im = im_end + 2;
-            }
-            if (object_id >= 0 && instance_id >= 0) record.instances.emplace_back(object_id, instance_id);
-            instance = instance_end + std::strlen("</instance>");
-        }
         records.push_back(std::move(record));
         cursor = record_end;
     }
@@ -287,12 +257,6 @@ std::optional<std::string> read_archive_entry(const std::string& path, const std
     }
     Slic3r::close_zip_reader(&archive.arch);
     return result;
-}
-
-bool append_archive_entry(const std::string& path, const std::string& name, const std::string& bytes)
-{
-    return mz_zip_add_mem_to_archive_file_in_place(path.c_str(), name.c_str(), bytes.data(), bytes.size(),
-                                                    nullptr, 0, MZ_DEFAULT_COMPRESSION) != 0;
 }
 
 std::string normalize_model_config_indices(const std::string& xml, size_t* plate_count)
@@ -350,64 +314,12 @@ bool rewrite_model_config_archive(const std::string& source, const std::string& 
     return ok;
 }
 
-bool validate_opaque_metadata(const json& value)
-{
-    if (!value.is_array()) return false;
-    for (const auto& entry : value) {
-        if (!entry.is_object() || !entry.contains("key") || !entry.contains("value") ||
-            !entry["key"].is_string() || !entry["value"].is_string()) return false;
-    }
-    return true;
-}
-
-bool is_neo_plate_metadata_key(const std::string& key)
-{
-    static const std::set<std::string> keys = {
-        "plate_index", "origin", "name", "locked", "settings", "opaque_metadata", "instances",
-    };
-    return keys.find(key) != keys.end();
-}
-
-std::optional<json> parse_neo_plate_metadata(const std::string& bytes)
-{
-    try {
-        const json payload = json::parse(bytes);
-        if (!payload.is_object() || payload.value("schema", "") != kNeoPlateMetadataSchema ||
-            payload.value("version", 0) != 1 || !payload.contains("plates") || !payload["plates"].is_array())
-            throw Slic3r::RuntimeError("unsupported Neo plate metadata version");
-        if (payload["plates"].empty() || payload["plates"].size() > static_cast<size_t>(kMaxPlateCount))
-            throw Slic3r::RuntimeError("project contains more than 36 plates");
-        for (size_t plate_index = 0; plate_index < payload["plates"].size(); ++plate_index) {
-            const auto& plate = payload["plates"][plate_index];
-            if (!plate.is_object() || !plate.contains("plate_index") || !plate["plate_index"].is_number_integer() ||
-                plate["plate_index"].get<int>() != static_cast<int>(plate_index) ||
-                !plate.contains("origin") || !plate["origin"].is_array() || plate["origin"].size() != 3 ||
-                !std::all_of(plate["origin"].begin(), plate["origin"].end(), [](const json& coordinate) {
-                    return coordinate.is_number() && std::isfinite(coordinate.get<double>());
-                }) ||
-                !plate.contains("name") || !plate["name"].is_string() ||
-                !plate.contains("locked") || !plate["locked"].is_boolean() ||
-                !plate.contains("settings") || !plate["settings"].is_object() ||
-                !plate.contains("opaque_metadata") || !validate_opaque_metadata(plate["opaque_metadata"]))
-                throw Slic3r::RuntimeError("corrupt Neo plate metadata");
-        }
-        if (!payload.contains("current_plate_index") || !payload["current_plate_index"].is_number_integer() ||
-            payload["current_plate_index"].get<int>() < 0 ||
-            payload["current_plate_index"].get<size_t>() >= payload["plates"].size())
-            throw Slic3r::RuntimeError("corrupt Neo current plate metadata");
-        return std::optional<json>{payload};
-    } catch (const std::exception& e) {
-        throw Slic3r::RuntimeError(e.what());
-    }
-}
-
 void initialize_plate_session_from_records(const std::vector<PlateData*>& native_data,
-                                            const std::vector<ImportedPlateRecord>& raw_records,
-                                            const std::optional<json>& neo_metadata)
+                                            const std::vector<ImportedPlateRecord>& raw_records)
 {
     auto& s = state();
     const auto sequence = next_plate_session_sequence();
-    s.plate_session_plates = build_plate_session_from_records(native_data, raw_records, neo_metadata,
+    s.plate_session_plates = build_plate_session_from_records(native_data, raw_records,
                                                                sequence, s.current_plate_id);
     s.instance_plate_ids.clear();
     s.plate_out_of_bounds_ids.clear();
@@ -421,7 +333,6 @@ void initialize_plate_session_from_records(const std::vector<PlateData*>& native
 std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
     const std::vector<PlateData*>& native_data,
     const std::vector<ImportedPlateRecord>& raw_records,
-    const std::optional<json>& neo_metadata,
     const std::uint64_t sequence,
     std::string& current_plate_id)
 {
@@ -437,30 +348,18 @@ std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
         plate.name = raw && !raw->name.empty() ? raw->name : (native && !native->plate_name.empty() ? native->plate_name : "Plate " + std::to_string(i + 1));
         plate.display_index = static_cast<int>(i);
         plate.origin = plate_origin_for_index(static_cast<int>(i), static_cast<int>(count), bounds);
-        plate.locked = native ? native->locked : (raw ? raw->locked : false);
+        // The native BBS model-settings parser does not populate PlateData::locked
+        // for every archive path.  The lock flag is nevertheless a native
+        // model_settings.config plate field, so prefer the parsed native XML
+        // record when it is available and only fall back to PlateData for
+        // archives without a raw model-settings record.
+        plate.locked = raw ? raw->locked : (native ? native->locked : false);
         if (native) plate.settings = native->config;
         plate.settings_metadata = native ? config_metadata_json(native->config) : json::object();
         if (raw) plate.opaque_metadata = raw->opaque_metadata;
         result.push_back(std::move(plate));
     }
-    if (neo_metadata) {
-        const auto& records = (*neo_metadata)["plates"];
-        for (size_t i = 0; i < records.size() && i < result.size(); ++i) {
-            auto& plate = result[i];
-            const auto& record = records[i];
-            const auto& origin = record["origin"];
-            plate.origin = Vec3d(origin[0].get<double>(), origin[1].get<double>(), origin[2].get<double>());
-            plate.name = record["name"].get<std::string>();
-            plate.locked = record["locked"].get<bool>();
-            plate.settings_metadata = record["settings"];
-            plate.opaque_metadata = record["opaque_metadata"];
-            plate.future_metadata = json::object();
-            for (auto it = record.begin(); it != record.end(); ++it)
-                if (!is_neo_plate_metadata_key(it.key())) plate.future_metadata[it.key()] = it.value();
-        }
-    }
-    const size_t current_index = neo_metadata ? (*neo_metadata)["current_plate_index"].get<size_t>() : 0;
-    current_plate_id = result[current_index].id;
+    current_plate_id = result.front().id;
     return result;
 }
 
@@ -491,110 +390,35 @@ struct ProjectPresetWarningDetails {
     json preset_evidence = json::array();
 };
 
-// Keep this classification in the bridge because PresetBundle's upstream
-// validate_presets() returns one mixed set of g-code keys.  The project
-// warning contract needs to tell the shared layer whether the modified code
-// came from the printer or filament profile.  The sets mirror Orca's
-// PresetBundle::gcodes_key_set at the pinned upstream revision.
+// Use the same result as Plater's project-load warning. Do not independently
+// diff embedded presets: that can warn for projects Orca accepts silently.
 ProjectPresetWarningDetails inspect_project_preset_warnings(
-    PresetBundle& bundle, DynamicPrintConfig& config,
-    const std::vector<Preset*>& project_presets, const std::string& path)
+    PresetBundle& bundle, DynamicPrintConfig& config, const std::string& path)
 {
     ProjectPresetWarningDetails details;
-    if (project_presets.empty())
-        return details;
-
-    // Run the same upstream validation used by Plater.  We still inspect each
-    // embedded preset below so the result can distinguish printer and
-    // filament g-code and expose evidence to callers.
-    std::set<std::string> upstream_different_gcodes;
-    try {
-        bundle.validate_presets(path, config, upstream_different_gcodes);
-    } catch (...) {
-        // Warning extraction must never turn a valid project load into a
-        // failed load when an older/generic project omits optional config.
-    }
-
-    const std::set<std::string> printer_gcode_keys = {
-        "layer_change_gcode", "machine_end_gcode", "machine_pause_gcode",
-        "machine_start_gcode", "template_custom_gcode",
-        "printing_by_object_gcode", "before_layer_change_gcode",
-        "time_lapse_gcode", "wrapping_detection_gcode"
-    };
-    const std::set<std::string> filament_gcode_keys = {
-        "filament_end_gcode", "filament_start_gcode", "change_filament_gcode"
-    };
-    auto trusted = [](const Preset* preset) {
-        return preset != nullptr &&
-            (preset->is_system || preset->is_default || preset->is_from_bundle());
-    };
-
-    auto inspect_collection = [&](Preset::Type type, PresetCollection& collection,
-                                  const char* type_name,
-                                  const std::set<std::string>& gcode_keys) {
-        for (const Preset* embedded : project_presets) {
-            if (!embedded || embedded->type != type)
-                continue;
-
-            std::string inherits = embedded->inherits();
-            const Preset* parent = inherits.empty() ? nullptr :
-                collection.find_preset(inherits, false);
-            bool has_matching_system_preset = trusted(parent);
-            if (!has_matching_system_preset) {
-                // This also honors Orca's renamed-system-preset lookup and is
-                // the authoritative missing-preset condition from upstream.
-                std::string validation_inherits = inherits;
-                has_matching_system_preset =
-                    collection.validate_preset(embedded->name, validation_inherits);
-                if (has_matching_system_preset && !trusted(parent))
-                    parent = collection.find_preset(validation_inherits, false);
-            }
-
-            std::vector<std::string> modified_keys;
-            if (trusted(parent)) {
-                for (const std::string& key : embedded->config.diff(parent->config)) {
-                    if (gcode_keys.find(key) != gcode_keys.end()) {
-                        modified_keys.push_back(key);
-                        details.modified_gcode_keys.insert(key);
-                        if (type == Preset::TYPE_PRINTER)
-                            details.modified_printer_gcode = true;
-                        else if (type == Preset::TYPE_FILAMENT)
-                            details.modified_filament_gcode = true;
-                    }
-                }
-            }
-            if (!has_matching_system_preset &&
-                (type == Preset::TYPE_PRINTER || type == Preset::TYPE_FILAMENT)) {
-                details.missing_system_preset = true;
-                details.missing_system_preset_types.push_back(type_name);
-            }
-
-            details.preset_evidence.push_back({
-                {"type", type_name},
-                {"name", embedded->name},
-                {"inherits", inherits},
-                {"has_matching_system_preset", has_matching_system_preset},
-                {"modified_gcode_keys", modified_keys},
-            });
+    std::set<std::string> evidence;
+    const int result = bundle.validate_presets(path, config, evidence);
+    if (result == VALIDATE_PRESETS_PRINTER_NOT_FOUND ||
+        result == VALIDATE_PRESETS_FILAMENTS_NOT_FOUND) {
+        details.missing_system_preset = true;
+        std::set<std::string> missing_types;
+        for (const std::string& name : evidence) {
+            const char* type = name == config.opt_string("printer_settings_id") ? "printer" : "filament";
+            missing_types.insert(type);
+            details.preset_evidence.push_back({{"type", type}, {"name", name},
+                {"has_matching_system_preset", false}, {"modified_gcode_keys", json::array()}});
         }
-    };
-
-    inspect_collection(Preset::TYPE_PRINTER, bundle.printers, "printer", printer_gcode_keys);
-    inspect_collection(Preset::TYPE_FILAMENT, bundle.filaments, "filament", filament_gcode_keys);
-
-    // Preserve any upstream g-code evidence that was present in the project
-    // config even when the corresponding embedded preset was omitted.  The
-    // final printer slot is emitted by PresetBundle::full_fff_config(), while
-    // filament slots precede it; this is intentionally supplemental to the
-    // per-preset comparison above.
-    for (const std::string& key : upstream_different_gcodes) {
-        if (printer_gcode_keys.find(key) != printer_gcode_keys.end())
-            details.modified_printer_gcode = true;
-        if (filament_gcode_keys.find(key) != filament_gcode_keys.end())
-            details.modified_filament_gcode = true;
-        if (printer_gcode_keys.find(key) != printer_gcode_keys.end() ||
-            filament_gcode_keys.find(key) != filament_gcode_keys.end())
-            details.modified_gcode_keys.insert(key);
+        for (const std::string& type : missing_types)
+            details.missing_system_preset_types.push_back(type);
+    } else if (result == VALIDATE_PRESETS_MODIFIED_GCODES) {
+        const std::set<std::string> filament_gcode_keys = {
+            "filament_end_gcode", "filament_start_gcode", "change_filament_gcode"
+        };
+        details.modified_gcode_keys = std::move(evidence);
+        for (const std::string& key : details.modified_gcode_keys) {
+            if (filament_gcode_keys.count(key)) details.modified_filament_gcode = true;
+            else details.modified_printer_gcode = true;
+        }
     }
     return details;
 }
@@ -666,37 +490,8 @@ static const char* orc_load_project_impl(const char* data, int len,
 
         const auto model_config = read_archive_entry(path, "Metadata/model_settings.config");
         const auto project_settings = read_archive_entry(path, "Metadata/project_settings.config");
-        const auto neo_entry = read_archive_entry(path, kNeoPlateMetadataEntry);
-        const auto overlay_entry = read_archive_entry(path, kNeoConfigOverlayEntry);
-        const auto filament_entry = read_archive_entry(path, kNeoFilamentStateEntry);
-        std::optional<json> neo_metadata;
-        std::optional<json> overlay_metadata;
-        std::optional<json> filament_state_metadata;
-        if (neo_entry) neo_metadata = parse_neo_plate_metadata(*neo_entry);
-        if (overlay_entry) {
-            const json parsed = json::parse(*overlay_entry);
-            if (!parsed.is_object() || parsed.value("schema", "") != kNeoConfigOverlaySchema ||
-                parsed.value("version", 0) != 1 || !valid_project_config_overlay(parsed["overlay"]))
-                throw Slic3r::RuntimeError("corrupt Neo configuration overlay metadata");
-            overlay_metadata = parsed["overlay"];
-            strip_plate_coordinate_overrides(*overlay_metadata);
-        }
-        if (filament_entry) {
-            const json parsed = json::parse(*filament_entry);
-            if (!parsed.is_object() || parsed.value("schema", "") != kNeoFilamentStateSchema ||
-                parsed.value("version", 0) != 1 || !parsed.contains("state"))
-                throw Slic3r::RuntimeError("corrupt Neo filament state metadata");
-            // The native BBS config remains authoritative for interoperability;
-            // this sidecar protects Neo-only ordering/metadata during a
-            // native round trip and is validated again by the client-facing
-            // projection after the staged candidate is committed.
-            if (!parsed["state"].is_object() || parsed["state"].value("version", 0) != 1)
-                throw Slic3r::RuntimeError("corrupt Neo filament state metadata");
-            filament_state_metadata = parsed["state"];
-        }
         std::vector<ImportedPlateRecord> raw_records = model_config ? parse_plate_records(*model_config) : std::vector<ImportedPlateRecord>{};
-        if (raw_records.size() > static_cast<size_t>(kMaxPlateCount) ||
-            (neo_metadata && (*neo_metadata)["plates"].size() > static_cast<size_t>(kMaxPlateCount))) {
+        if (raw_records.size() > static_cast<size_t>(kMaxPlateCount)) {
             cleanup_paths();
             return project_error_json("project contains more than 36 plates");
         }
@@ -742,17 +537,12 @@ static const char* orc_load_project_impl(const char* data, int len,
                                           &is_bbl_3mf, &is_orca_3mf, &file_version,
                                           nullptr, strategy, nullptr, 0);
         // A project export is also valid while the scene is empty: the BBS
-        // reader can still restore its PresetBundle, plate session, and Neo
-        // sidecars. Geometry-only import, however, must continue to reject an
+        // reader can still restore its PresetBundle and native plate session.
+        // Geometry-only import, however, must continue to reject an
         // archive that contains no geometry to append.
         if (!loaded || (geometry_only && imported.objects.empty()))
             throw Slic3r::RuntimeError("Loading of a project file failed.");
         publish_slicer_progress(55, geometry_only ? "Preparing imported geometry" : "Reading project settings");
-        if (neo_metadata) {
-            const size_t native_plate_count = std::max<size_t>(1, raw_records.empty() ? plate_data.size() : raw_records.size());
-            if ((*neo_metadata)["plates"].size() != native_plate_count)
-                throw Slic3r::RuntimeError("corrupt Neo plate metadata");
-        }
         imported.add_default_instances();
 
         // Geometry-only imports intentionally discard object/part overrides;
@@ -804,8 +594,29 @@ static const char* orc_load_project_impl(const char* data, int len,
 
         ++state().full_preset_bundle_copy_count;
         PresetBundle candidate = state().presets;
+        if (!geometry_only) {
+            // Replacement loads must start from the native Project option set,
+            // not from the previous session's edited map.  load_config_model
+            // applies the project options present in the incoming archive, so
+            // retaining keys which are absent there would make a stale
+            // filament/test fixture survive a project round trip.  Rebuild
+            // the canonical Project map from PrintConfig defaults before
+            // applying the archive; filament/rack state is handled by its
+            // dedicated native authorities below.
+            static const t_config_option_keys project_option_keys = {
+                "flush_volumes_vector", "flush_volumes_matrix",
+                "filament_colour", "filament_colour_type", "filament_multi_colour",
+                "wipe_tower_x", "wipe_tower_y", "wipe_tower_rotation_angle",
+                "curr_bed_type", "flush_multiplier", "flush_multiplier_fast",
+                "prime_volume_mode", "nozzle_volume_type", "filament_map_mode",
+                "filament_map", "filament_volume_map", "filament_nozzle_map",
+                "has_filament_switcher", "enable_filament_dynamic_map",
+            };
+            DynamicPrintConfig clean_project_config;
+            clean_project_config.apply_only(FullPrintConfig::defaults(), project_option_keys, true);
+            candidate.project_config = std::move(clean_project_config);
+        }
         std::vector<std::string> requested_filament_slots;
-        bool filament_sidecar_applied = false;
         if (!geometry_only)
             requested_filament_slots = requested_filament_slots_from_project_settings(
                 project_settings,
@@ -819,9 +630,11 @@ static const char* orc_load_project_impl(const char* data, int len,
             else if (preset->type == Preset::TYPE_PRINT) ++process_preset_count;
             else if (preset->type == Preset::TYPE_FILAMENT) ++filament_preset_count;
         }
+        ProjectPresetWarningDetails warning_details;
         if (!geometry_only && (!project_presets.empty() || is_bbl_3mf || is_orca_3mf)) {
             candidate.load_project_embedded_presets(project_presets,
                 ForwardCompatibilitySubstitutionRule::Enable);
+            warning_details = inspect_project_preset_warnings(candidate, imported_config, load_path);
 
             // This is Orca's native project-load sequence after embedded
             // presets have been imported.  load_config_model delegates to
@@ -832,19 +645,6 @@ static const char* orc_load_project_impl(const char* data, int len,
             // candidate preserves the transaction while also handling a
             // parentless project preset (such as Lily.3mf) exactly as Orca.
             candidate.load_config_model(project_name, imported_config, file_version);
-            // The Neo sidecar is a lossless request layered on top of the
-            // interoperable BBS input.  Apply it before the native
-            // compatibility pass so an unavailable/incompatible requested
-            // value cannot overwrite the native fallback afterwards.
-            if (filament_state_metadata) {
-                requested_filament_slots = filament_state_metadata->value(
-                    "filament_presets", std::vector<std::string>{});
-                apply_project_sidecar(candidate, *filament_state_metadata);
-                filament_sidecar_applied = true;
-                validate_filament_candidate(candidate, imported, {},
-                                            overlay_metadata.value_or(empty_project_config_overlay()),
-                                            true, true);
-            }
             // The GUI refreshes its active preset controls after this native
             // load.  Re-run the bridge's authoritative compatibility pass so
             // stale selections from the previous project cannot survive a
@@ -852,42 +652,20 @@ static const char* orc_load_project_impl(const char* data, int len,
             candidate.update_compatible(PresetSelectCompatibleType::Always);
             candidate.update_multi_material_filament_presets();
         }
-        if (!geometry_only && filament_state_metadata) {
-            // Generic projects may not enter the native config-model branch;
-            // apply the same request-before-compatibility ordering here.
-            if (!filament_sidecar_applied) {
-                requested_filament_slots = filament_state_metadata->value("filament_presets", std::vector<std::string>{});
-                apply_project_sidecar(candidate, *filament_state_metadata);
-                filament_sidecar_applied = true;
-                validate_filament_candidate(candidate, imported, {},
-                                            overlay_metadata.value_or(empty_project_config_overlay()),
-                                            true, true);
-            }
-            candidate.update_compatible(PresetSelectCompatibleType::Always);
-            candidate.update_multi_material_filament_presets();
-        }
         publish_slicer_progress(75, geometry_only ? "Finalizing geometry import" : "Applying project settings");
-
-        ProjectPresetWarningDetails warning_details;
-        if (!geometry_only)
-            warning_details = inspect_project_preset_warnings(
-                candidate, imported_config, project_presets, load_path);
 
         std::vector<BridgeState::PlateSessionPlate> staged_plates;
         std::string staged_current_plate_id;
-        json staged_overlay = overlay_metadata.value_or(empty_project_config_overlay());
         if (!geometry_only) {
             // Build the incoming plate session while the candidate is still
             // isolated.  Plate settings are part of filament validation, so
             // validating against an empty list would incorrectly accept an
             // out-of-range plate assignment or tool-change reference.
             staged_plates = build_plate_session_from_records(
-                plate_data, raw_records, neo_metadata,
+                plate_data, raw_records,
                 current_plate_session_sequence() + 1,
                 staged_current_plate_id);
-            apply_plate_metadata_to_configs(staged_plates);
-            apply_plate_overlay_to_configs(staged_plates, staged_overlay);
-            apply_overlay_to_config(candidate.project_config, staged_overlay["project"]);
+            Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(staged_plates);
             Neo::Bridge::PlateSession::normalize_coordinate_arrays(candidate.project_config, staged_plates.size());
         }
 
@@ -897,8 +675,9 @@ static const char* orc_load_project_impl(const char* data, int len,
         // fresh empty model, PresetBundle, or history baseline.
         if (!geometry_only)
             validate_filament_candidate(candidate, imported, staged_plates,
-                                        staged_overlay,
-                                        false, filament_state_metadata.has_value());
+                                        json{{"project", json::object()}, {"objects", json::object()},
+                                             {"parts", json::object()}, {"plates", json::object()}},
+                                        false, false);
 
         if (geometry_only) {
             for (const ModelObject* object : imported.objects) {
@@ -918,7 +697,6 @@ static const char* orc_load_project_impl(const char* data, int len,
                 PresetBundle presets;
                 Neo::History::TimestampedHistory history;
                 json history_live_context;
-                json overlay;
                 std::vector<BridgeState::PlateSessionPlate> plates;
                 std::string current_plate;
                 std::map<std::size_t, std::string> instance_plate_ids;
@@ -941,7 +719,6 @@ static const char* orc_load_project_impl(const char* data, int len,
             // project load establishes its clean baseline in this fresh core.
             state().history = Neo::History::TimestampedHistory(rollback.history.byte_budget());
             rollback.history_live_context = std::move(state().history_live_context);
-            rollback.overlay = std::move(state().project_config_overlay);
             rollback.plates = std::move(state().plate_session_plates);
             rollback.current_plate = std::move(state().current_plate_id);
             rollback.instance_plate_ids = std::move(state().instance_plate_ids);
@@ -962,20 +739,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 // provenance report; PresetBundle copy is the established
                 // bridge staging boundary.
                 state().presets = candidate;
-                state().project_config_overlay = overlay_metadata.value_or(empty_project_config_overlay());
-                initialize_plate_session_from_records(plate_data, raw_records, neo_metadata);
-                for (auto& object : state().model.objects) {
-                    const auto it = state().project_config_overlay["objects"].find(std::to_string(object->id().id));
-                    if (it != state().project_config_overlay["objects"].end()) apply_overlay_to_config(object->config, it.value());
-                    for (auto& volume : object->volumes) {
-                        const auto part_it = state().project_config_overlay["parts"].find(std::to_string(volume->id().id));
-                        if (part_it != state().project_config_overlay["parts"].end()) apply_overlay_to_config(volume->config, part_it.value());
-                    }
-                }
-                apply_plate_metadata_to_configs(state().plate_session_plates);
-                apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
-                apply_overlay_to_config(state().presets.project_config,
-                                        state().project_config_overlay["project"]);
+                initialize_plate_session_from_records(plate_data, raw_records);
+                Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(state().plate_session_plates);
                 Neo::Bridge::PlateSession::normalize_coordinate_arrays(
                     state().presets.project_config, state().plate_session_plates.size());
                 // Results are deliberately not loaded from PlateData.
@@ -998,7 +763,6 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().presets = std::move(rollback.presets);
                 state().history = std::move(rollback.history);
                 state().history_live_context = std::move(rollback.history_live_context);
-                state().project_config_overlay = std::move(rollback.overlay);
                 state().plate_session_plates = std::move(rollback.plates);
                 PlateSession::reconcile_plate_runtime_registry();
                 state().current_plate_id = std::move(rollback.current_plate);
@@ -1020,8 +784,6 @@ static const char* orc_load_project_impl(const char* data, int len,
         invalidate_preview_source();
         if (geometry_only) {
             rebuild_plate_membership(true);
-        } else {
-            // Replacement loads establish a fresh clean Worker session above.
         }
         publish_slicer_progress(90, "Finalizing project");
 
@@ -1039,7 +801,9 @@ static const char* orc_load_project_impl(const char* data, int len,
             {"modified_gcode_keys", warning_details.modified_gcode_keys},
             {"missing_system_preset_types", std::move(warning_details.missing_system_preset_types)},
             {"preset_evidence", std::move(warning_details.preset_evidence)},
-            {"requires_confirmation", !project_presets.empty()},
+            {"requires_confirmation", warning_details.modified_printer_gcode ||
+                                      warning_details.modified_filament_gcode ||
+                                      warning_details.missing_system_preset},
         };
         if (!geometry_only) {
             json slot_changes = json::array();
@@ -1078,8 +842,13 @@ static const char* orc_load_project_impl(const char* data, int len,
         // it never has to issue a second read after native replacement.
         if (!geometry_only)
             out["preset_snapshot"] = preset_snapshot_json();
-        if (!geometry_only)
-            out["project_config_overlay"] = project_config_overlay_result()["overlay"];
+        // Return a disposable projection rebuilt from native config owners;
+        // the native configs themselves remain the only persisted authority.
+        if (!geometry_only) {
+            out["native_scoped_config"] = Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+                state().history_revision);
+            out["history_status"] = history_status_json(state());
+        }
         if (geometry_only) {
             const auto mutation = plate_mutation_snapshot({}, {"model-import"},
                 reflow_instance_transforms(geometry_added_instances));
@@ -1144,43 +913,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_import_project_geometry(const char* data, i
 }
 
 // Build native PlateData records from the authoritative runtime session. The
-// standard BBS writer remains responsible for the interoperable model config;
-// the adjacent Neo metadata entry carries fields the native PlateData ABI
-// cannot express (including unknown future key/value records).
-extern "C++" {
-
-json plate_metadata_json(const std::vector<std::unique_ptr<PlateData>>& owned)
-{
-    json plates = json::array();
-    for (size_t i = 0; i < owned.size(); ++i) {
-        const auto& native = *owned[i];
-        const auto& runtime = state().plate_session_plates[i];
-        json instances = json::array();
-        for (const auto& pair : native.objects_and_instances)
-            instances.push_back({{"object_id", pair.first}, {"instance_index", pair.second}});
-        json record = {
-            {"plate_index", static_cast<int>(i)}, {"origin", {runtime.origin.x(), runtime.origin.y(), runtime.origin.z()}},
-            {"name", runtime.name}, {"locked", runtime.locked},
-            {"settings", runtime.settings_metadata}, {"opaque_metadata", runtime.opaque_metadata},
-            {"instances", std::move(instances)},
-        };
-        for (auto it = runtime.future_metadata.begin(); it != runtime.future_metadata.end(); ++it)
-            if (!is_neo_plate_metadata_key(it.key())) record[it.key()] = it.value();
-        plates.push_back(std::move(record));
-    }
-    size_t current_index = 0;
-    if (!state().current_plate_id.empty()) {
-        const auto it = std::find_if(state().plate_session_plates.begin(), state().plate_session_plates.end(),
-            [](const auto& plate) { return plate.id == state().current_plate_id; });
-        if (it != state().plate_session_plates.end())
-            current_index = static_cast<size_t>(std::distance(state().plate_session_plates.begin(), it));
-    }
-    return json{{"schema", kNeoPlateMetadataSchema}, {"version", 1},
-                {"current_plate_index", current_index}, {"plates", std::move(plates)}};
-}
-
-}
-
+// standard BBS writer is the complete project persistence path; runtime-only
+// selection and layout state is reconstructed when the project is opened.
 // Export the complete active multi-plate project. The resulting archive is
 // native Orca-readable and contains no derived g-code/preview artifacts.
 EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
@@ -1217,6 +951,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         params.path = path;
         params.model = &state().model;
         params.plate_data_list = plates;
+        // The edited Print preset is a separate native copy.  Mirror it into
+        // the selected project-embedded record immediately before the
+        // standard BBS exporter enumerates embedded presets; no private
+        // archive metadata is needed for this owner boundary.
+        Neo::Bridge::ScopedConfig::sync_project_print_preset_storage();
         params.project_presets = state().presets.get_current_project_embedded_presets();
         params.config = &config;
         params.strategy = SaveStrategy::ShareMesh |
@@ -1230,16 +969,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         export_arena.execute([&]() { stored = store_bbs_3mf(params); });
         if (!stored)
             throw Slic3r::RuntimeError("BBS 3MF export failed");
-        const std::string metadata = plate_metadata_json(owned).dump();
-        if (!append_archive_entry(path, kNeoPlateMetadataEntry, metadata))
-            throw Slic3r::RuntimeError("Neo plate metadata append failed");
-        const std::string overlay = project_config_overlay_metadata().dump();
-        if (!append_archive_entry(path, kNeoConfigOverlayEntry, overlay))
-            throw Slic3r::RuntimeError("Neo configuration overlay metadata append failed");
-        const json filament_state = json{{"schema", kNeoFilamentStateSchema}, {"version", 1},
-                                         {"state", history_state_json(state().presets)}};
-        if (!append_archive_entry(path, kNeoFilamentStateEntry, filament_state.dump()))
-            throw Slic3r::RuntimeError("Neo filament state metadata append failed");
 
         std::ifstream input(path, std::ios::binary | std::ios::ate);
         if (!input.good()) throw Slic3r::RuntimeError("BBS 3MF output could not be opened");

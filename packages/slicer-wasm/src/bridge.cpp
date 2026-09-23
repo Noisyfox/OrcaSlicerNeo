@@ -24,7 +24,7 @@
 #include "bridge_history.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_profiles.hpp"
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 #include "bridge_project_persistence.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
@@ -63,7 +63,6 @@ namespace {
 using Slic3r::Neo::Bridge::BridgeState;
 using Slic3r::Neo::Bridge::state;
 using Slic3r::Neo::Bridge::Filament::State::history_state_json;
-using Slic3r::Neo::Bridge::ProjectOverlay::empty_project_config_overlay;
 
 } // namespace
 
@@ -80,11 +79,11 @@ namespace Slic3r::Neo::Bridge::ProjectPersistence {
 
 void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const std::vector<BridgeState::PlateSessionPlate>& plates,
-                                 const json& overlay, bool strict_slot_arrays,
+                                 const json& snapshot, bool strict_slot_arrays,
                                  bool require_all_slot_arrays)
 {
     Neo::Bridge::Filament::Commands::validate_filament_candidate(
-        bundle, model, plates, overlay, strict_slot_arrays, require_all_slot_arrays);
+        bundle, model, plates, snapshot, strict_slot_arrays, require_all_slot_arrays);
 }
 
 } // namespace Slic3r::Neo::Bridge::ProjectPersistence
@@ -107,7 +106,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles();
         Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
         Slic3r::Neo::Bridge::PrimeTower::invalidate_projection_cache();
-        state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();

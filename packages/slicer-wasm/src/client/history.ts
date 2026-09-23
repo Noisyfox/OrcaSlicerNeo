@@ -7,7 +7,7 @@
  * retain a context alongside a model version without making React a second
  * model owner.
  */
-import type { PlateSessionSnapshot } from './types';
+import type { ModelTransform, NativeScopedConfigFullTransport, NativeScopedConfigTransport, PlateSessionSnapshot } from './types';
 
 
 /** Stable native identities.  These are IDs, never positional indexes. */
@@ -47,8 +47,8 @@ export interface HistoryContext {
   readonly selection: HistorySelection;
   readonly activePlateId: StablePlateId | null;
   readonly gizmo: HistoryGizmoContext | null;
-  /** Project/object/part overrides and retained plate metadata, never global preset preferences. */
-  readonly projectConfigOverlay: HistoryJsonObject;
+  /** Disposable projection of native Project/Object/Part/Plate config, never global preset preferences. */
+  readonly nativeScopedConfig: HistoryJsonObject;
   /** Native-canonical session projection, present on Worker restore results. */
   readonly plateSession?: PlateSessionSnapshot;
 }
@@ -93,6 +93,8 @@ export interface HistoryStatus {
   readonly disabled: boolean;
   readonly activeTransactionId: HistoryTransactionId | null;
   readonly revision: number;
+  /** Commit-only scoped configuration receipt published at this revision. */
+  readonly nativeScopedConfig?: NativeScopedConfigTransport;
 }
 
 export type HistoryErrorCode =
@@ -125,7 +127,7 @@ export interface RestoreImpact {
   readonly model: 'delta' | 'none';
   readonly plateSession: boolean;
   readonly filamentRack: boolean;
-  readonly projectOverlay: boolean;
+  readonly nativeScopedConfig: boolean;
   readonly selectionContext: boolean;
   readonly primeTower: boolean;
   readonly preview: 'all' | 'current-plate';
@@ -140,6 +142,11 @@ export interface RestoreImpact {
 export interface SceneDelta {
   readonly version: 1;
   readonly objectIds: readonly StableObjectId[];
+  /** Native proof that currently displayed geometry and structure are unchanged.
+   * Volume transforms follow below; instance transforms come from the same
+   * committed plate-session receipt. */
+  readonly retainedRendererObjectIds?: readonly StableObjectId[];
+  readonly retainedVolumeTransforms?: readonly { volumeId: StablePartId; transform: ModelTransform }[];
   readonly volumeIds: readonly StablePartId[];
   readonly instanceIds: readonly StableInstanceId[];
   readonly plateIds: readonly StablePlateId[];
@@ -188,6 +195,8 @@ export interface HistoryTransportDiagnostics {
 export interface RestoreSuccess {
   readonly ok: true;
   readonly context: HistoryContext;
+  /** Full native scoped projection published atomically with this restore. */
+  readonly nativeScopedConfig: NativeScopedConfigFullTransport;
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;

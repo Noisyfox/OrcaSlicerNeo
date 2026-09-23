@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const [moduleArg] = argv.slice(2);
@@ -37,15 +38,14 @@ function sameJson(left, right) {
 }
 
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+  activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 const session = () => requireOk('plate session', callJson('orc_get_plate_session_snapshot'));
 const stamps = () => session().input_revisions;
 const begin = (label) => requireOk(`begin ${label}`, callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], [label, 'project', JSON.stringify(context), '']));
 const commit = (label, tx) => requireStatus(`commit ${label}`, callJson('orc_history_commit',
   ['string', 'string'], [tx.transactionId, JSON.stringify(context)]));
-const setOverride = (scope, id, key, value) => callJson('orc_set_project_config_override',
-  ['string', 'string', 'string', 'string'], [scope, id ?? '', key, value]);
+const setOverride = (scope, id, key, value) => setNativeScopedConfig(callJson, scope, id, key, value);
 const select = (plateId) => requireOk(`select ${plateId}`, callJson('orc_select_plate', ['string'], [plateId]));
 const receipts = new Map();
 const result = (plateId) => {
@@ -109,22 +109,22 @@ requireStatus('reset history baseline', callJson('orc_history_reset', ['string']
 
 for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
-// Rejection is atomic: neither overlay, stamps, nor any valid presentation is
+// Rejection is atomic: neither native configuration, stamps, nor any valid presentation is
 // touched when native option parsing fails.
 const beforeRejectSession = session();
-const beforeRejectOverlay = requireOk('overlay before rejection', callJson('orc_get_project_config_overlay'));
-const rejected = setOverride('plate', plateA, 'layer_height', 'not-a-number');
+const beforeRejectSnapshot = requireOk('snapshot before rejection', callJson('orc_get_native_scoped_config'));
+const rejected = setOverride('plate', plateA, 'print_sequence', 'not-a-sequence');
 if (rejected.ok || rejected.error_code !== 'native_validation_failure')
   throw new Error(`invalid plate override was not rejected: ${JSON.stringify(rejected)}`);
 if (!sameJson(session(), beforeRejectSession) ||
-    !sameJson(requireOk('overlay after rejection', callJson('orc_get_project_config_overlay')), beforeRejectOverlay))
+    !sameJson(requireOk('snapshot after rejection', callJson('orc_get_native_scoped_config')), beforeRejectSnapshot))
   throw new Error('rejected configuration changed authoritative state');
 for (const plateId of [plateA, plateB, plateC]) requireOk(`result retained after rejection ${plateId}`, result(plateId));
 
 // Plate-local mutation and its history restore touch A only.
 let before = stamps();
 const plateTx = begin('Plate Configuration');
-const plateEdit = requireOk('plate-local override', setOverride('plate', plateA, 'layer_height', '0.16'));
+const plateEdit = requireOk('plate-local override', setOverride('plate', plateA, 'print_sequence', 'by object'));
 if (!sameJson(plateEdit.plate_session.affected_plate_ids, [plateA]))
   throw new Error(`plate-local affected set is wrong: ${JSON.stringify(plateEdit)}`);
 let after = stamps();
@@ -151,7 +151,7 @@ await slice(plateA);
 // Aborting a published local edit restores both stamps and presentation.
 const beforeAbort = stamps();
 const abortTx = begin('Abort Plate Configuration');
-requireOk('temporary plate override', setOverride('plate', plateA, 'layer_height', '0.18'));
+requireOk('temporary plate override', setOverride('plate', plateA, 'print_sequence', 'by layer'));
 requireStale('A stale during aborted edit', result(plateA));
 requireOk('abort plate configuration', callJson('orc_history_abort', ['string'], [abortTx.transactionId]));
 if (!sameJson(stamps(), beforeAbort)) throw new Error(`abort did not restore stamps: ${JSON.stringify({ beforeAbort, after: stamps() })}`);
@@ -218,7 +218,7 @@ for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
 // Project configuration remains the shared/global boundary.
 before = stamps();
-const globalEdit = requireOk('global override', setOverride('project', '', 'layer_height', '0.20'));
+const globalEdit = requireOk('global override', setOverride('project', '', 'layer_height', '0.24'));
 after = stamps();
 expectScope('global edit', before, after, [plateA, plateB, plateC], []);
 if (!sameJson(globalEdit.plate_session.affected_plate_ids, [plateA, plateB, plateC]))
@@ -227,7 +227,7 @@ for (const plateId of [plateA, plateB, plateC]) requireStale(`plate stale after 
 for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
 // Printer/process profile activation enters through this shared marker rather
-// than the overlay setter, but it has the same all-plate invalidation contract.
+// than the native scoped setter, but it has the same all-plate invalidation contract.
 before = stamps();
 const presetEdit = requireOk('shared preset mutation', callJson('orc_mark_shared_configuration_mutation'));
 after = stamps();

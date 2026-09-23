@@ -1,6 +1,28 @@
 import type { FilamentMutationSummary, PlateSessionMutation, PlateSessionSnapshot, SlicerClient } from '@slicer/client';
 import { useSlicerStore } from './useSlicerStore';
 
+export type SliceCancellationRuntime = Pick<SlicerClient, 'cancel'> &
+  Partial<Pick<SlicerClient, 'getRuntimeExecutionState'>>;
+
+/** Invalidate exactly the native receipt's affected plates and, for a
+ * threaded runtime, begin cancellation without making the mutation await the
+ * worker's terminal response.  Serial admission rejects the mutation before
+ * this path can run; the explicit guard also keeps a stale receipt from
+ * cancelling a serial slice. */
+export function invalidateAffectedPlateResults(
+  runtime: SliceCancellationRuntime | undefined,
+  affectedPlateIds: readonly string[],
+): void {
+  const plateIds = [...new Set(affectedPlateIds)];
+  if (plateIds.length === 0) return;
+  const store = useSlicerStore.getState();
+  const active = store.activeSliceTarget;
+  store.invalidatePlateResults(plateIds);
+  const threaded = runtime?.getRuntimeExecutionState?.().threaded;
+  if (active && plateIds.includes(active.plateId) && runtime?.cancel && threaded !== false)
+    void runtime.cancel().catch(() => undefined);
+}
+
 /** Apply the result ownership rules for one authoritative plate transaction. */
 export function applyPlateResultMutation(
   mutation: PlateSessionMutation,
@@ -29,7 +51,7 @@ export function applyPlateResultMutation(
  */
 export async function applyFilamentMutationResult(
   mutation: FilamentMutationSummary,
-  runtime?: Pick<SlicerClient, 'cancel'>,
+  runtime?: SliceCancellationRuntime,
 ): Promise<void> {
   const store = useSlicerStore.getState();
   const affected = new Set(mutation.affectedPlateIds ?? []);
@@ -40,9 +62,5 @@ export async function applyFilamentMutationResult(
   }
   const plateIds = [...affected];
   if (plateIds.length === 0) return;
-  const active = store.activeSliceTarget;
-  store.invalidatePlateResults(plateIds);
-  if (active && affected.has(active.plateId) && runtime?.cancel) {
-    await runtime.cancel().catch(() => undefined);
-  }
+  invalidateAffectedPlateResults(runtime, plateIds);
 }

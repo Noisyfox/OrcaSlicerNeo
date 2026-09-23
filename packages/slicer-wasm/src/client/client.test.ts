@@ -4,7 +4,7 @@
 // contract that Task 7 implements in C++.
 import { afterEach, describe, it, expect } from 'vitest';
 import { createMockModule, type MockFeature } from './testing/mock-module';
-import { createClient } from './client';
+import { createClient, normalizeSceneDelta } from './client';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
 
@@ -13,6 +13,16 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('validates the native retained-geometry proof and its complete transform transport', () => {
+    const transform = { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
+    const native = { version: 1, object_ids: [1], volume_ids: [2], instance_ids: [3], plate_ids: ['plate-1'],
+      object_order: [1], retained_renderer_object_ids: [1], retained_volume_transforms: [{ volume_id: 2, transform }] };
+    expect(normalizeSceneDelta(native)).toMatchObject({ retainedRendererObjectIds: [1],
+      retainedVolumeTransforms: [{ volumeId: 2, transform }] });
+    expect(normalizeSceneDelta({ ...native, retained_renderer_object_ids: [99] })).toBeUndefined();
+    expect(normalizeSceneDelta({ ...native, retained_volume_transforms: undefined })).toBeUndefined();
+    expect(normalizeSceneDelta({ ...native, retained_volume_transforms: [{ volume_id: 99, transform }] })).toBeUndefined();
+  });
   const originalPerformanceMemory = Object.getOwnPropertyDescriptor(performance, 'memory');
 
   afterEach(() => {
@@ -66,7 +76,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => module);
     const enabled = await c.getPrimeTowerProjection();
     expect(enabled).toMatchObject({ ok: true, plates: [{ eligible: true, empty: false }] });
-    const disabled = await c.setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', '0');
+    const disabled = await c.setNativeScopedConfig({ scope: 'project' }, 'enable_prime_tower', '0');
     expect(disabled).toMatchObject({ ok: true });
     const projection = await c.getPrimeTowerProjection();
     expect(projection).toMatchObject({ ok: true, plates: [{ eligible: false, empty: false, usedSlots: [] }] });
@@ -555,7 +565,8 @@ describe('SlicerClient bridge contract', () => {
     expect(added.plates).toHaveLength(2);
     expect(added.currentPlateId).toBe(added.plates[1].plateId);
     expect(added.instanceTransforms).toEqual([]);
-    expect(added.projectConfigOverlay).toEqual({ project: {}, objects: {}, parts: {}, plates: {} });
+    expect(added.nativeScopedConfig).toMatchObject({ kind: 'full', revision: expect.any(Number),
+      snapshot: { project: {}, objects: {}, parts: {}, plates: {} } });
 
     const restored = await c.selectPlate(initial.currentPlateId);
     expect(restored.ok).toBe(true);
@@ -568,7 +579,8 @@ describe('SlicerClient bridge contract', () => {
     expect(deleted.plates).toHaveLength(1);
     expect(deleted.currentPlateId).toBe(initial.currentPlateId);
     expect(deleted.instanceTransforms).toEqual([]);
-    expect(deleted.projectConfigOverlay).toEqual({ project: {}, objects: {}, parts: {}, plates: {} });
+    expect(deleted.nativeScopedConfig).toMatchObject({ kind: 'full', revision: expect.any(Number),
+      snapshot: { project: {}, objects: {}, parts: {}, plates: {} } });
 
     const beforeRejectedDelete = await c.getPlateSessionSnapshot();
     const rejected = await c.deletePlate(initial.currentPlateId);
@@ -637,49 +649,91 @@ describe('SlicerClient bridge contract', () => {
     }
   });
 
-  it('keeps project configuration overrides in the Worker and scopes them by stable identity', async () => {
+  it('keeps native scoped configuration values by stable identity', async () => {
     const c = makeClient();
-    const initial = await c.getProjectConfigOverlay();
-    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } });
-    const project = await c.setProjectConfigOverride({ scope: 'project' }, 'layer_height', '0.16');
-    expect(project).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
+    const initial = await c.getNativeScopedConfig();
+    expect(initial).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full',
+      snapshot: { project: {}, objects: {}, parts: {}, plates: {} } } });
+    const project = await c.setNativeScopedConfig({ scope: 'project' }, 'layer_height', '0.16');
+    expect(project).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'affected',
+      replacements: [{ scope: 'project', values: { layer_height: '0.16' } }] } });
     await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
     const structure = await c.getModelStructure();
     const objectId = structure.objects[0]?.id;
     const partId = structure.objects[0]?.volumes[0]?.id;
     if (objectId === undefined || partId === undefined) throw new Error('mock structure missing IDs');
-    await expect(c.setProjectConfigOverride({ scope: 'object', id: objectId }, 'wall_loops', '3'))
-      .resolves.toMatchObject({ overlay: { objects: { [objectId]: { wall_loops: '3' } } } });
-    await expect(c.setProjectConfigOverride({ scope: 'part', id: partId }, 'enable_support', '1'))
-      .resolves.toMatchObject({ overlay: { parts: { [partId]: { enable_support: '1' } } } });
+    await expect(c.setNativeScopedConfig({ scope: 'object', id: objectId }, 'wall_loops', '3'))
+      .resolves.toMatchObject({ nativeScopedConfig: { kind: 'affected',
+        replacements: [{ scope: 'object', id: String(objectId), values: { wall_loops: '3' } }] } });
+    await expect(c.setNativeScopedConfig({ scope: 'part', id: partId }, 'enable_support', '1'))
+      .resolves.toMatchObject({ nativeScopedConfig: { kind: 'affected',
+        replacements: [{ scope: 'part', id: String(partId), values: { enable_support: '1' } }] } });
     const plateSession = await c.getPlateSessionSnapshot();
     if (!plateSession.ok) throw new Error(plateSession.error);
     const plateId = plateSession.currentPlateId;
     const plateRevision = plateSession.inputRevisions?.[plateId] ?? 0;
-    await expect(c.setProjectConfigOverride({ scope: 'plate', id: plateId }, 'layer_height', '0.12'))
+    await expect(c.setNativeScopedConfig({ scope: 'plate', id: plateId }, 'curr_bed_type', 'Engineering Plate'))
       .resolves.toMatchObject({
-        overlay: { plates: { [plateId]: { layer_height: '0.12' } } },
+        nativeScopedConfig: { kind: 'affected',
+          replacements: [{ scope: 'plate', id: plateId, values: { curr_bed_type: 'Engineering Plate' } }] },
         plateSession: { affectedPlateIds: [plateId], inputRevisions: { [plateId]: plateRevision + 1 } },
       });
-    const revalidated = await c.revalidateProjectConfigOverlay();
-    expect(revalidated).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
+    const revalidated = await c.revalidateNativeScopedConfig();
+    expect(revalidated).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full',
+      snapshot: { project: { layer_height: '0.16' } } } });
+  });
+
+  it('sends one typed multi-target reset request through the native command', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
+    const structure = await c.getModelStructure();
+    const objectId = structure.objects[0]?.id;
+    if (objectId === undefined) throw new Error('mock structure missing object ID');
+    await expect(c.mutateNativeScopedConfig({
+      version: 1,
+      operation: 'set',
+      targets: [{ scope: 'project' }, { scope: 'object', id: objectId }],
+      key: 'layer_height',
+      value: '0.2',
+    })).resolves.toMatchObject({ ok: true, nativeScopedConfig: { kind: 'affected' } });
+    await expect(c.mutateNativeScopedConfig({
+      version: 1,
+      operation: 'reset',
+      targets: [{ scope: 'project' }, { scope: 'object', id: objectId }],
+      key: 'layer_height',
+    })).resolves.toMatchObject({ ok: true, nativeScopedConfig: { kind: 'affected' } });
+  });
+
+  it('retains deleted-target tombstones in the typed transport', async () => {
+    const client = await createClient(async () => createMockModule({ nativeScopedConfigOverride: {
+      version: 1, ok: true, native_scoped_config: {
+        version: 1, revision: 4, kind: 'full',
+        snapshot: { project: {}, objects: {}, parts: {}, plates: {} },
+        removed_targets: [{ scope: 'object', id: '42' }],
+      },
+    } }));
+    const result = await client.setNativeScopedConfig({ scope: 'project' }, 'layer_height', '0.2');
+    expect(result).toMatchObject({ ok: true, nativeScopedConfig: {
+      kind: 'full', revision: 4, removedTargets: [{ scope: 'object', id: '42' }],
+    } });
   });
 
   it('rejects generic prime-tower coordinates and malformed status envelopes', async () => {
-    const corrected = await makeClient().setProjectConfigOverride({ scope: 'project' }, 'wipe_tower_x', '1,2,3');
+    const corrected = await makeClient().setNativeScopedConfig({ scope: 'project' }, 'wipe_tower_x', '1,2,3');
     expect(corrected).toMatchObject({ ok: false, errorCode: 'unsupported_reference' });
 
-    const malformed = await createClient(async () => createMockModule({ projectConfigOverride: {
-      ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} },
+    const malformed = await createClient(async () => createMockModule({ nativeScopedConfigOverride: {
+      version: 1, ok: true, native_scoped_config: { version: 1, revision: 0, kind: 'affected',
+        replacements: [], removed_targets: [] },
       configuration_status: { state: 'ready', corrections: [{ key: 'wipe_tower_x' }], warnings: [], errors: [] },
-    } })).setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', '1');
-    expect(malformed).toEqual({ ok: false, error: 'invalid project configuration status' });
+    } })).setNativeScopedConfig({ scope: 'project' }, 'enable_prime_tower', '1');
+    expect(malformed).toEqual({ ok: false, version: 1, error: 'invalid native scoped configuration status' });
 
-    const nativeError = await createClient(async () => createMockModule({ projectConfigOverride: {
-      ok: false, error: 'native option rejected', error_code: 'native_validation_failure',
+    const nativeError = await createClient(async () => createMockModule({ nativeScopedConfigOverride: {
+      version: 1, ok: false, error: 'native option rejected', error_code: 'native_validation_failure',
       status: { state: 'error', error: 'native option rejected' },
-    } })).setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', 'bad');
-    expect(nativeError).toEqual({ ok: false, error: 'native option rejected', errorCode: 'native_validation_failure',
+    } })).setNativeScopedConfig({ scope: 'project' }, 'enable_prime_tower', 'bad');
+    expect(nativeError).toEqual({ ok: false, version: 1, error: 'native option rejected', errorCode: 'native_validation_failure',
       status: { state: 'error', error: 'native option rejected' } });
   });
 
@@ -1165,6 +1219,92 @@ describe('SlicerClient bridge contract', () => {
       expect(clone.instances.map((i) => i.id)).not.toContain(source.instances[0].id);
     });
 
+    it('normalizes native plate-session receipts for structural mutations', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2, instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getPlateSessionSnapshot();
+      if (!before.ok) throw new Error(before.error);
+      const source = (await c.getModelStructure()).objects[0];
+      const cloned = await c.cloneObjects([source.id]);
+      expect(cloned).toMatchObject({ ok: true, plateSession: {
+        affectedPlateIds: [before.currentPlateId],
+        dirtyReasons: ['model-structure'],
+      } });
+      const afterClone = await c.getPlateSessionSnapshot();
+      if (!afterClone.ok) throw new Error(afterClone.error);
+      expect(afterClone.inputRevisions?.[before.currentPlateId]).toBeGreaterThan(
+        before.inputRevisions?.[before.currentPlateId] ?? -1,
+      );
+      const reordered = await c.reorderVolumes(source.id, source.volumes[1].id, 0);
+      expect(reordered).toMatchObject({ ok: true, plateSession: { dirtyReasons: ['model-structure'] } });
+    });
+
+    it('keeps native object and part overrides on cloned stable IDs', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const source = (await c.getModelStructure()).objects[0];
+      await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
+      await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
+      const cloned = await c.cloneObjects([source.id]);
+      const cloneId = cloned.newObjectIds[0];
+      const snapshot = await c.getNativeScopedConfig();
+      expect(snapshot).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full', snapshot: {
+        objects: { [String(cloneId)]: { wall_loops: '3' } },
+      } } });
+      const after = await c.getModelStructure();
+      const clonedPartId = after.objects.find((object) => object.id === cloneId)?.volumes[0]?.id;
+      expect(clonedPartId).toBeDefined();
+      expect(snapshot).toMatchObject({ nativeScopedConfig: { snapshot: {
+        parts: { [String(clonedPartId)]: { enable_support: '1' } },
+      } } });
+    });
+
+    it('mirrors native split-object config ownership on derived stable IDs', async () => {
+      const c = createClient(async () => createMockModule({ splitParts: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const source = (await c.getModelStructure()).objects[0];
+      await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
+      await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
+      const split = await c.splitObjectToObjects(source.id);
+      expect(split.ok).toBe(true);
+      if (!split.ok) throw new Error(split.error);
+      const snapshot = await c.getNativeScopedConfig();
+      expect(snapshot).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full', snapshot: {
+        objects: {
+          [String(split.newObjectIds[0])]: { wall_loops: '3', enable_support: '1' },
+          [String(split.newObjectIds[1])]: { wall_loops: '3', enable_support: '1' },
+        },
+        parts: {},
+      } } });
+    });
+
+    it('keeps part config on separated volumes without copying object config', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const source = (await c.getModelStructure()).objects[0];
+      await c.setNativeScopedConfig({ scope: 'object', id: source.id }, 'wall_loops', '3');
+      await c.setNativeScopedConfig({ scope: 'part', id: source.volumes[0].id }, 'enable_support', '1');
+      const separated = await c.separateInstances(source.id, [source.instances[1].id]);
+      expect(separated.ok).toBe(true);
+      if (!separated.ok) throw new Error(separated.error);
+      const structure = await c.getModelStructure();
+      const separatedObject = structure.objects.find((object) => object.id === separated.newObjectIds[0]);
+      expect(separatedObject).toBeDefined();
+      const separatedPartId = separatedObject?.volumes[0]?.id;
+      expect(separatedPartId).toBeDefined();
+      const snapshot = await c.getNativeScopedConfig();
+      expect(snapshot).toMatchObject({ ok: true, nativeScopedConfig: { kind: 'full', snapshot: {
+        objects: { [String(source.id)]: { wall_loops: '3' } },
+        parts: {
+          [String(source.volumes[0].id)]: { enable_support: '1' },
+          [String(separatedPartId)]: { enable_support: '1' },
+        },
+      } } });
+      expect(snapshot).not.toMatchObject({ nativeScopedConfig: { snapshot: {
+        objects: { [String(separated.newObjectIds[0])]: expect.anything() },
+      } } });
+    });
+
     it('reorderObjects moves an object to a destination index', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
@@ -1540,6 +1680,31 @@ describe('SlicerClient bridge contract', () => {
     expect(second.ok).toBe(true);
     expect(texts).not.toContain('late old progress');
     expect(texts).toContain('slice 100%');
+  });
+
+  it('reports only admitted pending slice tasks and clears them after terminal delivery', async () => {
+    const module = createMockModule({ threaded: true });
+    const originalCall = module.ccall.bind(module);
+    let holdMailbox = true;
+    module.ccall = ((name, ret, argTypes, args) => {
+      if (name === 'orc_history_restore_diagnostics' || (name === 'orc_drain_async_task_mailbox' && holdMailbox)) {
+        const bytes = new TextEncoder().encode(name === 'orc_history_restore_diagnostics' ? '{}' : '{"messages":[]}');
+        const pointer = Number(module._malloc(bytes.length + 1));
+        module.HEAPU8.set(bytes, pointer);
+        module.HEAPU8[pointer + bytes.length] = 0;
+        return pointer;
+      }
+      return originalCall(name, ret, argTypes, args);
+    }) as typeof module.ccall;
+    const c = createClient(async () => module);
+    await c.init();
+    await c.addModel(new Uint8Array(4), 'stl');
+    expect(await c.getNativeHistoryDiagnostics!()).toMatchObject({ pendingSliceTaskCount: 0 });
+    const slicing = c.slice({});
+    await expect.poll(async () => (await c.getNativeHistoryDiagnostics!()).pendingSliceTaskCount).toBe(1);
+    holdMailbox = false;
+    expect((await slicing).ok).toBe(true);
+    expect(await c.getNativeHistoryDiagnostics!()).toMatchObject({ pendingSliceTaskCount: 0 });
   });
 
   it('beforeInit runs once across repeated init calls (StrictMode double-mount)', async () => {

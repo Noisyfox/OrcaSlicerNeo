@@ -1,7 +1,8 @@
 // Real-WASM profile for the user-visible object-move boundary: completing one
 // canvas drag until its matching Undo Move entry is enabled.
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
-import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
@@ -31,13 +32,16 @@ type Bounds = { min: number[]; max: number[]; center: number[]; size: number[] }
 const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
 const configuredProjectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
 const PROJECT_PATH = resolve(configuredProjectPath || EXPECTED_PROJECT_PATH);
-const EXACT_FIXTURE = PROJECT_PATH.toLowerCase() === resolve(EXPECTED_PROJECT_PATH).toLowerCase();
+const fixtureBytes = configuredProjectPath && existsSync(PROJECT_PATH) ? readFileSync(PROJECT_PATH) : null;
+const EXACT_FIXTURE = PROJECT_PATH.toLowerCase() !== resolve(EXPECTED_PROJECT_PATH).toLowerCase() &&
+  fixtureBytes?.length === 45_586_816 && createHash('sha256').update(fixtureBytes).digest('hex') ===
+    '6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425';
 const REAL = process.env.ORCA_E2E_REAL === '1';
 const REAL_ARTIFACT = process.env.VITE_USE_MOCK === '0';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 
 test.skip(!REAL || !REAL_ARTIFACT || !EXACT_FIXTURE || !existsSync(PROJECT_PATH),
-  'requires ORCA_E2E_REAL=1, VITE_USE_MOCK=0, and the exact Odyssey u1 fixture');
+  'requires ORCA_E2E_REAL=1, VITE_USE_MOCK=0, and a verified temporary copy of the Odyssey u1 fixture');
 
 function delta(before: Timing, after: Timing, label: string): number {
   expect(after.count, `${label} must record exactly one operation`).toBe(before.count + 1);
@@ -324,12 +328,22 @@ test('profiles a real object move through the visible Undo Move boundary', async
     expect(restoreNative.samples.map((sample) => sample.operation)).toEqual(['history_restore', 'prime_tower_projection']);
     expect(restoreSamples).toHaveLength(1);
     expect(projectionSamples).toHaveLength(1);
-    const restoreStageNames = ['delta_apply', 'total'];
+    const restoreStageNames = [
+      'model_staging_deserialization',
+      'immutable_mesh_reconnect',
+      'plate_session_native_config_restore',
+      'total',
+    ];
     expect(Object.keys(restoreSamples[0].stagesMs).sort()).toEqual([...restoreStageNames].sort());
     expect(restoreStageNames.every((stage) => Number.isFinite(restoreSamples[0].stagesMs[stage]) &&
       restoreSamples[0].stagesMs[stage] >= 0)).toBe(true);
-    expect(restoreSamples[0].stagesMs.total).toBeGreaterThanOrEqual(Math.max(...restoreStageNames
-      .filter((stage) => stage !== 'total').map((stage) => restoreSamples[0].stagesMs[stage])));
+    const instrumentedRestoreStages = restoreStageNames
+      .filter((stage) => stage !== 'total')
+      .map((stage) => restoreSamples[0].stagesMs[stage]);
+    expect(restoreSamples[0].stagesMs.total).toBeGreaterThanOrEqual(Math.max(...instrumentedRestoreStages));
+    expect(restoreSamples[0].stagesMs.total).toBeGreaterThanOrEqual(
+      instrumentedRestoreStages.reduce((sum, stage) => sum + stage, 0) - 0.001,
+    );
     const projectionStageNames = [
       'session_preparation', 'bounds_scan', 'effective_config_construction',
       'plate_local_model_construction', 'used_slot_summary_hit', 'used_slot_summary_delta',

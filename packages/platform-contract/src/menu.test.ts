@@ -15,6 +15,7 @@ const snapshot: MenuStateSnapshot = {
   slicer: { status: 'idle', progress: 0, error: null },
   scene: { hasModel: false },
   result: { hasResult: false, exported: false },
+  project: { hasContent: false, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
   host: { isElectron: false, menuMode: 'browser' },
   items: {
     'new-project': { enabled: false },

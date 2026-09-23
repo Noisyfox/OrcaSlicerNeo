@@ -7,12 +7,25 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { waitForSettledModelTransforms } from '../actions/persistModelTransforms';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
+import { applyPlateResultMutation, invalidateAffectedPlateResults } from '../../../stores/plateResultLifecycle';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
 
 type ListHistoryResult = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
+
+function mergePlateMutationReceipts(receipts: readonly PlateSessionMutation[]): PlateSessionMutation | undefined {
+  const latest = receipts.at(-1);
+  if (!latest) return undefined;
+  const union = (key: 'affectedPlateIds' | 'affectedPlateIdsBefore' | 'affectedPlateIdsAfter') =>
+    [...new Set(receipts.flatMap((receipt) => receipt[key] ?? []))];
+  return {
+    ...latest,
+    affectedPlateIds: union('affectedPlateIds'),
+    affectedPlateIdsBefore: union('affectedPlateIdsBefore'),
+    affectedPlateIdsAfter: union('affectedPlateIdsAfter'),
+  };
+}
 
 async function runListHistory(
   runtime: SlicerRuntime,
@@ -79,6 +92,14 @@ export async function refreshAfterModelMutation(
   slicer.setLayers(0);
   if (geometryChanged) useSettingsStore.getState().refreshModel();
   if (plateSession) {
+    invalidateAffectedPlateResults(runtime, plateSession.affectedPlateIds ?? []);
+    if (plateSession.nativeScopedConfig) {
+      const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(plateSession.nativeScopedConfig);
+      if (outcome === 'refresh-required') {
+        const refreshed = await runtime.getNativeScopedConfig();
+        if (refreshed.ok) useSettingsStore.getState().applyNativeScopedConfigTransport(refreshed.nativeScopedConfig);
+      }
+    }
     applyPlateSessionTransforms(plateSession, glVolumeCollection.volumes);
     const previousPlateSession = usePlateSessionStore.getState().snapshot;
     usePlateSessionStore.getState().setSnapshot(plateSession);
@@ -143,12 +164,14 @@ export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: num
 export async function setObjectPrintableInList(runtime: SlicerRuntime, objectIds: number[], printable: boolean): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
+  const receipts: PlateSessionMutation[] = [];
   const r = await runListHistory(runtime, 'Change Printable', async () => {
     for (const objectId of objectIds) {
       const result = await runtime.setObjectPrintable(objectId, printable);
       if (!result.ok) return result;
+      if (result.plateSession) receipts.push(result.plateSession);
     }
-    return { ok: true };
+    return { ok: true, plateSession: mergePlateMutationReceipts(receipts) };
   });
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
@@ -157,12 +180,14 @@ export async function setObjectPrintableInList(runtime: SlicerRuntime, objectIds
 export async function setInstancePrintableInList(runtime: SlicerRuntime, instanceIds: number[], printable: boolean): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
+  const receipts: PlateSessionMutation[] = [];
   const r = await runListHistory(runtime, 'Change Printable', async () => {
     for (const instanceId of instanceIds) {
       const result = await runtime.setInstancePrintable(instanceId, printable);
       if (!result.ok) return result;
+      if (result.plateSession) receipts.push(result.plateSession);
     }
-    return { ok: true };
+    return { ok: true, plateSession: mergePlateMutationReceipts(receipts) };
   });
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };

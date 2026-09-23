@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/viewport/Scene.tsx
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
@@ -49,7 +49,6 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   onEmptyBedClick?: (plateId: string) => void;
 }) {
   const sceneInteraction = useSceneInteraction();
-  useSceneInteractionVersion();
   const previewVolumes = useMemo(
     () => isPreviewTab(activeTab) ? previewVolumesForCurrentPlate(glVolumes, plateSession) : glVolumes,
     [activeTab, glVolumes, plateSession],
@@ -187,10 +186,15 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         // modelLoaded flips before the asynchronous mesh publication, so an
         // e2e poll must not select a volume from the previous collection.
         // The collection revision can be published a few instructions before
-        // React commits the matching `glVolumes` state. Require identity as
-        // well, so a poll cannot select through that publication window.
+        // React commits the matching `glVolumes` state. Require revision and
+        // element identity as well, so a poll cannot select through that
+        // publication window. `useModelLoader` deliberately exposes a fresh
+        // array snapshot, so comparing the array object itself would reject
+        // every valid snapshot even when all published GLVolume identities
+        // match.
         if (glVolumeCollection.revision !== useSettingsStore.getState().modelRevision
-          || glVolumeCollection.volumes !== glVolumes) return false;
+          || glVolumeCollection.volumes.length !== glVolumes.length
+          || glVolumeCollection.volumes.some((volume, index) => volume !== glVolumes[index])) return false;
         const hit = glVolumes.find((volume) => volume.buffer.instanceIdx === instanceIdx);
         // sceneInteraction is null until the viewport mounts; fail the poll
         // (false) rather than throwing so the e2e hook is retryable.
@@ -437,7 +441,12 @@ function PrepareScene({ glVolumes, toolpath, structure, plateSession, controller
   controller: SceneInteractionController;
   wipeTowerVolumes?: WipeTowerVolumeCollection;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
+  const subscribeSelection = useCallback((listener: () => void) => controller.selection.subscribe(listener), [controller]);
+  const subscribeScene = useCallback((listener: () => void) => controller.subscribe(listener), [controller]);
+  const selectionRevision = useSyncExternalStore(subscribeSelection, () => controller.selection.revision);
+  const bodyDragEnabled = useSyncExternalStore(subscribeScene, () => controller.bodyDragEnabled);
+  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession}
+    controller={controller} wipeTowerVolumes={wipeTowerVolumes} selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />;
 }
 
 function PreviewScene({ glVolumes, toolpath, structure, plateSession, controller, wipeTowerVolumes }: {
@@ -448,10 +457,11 @@ function PreviewScene({ glVolumes, toolpath, structure, plateSession, controller
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview structure={structure} plateSession={plateSession}
+    controller={controller} wipeTowerVolumes={wipeTowerVolumes} selectionRevision={0} bodyDragEnabled={false} />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, structure = [], plateSession, controller, wipeTowerVolumes }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, structure = [], plateSession, controller, wipeTowerVolumes, selectionRevision, bodyDragEnabled }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
@@ -460,12 +470,16 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
   plateSession?: PlateSessionSnapshot | null;
   controller: SceneInteractionController;
   wipeTowerVolumes?: WipeTowerVolumeCollection;
+  selectionRevision: number;
+  bodyDragEnabled: boolean;
 }) {
   return (
     <>
-      {interactive && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} />}
+      {interactive && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes}
+        selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />}
       {glVolumes.map((volume) => (
-        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession} />
+        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession}
+          selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}

@@ -6,6 +6,7 @@ import type {
   SlicerClient,
 } from '@slicer/client';
 import { GLVolume } from './GLVolume';
+import { normalizeTransform } from './transformDeltaMath';
 
 export type SceneDeltaProjection = {
   structure: ModelObjectStructure[];
@@ -110,6 +111,14 @@ export async function readSceneDeltaProjection(
   currentStructure: readonly ModelObjectStructure[],
   currentVolumes: readonly GLVolume[],
 ): Promise<SceneDeltaProjection> {
-  const patch = await runtime.getModelScenePatch(delta.objectIds);
-  return composeSceneDeltaProjection(delta, patch, currentStructure, currentVolumes);
+  const retained = new Set(delta.retainedRendererObjectIds ?? []);
+  const projectionDelta = { ...delta, objectIds: delta.objectIds.filter((id) => !retained.has(id)) };
+  const patch = await runtime.getModelScenePatch(projectionDelta.objectIds);
+  const projection = composeSceneDeltaProjection(projectionDelta, patch, currentStructure, currentVolumes);
+  const transforms = new Map((delta.retainedVolumeTransforms ?? []).map((item) => [item.volumeId, item.transform]));
+  for (const volume of projection.volumes) {
+    const transform = transforms.get(volume.buffer.volumeId);
+    if (transform) volume.volumeTransform = normalizeTransform(structuredClone(transform));
+  }
+  return projection;
 }

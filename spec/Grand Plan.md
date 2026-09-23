@@ -383,6 +383,15 @@ and drives structural operations through the typed client.
       gated, and restored production WASM/Electron artifacts pass exclusion
       scans
 
+## Milestone 19: Project and Scoped Configuration
+
+> [!success] Delivered 2026-09-23. The final user-visible behavior is defined in
+> [`Project and Scoped Configuration.md`](Project%20and%20Scoped%20Configuration.md).
+
+Users can switch between project-wide and selection-scoped editing for plates,
+objects, parts, and modifiers, with inherited-value visibility, reset, standard
+3MF persistence, and Undo/Redo behavior.
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.
@@ -440,7 +449,7 @@ history entries.
       approved 256 MiB cross-host budget and eviction policy
 - [x] Add the Worker/WASM project-history contract and shared restore flow
 - [x] Make the Worker authoritative for history context, committed transforms,
-      and project configuration overlays
+      and native scoped configuration
 - [x] Integrate semantic command, gesture, selection, and active-plate
       transactions with the saved-checkpoint dirty-state model; every exposed
       project mutation must use that transaction boundary

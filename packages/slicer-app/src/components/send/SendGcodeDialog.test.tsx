@@ -41,7 +41,7 @@ class FixtureTransport implements PrinterTransport {
 function makePlatform(
   transport: FixtureTransport,
   documentValue = { version: 1 as const, printers },
-  preferenceValue: UserPreferences = { version: 1, selectedProfiles: {}, ui: {} },
+  preferenceValue: UserPreferences = { version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } },
 ) {
   let preferences = preferenceValue;
   const runtime = {

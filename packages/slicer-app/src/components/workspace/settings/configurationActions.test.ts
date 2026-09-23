@@ -4,7 +4,22 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { commitOptionFieldChange } from './OptionField';
-import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import {
+  commitScopedConfigurationMutation,
+  commitSharedConfigurationMutation,
+  invalidateAfterSharedConfigurationMutation,
+  waitForConfigurationMutations,
+} from './configurationActions';
+
+function affected(scope: 'project' | 'object' | 'part' | 'plate', values: Record<string, string>, id?: string) {
+  return { version: 1 as const, revision: 1, kind: 'affected' as const,
+    replacements: [{ scope, ...(scope === 'project' ? {} : { id: id ?? '42' }), values }], removedTargets: [] as const };
+}
+const baseline = {
+  version: 1 as const, revision: 0, kind: 'full' as const,
+  snapshot: { project: {}, objects: { '42': {} }, parts: {}, plates: { 'plate-1': {} } },
+  removedTargets: [] as const,
+};
 
 const mutation = {
   instances: [],
@@ -26,8 +41,11 @@ function runProjectHistoryTransaction<T>(
   _before: unknown,
   mutationCallback: (transactionId: string) => Promise<T>,
   _after: unknown | (() => unknown | Promise<unknown>),
-): Promise<{ result: T; status: never }> {
-  return mutationCallback('tx-1').then((result) => ({ result, status: undefined as never }));
+): Promise<{ result: T; status: { revision: number; nativeScopedConfig?: unknown } }> {
+  return mutationCallback('tx-1').then((result) => ({ result, status: {
+    revision: 1,
+    nativeScopedConfig: (result as unknown as { nativeScopedConfig?: unknown }).nativeScopedConfig,
+  } }));
 }
 
 const historyProjectionRuntime = {
@@ -40,18 +58,20 @@ describe('commitSharedConfigurationMutation', () => {
     useProjectStore.getState().reset();
     useSlicerStore.getState().clearPlateResults();
     useSlicerStore.setState({ error: null });
+    useSettingsStore.getState().resetNativeScopedConfig();
+    useSettingsStore.getState().applyNativeScopedConfigTransport(baseline);
   });
 
   it('routes an option-field commit through the typed runtime before recording it', async () => {
     const mark = vi.fn(async () => mutation);
-    const setOverride = vi.fn(async () => ({
+    const setNativeScopedConfig = vi.fn(async () => ({
       ok: true as const,
-      overlay: { project: { layer_height: '0.3' }, objects: {}, parts: {}, plates: {} },
+      nativeScopedConfig: affected('project', { layer_height: '0.3' }),
       plateSession: mutation,
     }));
-    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await commitOptionFieldChange(platform, 'layer_height', '0.3');
-    expect(setOverride).toHaveBeenCalledWith({ scope: 'project' }, 'layer_height', '0.3');
+    expect(setNativeScopedConfig).toHaveBeenCalledWith({ scope: 'project' }, 'layer_height', '0.3');
     expect(mark).not.toHaveBeenCalled();
     expect(useSettingsStore.getState().values.layer_height).toBe('0.3');
     expect(useProjectStore.getState().plateInputRevisions).toEqual({ 'plate-1': 9 });
@@ -59,7 +79,7 @@ describe('commitSharedConfigurationMutation', () => {
 
   it('records the authoritative runtime transaction, including its revisions', async () => {
     const mark = vi.fn(async () => mutation);
-    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setProjectConfigOverride: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setNativeScopedConfig: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await expect(commitSharedConfigurationMutation(platform)).resolves.toBe(mutation);
     expect(mark).toHaveBeenCalledOnce();
     expect(useProjectStore.getState()).toMatchObject({
@@ -71,23 +91,23 @@ describe('commitSharedConfigurationMutation', () => {
 
   it('surfaces a rejected bridge transaction without dirtying the store', async () => {
     const mark = vi.fn(async () => ({ ok: false as const, error: 'bridge rejected' }));
-    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setProjectConfigOverride: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setNativeScopedConfig: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await expect(commitSharedConfigurationMutation(platform)).rejects.toThrow('bridge rejected');
     expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], plateInputRevisions: {} });
     expect(useSlicerStore.getState().error).toBe('bridge rejected');
   });
 
   it('keeps the native effective correction for a project setting', async () => {
-    const setOverride = vi.fn(async () => ({
+    const setNativeScopedConfig = vi.fn(async () => ({
       ok: true as const,
-      overlay: { project: { prime_tower_width: '20' }, objects: {}, parts: {}, plates: {} },
+      nativeScopedConfig: affected('project', { prime_tower_width: '20' }),
       configurationStatus: { state: 'ready' as const, corrections: [{ key: 'prime_tower_width', requested: 'invalid', effective: '20' }], warnings: [], errors: [] },
       plateSession: mutation,
     }));
-    const platform = { runtime: { ...historyProjectionRuntime, setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, setNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await commitOptionFieldChange(platform, 'prime_tower_width', 'invalid');
-    expect(setOverride).toHaveBeenCalledWith({ scope: 'project' }, 'prime_tower_width', 'invalid');
-    expect(useSettingsStore.getState().overlay.project.prime_tower_width).toBe('20');
+    expect(setNativeScopedConfig).toHaveBeenCalledWith({ scope: 'project' }, 'prime_tower_width', 'invalid');
+    expect(useSettingsStore.getState().nativeScopedConfig.project.prime_tower_width).toBe('20');
     expect(useProjectStore.getState().plateInputRevisions).toEqual({ 'plate-1': 9 });
   });
 
@@ -95,12 +115,12 @@ describe('commitSharedConfigurationMutation', () => {
     const slicer = useSlicerStore.getState();
     slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
     slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
-    const setOverride = vi.fn(async () => ({
+    const setNativeScopedConfig = vi.fn(async () => ({
       ok: true as const,
-      overlay: { project: {}, objects: { '42': { layer_height: '0.15' } }, parts: {}, plates: {} },
+      nativeScopedConfig: affected('object', { layer_height: '0.15' }, '42'),
       plateSession: { ...mutation, inputRevisions: { 'plate-1': 9 }, affectedPlateIds: ['plate-1'] },
     }));
-    const platform = { runtime: { ...historyProjectionRuntime, setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, setNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await commitOptionFieldChange(platform, 'layer_height', '0.15', { scope: 'object', id: 42 });
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-2']);
   });
@@ -116,28 +136,123 @@ describe('commitSharedConfigurationMutation', () => {
   });
 
   it('publishes native warnings without converting a successful commit into a failure', async () => {
-    const setOverride = vi.fn()
+    const setNativeScopedConfig = vi.fn()
       .mockResolvedValueOnce({
         ok: true as const,
-        overlay: { project: { prime_tower_width: '20' }, objects: {}, parts: {}, plates: {} },
+        nativeScopedConfig: affected('project', { prime_tower_width: '20' }),
         configurationStatus: { state: 'ready' as const, corrections: [], warnings: ['width was clamped'], errors: [] },
         plateSession: mutation,
       })
       .mockResolvedValueOnce({
         ok: true as const,
-        overlay: { project: { prime_tower_width: '21' }, objects: {}, parts: {}, plates: {} },
+        nativeScopedConfig: { ...affected('project', { prime_tower_width: '21' }), revision: 2 },
         configurationStatus: { state: 'ready' as const, corrections: [], warnings: [], errors: [] },
         plateSession: mutation,
       });
-    const platform = { runtime: { setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { setNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
 
     await expect(commitOptionFieldChange(platform, 'prime_tower_width', '20')).resolves.toBeUndefined();
-    expect(useSettingsStore.getState().overlay.project.prime_tower_width).toBe('20');
+    expect(useSettingsStore.getState().nativeScopedConfig.project.prime_tower_width).toBe('20');
     expect(useProjectStore.getState().dirty).toBe(true);
     expect(useSlicerStore.getState().error).toBe('[Warning] width was clamped');
 
     await commitOptionFieldChange(platform, 'prime_tower_width', '21');
-    expect(useSettingsStore.getState().overlay.project.prime_tower_width).toBe('21');
+    expect(useSettingsStore.getState().nativeScopedConfig.project.prime_tower_width).toBe('21');
     expect(useSlicerStore.getState().error).toBe('[Warning] width was clamped');
   });
+
+  it('keeps a multi-target reset inside one native history transaction', async () => {
+    const mutateNativeScopedConfig = vi.fn(async () => ({
+      ok: true as const,
+      nativeScopedConfig: affected('object', {}, '42'),
+      plateSession: mutation,
+    }));
+    const platform = { runtime: {
+      ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    await commitScopedConfigurationMutation(platform, {
+      version: 1,
+      operation: 'reset',
+      targets: [{ scope: 'object', id: 42 }, { scope: 'object', id: 43 }],
+      key: 'layer_height',
+    });
+    expect(mutateNativeScopedConfig).toHaveBeenCalledOnce();
+    expect(mutateNativeScopedConfig).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'reset', targets: [{ scope: 'object', id: 42 }, { scope: 'object', id: 43 }],
+    }));
+  });
+
+  it('routes a Project-mode set only to the native Project target', async () => {
+    const mutateNativeScopedConfig = vi.fn(async () => ({
+      ok: true as const,
+      nativeScopedConfig: affected('project', { layer_height: '0.3' }),
+      plateSession: mutation,
+    }));
+    const platform = { runtime: {
+      ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    await commitScopedConfigurationMutation(platform, {
+      version: 1,
+      operation: 'set',
+      targets: [{ scope: 'project' }],
+      key: 'layer_height',
+      value: '0.3',
+    });
+    expect(mutateNativeScopedConfig).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'set', targets: [{ scope: 'project' }], key: 'layer_height', value: '0.3',
+    }));
+  });
+
+  it('keeps the configuration queue pending until a deferred scoped commit settles', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const mutateNativeScopedConfig = vi.fn(async () => {
+      await gate;
+      return {
+        ok: true as const,
+        nativeScopedConfig: affected('project', { layer_height: '0.3' }),
+        plateSession: mutation,
+      };
+    });
+    const platform = { runtime: {
+      ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    const commit = commitScopedConfigurationMutation(platform, {
+      version: 1,
+      operation: 'set',
+      targets: [{ scope: 'project' }],
+      key: 'layer_height',
+      value: '0.3',
+    });
+    await vi.waitFor(() => expect(mutateNativeScopedConfig).toHaveBeenCalledOnce());
+    let settled = false;
+    const waiter = waitForConfigurationMutations().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await commit;
+    await waiter;
+    expect(settled).toBe(true);
+  });
+  it.each(['shared', 'scoped'])('accepts a %s no-op without invalidating results or refreshing configuration', async (path) => {
+    const noOp = vi.fn(async () => ({ ok: true as const, nativeScopedConfig: {
+      ...affected('project', {}), revision: 0,
+    } }));
+    const invalidate = vi.spyOn(useSlicerStore.getState(), 'invalidatePlateResults');
+    const refresh = vi.fn();
+    const platform = { runtime: { ...historyProjectionRuntime, setNativeScopedConfig: noOp,
+      mutateNativeScopedConfig: noOp, getNativeScopedConfig: refresh, runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+    try {
+      if (path === 'shared') await commitOptionFieldChange(platform, 'layer_height', '0.2');
+      else await expect(commitScopedConfigurationMutation(platform, { version: 1, operation: 'set',
+        targets: [{ scope: 'project' }], key: 'layer_height', value: '0.2' })).resolves.toBeNull();
+      expect(noOp).toHaveBeenCalledOnce();
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
+      expect(useProjectStore.getState().dirtyReasons).toEqual([]);
+      expect(useSlicerStore.getState().error).toBeNull();
+    } finally { invalidate.mockRestore(); }
+  });
+
 });

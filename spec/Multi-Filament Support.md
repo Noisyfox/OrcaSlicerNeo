@@ -594,9 +594,11 @@ configuration, and model/plate assignment needed for native OrcaSlicer and Neo
 to reproduce the project. Derived G-code and preview buffers remain outside
 normal project persistence.
 
-The project/history sidecar contains the ordered rack/session state and project
-configuration only. It must reject `selected_filament_preset` rather than
-interpret it, and no load path performs a legacy single-filament migration.
+The project archive contains only the ordered slot state, native mappings,
+flushing configuration, and other values emitted by the standard BBS/Orca
+project writer. Rack/session state used by history is an in-memory history
+root and is never serialized as a Neo-private 3MF member. No load path
+performs a legacy single-filament migration.
 
 ### 11.2 History coverage
 

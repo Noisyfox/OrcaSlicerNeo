@@ -10,7 +10,7 @@ import { useHistoryDiagnosticsStore } from './historyDiagnostics';
 
 const context: HistoryContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+  activePlateId: 'plate-1', gizmo: null, nativeScopedConfig: {},
 };
 const status: HistoryStatus = {
   bytesUsed: 0, byteBudget: 256 * 1024 * 1024,
@@ -22,7 +22,7 @@ const status: HistoryStatus = {
 };
 const deltaImpact = {
   version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: true,
-  projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
+  nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' as const,
 };
 const directImpact = {
   ...deltaImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,
@@ -31,7 +31,12 @@ const sceneDelta = {
   version: 1 as const, objectIds: [] as const, volumeIds: [] as const,
   instanceIds: [] as const, plateIds: ['plate-1'] as const, objectOrder: [] as const,
 };
+const nativeScopedConfig = {
+  version: 1 as const, revision: 1, kind: 'full' as const,
+  snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+};
 const success = (revision = 1): RestoreResult => ({ ok: true, context,
+  nativeScopedConfig: { ...nativeScopedConfig, revision },
   status: { ...status, revision }, impact: deltaImpact, sceneDelta });
 
 function fakeScene(activeDrag = false) {
@@ -47,6 +52,19 @@ describe('history restore coordinator', () => {
     useSlicerStore.getState().invalidateSliceResult();
     useProjectStore.getState().reset();
     useHistoryDiagnosticsStore.getState().reset();
+  });
+
+  it('does not reread an unchanged filament projection after a committed native restore', async () => {
+    const result = { ...success(), impact: { ...deltaImpact, filamentRack: false } } as RestoreResult;
+    const getFilamentSessionSnapshot = vi.fn();
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => result), redoHistory: vi.fn(), jumpHistory: vi.fn(),
+        cancel: vi.fn(), getFilamentSessionSnapshot, getHistoryStatus: vi.fn(async () => status) },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(async () => undefined),
+    });
+    await expect(coordinator.restore('undo')).resolves.toBe(true);
+    expect(getFilamentSessionSnapshot).not.toHaveBeenCalled();
+    expect(useHistoryRestoreStore.getState().phase).toBe('idle');
   });
 
   it('consumes the first shortcut by cancelling a draft drag', async () => {
@@ -203,7 +221,7 @@ describe('history restore coordinator', () => {
   });
 
   it('reports SceneDelta restores as direct projections without retaining history data', async () => {
-    const direct: RestoreResult = { ok: true, context, status, impact: directImpact, sceneDelta };
+    const direct: RestoreResult = { ok: true, context, status, nativeScopedConfig, impact: directImpact, sceneDelta };
     useSlicerStore.getState().setPlateResult({
       plateId: 'plate-2', inputStamp: 2, resultGeneration: '8', sliceTaskId: '8',
     });

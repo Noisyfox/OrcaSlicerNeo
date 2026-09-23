@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------
 // Multi-filament bridge domain.
 //
-// The domain owns mutable filament state/history sidecars, atomic command
+// The domain owns mutable filament state/history, atomic command
 // transactions, the session projection, and their narrow ABI facade.  It
 // never copies the immutable PresetBundle catalogue and does not change the
 // bridge protocol or exported function signatures.
@@ -32,11 +32,8 @@ namespace State {
 json config_metadata_json(const DynamicPrintConfig& config);
 json history_state_json(const PresetBundle& bundle);
 
-void apply_project_sidecar(PresetBundle& bundle, const json& encoded);
-
 struct StagedMutableState {
     std::vector<std::string> names;
-    DynamicPrintConfig project_config;
     std::vector<std::vector<std::string>> ams_multi_colour_filment;
     Preset edited_filament;
 };
@@ -57,7 +54,7 @@ json command_error(const char* code, const std::string& message);
 
 void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const std::vector<BridgeState::PlateSessionPlate>& plates,
-                                 const json& overlay, bool strict_slot_arrays = true,
+                                 const json& snapshot, bool strict_slot_arrays = true,
                                  bool require_all_slot_arrays = false);
 void validate_filament_candidate_components(
     const std::vector<std::string>& filament_presets,
@@ -67,7 +64,7 @@ void validate_filament_candidate_components(
     bool flexible_slots,
     Model& model,
     const std::vector<BridgeState::PlateSessionPlate>& plates,
-    const json& overlay,
+    const json& snapshot,
     bool strict_slot_arrays = true,
     bool require_all_slot_arrays = false);
 void recalculate_filament_flush(PresetBundle& bundle);

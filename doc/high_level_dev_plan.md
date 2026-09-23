@@ -485,7 +485,7 @@ context. It excludes global preset selection, global/system preferences, full
       approved 256 MiB cross-host budget and eviction policy.
 - [x] Implement the Worker/WASM history contract and coherent restore path.
 - [x] Make the Worker authoritative for history context, committed transforms,
-      and project configuration overlays.
+      and native scoped configuration.
 - [x] Integrate semantic command/gesture/selection/active-plate transactions
       with the saved-checkpoint dirty-state model; every exposed project
       mutation must use that boundary. Then add UI/key bindings and directional
@@ -547,6 +547,15 @@ context. It excludes global preset selection, global/system preferences, full
       native probes require `NEO_REAL_PROJECT_PROFILE`, renderer hooks use
       Vite build-time branches, and restored production artifacts are scanned
       for every profile ABI, call site, hook, and sentinel.
+
+### Milestone 19 — Project and Scoped Configuration
+
+> **Status: delivered 2026-09-23.** Final user-visible behavior:
+> [`spec/Project and Scoped Configuration.md`](../spec/Project%20and%20Scoped%20Configuration.md).
+
+- [x] Deliver Project / Scoped editing for project, plate, object, part, and
+      modifier settings, with selection-aware inheritance, mixed-value editing,
+      reset, standard 3MF persistence, and Undo/Redo.
 
 ## G-code preview GPU streaming renderer (2026-09-02)
 

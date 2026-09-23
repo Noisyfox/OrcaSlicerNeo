@@ -48,7 +48,7 @@ export function historyContextForStructure(sceneInteraction?: SceneInteractionCo
     },
     activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
     gizmo: sceneInteraction?.gizmo ? { type: sceneInteraction.gizmo } : null,
-    projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
+    nativeScopedConfig: useSettingsStore.getState().nativeScopedConfig as unknown as HistoryContext['nativeScopedConfig'],
   };
 }
 
@@ -76,6 +76,22 @@ type MutationResponse = { ok?: boolean; error?: string };
 export interface HistoryContextReceipt {
   structure: 'preserved' | (ModelStructureResult & { ok: true });
   activePlateId: string | null;
+}
+
+/** Replace the pre-commit scoped receipt with the receipt emitted by the
+ * native history commit.  The mutation command runs while a transaction is
+ * active, so its immediate revision intentionally precedes the commit
+ * revision.  Only this committed receipt may reach renderer projections. */
+function attachCommittedScopedConfig<T>(result: T, status: HistoryStatus | null): T {
+  const receipt = status?.nativeScopedConfig;
+  if (!receipt || !result || typeof result !== 'object') return result;
+  const candidate = result as Record<string, unknown>;
+  if ('nativeScopedConfig' in candidate)
+    return { ...candidate, nativeScopedConfig: receipt } as T;
+  const plateSession = candidate.plateSession;
+  if (plateSession && typeof plateSession === 'object')
+    return { ...candidate, plateSession: { ...(plateSession as Record<string, unknown>), nativeScopedConfig: receipt } } as T;
+  return result;
 }
 
 export interface ProjectHistoryMutationOptions<T extends MutationResponse = MutationResponse> {
@@ -228,8 +244,9 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
       } else {
         await refreshFilamentSession(runtime, undefined, lease);
       }
-      await publish?.(response.result, response.status);
-      return response;
+      const committedResult = attachCommittedScopedConfig(response.result, response.status);
+      await publish?.(committedResult, response.status);
+      return { ...response, result: committedResult };
     } finally {
       lease.release();
       useHistoryDiagnosticsStore.getState().recordMutation(historyDiagnosticNow() - startedAt);
@@ -306,7 +323,11 @@ export function restoreProjectHistory(
       }
       if (result.status) projectHistoryStatus(result.status);
       const filamentStartedAt = historyDiagnosticNow();
-      await refreshFilamentSession(runtime, undefined, lease);
+      if (result.ok && !result.impact.filamentRack) {
+        projectFilamentHistoryRevision(result.status.revision, result.context.plateSession?.inputRevisions);
+      } else {
+        await refreshFilamentSession(runtime, undefined, lease);
+      }
       useHistoryDiagnosticsStore.getState().recordFilamentRefresh(historyDiagnosticNow() - filamentStartedAt);
       if (result.ok) {
         await publish?.(result);

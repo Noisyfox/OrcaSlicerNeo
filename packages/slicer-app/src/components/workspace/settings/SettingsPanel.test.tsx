@@ -54,14 +54,15 @@ const resolvedRack: FilamentSessionSnapshot = {
 function resetStores() {
   useProjectStore.getState().reset();
   usePlateSessionStore.getState().reset();
-  useSettingsStore.setState({
-    metadata: {},
+    useSettingsStore.setState({
+      metadata: {},
     printers: initialSnapshot.printers,
     prints: initialSnapshot.prints,
     filamentCatalog: initialSnapshot.filamentCatalog,
     selectedPrinter: initialSnapshot.printer.name,
     selectedPrint: initialSnapshot.print.name,
-    values: { layer_height: '0.12' },
+      values: { layer_height: '0.12' },
+      configurationMode: 'project',
   });
   useSlicerStore.setState({
     status: 'done', progress: 100, layers: 80, error: 'previous failure',
@@ -70,14 +71,17 @@ function resetStores() {
 }
 
 function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) => Promise<ProfileSnapshotResult>) {
-  const preferences: UserPreferences = { version: 1, selectedProfiles: { printer: 'saved' }, ui: {} };
+  const preferences: UserPreferences = { version: 1, selectedProfiles: { printer: 'saved' }, ui: { switchToDeviceAfterSend: true } };
   const repository = {
     load: vi.fn(async () => preferences),
     save: vi.fn(async (next: UserPreferences) => { Object.assign(preferences, next); }),
   };
   const runtime = {
         selectProfile: vi.fn(selectProfile),
-        revalidateProjectConfigOverlay: vi.fn(async () => ({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } })),
+        revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
+          version: 1 as const, revision: 0, kind: 'full' as const,
+          snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+        } })),
         getFilamentSessionSnapshot: vi.fn(async () => resolvedRack),
         applyRememberedFilamentRack: vi.fn(async () => resolvedRack),
         markSharedConfigurationMutation: vi.fn(async () => ({
@@ -249,15 +253,36 @@ describe('SettingsPanel preset transitions', () => {
   it('renders prime-tower controls without exposing scene-owned coordinates', async () => {
     resetStores();
     useSettingsStore.setState({ metadata: {
-      enable_prime_tower: { type: 'bool', label: 'Enable Prime Tower', default: '0' },
-      prime_tower_width: { type: 'float', label: 'Prime Tower Width', default: '20' },
+      enable_prime_tower: { type: 'bool', label: 'Enable Prime Tower', default: '0', scopes: ['project'] },
+      prime_tower_width: { type: 'float', label: 'Prime Tower Width', default: '20', scopes: ['project'] },
     } });
     const { container, root } = await render(makePlatform(async () => resolvedSnapshot).platform);
     roots.push(root);
-    expect(container.querySelector('#enable_prime_tower')).toBeTruthy();
-    expect(container.querySelector('#prime_tower_width')).toBeTruthy();
-    expect(container.querySelector('#wipe_tower_x')).toBeNull();
-    expect(container.querySelector('#wipe_tower_y')).toBeNull();
+    expect(container.querySelector('[data-testid="config-field-enable_prime_tower"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="config-field-prime_tower_width"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="config-field-wipe_tower_x"]')).toBeNull();
+    expect(container.querySelector('[data-testid="config-field-wipe_tower_y"]')).toBeNull();
+  });
+
+  it('keeps the explicit Scoped mode across an empty selection and resolves the active plate', async () => {
+    resetStores();
+    useSettingsStore.setState({ metadata: {
+      layer_height: { type: 'float', label: 'Layer height', scopes: ['project', 'plate'] },
+    } });
+    usePlateSessionStore.setState({ snapshot: {
+      ok: true, version: 1, currentPlateId: 'plate-1',
+      plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'Plate 1', origin: [0, 0, 0], instanceIds: [], outOfBoundsInstanceIds: [], valid: true, locked: false }],
+      instances: [], instanceTransforms: [], inputRevisions: { 'plate-1': 0 },
+    } });
+    const { container, root } = await render(makePlatform(async () => resolvedSnapshot).platform);
+    roots.push(root);
+    const configurationPanel = container.querySelector('[data-testid="scoped-configuration-panel"]')!;
+    const scopedModeButton = container.querySelector('[data-testid="config-mode-scoped"]') as HTMLElement;
+    expect(configurationPanel.contains(scopedModeButton)).toBe(true);
+    await act(async () => { scopedModeButton.click(); });
+    expect(useSettingsStore.getState().configurationMode).toBe('scoped');
+    expect(container.querySelector('[data-testid="scoped-target-label"]')?.textContent).toBe('Plate 1');
+    expect(container.querySelector('[data-testid="config-field-layer_height"]')).not.toBeNull();
   });
 
 });

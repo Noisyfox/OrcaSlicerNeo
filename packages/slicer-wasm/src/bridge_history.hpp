@@ -49,7 +49,7 @@ struct CaptureTimings {
 struct RestoreTimings {
     double model_staging_deserialization_ms = 0.0;
     double immutable_mesh_reconnect_ms = 0.0;
-    double plate_session_project_overlay_restore_ms = 0.0;
+    double plate_session_native_config_restore_ms = 0.0;
 #ifdef NEO_PROJECT_HISTORY_TEST
     std::size_t deserialized_objects = 0;
     std::size_t reused_objects = 0;

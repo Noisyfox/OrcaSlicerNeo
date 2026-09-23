@@ -56,8 +56,6 @@ export interface PlateSessionPlate {
   readonly instanceIds?: readonly number[];
   readonly outOfBoundsInstanceIds?: readonly number[];
   readonly valid?: boolean;
-  /** Forward-compatible native metadata retained for session comparisons. */
-  readonly futureMetadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface PlateSessionInstance {
@@ -104,7 +102,7 @@ export interface PlateSessionSnapshot {
   dirtyReasons?: readonly string[];
   /** Present on structural plate mutations that normalize native per-plate
    * configuration arrays. Ordinary snapshots and transform mutations omit it. */
-  projectConfigOverlay?: ProjectConfigOverlay;
+  nativeScopedConfig?: NativeScopedConfigTransport;
 }
 
 /** Narrow authoritative receipt returned by pure plate navigation. */
@@ -211,23 +209,76 @@ export interface PrimeTowerMoveResult {
 
 export type PrimeTowerMoveResultOrError = AtomicCommandResult<PrimeTowerMoveResult>;
 
-/** Worker-owned project configuration overrides. Keys are native option names;
+/** Disposable Worker projection of native project/plate/object/part configs.
+ * Keys are native option names;
  * values are their native serialized representations. IDs are stable object /
  * part IDs, never renderer indices. Prime Tower X/Y are intentionally absent:
  * their native project-level arrays are edited only by the typed scene move
- * command, never through this generic overlay. */
-export interface ProjectConfigOverlay {
+ * command, never through a second state root. */
+export interface NativeScopedConfigSnapshot {
   readonly project: Readonly<Record<string, string>>;
   readonly objects: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly parts: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly plates: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
-export type ProjectConfigScope = 'project' | 'object' | 'part' | 'plate';
+export type NativeScopedConfigScope = 'project' | 'object' | 'part' | 'plate';
 
-export interface ProjectConfigOverrideTarget {
-  readonly scope: ProjectConfigScope;
+/** Stable identity of a native target removed by a committed transaction. */
+export interface NativeScopedConfigTargetIdentity {
+  readonly scope: NativeScopedConfigScope;
+  /** Project has no id; every entity target uses its stable native id. */
+  readonly id?: string;
+}
+
+/** One complete local map replacement in an incremental configuration receipt. */
+export interface NativeScopedConfigTargetReplacement {
+  readonly scope: NativeScopedConfigScope;
+  /** Project has no id; every entity target uses its stable native id. */
+  readonly id?: string;
+  /** The complete local map after the committed mutation. An empty map is
+   * meaningful and clears the previous target map. */
+  readonly values: Readonly<Record<string, string>>;
+}
+
+/** Versioned full projection published at load/history/explicit refresh. */
+export interface NativeScopedConfigFullTransport {
+  readonly version: 1;
+  readonly revision: number;
+  readonly kind: 'full';
+  readonly snapshot: NativeScopedConfigSnapshot;
+  readonly removedTargets: readonly NativeScopedConfigTargetIdentity[];
+}
+
+/** Versioned replacement receipt published by an ordinary scoped mutation. */
+export interface NativeScopedConfigAffectedTransport {
+  readonly version: 1;
+  readonly revision: number;
+  readonly kind: 'affected';
+  readonly replacements: readonly NativeScopedConfigTargetReplacement[];
+  /** Stable targets deleted by the same native transaction. */
+  readonly removedTargets: readonly NativeScopedConfigTargetIdentity[];
+}
+
+export type NativeScopedConfigTransport =
+  | NativeScopedConfigFullTransport
+  | NativeScopedConfigAffectedTransport;
+
+export interface NativeScopedConfigTarget {
+  readonly scope: NativeScopedConfigScope;
   readonly id?: number | string;
+}
+
+export type NativeScopedConfigMutationOperation = 'set' | 'reset' | 'reset-category' | 'reset-all';
+
+/** One atomic native scoped-configuration transaction request. */
+export interface NativeScopedConfigMutationRequest {
+  readonly version: 1;
+  readonly operation: NativeScopedConfigMutationOperation;
+  readonly targets: readonly NativeScopedConfigTarget[];
+  readonly key?: string;
+  readonly value?: string;
+  readonly category?: string;
 }
 
 export interface ConfigurationCorrection {
@@ -250,22 +301,23 @@ export interface ConfigurationErrorStatus {
 
 export type ConfigurationStatus = ConfigurationReadyStatus | ConfigurationErrorStatus;
 
-export interface ProjectConfigOverlayResult {
+export interface NativeScopedConfigResult {
   readonly ok: true;
-  readonly overlay: ProjectConfigOverlay;
+  readonly nativeScopedConfig: NativeScopedConfigTransport;
   readonly plateSession?: PlateSessionMutation;
   /** Native option parse/normalization feedback for configuration commands. */
   readonly configurationStatus?: ConfigurationReadyStatus;
 }
 
-export interface ProjectConfigOverlayError {
+export interface NativeScopedConfigError {
+  readonly version: 1;
   readonly ok?: false;
   readonly error: string;
   readonly errorCode?: string;
   readonly status?: ConfigurationErrorStatus;
 }
 
-export type ProjectConfigOverlayResultOrError = ProjectConfigOverlayResult | ProjectConfigOverlayError;
+export type NativeScopedConfigResultOrError = NativeScopedConfigResult | NativeScopedConfigError;
 
 /** A malformed or rejected plate-session command has no partial state. */
 export interface PlateSessionSnapshotError {
@@ -321,9 +373,9 @@ export interface ProfileSnapshot {
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printable_area?: Array<[number, number]>;
   /**
-   * Effective native project/process configuration before the Neo overlay.
+   * Effective native project/process configuration before local scoped values.
    * The settings UI uses this as its base value source; slicing remains
-   * Worker-owned and applies the same native config plus the overlay.
+   * Worker-owned and composes the native project and plate configs.
    */
   project_config?: Record<string, string>;
 }
@@ -353,6 +405,8 @@ export interface OptionMeta {
   min?: number;
   max?: number;
   default?: string;
+  /** Native config classes in which this option has local override meaning. */
+  scopes?: readonly NativeScopedConfigScope[];
 }
 
 export type OptionMetadata = Record<string, OptionMeta>;
@@ -430,8 +484,10 @@ export interface ProjectLoadResult {
   presetSnapshot?: ProfileSnapshot;
   /** Authoritative plate membership returned by the native model transaction. */
   plateSession?: PlateSessionMutation;
-  /** Project/object/part overrides plus retained plate metadata. */
-  projectConfigOverlay?: ProjectConfigOverlay;
+  /** Full native scoped configuration receipt published with the load. */
+  nativeScopedConfig?: NativeScopedConfigFullTransport;
+  /** History baseline published with the same load revision. */
+  historyStatus?: import('./history').HistoryStatus;
   error?: string;
 }
 
@@ -516,6 +572,8 @@ export interface CloneObjectsResult {
   newObjectIds: number[];
   /** Object count after cloning. */
   objects?: number;
+  /** Native plate input/revision receipt for the structural operation. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -523,6 +581,8 @@ export interface CloneObjectsResult {
 export interface ReorderStructureResult {
   ok: boolean;
   objects: ModelObjectStructure[];
+  /** Native plate input/revision receipt when the reorder invalidates inputs. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -535,6 +595,8 @@ export interface SplitVolumeResult {
   newVolumeIds?: number[];
   /** Current structure after the split. */
   objects?: ModelObjectStructure[];
+  /** Native plate input/revision receipt for the derived volumes. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -544,6 +606,8 @@ export interface SplitObjectResult {
   newObjectIds: number[];
   /** Object count after splitting. */
   objects?: number;
+  /** Native plate input/revision receipt for the derived objects. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -553,6 +617,8 @@ export interface MergeObjectsResult {
   objectId?: number;
   /** Object count after assembling. */
   objects?: number;
+  /** Native plate input/revision receipt for the assembled object. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -562,6 +628,8 @@ export interface SeparateInstancesResult {
   newObjectIds: number[];
   /** Object count after separating. */
   objects?: number;
+  /** Native plate input/revision receipt for the derived objects. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -570,18 +638,24 @@ export interface AddInstanceResult {
   ok: boolean;
   objectId?: number;
   instanceId?: number;
+  /** Native plate input/revision receipt for the added instance. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
 /** Remove-instance result. */
 export interface RemoveInstanceResult {
   ok: boolean;
+  /** Native plate input/revision receipt for the removed instance. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
+  /** Native plate input/revision receipt for slice-affecting mutations. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -1154,6 +1228,8 @@ export interface SlicerClient {
   getRuntimeMemory(): Promise<RuntimeMemorySnapshot>;
   /** Diagnostic-only native timing samples. Present in real WASM builds. */
   takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
+  /** Existing native history archive/reuse counters for acceptance diagnostics. */
+  getNativeHistoryDiagnostics?(): Promise<Record<string, unknown>>;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,
@@ -1177,12 +1253,14 @@ export interface SlicerClient {
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
   markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
-  /** Read canonical Worker-owned project/object/part/plate overrides. */
-  getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
-  /** Set one supported override and return the affected plate projection. */
-  setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError>;
-  /** Revalidate retained overrides after a base preset transition. */
-  revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
+  /** Read a disposable projection of native project/object/part/plate config. */
+  getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
+  /** Set one native scoped value and return the affected plate projection. */
+  setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError>;
+  /** Apply one atomic set/reset operation to one or more native targets. */
+  mutateNativeScopedConfig(request: NativeScopedConfigMutationRequest): Promise<NativeScopedConfigResultOrError>;
+  /** Refresh the native scoped configuration projection after a preset transition. */
+  revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getProfileSnapshot(): Promise<ProfileSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;

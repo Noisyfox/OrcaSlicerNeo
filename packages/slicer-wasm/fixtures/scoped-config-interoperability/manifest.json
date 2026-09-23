@@ -1,0 +1,44 @@
+{
+  "schema": "org.orcaslicerneo.scoped-config-interoperability",
+  "version": 1,
+  "description": "Runtime-generated native 3MF golden for Project, Plate, Object, and every ModelVolume scope.",
+  "nativeCore": {
+    "repository": "Noisyfox/OrcaSlicer",
+    "commit": "b97ca3c0ace8cb04eb520d86417fbe13b7ddde"
+  },
+  "golden": {
+    "project": {
+      "layer_height": "0.24",
+      "enable_arc_fitting": "0",
+      "timelapse_type": "1"
+    },
+    "plate": {
+      "curr_bed_type": "Engineering Plate",
+      "print_sequence": "by object",
+      "spiral_mode": "1"
+    },
+    "object": {
+      "extruder": "1",
+      "outer_wall_speed": "80"
+    },
+    "volumes": [
+      { "type": "model_part", "wall_loops": "4" },
+      { "type": "parameter_modifier", "wall_loops": "5" },
+      { "type": "negative_volume", "wall_loops": "6" },
+      { "type": "support_blocker", "wall_loops": "7" }
+    ],
+    "layerRanges": [
+      { "min_z": 0.4, "max_z": 0.8, "values": { "layer_height": "0.16" } }
+    ]
+  },
+  "unknownKeyFallback": {
+    "key": "neo_step7_genuinely_unknown_key",
+    "value": "must-not-be-a-native-roundtrip"
+  },
+  "legacySidecar": "Metadata/orca_neo_config_overlay_v1.json",
+  "legacyPrivateEntries": [
+    "Metadata/orca_neo_config_overlay_v1.json",
+    "Metadata/orca_neo_plate_session_v1.json",
+    "Metadata/orca_neo_filament_state_v1.json"
+  ]
+}

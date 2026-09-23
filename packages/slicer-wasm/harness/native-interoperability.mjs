@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
-import { readZipEntries, removeEntries, replaceEntry, verifyNativeProjectArchive } from './native-3mf-parser.mjs';
+import { readZipEntries, replaceEntry, verifyNativeProjectArchive } from './native-3mf-parser.mjs';
 
 const opts = {};
 for (let i = 2; i < argv.length; i++) {
@@ -29,7 +29,7 @@ if (!modulePath && !opts['generate-fixture']) {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const neoEntryName = 'Metadata/orca_neo_plate_session_v1.json';
+const privateNeoEntry = (name) => name.startsWith('Metadata/orca_neo_');
 
 function sha256(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -126,7 +126,7 @@ async function generateFixture(Module) {
     const suffix = plateIndex++ === 0 ? ['native_future_key', 'native-future-value'] : ['native_second_key', 'native-second-value'];
     return block.replace('</plate>', `    <metadata key="${suffix[0]}" value="${suffix[1]}"/>\n  </plate>`);
   });
-  const fixtureBytes = replaceEntry(removeEntries(bytes, (name) => name === neoEntryName),
+  const fixtureBytes = replaceEntry(bytes,
     'Metadata/model_settings.config', settingsXml);
   await mkdir(fixtureRoot, { recursive: true });
   await writeFile(fixturePath, fixtureBytes);
@@ -145,6 +145,8 @@ if (opts['generate-fixture']) {
 
 const fixtureBytes = await readFile(fixturePath);
 check('fixture checksum is pinned', checkFixture(fixtureBytes), `size=${fixtureBytes.length} sha256=${sha256(fixtureBytes)}`);
+check('fixture contains no Neo-private project metadata',
+  !readZipEntries(fixtureBytes).some(({ name }) => privateNeoEntry(name)));
 if (opts['negative-checksum']) {
   const tampered = new Uint8Array(fixtureBytes);
   tampered[tampered.length - 1] ^= 1;
@@ -197,6 +199,8 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
   const exported = callJson(Module, 'orc_export_project');
   const output = exported.ok ? Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length)) : new Uint8Array();
   if (exported.ok) Module._free(Number(exported.bytes_ptr));
+  check('Neo output omits all Neo-private project metadata',
+    exported.ok && !readZipEntries(output).some(({ name }) => privateNeoEntry(name)));
   try {
     const parsed = verifyNativeProjectArchive(output);
     check('pinned native parser accepts Neo output', parsed.plates.length === snapshot.plates.length && parsed.derivedArtifacts.length === 0,
@@ -204,7 +208,7 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
   } catch (error) { check('pinned native parser accepts Neo output', false, error.message); }
   check('Neo output omits derived G-code and preview artifacts', output.length > 0 && verifyNativeProjectArchive(output).derivedArtifacts.length === 0);
 
-  const ordinaryNativeProject = removeEntries(fixtureBytes, (name) => name === neoEntryName);
+  const ordinaryNativeProject = fixtureBytes;
   const ordinaryNativeSettings = readZipEntries(ordinaryNativeProject).find((entry) => entry.name === 'Metadata/model_settings.config');
   const withoutPlates = decoder.decode(ordinaryNativeSettings.content).replace(/<plate\b[\s\S]*?<\/plate>/g, '');
   const ordinaryNativeBytes = replaceEntry(ordinaryNativeProject, 'Metadata/model_settings.config', encoder.encode(withoutPlates));
@@ -226,8 +230,12 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
   const rejected = callJson(Module, 'orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, overLimit.length, 0, 'over-limit.3mf']);
   Module._free(ptr);
   const afterReject = callJson(Module, 'orc_get_plate_session_snapshot');
-  check('over-36 project is rejected without mutating the active session', rejected.ok !== true &&
-    JSON.stringify(afterReject) === JSON.stringify(beforeReject), JSON.stringify(rejected));
+  const afterRejectStructure = callJson(Module, 'orc_get_model_structure');
+  check('over-36 replacement is rejected with a fresh empty baseline', rejected.ok !== true &&
+    afterReject.ok === true && afterReject.plates?.length === 1 &&
+    !beforeReject.plates.some((plate) => plate.plate_id === afterReject.current_plate_id) &&
+    afterRejectStructure.ok === true && afterRejectStructure.objects?.length === 0,
+    JSON.stringify({ rejected, session: afterReject, structure: afterRejectStructure }));
   check('fixture reload remains a two-plate project after rejection', restored.ok === true && beforeReject.plates.length === 2);
 }
 

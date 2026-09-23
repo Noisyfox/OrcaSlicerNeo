@@ -22,45 +22,12 @@ json history_state_json(const PresetBundle& bundle)
     return json{
         {"version", 1},
         {"filament_presets", bundle.filament_presets},
-        {"project_config", config_metadata_json(bundle.project_config)},
         {"edited_filament_config", config_metadata_json(bundle.filaments.get_edited_preset().config)},
         {"ams_multi_colour_filment", bundle.ams_multi_color_filment},
     };
 }
 
-void apply_project_sidecar(PresetBundle& bundle, const json& encoded)
-{
-    if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
-        !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
-        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object())
-        throw std::runtime_error("invalid project filament sidecar state");
-
-    std::vector<std::string> names;
-    names.reserve(encoded["filament_presets"].size());
-    for (const auto& value : encoded["filament_presets"]) {
-        if (!value.is_string() || value.get<std::string>().empty())
-            throw std::runtime_error("invalid history filament preset name");
-        const std::string name = value.get<std::string>();
-        if (bundle.filaments.find_preset(name, false, true) == nullptr)
-            throw std::runtime_error("history filament preset is unavailable");
-        names.push_back(name);
-    }
-    bundle.set_num_filaments(static_cast<unsigned int>(names.size()));
-    bundle.filament_presets = names;
-    for (std::size_t index = 0; index < names.size(); ++index)
-        bundle.set_filament_preset(index, names[index]);
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    for (auto it = encoded["project_config"].begin(); it != encoded["project_config"].end(); ++it) {
-        if (!it.value().is_string()) throw std::runtime_error("invalid history project config value");
-        try { bundle.project_config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
-        catch (const std::exception& e) {
-            throw std::runtime_error(std::string("invalid history project config: ") + e.what());
-        }
-    }
-}
-
-static void apply_overlay_to_config(DynamicPrintConfig& config, const json& values)
+static void apply_serialized_config_values(DynamicPrintConfig& config, const json& values)
 {
     if (!values.is_object()) return;
     ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
@@ -75,12 +42,10 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
 {
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
-        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object())
+        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64)
         throw std::runtime_error("invalid history filament state");
     StagedMutableState staged {
-        {}, catalog.project_config, catalog.ams_multi_color_filment,
-        catalog.filaments.get_edited_preset() };
+        {}, catalog.ams_multi_color_filment, catalog.filaments.get_edited_preset() };
     staged.names.reserve(encoded["filament_presets"].size());
     for (const auto& value : encoded["filament_presets"]) {
         if (!value.is_string() || value.get<std::string>().empty())
@@ -90,10 +55,9 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
             throw std::runtime_error("history filament preset is unavailable");
         staged.names.push_back(name);
     }
-    apply_overlay_to_config(staged.project_config, encoded["project_config"]);
     if (const auto edited = encoded.find("edited_filament_config"); edited != encoded.end()) {
         if (!edited->is_object()) throw std::runtime_error("invalid history edited filament config");
-        apply_overlay_to_config(staged.edited_filament.config, *edited);
+        apply_serialized_config_values(staged.edited_filament.config, *edited);
     }
     if (const auto ams = encoded.find("ams_multi_colour_filment"); ams != encoded.end()) {
         if (!ams->is_array()) throw std::runtime_error("invalid history AMS colours");
@@ -109,7 +73,6 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
     bundle.filament_presets = std::move(staged.names);
     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index)
         bundle.set_filament_preset(index, bundle.filament_presets[index]);
-    bundle.project_config = std::move(staged.project_config);
     bundle.ams_multi_color_filment = std::move(staged.ams_multi_colour_filment);
     bundle.filaments.get_edited_preset() = std::move(staged.edited_filament);
     ++bridge.history_minimal_mutable_restore_count;
@@ -144,7 +107,7 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
 #include "bridge_history.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/FlushVolCalc.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -164,7 +127,7 @@ using Neo::Bridge::PlateSession::member_plate_ids_for_instances;
 using Neo::Bridge::PlateSession::plate_id_array;
 using Neo::Bridge::PlateSession::plate_revisions_json;
 using Neo::Bridge::PlateSession::plate_session_snapshot_json;
-using Neo::Bridge::ProjectOverlay::valid_project_config_overlay;
+using Neo::Bridge::ScopedConfig::valid_native_scoped_config_snapshot;
 using Neo::Bridge::SlicingPipeline::invalidate_preview_source;
 using Neo::History::Codec::capture_model_state;
 
@@ -308,11 +271,11 @@ void remap_config_filament_references(Config& config, const std::size_t removed,
     }
 }
 
-void remap_overlay_filament_references(json& overlay, const std::size_t removed,
-                                       const std::optional<std::size_t>& replacement)
+void remap_native_scoped_config_filament_references(json& snapshot, const std::size_t removed,
+                                                    const std::optional<std::size_t>& replacement)
 {
-    if (!valid_project_config_overlay(overlay))
-        throw FilamentCommandFailure("unsupported_reference", "invalid project configuration overlay");
+    if (!valid_native_scoped_config_snapshot(snapshot))
+        throw FilamentCommandFailure("unsupported_reference", "invalid native scoped configuration snapshot");
     auto remap_values = [&](json& values) {
         if (!values.is_object()) return;
         for (auto option = values.begin(); option != values.end(); ++option) {
@@ -321,13 +284,13 @@ void remap_overlay_filament_references(json& overlay, const std::size_t removed,
                 const int old_value = std::stoi(option.value().get<std::string>());
                 option.value() = std::to_string(remap_filament_config_reference(option.key(), old_value, removed, replacement));
             } catch (...) {
-                throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in project overlay");
+                throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in native scoped configuration");
             }
         }
     };
-    remap_values(overlay["project"]);
+    remap_values(snapshot["project"]);
     for (const char* scope : {"objects", "parts"})
-        for (auto it = overlay[scope].begin(); it != overlay[scope].end(); ++it)
+        for (auto it = snapshot[scope].begin(); it != snapshot[scope].end(); ++it)
             remap_values(it.value());
 }
 
@@ -688,7 +651,7 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
                                             const bool flexible_slots,
                                             Model& model,
                                             const std::vector<BridgeState::PlateSessionPlate>& plates,
-                                            const json& overlay,
+                                            const json& snapshot,
                                             const bool strict_slot_arrays,
                                             const bool require_all_slot_arrays)
 {
@@ -744,27 +707,27 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
                 throw FilamentCommandFailure("unsupported_reference", "model effective filament reference exceeds slots");
         }
     }
-    if (!valid_project_config_overlay(overlay))
-        throw FilamentCommandFailure("unsupported_reference", "invalid staged project configuration overlay");
-    const auto validate_overlay_values = [&](const json& values) {
+    if (!valid_native_scoped_config_snapshot(snapshot))
+        throw FilamentCommandFailure("unsupported_reference", "invalid staged native scoped configuration snapshot");
+    const auto validate_snapshot_values = [&](const json& values) {
         if (!values.is_object()) return;
         for (const auto& [key, value] : values.items()) {
             if (!is_filament_slot_reference_key(key)) continue;
             if (!value.is_string())
-                throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in project overlay");
+                throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in native scoped configuration");
             try {
                 const int reference = std::stoi(value.get<std::string>());
                 if (reference < 0 || reference > static_cast<int>(filament_presets.size()))
-                    throw FilamentCommandFailure("unsupported_reference", "project overlay reference exceeds slots");
+                    throw FilamentCommandFailure("unsupported_reference", "native scoped configuration reference exceeds slots");
             } catch (const FilamentCommandFailure&) { throw; }
             catch (...) {
-                throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in project overlay");
+                throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in native scoped configuration");
             }
         }
     };
-    validate_overlay_values(overlay["project"]);
+    validate_snapshot_values(snapshot["project"]);
     for (const char* scope : {"objects", "parts"})
-        for (const auto& [id, values] : overlay[scope].items()) validate_overlay_values(values);
+        for (const auto& [id, values] : snapshot[scope].items()) validate_snapshot_values(values);
     for (const auto& plate : plates) {
         validate_plate_filament_state(plate, filament_presets.size(), nozzle_count);
         for (const auto& key : plate.settings.keys()) {
@@ -779,7 +742,7 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
 
 void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const std::vector<BridgeState::PlateSessionPlate>& plates,
-                                 const json& overlay,
+                                 const json& snapshot,
                                  const bool strict_slot_arrays,
                                  const bool require_all_slot_arrays)
 {
@@ -787,7 +750,7 @@ void validate_filament_candidate(PresetBundle& bundle, Model& model,
     validate_filament_candidate_components(bundle.filament_presets, bundle.project_config, printer,
         std::max(1, bundle.get_printer_extruder_count()),
         printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor(),
-        model, plates, overlay, strict_slot_arrays, require_all_slot_arrays);
+        model, plates, snapshot, strict_slot_arrays, require_all_slot_arrays);
 }
 
 json filament_mutation_result(const json& mutation)
@@ -824,7 +787,6 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
         Model before_model = state().model;
         const auto before_plates = state().plate_session_plates;
-        const auto before_overlay = state().project_config_overlay;
         const auto before_plate_revisions = state().plate_input_revisions;
         const auto before_membership = state().instance_plate_ids;
         const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
@@ -853,7 +815,6 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
             Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
-            state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
             state().plate_out_of_bounds_ids = before_out_of_bounds;
@@ -864,16 +825,17 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         };
         json mutation;
+        json snapshot = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
         try {
             mutated = true;
             mutation = mutator(state().presets, state().model, state().plate_session_plates,
-                               state().project_config_overlay, old_count);
+                               snapshot, old_count);
             if (request.value("inject_failure", false)) {
                 rollback_published();
                 return command_error("native_validation_failure", "injected native validation failure");
             }
             validate_filament_candidate(state().presets, state().model, state().plate_session_plates,
-                                        state().project_config_overlay);
+                                        snapshot);
             // Filament edits can change the native tower footprint. Clamp in
             // this same mutation before its history context/frame is built so
             // Undo/Redo restores the rack and coordinates atomically.
@@ -969,7 +931,6 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         std::shared_ptr<const Model> before_model;
         if (model_changes) before_model = std::make_shared<Model>(state().model);
         const auto before_plates = state().plate_session_plates;
-        const auto before_overlay = state().project_config_overlay;
         const auto before_plate_revisions = state().plate_input_revisions;
         const auto before_membership = state().instance_plate_ids;
         const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
@@ -997,7 +958,6 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
             Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
-            state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
             state().plate_out_of_bounds_ids = before_out_of_bounds;
@@ -1011,14 +971,15 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         try {
             mutated = true;
             const auto old_count = state().presets.filament_presets.size();
+            json snapshot = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
             json mutation = mutator(state().presets, state().model, state().plate_session_plates,
-                                     state().project_config_overlay, old_count);
+                                     snapshot, old_count);
             if (request.value("inject_failure", false)) {
                 rollback();
                 return command_error("native_validation_failure", "injected native validation failure");
             }
             validate_filament_candidate(state().presets, state().model, state().plate_session_plates,
-                                        state().project_config_overlay);
+                                        snapshot);
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             ensure_plate_session_state();
             const auto affected_plates = all_plate_ids();
@@ -1109,7 +1070,7 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
             bundle.project_config.set_key_value("filament_colour", new ConfigOptionStrings(colours));
             recalculate_filament_flush(bundle);
             validate_filament_candidate(bundle, state().model, state().plate_session_plates,
-                                        state().project_config_overlay, true, true);
+                                        Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);
             HistoryMetadata::advance_history_epoch(state());
             const auto result = filament_snapshot_json();
             if (!result.value("ok", false)) throw std::runtime_error(result.value("error", "invalid remembered filament rack"));
@@ -1229,16 +1190,16 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         };
         Model staged_model = state().model;
         auto staged_plates = state().plate_session_plates;
-        auto staged_overlay = state().project_config_overlay;
+        auto staged_snapshot = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
         std::set<std::size_t> affected_objects;
         json mutation;
         try {
-            mutation = mutator(state().presets, staged_model, staged_plates, staged_overlay, affected_objects);
+            mutation = mutator(state().presets, staged_model, staged_plates, staged_snapshot, affected_objects);
             if (request.value("inject_failure", false) || request.value("inject_failure_stage", "") == "before-history") {
                 restore_mutable_bundle();
                 return command_error("native_validation_failure", "injected native validation failure");
             }
-            validate_filament_candidate(state().presets, staged_model, staged_plates, staged_overlay);
+            validate_filament_candidate(state().presets, staged_model, staged_plates, staged_snapshot);
         } catch (...) {
             restore_mutable_bundle();
             throw;
@@ -1250,7 +1211,6 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         const auto affected_plates = invalidate_all ? all_plate_ids() : member_plate_ids_for_instances(affected_instances);
         Model before_model = state().model;
         const auto before_plates = state().plate_session_plates;
-        const auto before_overlay = state().project_config_overlay;
         const auto before_plate_revisions = state().plate_input_revisions;
         const auto before_membership = state().instance_plate_ids;
         const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
@@ -1271,7 +1231,6 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
             Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
-            state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
             state().plate_out_of_bounds_ids = before_out_of_bounds;
@@ -1286,7 +1245,6 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             history_started = true;
             state().model = std::move(staged_model);
             state().plate_session_plates = std::move(staged_plates);
-            state().project_config_overlay = std::move(staged_overlay);
             ensure_plate_session_state();
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             for (const auto& plate_id : affected_plates)
@@ -1577,7 +1535,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
     RuntimeScope scope(runtime);
     if (!merge)
         return run_filament_slot_mutation(request, "Delete Filament Slot", true,
-            [request](PresetBundle& bundle, Model& model, auto& plates, auto& overlay, std::size_t count) {
+            [request](PresetBundle& bundle, Model& model, auto& plates, auto& snapshot, std::size_t count) {
             const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
             if (!flexible || count <= 1) throw FilamentCommandFailure("capability_rejected", "filament slot capability rejected");
             std::string error;
@@ -1587,13 +1545,13 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
             remap_config_filament_references(bundle.project_config, *source, std::nullopt);
             remap_model_filament_references(model, *source, std::nullopt, count - 1);
             remap_plate_filament_references(plates, *source, std::nullopt, count);
-            remap_overlay_filament_references(overlay, *source, std::nullopt);
+            remap_native_scoped_config_filament_references(snapshot, *source, std::nullopt);
             recalculate_filament_flush(bundle);
             return json{{"kind", "delete"}, {"source", *source + 1},
                         {"destination", nullptr}, {"slot_count", count - 1}};
         });
     return run_filament_mutation(request, merge ? "Merge Filament Slots" : "Delete Filament Slot",
-        [request, merge](PresetBundle& bundle, Model& model, auto& plates, auto& overlay, std::size_t count) {
+        [request, merge](PresetBundle& bundle, Model& model, auto& plates, auto& snapshot, std::size_t count) {
         const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
         if (!flexible || count <= 1) throw FilamentCommandFailure("capability_rejected", "filament slot capability rejected");
         std::string error;
@@ -1607,13 +1565,13 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
         }
         bundle.update_num_filaments(*source);
         // Project-scoped support/feature routing lives in the native project
-        // config rather than the renderer overlay.  Remap it before the
+        // config rather than a separate renderer state.  Remap it before the
         // projection is rebuilt so Delete yields Default for zero-backed
         // routing and Merge points at the selected survivor.
         remap_config_filament_references(bundle.project_config, *source, replacement);
         remap_model_filament_references(model, *source, replacement, count - 1);
         remap_plate_filament_references(plates, *source, replacement, count);
-        remap_overlay_filament_references(overlay, *source, replacement);
+        remap_native_scoped_config_filament_references(snapshot, *source, replacement);
         recalculate_filament_flush(bundle);
         return json{{"kind", merge ? "merge" : "delete"}, {"source", *source + 1},
                     {"destination", replacement ? json(*replacement + 1) : json(nullptr)},
@@ -1642,7 +1600,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
 
 #include <emscripten/emscripten.h>
 
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_state.hpp"
 #include "libslic3r/Model.hpp"
@@ -1948,7 +1906,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_reference_fixture(const c
                 auto it = request["plate_settings"].find(plate.id);
                 if (it == request["plate_settings"].end()) continue;
                 if (!it.value().is_object()) return error_json("invalid test plate settings");
-                ProjectOverlay::apply_overlay_to_config(plate.settings, it.value());
+                ScopedConfig::apply_native_config_values(plate.settings, it.value());
                 plate.settings_metadata = Filament::State::config_metadata_json(plate.settings);
             }
         }

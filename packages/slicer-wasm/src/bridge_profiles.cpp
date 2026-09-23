@@ -20,6 +20,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
 #include "bridge_prime_tower.hpp"
+#include "bridge_scoped_config.hpp"
 
 using namespace Slic3r;
 
@@ -83,7 +84,7 @@ void validate_profile_transition()
     Filament::Commands::recalculate_filament_flush(bundle);
     Filament::Commands::validate_filament_candidate(
         bundle, state().model, state().plate_session_plates,
-        state().project_config_overlay, true, true);
+        Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);
     // Printer changes are a silent lifecycle transition. Normalize the
     // project-owned arrays only after the native candidate is valid so the
     // returned projection and the next slice observe identical coordinates.
@@ -261,8 +262,32 @@ const char* error_json(const std::string& message)
 json option_metadata_json()
 {
     const auto& defs = print_config_def.options;
+    // Keep scope eligibility in the native PrintConfig class slices.  The
+    // renderer derives its catalogue from this metadata; it must not guess
+    // which arbitrary FFF keys happen to deserialize on a target.
+    const PrintConfig project_config;
+    const PrintObjectConfig object_config;
+    const PrintRegionConfig region_config;
     json output = json::object();
-    for (const auto& [key, def] : defs) output[key] = option_def_to_json(def);
+    for (const auto& [key, def] : defs) {
+        json entry = option_def_to_json(def);
+        json scopes = json::array();
+        const bool project = project_config.option(key) != nullptr;
+        const bool object = object_config.option(key) != nullptr || region_config.option(key) != nullptr;
+        const bool part = region_config.option(key) != nullptr;
+        // Native filament-routing slots stay in project_config so standard
+        // slicing/history can round-trip them, but their typed commands are
+        // the only mutation authority; never advertise them as generic
+        // Project/Scoped catalogue entries.
+        const bool generic_scoped_key = !ScopedConfig::is_bridge_owned_project_routing_key(key);
+        if (generic_scoped_key && project) scopes.push_back("project");
+        if (generic_scoped_key && project && ScopedConfig::is_editable_plate_override_key(key))
+            scopes.push_back("plate");
+        if (generic_scoped_key && object) scopes.push_back("object");
+        if (generic_scoped_key && part) scopes.push_back("part");
+        entry["scopes"] = std::move(scopes);
+        output[key] = std::move(entry);
+    }
     return output;
 }
 
@@ -276,8 +301,7 @@ json preset_snapshot_json()
                 {"print", preset_selection_json(state().presets.prints)},
                 {"printable_area", selected_printer_printable_area_json()},
                 // Embedded project settings and the selected Process preset
-                // are both part of the native effective configuration even
-                // when the Neo overlay is empty.  Use the same merged config
+                // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to
                 // metadata defaults that disagree with slicing.
                 {"project_config", Filament::State::config_metadata_json(state().presets.full_config())}};

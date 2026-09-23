@@ -4,7 +4,7 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { DragControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
+import { useSceneInteraction } from './SceneInteractionContext';
 import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { EULER_ORDER } from './transformDeltaMath';
@@ -33,12 +33,14 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
   group.updateMatrix();
 }
 
-export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, onModelSelection }: {
+export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, selectionRevision, bodyDragEnabled, onModelSelection }: {
   data: GLVolume;
   interactive?: boolean;
   preview?: boolean;
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
+  selectionRevision: number;
+  bodyDragEnabled: boolean;
   onModelSelection?: () => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -47,7 +49,6 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   const selectedOnPointerDownRef = useRef(false);
   const invalidate = useThree((s) => s.invalidate);
   const sceneInteraction = useSceneInteraction();
-  useSceneInteractionVersion();
   const filamentSnapshot = useFilamentSessionStore((state) => state.snapshot);
   const selected = !preview && sceneInteraction.selection.has(data);
   const prepareColour = !preview
@@ -140,7 +141,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
       // admits only its recorded pointer-down candidate. In particular, Prime
       // Tower uses this exact DragControls path rather than a conditional
       // enablement workaround.
-      dragConfig={{ enabled: sceneInteraction.bodyDragEnabled }}
+      dragConfig={{ enabled: bodyDragEnabled }}
       onDragStart={(origin) => {
         if (!sceneInteraction.tryBeginBodyDrag(data)) return;
         bodyStartRef.current.copy(origin);
@@ -164,6 +165,8 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   && previous.interactive === next.interactive
   && previous.preview === next.preview
   && previous.structure === next.structure
+  && previous.selectionRevision === next.selectionRevision
+  && previous.bodyDragEnabled === next.bodyDragEnabled
   // Selection navigation replaces only the outer session object. Membership
   // and validity arrays remain identical, so avoid remounting every model
   // mesh for a currentPlateId-only change.

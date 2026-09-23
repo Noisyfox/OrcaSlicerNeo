@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/settings/OptionField.tsx
-import type { OptionMeta, ProjectConfigOverrideTarget } from '@slicer/client';
+import type { OptionMeta, NativeScopedConfigTarget } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useEffect, useRef, useState } from 'react';
 import { errorText } from '@orca/slicer-runtime';
@@ -10,27 +10,28 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TooltipFor } from '@/components/ui/tooltip';
 
 export async function commitOptionFieldChange(
   platform: Parameters<typeof commitSharedConfigurationMutation>[0],
   optionKey: string,
   next: string,
-  target: ProjectConfigOverrideTarget = { scope: 'project' },
+  target: NativeScopedConfigTarget = { scope: 'project' },
 ): Promise<void> {
   const mutation = await commitSharedConfigurationMutation(platform, optionKey, next, target);
-  invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+  if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
 }
 
 export function OptionField({ optionKey, meta, target = { scope: 'project' } }: {
   optionKey: string;
   meta: OptionMeta;
-  target?: ProjectConfigOverrideTarget;
+  target?: NativeScopedConfigTarget;
 }) {
   const platform = usePlatform();
   const value = useSettingsStore((s) => {
     if (target.scope === 'project') return s.values[optionKey] ?? meta.default ?? '';
     const id = target.id === undefined ? '' : String(target.id);
-    return s.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
+    return s.nativeScopedConfig[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
       ?? meta.default ?? '';
   });
   const [draft, setDraft] = useState(value);
@@ -47,7 +48,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
       const id = target.id === undefined ? '' : String(target.id);
       const effective = target.scope === 'project'
         ? state.values[optionKey]
-        : state.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
+        : state.nativeScopedConfig[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
       setDraft(effective ?? next);
     } catch (error) {
       setError(errorText(error));
@@ -62,10 +63,6 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   const cancelDraft = () => setDraft(value);
   const changeDiscrete = (next: string) => {
     setDraft(next);
-    // Scoped overrides cannot know their affected plate set until the native
-    // transaction returns. Shared project settings retain the existing
-    // immediate invalidation behavior.
-    if (target.scope === 'project') invalidateAfterSharedConfigurationMutation();
     void commit(next);
   };
   const label = meta.label ?? optionKey;
@@ -78,7 +75,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   if (meta.type === 'bool') {
     return (
       <div className={row}>
-        <Label htmlFor={optionKey} className={labelCls} title={label}>{label}</Label>
+        <TooltipFor content={label}><Label htmlFor={optionKey} className={labelCls}>{label}</Label></TooltipFor>
         <Checkbox
           id={optionKey}
           checked={value === '1'}
@@ -91,7 +88,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   if (meta.type === 'enum' && meta.enum_values?.length) {
     return (
       <div className={row}>
-        <Label className={labelCls} title={label}>{label}</Label>
+        <TooltipFor content={label}><Label className={labelCls}>{label}</Label></TooltipFor>
         <Select value={value} onValueChange={(v) => v != null && changeDiscrete(v)}>
           <SelectTrigger className="flex-1">
             <SelectValue placeholder={value} />
@@ -110,7 +107,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
 
   return (
     <div className={row}>
-      <Label htmlFor={optionKey} className={labelCls} title={label}>{label}</Label>
+      <TooltipFor content={label}><Label htmlFor={optionKey} className={labelCls}>{label}</Label></TooltipFor>
       <Input
         id={optionKey}
         value={draft}

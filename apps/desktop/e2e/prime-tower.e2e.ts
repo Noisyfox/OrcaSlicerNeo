@@ -466,9 +466,13 @@ test('Prepare prime tower enable/disable clears selection and invalidates the cu
     const readSelection = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { primeTowerSelection?: () => string | null } }).__orcaE2e?.primeTowerSelection?.() ?? null,
     );
-    const toggleTower = () => page.locator('#enable_prime_tower').evaluate((input) => (input as HTMLInputElement).click());
+    // Prime Tower is a generic Project configuration field now. Its checkbox
+    // is rendered by the scoped catalogue rather than the old flat option
+    // row, while the tower projection remains scene-owned.
+    const primeTowerCheckbox = page.getByTestId('config-field-enable_prime_tower').getByRole('checkbox');
+    const toggleTower = () => primeTowerCheckbox.click();
     await expect.poll(readTowers).toHaveLength(1);
-    await expect(page.locator('#enable_prime_tower')).toBeChecked();
+    await expect(primeTowerCheckbox).toBeChecked();
     expect((await readTowers())[0]).toMatchObject({ eligible: true, empty: false });
     await page.getByTestId('btn-add-model').click();
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });

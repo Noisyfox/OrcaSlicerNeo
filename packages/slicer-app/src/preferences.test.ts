@@ -6,7 +6,7 @@ import type { ProfileSnapshot } from '@slicer/client';
 const prefs: UserPreferences = {
   version: 1,
   selectedProfiles: { printer: 'P', print: 'Q' },
-  ui: {},
+  ui: { switchToDeviceAfterSend: true },
 };
 
 function snapshot(printer: string, print: string, filament: string): ProfileSnapshot {
@@ -76,7 +76,7 @@ describe('selection restoration', () => {
         calls.push([kind, name]);
         return final;
       },
-    }, { version: 1, selectedProfiles: {}, ui: {} });
+    }, { version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } });
 
     expect(calls).toEqual([
       ['printer', 'engine-printer'],
@@ -91,7 +91,7 @@ describe('selection restoration', () => {
     const preferences = {
       version: 1 as const,
       selectedProfiles: { printer: 'resolved-printer', print: 'resolved-print' },
-      ui: {},
+      ui: { switchToDeviceAfterSend: true },
     };
     const repository = { load: vi.fn(), save: vi.fn(async () => {}) };
     await persistRestoredSelections(repository, preferences);
@@ -172,7 +172,7 @@ describe('selection restoration', () => {
       assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 4, project: 4, result: 0, plates: {} },
       status: { state: 'ready' as const, error: null },
     };
-    let stored: UserPreferences = { version: 1, selectedProfiles: {}, ui: {} };
+    let stored: UserPreferences = { version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
     let release!: () => void;
     const saveGate = new Promise<void>((resolve) => { release = resolve; });
     const repository: UserPreferencesRepository = {
@@ -234,7 +234,7 @@ describe('selection restoration', () => {
       resetHistory: vi.fn(async () => { calls.push('reset-history'); return { dirty: false, canUndo: false, undoEntries: [] } as never; }),
     }, { ...prefs, rememberedFilamentRacks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#abcdef' }] } } }, {
       selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null,
-      projectConfigOverlay: { project: {}, objects: {}, parts: {}, plates: {} },
+      nativeScopedConfig: { project: {}, objects: {}, parts: {}, plates: {} },
     });
     expect(calls).toEqual(['select-printer', 'select-print', 'get-rack', 'apply-rack', 'reset-history', 'get-rack']);
     expect(result.filament).toBe(finalRack);

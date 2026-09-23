@@ -25,6 +25,7 @@
   --color-secondary-foreground: hsl(0 0% 93%);
   --color-muted: hsl(0 0% 16%);
   --color-muted-foreground: hsl(0 0% 60%);
+  --color-scoped-config-local-override: #F1754E;
   --color-accent: hsl(217 91% 60%);
   --color-accent-foreground: hsl(0 0% 100%);
   --color-destructive: hsl(0 84% 60%);
@@ -43,6 +44,11 @@
 
 :root {
   color-scheme: dark;
+}
+
+/* Match Orca's modified-option label color for local scoped overrides. */
+.scoped-config-local-override-label {
+  color: var(--color-scoped-config-local-override);
 }
 
 @layer base {

@@ -23,7 +23,7 @@
 #include "bridge_history.hpp"
 #include "bridge_performance.hpp"
 #include "bridge_plate.hpp"
-#include "bridge_project_overlay.hpp"
+#include "bridge_scoped_config.hpp"
 #include "bridge_state.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/GCode/WipeTower.hpp"
@@ -199,9 +199,10 @@ std::string adjusted_colour(const std::string& value)
 DynamicPrintConfig effective_config(const BridgeState::PlateSessionPlate& plate)
 {
     DynamicPrintConfig config = state().presets.full_config();
+    // Match Orca's BackgroundSlicingProcess::apply: a plate config is layered
+    // over the global/project config, so plate-local values are effective for
+    // this plate's Prepare projection and subsequent Slice.
     config.apply(plate.settings, true);
-    Neo::Bridge::ProjectOverlay::apply_overlay_to_config(
-        config, state().project_config_overlay["project"]);
     config.normalize_fdm();
     return config;
 }
@@ -934,12 +935,6 @@ bool normalize_coordinate_positions()
         set_coordinate_settings(state().presets.project_config, index, x, y, old_x, old_y);
         changed = true;
     }
-    if (changed) {
-        state().project_config_overlay["project"]["wipe_tower_x"] =
-            state().presets.project_config.option("wipe_tower_x")->serialize();
-        state().project_config_overlay["project"]["wipe_tower_y"] =
-            state().presets.project_config.option("wipe_tower_y")->serialize();
-    }
     return changed;
 }
 
@@ -1111,12 +1106,6 @@ json move_position_json(const char* request_cstr)
     }
 
     const auto before_settings = snapshot_coordinate_settings(state().presets.project_config, plate_index);
-    const auto before_project_x = state().project_config_overlay["project"].contains("wipe_tower_x")
-        ? std::optional<std::string>(state().project_config_overlay["project"]["wipe_tower_x"].get<std::string>())
-        : std::nullopt;
-    const auto before_project_y = state().project_config_overlay["project"].contains("wipe_tower_y")
-        ? std::optional<std::string>(state().project_config_overlay["project"]["wipe_tower_y"].get<std::string>())
-        : std::nullopt;
     const std::uint64_t before_revision = plate_revision_before;
     const auto history_runtime = HistoryRuntime::runtime();
     const auto before_history_context = HistoryRuntime::default_history_context(history_runtime);
@@ -1126,10 +1115,6 @@ json move_position_json(const char* request_cstr)
     json response;
     try {
         set_coordinate_settings(state().presets.project_config, plate_index, x, y, old_x, old_y);
-        state().project_config_overlay["project"]["wipe_tower_x"] =
-            state().presets.project_config.option("wipe_tower_x")->serialize();
-        state().project_config_overlay["project"]["wipe_tower_y"] =
-            state().presets.project_config.option("wipe_tower_y")->serialize();
         state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
         invalidate_projection_cache({plate_id});
         // ConfigOptionFloat canonically stores this value at float precision.
@@ -1159,19 +1144,11 @@ json move_position_json(const char* request_cstr)
     } catch (const std::exception& e) {
         if (history_started) HistoryMetadata::abort_timestamped_operation(state());
         restore_coordinate_settings(state().presets.project_config, before_settings, plate_index, old_x, old_y);
-        if (before_project_x) state().project_config_overlay["project"]["wipe_tower_x"] = *before_project_x;
-        else state().project_config_overlay["project"].erase("wipe_tower_x");
-        if (before_project_y) state().project_config_overlay["project"]["wipe_tower_y"] = *before_project_y;
-        else state().project_config_overlay["project"].erase("wipe_tower_y");
         state().plate_input_revisions[plate_id] = before_revision;
         return move_error("native_validation_failure", e.what());
     } catch (...) {
         if (history_started) HistoryMetadata::abort_timestamped_operation(state());
         restore_coordinate_settings(state().presets.project_config, before_settings, plate_index, old_x, old_y);
-        if (before_project_x) state().project_config_overlay["project"]["wipe_tower_x"] = *before_project_x;
-        else state().project_config_overlay["project"].erase("wipe_tower_x");
-        if (before_project_y) state().project_config_overlay["project"]["wipe_tower_y"] = *before_project_y;
-        else state().project_config_overlay["project"].erase("wipe_tower_y");
         state().plate_input_revisions[plate_id] = before_revision;
         return move_error("native_validation_failure", "prime tower move failed");
     }

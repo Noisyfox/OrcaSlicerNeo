@@ -49,6 +49,15 @@ async function launchApp() {
   // sidebar).
   await page.setViewportSize({ width: 1280, height: 600 });
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+  await page.getByTestId('btn-add-model').click();
+  // The generic catalogue is selection-limited. Select the loaded object and
+  // enter Scoped mode so the mock's PrintRegionConfig enum is rendered from
+  // its authoritative object/part scopes.
+  const object = page.locator('[data-testid^="object-"]:not([data-testid="object-list"])').first();
+  await expect(object).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+  await object.click();
+  await page.getByTestId('config-mode-scoped').click();
+  await expect(page.getByTestId('scoped-target-label')).toContainText('Object');
   return { app, page };
 }
 

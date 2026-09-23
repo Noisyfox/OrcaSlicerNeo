@@ -29,6 +29,22 @@ export function instanceKeyOf(volume: Pick<SelectableVolume, 'buffer'>): Instanc
 
 export class Selection {
   private selectedIds = new Set<VolumeId>();
+  private readonly listeners = new Set<() => void>();
+  private selectionRevision = 0;
+
+  get revision(): number {
+    return this.selectionRevision;
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private publish(): void {
+    this.selectionRevision += 1;
+    for (const listener of this.listeners) listener();
+  }
 
   /** A read-only view that preserves selection insertion order. */
   get ids(): ReadonlySet<VolumeId> {
@@ -59,6 +75,7 @@ export class Selection {
       return false;
     }
     this.selectedIds = next;
+    this.publish();
     return true;
   }
 
@@ -71,6 +88,7 @@ export class Selection {
         changed = true;
       }
     }
+    if (changed) this.publish();
     return changed;
   }
 
@@ -84,6 +102,7 @@ export class Selection {
     if (allSelected) {
       let changed = false;
       for (const volume of group) changed = this.selectedIds.delete(volume.id) || changed;
+      if (changed) this.publish();
       return changed;
     }
 
@@ -94,6 +113,7 @@ export class Selection {
         changed = true;
       }
     }
+    if (changed) this.publish();
     return changed;
   }
 
@@ -114,6 +134,7 @@ export class Selection {
     if (allSelected) {
       let changed = false;
       for (const volume of group) changed = this.selectedIds.delete(volume.id) || changed;
+      if (changed) this.publish();
       return changed;
     }
     let changed = false;
@@ -123,12 +144,14 @@ export class Selection {
         changed = true;
       }
     }
+    if (changed) this.publish();
     return changed;
   }
 
   clear(): boolean {
     if (this.selectedIds.size === 0) return false;
     this.selectedIds.clear();
+    this.publish();
     return true;
   }
 
@@ -142,6 +165,7 @@ export class Selection {
         changed = true;
       }
     }
+    if (changed) this.publish();
     return changed;
   }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { normalizeGcodeTextWindowGeometry, usePlatform, type GcodeTextWindowGeometry } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { PreviewTextLines, PreviewTextLinesRequest } from '@slicer/client';
@@ -509,9 +510,11 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         onLostPointerCapture={endPointerGesture}
       >
         <span id={titleId}>G-code</span>
-        <Button variant="ghost" size="xs" aria-label="Close G-code text" title="Close G-code text" data-testid="gcode-text-close" onClick={onClose}>
-          <XIcon aria-hidden="true" className="pointer-events-none" />
-        </Button>
+        <TooltipFor content="Close G-code text">
+          <Button variant="ghost" size="xs" aria-label="Close G-code text" data-testid="gcode-text-close" onClick={onClose}>
+            <XIcon aria-hidden="true" className="pointer-events-none" />
+          </Button>
+        </TooltipFor>
       </header>
       <div
         ref={scrollRef}
@@ -549,21 +552,22 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         <span>{activeLine ? `Active line ${activeLine}` : 'No mapped move'}</span>
         <span>{loading ? 'Loading…' : error ?? `Page cache ${cacheRef.current.size} / ${MAX_CACHED_PAGES}`}</span>
       </footer>
-      <button
-        type="button"
-        data-testid="gcode-text-resize"
-        aria-label="Resize G-code text window"
-        title="Resize G-code text window"
-        className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize touch-none bg-transparent p-0"
-        onPointerDown={(event) => beginPointerGesture(event, 'resize')}
-        onPointerMove={updatePointerGesture}
-        onPointerUp={endPointerGesture}
-        onPointerCancel={endPointerGesture}
-        onLostPointerCapture={endPointerGesture}
-        onKeyDown={resizeWithKeyboard}
-      >
-        <span aria-hidden="true" className="pointer-events-none absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-muted-foreground/70" />
-      </button>
+      <TooltipFor content="Resize G-code text window">
+        <button
+          type="button"
+          data-testid="gcode-text-resize"
+          aria-label="Resize G-code text window"
+          className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-nwse-resize touch-none bg-transparent p-0"
+          onPointerDown={(event) => beginPointerGesture(event, 'resize')}
+          onPointerMove={updatePointerGesture}
+          onPointerUp={endPointerGesture}
+          onPointerCancel={endPointerGesture}
+          onLostPointerCapture={endPointerGesture}
+          onKeyDown={resizeWithKeyboard}
+        >
+          <span aria-hidden="true" className="pointer-events-none absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 border-muted-foreground/70" />
+        </button>
+      </TooltipFor>
     </section>
   );
 }

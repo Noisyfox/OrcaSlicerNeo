@@ -1,10 +1,9 @@
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
-import { OptionField } from './OptionField';
 import { MovePanel } from './MovePanel';
 import { RotatePanel } from './RotatePanel';
 import { ScalePanel } from './ScalePanel';
@@ -15,6 +14,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import { applyRememberedFilamentRackFromRepository } from '../../../preferences';
+import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import {
   Combobox,
   ComboboxContent,
@@ -26,15 +26,6 @@ import {
   ComboboxValue,
 } from '@/components/ui/combobox';
 
-const PROCESS_KEYS = [
-  'layer_height', 'wall_loops', 'top_shell_layers', 'bottom_shell_layers',
-  'sparse_infill_density', 'sparse_infill_pattern', 'enable_support',
-  'nozzle_temperature', 'nozzle_temperature_initial_layer',
-  'hot_plate_temp_initial_layer', 'print_speed', 'outer_wall_speed',
-  'sparse_infill_speed', 'travel_speed',
-  'enable_prime_tower', 'prime_tower_width',
-];
-
 type PresetKind = 'printer' | 'print';
 
 export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
@@ -45,16 +36,9 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
-  const setOverlay = useSettingsStore((s) => s.setOverlay);
+  const applyNativeScopedConfigTransport = useSettingsStore((s) => s.applyNativeScopedConfigTransport);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
-
-  // Only render option keys the metadata actually declares (no duplicated
-  // schema — PROCESS_KEYS is a render hint, not the schema).
-  const processKeys = useMemo(
-    () => PROCESS_KEYS.filter((k) => metadata?.[k] !== undefined),
-    [metadata],
-  );
 
   // A system profile selection is session state; only its three names and UI
   // preferences are persisted. Compatibility remains in the C++ bridge.
@@ -82,8 +66,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.
       hydrateProfileSnapshot(r);
-      const revalidated = await platform.runtime.revalidateProjectConfigOverlay();
-      if (revalidated.ok) setOverlay(revalidated.overlay);
+      const revalidated = await platform.runtime.revalidateNativeScopedConfig();
+      if (revalidated.ok) applyNativeScopedConfigTransport(revalidated.nativeScopedConfig);
       // The result belongs to the old profile combination. One action clears
       // export, toolpath-layer state, progress, and completed status together.
       invalidateAfterSharedConfigurationMutation();
@@ -133,12 +117,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
         <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
         <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
       </section>
-      <section>
-        <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Process</h2>
-        {processKeys.map((k) => (
-          <OptionField key={k} optionKey={k} meta={metadata[k]} />
-        ))}
-      </section>
+      <ScopedConfigurationPanel sceneInteraction={sceneInteraction} />
     </div>
   );
 }

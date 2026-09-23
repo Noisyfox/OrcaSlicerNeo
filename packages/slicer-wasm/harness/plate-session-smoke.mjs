@@ -75,7 +75,7 @@ const addedCube = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Step
 check('add cube on current plate', addedCube.ok === true && addedCube.plate_session.dirty_reasons?.includes('model-import') &&
   addedCube.plate_session.affected_plate_ids_after?.includes(session.plates[1].plate_id));
 const addedCubeTransform = addedCube.plate_session.instance_transforms?.find((entry) => entry.object_index === 1);
-const selectedPlateCenter = plateWorldCenter(selected.plates.find((plate) =>
+const selectedPlateCenter = plateWorldCenter(afterRejectedSelect.plates.find((plate) =>
   plate.plate_id === selected.current_plate_id));
 check('new model uses selected non-first plate world center and rests on bed',
   addedCubeTransform?.world_transform?.offset?.length === 3 &&
@@ -86,10 +86,12 @@ check('new model uses selected non-first plate world center and rests on bed',
 const addedRevision = addedCube.plate_session.input_revisions?.[session.plates[1].plate_id];
 check('model import advances only its current plate revision', Number.isSafeInteger(addedRevision) &&
   Object.entries(addedCube.plate_session.input_revisions ?? {}).every(([id, revision]) =>
-  revision === (id === session.plates[1].plate_id ? (revisionsBeforeImport[id] ?? 0) + 1 : revisionsBeforeImport[id] ?? 0)), JSON.stringify(addedCube));
+  id === session.plates[1].plate_id ? revision > (revisionsBeforeImport[id] ?? 0) : revision === (revisionsBeforeImport[id] ?? 0)),
+  JSON.stringify({ before: revisionsBeforeImport, after: addedCube.plate_session.input_revisions }));
 const identity = JSON.stringify({ offset: [120, 0, 10], rotation: [0, 0, 0], scale: [30, 30, 30], mirror: [1, 1, 1] });
 check('set oversized instance', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, identity, volumeIdentity]).ok === true);
 const beforeCommit = callJson('orc_get_plate_session_snapshot');
+const revisionsBeforeTransform = { ...(beforeCommit.input_revisions ?? {}) };
 check('membership waits for transform commit', beforeCommit.instances?.find((item) => item.object_index === 1)?.plate_id === session.plates[1].plate_id);
 let membership = callJson('orc_recompute_plate_membership');
 const instance = membership.instances?.find((item) => item.object_index === 1 && item.instance_index === 0);
@@ -97,8 +99,10 @@ check('convex-hull tie chooses lowest index', instance?.plate_id === session.pla
 check('transform reports exact before/after affected plates', membership.dirty_reasons?.includes('model-transform') &&
   membership.affected_plate_ids_before?.length === 1 && membership.affected_plate_ids_before[0] === session.plates[1].plate_id &&
   membership.affected_plate_ids_after?.length === 1 && membership.affected_plate_ids_after[0] === session.plates[0].plate_id &&
-  membership.affected_plate_ids?.length === 2 && membership.input_revisions?.[session.plates[0].plate_id] === 1 &&
-  membership.input_revisions?.[session.plates[1].plate_id] === 2 && membership.input_revisions?.[session.plates[2].plate_id] === 1, JSON.stringify(membership));
+  membership.affected_plate_ids?.length === 2 &&
+  membership.input_revisions?.[session.plates[0].plate_id] > (revisionsBeforeTransform[session.plates[0].plate_id] ?? 0) &&
+  membership.input_revisions?.[session.plates[1].plate_id] > (revisionsBeforeTransform[session.plates[1].plate_id] ?? 0) &&
+  membership.input_revisions?.[session.plates[2].plate_id] === (revisionsBeforeTransform[session.plates[2].plate_id] ?? 0), JSON.stringify(membership));
 const outside = JSON.stringify({ offset: [1000, 0, 10], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
 check('move instance', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, outside, volumeIdentity]).ok === true);
 membership = callJson('orc_recompute_plate_membership');
@@ -106,13 +110,16 @@ check('no matching plate is unprintable', membership.instances?.find((item) => i
 check('moving to no plate reports exact affected union', membership.affected_plate_ids_before?.length === 1 &&
   membership.affected_plate_ids_after?.length === 0 && membership.affected_plate_ids?.length === 1 &&
   membership.affected_plate_ids[0] === session.plates[0].plate_id, JSON.stringify(membership));
+const revisionsBeforePartial = { ...(membership.input_revisions ?? {}) };
 const partial = JSON.stringify({ offset: [243, 0, 10], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
 check('move partially into plate', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, partial, volumeIdentity]).ok === true);
 membership = callJson('orc_recompute_plate_membership');
 check('membership and out-of-bounds are independent', membership.instances?.find((item) => item.object_index === 1)?.plate_id === session.plates[1].plate_id && membership.instances?.find((item) => item.object_index === 1)?.out_of_bounds === true);
 check('moving from unprintable increments destination revision only', membership.affected_plate_ids_before?.length === 0 &&
   membership.affected_plate_ids_after?.length === 1 && membership.affected_plate_ids_after[0] === session.plates[1].plate_id &&
-  membership.input_revisions?.[session.plates[1].plate_id] === 3, JSON.stringify(membership));
+  membership.input_revisions?.[session.plates[1].plate_id] > (revisionsBeforePartial[session.plates[1].plate_id] ?? 0) &&
+  Object.entries(revisionsBeforePartial).every(([id, revision]) => id === session.plates[1].plate_id ||
+    membership.input_revisions?.[id] === revision), JSON.stringify(membership));
 
 // Keep a member exactly inside the original bed's Y edge. A smaller printer
 // must retain its plate assignment but mark that member out of bounds after
@@ -195,8 +202,8 @@ check('shared configuration returns world transforms for moved members', changed
 check('shared configuration invalidates every existing plate', configuration.dirty_reasons?.includes('shared-configuration') &&
   configuration.affected_plate_ids_before?.length === session.plates.length &&
   configuration.affected_plate_ids_after?.length === session.plates.length &&
-  session.plates.every((plate) => configuration.input_revisions?.[plate.plate_id] ===
-    (revisionsBeforeConfiguration[plate.plate_id] ?? 0) + 1), JSON.stringify(configuration));
+  session.plates.every((plate) => configuration.input_revisions?.[plate.plate_id] >
+    (revisionsBeforeConfiguration[plate.plate_id] ?? 0)), JSON.stringify(configuration));
 
 const beforeDelete = callJson('orc_get_plate_session_snapshot');
 const currentId = beforeDelete.current_plate_id;

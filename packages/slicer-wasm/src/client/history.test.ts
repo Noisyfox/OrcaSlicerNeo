@@ -14,7 +14,7 @@ const context: HistoryContext = {
   },
   activePlateId: 'plate-session-1-plate-1' as StablePlateId,
   gizmo: { type: 'move', state: { axis: 'x', visible: true } },
-  projectConfigOverlay: { object: { infillDensity: 0.2 } },
+  nativeScopedConfig: { object: { infillDensity: 0.2 } },
 };
 
 const status: HistoryStatus = {
@@ -53,12 +53,15 @@ describe('history contracts', () => {
   });
 
   it('allows future callers to type a mock runtime without enabling history', async () => {
-    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1', sceneDelta: {
+    const restore: RestoreResult = { ok: true, context, status, nativeScopedConfig: {
+      version: 1, revision: status.revision, kind: 'full',
+      snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+    }, entryId: 'entry-1', sceneDelta: {
       version: 1, objectIds: [101], volumeIds: [202], instanceIds: [303],
       plateIds: ['plate-session-1-plate-1'], objectOrder: [101],
     }, impact: {
       version: 1, model: 'delta', plateSession: true, filamentRack: true,
-      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+      nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
     } };
     const mock: MockHistoryRuntime = {
       getHistoryStatus: async () => status,
@@ -74,7 +77,7 @@ describe('history contracts', () => {
     const nativeSession = {
       ok: true, version: 1, current_plate_id: 'plate-1',
       plates: [{ plate_id: 'plate-1', display_index: 0, origin: [0, 0, 0], name: 'Plate',
-        locked: false, settings: {}, opaque_metadata: [], future_metadata: {}, instance_ids: [303],
+        locked: false, settings: {}, opaque_metadata: [], instance_ids: [303],
         out_of_bounds_instance_ids: [], valid: true }],
       instances: [{ instance_id: 303, object_id: 101, object_index: 0, instance_index: 0,
         plate_id: 'plate-1', member: true, parked: false, unprintable: false, out_of_bounds: false }],

@@ -7,7 +7,7 @@
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 
-import type { ProjectLoadResult, VolumeType } from '../types';
+import type { NativeScopedConfigScope, ProjectLoadResult, VolumeType } from '../types';
 
 export interface MockFeature {
   id: number;
@@ -65,7 +65,7 @@ export interface MockModule {
 
 export interface MockModuleOptions {
   sliceFixture?: MockSliceFixture;
-  metadataKeys?: Record<string, { type: string; enum_values?: string[] }>;
+  metadataKeys?: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }>;
   printErr?: (msg: string) => void;
   /** Number of instances initially exposed by getModelMesh. */
   instanceCount?: number;
@@ -82,7 +82,7 @@ export interface MockModuleOptions {
   /** Optional raw mutation response override for client normalization tests. */
   filamentMutation?: unknown;
   /** Optional raw project-configuration response override for normalization tests. */
-  projectConfigOverride?: unknown;
+  nativeScopedConfigOverride?: unknown;
   /** Optional raw Prime Tower projection override for normalization tests. */
   primeTowerProjection?: unknown;
   /** Optional raw native performance profile override for normalization tests. */
@@ -138,18 +138,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { id: 2, role: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
     ],
   };
-  const metadata: Record<string, { type: string; enum_values?: string[] }> =
+  const metadata: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }> =
     opts.metadataKeys ?? {
-      layer_height: { type: 'float' },
-      wall_loops: { type: 'int' },
-      sparse_infill_density: { type: 'percent' },
-      sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'] },
-      enable_support: { type: 'bool' },
-      nozzle_temperature: { type: 'float' },
-      enable_prime_tower: { type: 'bool' },
-      prime_tower_width: { type: 'float' },
-      printable_area: { type: 'points' },
-      gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
+      // Keep the mock catalogue aligned with bridge_profiles.cpp. Plate scope
+      // is limited to the explicit editable override keys; native BBS plate
+      // metadata/config fields outside this catalogue are not generic targets.
+      layer_height: { type: 'float', scopes: ['project', 'object'] },
+      wall_loops: { type: 'int', scopes: ['object', 'part'] },
+      sparse_infill_density: { type: 'percent', scopes: ['object', 'part'] },
+      sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'], scopes: ['object', 'part'] },
+      enable_support: { type: 'bool', scopes: ['object'] },
+      nozzle_temperature: { type: 'float', scopes: ['project'] },
+      enable_prime_tower: { type: 'bool', scopes: ['project'] },
+      prime_tower_width: { type: 'float', scopes: ['project'] },
+      printable_area: { type: 'points', scopes: ['project'] },
+      gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'], scopes: ['project'] },
+      curr_bed_type: { type: 'enum', enum_values: ['Cool Plate', 'Engineering Plate', 'Textured PEI Plate'], scopes: ['project', 'plate'] },
+      print_sequence: { type: 'enum', enum_values: ['by layer', 'by object'], scopes: ['project', 'plate'] },
+      first_layer_print_sequence: { type: 'ints', scopes: ['project', 'plate'] },
+      other_layers_print_sequence: { type: 'ints', scopes: ['project', 'plate'] },
+      other_layers_print_sequence_nums: { type: 'int', scopes: ['project', 'plate'] },
+      spiral_mode: { type: 'bool', scopes: ['project', 'plate'] },
+      filament_map_mode: { type: 'enum', enum_values: ['Auto', 'Manual'], scopes: ['project', 'plate'] },
+      filament_map: { type: 'ints', scopes: ['project', 'plate'] },
+      filament_volume_map: { type: 'ints', scopes: ['project', 'plate'] },
     };
   const projectWarningFixture = {
     modifiedPrinterGcode: false,
@@ -314,23 +326,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let currentPlateId = '';
   let plateInputRevisions: Record<string, number> = {};
   let objectPlateIds: string[] = [];
-  type MockOverlay = {
+  type MockNativeScopedConfig = {
     project: Record<string, string>;
     objects: Record<string, Record<string, string>>;
     parts: Record<string, Record<string, string>>;
     plates: Record<string, Record<string, string>>;
   };
-  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {}, plates: {} });
-  function overlayProjection(): MockOverlay {
+  const emptyNativeScopedConfig = (): MockNativeScopedConfig => ({ project: {}, objects: {}, parts: {}, plates: {} });
+  function nativeScopedConfigProjection(): MockNativeScopedConfig {
     // Prime Tower coordinates remain one native project-level array pair;
     // plate buckets carry only ordinary plate-local overrides.
-    return clone(projectConfigOverlay);
+    return clone(nativeScopedConfig);
   }
   const sliceWarnings = opts.sliceWarnings ? [...opts.sliceWarnings] : [];
-  let projectConfigOverlay = opts.primeTowerFixture
-    ? { ...emptyOverlay(), project: { enable_prime_tower: '1' } }
-    : emptyOverlay();
-  let exportedProjectConfigOverlay = emptyOverlay();
+  let nativeScopedConfig = opts.primeTowerFixture
+    ? { ...emptyNativeScopedConfig(), project: { enable_prime_tower: '1' } }
+    : emptyNativeScopedConfig();
+  let exportedNativeScopedConfig = emptyNativeScopedConfig();
   let primeTowerProjectionState: any;
 
   type MockHistoryState = {
@@ -345,13 +357,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateIds: string[];
     plateOrigins: Array<[number, number, number]>;
     plateInputRevisions: Record<string, number>;
-    projectConfigOverlay: MockOverlay;
+    nativeScopedConfig: MockNativeScopedConfig;
     primeTowerProjection?: unknown;
   };
   type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project'; context: any };
   let historyEntries: MockHistoryEntry[] = [];
   let historyCursor = 0;
-  let historyTransaction: { id: string; label: string; category: 'project'; before: MockHistoryState; beforeContext: any } | null = null;
+  let historyTransaction: { id: string; label: string; category: 'project'; before: MockHistoryState; beforeContext: any; targets: Array<{ scope: 'project' | 'object' | 'part' | 'plate'; id: string }> } | null = null;
   const historyNestedTransactions: Array<{ id: string; before: MockHistoryState; beforeContext: any }> = [];
   let nextHistoryTransactionId = 1;
   let nextHistoryEntryId = 1;
@@ -363,11 +375,43 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  type MockScopedTarget = { scope: 'project' | 'object' | 'part' | 'plate'; id?: string };
+  function nativeScopedConfigRemovedTargets(before: MockNativeScopedConfig, after: MockNativeScopedConfig): MockScopedTarget[] {
+    return (['objects', 'parts', 'plates'] as const).flatMap((bucket) => {
+      const scope = bucket === 'objects' ? 'object' : bucket === 'parts' ? 'part' : 'plate';
+      return Object.keys(before[bucket])
+        .filter((id) => !(id in after[bucket]))
+        .map((id) => ({ scope, id }));
+    });
+  }
+  function nativeScopedConfigFullTransport(removedTargets: MockScopedTarget[] = []) {
+    return { version: 1, revision: historyRevision, kind: 'full' as const,
+      snapshot: nativeScopedConfigProjection(), removed_targets: clone(removedTargets) };
+  }
+  function nativeScopedConfigAffectedTransport(
+    targets: Array<{ scope: 'project' | 'object' | 'part' | 'plate'; id: string }>,
+    removedTargets: MockScopedTarget[] = [],
+  ) {
+    const seen = new Set<string>();
+    const removed = new Set(removedTargets.map((target) => `${target.scope}:${target.id ?? ''}`));
+    const replacements = targets.flatMap((target) => {
+      const identity = `${target.scope}:${target.id}`;
+      if (seen.has(identity) || removed.has(identity)) return [];
+      seen.add(identity);
+      const values = target.scope === 'project' ? nativeScopedConfig.project
+        : target.scope === 'object' ? nativeScopedConfig.objects[target.id]
+          : target.scope === 'part' ? nativeScopedConfig.parts[target.id]
+            : nativeScopedConfig.plates[target.id];
+      return [{ scope: target.scope, ...(target.scope === 'project' ? {} : { id: target.id }), values: clone(values ?? {}) }];
+    });
+    return { version: 1, revision: historyRevision, kind: 'affected' as const,
+      replacements, removed_targets: clone(removedTargets) };
+  }
   primeTowerProjectionState = opts.primeTowerProjection !== undefined ? clone(opts.primeTowerProjection) : undefined;
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
-      projectConfigOverlay, primeTowerProjection: primeTowerProjectionState });
+      nativeScopedConfig, primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
     modelLoaded = snapshot.modelLoaded;
@@ -381,7 +425,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateIds = clone(snapshot.plateIds);
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
-    projectConfigOverlay = clone(snapshot.projectConfigOverlay ?? emptyOverlay());
+    nativeScopedConfig = clone(snapshot.nativeScopedConfig ?? emptyNativeScopedConfig());
     primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
@@ -421,7 +465,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function validateHistoryContext(context: any): void {
     if (!context || typeof context !== 'object' || !context.selection ||
-        !context.projectConfigOverlay || !('activePlateId' in context) || !('gizmo' in context))
+        !context.nativeScopedConfig || !('activePlateId' in context) || !('gizmo' in context))
       throw new Error('invalid history context');
   }
   function resetHistory(): void {
@@ -432,8 +476,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyRevision++; historyDisabled = false;
   }
   function historyRestore(entry: MockHistoryEntry) {
+    const before = nativeScopedConfigProjection();
     restoreHistoryState(entry);
     historyRevision++;
+    const removedTargets = nativeScopedConfigRemovedTargets(before, nativeScopedConfigProjection());
     const states = [...historyEntries, entry];
     const sceneDelta = {
       version: 1,
@@ -443,9 +489,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       plate_ids: [...new Set(states.flatMap((state) => state.plateIds))].sort(),
       object_order: entry.objectMeta.map((object) => object.id),
     };
-    return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() }, status: historyStatus(), entryId: entry.id,
+    return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
+      native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
       scene_delta: sceneDelta,
-      impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, projectOverlay: true,
+      impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function plateStride(): number {
@@ -515,7 +562,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (primeTowerProjectionState !== undefined) return clone(primeTowerProjectionState);
     const area = { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 };
     if (opts.primeTowerFixture) {
-      const enabled = projectConfigOverlay.project.enable_prime_tower !== '0';
+      const enabled = nativeScopedConfig.project.enable_prime_tower !== '0';
       return {
         ok: true, version: 1, current_plate_id: currentPlateId, build_area: area,
         plates: plateIds.map((plateId, index) => ({
@@ -583,17 +630,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     target.footprint = { min_x: target.footprint.min_x + x - old.x, max_x: target.footprint.max_x + x - old.x,
       min_y: target.footprint.min_y + y - old.y, max_y: target.footprint.max_y + y - old.y };
     primeTowerProjectionState = next;
-    const xValues = (projectConfigOverlay.project.wipe_tower_x ?? '').split(',').filter(Boolean);
-    const yValues = (projectConfigOverlay.project.wipe_tower_y ?? '').split(',').filter(Boolean);
+    const xValues = (nativeScopedConfig.project.wipe_tower_x ?? '').split(',').filter(Boolean);
+    const yValues = (nativeScopedConfig.project.wipe_tower_y ?? '').split(',').filter(Boolean);
     xValues[plate.display_index] = String(x);
     yValues[plate.display_index] = String(y);
-    projectConfigOverlay.project.wipe_tower_x = xValues.join(',');
-    projectConfigOverlay.project.wipe_tower_y = yValues.join(',');
+    nativeScopedConfig.project.wipe_tower_x = xValues.join(',');
+    nativeScopedConfig.project.wipe_tower_y = yValues.join(',');
     historyRevision += 1;
     if (slicedPlateId === request.plate_id) sliced = false;
     plateMutation('prime-tower-position');
     const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-      activePlateId: currentPlateId, gizmo: null, projectConfigOverlay: clone(projectConfigOverlay),
+      activePlateId: currentPlateId, gizmo: null, nativeScopedConfig: clone(nativeScopedConfig),
       primeTowerMove: { plateId: request.plate_id, before: old, after: { x, y } } };
     if (historyEntries.length === 0) {
       historyEntries.push({ ...beforeState, id: 'entry-0', label: '', category: 'project', context: clone(context) });
@@ -830,7 +877,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     result.affected_plate_ids_after = after;
     result.affected_plate_ids = affected;
     result.dirty_reasons = [reason];
+    result.native_scoped_config = nativeScopedConfigFullTransport();
     return result;
+  }
+
+  function modelStructureMutation(beforePlates: readonly string[]) {
+    const affected = [...new Set(beforePlates.filter((id) => plateIds.includes(id)))];
+    return plateMutation('model-structure', affected, affected);
   }
 
   function reflowMockPlateOrigins(): Array<Record<string, unknown>> {
@@ -1129,7 +1182,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         savedHistoryCursor = 0;
       }
       const id = `tx-${nextHistoryTransactionId++}`;
-      historyTransaction = { id, label, category: 'project', before: captureHistoryState(), beforeContext: clone(beforeContext) };
+      historyTransaction = { id, label, category: 'project', before: captureHistoryState(), beforeContext: clone(beforeContext), targets: [] };
       return { ok: true, transactionId: id, status: historyStatus() };
     },
     orc_history_commit(transactionId: string, afterContextJson: string) {
@@ -1150,7 +1203,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
         instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
         plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
-        projectConfigOverlay: previous.projectConfigOverlay } : null;
+        nativeScopedConfig: previous.nativeScopedConfig } : null;
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
       if (changed) {
@@ -1165,8 +1218,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         historyCursor = historyEntries.length - 1;
         historyRevision++;
       }
+      const committedTargets = historyTransaction.targets;
+      const removedTargets = nativeScopedConfigRemovedTargets(
+        historyTransaction.before.nativeScopedConfig, nativeScopedConfigProjection());
       historyTransaction = null;
-      return historyStatus();
+      const status = historyStatus() as Record<string, unknown>;
+      if (changed) status.native_scoped_config = committedTargets.length > 0
+        ? nativeScopedConfigAffectedTransport(committedTargets, removedTargets)
+        : nativeScopedConfigFullTransport(removedTargets);
+      return status;
     },
     orc_history_abort(transactionId: string) {
       if (!historyTransaction) return { error: 'history transaction is not active' };
@@ -1174,21 +1234,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ? historyNestedTransactions[historyNestedTransactions.length - 1] : undefined;
       if (nested) {
         if (transactionId !== nested.id) return { error: 'history transaction is stale or belongs to another writer' };
+        const before = nativeScopedConfigProjection();
         restoreHistoryState(nested.before);
+        const removedTargets = nativeScopedConfigRemovedTargets(before, nativeScopedConfigProjection());
         historyNestedTransactions.pop();
         historyRevision++;
-        return { ok: true, context: { ...clone(nested.beforeContext), plateSession: plateSessionSnapshot() }, status: historyStatus(), scene_delta: {
+        return { ok: true, context: { ...clone(nested.beforeContext), plateSession: plateSessionSnapshot() },
+          native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
           version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
           object_order: objectMeta.map((object) => object.id),
         } };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
+      const before = nativeScopedConfigProjection();
       restoreHistoryState(historyTransaction.before);
+      const removedTargets = nativeScopedConfigRemovedTargets(before, nativeScopedConfigProjection());
       const context = historyTransaction.beforeContext;
       historyTransaction = null;
       if (modelChanged) historyRevision++;
-      return { ok: true, context: { ...clone(context), plateSession: plateSessionSnapshot() }, status: historyStatus(), scene_delta: {
+      return { ok: true, context: { ...clone(context), plateSession: plateSessionSnapshot() },
+        native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
         version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
         object_order: objectMeta.map((object) => object.id),
       } };
@@ -1353,7 +1419,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const changed = reflowMockPlateOrigins();
       const result = plateSessionSnapshot() as Record<string, unknown>;
       result.instance_transforms = changed;
-      result.project_config_overlay = overlayProjection();
+      result.native_scoped_config = nativeScopedConfigFullTransport();
       return result;
     },
     orc_reorder_plates(plateIdsJson: string) {
@@ -1364,15 +1430,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requested.some((id) => !plateIds.includes(id)))
         return { error: 'plate order must contain every plate exactly once' };
       const oldOrigins = new Map(plateIds.map((id, index) => [id, plateOrigins[index]]));
+      const changedOrigins: string[] = [];
       plateIds = [...requested] as string[];
       plateOrigins = plateIds.map((id, index) => {
         const next = plateOrigin(index, plateIds.length);
         const before = oldOrigins.get(id)!;
-        if (before.some((value, axis) => value !== next[axis]))
+        if (before.some((value, axis) => value !== next[axis])) {
           plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+          changedOrigins.push(id);
+        }
         return next;
       });
-      return plateSessionSnapshot();
+      const result = plateSessionSnapshot() as Record<string, unknown>;
+      result.affected_plate_ids_before = changedOrigins;
+      result.affected_plate_ids_after = changedOrigins;
+      result.affected_plate_ids = changedOrigins;
+      result.dirty_reasons = ['plate-structure'];
+      result.native_scoped_config = nativeScopedConfigFullTransport();
+      return result;
     },
     orc_delete_plate(plateId: string) {
       if (plateIds.length <= 1) return { error: 'at least one plate must remain' };
@@ -1385,7 +1460,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
       const changed = reflowMockPlateOrigins();
       const result = plateMutation('plate-delete', [plateId], plateIds, changed) as Record<string, unknown>;
-      result.project_config_overlay = overlayProjection();
+      result.native_scoped_config = nativeScopedConfigFullTransport();
       return result;
     },
     orc_recompute_plate_membership() {
@@ -1403,54 +1478,144 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       result.dirty_reasons = ['shared-configuration'];
       return result;
     },
-    orc_get_project_config_overlay() {
-      return { ok: true, overlay: overlayProjection() };
+    orc_get_native_scoped_config() {
+      return { version: 1, ok: true, native_scoped_config: nativeScopedConfigFullTransport() };
     },
-    orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
-      if (opts.projectConfigOverride !== undefined) return opts.projectConfigOverride;
-      if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
-      if (!optionKey) return { error: 'option key is required' };
-      if (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y')
-        return { ok: false, error: 'prime tower coordinates are scene-only', error_code: 'unsupported_reference' };
-      if (scope !== 'project' && !id) return { error: 'scope id is required' };
-      let affected: string[];
-      if (scope === 'project') {
-        affected = [...plateIds];
-      } else if (scope === 'plate') {
-        if (!plateIds.includes(id)) return { ok: false, error: 'plate not found', error_code: 'unsupported_reference' };
-        affected = [id];
-      } else {
-        const objectIndex = scope === 'object'
-          ? objectMeta.findIndex((object) => String(object.id) === id)
-          : volumeMeta.findIndex((volumes) => volumes.some((volume) => String(volume.id) === id));
-        if (objectIndex < 0)
-          return { ok: false, error: scope === 'object' ? 'object not found' : 'part not found', error_code: 'unsupported_reference' };
-        affected = objectPlateIds[objectIndex] ? [objectPlateIds[objectIndex]] : [];
+    orc_mutate_native_scoped_config(requestJson: string) {
+      if (opts.nativeScopedConfigOverride !== undefined) return opts.nativeScopedConfigOverride;
+      let request: any;
+      try { request = JSON.parse(requestJson); } catch {
+        return { version: 1, ok: false, error: 'mutation request is not valid JSON', error_code: 'invalid_command',
+          status: { state: 'error', error: 'mutation request is not valid JSON' } };
       }
-      const bucket = scope === 'project' ? projectConfigOverlay.project
-        : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
-          : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
-            : (projectConfigOverlay.plates[id] ??= {});
-      const effective = value;
-      bucket[optionKey] = effective;
-      const mutation = scope === 'project'
-        ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
-        : plateMutation(`${scope}-configuration`, affected, affected);
-      return { ok: true, overlay: overlayProjection(), plate_session: mutation,
-        configuration_status: { state: 'ready', corrections: effective === value ? [] : [{ key: optionKey, requested: value, effective }], warnings: [], errors: [] } };
+      const fail = (error: string, errorCode = 'invalid_command') =>
+        ({ version: 1, ok: false, error, error_code: errorCode, status: { state: 'error', error } });
+      if (!request || request.version !== 1 || typeof request.operation !== 'string' || !Array.isArray(request.targets) || request.targets.length === 0)
+        return fail('invalid native mutation request');
+      if (!['set', 'reset', 'reset-category', 'reset-all'].includes(request.operation))
+        return fail('unsupported native mutation operation');
+      const values: Record<string, string> = request.operation === 'set'
+        ? (request.values && typeof request.values === 'object' && !Array.isArray(request.values)
+          ? request.values
+          : typeof request.key === 'string' && typeof request.value === 'string' ? { [request.key]: request.value } : {})
+        : request.operation === 'reset' && typeof request.key === 'string' ? { [request.key]: '' } : {};
+      if ((request.operation === 'set' && Object.keys(values).length === 0) ||
+          (request.operation === 'reset' && Object.keys(values).length !== 1) ||
+          (request.operation === 'reset-category' && typeof request.category !== 'string'))
+        return fail('invalid native mutation operation payload');
+      const targets: Array<{ scope: 'project' | 'object' | 'part' | 'plate'; id: string }> = [];
+      const seen = new Set<string>();
+      for (const target of request.targets) {
+        if (!target || !['project', 'object', 'part', 'plate'].includes(target.scope)) return fail('invalid project configuration scope');
+        const scope = target.scope as 'project' | 'object' | 'part' | 'plate';
+        const id = target.id === undefined ? '' : String(target.id);
+        if (scope !== 'project' && !id) return fail('scope id is required');
+        if (scope === 'project' && id) return fail('project mutation target must not have an id');
+        const identity = `${scope}:${id}`;
+        if (seen.has(identity)) return fail('duplicate mutation target');
+        seen.add(identity);
+        targets.push({ scope, id });
+      }
+      const next = clone(nativeScopedConfig);
+      const affected = new Set<string>();
+      const dirtyReasons = new Set<string>();
+      let projectChanged = false;
+      const corrections: Array<{ key: string; requested: string; effective: string }> = [];
+      const resettable = (key: string) => key !== 'extruder' && !key.includes('filament') && !key.includes('rack') && !key.includes('ams') && !key.includes('gcode');
+      const clamp = (key: string, value: string): string => {
+        const option = metadata[key];
+        if (!option) throw new Error(`unsupported project configuration option: ${key}`);
+        if (!['float', 'int', 'percent'].includes(option.type)) return value;
+        const numeric = Number(value.replace(/%$/, ''));
+        if (!Number.isFinite(numeric)) throw new Error('invalid native configuration value');
+        const bounded = Math.min(option.max ?? Number.POSITIVE_INFINITY, Math.max(option.min ?? Number.NEGATIVE_INFINITY, numeric));
+        return option.type === 'int' ? String(Math.trunc(bounded)) : `${bounded}${value.endsWith('%') ? '%' : ''}`;
+      };
+      try {
+        for (const target of targets) {
+          let bucket: Record<string, string>;
+          if (target.scope === 'project') bucket = next.project;
+          else if (target.scope === 'object') {
+            const index = objectMeta.findIndex((object) => String(object.id) === target.id);
+            if (index < 0) return fail('object not found', 'unsupported_reference');
+            bucket = next.objects[target.id] ??= {};
+            if (objectPlateIds[index]) affected.add(objectPlateIds[index]);
+          } else if (target.scope === 'part') {
+            const index = volumeMeta.findIndex((volumes) => volumes.some((volume) => String(volume.id) === target.id));
+            if (index < 0) return fail('part not found', 'unsupported_reference');
+            bucket = next.parts[target.id] ??= {};
+            if (objectPlateIds[index]) affected.add(objectPlateIds[index]);
+          } else {
+            if (!plateIds.includes(target.id)) return fail('plate not found', 'unsupported_reference');
+            bucket = next.plates[target.id] ??= {};
+            affected.add(target.id);
+          }
+          const before = JSON.stringify(bucket);
+          if (request.operation === 'set') {
+            for (const [key, value] of Object.entries(values)) {
+              if (key === 'wipe_tower_x' || key === 'wipe_tower_y') return fail('prime tower coordinates are scene-only', 'unsupported_reference');
+              if (target.scope === 'plate' && !metadata[key]?.scopes?.includes('plate'))
+                return fail(`configuration option ${key} is not supported for plate scope`, 'unsupported_reference');
+              const effective = clamp(key, value);
+              bucket[key] = effective;
+              if (effective !== value && !corrections.some((item) => item.key === key && item.effective === effective))
+                corrections.push({ key, requested: value, effective });
+            }
+          } else if (request.operation === 'reset') {
+            const key = Object.keys(values)[0];
+            if (!(key in metadata)) return fail(`unsupported project configuration option: ${key}`, 'unsupported_reference');
+            if (key === 'wipe_tower_x' || key === 'wipe_tower_y') return fail('prime tower coordinates are scene-only', 'unsupported_reference');
+            if (target.scope === 'plate' && !metadata[key]?.scopes?.includes('plate'))
+              return fail(`configuration option ${key} is not supported for plate scope`, 'unsupported_reference');
+            delete bucket[key];
+          } else {
+            for (const key of Object.keys(bucket)) {
+              if (!resettable(key)) continue;
+              if (request.operation === 'reset-category' && metadata[key]?.category !== request.category) continue;
+              delete bucket[key];
+            }
+          }
+          if (target.scope === 'project' && before !== JSON.stringify(bucket)) {
+            projectChanged = true;
+            for (const id of plateIds) affected.add(id);
+          }
+          if (before !== JSON.stringify(bucket)) dirtyReasons.add(`${target.scope}-configuration`);
+        }
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : 'native configuration validation failed', 'native_validation_failure');
+      }
+      nativeScopedConfig = next;
+      if (historyTransaction) {
+        for (const target of targets) historyTransaction.targets.push(target);
+      }
+      let mutation: Record<string, unknown> | undefined;
+      if (dirtyReasons.size > 0) {
+        mutation = projectChanged
+          ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
+          : plateMutation([...dirtyReasons][0], [...affected], [...affected]);
+      }
+      if (dirtyReasons.size > 0 && !historyTransaction) historyRevision++;
+      const result: Record<string, unknown> = { version: 1, ok: true,
+        native_scoped_config: nativeScopedConfigAffectedTransport(targets),
+        configuration_status: { state: 'ready', corrections, warnings: [], errors: [] } };
+      if (mutation) result.plate_session = mutation;
+      return result;
     },
-    orc_revalidate_project_config_overlay() {
+    orc_revalidate_native_scoped_config() {
       // The native bridge validates against the current option metadata. The
       // fixture exposes the same contract while retaining valid keys.
-      for (const key of Object.keys(projectConfigOverlay.project))
-        if (!(key in metadata)) delete projectConfigOverlay.project[key];
-      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts, projectConfigOverlay.plates]) {
+      for (const key of Object.keys(nativeScopedConfig.project))
+        if (!(key in metadata)) delete nativeScopedConfig.project[key];
+      for (const scope of [nativeScopedConfig.objects, nativeScopedConfig.parts, nativeScopedConfig.plates]) {
         for (const [id, values] of Object.entries(scope)) {
-          for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
+          for (const key of Object.keys(values)) {
+            if (!(key in metadata) || (scope === nativeScopedConfig.plates && !metadata[key]?.scopes?.includes('plate')))
+              delete values[key];
+          }
           if (Object.keys(values).length === 0) delete scope[id];
         }
       }
-      return { ok: true, overlay: overlayProjection() };
+      return { version: 1, ok: true, native_scoped_config: nativeScopedConfigFullTransport() };
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -1505,7 +1670,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
-      projectConfigOverlay = emptyOverlay();
+      nativeScopedConfig = emptyNativeScopedConfig();
       modelLoaded = false;
       sliced = false;
       resetPlateSession();
@@ -1517,8 +1682,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       publishProgress(0, geometryOnly ? 'Preparing geometry import' : 'Preparing project load');
       publishProgress(10, 'Reading project metadata');
       if (!geometryOnly) {
-        projectConfigOverlay = emptyOverlay();
-        projectConfigOverlay = clone(exportedProjectConfigOverlay);
+        nativeScopedConfig = emptyNativeScopedConfig();
+        nativeScopedConfig = clone(exportedNativeScopedConfig);
       }
       appendMockObject(displayName || undefined);
       publishProgress(55, geometryOnly ? 'Preparing imported geometry' : 'Reading project settings');
@@ -1526,6 +1691,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       publishProgress(75, geometryOnly ? 'Finalizing geometry import' : 'Applying project settings');
       publishProgress(90, 'Finalizing project');
       publishProgress(100, geometryOnly ? 'Geometry import complete' : 'Project load complete');
+      if (!geometryOnly) {
+        historyEntries = [];
+        historyCursor = 0;
+        historyTransaction = null;
+        historyNestedTransactions.length = 0;
+        savedHistoryCursor = 0;
+        savedHistoryCheckpointEvicted = false;
+        historyRevision++;
+      }
       return {
         ok: true, objects: objectTransforms.length,
         instances: objectTransforms.reduce((total, instances) => total + instances.length, 0),
@@ -1547,7 +1721,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly && hasProjectWarning,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
-        project_config_overlay: geometryOnly ? undefined : overlayProjection(),
+        native_scoped_config: geometryOnly ? undefined : nativeScopedConfigFullTransport(),
+        history_status: geometryOnly ? undefined : historyStatus(),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(),
       };
     },
@@ -1586,7 +1761,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
-      projectConfigOverlay = emptyOverlay();
+      nativeScopedConfig = emptyNativeScopedConfig();
       modelLoaded = false;
       if (filamentSessionState !== undefined)
         filamentSessionState.assignments = { objects: [], parts: [], modifiers: [] };
@@ -1606,15 +1781,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       // Descending order keeps earlier indices valid while the arrays shrink.
       toDelete.sort((a, b) => b - a);
+      const affectedBefore = toDelete.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       for (const oi of toDelete) {
+        delete nativeScopedConfig.objects[String(objectMeta[oi].id)];
+        for (const volume of volumeMeta[oi]) delete nativeScopedConfig.parts[String(volume.id)];
         objectTransforms.splice(oi, 1);
         objectVolumeTransforms.splice(oi, 1);
         objectMeta.splice(oi, 1);
         volumeMeta.splice(oi, 1);
         instanceMeta.splice(oi, 1);
+        objectPlateIds.splice(oi, 1);
       }
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length, plate_session: plateMutation('model-delete') };
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length,
+        plate_session: plateMutation('model-delete', affectedBefore, affectedBefore) };
     },
     orc_delete_volumes(volumeIdsJson: string) {
       const ids = JSON.parse(volumeIdsJson ?? '[]') as unknown;
@@ -1640,41 +1820,60 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       // Group by object ascending, volume index descending within each object.
       toDelete.sort((a, b) => (a.oi !== b.oi ? a.oi - b.oi : b.vi - a.vi));
+      const affectedBefore = toDelete.map(({ oi }) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       for (const { oi, vi } of toDelete) {
+        delete nativeScopedConfig.parts[String(volumeMeta[oi][vi].id)];
         volumeMeta[oi].splice(vi, 1);
         objectVolumeTransforms[oi].splice(vi, 1);
       }
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length,
+        plate_session: plateMutation('model-delete', affectedBefore, affectedBefore) };
     },
     orc_clone_objects(objectIdsJson: string) {
       const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
       if (!Array.isArray(ids) || ids.length === 0) return { error: 'no object ids' };
       const newObjectIds: number[] = [];
+      const affectedBefore: string[] = [];
       for (const item of ids) {
         if (!Number.isInteger(item) || item < 1) return { error: 'object id must be a positive integer' };
         const oi = objectMeta.findIndex((o) => o.id === item);
         if (oi < 0) return { error: 'object not found' };
+        if (objectPlateIds[oi]) affectedBefore.push(objectPlateIds[oi]);
+        const sourceObjectId = String(objectMeta[oi].id);
+        const sourceVolumeIds = volumeMeta[oi].map((volume) => String(volume.id));
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
         objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
-        volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
+        const clonedObjectId = objectMeta[objectMeta.length - 1].id;
+        if (nativeScopedConfig.objects[sourceObjectId])
+          nativeScopedConfig.objects[String(clonedObjectId)] = clone(nativeScopedConfig.objects[sourceObjectId]);
+        const clonedVolumes = volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ }));
+        volumeMeta.push(clonedVolumes);
+        clonedVolumes.forEach((volume, index) => {
+          const values = nativeScopedConfig.parts[sourceVolumeIds[index]];
+          if (values) nativeScopedConfig.parts[String(volume.id)] = clone(values);
+        });
         instanceMeta.push(instanceMeta[oi].map((i) => ({ ...i, id: nextInstanceId++ })));
+        objectPlateIds.push(objectPlateIds[oi] ?? currentPlateId);
         newObjectIds.push(objectMeta[objectMeta.length - 1].id);
       }
       sliced = false;
-      return { ok: true, newObjectIds, objects: objectTransforms.length };
+      return { ok: true, newObjectIds, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_reorder_objects(fromObjectId: number, toIndex: number) {
       const fromIdx = objectMeta.findIndex((o) => o.id === fromObjectId);
       if (fromIdx < 0) return { error: 'object not found' };
+      const affectedBefore = objectPlateIds[fromIdx] ? [objectPlateIds[fromIdx]] : [];
       moveToIndex(objectTransforms, fromIdx, toIndex);
       moveToIndex(objectVolumeTransforms, fromIdx, toIndex);
       moveToIndex(objectMeta, fromIdx, toIndex);
       moveToIndex(volumeMeta, fromIdx, toIndex);
       moveToIndex(instanceMeta, fromIdx, toIndex);
+      moveToIndex(objectPlateIds, fromIdx, toIndex);
       sliced = false;
-      return { ok: true, objects: buildStructure() };
+      return { ok: true, objects: buildStructure(), plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_reorder_volumes(objectId: number, fromVolumeId: number, toIndex: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
@@ -1684,24 +1883,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       moveToIndex(volumeMeta[oi], fromIdx, toIndex);
       moveToIndex(objectVolumeTransforms[oi], fromIdx, toIndex);
       sliced = false;
-      return { ok: true, objects: buildStructure() };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+      return { ok: true, objects: buildStructure(), plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_split_volume_to_parts(volumeId: number, _maxExtruders: number, _remapPaint: number) {
       for (let oi = 0; oi < volumeMeta.length; oi++) {
         const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
         if (vi >= 0) {
+          const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
           const source = volumeMeta[oi][vi];
+          const sourceValues = nativeScopedConfig.parts[String(source.id)];
           if (!source.isSplittable) return { error: 'volume is not splittable' };
           const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
           for (let p = 0; p < splitParts; p++) {
             parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
+            if (sourceValues) nativeScopedConfig.parts[String(parts[p].id)] = clone(sourceValues);
           }
+          delete nativeScopedConfig.parts[String(source.id)];
           volumeMeta[oi].splice(vi, 1, ...parts);
           const transform = objectVolumeTransforms[oi][vi];
           objectVolumeTransforms[oi].splice(vi, 1,
             ...Array.from({ length: splitParts }, () => JSON.parse(JSON.stringify(transform))));
           sliced = false;
-          return { ok: true, parts: splitParts, newVolumeIds: parts.map((p) => p.id), objects: buildStructure() };
+          return { ok: true, parts: splitParts, newVolumeIds: parts.map((p) => p.id), objects: buildStructure(),
+            plate_session: modelStructureMutation(affectedBefore) };
         }
       }
       return { error: 'volume not found' };
@@ -1710,24 +1915,46 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
       if (oi < 0) return { error: 'object not found' };
       if (volumeMeta[oi].length === 1 && !volumeMeta[oi][0].isSplittable) return { error: 'object is not splittable' };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       const newIds: number[] = [];
       const srcVolume = volumeMeta[oi][0];
       const srcInstance = instanceMeta[oi][0];
+      const sourceObjectId = String(objectMeta[oi].id);
+      const sourceVolumeId = String(srcVolume.id);
+      const sourceObjectValues = nativeScopedConfig.objects[sourceObjectId];
+      const sourceVolumeValues = nativeScopedConfig.parts[sourceVolumeId];
       for (let p = 0; p < splitParts; p++) {
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0]))]);
         objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable });
-        volumeMeta.push([{ id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type, isSplittable: false }]);
+        const newObjectId = objectMeta[objectMeta.length - 1].id;
+        // ModelObject::split() starts each derived object's config from the
+        // source object and applies the source volume config over it. The
+        // resulting ModelVolume config is reset, so do not create a derived
+        // part map entry here.
+        const mergedObjectValues = {
+          ...(sourceObjectValues ? clone(sourceObjectValues) : {}),
+          ...(sourceVolumeValues ? clone(sourceVolumeValues) : {}),
+        };
+        if (Object.keys(mergedObjectValues).length > 0)
+          nativeScopedConfig.objects[String(newObjectId)] = mergedObjectValues;
+        const newVolume = { id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type, isSplittable: false };
+        volumeMeta.push([newVolume]);
         instanceMeta.push([{ id: nextInstanceId++, printable: srcInstance.printable }]);
+        objectPlateIds.push(objectPlateIds[oi] ?? currentPlateId);
         newIds.push(objectMeta[objectMeta.length - 1].id);
       }
       objectTransforms.splice(oi, 1);
       objectVolumeTransforms.splice(oi, 1);
       objectMeta.splice(oi, 1);
+      delete nativeScopedConfig.objects[sourceObjectId];
+      for (const volume of volumeMeta[oi]) delete nativeScopedConfig.parts[String(volume.id)];
       volumeMeta.splice(oi, 1);
       instanceMeta.splice(oi, 1);
+      objectPlateIds.splice(oi, 1);
       sliced = false;
-      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_merge_objects_to_multipart(objectIdsJson: string, name: string) {
       const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
@@ -1739,13 +1966,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (oi < 0) return { error: 'object not found' };
         if (!srcIdxs.includes(oi)) srcIdxs.push(oi);
       }
+      const affectedBefore = srcIdxs.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       const newObjectId = nextObjectId++;
       const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
       const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
       const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
       for (const oi of srcIdxs) {
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
-          newVolumes.push({ id: nextVolumeId++, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
+          const newVolumeId = nextVolumeId++;
+          newVolumes.push({ id: newVolumeId, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
+          const values = nativeScopedConfig.parts[String(volumeMeta[oi][vi].id)];
+          if (values) nativeScopedConfig.parts[String(newVolumeId)] = clone(values);
           newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][vi])) as ReturnType<typeof identityTransform>);
         }
       }
@@ -1754,16 +1985,21 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable });
       volumeMeta.push(newVolumes);
       instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
+      objectPlateIds.push(objectPlateIds[srcIdxs[0]] ?? currentPlateId);
       srcIdxs.sort((a, b) => b - a);
       for (const oi of srcIdxs) {
+        delete nativeScopedConfig.objects[String(objectMeta[oi].id)];
+        for (const volume of volumeMeta[oi]) delete nativeScopedConfig.parts[String(volume.id)];
         objectTransforms.splice(oi, 1);
         objectVolumeTransforms.splice(oi, 1);
         objectMeta.splice(oi, 1);
         volumeMeta.splice(oi, 1);
         instanceMeta.splice(oi, 1);
+        objectPlateIds.splice(oi, 1);
       }
       sliced = false;
-      return { ok: true, objectId: newObjectId, objects: objectTransforms.length };
+      return { ok: true, objectId: newObjectId, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_instances_to_separate_objects(objectId: number, instanceIdsJson: string) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
@@ -1772,6 +2008,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!Array.isArray(ids) || ids.length === 0) return { error: 'no instance ids' };
       const newIds: number[] = [];
       const toRemove: number[] = [];
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       for (const item of ids) {
         if (!Number.isInteger(item) || item < 1) return { error: 'instance id must be a positive integer' };
         const ii = instanceMeta[oi].findIndex((inst) => inst.id === item);
@@ -1781,8 +2018,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
         objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
-        volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
+        const separatedVolumes = volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ }));
+        volumeMeta.push(separatedVolumes);
+        separatedVolumes.forEach((volume, volumeIndex) => {
+          const values = nativeScopedConfig.parts[String(volumeMeta[oi][volumeIndex].id)];
+          if (values) nativeScopedConfig.parts[String(volume.id)] = clone(values);
+        });
         instanceMeta.push([{ id: nextInstanceId++, printable: srcInst.printable }]);
+        objectPlateIds.push(objectPlateIds[oi] ?? currentPlateId);
         newIds.push(objectMeta[objectMeta.length - 1].id);
       }
       toRemove.sort((a, b) => b - a);
@@ -1791,11 +2034,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectTransforms[oi].splice(ii, 1);
       }
       sliced = false;
-      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_add_instance(objectId: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
       if (oi < 0) return { error: 'object not found' };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       const instance = { id: nextInstanceId++, printable: true };
       instanceMeta[oi].push(instance);
       const lastTransform = objectTransforms[oi][objectTransforms[oi].length - 1];
@@ -1803,7 +2048,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       newTransform.offset[0] += 50;
       objectTransforms[oi].push(newTransform);
       sliced = false;
-      return { ok: true, objectId, instanceId: instance.id };
+      return { ok: true, objectId, instanceId: instance.id,
+        plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_remove_instance(objectId: number, instanceId: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
@@ -1811,10 +2057,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (instanceMeta[oi].length <= 1) return { error: 'cannot remove the last instance' };
       const ii = instanceMeta[oi].findIndex((inst) => inst.id === instanceId);
       if (ii < 0) return { error: 'instance not found' };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
       instanceMeta[oi].splice(ii, 1);
       objectTransforms[oi].splice(ii, 1);
       sliced = false;
-      return { ok: true };
+      return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= objectTransforms[obj].length) return { error: 'no such instance' };
@@ -1962,7 +2209,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           }
           vol.type = type as VolumeType;
           sliced = false;
-          return { ok: true };
+          const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+          return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
         }
       }
       return { error: 'volume not found' };
@@ -1974,7 +2222,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta[oi].printable = value;
       for (const inst of instanceMeta[oi]) inst.printable = value;
       sliced = false;
-      return { ok: true };
+      const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+      return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
     },
     orc_set_instance_printable(instanceId: number, printable: number) {
       for (let oi = 0; oi < instanceMeta.length; oi++) {
@@ -1982,7 +2231,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (ii >= 0) {
           instanceMeta[oi][ii].printable = printable !== 0;
           sliced = false;
-          return { ok: true };
+          const affectedBefore = objectPlateIds[oi] ? [objectPlateIds[oi]] : [];
+          return { ok: true, plate_session: modelStructureMutation(affectedBefore) };
         }
       }
       return { error: 'instance not found' };
@@ -2124,10 +2374,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
-      exportedProjectConfigOverlay = clone(projectConfigOverlay);
+      exportedNativeScopedConfig = clone(nativeScopedConfig);
       const archive = new TextEncoder().encode(JSON.stringify({
         format: 'bbs-3mf', objects: buildStructure(), plate_count: 1,
-        project_config_overlay: exportedProjectConfigOverlay,
+        native_scoped_config: exportedNativeScopedConfig,
       }));
       const ptr = malloc(Math.max(1, archive.length));
       HEAPU8.set(archive, ptr);
@@ -2262,9 +2512,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_delete_plate: { ret: 'number', args: ['string'] },
     orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
-    orc_get_project_config_overlay: { ret: 'number', args: [] },
-    orc_set_project_config_override: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
-    orc_revalidate_project_config_overlay: { ret: 'number', args: [] },
+    orc_get_native_scoped_config: { ret: 'number', args: [] },
+    orc_mutate_native_scoped_config: { ret: 'number', args: ['string'] },
+    orc_revalidate_native_scoped_config: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },

@@ -25,6 +25,20 @@ const freshPlateSession: PlateSessionMutation = {
   plates: [{ plateId: 'new-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
   instanceTransforms: [],
 };
+const scopedConfigTransport = {
+  version: 1 as const,
+  revision: 1,
+  kind: 'full' as const,
+  snapshot: { project: {}, objects: {}, parts: {}, plates: {} },
+  removedTargets: [],
+};
+const loadedHistoryStatus = {
+  canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
+  savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0,
+  byteBudget: 256 * 1024 * 1024, evictedEntryCount: 0, lastEvictedEntryId: null,
+  oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false, disabled: false,
+  activeTransactionId: null, revision: 1,
+} as const;
 function filamentSnapshot(revision: number): FilamentSessionSnapshot {
   return {
     ok: true, version: 1,
@@ -43,7 +57,10 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
       onProjectClosed?: (plateSession: PlateSessionMutation) => void) => {
       onProjectClosed?.(freshPlateSession);
       return { ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const,
-        projectSettingsAvailable: true, presetSnapshot: snapshot, plateSession: freshPlateSession, ...load };
+        projectSettingsAvailable: true, presetSnapshot: snapshot, plateSession: freshPlateSession,
+        nativeScopedConfig: scopedConfigTransport, historyStatus: loadedHistoryStatus, ...load,
+        ...(load.nativeScopedConfig === undefined ? { nativeScopedConfig: scopedConfigTransport } : {}),
+        ...(load.historyStatus === undefined ? { historyStatus: loadedHistoryStatus } : {}) };
     }),
     closeProject: vi.fn(async () => ({ ok: true, plateSession: freshPlateSession })),
     importProjectGeometry: vi.fn(async () => ({ ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
@@ -70,7 +87,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     save: vi.fn(async () => ({ status: 'ok' as const })),
     saveAs: vi.fn(async () => ({ status: 'ok' as const })),
   };
-  const preferences = { load: vi.fn(async () => ({ version: 1 as const, selectedProfiles: {}, ui: {} })), save: vi.fn(async () => {}) };
+  const preferences = { load: vi.fn(async () => ({ version: 1 as const, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } })), save: vi.fn(async () => {}) };
   return { runtime, projects, preferences, platform: { runtime, projects, preferences } as unknown as PlatformCapabilities };
 }
 
@@ -135,12 +152,12 @@ describe('transactional project actions', () => {
         nativeResult: { ok: true, displayName: 'Native Robot.3mf', multiPlate: true, plateCount: 4 },
       },
     });
-    expect(runtime.resetHistory).toHaveBeenCalledTimes(1);
+    expect(runtime.resetHistory).not.toHaveBeenCalled();
   });
 
-  it('commits a clean post-close load without opening a confirmation dialog', async () => {
+  it('commits an embedded Process preset without opening a confirmation dialog', async () => {
     const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
-      embeddedPresetWarnings: { present: false, count: 0, printerCount: 0, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
+      embeddedPresetWarnings: { present: true, count: 1, printerCount: 0, processCount: 1, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
     const { platform, runtime } = platformFor(result);
     const confirm = vi.fn(() => true);
     const opened = await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm });
@@ -193,7 +210,7 @@ describe('transactional project actions', () => {
     const result = await openProject(platform, { loadBehaviour: 'load_all' });
 
     expect(result.status).toBe('ok');
-    expect(runtime.resetHistory.mock.invocationCallOrder[0]).toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder[0]);
+    expect(runtime.resetHistory).not.toHaveBeenCalled();
     expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(afterReset.revisions.session);
   });
 
@@ -227,7 +244,8 @@ describe('transactional project actions', () => {
       onProjectClosed?.(freshPlateSession);
       return { ok: true, objects: 1, instances: 1, mode: 'project' as const,
         compatibility: 'bambu' as const, projectSettingsAvailable: true,
-        presetSnapshot: snapshot, plateSession: freshPlateSession };
+        presetSnapshot: snapshot, plateSession: freshPlateSession,
+        nativeScopedConfig: scopedConfigTransport, historyStatus: loadedHistoryStatus };
     });
 
     try {
@@ -294,7 +312,7 @@ describe('transactional project actions', () => {
     const targetRack = { ...filamentSnapshot(6), slots: [{ ...filamentSnapshot(6).slots[0], preset: { id: 'system-pla', name: 'System PLA' } }] };
     runtime.getFilamentSessionSnapshot.mockResolvedValueOnce(beforeRack).mockResolvedValue(targetRack);
     runtime.applyRememberedFilamentRack.mockResolvedValue(targetRack);
-    preferences.load.mockResolvedValue({ version: 1, selectedProfiles: {}, ui: {},
+    preferences.load.mockResolvedValue({ version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },
       rememberedFilamentRacks: { 'System printer': { version: 1, slots: [{ preset: 'System PLA', colour: '#112233' }] } } } as UserPreferences);
     useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
     useProjectStore.getState().setProject({ scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' }, hasContent: true, dirty: true });

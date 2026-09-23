@@ -51,13 +51,6 @@ struct BridgeState {
     // cancel operations resolve this registry; no singleton Print or result
     // owner remains in BridgeState.
     PlateRuntimeRegistry plate_runtime_registry;
-    // Project-owned overrides are kept in the Worker/WASM session. React only
-    // receives a render projection and never becomes their source of truth.
-    nlohmann::json project_config_overlay =
-        nlohmann::json{{"project", nlohmann::json::object()},
-                       {"objects", nlohmann::json::object()},
-                       {"parts", nlohmann::json::object()},
-                       {"plates", nlohmann::json::object()}};
     // History is deliberately Worker/WASM owned. TimestampedHistory retains
     // the canonical three roots and names every operation with explicit
     // before/after logical timestamps.
@@ -72,12 +65,21 @@ struct BridgeState {
         std::string label;
         nlohmann::json before_context;
         History::TimestampedRoots before_roots;
+        // Runtime-only rollback state for an aborted transaction. History
+        // roots intentionally normalize input revisions, while an abort must
+        // restore the exact pre-edit presentation guards and stamps.
+        std::map<std::string, std::uint64_t> before_plate_input_revisions;
+        PlateRuntimeRegistry::LifecycleSnapshots before_lifecycle;
         bool coalesced { false };
         std::string parent_id;
         // Every command submitted through an active transaction must still
         // target the model revision that transaction captured.  This prevents
         // a delayed renderer gesture from mutating a newly restored branch.
         std::uint64_t base_history_revision { 0 };
+        // Scoped configuration targets touched by this transaction.  The
+        // commit response turns these identities into complete map
+        // replacements at the committed revision.
+        std::set<std::pair<std::string, std::string>> native_scoped_config_targets;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish
@@ -115,9 +117,6 @@ struct BridgeState {
         // colliding with the bridge's own schema. Values are intentionally
         // strings because that is the native model_settings.config wire type.
         nlohmann::json opaque_metadata = nlohmann::json::array();
-        // Future Neo per-plate fields are copied through without interpreting
-        // them, so newer producers can round-trip them through this version.
-        nlohmann::json future_metadata = nlohmann::json::object();
     };
     std::vector<PlateSessionPlate> plate_session_plates;
     std::string current_plate_id;

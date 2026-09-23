@@ -206,6 +206,28 @@ int main()
     CHECK(mixed_timings.reused_objects == 1);
     CHECK(mixed_timings.deserialized_objects == 1);
     CHECK(mixed_restore.objects[1]->name == reused_restore.objects[1]->name);
+    // A decoded config/name change may reuse only the already-live hull of
+    // the exact volume ID and immutable mesh. No archive/cache owns that hull.
+    CHECK(mixed_live.objects[1]->volumes[0]->get_convex_hull_shared_ptr());
+    CHECK(mixed_restore.objects[1]->volumes[0]->get_convex_hull_shared_ptr() ==
+          mixed_live.objects[1]->volumes[0]->get_convex_hull_shared_ptr());
+    auto different_volume_id = object_first;
+    different_volume_id.mutable_objects[1].volume_ids[0] += 1000000;
+    Model identity_mismatch_restore = stage_model(mixed_live, different_volume_id);
+    CHECK(identity_mismatch_restore.objects[1]->volumes[0]->get_convex_hull_shared_ptr());
+    CHECK(identity_mismatch_restore.objects[1]->volumes[0]->get_convex_hull_shared_ptr() !=
+          mixed_live.objects[1]->volumes[0]->get_convex_hull_shared_ptr());
+    Model mesh_mismatch_live = mixed_live;
+    mesh_mismatch_live.objects[1]->volumes[0]->set_mesh(TriangleMesh(its_make_cube(19.0, 19.0, 19.0)));
+    mesh_mismatch_live.objects[1]->volumes[0]->calculate_convex_hull();
+    Model mesh_mismatch_restore = stage_model(mesh_mismatch_live, object_first);
+    CHECK(mesh_mismatch_restore.objects[1]->volumes[0]->get_mesh_shared_ptr() ==
+          mixed_live.objects[1]->volumes[0]->get_mesh_shared_ptr());
+    CHECK(mesh_mismatch_restore.objects[1]->volumes[0]->get_convex_hull_shared_ptr());
+    CHECK(mesh_mismatch_restore.objects[1]->volumes[0]->get_convex_hull_shared_ptr() !=
+          mesh_mismatch_live.objects[1]->volumes[0]->get_convex_hull_shared_ptr());
+    CHECK(mesh_mismatch_restore.objects[1]->volumes[0]->get_convex_hull().bounding_box().size() ==
+          mixed_live.objects[1]->volumes[0]->get_convex_hull().bounding_box().size());
     MeshCaptureCache transformed_mesh_cache;
     MutableObjectCaptureCache transformed_object_cache;
     CHECK(transformed_restore.objects[0]->instances[0]->get_offset() == Vec3d(4.0, 2.0, 1.0));
