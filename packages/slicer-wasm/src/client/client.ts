@@ -35,6 +35,7 @@ import type {
   FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
   RememberedFilamentRackRequest,
+  RememberedFilamentRackPreference, PrinterTransitionResult,
   FilamentAssignmentRequest, FilamentRoutingRequest,
   NativePerformanceProfile,
   PresetDraftKind, PresetDraftMutationRequest, PresetDraftMutationResult,
@@ -1002,6 +1003,66 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
     plateSession, historyStatus, nativeScopedConfig };
 }
 
+function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
+  const invalid = (error: string): PrinterTransitionResult => ({
+    ok: false, version: 1, error, errorCode: 'invalid_response',
+  });
+  if (!isRecord(raw)) return invalid('invalid Printer transition response');
+  if (raw.ok !== true) {
+    return raw.version === 1 && typeof raw.error === 'string'
+      ? { ok: false, version: 1, error: raw.error,
+        ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
+        ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) }
+      : invalid('invalid Printer transition error response');
+  }
+  if (raw.version !== 1) return invalid('unsupported Printer transition response version');
+
+  const profile = isRecord(raw.profile_snapshot)
+    ? normalizeProfileSnapshot(raw.profile_snapshot) : { ok: false as const, error: 'missing Printer transition profile snapshot' };
+  if (!profile.ok) return invalid(profile.error ?? 'invalid Printer transition profile snapshot');
+  const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
+  if (!filamentSession.ok) return invalid(filamentSession.error ?? 'invalid Printer transition filament session');
+  const plateSession = normalizePlateMutationResult(raw.plate_session);
+  if (!plateSession.ok) return invalid(plateSession.error ?? 'invalid Printer transition plate receipt');
+  let historyStatus: HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(raw.history_status); }
+  catch { return invalid('invalid Printer transition history status'); }
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+  const mutation = isRecord(raw.mutation) ? raw.mutation : undefined;
+  if (!nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
+      nativeScopedConfig.revision !== historyStatus.revision ||
+      !mutation || mutation.kind !== 'select-printer-with-remembered-rack' ||
+      mutation.history_entry_delta !== 1 || !Number.isSafeInteger(mutation.revision_before) ||
+      !Number.isSafeInteger(mutation.revision_after) || mutation.revision_after !== historyStatus.revision ||
+      mutation.revision_after !== (mutation.revision_before as number) + 1 ||
+      typeof mutation.dirty !== 'boolean' || mutation.dirty !== historyStatus.dirty ||
+      mutation.all_plate_results_invalidated !== true || !Array.isArray(mutation.affected_plate_ids) ||
+      !mutation.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(mutation.affected_plate_ids).size !== mutation.affected_plate_ids.length)
+    return invalid('invalid Printer transition commit receipt');
+  const affectedPlateIds = mutation.affected_plate_ids as string[];
+  if (JSON.stringify(affectedPlateIds) !== JSON.stringify(plateSession.affectedPlateIds ?? []))
+    return invalid('Printer transition affected-plate receipt mismatch');
+  return {
+    ok: true,
+    version: 1,
+    profileSnapshot: profile,
+    filamentSession,
+    plateSession,
+    historyStatus,
+    nativeScopedConfig,
+    mutation: {
+      kind: 'select-printer-with-remembered-rack',
+      historyEntryDelta: 1,
+      revisionBefore: mutation.revision_before as number,
+      revisionAfter: mutation.revision_after as number,
+      dirty: mutation.dirty,
+      allPlateResultsInvalidated: true,
+      affectedPlateIds,
+    },
+  };
+}
+
 function normalizeLoadModelResult(raw: unknown): LoadModelResult {
   if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
   const value = raw as Record<string, unknown>;
@@ -1144,6 +1205,15 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   const impact = normalizeRestoreImpact(value.impact);
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
+  let profileSnapshot: ProfileSnapshot | undefined;
+  if (value.profile_snapshot !== undefined) {
+    if (!isRecord(value.profile_snapshot)) return historyFailure(raw, 'invalid history profile snapshot');
+    const profile = normalizeProfileSnapshot(value.profile_snapshot);
+    if (!profile.ok) return historyFailure(raw, 'invalid history profile snapshot');
+    profileSnapshot = profile;
+  }
+  if (impact.profileSelection && !profileSnapshot)
+    return historyFailure(raw, 'history Printer/Process restore omitted its profile snapshot');
   if (!Array.isArray(value.affected_plate_ids) ||
       !(value.affected_plate_ids as unknown[]).every((id) => typeof id === 'string' && id.length > 0) ||
       new Set(value.affected_plate_ids as string[]).size !== value.affected_plate_ids.length)
@@ -1158,6 +1228,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     nativeScopedConfig,
     status,
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
+    ...(profileSnapshot ? { profileSnapshot } : {}),
     impact,
     affectedPlateIds,
     sceneDelta,
@@ -1167,13 +1238,14 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
   const fallback: import('./history').RestoreImpact = {
     version: 1, model: 'delta', plateSession: true, filamentRack: true,
-    presetDrafts: true, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
+    presetDrafts: true, profileSelection: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const value = raw as Record<string, unknown>;
   if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
       typeof value.presetDrafts !== 'boolean' ||
+      (value.profileSelection !== undefined && typeof value.profileSelection !== 'boolean') ||
       typeof value.nativeScopedConfig !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
       (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
@@ -1762,6 +1834,23 @@ export function createClient(
     async selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult> {
       const m = await module();
       return normalizeProfileSnapshot(callJson(m, 'orc_select_preset', ['string', 'string'], [kind, name]) as Record<string, unknown>);
+    },
+
+    async selectPrinterWithRememberedRack(
+      printer: string, rememberedRack: RememberedFilamentRackPreference | null,
+    ): Promise<PrinterTransitionResult> {
+      const m = await module();
+      const request = {
+        version: 1,
+        printer,
+        remembered_rack: rememberedRack ? {
+          version: rememberedRack.version,
+          slots: rememberedRack.slots.map(({ preset, colour }) => ({ preset, colour })),
+        } : null,
+      };
+      return normalizePrinterTransition(
+        callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
+      );
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {

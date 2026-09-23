@@ -1,4 +1,4 @@
-import type { HistoryContext, NativeScopedConfigFullTransport, RestoreImpact, RestoreResult, SceneDelta, SlicerClient } from '@slicer/client';
+import type { HistoryContext, NativeScopedConfigFullTransport, ProfileSnapshot, RestoreImpact, RestoreResult, SceneDelta, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
@@ -31,6 +31,7 @@ export interface HistoryRestoreCoordinatorOptions {
     sceneDelta: SceneDelta,
     nativeScopedConfig: NativeScopedConfigFullTransport,
     revision: number,
+    profileSnapshot?: ProfileSnapshot,
   ) => Promise<HistoryRestorePath | void>;
   /** Best-effort preference mirror after a successful native restore. */
   publishRestoredFilamentRack?: (revision: number) => Promise<void>;
@@ -80,6 +81,7 @@ export function createHistoryRestoreCoordinator({
       try {
         projectionPath = await refreshModel(
           restored.context, restored.impact, restored.sceneDelta, restored.nativeScopedConfig, revision,
+          restored.profileSnapshot,
         ) ?? projectionPath;
       } finally {
         useHistoryDiagnosticsStore.getState().recordProjection(

@@ -1887,6 +1887,66 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return snapshot();
     },
+    orc_select_printer_with_remembered_rack(requestJson: string) {
+      let request: any;
+      try { request = JSON.parse(requestJson); }
+      catch { return { ok: false, version: 1, error_code: 'invalid_request', error: 'invalid Printer transition request' }; }
+      if (request?.version !== 1 || typeof request.printer !== 'string' || !request.printer)
+        return { ok: false, version: 1, error_code: 'invalid_request', error: 'invalid Printer transition request' };
+      const printer = presetFixtures.printer.find((item) => item.name === request.printer && item.is_visible);
+      if (!printer) return { ok: false, version: 1, error_code: 'preset_not_found', error: 'Printer preset not found' };
+      const before = historyRevision;
+      selected.printer = request.printer;
+      if (!resolveAfterPrinterChange())
+        return { ok: false, version: 1, error_code: 'native_validation_failure', error: 'no compatible Process preset available' };
+
+      const current = filamentSessionSnapshot() as any;
+      const requestedSlots = request.remembered_rack?.version === 1 && Array.isArray(request.remembered_rack.slots)
+        ? request.remembered_rack.slots : undefined;
+      if (requestedSlots?.length) {
+        const slots = requestedSlots.map((item: any, index: number) => ({
+          slot: index + 1,
+          preset: { id: item.preset, name: item.preset },
+          colour: { effective: item.colour, provenance: 'user' },
+        }));
+        const size = slots.length;
+        current.slots = slots;
+        current.mappings = {
+          ...current.mappings,
+          filament: Array(size).fill(1), volume: Array(size).fill(0),
+          nozzle: Array(size).fill(1), filament2: Array(size).fill(1),
+        };
+        current.flushing = { matrix: Array(size * size).fill(0), vector: [],
+          matrix_dimension: size, plane_count: current.capabilities.nozzle_count, source: 'default' };
+        current.capabilities = { ...current.capabilities, min_slots: 1, max_slots: 64,
+          can_add: true, can_delete: size > 1, can_merge: size > 1, flexible: true };
+      }
+      historyRevision += 1;
+      current.revisions = { ...current.revisions, session: historyRevision, project: historyRevision };
+      filamentSessionState = current;
+      const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+        activePlateId: currentPlateId || null, gizmo: null, nativeScopedConfig: clone(nativeScopedConfig) };
+      if (historyEntries.length === 0) {
+        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
+        historyCursor = 0;
+        savedHistoryCursor = 0;
+      }
+      historyEntries.splice(historyCursor + 1);
+      historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
+        label: 'Select Printer', category: 'project', context: clone(context) });
+      historyCursor = historyEntries.length - 1;
+      const plateSession = plateMutation('shared-configuration', [...plateIds], [...plateIds]);
+      const status = historyStatus();
+      const affectedPlateIds = plateSession.affected_plate_ids as string[];
+      return {
+        ok: true, version: 1, profile_snapshot: snapshot(), filament_session: filamentSessionSnapshot(),
+        plate_session: plateSession, history_status: status,
+        native_scoped_config: nativeScopedConfigFullTransport(),
+        mutation: { kind: 'select-printer-with-remembered-rack', history_entry_delta: 1,
+          revision_before: before, revision_after: historyRevision, dirty: status.dirty,
+          all_plate_results_invalidated: true, affected_plate_ids: affectedPlateIds },
+      };
+    },
     orc_get_option_metadata() {
       const out: Record<string, { type: string; enum_values?: string[] }> = {};
       for (const [k, v] of Object.entries(metadata)) out[k] = { ...v };
@@ -2660,6 +2720,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_mark_saved: { ret: 'number', args: ['string'] },
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
+    orc_select_printer_with_remembered_rack: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_preset_draft: { ret: 'number', args: ['string', 'string'] },
     orc_mutate_preset_draft: { ret: 'number', args: ['string'] },

@@ -46,6 +46,10 @@ DynamicPrintConfig effective_full_config(
     std::optional<std::vector<int>> filament_maps = std::nullopt,
     std::optional<std::vector<int>> filament_volume_maps = std::nullopt);
 
+DynamicPrintConfig effective_preset_config(
+    const PresetBundle& bundle, const PresetDraftRegistry& drafts,
+    Preset::Type type, const std::string& canonical_name);
+
 DynamicPrintConfig effective_full_config(
     bool apply_extruder = true,
     std::optional<std::vector<int>> filament_maps = std::nullopt,

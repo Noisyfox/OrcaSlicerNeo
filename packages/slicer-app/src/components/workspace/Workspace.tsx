@@ -32,7 +32,7 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import type { PlateSessionSnapshot, NativeScopedConfigFullTransport } from '@slicer/client';
+import type { PlateSessionSnapshot, ProfileSnapshot, NativeScopedConfigFullTransport } from '@slicer/client';
 import { readSceneDeltaProjection } from './viewport/sceneDeltaProjection';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
@@ -302,7 +302,8 @@ export function Workspace({
     historyRestoreRef.current = createHistoryRestoreCoordinator({
       runtime: platform.runtime,
       sceneInteraction,
-      refreshModel: async (context, impact, sceneDelta, nativeScopedConfig: NativeScopedConfigFullTransport, revision) => {
+      refreshModel: async (context, impact, sceneDelta, nativeScopedConfig: NativeScopedConfigFullTransport, revision,
+        profileSnapshot?: ProfileSnapshot) => {
         if (impact.model !== 'delta')
           throw new Error('ordinary history restore requires a SceneDelta projection');
         const freshPlateSession = impact.plateSession ? context.plateSession : undefined;
@@ -320,6 +321,16 @@ export function Workspace({
           const retained = new Set(currentVolumes);
           projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
           return;
+        }
+        if (impact.profileSelection) {
+          if (!profileSnapshot)
+            throw new Error('history profile-selection restore is missing its native profile snapshot');
+          useSettingsStore.getState().hydrateProfileSnapshot(profileSnapshot);
+          const project = useProjectStore.getState();
+          const selections = { printer: profileSnapshot.printer.name, print: profileSnapshot.print.name };
+          project.setProject(project.scope === 'project'
+            ? { projectPresets: selections }
+            : { systemPresets: selections });
         }
         if (impact.nativeScopedConfig) {
           const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(

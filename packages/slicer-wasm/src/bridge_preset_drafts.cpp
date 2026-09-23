@@ -222,6 +222,18 @@ PresetDraftRegistry PresetDraftRegistry::from_snapshot_json(const json& value,
 
 namespace PresetDrafts {
 
+DynamicPrintConfig effective_preset_config(
+    const PresetBundle& bundle, const PresetDraftRegistry& drafts,
+    const Preset::Type type, const std::string& canonical_name)
+{
+    const Preset* source = find_preset_source(bundle, type, canonical_name);
+    if (source == nullptr)
+        throw std::runtime_error("preset source not found: " + canonical_name);
+    Preset effective = *source;
+    apply_draft(effective, drafts);
+    return std::move(effective.config);
+}
+
 DynamicPrintConfig effective_full_config(
     const PresetBundle& bundle, const PresetDraftRegistry& drafts,
     const bool apply_extruder,
@@ -289,9 +301,9 @@ DynamicPrintConfig effective_full_config_secure(
 
 DynamicPrintConfig effective_printer_config()
 {
-    Preset printer = state().presets.printers.get_selected_preset();
-    apply_draft(printer, state().preset_drafts);
-    return std::move(printer.config);
+    return effective_preset_config(state().presets, state().preset_drafts,
+                                   Preset::TYPE_PRINTER,
+                                   state().presets.printers.get_selected_preset_name());
 }
 
 DynamicPrintConfig effective_full_config_secure(

@@ -138,6 +138,8 @@ export interface RestoreImpact {
   readonly plateSession: boolean;
   readonly filamentRack: boolean;
   readonly presetDrafts: boolean;
+  /** Native Printer or Process root changed; restore its atomic picker snapshot. */
+  readonly profileSelection?: boolean;
   readonly nativeScopedConfig: boolean;
   readonly selectionContext: boolean;
   readonly primeTower: boolean;
@@ -209,6 +211,8 @@ export interface RestoreSuccess {
   /** Full native scoped projection published atomically with this restore. */
   readonly nativeScopedConfig: NativeScopedConfigFullTransport;
   readonly status: HistoryStatus;
+  /** Present only when the restored frame changes native Printer/Process selection. */
+  readonly profileSnapshot?: import('./types').ProfileSnapshot;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
   /** Native-authoritative before/after plate union for this restore. */

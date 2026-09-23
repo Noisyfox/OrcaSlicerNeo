@@ -22,7 +22,7 @@ const status: HistoryStatus = {
 };
 const deltaImpact = {
   version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: true,
-  nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' as const,
+  presetDrafts: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' as const,
 };
 const directImpact = {
   ...deltaImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,

@@ -865,6 +865,27 @@ describe('SlicerClient bridge contract', () => {
     expect(m.sparse_infill_pattern?.enum_values).toContain('grid');
   });
 
+  it('selectPrinterWithRememberedRack returns one complete native commit receipt', async () => {
+    const c = makeClient();
+    const before = await c.getHistoryStatus();
+    const result = await c.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', {
+      version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456' }],
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      profileSnapshot: { printer: { name: 'Bambu Lab P1S 0.4 nozzle' }, print: { name: '0.20mm Standard @BBL P1S' } },
+      filamentSession: { slots: [{ preset: { name: 'Bambu PLA Basic @BBL P1S' }, colour: { effective: '#123456' } }] },
+      mutation: { kind: 'select-printer-with-remembered-rack', historyEntryDelta: 1,
+        revisionBefore: before.revision, revisionAfter: before.revision + 1,
+        allPlateResultsInvalidated: true, affectedPlateIds: expect.any(Array) },
+      nativeScopedConfig: { kind: 'full', revision: before.revision + 1 },
+      historyStatus: { revision: before.revision + 1, canUndo: true },
+    });
+    expect(await c.getHistoryStatus()).toMatchObject({ revision: before.revision + 1, undoEntries: [
+      expect.objectContaining({ label: 'Select Printer', category: 'project' }),
+    ] });
+  });
+
   it('reads source/effective preset values and shares drafts by canonical source across filament slots', async () => {
     const c = makeClient();
     await c.init();

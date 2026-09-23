@@ -19,6 +19,7 @@ using json = nlohmann::json;
 const char* duplicate_json(const std::string& value);
 const char* error_json(const std::string& message);
 json preset_snapshot_json();
+json select_printer_with_remembered_rack_json(const json& request);
 json option_metadata_json();
 const char* init_profiles();
 

@@ -215,7 +215,7 @@ describe('Workspace ownership', () => {
       context: { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: 'plate-a', gizmo: null, nativeScopedConfig: {}, plateSession: twoPlateSnapshot },
       status: { canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0, byteBudget: 1, evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false, disabled: false, activeTransactionId: null, revision: 1 },
       sceneDelta: { version: 1 as const, objectIds: [], volumeIds: [], instanceIds: [], plateIds: ['plate-a', 'plate-b'], objectOrder: [] },
-      impact: { version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' as const },
+      impact: { version: 1 as const, model: 'delta' as const, plateSession: true, filamentRack: false, presetDrafts: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' as const },
     };
     const runtime = {
       undoHistory: vi.fn(async () => restore), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(),

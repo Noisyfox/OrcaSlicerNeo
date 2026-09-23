@@ -46,7 +46,7 @@ const historyMutationOperations = new Set([
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'assignFilament',
   'setFilamentRouting', 'movePrimeTower', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
-  'mutatePresetDraft',
+  'mutatePresetDraft', 'selectPrinterWithRememberedRack',
 ]);
 
 // Serial Print::process() occupies the sole stateful Worker. These commands
@@ -60,7 +60,7 @@ const restrictedWhileSerialSlicing = new Set([
   'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
   'markSharedConfigurationMutation', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
-  'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'addModel', 'closeProject',
+  'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'addModel', 'closeProject',
   'loadProject', 'importProjectGeometry', 'addShape', 'clearModel',
   'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',

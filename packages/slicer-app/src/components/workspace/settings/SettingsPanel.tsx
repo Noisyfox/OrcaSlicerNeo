@@ -1,5 +1,6 @@
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useState } from 'react';
+import { unstable_batchedUpdates } from 'react-dom';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
@@ -12,8 +13,12 @@ import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
-import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
-import { applyRememberedFilamentRackFromRepository } from '../../../preferences';
+import { refreshFilamentSession, useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
+import { glVolumeCollection } from '../viewport/GLVolume';
+import { projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
+import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack } from '../../../preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import {
   Combobox,
@@ -46,15 +51,69 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
     if (presetTransitionPending) return;
     setPresetTransitionPending(true);
     try {
+      if (kind === 'printer') {
+        await runProjectMutationOperation(async () => {
+          const rememberedRack = await loadRememberedFilamentRackFromRepository(
+            platform.preferences, name,
+          );
+          const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack);
+          if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');
+
+          // This command already committed the single native history entry.
+          // Publish its receipt directly; do not issue a second rack edit,
+          // revision bump, profile read, or scoped-config revalidation.
+          unstable_batchedUpdates(() => {
+            const status = projectHistoryStatus(transition.historyStatus);
+            if (status.revision === transition.historyStatus.revision) {
+              useSettingsStore.getState().hydrateProfileSnapshot(transition.profileSnapshot);
+              const scoped = useSettingsStore.getState().applyNativeScopedConfigTransport(
+                transition.nativeScopedConfig,
+              );
+              if (scoped === 'refresh-required')
+                throw new Error('Printer transition scoped configuration receipt was not accepted');
+              useFilamentSessionStore.getState().publish(transition.filamentSession);
+              applyPlateSessionTransforms(transition.plateSession, glVolumeCollection.volumes);
+              usePlateSessionStore.getState().setSnapshot(transition.plateSession);
+              const project = useProjectStore.getState();
+              const selections = {
+                printer: transition.profileSnapshot.printer.name,
+                print: transition.profileSnapshot.print.name,
+              };
+              project.setProject(project.scope === 'project'
+                ? { projectPresets: selections, dirty: status.dirty, dirtyReasons: [],
+                    plateInputRevisions: transition.plateSession.inputRevisions ?? {} }
+                : { systemPresets: selections, dirty: status.dirty, dirtyReasons: [],
+                    plateInputRevisions: transition.plateSession.inputRevisions ?? {} });
+              invalidateAfterSharedConfigurationMutation(
+                transition.mutation.affectedPlateIds, platform.runtime,
+              );
+            }
+          });
+
+          // Rack memory is an independent user preference, not part of the
+          // native project-history frame. Publish only the normalized rack
+          // returned by a successful native transition, even in project scope.
+          await publishRememberedFilamentRack(
+            platform.preferences, transition.profileSnapshot.printer.name, transition.filamentSession,
+          );
+          const project = useProjectStore.getState();
+          if (project.scope !== 'project') {
+            try {
+              const prefs = await platform.preferences.load();
+              await platform.preferences.save({ ...prefs, selectedProfiles: {
+                printer: transition.profileSnapshot.printer.name,
+                print: transition.profileSnapshot.print.name,
+              } });
+            } catch (error) {
+              console.error('preset preference save failed; keeping resolved session state', error);
+            }
+          }
+        });
+        return;
+      }
+
       const r = await platform.runtime.selectProfile(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectProfile failed');
-      if (kind === 'printer') {
-        await applyRememberedFilamentRackFromRepository(
-          platform.preferences,
-          platform.runtime,
-          r.printer.name,
-        );
-      }
       // Preset selection changes the shared slice input for every plate. The
       // bridge owns the complete plate set and advances all revisions in one
       // typed transaction; its response is the sole source for revisions and

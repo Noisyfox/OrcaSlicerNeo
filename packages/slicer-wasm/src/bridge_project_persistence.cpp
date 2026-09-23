@@ -950,6 +950,19 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
             owned.push_back(std::move(plate));
         }
         DynamicPrintConfig config = Neo::Bridge::PresetDrafts::effective_full_config_secure();
+        if (state().presets.printers.get_edited_preset().printer_technology() == ptFFF) {
+            // construct_full_config() intentionally omits BBS's aggregate
+            // different_settings_to_system metadata because slicing does not
+            // consume it. The project writer does: without this vector, the
+            // 3MF reader treats a project-embedded Process value as inherited
+            // and replaces it with the parent on reopen. Preserve the native
+            // bundle's Process/Printer/Filament diff metadata while keeping
+            // the effective config (including supported preset drafts) as
+            // the flattened value source.
+            const DynamicPrintConfig native_metadata = state().presets.full_config_secure();
+            if (const ConfigOption* different_settings = native_metadata.option("different_settings_to_system"))
+                config.set_key_value("different_settings_to_system", different_settings->clone());
+        }
         StoreParams params;
         params.path = path;
         params.model = &state().model;

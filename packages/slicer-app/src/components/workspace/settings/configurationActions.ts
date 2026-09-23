@@ -6,6 +6,7 @@ import type {
   PlateSessionMutation,
   PlateSessionMutationResult,
 } from '@slicer/client';
+import type { SlicerClient } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -193,12 +194,24 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
 }
 
 /** Clear stale slice UI after a successful shared configuration commit. */
-export function invalidateAfterSharedConfigurationMutation(affectedPlateIds?: readonly string[]): void {
+export function invalidateAfterSharedConfigurationMutation(
+  affectedPlateIds?: readonly string[],
+  runtime?: Pick<SlicerClient, 'cancel' | 'getRuntimeExecutionState'>,
+): void {
   // A draft project edit has no native affected receipt yet, so it represents
   // the explicit shared-configuration boundary and hides every plate result.
   const existingStatus = useSlicerStore.getState().error;
-  if (affectedPlateIds !== undefined) useSlicerStore.getState().invalidatePlateResults(affectedPlateIds);
-  else useSlicerStore.getState().invalidateSliceResult();
+  if (affectedPlateIds !== undefined) {
+    const store = useSlicerStore.getState();
+    const active = store.activeSliceTarget;
+    const cancel = active !== null && affectedPlateIds.includes(active.plateId) &&
+      runtime?.getRuntimeExecutionState?.().threaded !== false;
+    // A shared preset change invalidates every cached plate result as a
+    // single renderer publication; the receipt still supplies the exact
+    // native affected set for cancellation and diagnostics.
+    store.invalidateSliceResult();
+    if (cancel) void runtime?.cancel().catch(() => undefined);
+  } else useSlicerStore.getState().invalidateSliceResult();
   // Native configuration warnings are successful-command status, not stale
   // slice errors. Preserve the visible warning while the result projection is
   // invalidated; ordinary errors retain the existing clearing behaviour.

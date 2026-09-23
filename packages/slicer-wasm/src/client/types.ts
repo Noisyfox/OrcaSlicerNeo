@@ -1173,6 +1173,44 @@ export interface RememberedFilamentRackRequest extends FilamentCommandRequest {
   readonly slots: readonly { preset: string; colour: string }[];
 }
 
+/** Durable rack preference supplied to an explicit Printer selection. */
+export interface RememberedFilamentRackPreference {
+  readonly version: 1;
+  readonly slots: readonly { readonly preset: string; readonly colour: string }[];
+}
+
+export interface PrinterTransitionMutationReceipt {
+  readonly kind: 'select-printer-with-remembered-rack';
+  readonly historyEntryDelta: 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: boolean;
+  readonly allPlateResultsInvalidated: true;
+  readonly affectedPlateIds: readonly string[];
+}
+
+/** One committed native Printer + remembered-rack transition. */
+export interface PrinterTransitionSuccess {
+  readonly ok: true;
+  readonly version: 1;
+  readonly profileSnapshot: ProfileSnapshot;
+  readonly filamentSession: FilamentSessionSnapshot;
+  readonly plateSession: PlateSessionMutation;
+  readonly historyStatus: import('./history').HistoryStatus;
+  readonly nativeScopedConfig: NativeScopedConfigFullTransport;
+  readonly mutation: PrinterTransitionMutationReceipt;
+}
+
+export interface PrinterTransitionError {
+  readonly ok: false;
+  readonly version?: 1;
+  readonly error: string;
+  readonly errorCode?: string;
+  readonly revision?: number;
+}
+
+export type PrinterTransitionResult = PrinterTransitionSuccess | PrinterTransitionError;
+
 export interface FilamentAssignmentTargetRequest {
   readonly kind: 'object' | 'instance' | 'instance-as-object' | 'model-part' | 'parameter-modifier';
   readonly id: number;
@@ -1408,6 +1446,11 @@ export interface SlicerClient {
    * compatibility state. Filament selection is owned by the multi-filament
    * session/rack commands. */
   selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult>;
+  /** Atomically select one Printer, restore its remembered rack, publish one
+   * committed Worker snapshot, history entry and all-plate invalidation. */
+  selectPrinterWithRememberedRack(
+    printer: string, rememberedRack: RememberedFilamentRackPreference | null,
+  ): Promise<PrinterTransitionResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
