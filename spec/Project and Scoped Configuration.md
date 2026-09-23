@@ -454,10 +454,19 @@ basic type/enum/bound presentation, and selection-limited values and provenance 
 React projections rather than a dedicated Worker catalogue response. It must omit
 sources below the currently selected scope as specified in section 12.
 
+The configuration surface observes selected volume IDs directly. Live transform
+notifications during a body or gizmo drag must not reproject or rerender its
+field catalogue unless the selection or configuration inputs actually change.
+
 The Worker remains authoritative for native configuration storage, mutation validation,
 normalization, and each committed successor state. React may not treat a locally
 derived value as committed until the typed Worker command succeeds and its canonical
 state has been published.
+
+Viewport transform frames must not rerender every model component merely to refresh
+selection styling or drag availability. Those React inputs change only with Selection
+identity or the relevant interaction state; live mesh transforms remain synchronized
+through the scene's direct Three.js update path.
 
 Dispatch captures the resolved target of a configuration commit. A later selection or
 mode change never cancels, retargets, or discards that already-dispatched mutation.

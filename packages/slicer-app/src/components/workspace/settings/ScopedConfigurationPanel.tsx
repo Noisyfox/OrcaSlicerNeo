@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   NativeScopedConfigMutationRequest,
   NativeScopedConfigTarget,
@@ -15,7 +15,6 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import {
@@ -163,7 +162,12 @@ export function ScopedField({
 
 export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const platform = usePlatform();
-  useSceneInteractionVersion(sceneInteraction ?? undefined);
+  const selection = sceneInteraction?.selection;
+  const subscribeSelection = useCallback(
+    (listener: () => void) => selection?.subscribe(listener) ?? (() => {}),
+    [selection],
+  );
+  useSyncExternalStore(subscribeSelection, () => selection?.revision ?? 0);
   const metadata = useSettingsStore((state) => state.metadata);
   const baseValues = useSettingsStore((state) => state.baseValues);
   const snapshot = useSettingsStore((state) => state.nativeScopedConfig);

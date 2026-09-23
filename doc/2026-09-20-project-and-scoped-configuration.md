@@ -389,6 +389,18 @@ Parent acceptance checks passed:
 - `pnpm --filter @orca/slicer-wasm test -- --run` — 5 files, 161 tests passed.
 - `git diff --check` — passed (only Windows line-ending warnings).
 
+On 2026-09-23, a drag responsiveness regression was traced to the scoped field
+catalogue subscribing to every scene transform notification. The surface now
+subscribes to Selection ID changes directly; drag frames retain their live scene
+notifications without recalculating the configuration catalogue. The Prepare scene
+also projects only Selection revision and body-drag availability into each model
+component; unchanged primitive props prevent model React rerenders on drag frames,
+while the existing Three.js transform subscription keeps models moving live.
+Application tests passed (79 files, 606 tests), as did app typecheck and two focused
+Electron canvas-gesture cases covering first-press drag and gizmo priority. Two
+additional Electron cases passed for Prime Tower selection and its shared body/gizmo
+gesture path; repository-wide tests and typechecks passed as well.
+
 ### Step 6 — Slice-time and structural-operation integration
 
 Accepted on 2026-09-20. The serial Worker admission gate now explicitly rejects the

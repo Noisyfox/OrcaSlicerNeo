@@ -83,6 +83,27 @@ describe('SceneInteractionController', () => {
     expect(port.abort).not.toHaveBeenCalled();
   });
 
+  it('does not notify selection-only subscribers for drag-frame updates', () => {
+    let sceneNotifications = 0;
+    let selectionNotifications = 0;
+    controller.subscribe(() => { sceneNotifications += 1; });
+    controller.selection.subscribe(() => { selectionNotifications += 1; });
+
+    expect(controller.selectFromHit(volumes[0], false)).toBe(true);
+    expect(selectionNotifications).toBe(1);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.updateDragPivot(new THREE.Vector3(1, 0, 0))).toBe(true);
+    expect(controller.updateDragPivot(new THREE.Vector3(2, 0, 0))).toBe(true);
+    expect(controller.endDrag()).toBe(true);
+
+    // Scene consumers still receive the live transform frames; selection-only
+    // consumers stay idle until the selected IDs themselves change.
+    expect(sceneNotifications).toBe(5);
+    expect(selectionNotifications).toBe(1);
+    expect(controller.selectFromHit(volumes[2], false)).toBe(true);
+    expect(selectionNotifications).toBe(2);
+  });
+
   it('shares pointer ownership with scene-only gestures so camera raycasting is disabled', () => {
     expect(controller.claimExternalPointer()).toBe(true);
     expect(controller.owner).toBe('external');
