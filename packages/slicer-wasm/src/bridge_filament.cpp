@@ -1,5 +1,6 @@
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
+#include "bridge_preset_drafts.hpp"
 
 #include <stdexcept>
 
@@ -588,7 +589,9 @@ std::vector<std::vector<int>> min_flush_volumes_for_bundle(const PresetBundle& b
                                                            const std::size_t filament_count,
                                                            const std::size_t nozzle_count)
 {
-    return min_flush_volumes_for_config(bundle.full_config(), filament_count, nozzle_count);
+    return min_flush_volumes_for_config(
+        Neo::Bridge::PresetDrafts::effective_full_config(bundle, state().preset_drafts),
+        filament_count, nozzle_count);
 }
 
 void recalculate_filament_flush(PresetBundle& bundle)
@@ -1994,7 +1997,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_flush_fixture(const char*
             for (const auto& item : value) result.push_back(static_cast<unsigned char>(item.get<int>() != 0));
             return result;
         };
-        DynamicPrintConfig synthetic_full = state().presets.full_config();
+        DynamicPrintConfig synthetic_full = PresetDrafts::effective_full_config();
         if (request.contains("nozzle_volume"))
             synthetic_full.option<ConfigOptionFloatsNullable>("nozzle_volume", true)->values = read_floats(request["nozzle_volume"], "nozzle_volume");
         if (request.contains("enable_long_retraction_when_cut"))

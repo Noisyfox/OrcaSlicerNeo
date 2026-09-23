@@ -26,6 +26,7 @@
 #include "bridge_model_operations.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_scoped_config.hpp"
@@ -103,6 +104,7 @@ json close_project_session()
     // empty session. The project-load replacement boundary intentionally does
     // not keep the old registry alive while the new archive is parsed.
     bridge_state.plate_runtime_registry.clear();
+    bridge_state.preset_drafts.clear();
     invalidate_preview_source();
 
     bridge_state.model = Model{};
@@ -946,7 +948,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
             plates.push_back(plate.get());
             owned.push_back(std::move(plate));
         }
-        DynamicPrintConfig config = state().presets.full_config_secure();
+        DynamicPrintConfig config = Neo::Bridge::PresetDrafts::effective_full_config_secure();
         StoreParams params;
         params.path = path;
         params.model = &state().model;

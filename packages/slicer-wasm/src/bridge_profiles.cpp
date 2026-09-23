@@ -20,6 +20,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
 #include "bridge_prime_tower.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "bridge_scoped_config.hpp"
 
 using namespace Slic3r;
@@ -304,7 +305,7 @@ json preset_snapshot_json()
                 // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to
                 // metadata defaults that disagree with slicing.
-                {"project_config", Filament::State::config_metadata_json(state().presets.full_config())}};
+                {"project_config", Filament::State::config_metadata_json(PresetDrafts::effective_full_config())}};
 }
 
 const char* init_profiles()

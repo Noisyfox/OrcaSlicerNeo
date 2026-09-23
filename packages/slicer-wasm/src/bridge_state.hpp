@@ -22,6 +22,7 @@
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "history/TimestampedHistory.hpp"
 #include "history/MeshCaptureCache.hpp"
 #include "history/MutableObjectCaptureCache.hpp"
@@ -46,6 +47,9 @@ struct BridgeState {
 #endif
     AppConfig profile_config;
     PresetBundle presets;
+    // Preset Editor Printer/Filament overlays are session-local sparse native
+    // values. They never replace a collection's edited Preset instance.
+    PresetDraftRegistry preset_drafts;
     Model       model;
     // FFF per-plate native ownership. Selected-plate slice/result/export/
     // cancel operations resolve this registry; no singleton Print or result

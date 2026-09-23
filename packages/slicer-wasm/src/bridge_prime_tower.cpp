@@ -1,4 +1,5 @@
 #include "bridge_prime_tower.hpp"
+#include "bridge_preset_drafts.hpp"
 
 #include <algorithm>
 #include <array>
@@ -198,7 +199,7 @@ std::string adjusted_colour(const std::string& value)
 
 DynamicPrintConfig effective_config(const BridgeState::PlateSessionPlate& plate)
 {
-    DynamicPrintConfig config = state().presets.full_config();
+    DynamicPrintConfig config = PresetDrafts::effective_full_config();
     // Match Orca's BackgroundSlicingProcess::apply: a plate config is layered
     // over the global/project config, so plate-local values are effective for
     // this plate's Prepare projection and subsequent Slice.

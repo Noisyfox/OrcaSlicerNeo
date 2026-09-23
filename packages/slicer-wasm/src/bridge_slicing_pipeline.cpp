@@ -35,6 +35,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
 #include "bridge_plate.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_state.hpp"
@@ -726,7 +727,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // same discipline expects (optptr() returns nullptr for missing keys
         // and Print::apply's normalize paths dereference that). The JSON
         // keys are applied on top, then normalized like slice_main.cpp:30.
-        DynamicPrintConfig config = state().presets.full_config();
+        DynamicPrintConfig config = PresetDrafts::effective_full_config();
         const json cfg = json::parse(config_json ? config_json : "");
         // Fix round 2: thread ONE substitution context through every key so
         // keys that are unknown at the pinned SHA are surfaced instead of
@@ -776,7 +777,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             // substitutions.unrecogized_keys, which we surface below.
             config.set_deserialize(key, value, substitutions);
         }
-        const DynamicPrintConfig native_full_config = state().presets.full_config(false);
+        const DynamicPrintConfig native_full_config = PresetDrafts::effective_full_config(false);
         // Plater's full_config() is assembled from every active filament
         // preset. The renderer settings projection uses scalars for compact
         // values, so restore native multi-slot vectors before plate-local
