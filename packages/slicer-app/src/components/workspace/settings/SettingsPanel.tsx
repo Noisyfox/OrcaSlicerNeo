@@ -111,6 +111,14 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
 
   return (
     <div className="space-y-4 p-3">
+      <MovePanel sceneInteraction={sceneInteraction} />
+      <RotatePanel sceneInteraction={sceneInteraction} />
+      <ScalePanel sceneInteraction={sceneInteraction} />
+      <section aria-busy={presetTransitionPending} data-testid="preset-transition-region">
+        <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
+        <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
+        <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
+      </section>
       <section data-testid="configuration-surface" className="space-y-2">
         <div role="tablist" aria-label="Configuration mode" className="grid grid-cols-2 rounded border p-0.5">
           <Button
@@ -132,14 +140,6 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
             onClick={() => setConfigurationMode('scoped')}
           >Scoped</Button>
         </div>
-      </section>
-      <MovePanel sceneInteraction={sceneInteraction} />
-      <RotatePanel sceneInteraction={sceneInteraction} />
-      <ScalePanel sceneInteraction={sceneInteraction} />
-      <section aria-busy={presetTransitionPending} data-testid="preset-transition-region">
-        <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
-        <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
-        <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
       </section>
       <ScopedConfigurationPanel sceneInteraction={sceneInteraction} />
     </div>
