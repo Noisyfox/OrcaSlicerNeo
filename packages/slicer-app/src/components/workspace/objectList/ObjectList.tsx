@@ -135,7 +135,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       setProjection(nextProjection);
     };
     update();
-    return sceneInteraction.subscribe(update);
+    return sceneInteraction.selection.subscribe(update);
   }, [restorePhase, sceneInteraction, structure, highlightLevel, setProjection]);
 
   function openContextMenu(event: ReactMouseEvent, target: ObjectListCtxTarget) {

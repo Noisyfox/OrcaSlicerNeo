@@ -400,6 +400,11 @@ Application tests passed (79 files, 606 tests), as did app typecheck and two foc
 Electron canvas-gesture cases covering first-press drag and gizmo priority. Two
 additional Electron cases passed for Prime Tower selection and its shared body/gizmo
 gesture path; repository-wide tests and typechecks passed as well.
+The follow-up subscription audit moved Object List selection projection to the
+Selection event and split toolbar observation into Selection identity and armed
+gizmo state. Drag-dependent transform panels, selection bounds, and gizmo pointer
+ownership retain their live scene subscriptions. Repository tests/typechecks and
+six focused Electron selection, drag, and Prime Tower cases passed.
 
 ### Step 6 — Slice-time and structural-operation integration
 

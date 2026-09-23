@@ -457,6 +457,8 @@ sources below the currently selected scope as specified in section 12.
 The configuration surface observes selected volume IDs directly. Live transform
 notifications during a body or gizmo drag must not reproject or rerender its
 field catalogue unless the selection or configuration inputs actually change.
+The Object List's selection projection likewise follows selection identity rather
+than transform frames; gizmo controls also observe their separate armed state.
 
 The Worker remains authoritative for native configuration storage, mutation validation,
 normalization, and each committed successor state. React may not treat a locally

@@ -2,15 +2,15 @@
 // placement), then the Move / Rotate / Scale gizmo toggles. The gizmos never
 // auto-open on selection — arming happens here, and an emptied selection
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
-// overlays the canvas (outside the R3F tree), so it subscribes through the
-// explicit-controller hook, like the transform panels.
+// overlays the canvas (outside the R3F tree). Selection and the armed gizmo
+// are observed separately so transform frames do not rerender the toolbar.
 import { FolderPlus, Move, Rotate3d, Scaling } from 'lucide-react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
-import { useSceneInteractionVersion } from './SceneInteractionContext';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
@@ -31,7 +31,17 @@ export function GizmoToolbar({
   sceneInteraction: SceneInteractionController | null;
   onModelAdded?: () => void;
 }) {
-  useSceneInteractionVersion(sceneInteraction ?? undefined);
+  const selection = sceneInteraction?.selection;
+  const subscribeSelection = useCallback(
+    (listener: () => void) => selection?.subscribe(listener) ?? (() => {}),
+    [selection],
+  );
+  const subscribeGizmo = useCallback(
+    (listener: () => void) => sceneInteraction?.subscribe(listener) ?? (() => {}),
+    [sceneInteraction],
+  );
+  useSyncExternalStore(subscribeSelection, () => selection?.revision ?? 0);
+  useSyncExternalStore(subscribeGizmo, () => sceneInteraction?.gizmo ?? null);
   const platform = usePlatform();
   // Boot loads the printer/process lists and the rack's filament catalogue
   // atomically; until they
