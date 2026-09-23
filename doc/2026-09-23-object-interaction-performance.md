@@ -1,7 +1,7 @@
 # Object interaction performance
 
 Date: 2026-09-23
-Status: Implemented and verified
+Status: Implementation verified; complex-project performance acceptance failed
 Scope: Shared settings panel and incremental model publication in Electron and Web.
 
 ## Accepted behavior
@@ -73,3 +73,60 @@ and removes unwanted cloned instances by source index, never by the old ID.
 - Real Electron: five focused Add, selection, Undo/Redo and DRC tests passed.
 - Real Web: DRC import/profile/slice/layer/G-code download passed.
 - Full release matrix and unrelated host flows were not run.
+
+## Complex-project acceptance (2026-09-23)
+
+Independent subagent review passed 263 targeted protocol, geometry, history,
+selection and interaction tests, plus `git diff --check 14f23068 70de14a3`.
+No normal-path blocking defect was found. Two exceptional cleanup risks remain:
+scoped configuration rejection after constructing an unpublished projection can
+retain new volumes; malformed null geometry records can throw before allocation
+cleanup enters its try/finally. Neither occurred in this acceptance run.
+
+Real visible Electron used the exact Odyssey project through a verified temporary
+copy: 45,586,816 bytes, SHA-256
+`6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425`,
+14 objects and 11 plates. Source and copy hashes were unchanged after the run.
+The accepted target is median <=100 ms and P95 <=200 ms.
+
+Twelve cycles exercised Add Cube, Undo Add, Redo Add, Delete Cube, Undo Delete,
+and Redo Delete (72 operations). Timing starts at DOM command dispatch, waits
+for the expected object count and completed mutation/projection with available
+history navigation, drains queued Worker work through the existing native
+performance-profile read, then waits two animation frames. This completion
+proxy includes background tower work and cross-process observation overhead;
+it does not measure GPU presentation directly. Menu opening and project loading
+are excluded. P95 uses nearest rank (the maximum for 12 samples).
+
+| Operation | Median ms | P95 ms | Verdict |
+| --- | ---: | ---: | --- |
+| Add Cube | 471.4 | 534.2 | Fail |
+| Delete Cube | 485.6 | 498.1 | Fail |
+| Undo Add | 491.1 | 515.3 | Fail |
+| Redo Add | 491.7 | 508.2 | Fail |
+| Undo Delete | 493.8 | 512.9 | Fail |
+| Redo Delete | 492.1 | 512.2 | Fail |
+
+An earlier foreground-only run showed Add/Delete at 65/84 ms median, but omitted
+pending tower work. Immediate Undo then took approximately 850 ms because it
+queued behind that work and caused another refresh. Those foreground numbers
+are not acceptance results. Draining the queue between operations reduced the
+Undo runtime call to approximately 12 ms, disproving native history restore as
+the source of that extra 380 ms. Full model reload count remained zero.
+
+Native profiles show about 410 ms per expensive tower projection, about 370 ms
+of which is `used_slot_full_scan_fallback`. Add/Delete call the no-argument
+`invalidate_preview_source` in `bridge_model_operations.cpp`, clearing every
+plate projection and used-slot summary. History restore also takes the global
+invalidation branch when object counts change (`bridge_history.cpp`). Thus the
+unmodified helmet volumes are scanned again despite successful mesh reuse.
+The next performance change should preserve unaffected plate/volume usage
+summaries across structural edits and restores, using authoritative input
+changes to invalidate only affected results. Drag changes are unnecessary for
+this finding.
+
+Local raw measurements and the executed Node/Playwright probes are retained in
+`test-results/complex-cube-acceptance/` (ignored artifacts). This run did not
+repeat the dual-WASM build or full release matrix, and did not change production
+code. The feature's protocol checks pass; end-to-end performance acceptance
+remains failed.
