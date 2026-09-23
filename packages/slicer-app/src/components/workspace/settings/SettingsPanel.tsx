@@ -37,8 +37,6 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
   const applyNativeScopedConfigTransport = useSettingsStore((s) => s.applyNativeScopedConfigTransport);
-  const configurationMode = useSettingsStore((s) => s.configurationMode);
-  const setConfigurationMode = useSettingsStore((s) => s.setConfigurationMode);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
 
@@ -118,28 +116,6 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
         <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
         <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
-      </section>
-      <section data-testid="configuration-surface" className="space-y-2">
-        <div role="tablist" aria-label="Configuration mode" className="grid grid-cols-2 rounded border p-0.5">
-          <Button
-            type="button"
-            role="tab"
-            aria-selected={configurationMode === 'project'}
-            data-testid="config-mode-project"
-            variant={configurationMode === 'project' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setConfigurationMode('project')}
-          >Project</Button>
-          <Button
-            type="button"
-            role="tab"
-            aria-selected={configurationMode === 'scoped'}
-            data-testid="config-mode-scoped"
-            variant={configurationMode === 'scoped' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setConfigurationMode('scoped')}
-          >Scoped</Button>
-        </div>
       </section>
       <ScopedConfigurationPanel sceneInteraction={sceneInteraction} />
     </div>

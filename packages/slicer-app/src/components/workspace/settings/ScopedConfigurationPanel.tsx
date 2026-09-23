@@ -168,6 +168,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
   const baseValues = useSettingsStore((state) => state.baseValues);
   const snapshot = useSettingsStore((state) => state.nativeScopedConfig);
   const mode = useSettingsStore((state) => state.configurationMode);
+  const setConfigurationMode = useSettingsStore((state) => state.setConfigurationMode);
   const selectedVolumes = sceneInteraction?.selectedVolumes() ?? [];
   const selectionKind = sceneInteraction?.computeSelectionKind() ?? 'empty';
   const structure = useObjectListStore((state) => state.structure);
@@ -248,9 +249,29 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
-  if (!metadata) return <div className="p-3 text-xs text-muted-foreground">Loading configuration…</div>;
   return (
     <section data-testid="scoped-configuration-panel" className="space-y-2 border-t px-2 py-2">
+      <div role="tablist" aria-label="Configuration mode" className="grid grid-cols-2 rounded border p-0.5">
+        <Button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'project'}
+          data-testid="config-mode-project"
+          variant={mode === 'project' ? 'secondary' : 'ghost'}
+          size="sm"
+          onClick={() => setConfigurationMode('project')}
+        >Project</Button>
+        <Button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'scoped'}
+          data-testid="config-mode-scoped"
+          variant={mode === 'scoped' ? 'secondary' : 'ghost'}
+          size="sm"
+          onClick={() => setConfigurationMode('scoped')}
+        >Scoped</Button>
+      </div>
+      {!metadata ? <div className="p-3 text-xs text-muted-foreground">Loading configuration…</div> : <>
       <div className="flex items-center justify-between gap-1 text-xs text-muted-foreground">
         <span data-testid="scoped-target-label">{mode === 'project' ? 'Project' : resolution.label}</span>
         {(mode === 'project' || resolution.targets.length > 0) && <Button type="button" variant="ghost" size="xs" data-testid="config-reset-all" onClick={() => void resetAll()}>Reset All</Button>}
@@ -275,6 +296,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
           })}
         </>
       )}
+      </>}
     </section>
   );
 }

@@ -23,7 +23,8 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
       await rows.nth(i).locator('button').first().click();
       await height.fill(i === 0 ? '0.2' : '0.3');
       await height.press('Enter');
-      await expect(page.getByTestId('config-source-layer_height')).toHaveText('Object');
+      await height.hover();
+      await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText('Effective value source: Object.');
     }
     await rows.nth(0).locator('button').first().click({ modifiers: ['ControlOrMeta'] });
     await expect(page.getByTestId('config-mixed-layer_height')).toBeVisible();
@@ -45,7 +46,8 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
     await percent.fill('22%');
     await percent.press('Enter');
     await expect(percent).toHaveValue('22%');
-    await expect(page.getByTestId('config-source-sparse_infill_density')).toHaveText('Object');
+    await percent.hover();
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText('Effective value source: Object.');
     await expect(page.locator('[data-testid^="config-error-"]')).toHaveCount(0);
   } finally {
     await app.close();

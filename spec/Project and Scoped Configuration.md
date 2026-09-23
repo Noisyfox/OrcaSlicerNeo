@@ -9,8 +9,8 @@ configuration behavior.
 
 ## 1. Project and Scoped modes
 
-The `Project | Scoped` switch appears immediately below the printer and process
-preset selectors in the settings panel.
+The `Project | Scoped` switch appears inside the configuration panel, above
+the target label and configuration options.
 
 - **Project** edits and displays project-wide values, regardless of the current
   selection. Its value path is `Preset → Project`.

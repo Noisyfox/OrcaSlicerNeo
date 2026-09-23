@@ -276,7 +276,10 @@ describe('SettingsPanel preset transitions', () => {
     } });
     const { container, root } = await render(makePlatform(async () => resolvedSnapshot).platform);
     roots.push(root);
-    await act(async () => { (container.querySelector('[data-testid="config-mode-scoped"]') as HTMLElement).click(); });
+    const configurationPanel = container.querySelector('[data-testid="scoped-configuration-panel"]')!;
+    const scopedModeButton = container.querySelector('[data-testid="config-mode-scoped"]') as HTMLElement;
+    expect(configurationPanel.contains(scopedModeButton)).toBe(true);
+    await act(async () => { scopedModeButton.click(); });
     expect(useSettingsStore.getState().configurationMode).toBe('scoped');
     expect(container.querySelector('[data-testid="scoped-target-label"]')?.textContent).toBe('Plate 1');
     expect(container.querySelector('[data-testid="config-field-layer_height"]')).not.toBeNull();
