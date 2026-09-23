@@ -132,8 +132,8 @@ if (opts['check-geometry'] === 'true') {
         geometryFollowup.ok === true && geometryFollowup.objects?.length === 2,
         JSON.stringify(geometryFollowup));
   const geometryMesh = callJson('orc_get_model_mesh', [], []);
-  const sourceOffsets = beforeExportMesh.objects?.map((entry) => entry.instance_transform?.offset) ?? [];
-  const importedOffsets = geometryMesh.objects?.map((entry) => entry.instance_transform?.offset) ?? [];
+  const sourceOffsets = beforeExportMesh.renderables?.map((entry) => entry.instance_transform?.offset) ?? [];
+  const importedOffsets = geometryMesh.renderables?.map((entry) => entry.instance_transform?.offset) ?? [];
   const sourceDelta = sourceOffsets.length >= 2
     ? sourceOffsets[1].slice(0, 2).map((value, index) => value - sourceOffsets[0][index]) : [];
   const importedDelta = importedOffsets.length >= 2

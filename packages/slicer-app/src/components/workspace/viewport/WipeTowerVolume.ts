@@ -48,7 +48,7 @@ export class WipeTowerVolume extends GLVolume {
         rotation: [0, 0, projection.rotation * Math.PI / 180], scale: [1, 1, 1], mirror: [1, 1, 1],
       },
       volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
-    });
+    }, { kind: 'exclusive' });
     this.kind = 'wipe-tower';
     this.plateId = projection.plateId;
     this.projectionState = projection;

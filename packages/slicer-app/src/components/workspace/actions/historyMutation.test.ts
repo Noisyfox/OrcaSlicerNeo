@@ -26,7 +26,7 @@ function transactionRuntime() {
     before: HistoryContext,
     mutation: (id: string) => Promise<T>,
     after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
-  ): Promise<{ result: T; status: HistoryStatus }> => ({ result: await mutation('tx-1'), status: { ...status, revision: 3, undoLabel: before.activePlateId ?? 'mutation' } });
+  ): Promise<{ result: T; status: HistoryStatus; sceneDelta: null }> => ({ sceneDelta: null, result: await mutation('tx-1'), status: { ...status, revision: 3, undoLabel: before.activePlateId ?? 'mutation' } });
   const runProjectHistoryTransaction = vi.fn(implementation) as unknown as TransactionMock;
   const getFilamentSessionSnapshot = vi.fn(async () => ({
     ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
@@ -37,6 +37,7 @@ function transactionRuntime() {
     runProjectHistoryTransaction,
     getHistoryStatus: vi.fn(async () => status),
     getFilamentSessionSnapshot,
+    getModelScenePatch: vi.fn(),
     getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
     getPlateSessionSnapshot: vi.fn(async () => ({
       instances: [],
@@ -90,7 +91,7 @@ describe('structural history transaction boundary', () => {
     runtime.runProjectHistoryTransaction.mockImplementation(async (_label, _category, _before, mutation, after) => {
       const result = await mutation('tx-1');
       committed = typeof after === 'function' ? await after() : after;
-      return { result, status };
+      return { result, status, sceneDelta: null };
     });
     await runProjectHistoryMutation(runtime, 'Add Plate', async () => ({
       ok: true, currentPlateId: 'plate-b', reflow,
@@ -109,7 +110,7 @@ describe('structural history transaction boundary', () => {
     runtime.runProjectHistoryTransaction.mockImplementation(async (_label, _category, _before, mutation, after) => {
       const result = await mutation('tx-1');
       committed = typeof after === 'function' ? await after() : after;
-      return { result, status };
+      return { result, status, sceneDelta: null };
     });
     const publish = vi.fn(() => { expect(committed?.selection.objectIds).toEqual([]); });
     await runProjectHistoryMutation(runtime, 'Delete Objects', async () => ({ ok: true }), null, {
@@ -136,7 +137,8 @@ describe('structural history transaction boundary', () => {
       runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
       getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false, dirtyReasons: undefined })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
-      getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
+      getModelScenePatch: vi.fn(),
+    getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
       getPlateSessionSnapshot: vi.fn(async () => ({ instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
@@ -156,12 +158,13 @@ describe('structural history transaction boundary', () => {
         _before: HistoryContext,
         mutation: (id: string) => Promise<T>,
         after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
-      ): Promise<{ result: T; status: HistoryStatus }> => {
+      ): Promise<{ result: T; status: HistoryStatus; sceneDelta: null }> => {
         const result = await mutation('tx-1');
         committed.context = typeof after === 'function' ? await after() : after;
-        return { result, status };
+        return { result, status, sceneDelta: null };
       },
-      getModelStructure: async () => ({
+      getModelScenePatch: vi.fn(),
+    getModelStructure: async () => ({
         ok: true as const,
         objects: [{
           id: 43, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
@@ -224,7 +227,7 @@ describe('structural history transaction boundary', () => {
       _category: 'project',
       _before: HistoryContext,
       mutation: (id: string) => Promise<T>,
-    ) => ({ result: await mutation('tx-1'), status: newStatus }));
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: newStatus }));
 
     const read = syncHistoryStatus(runtime);
     const mutation = runProjectHistoryMutation(runtime, 'Add Cube', async () => ({ ok: true }));
@@ -264,7 +267,8 @@ describe('structural history transaction boundary', () => {
           assignments: { objects: [], parts: [], modifiers: [] },
           revisions: { session: 4, project: 4, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
       }),
-      getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
+      getModelScenePatch: vi.fn(),
+    getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
       getPlateSessionSnapshot: vi.fn(async () => ({ instances: [], ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     await runProjectHistoryMutation(failure, 'Rename Object', async () => ({ ok: true }));
@@ -297,7 +301,7 @@ describe('structural history transaction boundary', () => {
     runtime.runProjectHistoryTransaction.mockImplementation(async <T>(label: string, _category: 'project', before: HistoryContext, mutation: (id: string) => Promise<T>) => {
       started.push(label);
       if (label === 'First') await firstGate;
-      return { result: await mutation('tx-1'), status: { ...status, revision: label === 'First' ? 3 : 4, undoLabel: before.activePlateId ?? label } };
+      return { sceneDelta: null, result: await mutation('tx-1'), status: { ...status, revision: label === 'First' ? 3 : 4, undoLabel: before.activePlateId ?? label } };
     });
     const first = runProjectHistoryMutation(runtime, 'First', async () => ({ ok: true }));
     const second = runProjectHistoryMutation(runtime, 'Second', async () => ({ ok: true }));
@@ -322,7 +326,7 @@ describe('structural history transaction boundary', () => {
     ) => {
       const result = await mutation('tx-1');
       await projectGate;
-      return { result, status };
+      return { result, status, sceneDelta: null };
     });
     const project = runProjectHistoryMutation(runtime, 'Add Cube', async () => ({ ok: true }));
     const command = vi.fn(async () => ({

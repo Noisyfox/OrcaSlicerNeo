@@ -59,7 +59,7 @@ describe('history contracts', () => {
     }, entryId: 'entry-1', sceneDelta: {
       version: 1, objectIds: [101], volumeIds: [202], instanceIds: [303],
       plateIds: ['plate-session-1-plate-1'], objectOrder: [101],
-    }, impact: {
+    }, affectedPlateIds: ['plate-session-1-plate-1'], impact: {
       version: 1, model: 'delta', plateSession: true, filamentRack: true,
       nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
     } };

@@ -309,11 +309,14 @@ export function Workspace({
         if (impact.plateSession && !freshPlateSession)
           throw new Error('history SceneDelta is missing its authoritative plate session');
         const currentStructure = useObjectListStore.getState().structure;
-        const currentVolumes = [...glVolumeCollection.volumes];
+        const collection = glVolumeCollection.volumes;
+        const modelRevision = useSettingsStore.getState().modelRevision;
+        const currentVolumes = [...collection];
         const projection = await readSceneDeltaProjection(
           platform.runtime, sceneDelta, currentStructure, currentVolumes,
         );
-        if (historyRestoreRef.current?.currentRevision() !== revision) {
+        if (historyRestoreRef.current?.currentRevision() !== revision ||
+            glVolumeCollection.volumes !== collection || useSettingsStore.getState().modelRevision !== modelRevision) {
           const retained = new Set(currentVolumes);
           projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
           return;
@@ -326,6 +329,7 @@ export function Workspace({
             throw new Error('history restore scoped configuration requires a full refresh');
         }
 
+        projection.apply();
         if (freshPlateSession?.instanceTransforms) {
           const transformsStartedAt = historyDiagnosticNow();
           applyPlateSessionTransforms(

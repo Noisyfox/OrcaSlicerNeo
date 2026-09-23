@@ -17,20 +17,14 @@ async function runStructuralHistory(
 ): Promise<StructuralMutation> {
   const history = await runProjectHistoryMutation(runtime, label, mutation, null, {
     publish: async (result) => {
-      if (result.ok) await refreshAfterModelMutation(runtime, true, result.plateSession, dirtyReason);
+      if (result.ok) await refreshAfterModelMutation(runtime, result.plateSession, dirtyReason);
     },
   });
   return history.result;
 }
 
-/**
- * Structural (geometry-changing) object/part actions. Each calls the matching
- * bridge operation, then runs the unified post-mutation refresh (slice
- * invalidation, structure reload, mesh reload). Selection after a structural
- * change is intentionally cleared by the caller's mesh reload (the viewport
- * purges stale IDs); the full spec §6 restoration rules (select the new
- * entities / delete-neighbour) are a later UI refinement.
- */
+/** Structural commands publish the same committed SceneDelta as other edits.
+ * The viewport continues reconciling selection with native entity IDs. */
 export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: number[]): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;

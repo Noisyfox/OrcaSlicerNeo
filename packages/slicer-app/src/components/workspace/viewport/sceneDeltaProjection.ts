@@ -1,16 +1,18 @@
 import type {
   ModelObjectBuffer,
+  ModelRenderable,
   ModelObjectStructure,
   ModelScenePatchResult,
   SceneDelta,
   SlicerClient,
 } from '@slicer/client';
-import { GLVolume } from './GLVolume';
+import { GLVolume, leaseGeometry, retainedGeometry } from './GLVolume';
 import { normalizeTransform } from './transformDeltaMath';
 
 export type SceneDeltaProjection = {
   structure: ModelObjectStructure[];
   volumes: GLVolume[];
+  apply: () => void;
 };
 
 function sameIds(left: readonly number[], right: readonly number[]): boolean {
@@ -21,7 +23,7 @@ function meshKey(objectId: number, volumeId: number, instanceId: number): string
   return `${objectId}:${volumeId}:${instanceId}`;
 }
 
-function bufferKey(buffer: ModelObjectBuffer): string {
+function bufferKey(buffer: ModelRenderable): string {
   return meshKey(buffer.objectId, buffer.volumeId, buffer.instanceId);
 }
 
@@ -55,7 +57,7 @@ export function composeSceneDeltaProjection(
   });
 
   const retainedMeshes = new Map(currentVolumes.map((volume) => [volume.id, volume]));
-  const patchBuffers = new Map<string, ModelObjectBuffer>();
+  const patchBuffers = new Map<string, ModelRenderable>();
   for (const buffer of patch.meshes) {
     if (!touched.has(buffer.objectId))
       throw new Error(`model scene patch returned untouched object ${buffer.objectId}`);
@@ -65,7 +67,7 @@ export function composeSceneDeltaProjection(
   }
 
   const ordered: Array<{
-    candidate: GLVolume | ModelObjectBuffer;
+    candidate: GLVolume | ModelRenderable;
     objectIdx: number;
     volumeIdx: number;
     instanceIdx: number;
@@ -85,24 +87,29 @@ export function composeSceneDeltaProjection(
   }
   if (patchBuffers.size > 0) throw new Error('model scene patch returned unreferenced meshes');
 
+  const resources = new Map(patch.geometries.map((geometry) => [geometry.geometryKey, geometry]));
+  if (resources.size !== patch.geometries.length) throw new Error('duplicate model geometry');
   const created: GLVolume[] = [];
-  let volumes: GLVolume[];
+  const updates: Array<() => void> = [];
   try {
-    volumes = ordered.map(({ candidate, objectIdx, volumeIdx, instanceIdx }) => {
-      const buffer = candidate instanceof GLVolume ? candidate.buffer : candidate;
-      buffer.objectIdx = objectIdx;
-      buffer.volumeIdx = volumeIdx;
-      buffer.instanceIdx = instanceIdx;
-      if (candidate instanceof GLVolume) return candidate;
-      const volume = new GLVolume(candidate);
+    const volumes = ordered.map(({ candidate, objectIdx, volumeIdx, instanceIdx }) => {
+      if (candidate instanceof GLVolume) {
+        updates.push(() => Object.assign(candidate.buffer, { objectIdx, volumeIdx, instanceIdx }));
+        return candidate;
+      }
+      const resource = resources.get(candidate.geometryKey) ?? retainedGeometry(candidate.geometryKey);
+      if (!resource || resource.volumeId !== candidate.volumeId)
+        throw new Error(`missing model geometry ${candidate.geometryKey}`);
+      const buffer: ModelObjectBuffer = { ...candidate, ...resource, objectIdx, volumeIdx, instanceIdx };
+      const volume = new GLVolume(buffer, { kind: 'shared', key: candidate.geometryKey });
       created.push(volume);
       return volume;
     });
+    return { structure, volumes, apply: () => updates.forEach((update) => update()) };
   } catch (error) {
     created.forEach((volume) => volume.dispose());
     throw error;
   }
-  return { structure, volumes };
 }
 
 export async function readSceneDeltaProjection(
@@ -113,12 +120,23 @@ export async function readSceneDeltaProjection(
 ): Promise<SceneDeltaProjection> {
   const retained = new Set(delta.retainedRendererObjectIds ?? []);
   const projectionDelta = { ...delta, objectIds: delta.objectIds.filter((id) => !retained.has(id)) };
-  const patch = await runtime.getModelScenePatch(projectionDelta.objectIds);
-  const projection = composeSceneDeltaProjection(projectionDelta, patch, currentStructure, currentVolumes);
-  const transforms = new Map((delta.retainedVolumeTransforms ?? []).map((item) => [item.volumeId, item.transform]));
-  for (const volume of projection.volumes) {
-    const transform = transforms.get(volume.buffer.volumeId);
-    if (transform) volume.volumeTransform = normalizeTransform(structuredClone(transform));
-  }
-  return projection;
+  const touched = new Set(projectionDelta.objectIds);
+  const keys = [...new Set(currentVolumes.filter((volume) => touched.has(volume.buffer.objectId))
+    .flatMap((volume) => volume.ownership.kind === 'shared' ? [volume.ownership.key] : []))];
+  const release = leaseGeometry(keys);
+  try {
+    const patch = await runtime.getModelScenePatch(projectionDelta.objectIds, keys);
+    const projection = composeSceneDeltaProjection(projectionDelta, patch, currentStructure, currentVolumes);
+    const transforms = new Map((delta.retainedVolumeTransforms ?? []).map((item) =>
+      [item.volumeId, normalizeTransform(structuredClone(item.transform))]));
+    const apply = projection.apply;
+    projection.apply = () => {
+      apply();
+      for (const volume of projection.volumes) {
+        const transform = transforms.get(volume.buffer.volumeId);
+        if (transform) volume.volumeTransform = transform;
+      }
+    };
+    return projection;
+  } finally { release(); }
 }

@@ -407,6 +407,7 @@ json restore_timestamped_result(const Runtime& runtime,
     const auto before_live_context = state().history_live_context;
     const auto before_native_scoped_config = native_scoped_config_snapshot();
     const auto before_native_print_preset = Neo::Bridge::ScopedConfig::native_print_preset_history_state();
+    std::set<std::string> affected_plates;
     const double roots_restore_started_at = Neo::Bridge::Performance::now_ms();
     try {
         if (staged_filament_state) apply_mutable(state(), state().presets, std::move(*staged_filament_state));
@@ -424,10 +425,8 @@ json restore_timestamped_result(const Runtime& runtime,
             state().presets.project_config, state().plate_session_plates.size());
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         // A history restore publishes only the plates whose native input
-        // changed.  Project/filament roots and model topology still fan out
-        // to every plate; a plate-local root stays local, while object/part
-        // roots use the restored instance membership.
-        std::set<std::string> affected_plates;
+        // changed. Project/filament roots fan out to every plate; model
+        // topology and transforms use the restored instance membership.
         const auto all_plate_ids = [&]() {
             std::set<std::string> ids;
             for (const auto& plate : state().plate_session_plates) ids.insert(plate.id);
@@ -439,41 +438,52 @@ json restore_timestamped_result(const Runtime& runtime,
             const auto found = membership.find(instance_id);
             if (found != membership.end() && !found->second.empty()) destination.insert(found->second);
         };
-        std::set<std::string> model_transform_affected_plates;
-        bool model_shape_or_transform_changed = before_model.objects.size() != state().model.objects.size();
-        for (std::size_t index = 0; !model_shape_or_transform_changed && index < before_model.objects.size(); ++index) {
-            const auto* before_object = before_model.objects[index];
-            const auto* after_object = state().model.objects[index];
-            if (before_object->id() != after_object->id() ||
-                before_object->volumes.size() != after_object->volumes.size() ||
-                before_object->instances.size() != after_object->instances.size()) {
-                model_shape_or_transform_changed = true;
-                break;
-            }
-            for (std::size_t volume_index = 0; volume_index < before_object->volumes.size(); ++volume_index) {
-                if (before_object->volumes[volume_index]->id() != after_object->volumes[volume_index]->id()) {
-                    model_shape_or_transform_changed = true;
+        std::map<std::size_t, const ModelObject*> after_objects;
+        for (const auto* object : state().model.objects) after_objects.emplace(object->id().id, object);
+        const auto add_object_plates = [&](const ModelObject& object,
+                                           const std::map<std::size_t, std::string>& membership) {
+            for (const auto* instance : object.instances)
+                add_instance_plates(membership, instance->id().id, affected_plates);
+        };
+        std::set<std::size_t> object_ids;
+        for (const auto& [object_id, _] : before_objects) object_ids.insert(object_id);
+        for (const auto& [object_id, _] : after_objects) object_ids.insert(object_id);
+        for (const auto object_id : object_ids) {
+            const auto before = before_objects.find(object_id);
+            const auto after = after_objects.find(object_id);
+            if (before == before_objects.end()) { add_object_plates(*after->second, state().instance_plate_ids); continue; }
+            if (after == after_objects.end()) { add_object_plates(*before->second, before_membership); continue; }
+
+            std::map<std::size_t, const ModelVolume*> before_volumes, after_volumes;
+            for (const auto* volume : before->second->volumes) before_volumes.emplace(volume->id().id, volume);
+            for (const auto* volume : after->second->volumes) after_volumes.emplace(volume->id().id, volume);
+            bool object_geometry_changed = before_volumes.size() != after_volumes.size();
+            for (const auto& [volume_id, before_volume] : before_volumes) {
+                const auto found = after_volumes.find(volume_id);
+                if (found == after_volumes.end() ||
+                    before_volume->get_transformation() != found->second->get_transformation()) {
+                    object_geometry_changed = true;
                     break;
                 }
-                if (before_object->volumes[volume_index]->get_transformation() !=
-                    after_object->volumes[volume_index]->get_transformation()) {
-                    for (const auto* instance : before_object->instances)
-                        add_instance_plates(before_membership, instance->id().id, model_transform_affected_plates);
-                    for (const auto* instance : after_object->instances)
-                        add_instance_plates(state().instance_plate_ids, instance->id().id, model_transform_affected_plates);
-                }
             }
-            for (std::size_t instance_index = 0; !model_shape_or_transform_changed &&
-                                                   instance_index < before_object->instances.size(); ++instance_index) {
-                const auto* before_instance = before_object->instances[instance_index];
-                const auto* after_instance = after_object->instances[instance_index];
-                if (before_instance->id() != after_instance->id()) {
-                    model_shape_or_transform_changed = true;
-                    break;
-                }
-                if (before_instance->get_transformation() != after_instance->get_transformation()) {
-                    add_instance_plates(before_membership, before_instance->id().id, model_transform_affected_plates);
-                    add_instance_plates(state().instance_plate_ids, after_instance->id().id, model_transform_affected_plates);
+            if (object_geometry_changed) {
+                add_object_plates(*before->second, before_membership);
+                add_object_plates(*after->second, state().instance_plate_ids);
+                continue;
+            }
+            std::map<std::size_t, const ModelInstance*> before_instances, after_instances;
+            for (const auto* instance : before->second->instances) before_instances.emplace(instance->id().id, instance);
+            for (const auto* instance : after->second->instances) after_instances.emplace(instance->id().id, instance);
+            std::set<std::size_t> instance_ids;
+            for (const auto& [instance_id, _] : before_instances) instance_ids.insert(instance_id);
+            for (const auto& [instance_id, _] : after_instances) instance_ids.insert(instance_id);
+            for (const auto instance_id : instance_ids) {
+                const auto before_instance = before_instances.find(instance_id);
+                const auto after_instance = after_instances.find(instance_id);
+                if (before_instance == before_instances.end() || after_instance == after_instances.end() ||
+                    before_instance->second->get_transformation() != after_instance->second->get_transformation()) {
+                    add_instance_plates(before_membership, instance_id, affected_plates);
+                    add_instance_plates(state().instance_plate_ids, instance_id, affected_plates);
                 }
             }
         }
@@ -488,10 +498,9 @@ json restore_timestamped_result(const Runtime& runtime,
         const bool membership_changed = before_membership != state().instance_plate_ids ||
             before_parked != state().parked_instance_ids ||
             normalized_out_of_bounds(before_out_of_bounds) != normalized_out_of_bounds(state().plate_out_of_bounds_ids);
-        if (filament_changed || model_shape_or_transform_changed || project_changed) {
+        if (filament_changed || project_changed) {
             affected_plates = all_plate_ids();
         } else {
-            affected_plates.insert(model_transform_affected_plates.begin(), model_transform_affected_plates.end());
             if (membership_changed) {
                 std::set<std::size_t> membership_ids;
                 for (const auto& [instance_id, plate_id] : before_membership) membership_ids.insert(instance_id);
@@ -501,14 +510,20 @@ json restore_timestamped_result(const Runtime& runtime,
                 for (const auto& [plate_id, instance_ids] : state().plate_out_of_bounds_ids)
                     membership_ids.insert(instance_ids.begin(), instance_ids.end());
                 for (const auto instance_id : membership_ids) {
-                    add_instance_plates(before_membership, instance_id, affected_plates);
-                    add_instance_plates(state().instance_plate_ids, instance_id, affected_plates);
+                    const auto before = before_membership.find(instance_id);
+                    const auto after = state().instance_plate_ids.find(instance_id);
+                    const std::string before_plate = before == before_membership.end() ? "" : before->second;
+                    const std::string after_plate = after == state().instance_plate_ids.end() ? "" : after->second;
+                    if (before_plate == after_plate) continue;
+                    if (!before_plate.empty()) affected_plates.insert(before_plate);
+                    if (!after_plate.empty()) affected_plates.insert(after_plate);
                 }
             }
             for (const auto& plate : state().plate_session_plates) {
                 const auto before = std::find_if(before_plates.begin(), before_plates.end(),
                     [&](const auto& candidate) { return candidate.id == plate.id; });
-                if (before == before_plates.end() || before->settings != plate.settings)
+                if (before == before_plates.end() || before->origin != plate.origin ||
+                    before->settings != plate.settings)
                     affected_plates.insert(plate.id);
             }
             for (const auto* object : state().model.objects) {
@@ -616,37 +631,16 @@ json restore_timestamped_result(const Runtime& runtime,
                 old_volume.mmu_segmentation_facets.timestamp() == new_volume.mmu_segmentation_facets.timestamp();
         }
     }
-    if (usage_unchanged) {
-        std::set<std::string> plates;
-        const bool plate_settings_unchanged = !filament_changed &&
-            before_live_context.value("nativeScopedConfig", json::object()).value("project", json::object()) ==
-                staged_snapshot.value("project", json::object()) &&
-            before_live_context.contains("plateSession") &&
-            before_live_context["plateSession"].value("plates", json()) == plate_session.value("plates", json());
-        if (plate_settings_unchanged) {
-            for (std::size_t index = 0; index < live_model_state.mutable_objects.size(); ++index) {
-                const auto& before = live_model_state.mutable_objects[index];
-                const auto& after = restored.roots.model.mutable_objects[index];
-                if (before.volume_transforms == after.volume_transforms &&
-                    before.instance_transforms == after.instance_transforms &&
-                    before_membership == state().instance_plate_ids &&
-                    before_parked == state().parked_instance_ids &&
-                    before_out_of_bounds == state().plate_out_of_bounds_ids)
-                    continue;
-                for (const auto id : after.instance_ids) {
-                    const auto old_plate = before_membership.find(id);
-                    if (old_plate != before_membership.end()) plates.insert(old_plate->second);
-                    const auto new_plate = state().instance_plate_ids.find(id);
-                    if (new_plate != state().instance_plate_ids.end()) plates.insert(new_plate->second);
-                }
-            }
-        } else {
-            for (const auto& plate : state().plate_session_plates) plates.insert(plate.id);
-        }
-        Neo::Bridge::PrimeTower::invalidate_projection_cache(plates);
-    } else {
-        Neo::Bridge::PrimeTower::invalidate_projection_cache();
-    }
+    // `affected_plates` above is the single source of invalidation truth for
+    // the Worker cache, presentation registry, input stamps, and renderer.
+    // Structural Add/Delete changes retain their delta-capable usage summaries;
+    // material-affecting edits with stable object topology discard only the
+    // affected summaries before their next projection.
+    if (!usage_unchanged &&
+        live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size())
+        Neo::Bridge::PrimeTower::invalidate_projection_cache_and_usage_summaries(affected_plates);
+    else
+        Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_plates);
     HistoryMetadata::advance_history_epoch(state());
     json response_context = state().history_live_context;
     json restored_instance_transforms = json::array();
@@ -716,6 +710,7 @@ json restore_timestamped_result(const Runtime& runtime,
                     native_scoped_config_removed_targets(
                         before_native_scoped_config, native_scoped_config_snapshot()))},
                 {"entryId", history_entry_id(entry_id)},
+                {"affected_plate_ids", Neo::Bridge::PlateSession::plate_id_array(affected_plates)},
                 {"scene_delta", std::move(scene_delta)},
                 {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
                             {"filamentRack", filament_projection_changed}, {"nativeScopedConfig", true}, {"selectionContext", true},
@@ -1628,7 +1623,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             auto& nested = state().nested_history_transactions.back();
             if (requested != nested.id) return error_json("history transaction is stale or belongs to another writer");
             state().nested_history_transactions.pop_back();
-            return duplicate_json(history_status_json().dump());
+            return duplicate_json(json{{"status", history_status_json()}, {"scene_delta", nullptr}}.dump());
         }
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
@@ -1647,10 +1642,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             state().active_history_transaction.reset();
             state().nested_history_transactions.clear();
             state().history_live_context = after_context;
-            return duplicate_json(history_status_json().dump());
+            return duplicate_json(json{{"status", history_status_json()}, {"scene_delta", nullptr}}.dump());
         }
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
-        if (!state().history.commit_operation(after_roots)) return error_json("history commit rejected");
+        Neo::History::SceneDelta committed_delta;
+        if (!state().history.commit_operation(after_roots, &committed_delta)) return error_json("history commit rejected");
         HistoryMetadata::advance_history_epoch(state());
         state().history_live_context = after_context;
         const auto removed_native_scoped_config_targets = native_scoped_config_removed_targets(
@@ -1683,7 +1679,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             response["native_scoped_config"] = native_scoped_config_full_transport(
                 state().history_revision, removed_native_scoped_config_targets);
         }
-        return duplicate_json(response.dump());
+        return duplicate_json(json{{"status", std::move(response)}, {"scene_delta", {
+            {"version", 1}, {"object_ids", committed_delta.object_ids},
+            {"volume_ids", committed_delta.volume_ids}, {"instance_ids", committed_delta.instance_ids},
+            {"plate_ids", committed_delta.plate_ids}, {"object_order", committed_delta.object_order}
+        }}}.dump());
     } catch (const std::exception& e) {
         state().mutable_object_capture_cache.clear();
         return error_json(e.what());

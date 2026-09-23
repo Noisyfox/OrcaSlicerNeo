@@ -59,6 +59,7 @@ json projection_json();
 
 void invalidate_projection_cache();
 void invalidate_projection_cache(const std::set<std::string>& plate_ids);
+void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids);
 
 json move_position_json(const char* request_cstr);
 

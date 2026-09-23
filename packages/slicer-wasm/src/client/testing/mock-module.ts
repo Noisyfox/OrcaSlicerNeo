@@ -429,6 +429,44 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
+  function affectedHistoryPlateIds(before: MockHistoryState, after: MockHistoryState): string[] {
+    const affected = new Set<string>();
+    const add = (plateId: string | undefined) => { if (plateId) affected.add(plateId); };
+    const objectById = (state: MockHistoryState) => new Map(state.objectMeta.map((object, index) => [object.id, {
+      plateId: state.objectPlateIds[index], transforms: state.objectTransforms[index],
+      volumeTransforms: state.objectVolumeTransforms[index], volumes: state.volumeMeta[index],
+      instances: state.instanceMeta[index],
+    }]));
+    const beforeObjects = objectById(before);
+    const afterObjects = objectById(after);
+    for (const id of new Set([...beforeObjects.keys(), ...afterObjects.keys()])) {
+      const previous = beforeObjects.get(id);
+      const next = afterObjects.get(id);
+      if (!previous || !next || JSON.stringify(previous) !== JSON.stringify(next)) {
+        add(previous?.plateId);
+        add(next?.plateId);
+      }
+    }
+    if (JSON.stringify(before.nativeScopedConfig.project) !== JSON.stringify(after.nativeScopedConfig.project)) {
+      for (const plateId of after.plateIds) add(plateId);
+    }
+    const changedKeys = (beforeValues: Record<string, unknown>, afterValues: Record<string, unknown>) =>
+      new Set([...Object.keys(beforeValues), ...Object.keys(afterValues)].filter((key) =>
+        JSON.stringify(beforeValues[key]) !== JSON.stringify(afterValues[key])));
+    for (const objectId of changedKeys(before.nativeScopedConfig.objects, after.nativeScopedConfig.objects)) {
+      add(beforeObjects.get(Number(objectId))?.plateId);
+      add(afterObjects.get(Number(objectId))?.plateId);
+    }
+    for (const volumeId of changedKeys(before.nativeScopedConfig.parts, after.nativeScopedConfig.parts)) {
+      const owner = (state: MockHistoryState) => state.volumeMeta.findIndex((volumes) => volumes.some((volume) => String(volume.id) === volumeId));
+      const beforeIndex = owner(before);
+      const afterIndex = owner(after);
+      add(beforeIndex >= 0 ? before.objectPlateIds[beforeIndex] : undefined);
+      add(afterIndex >= 0 ? after.objectPlateIds[afterIndex] : undefined);
+    }
+    for (const plateId of changedKeys(before.nativeScopedConfig.plates, after.nativeScopedConfig.plates)) add(plateId);
+    return [...affected].sort();
+  }
   function historyStatus() {
     const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0';
     const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse()
@@ -475,7 +513,47 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyLastEvictedEntryId = null;
     historyRevision++; historyDisabled = false;
   }
+  function mockSceneDelta(before: MockHistoryState, after: MockHistoryState) {
+    const describe = (state: MockHistoryState, id: number) => {
+      const i = state.objectMeta.findIndex((object) => object.id === id);
+      return i < 0 ? null : [state.objectMeta[i], state.volumeMeta[i], state.instanceMeta[i],
+        state.objectTransforms[i], state.objectVolumeTransforms[i]];
+    };
+    const ids = [...new Set([...before.objectMeta, ...after.objectMeta].map((object) => object.id))];
+    const touched = ids.filter((id) => JSON.stringify(describe(before, id)) !== JSON.stringify(describe(after, id)));
+    const volumes: number[] = [], instances: number[] = [];
+    for (const state of [before, after]) state.objectMeta.forEach((object, index) => {
+      if (!touched.includes(object.id)) return;
+      volumes.push(...state.volumeMeta[index].map((volume) => volume.id));
+      instances.push(...state.instanceMeta[index].map((instance) => instance.id));
+    });
+    return { version: 1, object_ids: touched, volume_ids: [...new Set(volumes)],
+      instance_ids: [...new Set(instances)], plate_ids: [...new Set([...before.plateIds, ...after.plateIds])],
+      object_order: after.objectMeta.map((object) => object.id) };
+  }
+  function modelGeometry(requested: Set<number>, known: Set<number>) {
+    const geometries: Record<string, unknown>[] = [];
+    const renderables = objectTransforms.flatMap((instances, object_idx) => {
+      if (!requested.has(objectMeta[object_idx].id)) return [];
+      return objectVolumeTransforms[object_idx].flatMap((volume_transform, volume_idx) => {
+        const volume_id = volumeMeta[object_idx][volume_idx].id;
+        if (instances.length && !known.has(volume_id)) {
+          const { verts, tris } = primitiveMesh(objectMeta[object_idx]?.primitive);
+          const vertex_ptr = malloc(verts.length * 12), index_ptr = malloc(tris.length * 12);
+          verts.forEach((vertex, i) => HEAPF32.set(vertex, vertex_ptr / 4 + i * 3));
+          tris.forEach((triangle, i) => HEAPU32.set(triangle, index_ptr / 4 + i * 3));
+          geometries.push({ volume_id, vertex_ptr, vertex_count: verts.length, index_ptr, index_count: tris.length * 3 });
+        }
+        return instances.map((instance_transform, instance_idx) => ({
+          object_id: objectMeta[object_idx].id, volume_id, instance_id: instanceMeta[object_idx][instance_idx].id,
+          object_idx, volume_idx, instance_idx, offset: instance_transform.offset, instance_transform, volume_transform,
+        }));
+      });
+    });
+    return { ok: true, renderables, geometries };
+  }
   function historyRestore(entry: MockHistoryEntry) {
+    const beforeState = captureHistoryState();
     const before = nativeScopedConfigProjection();
     restoreHistoryState(entry);
     historyRevision++;
@@ -491,6 +569,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     };
     return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
       native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
+      affected_plate_ids: affectedHistoryPlateIds(beforeState, entry),
       scene_delta: sceneDelta,
       impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
@@ -788,6 +867,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const mutation: Record<string, unknown> = {
       kind, history_entry_delta: 1, revision_before: request.revision,
       revision_after: next.revisions.session, dirty: true, all_plate_results_invalidated: true,
+      affected_plate_ids: [...plateIds],
     };
     if (kind === 'add') mutation.slot = next.slots.length;
     else if (kind === 'select-preset' || kind === 'set-colour') {
@@ -860,7 +940,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ...historyStatus(), revision: next.revisions.session, dirty: true }, mutation: {
       kind, history_entry_delta: 1, revision_before: request.revision, revision_after: next.revisions.session,
       dirty: true, all_plate_results_invalidated: kind === 'routing' && accepted.some((target: any) => target.kind === 'project'), accepted_targets: accepted,
-      ...(kind === 'routing' ? { selector: request.selector, slot: request.slot } : { slot: request.slot }), affected_plate_ids: [],
+      ...(kind === 'routing' ? { selector: request.selector, slot: request.slot } : { slot: request.slot }),
+      affected_plate_ids: kind === 'routing' && accepted.some((target: any) => target.kind === 'project')
+        ? [...plateIds]
+        : [...new Set(accepted.map((target: any) => objectPlateIds[objectMeta.findIndex((object) => object.id === target.object_id)]).filter((id): id is string => typeof id === 'string'))],
     } } };
   }
   function plateMutation(
@@ -1192,7 +1275,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (nested) {
         if (transactionId !== nested.id) return { error: 'history transaction is stale or belongs to another writer' };
         historyNestedTransactions.pop();
-        return historyStatus();
+        return { status: historyStatus(), scene_delta: null };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       let afterContext: any;
@@ -1218,6 +1301,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         historyCursor = historyEntries.length - 1;
         historyRevision++;
       }
+      const sceneDelta = changed ? mockSceneDelta(historyTransaction.before, current) : null;
       const committedTargets = historyTransaction.targets;
       const removedTargets = nativeScopedConfigRemovedTargets(
         historyTransaction.before.nativeScopedConfig, nativeScopedConfigProjection());
@@ -1226,7 +1310,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (changed) status.native_scoped_config = committedTargets.length > 0
         ? nativeScopedConfigAffectedTransport(committedTargets, removedTargets)
         : nativeScopedConfigFullTransport(removedTargets);
-      return status;
+      return { status, scene_delta: sceneDelta };
     },
     orc_history_abort(transactionId: string) {
       if (!historyTransaction) return { error: 'history transaction is not active' };
@@ -1243,7 +1327,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
           version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
           object_order: objectMeta.map((object) => object.id),
-        } };
+        }, affected_plate_ids: [] };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
@@ -1257,7 +1341,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
         version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
         object_order: objectMeta.map((object) => object.id),
-      } };
+      }, affected_plate_ids: [] };
     },
     orc_history_undo() {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -2092,80 +2176,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return plateSessionSnapshot();
     },
     orc_get_model_mesh() {
-      if (!modelLoaded) return { error: 'no model loaded' };
-      // Local coordinates — the bridge contract (bridge.cpp
-      // orc_get_model_mesh) reports the instance offset separately, and the
-      // renderer applies it as the group position. (The offset used to be
-      // baked into the vertices too, which double-offset the cube after a
-      // committed move + reload; offset 0 hid it.) File-import fixtures are
-      // the 20 mm cube (8 verts, 12 tris); primitives return their own
-      // geometry from primitiveMesh.
-      return {
-        ok: true,
-        // The client frees every returned pair of heap buffers, so each
-        // composite must own distinct allocations even though the geometry
-        // itself is identical.
-        objects: objectTransforms.flatMap((instances, object_idx) => instances.flatMap((instanceTransform, instance_idx) =>
-          objectVolumeTransforms[object_idx].map((_volumeTransform, volume_idx) => {
-          // Primitives return their built geometry; other objects the cube.
-          const { verts, tris } = primitiveMesh(objectMeta[object_idx]?.primitive);
-          const vptr = malloc(verts.length * 3 * 4);
-          const iptr = malloc(tris.length * 3 * 4);
-          const vo = vptr / 4;
-          const io = iptr / 4;
-          verts.forEach((v, i) => HEAPF32.set(v, vo + i * 3));
-          tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
-          return {
-            object_id: objectMeta[object_idx].id,
-            volume_id: volumeMeta[object_idx][volume_idx].id,
-            instance_id: instanceMeta[object_idx][instance_idx].id,
-            object_idx,
-            volume_idx,
-            instance_idx,
-            vertex_ptr: vptr,
-            vertex_count: verts.length,
-            index_ptr: iptr,
-            index_count: tris.length * 3,
-            offset: instanceTransform.offset,
-            instance_transform: instanceTransform,
-            volume_transform: objectVolumeTransforms[object_idx][volume_idx],
-          };
-          })),
-        ),
-      };
+      return modelGeometry(new Set(objectMeta.map((object) => object.id)), new Set());
     },
-    orc_get_model_scene_patch(objectIdsJson: string) {
-      const requested = JSON.parse(objectIdsJson) as number[];
-      if (!Array.isArray(requested) || requested.some((id) => !Number.isSafeInteger(id) || id <= 0))
-        return { error: 'scene patch object ids must be positive integers' };
-      const requestedIds = new Set(requested);
-      const meshes = objectTransforms.flatMap((instances, object_idx) => {
-        if (!requestedIds.has(objectMeta[object_idx].id)) return [];
-        return instances.flatMap((instanceTransform, instance_idx) =>
-          objectVolumeTransforms[object_idx].map((_volumeTransform, volume_idx) => {
-            const { verts, tris } = primitiveMesh(objectMeta[object_idx]?.primitive);
-            const vptr = malloc(verts.length * 3 * 4);
-            const iptr = malloc(tris.length * 3 * 4);
-            const vo = vptr / 4;
-            const io = iptr / 4;
-            verts.forEach((v, i) => HEAPF32.set(v, vo + i * 3));
-            tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
-            return {
-              object_id: objectMeta[object_idx].id,
-              volume_id: volumeMeta[object_idx][volume_idx].id,
-              instance_id: instanceMeta[object_idx][instance_idx].id,
-              object_idx, volume_idx, instance_idx,
-              vertex_ptr: vptr, vertex_count: verts.length,
-              index_ptr: iptr, index_count: tris.length * 3,
-              offset: instanceTransform.offset,
-              instance_transform: instanceTransform,
-              volume_transform: objectVolumeTransforms[object_idx][volume_idx],
-            };
-          }));
-      });
+    orc_get_model_scene_patch(requestJson: string) {
+      const { object_ids, known_volume_ids } = JSON.parse(requestJson);
+      if (![object_ids, known_volume_ids].every((ids) => Array.isArray(ids) && ids.every((id: number) => Number.isSafeInteger(id) && id > 0)))
+        return { error: 'scene patch ids must be positive integers' };
+      const requested = new Set<number>(object_ids);
       const structure = buildStructure();
-      return { ok: true, object_order: structure.map((object) => object.id),
-        objects: structure.filter((object) => requestedIds.has(object.id)), meshes };
+      return { ...modelGeometry(requested, new Set<number>(known_volume_ids)),
+        object_order: structure.map((object) => object.id), objects: structure.filter((object) => requested.has(object.id)) };
     },
     orc_get_model_structure() {
       return {

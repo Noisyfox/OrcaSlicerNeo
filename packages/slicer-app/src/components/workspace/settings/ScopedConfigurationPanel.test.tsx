@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider, TOOLTIP_DELAY_MS } from '@/components/ui/tooltip';
-import { ScopedField } from './ScopedConfigurationPanel';
+import { ScopedConfigurationPanel, ScopedField } from './ScopedConfigurationPanel';
+import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { Selection } from '../viewport/Selection';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { ScopedConfigurationField } from './scopedConfigurationProjection';
 
 let root: Root | undefined;
@@ -45,6 +50,34 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 }
 
 describe('scoped field drafts', () => {
+  it('does not render Project settings on selection changes and reads the latest target on switching to Scoped', async () => {
+    useSettingsStore.setState({ configurationMode: 'project', metadata: {
+      layer_height: { type: 'float', label: 'Layer height', scopes: ['project', 'object'] },
+    }, baseValues: { layer_height: '0.2' }, nativeScopedConfig: {
+      project: {}, plates: {}, parts: {}, objects: { '42': { layer_height: '0.3' }, '43': { layer_height: '0.4' } },
+    } });
+    const selection = new Selection();
+    const controller = { selection, computeSelectionKind: () => 'object',
+      selectedVolumes: () => [...selection.ids].map((id) => ({ buffer: { objectId: Number(id), volumeId: 100 } })),
+    } as unknown as SceneInteractionController;
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    const onRender = vi.fn();
+    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+      <Profiler id="settings" onRender={onRender}><ScopedConfigurationPanel sceneInteraction={controller} /></Profiler>
+    </TooltipProvider></PlatformProvider>));
+    onRender.mockClear();
+    await act(async () => { selection.replaceIds(['42']); });
+    await act(async () => { selection.replaceIds(['43']); usePlateSessionStore.getState().reset(); });
+    expect(onRender).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.value).toBe('0.2');
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="config-mode-scoped"]')!.click());
+    expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.value).toBe('0.4');
+    await act(async () => { selection.replaceIds(['42']); });
+    expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.value).toBe('0.3');
+  });
+
   it('retains a complete mixed-value draft until blur commits it', async () => {
     const { input, change, onCommit } = await renderField({ mixed: true, value: null, source: 'mixed' });
     for (const value of ['0', '0.2', '0.25']) {

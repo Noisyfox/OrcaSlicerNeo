@@ -194,10 +194,8 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
 
 /** Clear stale slice UI after a successful shared configuration commit. */
 export function invalidateAfterSharedConfigurationMutation(affectedPlateIds?: readonly string[]): void {
-  // Native object/part overrides return their exact affected plate set;
-  // consume it so an edit cannot discard an unrelated completed plate.  A
-  // missing set denotes the shared project/preset boundary and conservatively
-  // clears every result.
+  // A draft project edit has no native affected receipt yet, so it represents
+  // the explicit shared-configuration boundary and hides every plate result.
   const existingStatus = useSlicerStore.getState().error;
   if (affectedPlateIds !== undefined) useSlicerStore.getState().invalidatePlateResults(affectedPlateIds);
   else useSlicerStore.getState().invalidateSliceResult();

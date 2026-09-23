@@ -45,7 +45,7 @@ const addA = requireOk('begin A', callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], ['Add Cube A', 'project', JSON.stringify(context), '']));
 requireOk('add A', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Transform A']));
 requireStatus('commit A', callJson('orc_history_commit', ['string', 'string'],
-  [addA.transactionId, JSON.stringify(context)]));
+  [addA.transactionId, JSON.stringify(context)]).status);
 const first = callJson('orc_get_plate_session_snapshot');
 const plateA = first.current_plate_id;
 const addPlate = requireOk('begin add plate', callJson('orc_history_begin',
@@ -54,12 +54,12 @@ requireOk('add plate B', callJson('orc_add_plate'));
 const second = callJson('orc_get_plate_session_snapshot');
 const plateB = second.current_plate_id;
 requireStatus('commit add plate', callJson('orc_history_commit', ['string', 'string'],
-  [addPlate.transactionId, JSON.stringify(context)]));
+  [addPlate.transactionId, JSON.stringify(context)]).status);
 const addB = requireOk('begin B', callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], ['Add Cube B', 'project', JSON.stringify(context), '']));
 requireOk('add B', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Transform B']));
 requireStatus('commit B', callJson('orc_history_commit', ['string', 'string'],
-  [addB.transactionId, JSON.stringify(context)]));
+  [addB.transactionId, JSON.stringify(context)]).status);
 
 requireOk('select A', callJson('orc_select_plate', ['string'], [plateA]));
 let snapshot = callJson('orc_get_plate_session_snapshot');
@@ -74,7 +74,7 @@ const beforeMoveStamps = stampMap();
 
 requireOk('select A for Move', callJson('orc_select_plate', ['string'], [plateA]));
 const mesh = callJson('orc_get_model_mesh');
-const target = mesh.objects?.find((entry) => entry.object_idx === 0);
+const target = mesh.renderables?.find((entry) => entry.object_idx === 0);
 if (!target) throw new Error(`missing A transform target: ${JSON.stringify(mesh)}`);
 const nextInstance = { ...target.instance_transform,
   offset: [target.instance_transform.offset[0] + 10,
@@ -93,7 +93,7 @@ const afterMoveStamps = stampMap();
 if (!(afterMoveStamps[plateA] > beforeMoveStamps[plateA]) || afterMoveStamps[plateB] !== beforeMoveStamps[plateB])
   throw new Error(`Move stamp scope failed: ${JSON.stringify({ beforeMoveStamps, afterMoveStamps, moved })}`);
 requireStatus('commit Move', callJson('orc_history_commit', ['string', 'string'],
-  [move.transactionId, JSON.stringify(context)]));
+  [move.transactionId, JSON.stringify(context)]).status);
 requireOk('select B after Move', callJson('orc_select_plate', ['string'], [plateB]));
 requireOk('B remains publishable after Move', getSliceResult(callJson, sliceB.receipt));
 requireOk('select A after Move', callJson('orc_select_plate', ['string'], [plateA]));

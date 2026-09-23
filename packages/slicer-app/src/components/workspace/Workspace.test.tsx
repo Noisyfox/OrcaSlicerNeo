@@ -208,7 +208,7 @@ describe('Workspace ownership', () => {
     const getModelStructure = vi.fn(async () => ({ ok: true as const, objects: [] }));
     const getModelMesh = vi.fn(async () => ({ ok: true as const, objects: [] }));
     const getModelScenePatch = vi.fn(async () => ({
-      ok: true as const, objectOrder: [], objects: [], meshes: [],
+      ok: true as const, objectOrder: [], objects: [], meshes: [], geometries: [],
     }));
     const restore = {
       ok: true as const,
@@ -246,7 +246,7 @@ describe('Workspace ownership', () => {
     const projectionReadsBeforeRestore = runtime.getPrimeTowerProjection.mock.calls.length;
     await act(async () => { await coordinator?.restore('undo'); });
     expect(getModelScenePatch).toHaveBeenCalledOnce();
-    expect(getModelScenePatch).toHaveBeenCalledWith([]);
+    expect(getModelScenePatch).toHaveBeenCalledWith([], []);
     expect(getModelStructure).not.toHaveBeenCalled();
     expect(getModelMesh).not.toHaveBeenCalled();
     expect(runtime.getPlateSessionSnapshot).toHaveBeenCalledTimes(plateReadsBeforeRestore);

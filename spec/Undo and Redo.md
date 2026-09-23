@@ -530,14 +530,13 @@ scope.
   current state and nearest usable history. Native mesh ownership is shared
   directly; there is no legacy encoded-mesh fallback.
 - History never stores Print, G-code, preview, or other slicing output. Every
-  successful Undo or Redo invalidates every plate's derived slicing result for
-  this first implementation. It immediately advances the input revisions,
-  hides stale renderer data, and asynchronously requests active job
-  cancellation without waiting. A per-plate `Print` owns its applied model,
-  so a restore that does not remove that plate does not mutate its Print or
-  contend with its slice thread. The existing tombstone owns a removed plate's
-  Print until its job reaches a terminal state. This policy is deliberately
-  broader than the model restore and may later be narrowed to affected plates.
+  successful Undo or Redo returns the native-authoritative before/after
+  affected plate set and advances only those input revisions. The renderer
+  hides and cancels only those plate results; unaffected matching receipts
+  remain available. A per-plate `Print` owns its applied model, so a restore
+  that does not affect that plate does not mutate its Print or contend with
+  its slice thread. The existing tombstone owns a removed plate's Print until
+  its job reaches a terminal state.
 - Each restore yields one aggregated stable-ID renderer patch. React/Three
   update only affected scene members and preserve untouched GPU resources;
   only project load, Worker restart, or graphics-context loss permits full

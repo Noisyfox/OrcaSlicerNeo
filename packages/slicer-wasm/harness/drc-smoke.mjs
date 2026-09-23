@@ -58,8 +58,8 @@ function addDrc(bytes, displayName) {
 
 function meshSummary() {
   const mesh = callJson('orc_get_model_mesh', [], []);
-  if (!mesh.ok || mesh.objects?.length !== 1) return { mesh };
-  const object = mesh.objects[0];
+  if (!mesh.ok || mesh.renderables?.length !== 1) return { mesh };
+  const object = { ...mesh.renderables[0], ...mesh.geometries[0] };
   try {
     const raw = Module.HEAPU8.slice(Number(object.vertex_ptr),
       Number(object.vertex_ptr) + object.vertex_count * 3 * Float32Array.BYTES_PER_ELEMENT);

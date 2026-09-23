@@ -222,7 +222,7 @@ const mixedTransaction = callJson('orc_history_begin', ['string', 'string', 'str
   ['Prime Tower mixed structural model', 'project', JSON.stringify(mixedHistoryContext), '']);
 assert.equal(typeof mixedTransaction.transactionId, 'string', JSON.stringify(mixedTransaction));
 assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Prime Tower mixed restore object']).ok, true);
-const mixedCommit = callJson('orc_history_commit', ['string', 'string'], [mixedTransaction.transactionId, JSON.stringify(mixedHistoryContext)]);
+const mixedCommit = callJson('orc_history_commit', ['string', 'string'], [mixedTransaction.transactionId, JSON.stringify(mixedHistoryContext)]).status;
 assert.equal(mixedCommit.canUndo, true, JSON.stringify(mixedCommit));
 const mixedStructuralEntryId = historyEntryId('Prime Tower mixed structural model');
 const mixedModelAfter = modelShape();

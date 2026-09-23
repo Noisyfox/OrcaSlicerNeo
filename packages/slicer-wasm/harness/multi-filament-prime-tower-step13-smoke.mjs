@@ -47,7 +47,7 @@ function transaction(label, edit) {
   const result = edit();
   assert.equal(result.ok, true, JSON.stringify(result));
   context.nativeScopedConfig = callJson('orc_get_native_scoped_config').native_scoped_config;
-  const committed = callJson('orc_history_commit', ['string', 'string'], [begun.transactionId, JSON.stringify(context)]);
+  const committed = callJson('orc_history_commit', ['string', 'string'], [begun.transactionId, JSON.stringify(context)]).status;
   assert.equal(committed.canUndo, true, JSON.stringify(committed));
   return committed;
 }

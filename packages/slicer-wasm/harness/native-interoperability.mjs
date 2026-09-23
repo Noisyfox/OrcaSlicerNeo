@@ -49,7 +49,7 @@ function equalCanonical(a, b) {
 
 function canonicalState(snapshot, mesh) {
   const transforms = new Map();
-  for (const item of mesh.objects ?? []) {
+  for (const item of mesh.renderables ?? []) {
     const key = `${item.object_idx}:${item.instance_idx}`;
     if (!transforms.has(key)) transforms.set(key, item.offset);
   }
@@ -173,7 +173,7 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
   const preset = callJson(Module, 'orc_get_preset_snapshot');
   const closeVector = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
     a.every((value, index) => Array.isArray(value) ? closeVector(value, b[index]) : close(value, b[index]));
-  const actualWorldOffsets = (mesh.objects ?? []).map((item) => item.offset);
+  const actualWorldOffsets = (mesh.renderables ?? []).map((item) => item.offset);
   check('canonical plate layout derives from selected printer area',
     JSON.stringify(preset.printable_area) === JSON.stringify(layout.printable_area) &&
     snapshot.plates.length === layout.plate_origins.length &&

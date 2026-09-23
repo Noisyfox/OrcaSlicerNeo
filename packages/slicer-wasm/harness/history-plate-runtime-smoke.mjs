@@ -43,7 +43,7 @@ const addATx = requireOk('begin Plate A object', callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], ['Add Cube A', 'project', JSON.stringify(context), '']));
 requireOk('add Plate A object', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'History A']));
 requireStatus('commit Plate A object', callJson('orc_history_commit', ['string', 'string'],
-  [addATx.transactionId, JSON.stringify(context)]));
+  [addATx.transactionId, JSON.stringify(context)]).status);
 const initial = callJson('orc_get_plate_session_snapshot');
 const plateA = initial.current_plate_id;
 const addPlateTx = requireOk('begin Add Plate', callJson('orc_history_begin',
@@ -52,12 +52,12 @@ requireOk('add Plate B', callJson('orc_add_plate'));
 const afterAddPlate = callJson('orc_get_plate_session_snapshot');
 const plateB = afterAddPlate.current_plate_id;
 requireStatus('commit Add Plate', callJson('orc_history_commit', ['string', 'string'],
-  [addPlateTx.transactionId, JSON.stringify(context)]));
+  [addPlateTx.transactionId, JSON.stringify(context)]).status);
 const addBTx = requireOk('begin Plate B object', callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], ['Add Cube B', 'project', JSON.stringify(context), '']));
 requireOk('add Plate B object', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'History B']));
 requireStatus('commit Plate B object', callJson('orc_history_commit', ['string', 'string'],
-  [addBTx.transactionId, JSON.stringify(context)]));
+  [addBTx.transactionId, JSON.stringify(context)]).status);
 
 let session = callJson('orc_get_plate_session_snapshot');
 const sliceTarget = (plateId) => [plateId, session.input_revisions[plateId]];
@@ -78,7 +78,7 @@ const editTx = requireOk('begin A edit', callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], ['Add Cube A', 'project', JSON.stringify(context), '']));
 requireOk('change A', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'History A changed']));
 requireStatus('commit A edit', callJson('orc_history_commit', ['string', 'string'],
-  [editTx.transactionId, JSON.stringify(context)]));
+  [editTx.transactionId, JSON.stringify(context)]).status);
 const afterEditStamps = stamps();
 if (!(afterEditStamps[plateA] > slicedStamps[plateA]) || afterEditStamps[plateB] !== slicedStamps[plateB])
   throw new Error(`edit stamp reconciliation failed: ${JSON.stringify({ slicedStamps, afterEditStamps })}`);
@@ -109,7 +109,7 @@ const deleteTx = requireOk('begin Delete Plate B', callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], ['Delete Plate B', 'project', JSON.stringify(context), '']));
 requireOk('delete Plate B', callJson('orc_delete_plate', ['string'], [plateB]));
 requireStatus('commit Delete Plate B', callJson('orc_history_commit', ['string', 'string'],
-  [deleteTx.transactionId, JSON.stringify(context)]));
+  [deleteTx.transactionId, JSON.stringify(context)]).status);
 requireStatus('Undo Delete Plate B', callJson('orc_history_undo'));
 const afterRestore = callJson('orc_get_plate_session_snapshot');
 if (!afterRestore.plates.some((plate) => plate.plate_id === plateB))

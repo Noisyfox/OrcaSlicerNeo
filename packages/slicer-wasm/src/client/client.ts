@@ -1,3 +1,4 @@
+import { decodeModelGeometry } from './modelGeometry';
 // packages/slicer-wasm/src/client/client.ts
 // ----------------------------------------------------------------
 // The typed promise-based bridge client — the ONLY JS that talks to
@@ -526,15 +527,15 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
-  const baseKeys = ['kind', 'history_entry_delta', 'revision_before', 'revision_after', 'dirty', 'all_plate_results_invalidated'];
+  const baseKeys = ['kind', 'history_entry_delta', 'revision_before', 'revision_after', 'dirty', 'all_plate_results_invalidated', 'affected_plate_ids'];
   const kindKeys: Record<string, string[]> = {
     'select-preset': [...baseKeys, 'slot', 'preset'],
     'set-colour': [...baseKeys, 'slot', 'colour'],
     add: [...baseKeys, 'slot'],
     delete: [...baseKeys, 'source', 'destination', 'slot_count'],
     merge: [...baseKeys, 'source', 'destination', 'slot_count'],
-    assign: [...baseKeys, 'slot', 'accepted_targets', 'affected_plate_ids'],
-    routing: [...baseKeys, 'selector', 'slot', 'accepted_targets', 'affected_plate_ids'],
+    assign: [...baseKeys, 'slot', 'accepted_targets'],
+    routing: [...baseKeys, 'selector', 'slot', 'accepted_targets'],
   };
   const allowedKeys = new Set(kindKeys[String(mutation.kind)] ?? []);
   if (Object.keys(mutation).some((key) => !allowedKeys.has(key)))
@@ -571,10 +572,11 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
         Number(mutation.destination) < 1 || Number(mutation.destination) > snapshot.slots.length)
       return { ok: false, version: 1, error: 'invalid filament merge destination range', errorCode: 'invalid_response' };
   }
+  if (!Array.isArray(mutation.affected_plate_ids) ||
+      !mutation.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(mutation.affected_plate_ids as string[]).size !== mutation.affected_plate_ids.length)
+    return { ok: false, version: 1, error: 'invalid filament affected plate ids', errorCode: 'invalid_response' };
   if (mutation.kind === 'assign' || mutation.kind === 'routing') {
-    if (!Array.isArray(mutation.affected_plate_ids) ||
-        !mutation.affected_plate_ids.every((id) => typeof id === 'string'))
-      return { ok: false, version: 1, error: 'invalid filament affected plate ids', errorCode: 'invalid_response' };
     if (!Array.isArray(mutation.accepted_targets) || mutation.accepted_targets.length === 0)
       return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
     const selector = mutation.kind === 'routing' ? mutation.selector : undefined;
@@ -626,8 +628,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     revisionAfter: mutation.revision_after as number,
     dirty: true as const,
     allPlateResultsInvalidated: mutation.all_plate_results_invalidated as boolean,
-    ...(Array.isArray(mutation.affected_plate_ids) && mutation.affected_plate_ids.every((id) => typeof id === 'string')
-      ? { affectedPlateIds: mutation.affected_plate_ids as string[] } : {}),
+    affectedPlateIds: mutation.affected_plate_ids as string[],
     ...(Array.isArray(mutation.accepted_targets) ? { acceptedTargets: mutation.accepted_targets.map((target) => {
       const item = target as Record<string, unknown>;
       return { kind: item.kind as string, id: item.id as number, objectId: item.object_id as number };
@@ -1079,6 +1080,11 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   const impact = normalizeRestoreImpact(value.impact);
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
+  if (!Array.isArray(value.affected_plate_ids) ||
+      !(value.affected_plate_ids as unknown[]).every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(value.affected_plate_ids as string[]).size !== value.affected_plate_ids.length)
+    return historyFailure(raw, 'invalid history affected plate IDs');
+  const affectedPlateIds = value.affected_plate_ids as string[];
   const context = normalizeHistoryContext(value.context);
   if (!context || (impact.plateSession && !context.plateSession))
     return historyFailure(raw, 'invalid history plate session context');
@@ -1089,6 +1095,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     status,
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
+    affectedPlateIds,
     sceneDelta,
   };
 }
@@ -1176,6 +1183,7 @@ export function createClient(
   onBridgeProjectClosed?: ProjectClosedCallback,
   onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
 ): SlicerClient {
+  let geometrySession = crypto.randomUUID();
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
   // React StrictMode double-mounts the boot effect in dev, sending init
@@ -1385,13 +1393,16 @@ export function createClient(
   }
 
   async function commitHistory(transactionId: HistoryTransactionId,
-                               afterContext: HistoryContext): Promise<HistoryStatus> {
+                               afterContext: HistoryContext): Promise<import('./history').HistoryCommitResult> {
     const m = await module();
     const raw = callProfiledJson(m, 'orc_history_commit', ['string', 'string'],
       [transactionId, JSON.stringify(afterContext)]);
     if (raw && typeof raw === 'object' && 'error' in (raw as Record<string, unknown>))
       return historyFailure(raw, 'history commit failed');
-    return normalizeHistoryStatus(raw);
+    const receipt = raw as { status: unknown; scene_delta: unknown };
+    const sceneDelta = receipt.scene_delta === null ? null : normalizeSceneDelta(receipt.scene_delta);
+    if (sceneDelta === undefined) throw new Error('invalid committed scene delta');
+    return { status: normalizeHistoryStatus(receipt.status), sceneDelta };
   }
 
   async function abortHistory(transactionId: HistoryTransactionId): Promise<RestoreResult> {
@@ -1435,12 +1446,12 @@ export function createClient(
     beforeContext: HistoryContext,
     mutation: (transactionId: HistoryTransactionId) => Promise<T>,
     afterContext: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
-  ): Promise<{ result: T; status: HistoryStatus }> {
+  ): Promise<{ result: T } & import('./history').HistoryCommitResult> {
     const transactionId = await beginHistory(label, category, beforeContext);
     try {
       const result = await mutation(transactionId);
       const context = typeof afterContext === 'function' ? await afterContext() : afterContext;
-      return { result, status: await commitHistory(transactionId, context) };
+      return { result, ...await commitHistory(transactionId, context) };
     } catch (error) {
       try { await abortHistory(transactionId); } catch { /* preserve the mutation error */ }
       throw error;
@@ -1686,6 +1697,7 @@ export function createClient(
       if (!r.ok) return { ok: false, error: typeof r.error === 'string' ? r.error : 'project close failed' };
       const plateSession = normalizePlateMutationResult(r.plate_session);
       if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'invalid closed project session' };
+      geometrySession = crypto.randomUUID();
       onBridgeProjectClosed?.(plateSession);
       return { ok: true, plateSession };
     },
@@ -1705,6 +1717,7 @@ export function createClient(
           const plateSession = normalizePlateMutationResult(closed.plate_session);
           if (!plateSession.ok) return { ok: false, objects: 0, instances: 0,
             error: plateSession.error ?? 'invalid closed project session' };
+          geometrySession = crypto.randomUUID();
           onBridgeProjectClosed?.(plateSession);
           if (onProjectClosed !== onBridgeProjectClosed) onProjectClosed?.(plateSession);
           nativeName = 'orc_load_project_after_close';
@@ -1884,60 +1897,26 @@ export function createClient(
 
     async getModelMesh(): Promise<ModelMeshResult> {
       const m = await module();
-      const r = callJson(m, 'orc_get_model_mesh', [], []) as {
-        ok: boolean; error?: string; objects?: Array<{
-          object_id: number; volume_id: number; instance_id: number;
-          object_idx: number; volume_idx: number; instance_idx: number;
-          vertex_ptr: number; vertex_count: number;
-          index_ptr: number; index_count: number; offset: number[];
-          instance_transform: ModelTransform; volume_transform: ModelTransform;
-        }>;
-      };
-      if (!r.ok || !r.objects) return r as unknown as ModelMeshResult;
-      const objects: ModelObjectBuffer[] = r.objects.map((o) => {
-        const positions = new Float32Array(readBytes(m, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
-        const indices = new Uint32Array(readBytes(m, Number(o.index_ptr), o.index_count * 4).buffer);
-        return {
-          objectId: o.object_id, volumeId: o.volume_id, instanceId: o.instance_id,
-          objectIdx: o.object_idx,
-          volumeIdx: o.volume_idx,
-          instanceIdx: o.instance_idx,
-          positions, vertexCount: o.vertex_count,
-          indices, indexCount: o.index_count,
-          offset: [o.offset[0], o.offset[1], o.offset[2]] as [number, number, number],
-          instanceTransform: o.instance_transform,
-          volumeTransform: o.volume_transform,
-        };
-      });
-      return { ok: true, objects };
+      const decoded = decodeModelGeometry(m, callJson(m, 'orc_get_model_mesh', [], []), geometrySession);
+      const resources = new Map(decoded.geometries.map((geometry) => [geometry.geometryKey, geometry]));
+      return { ok: true, objects: decoded.meshes.map((mesh) => {
+        const geometry = resources.get(mesh.geometryKey);
+        if (!geometry) throw new Error(`missing model geometry ${mesh.geometryKey}`);
+        return { ...mesh, ...geometry };
+      }) };
     },
 
-    async getModelScenePatch(objectIds: readonly number[]): Promise<ModelScenePatchResult> {
+    async getModelScenePatch(objectIds, knownGeometryKeys): Promise<ModelScenePatchResult> {
       const m = await module();
-      const r = callJson(m, 'orc_get_model_scene_patch', ['string'], [JSON.stringify(objectIds)]) as {
-        ok: boolean; error?: string; object_order?: number[]; objects?: ModelStructureResult['objects'];
-        meshes?: Array<{
-          object_id: number; volume_id: number; instance_id: number;
-          object_idx: number; volume_idx: number; instance_idx: number;
-          vertex_ptr: number; vertex_count: number;
-          index_ptr: number; index_count: number; offset: number[];
-          instance_transform: ModelTransform; volume_transform: ModelTransform;
-        }>;
-      };
-      if (!r.ok || !r.object_order || !r.objects || !r.meshes)
-        return { ok: false, objectOrder: [], objects: [], meshes: [], error: r.error ?? 'invalid model scene patch' };
-      const meshes: ModelObjectBuffer[] = r.meshes.map((entry) => ({
-        objectId: entry.object_id, volumeId: entry.volume_id, instanceId: entry.instance_id,
-        objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
-        positions: new Float32Array(readBytes(m, Number(entry.vertex_ptr), entry.vertex_count * 3 * 4).buffer),
-        vertexCount: entry.vertex_count,
-        indices: new Uint32Array(readBytes(m, Number(entry.index_ptr), entry.index_count * 4).buffer),
-        indexCount: entry.index_count,
-        offset: [entry.offset[0], entry.offset[1], entry.offset[2]] as [number, number, number],
-        instanceTransform: entry.instance_transform,
-        volumeTransform: entry.volume_transform,
-      }));
-      return { ok: true, objectOrder: r.object_order, objects: r.objects, meshes };
+      const prefix = `${geometrySession}:`;
+      const knownVolumeIds = knownGeometryKeys.filter((key) => key.startsWith(prefix)).map((key) => Number(key.slice(prefix.length)));
+      const raw = callJson(m, 'orc_get_model_scene_patch', ['string'],
+        [JSON.stringify({ object_ids: objectIds, known_volume_ids: knownVolumeIds })]);
+      const decoded = decodeModelGeometry(m, raw, geometrySession);
+      const patch = raw as { object_order: number[]; objects: ModelStructureResult['objects'] };
+      if (!Array.isArray(patch.object_order) || !Array.isArray(patch.objects))
+        throw new Error('invalid model scene patch');
+      return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
     },
 
     async getModelStructure(): Promise<ModelStructureResult> {

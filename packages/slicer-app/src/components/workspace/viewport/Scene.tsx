@@ -317,6 +317,8 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             gpuProjectionEstimatedBytes: number;
             volumeCount: number;
           }>();
+          const countedGeometry = new Set<THREE.BufferGeometry>();
+          const plateGeometry = new Map<string, Set<THREE.BufferGeometry>>();
           let reactTypedArrayBytes = 0;
           let gpuProjectionEstimatedBytes = 0;
           for (const volume of glVolumes) {
@@ -324,16 +326,24 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             let gpuBytes = volume.geometry.index?.array.byteLength ?? 0;
             for (const attribute of Object.values(volume.geometry.attributes))
               gpuBytes += attribute.array.byteLength;
-            reactTypedArrayBytes += sourceBytes;
-            gpuProjectionEstimatedBytes += gpuBytes;
+            if (!countedGeometry.has(volume.geometry)) {
+              countedGeometry.add(volume.geometry);
+              reactTypedArrayBytes += sourceBytes;
+              gpuProjectionEstimatedBytes += gpuBytes;
+            }
             const plateId = instancePlates.get(`${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`) ?? 'unassigned';
             const plate = totals.get(plateId) ?? {
               reactTypedArrayBytes: 0,
               gpuProjectionEstimatedBytes: 0,
               volumeCount: 0,
             };
-            plate.reactTypedArrayBytes += sourceBytes;
-            plate.gpuProjectionEstimatedBytes += gpuBytes;
+            const countedPlate = plateGeometry.get(plateId) ?? new Set<THREE.BufferGeometry>();
+            if (!countedPlate.has(volume.geometry)) {
+              countedPlate.add(volume.geometry);
+              plateGeometry.set(plateId, countedPlate);
+              plate.reactTypedArrayBytes += sourceBytes;
+              plate.gpuProjectionEstimatedBytes += gpuBytes;
+            }
             plate.volumeCount += 1;
             totals.set(plateId, plate);
           }

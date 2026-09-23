@@ -31,11 +31,10 @@ async function runListHistory(
   runtime: SlicerRuntime,
   label: string,
   mutation: () => Promise<ListHistoryResult>,
-  geometryChanged = false,
 ): Promise<ListHistoryResult> {
   const history = await runProjectHistoryMutation(runtime, label, mutation, null, {
     publish: async (result) => {
-      if (result.ok) await refreshAfterModelMutation(runtime, geometryChanged, result.plateSession);
+      if (result.ok) await refreshAfterModelMutation(runtime, result.plateSession);
     },
   });
   return history.result;
@@ -69,19 +68,9 @@ export async function waitForPendingModelTransforms(): Promise<MutationOutcome> 
   }
 }
 
-/**
- * Unified post-mutation refresh (spec §8):
- *   1. invalidate the slice/export result (the bridge already cleared its C++
- *      Print; mirror that in the renderer state),
- *   2. re-read the structure into the ObjectList store,
- *   3. re-fetch the viewport mesh when the mutation changed geometry (e.g. a
- *      volume type change), so the list, viewport, and slice state agree.
- * Selection restoration by stable ID is handled by the caller (the store keeps
- * the prior projection; the viewport purges stale volumes on reload).
- */
+/** Publish result/plate state after the committed SceneDelta updated the scene. */
 export async function refreshAfterModelMutation(
   runtime: SlicerRuntime,
-  geometryChanged = false,
   plateSession?: PlateSessionMutation,
   dirtyReason: 'model-delete' | 'model-structure' = 'model-structure',
 ): Promise<void> {
@@ -90,7 +79,6 @@ export async function refreshAfterModelMutation(
   slicer.setResultExported(false);
   slicer.setError(null);
   slicer.setLayers(0);
-  if (geometryChanged) useSettingsStore.getState().refreshModel();
   if (plateSession) {
     invalidateAffectedPlateResults(runtime, plateSession.affectedPlateIds ?? []);
     if (plateSession.nativeScopedConfig) {
@@ -108,16 +96,12 @@ export async function refreshAfterModelMutation(
   } else {
     useProjectStore.getState().markDirty(dirtyReason);
   }
-  const structure = await runtime.getModelStructure();
-  if (structure.ok && structure.objects) {
-    useObjectListStore.getState().setStructure(structure.objects);
-    useObjectListStore.getState().setLoaded(true);
-    if (structure.objects.length === 0) {
-      useSettingsStore.getState().setModelLoaded(false);
-      useProjectStore.getState().setProject({ hasContent: false });
-    } else {
-      useProjectStore.getState().setProject({ hasContent: true });
-    }
+  const structure = useObjectListStore.getState().structure;
+  if (structure.length === 0) {
+    useSettingsStore.getState().setModelLoadedFromSceneDelta(false);
+    useProjectStore.getState().setProject({ hasContent: false });
+  } else {
+    useProjectStore.getState().setProject({ hasContent: true });
   }
 }
 
@@ -151,7 +135,7 @@ export async function renamePartInList(runtime: SlicerRuntime, volumeId: number,
 export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: number, type: VolumeType): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = await runListHistory(runtime, 'Change Part Type', () => runtime.setVolumeType(volumeId, type), true);
+  const r = await runListHistory(runtime, 'Change Part Type', () => runtime.setVolumeType(volumeId, type));
   if (!r.ok) return { ok: false, error: r.error };
   // Changing a part's type alters which volumes compose the print mesh.
   return { ok: true };

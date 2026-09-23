@@ -56,7 +56,8 @@ function meshSummary() {
   const response = callJson('orc_get_model_mesh', [], []);
   const summaries = [];
   if (!response.ok) return { response, summaries };
-  for (const entry of response.objects ?? []) {
+  for (const geometry of response.geometries ?? []) {
+    const entry = { ...response.renderables.find((item) => item.volume_id === geometry.volume_id), ...geometry };
     const raw = Module.HEAPU8.slice(Number(entry.vertex_ptr),
       Number(entry.vertex_ptr) + entry.vertex_count * 3 * Float32Array.BYTES_PER_ELEMENT);
     const vertices = new Float32Array(raw.buffer);

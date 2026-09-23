@@ -25,7 +25,7 @@ function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number, o
     instanceTransform: { offset: [...offset], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
     volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
   };
-  return new GLVolume(buffer);
+  return new GLVolume(buffer, { kind: 'exclusive' });
 }
 
 /** True world min-Z over the volume's actual (instance-transformed) vertices. */
@@ -905,7 +905,7 @@ describe('SceneInteractionController', () => {
       instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
       volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
     };
-    const volume = new GLVolume(buffer);
+    const volume = new GLVolume(buffer, { kind: 'exclusive' });
     volume.instanceTransform.rotation = [Math.PI / 4, 0, 0];
     const c = new SceneInteractionController(() => [volume]);
     c.selectFromHit(volume, false);

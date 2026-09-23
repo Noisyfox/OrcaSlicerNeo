@@ -37,7 +37,7 @@ const nativeScopedConfig = {
 };
 const success = (revision = 1): RestoreResult => ({ ok: true, context,
   nativeScopedConfig: { ...nativeScopedConfig, revision },
-  status: { ...status, revision }, impact: deltaImpact, sceneDelta });
+  status: { ...status, revision }, impact: deltaImpact, affectedPlateIds: ['plate-1'], sceneDelta });
 
 function fakeScene(activeDrag = false) {
   return {
@@ -80,7 +80,7 @@ describe('history restore coordinator', () => {
     expect(undoHistory).not.toHaveBeenCalled();
   });
 
-  it('restores immediately while cancellation remains pending and invalidates every plate result', async () => {
+  it('restores immediately while cancellation remains pending and invalidates only affected plate results', async () => {
     const slicer = useSlicerStore.getState();
     slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
     slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 2, resultGeneration: '2', sliceTaskId: '2' });
@@ -98,9 +98,9 @@ describe('history restore coordinator', () => {
     });
     const restore = coordinator.restore('undo');
     await vi.waitFor(() => expect(undoHistory).toHaveBeenCalledOnce());
-    expect(cancel).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
     expect(events[0]).toBe('undo');
-    expect(useSlicerStore.getState().plateResults).toEqual({});
+    expect(useSlicerStore.getState().plateResults).toHaveProperty('plate-2');
     expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
     await expect(restore).resolves.toBe(true);
     expect(refreshModel).toHaveBeenCalledOnce();
@@ -221,7 +221,8 @@ describe('history restore coordinator', () => {
   });
 
   it('reports SceneDelta restores as direct projections without retaining history data', async () => {
-    const direct: RestoreResult = { ok: true, context, status, nativeScopedConfig, impact: directImpact, sceneDelta };
+    const direct: RestoreResult = { ok: true, context, status, nativeScopedConfig, impact: directImpact,
+      affectedPlateIds: [], sceneDelta };
     useSlicerStore.getState().setPlateResult({
       plateId: 'plate-2', inputStamp: 2, resultGeneration: '8', sliceTaskId: '8',
     });
@@ -235,7 +236,7 @@ describe('history restore coordinator', () => {
     });
 
     await expect(coordinator.restore('undo')).resolves.toBe(true);
-    expect(useSlicerStore.getState().plateResults).toEqual({});
+    expect(useSlicerStore.getState().plateResults).toHaveProperty('plate-2');
     let diagnostics = useHistoryDiagnosticsStore.getState().app;
     expect(diagnostics.directRestore.count).toBe(1);
     expect(diagnostics.fullRestore.count).toBe(0);

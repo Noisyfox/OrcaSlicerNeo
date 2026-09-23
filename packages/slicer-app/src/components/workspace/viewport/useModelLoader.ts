@@ -23,10 +23,12 @@ export function useModelLoader(): LoadedObject[] {
       return;
     }
     (async () => {
+      const loaded: LoadedObject[] = [];
       try {
         const res = await platform.runtime.getModelMesh();
         if (!res.ok) throw new Error(res.error ?? 'getModelMesh failed');
-        const loaded: LoadedObject[] = res.objects.map((buf) => new GLVolume(buf));
+        for (const buffer of res.objects)
+          loaded.push(new GLVolume(buffer, { kind: 'shared', key: buffer.geometryKey }));
         if (disposed || useSettingsStore.getState().modelRevision !== requestedRevision) {
           // The load finished after unmount/change — nothing consumes these
           // geometries; dispose them instead of leaking (review Minor 1).
@@ -38,6 +40,7 @@ export function useModelLoader(): LoadedObject[] {
           glVolumeCollection.replace(loaded, requestedRevision);
         }
       } catch (err) {
+        loaded.forEach((volume) => volume.dispose());
         if (!disposed && useSettingsStore.getState().modelRevision === requestedRevision)
           rejectGLVolumeRevision(requestedRevision, err);
         console.error('model load failed:', err);

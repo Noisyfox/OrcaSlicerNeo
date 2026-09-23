@@ -25,7 +25,7 @@ function model() {
     indices: new Uint32Array([0, 1, 2]), indexCount: 3, offset: [0, 0, 0],
     instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
     volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
-  });
+  }, { kind: 'exclusive' });
 }
 
 describe('WipeTowerVolume shared scene integration', () => {

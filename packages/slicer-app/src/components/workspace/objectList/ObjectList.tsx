@@ -127,7 +127,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       }
     })();
     return () => { disposed = true; };
-  }, [modelLoaded, modelRevision, platform.runtime, setStructure, setLoaded, clearStore]);
+  }, [modelRevision, platform.runtime, setStructure, setLoaded, clearStore]);
 
   useEffect(() => {
     if (!sceneInteraction) return;

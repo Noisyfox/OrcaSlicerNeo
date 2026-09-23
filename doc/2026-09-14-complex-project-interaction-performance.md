@@ -146,7 +146,7 @@ used by the desktop plate-switch performance coverage.
   retained immutable meshes remain mesh-byte-free.
 - Normal full-model history restore additionally exposes the bounded scalar
   stages `capture_model_equality_check`, `model_staging_deserialization`,
-  `immutable_mesh_reconnect`, `plate_session_project_overlay_restore`,
+  `immutable_mesh_reconnect`, `plate_session_native_config_restore`,
   `history_cursor_commit`, `response_json_serialization`, and `total`. These
   fields never contain model, identity, byte, or text data; direct Add Plate,
   filament, and Prime Tower restore paths retain their existing semantics.

@@ -893,6 +893,13 @@ void invalidate_projection_cache(const std::set<std::string>& plate_ids)
         state().prime_tower_projection_cache.erase(plate_id);
 }
 
+void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids)
+{
+    invalidate_projection_cache(plate_ids);
+    for (const auto& plate_id : plate_ids)
+        g_used_slot_summaries.erase(plate_id);
+}
+
 bool normalize_coordinate_positions()
 {
     if (state().plate_session_plates.empty()) return false;

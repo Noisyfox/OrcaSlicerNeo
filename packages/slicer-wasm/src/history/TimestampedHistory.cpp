@@ -575,7 +575,7 @@ bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoo
     return true;
 }
 
-bool TimestampedHistory::commit_operation(const TimestampedRoots& successor)
+bool TimestampedHistory::commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta)
 {
     if (!m_impl->operation) return false;
     if (m_impl->operation->depth > 1) {
@@ -588,6 +588,11 @@ bool TimestampedHistory::commit_operation(const TimestampedRoots& successor)
     const LogicalTimestamp after = m_impl->next_timestamp++;
     m_impl->entries.push_back({m_impl->next_entry_id++, operation.label, operation.before_timestamp, after,
                                scene_delta(operation.before_scene, scene_state(successor))});
+    if (committed_delta) {
+        *committed_delta = m_impl->entries.back().scene_delta;
+        for (const auto& object : successor.model.mutable_objects)
+            committed_delta->object_order.push_back(object.id);
+    }
     m_impl->current_timestamp = after;
     m_impl->rebuild_intervals();
     m_impl->enforce_budget();

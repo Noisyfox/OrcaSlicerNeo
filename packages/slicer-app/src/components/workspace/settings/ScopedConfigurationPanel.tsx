@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   NativeScopedConfigMutationRequest,
   NativeScopedConfigTarget,
@@ -24,10 +24,16 @@ import {
   resolveScopedConfigurationTarget,
   type ScopedConfigurationField,
   type ScopedConfigurationTarget,
+  type ScopedTargetResolution,
 } from './scopedConfigurationProjection';
 
 const SOURCE_LABEL: Record<string, string> = {
   preset: 'Preset', project: 'Project', plate: 'Plate', object: 'Object', part: 'Volume', mixed: 'Mixed',
+};
+
+const PROJECT_RESOLUTION: ScopedTargetResolution = {
+  scope: 'project', targets: [{ scope: 'project', label: 'Project' }],
+  label: 'Project', visibleScopes: ['preset', 'project'],
 };
 
 function targetRequestTargets(targets: readonly ScopedConfigurationTarget[]): NativeScopedConfigTarget[] {
@@ -47,7 +53,7 @@ function valueTooltip(field: ScopedConfigurationField): string {
   return `Effective value source: ${SOURCE_LABEL[field.source] ?? field.source}.`;
 }
 
-export function ScopedField({
+export const ScopedField = memo(function ScopedField({
   field,
   targets,
   onCommit,
@@ -154,51 +160,59 @@ export function ScopedField({
       {error && <div role="alert" data-testid={`config-error-${field.key}`} className="pl-32 text-[0.65rem] text-destructive">{error}</div>}
     </div>
   );
-}
+}, (previous, next) => previous.targets === next.targets
+  && previous.onCommit === next.onCommit && previous.onReset === next.onReset
+  && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
+    .every((key) => previous.field[key] === next.field[key]));
 
 export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const platform = usePlatform();
+  const mode = useSettingsStore((state) => state.configurationMode);
   const selection = sceneInteraction?.selection;
   const subscribeSelection = useCallback(
-    (listener: () => void) => selection?.subscribe(listener) ?? (() => {}),
-    [selection],
+    (listener: () => void) => mode === 'scoped' ? selection?.subscribe(listener) ?? (() => {}) : () => {},
+    [mode, selection],
   );
-  useSyncExternalStore(subscribeSelection, () => selection?.revision ?? 0);
+  const selectionRevision = useSyncExternalStore(subscribeSelection, () => mode === 'scoped' ? selection?.revision ?? 0 : 0);
   const metadata = useSettingsStore((state) => state.metadata);
   const baseValues = useSettingsStore((state) => state.baseValues);
   const snapshot = useSettingsStore((state) => state.nativeScopedConfig);
-  const mode = useSettingsStore((state) => state.configurationMode);
   const setConfigurationMode = useSettingsStore((state) => state.setConfigurationMode);
-  const selectedVolumes = sceneInteraction?.selectedVolumes() ?? [];
-  const selectionKind = sceneInteraction?.computeSelectionKind() ?? 'empty';
-  const structure = useObjectListStore((state) => state.structure);
-  const plateSession = usePlateSessionStore((state) => state.snapshot);
+  const structure = useObjectListStore((state) => mode === 'scoped' ? state.structure : undefined);
+  const activePlateId = usePlateSessionStore((state) => mode === 'scoped' ? state.snapshot?.currentPlateId : undefined);
+  const activePlateLabel = usePlateSessionStore((state) => mode === 'scoped'
+    ? state.snapshot?.plates.find((plate) => plate.plateId === state.snapshot?.currentPlateId)?.name : undefined);
   const setError = useSlicerStore((state) => state.setError);
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const resolution = useMemo(() => resolveScopedConfigurationTarget({
-    selectionKind,
-    selectedVolumes: selectedVolumes.map((volume) => ({ objectId: volume.buffer.objectId, volumeId: volume.buffer.volumeId })),
-    activePlateId: plateSession?.currentPlateId ?? null,
-    activePlateLabel: plateSession?.plates.find((plate) => plate.plateId === plateSession.currentPlateId)?.name,
-    structure,
+  const resolution = useMemo(() => mode === 'project' ? PROJECT_RESOLUTION : resolveScopedConfigurationTarget({
+    selectionKind: sceneInteraction?.computeSelectionKind() ?? 'empty',
+    selectedVolumes: (sceneInteraction?.selectedVolumes() ?? []).map((volume) => ({ objectId: volume.buffer.objectId, volumeId: volume.buffer.volumeId })),
+    activePlateId: activePlateId ?? null,
+    activePlateLabel,
+    structure: structure ?? [],
     wipeTowerSelected: sceneInteraction?.hasWipeTowerSelection,
-  }), [plateSession, sceneInteraction, selectedVolumes, selectionKind, structure]);
-  const fields = useMemo(() => metadata
-    ? projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search })
-    : [], [baseValues, metadata, mode, resolution, search, snapshot]);
+  }), [mode, activePlateId, activePlateLabel, sceneInteraction, selectionRevision, structure]);
   // Reset actions operate on the whole selected category/catalogue, not just
   // the subset currently visible through the search query.
   const allFields = useMemo(() => metadata
     ? projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' })
     : [], [baseValues, metadata, mode, resolution, snapshot]);
+  const fields = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return query ? allFields.filter((field) => `${field.key} ${field.label} ${field.category}`.toLocaleLowerCase().includes(query)) : allFields;
+  }, [allFields, search]);
   const categories = useMemo(() => {
     const grouped = new Map<string, ScopedConfigurationField[]>();
-    for (const field of fields) grouped.set(field.category, [...(grouped.get(field.category) ?? []), field]);
+    for (const field of fields) {
+      const category = grouped.get(field.category);
+      if (category) category.push(field);
+      else grouped.set(field.category, [field]);
+    }
     return [...grouped.entries()];
   }, [fields]);
 
-  const commitField = async (field: ScopedConfigurationField, value: string) => {
+  const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode === 'scoped' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
     const request: NativeScopedConfigMutationRequest = {
       version: 1, operation: 'set', targets: targetRequestTargets(mode === 'project'
@@ -212,8 +226,8 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
       baseValues: current.baseValues, snapshot: current.nativeScopedConfig, resolution })
       .find((candidate) => candidate.key === field.key);
     return effective ? valueForField(effective) : value;
-  };
-  const resetField = async (field: ScopedConfigurationField) => {
+  }, [metadata, mode, platform, resolution]);
+  const resetField = useCallback(async (field: ScopedConfigurationField) => {
     if ((mode === 'scoped' && resolution.scope === 'invalid') || !field.local) return;
     const request: NativeScopedConfigMutationRequest = {
       version: 1, operation: 'reset', targets: targetRequestTargets(mode === 'project'
@@ -222,7 +236,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     };
     const mutation = await commitScopedConfigurationMutation(platform, request);
     if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
-  };
+  }, [mode, platform, resolution]);
   const resetCategory = async (category: string) => {
     if (mode === 'scoped' && resolution.scope === 'invalid') return;
     const candidates = allFields.filter((field) => field.category === category && field.local);
@@ -291,7 +305,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
                 </Button>
                 <Button type="button" variant="ghost" size="xs" data-testid={`config-reset-category-${category}`} onClick={() => void resetCategory(category)}>Reset</Button>
               </div>
-              {open && <div className="px-1 pb-1">{categoryFields.map((field) => <ScopedField key={field.key} field={field} targets={mode === 'project' ? [{ scope: 'project', label: 'Project' }] : resolution.targets} onCommit={commitField} onReset={resetField} />)}</div>}
+              {open && <div className="px-1 pb-1">{categoryFields.map((field) => <ScopedField key={field.key} field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />)}</div>}
             </div>;
           })}
         </>

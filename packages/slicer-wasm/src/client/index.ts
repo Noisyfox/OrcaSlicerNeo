@@ -31,7 +31,7 @@ export type {
   NativeScopedConfigResult, NativeScopedConfigError, NativeScopedConfigResultOrError,
   ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
-  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelTransform, ModelTransformMutation,
+  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
@@ -50,7 +50,7 @@ export type {
   HistorySelectionMode, HistorySelection, HistoryJsonValue, HistoryJsonObject,
   HistoryGizmoContext, HistoryContext, HistoryCategory, HistoryEntryCategory, HistoryKind,
   HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryJumpDirection, HistoryEntrySummary,
-  HistoryStatus, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
+  HistoryStatus, HistoryCommitResult, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
   RestoreResult, RestoreImpact, SceneDelta, HistoryTimingDiagnostic, HistoryDiagnosticLayer, HistoryReadDiagnosticLayer,
   HistoryTransportDiagnostics, HistoryRuntimeMethods, MockHistoryRuntime, HistoryMutation,
 } from './history';
