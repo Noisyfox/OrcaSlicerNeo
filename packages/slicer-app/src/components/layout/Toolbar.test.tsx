@@ -140,7 +140,7 @@ describe('Toolbar send navigation', () => {
     expect((container.querySelector('[data-testid="btn-send-and-print"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('renders Worker-derived next-operation labels and accessible disabled state', async () => {
+  it('keeps fixed button text and Worker-derived accessible labels', async () => {
     const { platform } = makePlatform();
     const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
     useHistoryNavigationStore.getState().setStatus(navigationStatus);
@@ -151,7 +151,7 @@ describe('Toolbar send navigation', () => {
       root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
     });
     const undo = container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement;
-    expect(undo.textContent).toContain('Undo Move');
+    expect(undo.textContent?.trim()).toBe('Undo');
     expect(undo.getAttribute('aria-label')).toBe('Undo Move');
     expect(undo.disabled).toBe(false);
     expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);

@@ -1642,7 +1642,10 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
       .not.toEqual([10, 10, 10]);
     await expect.poll(() => page.getByTestId('history-undo').getAttribute('aria-label'))
       .not.toBe(historyBefore);
-    await expect(page.getByTestId('history-undo')).toContainText('Move');
+    const undo = page.getByTestId('history-undo');
+    await expect(undo).toHaveText('Undo');
+    await undo.hover();
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText('Undo Move');
   } finally {
     await app.close();
   }

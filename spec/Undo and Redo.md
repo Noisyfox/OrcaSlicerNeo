@@ -418,7 +418,10 @@ close confirmation describe the same project state.
 Neo provides both one-step and direct history navigation, matching Orca's
 Undo/Redo toolbar behaviour:
 
-- enabled/disabled Undo and Redo buttons in the shared primary toolbar;
+- enabled/disabled one-step Undo and Redo buttons in the shared primary
+  toolbar, with fixed visible labels `Undo` and `Redo` so their widths stay
+  stable as history changes; each tooltip and accessible name identifies the
+  next operation (for example, `Undo Move`);
 - directional dropdown lists labelled with the available project-modifying Undo
   or Redo entries;
 - direct jump to any listed entry through one atomic Worker restore. Sparse

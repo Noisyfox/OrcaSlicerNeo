@@ -104,7 +104,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
             aria-label={undoLabel}
             data-testid="history-undo"
           >
-            <Undo2 className="h-3 w-3" /> {undoLabel}
+            <Undo2 className="h-3 w-3" /> Undo
           </Button>
         </TooltipFor>
         <DropdownMenu>
@@ -134,7 +134,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
             aria-label={redoLabel}
             data-testid="history-redo"
           >
-            <Redo2 className="h-3 w-3" /> {redoLabel}
+            <Redo2 className="h-3 w-3" /> Redo
           </Button>
         </TooltipFor>
         <DropdownMenu>
