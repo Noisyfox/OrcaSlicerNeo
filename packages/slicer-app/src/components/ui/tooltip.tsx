@@ -3,16 +3,18 @@ import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 
 import { cn } from "@/lib/utils"
 
+export const TOOLTIP_DELAY_MS = 500
+
 function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
   return <TooltipPrimitive.Root {...props} />
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger {...props} />
+function TooltipTrigger({ delay = TOOLTIP_DELAY_MS, ...props }: TooltipPrimitive.Trigger.Props) {
+  return <TooltipPrimitive.Trigger delay={delay} {...props} />
 }
 
-function TooltipProvider({ ...props }: TooltipPrimitive.Provider.Props) {
-  return <TooltipPrimitive.Provider delay={0} {...props} />
+function TooltipProvider({ delay = TOOLTIP_DELAY_MS, ...props }: TooltipPrimitive.Provider.Props) {
+  return <TooltipPrimitive.Provider delay={delay} {...props} />
 }
 
 function TooltipContent({
@@ -65,7 +67,7 @@ function TooltipFor({
   const trigger = disabled ? <span className="inline-flex">{children}</span> : children
   return (
     <Tooltip>
-      <TooltipTrigger delay={0} render={trigger} />
+      <TooltipTrigger render={trigger} />
       <TooltipContent>{content}</TooltipContent>
     </Tooltip>
   )

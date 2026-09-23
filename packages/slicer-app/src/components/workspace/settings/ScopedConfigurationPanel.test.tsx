@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TooltipProvider } from '@/components/ui/tooltip';
+import { TooltipProvider, TOOLTIP_DELAY_MS } from '@/components/ui/tooltip';
 import { ScopedField } from './ScopedConfigurationPanel';
 import type { ScopedConfigurationField } from './scopedConfigurationProjection';
 
@@ -16,7 +16,7 @@ afterEach(async () => {
 
 async function renderField(overrides: Partial<ScopedConfigurationField> = {},
   onCommit = vi.fn(async (_field: ScopedConfigurationField, value: string) => value),
-  onReset = vi.fn(async (_field: ScopedConfigurationField) => {})) {
+  onReset = vi.fn(async (_field: ScopedConfigurationField) => {}), focusInput = true) {
   let field: ScopedConfigurationField = { key: 'layer_height', label: 'Layer height', category: 'Quality',
     meta: { type: 'float' } as ScopedConfigurationField['meta'], value: '0.2', mixed: false,
     source: 'object', local: true, resettable: true, ...overrides };
@@ -28,7 +28,7 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
     onCommit={onCommit} onReset={onReset} /></TooltipProvider>));
   await render();
   const input = container.querySelector('input')!;
-  await act(async () => input.focus());
+  if (focusInput) await act(async () => input.focus());
   const rerender = async (next: Partial<ScopedConfigurationField>) => {
     field = { ...field, ...next };
     await render();
@@ -101,14 +101,18 @@ describe('scoped field drafts', () => {
     expect(container.querySelector('[data-testid="config-reset-layer_height"]')).toBeNull();
   });
 
-  it('shows the effective source through the UI tooltip on value hover, without a native title', async () => {
-    const { input } = await renderField();
+  it('waits for a sustained hover before showing the value-source tooltip', async () => {
+    const { input } = await renderField({}, undefined, undefined, false);
     expect(input.hasAttribute('title')).toBe(false);
 
     await act(async () => {
       input.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, clientX: 10, clientY: 10 }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      input.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
+      await new Promise((resolve) => setTimeout(resolve, TOOLTIP_DELAY_MS - 100));
     });
+    expect(document.body.querySelector('[data-slot="tooltip-content"]')).toBeNull();
+
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
 
     expect(input.getAttribute('data-slot')).toBe('input');
     expect(document.body.querySelector('[data-slot="tooltip-content"]')?.textContent).toContain('Effective value source: Object.');
