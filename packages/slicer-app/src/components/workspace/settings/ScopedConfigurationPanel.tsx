@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
@@ -28,7 +29,6 @@ import {
 const SOURCE_LABEL: Record<string, string> = {
   preset: 'Preset', project: 'Project', plate: 'Plate', object: 'Object', part: 'Volume', mixed: 'Mixed',
 };
-const LOCAL_OVERRIDE_LABEL_COLOR = '#F1754E';
 
 function targetRequestTargets(targets: readonly ScopedConfigurationTarget[]): NativeScopedConfigTarget[] {
   return targets.map(({ scope, id }) => ({ scope, ...(id === undefined ? {} : { id }) }));
@@ -141,8 +141,7 @@ export function ScopedField({
           htmlFor={`scoped-${field.key}`}
           data-testid={`config-option-label-${field.key}`}
           data-local-override-highlight={hasEditableLocalOverride ? 'true' : 'false'}
-          className={labelCls}
-          style={hasEditableLocalOverride ? { color: LOCAL_OVERRIDE_LABEL_COLOR } : undefined}
+          className={cn(labelCls, hasEditableLocalOverride && 'scoped-config-local-override-label')}
           title={label}
         >{label}</Label>
         {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Mixed</span>}
