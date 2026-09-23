@@ -15,6 +15,8 @@ import { applySettledTransformSyncResult } from './actions/persistModelTransform
 import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
 
+Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
+
 const sliceModelMock = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('./actions/sliceActions', () => ({ sliceModel: sliceModelMock }));
 
@@ -25,7 +27,16 @@ const testMocks = vi.hoisted(() => ({
 // The scene components are intentionally not part of this structural test.
 // Mocks keep it focused on Workspace's ownership boundary.
 vi.mock('./objectList/ObjectList', () => ({ ObjectList: () => <div data-testid="mock-object-list" /> }));
-vi.mock('./settings/SettingsPanel', () => ({ SettingsPanel: () => <div data-testid="mock-settings-panel" /> }));
+vi.mock('./settings/SettingsPanel', () => ({
+  SettingsPanel: (props: { onEditPrinter?: (canonicalName: string) => void }) => <>
+    <div data-testid="mock-settings-panel" />
+    <button data-testid="mock-printer-edit" onClick={() => props.onEditPrinter?.('Printer A')}>Edit Printer</button>
+  </>,
+}));
+vi.mock('./FilamentRack', () => ({
+  FilamentRack: (props: { onEditPreset?: (canonicalName: string) => void }) =>
+    <button data-testid="mock-filament-edit" onClick={() => props.onEditPreset?.('PLA')}>Edit Filament</button>,
+}));
 vi.mock('./viewport/Viewport', () => ({
   Viewport: (props: Record<string, unknown>) => {
     testMocks.viewportProps.push(props);
@@ -85,6 +96,47 @@ describe('Workspace ownership', () => {
     expect(container.querySelector('[data-testid="mock-viewport"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="device-panel"]')).toBeNull();
     expect(container.querySelector('[role="tabpanel"]')).toBeNull();
+  });
+
+  it('owns one preset dialog and ignores a second edit request while it is open', async () => {
+    const runtime = {
+      getPresetDraft: vi.fn(async (kind: 'printer' | 'filament', canonicalName: string) => ({
+        ok: true as const,
+        version: 1 as const,
+        kind,
+        canonicalName: `${canonicalName} canonical`,
+        draftExists: false,
+        modified: false,
+        overrides: {},
+        sourceValues: {},
+        effectiveValues: {},
+        optionMetadata: {},
+        revision: 3,
+      })),
+    };
+    platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace /></PlatformProvider>);
+    });
+
+    await act(async () => {
+      (container.querySelector('[data-testid="mock-printer-edit"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(runtime.getPresetDraft).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll('[data-testid="preset-editor-dialog"]')).toHaveLength(1);
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
+
+    await act(async () => {
+      (container.querySelector('[data-testid="mock-filament-edit"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(runtime.getPresetDraft).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll('[data-testid="preset-editor-dialog"]')).toHaveLength(1);
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
   });
 
   it('keeps the controller and scene resources stable across a workspace tab switch', async () => {

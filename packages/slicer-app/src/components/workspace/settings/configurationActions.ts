@@ -1,8 +1,11 @@
+import { unstable_batchedUpdates } from 'react-dom';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type {
   NativeScopedConfigMutationRequest,
   NativeScopedConfigTarget,
   NativeScopedConfigTransport,
+  PresetDraftMutationRequest,
+  PresetDraftMutationResult,
   PlateSessionMutation,
   PlateSessionMutationResult,
 } from '@slicer/client';
@@ -12,9 +15,11 @@ import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { projectFilamentHistoryRevision } from '../../../stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { runProjectHistoryMutation } from '../actions/historyMutation';
+import { projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
+import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 
 let configurationMutationQueue: Promise<void> = Promise.resolve();
 
@@ -173,6 +178,63 @@ export function commitScopedConfigurationMutation(
 ): Promise<PlateSessionMutation | null> {
   const task = configurationMutationQueue.then(() =>
     commitScopedConfigurationMutationNow(platform, request));
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
+/** Commit and publish one native preset-draft operation. The Worker operation
+ * owns its single history entry; this app-side path only orders it with other
+ * project mutations and publishes the returned history/configuration/plate
+ * receipts. A native rejection is returned untouched so the editor can keep
+ * the submitted value local and display its error inline. */
+async function commitPresetDraftMutationNow(
+  platform: PlatformCapabilities,
+  request: PresetDraftMutationRequest,
+): Promise<PresetDraftMutationResult> {
+  return runProjectMutationOperation(async () => {
+    const currentHistory = useHistoryNavigationStore.getState().status;
+    if (currentHistory && currentHistory.revision > request.expectedRevision) {
+      return {
+        ok: false,
+        version: 1,
+        errorCode: 'stale_revision',
+        error: 'Preset draft revision was superseded by a newer project history state.',
+        revision: currentHistory.revision,
+      };
+    }
+
+    const result = await platform.runtime.mutatePresetDraft(request);
+    if (!result.ok) return result;
+
+    projectHistoryStatus(result.historyStatus);
+
+    const scopedConfigResult = useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
+    if (scopedConfigResult === 'refresh-required')
+      throw new Error('native scoped configuration refresh was not accepted');
+
+    unstable_batchedUpdates(() => {
+      projectFilamentHistoryRevision(result.historyStatus.revision, result.plateSession.inputRevisions);
+      applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
+      usePlateSessionStore.getState().setSnapshot(result.plateSession);
+      useProjectStore.getState().recordPlateMutation(result.plateSession);
+      invalidateAfterSharedConfigurationMutation(
+        result.affectedPlateIds,
+        platform.runtime,
+        result.allPlateResultsInvalidated,
+      );
+    });
+
+    return result;
+  });
+}
+
+/** Share the scoped-config FIFO so a pending preset edit cannot race an
+ * immediately requested slice or another configuration commit. */
+export function commitPresetDraftMutation(
+  platform: PlatformCapabilities,
+  request: PresetDraftMutationRequest,
+): Promise<PresetDraftMutationResult> {
+  const task = configurationMutationQueue.then(() => commitPresetDraftMutationNow(platform, request));
   configurationMutationQueue = task.then(() => undefined, () => undefined);
   return task;
 }

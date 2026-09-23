@@ -148,12 +148,12 @@ function makePlatform(
   };
 }
 
-async function render(platform: PlatformCapabilities) {
+async function render(platform: PlatformCapabilities, onEditPrinter?: (canonicalName: string) => void) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(<PlatformProvider value={platform}><SettingsPanel sceneInteraction={null} /></PlatformProvider>);
+    root.render(<PlatformProvider value={platform}><SettingsPanel sceneInteraction={null} onEditPrinter={onEditPrinter} /></PlatformProvider>);
   });
   return { container, root };
 }
@@ -196,6 +196,20 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="filament-preset-select"]')).toBeNull();
     expect(container.querySelector('[data-testid="preset-select"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="process-preset-select"]')).not.toBeNull();
+  });
+
+  it('opens Printer editing for the currently selected canonical preset without changing selection', async () => {
+    resetStores();
+    const onEditPrinter = vi.fn();
+    const { platform } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform, onEditPrinter);
+    roots.push(root);
+
+    await act(async () => { (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLButtonElement).click(); });
+
+    expect(onEditPrinter).toHaveBeenCalledOnce();
+    expect(onEditPrinter).toHaveBeenCalledWith('Old Printer');
+    expect(useSettingsStore.getState().selectedPrinter).toBe('Old Printer');
   });
 
   it('locks every selector, publishes one native Printer receipt, invalidates once, and persists its resolved state', async () => {

@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
+import type { HistoryStatus, PresetDraftMutationRequest, PresetDraftMutationResult } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 import { commitOptionFieldChange } from './OptionField';
 import {
   commitScopedConfigurationMutation,
+  commitPresetDraftMutation,
   commitSharedConfigurationMutation,
   invalidateAfterSharedConfigurationMutation,
   waitForConfigurationMutations,
@@ -52,6 +57,41 @@ const historyProjectionRuntime = {
   getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
   getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
 };
+
+function presetHistoryStatus(revision: number): HistoryStatus {
+  return {
+    canUndo: true, canRedo: false, undoLabel: 'Edit Preset', undoEntries: [], redoEntries: [],
+    cursor: revision, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
+    bytesUsed: 10, byteBudget: 1024, evictedEntryCount: 0, lastEvictedEntryId: null,
+    oldestRetainedEntryId: null, oversizedEntryRetained: false, disabled: false,
+    activeTransactionId: null, revision,
+  };
+}
+
+function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMutationResult, { ok: true }> {
+  return {
+    ok: true, version: 1, kind: 'printer', canonicalName: 'Printer A', draftExists: true,
+    modified: true, overrides: { printable_height: '250' },
+    sourceValues: { printable_height: '230' }, effectiveValues: { printable_height: '250' },
+    optionMetadata: {}, revision: 2,
+    historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 2, dirty: true,
+    affectedPlateIds: ['plate-1', 'plate-2'], allPlateResultsInvalidated,
+    plateSession: { ...mutation,
+      plates: [
+        { plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], name: 'Plate 1' },
+        { plateId: 'plate-2', displayIndex: 1, origin: [264, 0, 0] as [number, number, number], name: 'Plate 2' },
+      ],
+      currentPlateId: 'plate-1', inputRevisions: { 'plate-1': 12, 'plate-2': 18 },
+      affectedPlateIdsBefore: ['plate-1', 'plate-2'], affectedPlateIdsAfter: ['plate-1', 'plate-2'],
+    },
+    historyStatus: presetHistoryStatus(2),
+    nativeScopedConfig: {
+      version: 1, revision: 1, kind: 'full',
+      snapshot: { project: { printable_height: '250' }, objects: {}, parts: {}, plates: {} },
+      removedTargets: [],
+    },
+  } as unknown as Extract<PresetDraftMutationResult, { ok: true }>;
+}
 
 describe('commitSharedConfigurationMutation', () => {
   beforeEach(() => {
@@ -272,4 +312,88 @@ describe('commitSharedConfigurationMutation', () => {
     } finally { invalidate.mockRestore(); }
   });
 
+});
+
+describe('commitPresetDraftMutation', () => {
+  const request: PresetDraftMutationRequest = {
+    kind: 'printer', canonicalName: 'Printer A', expectedRevision: 1,
+    action: 'set', key: 'printable_height', value: '250',
+  };
+
+  beforeEach(() => {
+    useProjectStore.getState().reset();
+    usePlateSessionStore.getState().reset();
+    useFilamentSessionStore.getState().reset();
+    useHistoryNavigationStore.getState().reset();
+    useSlicerStore.getState().clearPlateResults();
+    useSlicerStore.setState({ status: 'idle', error: null });
+    useSettingsStore.getState().resetNativeScopedConfig();
+  });
+
+  it('publishes one native success receipt and honors its all-results invalidation flag', async () => {
+    const receipt = presetReceipt(true);
+    const mutatePresetDraft = vi.fn(async () => receipt);
+    const runProjectHistoryTransaction = vi.fn();
+    const cancel = vi.fn(async () => undefined);
+    const runtime = {
+      ...historyProjectionRuntime,
+      mutatePresetDraft,
+      runProjectHistoryTransaction,
+      cancel,
+      getRuntimeExecutionState: vi.fn(() => ({ threaded: true })),
+    };
+    const platform = { runtime } as unknown as PlatformCapabilities;
+    for (const plateId of ['plate-1', 'plate-2', 'unaffected-plate'])
+      useSlicerStore.getState().setPlateResult({ plateId, inputStamp: 1, resultGeneration: plateId, sliceTaskId: plateId } as never);
+    useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
+    useFilamentSessionStore.setState({ snapshot: { revisions: { session: 1, project: 1, plates: {} } } as never });
+
+    await expect(commitPresetDraftMutation(platform, request)).resolves.toBe(receipt);
+
+    expect(mutatePresetDraft).toHaveBeenCalledOnce();
+    expect(mutatePresetDraft).toHaveBeenCalledWith(request);
+    expect(runProjectHistoryTransaction).not.toHaveBeenCalled();
+    expect(useHistoryNavigationStore.getState().status).toBe(receipt.historyStatus);
+    expect(useProjectStore.getState()).toMatchObject({ dirty: true, plateInputRevisions: { 'plate-1': 12, 'plate-2': 18 } });
+    expect(usePlateSessionStore.getState().snapshot).toBe(receipt.plateSession);
+    expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(2);
+    expect(useSettingsStore.getState().nativeScopedConfig.project.printable_height).toBe('250');
+    expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual([]);
+    expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('returns a native stale rejection without publishing history, project, session, config, or slice corrections', async () => {
+    const stale = { ok: false as const, version: 1 as const, errorCode: 'stale_revision', error: 'draft revision is stale' };
+    const mutatePresetDraft = vi.fn(async () => stale);
+    const runProjectHistoryTransaction = vi.fn();
+    const cancel = vi.fn(async () => undefined);
+    const runtime = {
+      ...historyProjectionRuntime,
+      mutatePresetDraft,
+      runProjectHistoryTransaction,
+      cancel,
+      getRuntimeExecutionState: vi.fn(() => ({ threaded: true })),
+    };
+    const platform = { runtime } as unknown as PlatformCapabilities;
+    const initialHistory = presetHistoryStatus(1);
+    useHistoryNavigationStore.getState().setStatus(initialHistory);
+    usePlateSessionStore.getState().setSnapshot(mutation as never);
+    useSlicerStore.getState().setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: 'before', sliceTaskId: 'before' } as never);
+    useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
+    useSlicerStore.getState().setError('existing message');
+
+    await expect(commitPresetDraftMutation(platform, request)).resolves.toBe(stale);
+
+    expect(mutatePresetDraft).toHaveBeenCalledOnce();
+    expect(runProjectHistoryTransaction).not.toHaveBeenCalled();
+    expect(useHistoryNavigationStore.getState().status).toBe(initialHistory);
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, plateInputRevisions: {} });
+    expect(usePlateSessionStore.getState().snapshot).toBe(mutation);
+    expect(useSettingsStore.getState().nativeScopedConfigRevision).toBeNull();
+    expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-1']);
+    expect(useSlicerStore.getState().activeSliceTarget).toEqual({ plateId: 'plate-1', inputRevision: 1 });
+    expect(useSlicerStore.getState().error).toBe('existing message');
+    expect(cancel).not.toHaveBeenCalled();
+  });
 });

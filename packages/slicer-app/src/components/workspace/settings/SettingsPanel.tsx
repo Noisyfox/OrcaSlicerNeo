@@ -33,7 +33,10 @@ import {
 
 type PresetKind = 'printer' | 'print';
 
-export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+export function SettingsPanel({ sceneInteraction, onEditPrinter }: {
+  sceneInteraction: SceneInteractionController | null;
+  onEditPrinter?: (canonicalName: string) => void;
+}) {
   const platform = usePlatform();
   const metadata = useSettingsStore((s) => s.metadata);
   const printers = useSettingsStore((s) => s.printers);
@@ -174,7 +177,15 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       <ScalePanel sceneInteraction={sceneInteraction} />
       <section aria-busy={presetTransitionPending} data-testid="preset-transition-region">
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
-        <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
+        <PresetRow
+          label="Printer"
+          items={printers}
+          value={selectedPrinter}
+          onValue={(v) => handleSelectPreset('printer', v)}
+          onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
+          disabled={presetTransitionPending}
+          testId="preset-select"
+        />
         <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
       </section>
       <ScopedConfigurationPanel sceneInteraction={sceneInteraction} />
@@ -187,11 +198,12 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-function PresetRow({ label, items, value, onValue, disabled, testId }: {
+function PresetRow({ label, items, value, onValue, onEdit, disabled, testId }: {
   label: string;
   items: PresetInfo[];
   value: string;
   onValue: (name: string) => void;
+  onEdit?: () => void;
   disabled: boolean;
   testId?: string;
 }) {
@@ -210,15 +222,25 @@ function PresetRow({ label, items, value, onValue, disabled, testId }: {
         items={items.map((p) => p.name)}
         disabled={disabled}
       >
-        <ComboboxTrigger
-          data-testid={testId}
-          disabled={disabled}
-          render={
-            <Button variant="outline" className="w-full justify-between font-normal" />
-          }
-        >
-          <ComboboxValue placeholder="— select —" />
-        </ComboboxTrigger>
+        <div className="flex min-w-0 gap-1">
+          <ComboboxTrigger
+            data-testid={testId}
+            disabled={disabled}
+            render={
+              <Button variant="outline" className="min-w-0 flex-1 justify-between font-normal" />
+            }
+          >
+            <ComboboxValue placeholder="— select —" />
+          </ComboboxTrigger>
+          {onEdit && <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="preset-edit-printer"
+            disabled={disabled || value.length === 0}
+            onClick={onEdit}
+          >Edit</Button>}
+        </div>
         <ComboboxContent>
           {/* showTrigger={false} — official popup-style anatomy: the only
               ComboboxTrigger is the root button. Rendering the chevron

@@ -149,6 +149,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'], scopes: ['object', 'part'] },
       enable_support: { type: 'bool', scopes: ['object'] },
       nozzle_temperature: { type: 'float', category: 'Temperature', scopes: ['project'] },
+      printable_height: { type: 'float', category: 'Printer', min: 1, max: 1000 },
       filament_flow_ratio: { type: 'float', category: 'Filament', min: 0.5, max: 1.5 },
       default_filament_colour: { type: 'strings', category: 'Filament' },
       filament_type: { type: 'string', category: 'Filament' },
@@ -394,6 +395,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (!preset) return undefined;
     if (kind === 'printer') return {
       nozzle_temperature: '220',
+      printable_height: '256',
       printable_area: JSON.stringify(preset.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]]),
     };
     return {
@@ -1005,6 +1007,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     next.capabilities.can_delete = next.capabilities.flexible && next.slots.length > next.capabilities.min_slots;
     next.capabilities.can_merge = next.capabilities.can_delete;
     next.revisions.session += 1; next.revisions.project = next.revisions.session;
+    historyRevision = next.revisions.session;
     filamentSessionState = next;
     const mutation: Record<string, unknown> = {
       kind, history_entry_delta: 1, revision_before: request.revision,
@@ -1077,6 +1080,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
     }
     next.revisions.session += 1; next.revisions.project = next.revisions.session;
+    historyRevision = next.revisions.session;
     filamentSessionState = next;
     return { ok: true, version: 1, result: { snapshot: clone(next), history_status: {
       ...historyStatus(), revision: next.revisions.session, dirty: true }, mutation: {

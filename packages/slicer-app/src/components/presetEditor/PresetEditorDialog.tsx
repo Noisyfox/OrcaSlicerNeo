@@ -1,8 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { OptionMeta, PresetDraftSnapshot } from '@slicer/client';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  OptionMeta,
+  PresetDraftMutationRequest,
+  PresetDraftMutationResult,
+  PresetDraftSnapshot,
+  PresetDraftTarget,
+} from '@slicer/client';
+import { errorText } from '@orca/slicer-runtime';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
   PRINTER_PRESET_EDITOR_MANIFEST,
@@ -14,10 +24,15 @@ import {
 
 export interface PresetEditorDialogProps {
   /** One native target at a time. Pass null when there is no active editor. */
+  readonly target: PresetDraftTarget | null;
   readonly snapshot: PresetDraftSnapshot | null;
+  readonly loading?: boolean;
+  readonly loadError?: string | null;
+  readonly mutationPending?: boolean;
   /** Current one-based rack slots that select this Filament source. */
   readonly referencedFilamentSlots?: readonly number[];
   readonly onClose: () => void;
+  readonly onMutate: (request: PresetDraftMutationRequest) => Promise<PresetDraftMutationResult>;
 }
 
 interface RoutedField {
@@ -26,8 +41,14 @@ interface RoutedField {
   readonly field: PresetEditorManifestField;
 }
 
-function manifestFor(snapshot: PresetDraftSnapshot): PresetEditorManifest {
-  return snapshot.kind === 'printer'
+type PresetDraftAction =
+  | { readonly action: 'set'; readonly key: string; readonly value: string }
+  | { readonly action: 'reset-field'; readonly key: string }
+  | { readonly action: 'reset-category'; readonly keys: readonly string[] }
+  | { readonly action: 'reset-preset' };
+
+function manifestFor(kind: PresetDraftTarget['kind']): PresetEditorManifest {
+  return kind === 'printer'
     ? PRINTER_PRESET_EDITOR_MANIFEST
     : FILAMENT_PRESET_EDITOR_MANIFEST;
 }
@@ -43,9 +64,9 @@ function printerExtruderCount(snapshot: PresetDraftSnapshot): number | null {
   return diameters.length;
 }
 
-function pageInstances(manifest: PresetEditorManifest, snapshot: PresetDraftSnapshot): PresetEditorManifestPage[] {
+function pageInstances(manifest: PresetEditorManifest, snapshot: PresetDraftSnapshot | null): PresetEditorManifestPage[] {
   return manifest.pages.flatMap((page) => {
-    if (manifest.kind !== 'printer' || page.id !== 'extruder') return [page];
+    if (!snapshot || manifest.kind !== 'printer' || page.id !== 'extruder') return [page];
     const count = printerExtruderCount(snapshot);
     if (count === null) return [page];
     return Array.from({ length: count }, (_, index) => ({
@@ -60,7 +81,7 @@ function labelFor(field: PresetEditorManifestField, metadata: OptionMeta | undef
   return metadata?.label ?? metadata?.full_label ?? field.key;
 }
 
-function displayValue(values: Readonly<Record<string, string>>, key: string): string {
+function valueText(values: Readonly<Record<string, string>>, key: string): string {
   const value = values[key];
   if (value === undefined) return '—';
   return value.length === 0 ? '(empty)' : value;
@@ -73,22 +94,216 @@ function searchText(field: PresetEditorManifestField, metadata: OptionMeta | und
     .toLocaleLowerCase();
 }
 
+function hasOverride(snapshot: PresetDraftSnapshot, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(snapshot.overrides, key);
+}
+
+function isColourField(field: PresetEditorManifestField, metadata: OptionMeta | undefined): boolean {
+  return field.key === 'default_filament_colour' || metadata?.type === ('color' as OptionMeta['type']);
+}
+
+function colourInputValue(value: string): string {
+  if (/^#[\da-f]{6}$/i.test(value)) return value;
+  if (/^#[\da-f]{3}$/i.test(value)) return `#${value[1]}${value[1]}${value[2]}${value[2]}${value[3]}${value[3]}`;
+  return '#000000';
+}
+
+function isStructuredValue(metadata: OptionMeta | undefined): boolean {
+  return metadata !== undefined && [
+    'floats', 'ints', 'strings', 'bools', 'point', 'points', 'point3', 'unknown',
+  ].includes(metadata.type);
+}
+
+function makeMutationRequest(
+  snapshot: PresetDraftSnapshot,
+  action: PresetDraftAction,
+): PresetDraftMutationRequest {
+  return { kind: snapshot.kind, canonicalName: snapshot.canonicalName, expectedRevision: snapshot.revision, ...action } as PresetDraftMutationRequest;
+}
+
 function FieldValue({
   field,
   metadata,
   snapshot,
   page,
   group,
+  mutationPending,
+  onMutate,
 }: {
   field: PresetEditorManifestField;
   metadata: OptionMeta | undefined;
   snapshot: PresetDraftSnapshot;
   page?: PresetEditorManifestPage;
   group?: PresetEditorManifestGroup;
+  mutationPending: boolean;
+  onMutate: PresetEditorDialogProps['onMutate'];
 }) {
   const label = labelFor(field, metadata);
-  const readOnly = field.access === 'read-only';
   const tooltip = metadata?.tooltip;
+  const sourceValue = valueText(snapshot.sourceValues, field.key);
+  const effectiveValue = snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
+  const colourField = isColourField(field, metadata);
+  const unsupportedStructured = isStructuredValue(metadata) && !colourField;
+  const readOnly = field.access === 'read-only' || unsupportedStructured;
+  const readOnlyReason = field.readOnlyReason ?? (unsupportedStructured
+    ? 'This value needs a specialized editor.'
+    : undefined);
+  const overridden = hasOverride(snapshot, field.key);
+  const [displayValue, setDisplayValue] = useState(effectiveValue);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const focused = useRef(false);
+  const cancelBlur = useRef(false);
+  const actionPending = useRef(false);
+  const colourInput = useRef<HTMLInputElement>(null);
+  const effectiveValueRef = useRef(effectiveValue);
+  const setValueRef = useRef<(value: string) => Promise<void>>(async () => undefined);
+  effectiveValueRef.current = effectiveValue;
+
+  const inputId = `preset-editor-input-${page?.id ?? 'field'}-${group?.id ?? 'group'}-${field.key}`;
+
+  useEffect(() => {
+    if (!focused.current && fieldError === null) setDisplayValue(effectiveValue);
+  }, [effectiveValue, fieldError]);
+
+  const submitSet = useCallback(async (value: string) => {
+    if (mutationPending || actionPending.current) return;
+    actionPending.current = true;
+    setFieldError(null);
+    setDisplayValue(value);
+    try {
+      const result = await onMutate(makeMutationRequest(snapshot, { action: 'set', key: field.key, value }));
+      if (result.ok) setDisplayValue(result.effectiveValues[field.key] ?? snapshot.sourceValues[field.key] ?? value);
+      else setFieldError(result.error);
+    } catch (error) {
+      setFieldError(errorText(error));
+    } finally {
+      actionPending.current = false;
+    }
+  }, [field.key, mutationPending, onMutate, snapshot]);
+  setValueRef.current = submitSet;
+
+  const resetField = async () => {
+    if (!overridden || readOnly || mutationPending || actionPending.current) return;
+    actionPending.current = true;
+    setFieldError(null);
+    try {
+      const result = await onMutate(makeMutationRequest(snapshot, { action: 'reset-field', key: field.key }));
+      if (result.ok) setDisplayValue(result.effectiveValues[field.key] ?? result.sourceValues[field.key] ?? '');
+      else setFieldError(result.error);
+    } catch (error) {
+      setFieldError(errorText(error));
+    } finally {
+      actionPending.current = false;
+    }
+  };
+
+  // Native colour pickers emit a stream of `input` events followed by one
+  // committed `change`. Keep the preview local until that final boundary.
+  useEffect(() => {
+    const input = colourInput.current;
+    if (!input || !colourField || readOnly) return;
+    const handleInput = () => {
+      setDisplayValue(input.value);
+      setFieldError(null);
+    };
+    const handleChange = () => {
+      const next = input.value.toLowerCase();
+      if (next === colourInputValue(effectiveValueRef.current).toLowerCase()) return;
+      void setValueRef.current(next);
+    };
+    input.addEventListener('input', handleInput);
+    input.addEventListener('change', handleChange);
+    return () => {
+      input.removeEventListener('input', handleInput);
+      input.removeEventListener('change', handleChange);
+    };
+  }, [colourField, readOnly]);
+
+  const textLike = metadata?.type === 'string' || metadata?.type === 'unknown' || metadata === undefined;
+  const numeric = metadata?.type === 'float' || metadata?.type === 'int';
+  const freeText = textLike || numeric || metadata?.type === 'percent' || metadata?.type === 'float_or_percent';
+  const titleContext = page && group && (
+    <p className="mb-1 text-[0.7rem] text-muted-foreground" data-testid={`preset-editor-context-${field.key}`}>
+      {page.title} / {group.title}
+    </p>
+  );
+
+  let control = null;
+  if (!readOnly && metadata?.type === 'bool') {
+    control = <Checkbox
+      aria-label={label}
+      id={inputId}
+      data-testid={`preset-editor-input-${field.key}`}
+      checked={displayValue === '1' || displayValue.toLocaleLowerCase() === 'true'}
+      disabled={mutationPending}
+      onCheckedChange={(checked) => { void submitSet(checked ? '1' : '0'); }}
+    />;
+  } else if (!readOnly && metadata?.type === 'enum' && metadata.enum_values?.length) {
+    control = <Select
+      value={displayValue}
+      onValueChange={(next) => { if (next !== null) void submitSet(next); }}
+      disabled={mutationPending}
+    >
+      <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
+        <SelectValue placeholder={displayValue} />
+      </SelectTrigger>
+      <SelectContent>
+        {metadata.enum_values.map((value, index) => <SelectItem key={value} value={value}>
+          {metadata.enum_labels?.[index] ?? value}
+        </SelectItem>)}
+      </SelectContent>
+    </Select>;
+  } else if (!readOnly && colourField) {
+    control = <input
+      ref={colourInput}
+      aria-label={label}
+      id={inputId}
+      data-testid={`preset-editor-input-${field.key}`}
+      type="color"
+      value={colourInputValue(displayValue)}
+      disabled={mutationPending}
+      onChange={() => undefined}
+      className="size-8 cursor-pointer rounded border bg-background p-0.5"
+    />;
+  } else if (!readOnly && freeText) {
+    control = <Input
+      aria-label={label}
+      id={inputId}
+      data-testid={`preset-editor-input-${field.key}`}
+      type="text"
+      inputMode={numeric ? 'decimal' : 'text'}
+      value={displayValue}
+      disabled={mutationPending}
+      onFocus={() => { focused.current = true; }}
+      onBlur={() => {
+        focused.current = false;
+        if (cancelBlur.current) {
+          cancelBlur.current = false;
+          return;
+        }
+        if (displayValue !== effectiveValue) void submitSet(displayValue);
+      }}
+      onChange={(event) => {
+        setDisplayValue(event.currentTarget.value);
+        setFieldError(null);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          focused.current = false;
+          cancelBlur.current = true;
+          setDisplayValue(effectiveValue);
+          setFieldError(null);
+          event.currentTarget.blur();
+        }
+      }}
+    />;
+  }
+
   return (
     <article
       data-testid={`preset-editor-field-${field.key}`}
@@ -101,27 +316,45 @@ function FieldValue({
       title={tooltip}
       className="min-w-0 rounded-md border bg-background/70 px-3 py-2"
     >
-      {page && group && <p className="mb-1 text-[0.7rem] text-muted-foreground" data-testid={`preset-editor-context-${field.key}`}>
-        {page.title} / {group.title}
-      </p>}
+      {titleContext}
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium" title={label}>{label}</p>
+          <Label className="block truncate text-sm font-medium" title={label}>{label}</Label>
           <code className="break-all text-[0.7rem] text-muted-foreground">{field.key}</code>
         </div>
         {readOnly && <span
           data-testid={`preset-editor-readonly-${field.key}`}
-          title={field.readOnlyReason}
+          title={readOnlyReason}
           className="shrink-0 rounded border px-1.5 py-0.5 text-[0.65rem] text-muted-foreground"
         >Read only</span>}
+        {!readOnly && overridden && <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          data-testid={`preset-editor-reset-field-${field.key}`}
+          disabled={mutationPending}
+          onClick={() => void resetField()}
+        >Reset</Button>}
       </div>
-      {readOnly && field.readOnlyReason && <p className="mt-1 text-[0.7rem] text-muted-foreground">{field.readOnlyReason}</p>}
-      <dl className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">Source</dt>
-        <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{displayValue(snapshot.sourceValues, field.key)}</dd>
-        <dt className="text-muted-foreground">Effective</dt>
-        <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{displayValue(snapshot.effectiveValues, field.key)}</dd>
-      </dl>
+      {readOnly && readOnlyReason && <p className="mt-1 text-[0.7rem] text-muted-foreground">{readOnlyReason}</p>}
+      {readOnly ? (
+        <dl className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+          <dt className="text-muted-foreground">Source</dt>
+          <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</dd>
+          <dt className="text-muted-foreground">Effective</dt>
+          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{valueText(snapshot.effectiveValues, field.key)}</dd>
+        </dl>
+      ) : (
+        <div className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
+          <Label className="text-muted-foreground" htmlFor={inputId}>Value</Label>
+          <div className="min-w-0" data-testid={`preset-editor-control-${field.key}`}>{control}</div>
+          <span className="text-muted-foreground">Source</span>
+          <span data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</span>
+          <span className="text-muted-foreground">Effective</span>
+          <span data-testid={`preset-editor-effective-${field.key}`} className="break-all">{valueText(snapshot.effectiveValues, field.key)}</span>
+        </div>
+      )}
+      {fieldError && <p role="alert" data-testid={`preset-editor-error-${field.key}`} className="mt-2 text-xs text-destructive">{fieldError}</p>}
     </article>
   );
 }
@@ -130,10 +363,14 @@ function FieldGroup({
   page,
   group,
   snapshot,
+  mutationPending,
+  onMutate,
 }: {
   page: PresetEditorManifestPage;
   group: PresetEditorManifestGroup;
   snapshot: PresetDraftSnapshot;
+  mutationPending: boolean;
+  onMutate: PresetEditorDialogProps['onMutate'];
 }) {
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
   return (
@@ -151,6 +388,8 @@ function FieldGroup({
           snapshot={snapshot}
           page={page}
           group={group}
+          mutationPending={mutationPending}
+          onMutate={onMutate}
         />)}
       </div>
     </section>
@@ -172,16 +411,27 @@ function referencedSlotsLabel(slots: readonly number[]): string {
   return `Used by ${slotsText}. Editing this source affects those slots.`;
 }
 
-export function PresetEditorDialog({ snapshot, referencedFilamentSlots = [], onClose }: PresetEditorDialogProps) {
-  const manifest = snapshot ? manifestFor(snapshot) : null;
-  const pages = useMemo(() => manifest && snapshot ? pageInstances(manifest, snapshot) : [], [manifest, snapshot]);
+export function PresetEditorDialog({
+  target,
+  snapshot,
+  loading = false,
+  loadError = null,
+  mutationPending = false,
+  referencedFilamentSlots = [],
+  onClose,
+  onMutate,
+}: PresetEditorDialogProps) {
+  const manifest = target ? manifestFor(target.kind) : null;
+  const pages = useMemo(() => manifest ? pageInstances(manifest, snapshot) : [], [manifest, snapshot]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const targetKey = snapshot ? `${snapshot.kind}:${snapshot.canonicalName}` : '';
+  const [actionError, setActionError] = useState<string | null>(null);
+  const targetKey = target ? `${target.kind}:${target.canonicalName}` : '';
 
   useEffect(() => {
     setActivePageId(null);
     setSearch('');
+    setActionError(null);
   }, [targetKey]);
 
   const activePage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null;
@@ -192,39 +442,65 @@ export function PresetEditorDialog({ snapshot, referencedFilamentSlots = [], onC
       searchText(field, snapshot.optionMetadata[field.key]).includes(query));
   }, [manifest, pages, query, snapshot]);
 
+  const submitAction = async (action: PresetDraftAction) => {
+    if (!snapshot || mutationPending) return;
+    setActionError(null);
+    try {
+      const result = await onMutate(makeMutationRequest(snapshot, action));
+      if (!result.ok) setActionError(result.error);
+    } catch (error) {
+      setActionError(errorText(error));
+    }
+  };
+
+  const activePageKeys = activePage?.groups.flatMap((optionGroup) =>
+    optionGroup.fields.map((field) => field.key)) ?? [];
+  const categoryHasOverrides = snapshot !== null && activePageKeys.some((key) => hasOverride(snapshot, key));
   const showSearchResults = query.length > 0;
+
   return (
-    <Dialog open={snapshot !== null} onOpenChange={(open) => { if (!open && snapshot) onClose(); }}>
-      {snapshot && manifest && <DialogContent
+    <Dialog open={target !== null} onOpenChange={(open) => { if (!open && target && !mutationPending) onClose(); }}>
+      {target && manifest && <DialogContent
         data-testid="preset-editor-dialog"
         className="flex max-h-[88vh] w-[min(94vw,72rem)] max-w-none flex-col gap-4 overflow-hidden p-5"
       >
         <div className="flex min-w-0 items-start justify-between gap-4">
           <div className="min-w-0">
             <DialogTitle id="preset-editor-title" data-testid="preset-editor-title" className="truncate text-lg">
-              {snapshot.canonicalName}
+              {target.canonicalName}
             </DialogTitle>
             <DialogDescription className="mt-1">
-              {snapshot.kind === 'printer' ? 'Printer preset' : 'Filament preset'}
+              {target.kind === 'printer' ? 'Printer preset' : 'Filament preset'}
             </DialogDescription>
-            {snapshot.kind === 'filament' && <p
+            {target.kind === 'filament' && <p
               data-testid="preset-editor-slot-reference"
               className="mt-1 text-xs text-muted-foreground"
             >{referencedSlotsLabel(referencedFilamentSlots)}</p>}
           </div>
-          {snapshot.modified && <span
-            data-testid="preset-editor-project-draft"
-            className="shrink-0 rounded border px-2 py-1 text-xs"
-          >Project draft</span>}
+          <div className="flex shrink-0 items-center gap-2">
+            {snapshot?.modified && <span
+              data-testid="preset-editor-project-draft"
+              className="rounded border px-2 py-1 text-xs"
+            >Project draft</span>}
+            <Button
+              type="button"
+              variant="destructive"
+              size="xs"
+              data-testid="preset-editor-reset-preset"
+              disabled={mutationPending || !snapshot?.draftExists}
+              onClick={() => void submitAction({ action: 'reset-preset' })}
+            >Reset preset</Button>
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <Input
             type="search"
-            aria-label={`Search ${snapshot.kind} preset settings`}
+            aria-label={`Search ${target.kind} preset settings`}
             data-testid="preset-editor-search"
             placeholder="Search by name, key, or help text"
             value={search}
+            disabled={loading || !snapshot}
             onChange={(event) => setSearch(event.currentTarget.value)}
           />
 
@@ -237,13 +513,20 @@ export function PresetEditorDialog({ snapshot, referencedFilamentSlots = [], onC
               aria-selected={activePage?.id === page.id}
               aria-controls={`preset-editor-page-${page.id}`}
               data-testid={`preset-editor-page-tab-${page.id}`}
-              onClick={() => { setActivePageId(page.id); setSearch(''); }}
+              disabled={loading || !snapshot}
+              onClick={() => { setActivePageId(page.id); setSearch(''); setActionError(null); }}
               className="shrink-0 border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground aria-selected:border-primary aria-selected:text-foreground"
             >{page.title}</button>)}
           </div>}
 
+          {actionError && <p role="alert" data-testid="preset-editor-action-error" className="text-xs text-destructive">{actionError}</p>}
+
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            {showSearchResults ? (
+            {loadError ? (
+              <p role="alert" data-testid="preset-editor-load-error" className="py-4 text-sm text-destructive">{loadError}</p>
+            ) : loading || !snapshot ? (
+              <p data-testid="preset-editor-loading" className="py-4 text-sm text-muted-foreground">Loading preset settings…</p>
+            ) : showSearchResults ? (
               <div data-testid="preset-editor-search-results" className="space-y-3">
                 {searchResults.length === 0
                   ? <p className="py-4 text-sm text-muted-foreground">No matching settings.</p>
@@ -254,6 +537,8 @@ export function PresetEditorDialog({ snapshot, referencedFilamentSlots = [], onC
                     snapshot={snapshot}
                     page={page}
                     group={group}
+                    mutationPending={mutationPending}
+                    onMutate={onMutate}
                   />)}
               </div>
             ) : activePage ? (
@@ -264,11 +549,23 @@ export function PresetEditorDialog({ snapshot, referencedFilamentSlots = [], onC
                 data-testid={`preset-editor-page-${activePage.id}`}
                 className="space-y-5 pb-1"
               >
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    data-testid={`preset-editor-reset-category-${activePage.id}`}
+                    disabled={!categoryHasOverrides || mutationPending}
+                    onClick={() => void submitAction({ action: 'reset-category', keys: activePageKeys })}
+                  >Reset category</Button>
+                </div>
                 {activePage.groups.map((optionGroup) => <FieldGroup
                   key={optionGroup.id}
                   page={activePage}
                   group={optionGroup}
                   snapshot={snapshot}
+                  mutationPending={mutationPending}
+                  onMutate={onMutate}
                 />)}
               </div>
             ) : null}
@@ -276,7 +573,7 @@ export function PresetEditorDialog({ snapshot, referencedFilamentSlots = [], onC
         </div>
 
         <DialogFooter>
-          <Button type="button" onClick={onClose} data-testid="preset-editor-close">Close</Button>
+          <Button type="button" onClick={onClose} disabled={mutationPending} data-testid="preset-editor-close">Close</Button>
         </DialogFooter>
       </DialogContent>}
     </Dialog>
