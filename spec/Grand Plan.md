@@ -385,25 +385,12 @@ and drives structural operations through the typed client.
 
 ## Milestone 19: Project and Scoped Configuration
 
-> [!info] Interactive design in progress 2026-09-20. Normative specification:
+> [!success] Delivered 2026-09-23. The final user-visible behavior is defined in
 > [`Project and Scoped Configuration.md`](Project%20and%20Scoped%20Configuration.md).
-> The living implementation record is
-> [`2026-09-20-project-and-scoped-configuration.md`](../doc/2026-09-20-project-and-scoped-configuration.md).
 
-Add an Orca-like Project / Scoped configuration switch to the shared parameter
-surface. The feature will provide project, plate, object, and part/modifier
-overrides with stable identities, native eligibility classes, inherited-value
-visibility, erase-only reset, and effective-value composition consistent with
-the native slicing engine.
-
-- [ ] Complete the interactive behavioural design and implementation plan.
-- [ ] Implement Worker-owned scoped configuration mutations and canonical snapshots
-      through the shared runtime boundary, with React-derived effective-value editing
-      projection.
-- [ ] Implement shared Project / Scoped UI, same-scope mixed-value multi-edit,
-      explicit inheritance source, and target-level reset.
-- [ ] Add persistence, history, invalidation, and cross-host acceptance
-      coverage.
+Users can switch between project-wide and selection-scoped editing for plates,
+objects, parts, and modifiers, with inherited-value visibility, reset, standard
+3MF persistence, and Undo/Redo behavior.
 
 ## Cross-cutting titlebar/native menu implementation
 

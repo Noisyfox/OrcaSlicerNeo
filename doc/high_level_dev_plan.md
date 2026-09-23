@@ -550,17 +550,12 @@ context. It excludes global preset selection, global/system preferences, full
 
 ### Milestone 19 — Project and Scoped Configuration
 
-> **Status: interactive design in progress 2026-09-20.** The normative record
-> is [`spec/Project and Scoped Configuration.md`](../spec/Project%20and%20Scoped%20Configuration.md);
-> its living implementation record is
-> [`doc/2026-09-20-project-and-scoped-configuration.md`](2026-09-20-project-and-scoped-configuration.md).
+> **Status: delivered 2026-09-23.** Final user-visible behavior:
+> [`spec/Project and Scoped Configuration.md`](../spec/Project%20and%20Scoped%20Configuration.md).
 
-- [ ] Add the shared parameter-surface Project / Scoped switch.
-- [ ] Provide stable Worker-owned project, plate, object, and part/modifier
-      overrides with native eligibility and effective-value composition.
-- [ ] Add same-scope multi-edit, mixed-value presentation, source-aware
-      inheritance, erase-only reset, persistence/history/invalidation, and
-      Electron plus serial/threaded Web acceptance.
+- [x] Deliver Project / Scoped editing for project, plate, object, part, and
+      modifier settings, with selection-aware inheritance, mixed-value editing,
+      reset, standard 3MF persistence, and Undo/Redo.
 
 ## G-code preview GPU streaming renderer (2026-09-02)
 
