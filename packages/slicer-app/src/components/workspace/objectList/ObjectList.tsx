@@ -3,6 +3,7 @@ import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client'
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
@@ -29,14 +30,15 @@ type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: numbe
 function ObjectValidityBadge({ validity, objectId }: { validity: ObjectListValidity; objectId: number }) {
   const label = validity === 'out-of-bounds' ? 'Out of bounds' : 'Unprintable';
   return (
-    <span
-      data-testid={`object-validity-${objectId}`}
-      data-validity={validity}
-      className="ml-auto pl-1 text-[0.65rem] font-normal text-destructive"
-      title={label}
-    >
-      {label}
-    </span>
+    <TooltipFor content={label}>
+      <span
+        data-testid={`object-validity-${objectId}`}
+        data-validity={validity}
+        className="ml-auto pl-1 text-[0.65rem] font-normal text-destructive"
+      >
+        {label}
+      </span>
+    </TooltipFor>
   );
 }
 

@@ -3,6 +3,7 @@ import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Progress } from '@/components/ui/progress';
 import { usePlatform } from '@orca/platform-contract';
 import { MemoryIndicator } from './MemoryIndicator';
+import { TooltipFor } from '@/components/ui/tooltip';
 
 export function StatusBar() {
   const status = useSlicerStore((s) => s.status);
@@ -21,9 +22,11 @@ export function StatusBar() {
         <span>{layers} layers</span>
       )}
       {error && (
-        <span className="min-w-0 text-destructive" data-testid="slicer-error" role="alert" title={error}>
-          {error}
-        </span>
+        <TooltipFor content={error}>
+          <span className="min-w-0 text-destructive" data-testid="slicer-error" role="alert">
+            {error}
+          </span>
+        </TooltipFor>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {platform.chrome.kind === 'web' && typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated && (

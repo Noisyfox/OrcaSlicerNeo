@@ -317,6 +317,9 @@ When `field.local` is true for an editable/resettable option, only its option la
 colored Orca orange (`#F1754E`). Inherited values remain unhighlighted; the value
 control and mixed-value placeholder retain their normal colors. The nearest
 effective source is shown in a tooltip when the user hovers over the value control.
+The shared application uses the shadcn Tooltip component system for this and its
+other UI tooltips, with one provider at the shared App root; browser-native `title`
+attributes are not used for tooltip presentation.
 A multi-target field follows the projected `field.local` and reset semantics without
 recomputing target ownership in the view; after Reset, the updated projection removes
 the highlight.

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TooltipFor } from '@/components/ui/tooltip';
 
 export async function commitOptionFieldChange(
   platform: Parameters<typeof commitSharedConfigurationMutation>[0],
@@ -74,7 +75,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   if (meta.type === 'bool') {
     return (
       <div className={row}>
-        <Label htmlFor={optionKey} className={labelCls} title={label}>{label}</Label>
+        <TooltipFor content={label}><Label htmlFor={optionKey} className={labelCls}>{label}</Label></TooltipFor>
         <Checkbox
           id={optionKey}
           checked={value === '1'}
@@ -87,7 +88,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   if (meta.type === 'enum' && meta.enum_values?.length) {
     return (
       <div className={row}>
-        <Label className={labelCls} title={label}>{label}</Label>
+        <TooltipFor content={label}><Label className={labelCls}>{label}</Label></TooltipFor>
         <Select value={value} onValueChange={(v) => v != null && changeDiscrete(v)}>
           <SelectTrigger className="flex-1">
             <SelectValue placeholder={value} />
@@ -106,7 +107,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
 
   return (
     <div className={row}>
-      <Label htmlFor={optionKey} className={labelCls} title={label}>{label}</Label>
+      <TooltipFor content={label}><Label htmlFor={optionKey} className={labelCls}>{label}</Label></TooltipFor>
       <Input
         id={optionKey}
         value={draft}

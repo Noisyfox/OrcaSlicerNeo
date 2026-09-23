@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { assignmentForRow, assignmentSlotOptions } from './filamentAssignment';
 import type { FilamentSessionSnapshot, FilamentAssignmentTargetRequest } from '@slicer/client';
 
@@ -38,18 +39,19 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
       onValueChange={(value) => value != null && onAssign?.(Number(value))}
       disabled={pending}
     >
-      <SelectTrigger
-        aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
-        data-testid={`filament-cell-${kind}-${id}`}
-        className={cn('h-5 w-16 shrink-0 px-1 py-0 text-[0.65rem] data-[size=sm]:h-5', assignment.inherited && 'italic text-muted-foreground')}
-        size="sm"
-        title={label}
-        onClick={(event) => event.stopPropagation()}
-        onContextMenu={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <SelectValue />
-      </SelectTrigger>
+      <TooltipFor content={label}>
+        <SelectTrigger
+          aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
+          data-testid={`filament-cell-${kind}-${id}`}
+          className={cn('h-5 w-16 shrink-0 px-1 py-0 text-[0.65rem] data-[size=sm]:h-5', assignment.inherited && 'italic text-muted-foreground')}
+          size="sm"
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <SelectValue />
+        </SelectTrigger>
+      </TooltipFor>
       <SelectContent
         onClick={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}

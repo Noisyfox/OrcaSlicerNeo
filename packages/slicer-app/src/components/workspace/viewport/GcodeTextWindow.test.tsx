@@ -155,7 +155,7 @@ describe('GcodeTextWindow', () => {
     expect(close.querySelector('svg')).toBeTruthy();
     expect(close.textContent).toBe('');
     expect(close.getAttribute('aria-label')).toBe('Close G-code text');
-    expect(close.getAttribute('title')).toBe('Close G-code text');
+    expect(close.hasAttribute('title')).toBe(false);
     const capture = addPointerCaptureMock(header);
     const initialLeft = parseFloat(windowElement.style.left);
     const initialTop = parseFloat(windowElement.style.top);

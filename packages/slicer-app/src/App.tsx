@@ -39,6 +39,7 @@ import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { historyNavigationIntentAllowed, historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
 import { isSerialSliceBusy } from './runtimeExecution';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function handleMenuKeyDown(
   event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key' | 'shiftKey' | 'preventDefault'>,
@@ -57,6 +58,10 @@ export function handleMenuKeyDown(
 }
 
 export default function App() {
+  return <TooltipProvider><AppContent /></TooltipProvider>;
+}
+
+function AppContent() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);

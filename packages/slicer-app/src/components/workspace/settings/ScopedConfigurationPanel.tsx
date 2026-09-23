@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -95,60 +96,60 @@ export function ScopedField({
 
   let control;
   if (field.meta.type === 'bool' && !field.mixed) {
-    control = <Checkbox
+    control = <TooltipFor content={tooltip}><Checkbox
       id={`scoped-${field.key}`}
-      title={tooltip}
       checked={displayed === '1'}
       onCheckedChange={(checked) => onDiscrete(checked ? '1' : '0')}
-    />;
+    /></TooltipFor>;
   } else if (field.meta.type === 'enum' && field.meta.enum_values?.length && !field.mixed) {
     control = <Select value={displayed} onValueChange={(value) => value != null && onDiscrete(value)}>
-      <SelectTrigger className="flex-1" data-testid={`config-input-${field.key}`} title={tooltip}><SelectValue placeholder={displayed} /></SelectTrigger>
+      <TooltipFor content={tooltip}>
+        <SelectTrigger className="flex-1" data-testid={`config-input-${field.key}`}><SelectValue placeholder={displayed} /></SelectTrigger>
+      </TooltipFor>
       <SelectContent>{field.meta.enum_values.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
     </Select>;
   } else {
-    control = <Input
-      id={`scoped-${field.key}`}
-      data-testid={`config-input-${field.key}`}
-      title={tooltip}
-      value={displayed}
-      placeholder={field.mixed ? 'Mixed' : undefined}
-      min={field.meta.min}
-      max={field.meta.max}
-      type={isScalar(field.meta) ? 'number' : 'text'}
-      step={field.meta.type === 'int' ? 1 : 'any'}
-      onBlur={() => {
-        if (cancelBlur.current) { cancelBlur.current = false; return; }
-        if (draft !== valueForField(field)) void commit(draft);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') { event.preventDefault(); if (draft !== valueForField(field)) void commit(draft); }
-        if (event.key === 'Escape') { event.preventDefault(); cancelBlur.current = true; setDraft(valueForField(field)); setError(null); event.currentTarget.blur(); }
-      }}
-      onChange={(event) => setDraft(event.target.value)}
-      className="flex-1"
-    />;
+    control = <TooltipFor content={tooltip}><Input
+        id={`scoped-${field.key}`}
+        data-testid={`config-input-${field.key}`}
+        value={displayed}
+        placeholder={field.mixed ? 'Mixed' : undefined}
+        min={field.meta.min}
+        max={field.meta.max}
+        type={isScalar(field.meta) ? 'number' : 'text'}
+        step={field.meta.type === 'int' ? 1 : 'any'}
+        onBlur={() => {
+          if (cancelBlur.current) { cancelBlur.current = false; return; }
+          if (draft !== valueForField(field)) void commit(draft);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') { event.preventDefault(); if (draft !== valueForField(field)) void commit(draft); }
+          if (event.key === 'Escape') { event.preventDefault(); cancelBlur.current = true; setDraft(valueForField(field)); setError(null); event.currentTarget.blur(); }
+        }}
+        onChange={(event) => setDraft(event.target.value)}
+        className="flex-1"
+      /></TooltipFor>;
   }
   return (
     <div data-testid={`config-field-${field.key}`} className="space-y-0.5">
       <div className={row}>
-        <Label
-          htmlFor={`scoped-${field.key}`}
-          data-testid={`config-option-label-${field.key}`}
-          data-local-override-highlight={hasEditableLocalOverride ? 'true' : 'false'}
-          className={cn(labelCls, hasEditableLocalOverride && 'scoped-config-local-override-label')}
-          title={label}
-        >{label}</Label>
+        <TooltipFor content={label}>
+          <Label
+            htmlFor={`scoped-${field.key}`}
+            data-testid={`config-option-label-${field.key}`}
+            data-local-override-highlight={hasEditableLocalOverride ? 'true' : 'false'}
+            className={cn(labelCls, hasEditableLocalOverride && 'scoped-config-local-override-label')}
+          >{label}</Label>
+        </TooltipFor>
         {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Mixed</span>}
         {control}
-        {field.local && field.resettable && <Button
+        {field.local && field.resettable && <TooltipFor content="Reset this local override"><Button
           type="button"
           variant="ghost"
           size="xs"
           data-testid={`config-reset-${field.key}`}
-          title="Reset this local override"
           onClick={reset}
-        >Reset</Button>}
+        >Reset</Button></TooltipFor>}
       </div>
       {error && <div role="alert" data-testid={`config-error-${field.key}`} className="pl-32 text-[0.65rem] text-destructive">{error}</div>}
     </div>

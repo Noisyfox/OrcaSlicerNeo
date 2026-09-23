@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Slice, Download, Send as SendIcon, Printer, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon, Undo2, Redo2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -94,25 +95,28 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
         </TabsList>
       </Tabs>
       <div className="flex items-center gap-0.5" data-testid="history-navigation">
-        <Button
-          size="xs"
-          variant="secondary"
-          disabled={undoDisabled}
-          onClick={() => navigate('undo')}
-          aria-label={undoLabel}
-          title={undoLabel}
-          data-testid="history-undo"
-        >
-          <Undo2 className="h-3 w-3" /> {undoLabel}
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button size="icon-xs" variant="secondary" aria-label="Show Undo history" title="Show Undo history" />}
-            disabled={undoDisabled || undoEntries.length === 0}
-            data-testid="history-undo-menu-trigger"
+        <TooltipFor content={undoLabel} disabled={undoDisabled}>
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={undoDisabled}
+            onClick={() => navigate('undo')}
+            aria-label={undoLabel}
+            data-testid="history-undo"
           >
-            <ChevronDown className="h-3 w-3" />
-          </DropdownMenuTrigger>
+            <Undo2 className="h-3 w-3" /> {undoLabel}
+          </Button>
+        </TooltipFor>
+        <DropdownMenu>
+          <TooltipFor content="Show Undo history" disabled={undoDisabled || undoEntries.length === 0}>
+            <DropdownMenuTrigger
+              render={<Button size="icon-xs" variant="secondary" aria-label="Show Undo history" />}
+              disabled={undoDisabled || undoEntries.length === 0}
+              data-testid="history-undo-menu-trigger"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+          </TooltipFor>
           <DropdownMenuContent align="start">
             {undoEntries.map((entry) => (
               <DropdownMenuItem key={entry.id} onClick={() => navigate('undo', entry.id)} data-testid={`history-undo-entry-${entry.id}`}>
@@ -121,25 +125,28 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
-          size="xs"
-          variant="secondary"
-          disabled={redoDisabled}
-          onClick={() => navigate('redo')}
-          aria-label={redoLabel}
-          title={redoLabel}
-          data-testid="history-redo"
-        >
-          <Redo2 className="h-3 w-3" /> {redoLabel}
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button size="icon-xs" variant="secondary" aria-label="Show Redo history" title="Show Redo history" />}
-            disabled={redoDisabled || redoEntries.length === 0}
-            data-testid="history-redo-menu-trigger"
+        <TooltipFor content={redoLabel} disabled={redoDisabled}>
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={redoDisabled}
+            onClick={() => navigate('redo')}
+            aria-label={redoLabel}
+            data-testid="history-redo"
           >
-            <ChevronDown className="h-3 w-3" />
-          </DropdownMenuTrigger>
+            <Redo2 className="h-3 w-3" /> {redoLabel}
+          </Button>
+        </TooltipFor>
+        <DropdownMenu>
+          <TooltipFor content="Show Redo history" disabled={redoDisabled || redoEntries.length === 0}>
+            <DropdownMenuTrigger
+              render={<Button size="icon-xs" variant="secondary" aria-label="Show Redo history" />}
+              disabled={redoDisabled || redoEntries.length === 0}
+              data-testid="history-redo-menu-trigger"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+          </TooltipFor>
           <DropdownMenuContent align="start">
             {redoEntries.map((entry) => (
               <DropdownMenuItem key={entry.id} onClick={() => navigate('redo', entry.id)} data-testid={`history-redo-entry-${entry.id}`}>
@@ -148,21 +155,27 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        {historyError && <span role="alert" className="ml-1 max-w-48 truncate text-[0.625rem] text-destructive" data-testid="history-restore-error" title={historyError}>{historyError}</span>}
+        {historyError && <TooltipFor content={historyError}><span role="alert" className="ml-1 max-w-48 truncate text-[0.625rem] text-destructive" data-testid="history-restore-error">{historyError}</span></TooltipFor>}
       </div>
       {showActions && <div className="flex items-center gap-2" data-testid="toolbar-actions">
         <Button size="xs" variant="secondary" onClick={slice} disabled={busy || restoring || !modelLoaded || hasCompletedResult} data-testid="btn-slice">
           <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
         </Button>
-        <Button size="xs" variant="default" disabled={busy || restoring || exporting || !hasCompletedResult} onClick={saveExport} title="Export G-code" data-testid="btn-export">
-          <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
-        </Button>
-        <Button size="xs" variant="secondary" disabled={busy || restoring || !hasCompletedResult} onClick={() => setSendAction('send')} title="Send G-code to printer" data-testid="btn-send">
-          <SendIcon className="h-4 w-4" /> Send
-        </Button>
-        <Button size="xs" variant="default" disabled={busy || restoring || !hasCompletedResult} onClick={() => setSendAction('send-and-print')} title="Send G-code and start printing" data-testid="btn-send-and-print">
-          <Printer className="h-4 w-4" /> Send &amp; Print
-        </Button>
+        <TooltipFor content="Export G-code" disabled={busy || restoring || exporting || !hasCompletedResult}>
+          <Button size="xs" variant="default" disabled={busy || restoring || exporting || !hasCompletedResult} onClick={saveExport} data-testid="btn-export">
+            <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
+          </Button>
+        </TooltipFor>
+        <TooltipFor content="Send G-code to printer" disabled={busy || restoring || !hasCompletedResult}>
+          <Button size="xs" variant="secondary" disabled={busy || restoring || !hasCompletedResult} onClick={() => setSendAction('send')} data-testid="btn-send">
+            <SendIcon className="h-4 w-4" /> Send
+          </Button>
+        </TooltipFor>
+        <TooltipFor content="Send G-code and start printing" disabled={busy || restoring || !hasCompletedResult}>
+          <Button size="xs" variant="default" disabled={busy || restoring || !hasCompletedResult} onClick={() => setSendAction('send-and-print')} data-testid="btn-send-and-print">
+            <Printer className="h-4 w-4" /> Send &amp; Print
+          </Button>
+        </TooltipFor>
       </div>}
     </div>
     {showActions && <SendGcodeDialog

@@ -12,6 +12,7 @@ import type { PrinterConfiguration } from '@orca/printer-control';
 import { normalizePrinterConfiguration, normalizePrinterConfigurationDocument } from '@orca/printer-control';
 import { usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -349,9 +350,11 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               <h1 className="text-sm font-semibold">Devices</h1>
               <p className="text-xs text-muted-foreground">Printer consoles</p>
             </div>
-            <Button size="icon-xs" variant="secondary" onClick={beginAdd} title="Add printer" aria-label="Add printer" data-testid="device-add-printer">
-              <Plus />
-            </Button>
+            <TooltipFor content="Add printer">
+              <Button size="icon-xs" variant="secondary" onClick={beginAdd} aria-label="Add printer" data-testid="device-add-printer">
+                <Plus />
+              </Button>
+            </TooltipFor>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {printers.length === 0 ? (
@@ -378,12 +381,16 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
                     >
                       {printer.displayName}
                     </button>
-                    <Button size="icon-xs" variant="ghost" onClick={() => beginEdit(printer)} title={`Edit ${printer.displayName}`} aria-label={`Edit ${printer.displayName}`} data-testid={`device-edit-${printer.id}`}>
-                      <Pencil />
-                    </Button>
-                    <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => beginDelete(printer.id)} title={`Delete ${printer.displayName}`} aria-label={`Delete ${printer.displayName}`} data-testid={`device-delete-${printer.id}`}>
-                      <Trash2 />
-                    </Button>
+                    <TooltipFor content={`Edit ${printer.displayName}`}>
+                      <Button size="icon-xs" variant="ghost" onClick={() => beginEdit(printer)} aria-label={`Edit ${printer.displayName}`} data-testid={`device-edit-${printer.id}`}>
+                        <Pencil />
+                      </Button>
+                    </TooltipFor>
+                    <TooltipFor content={`Delete ${printer.displayName}`}>
+                      <Button size="icon-xs" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => beginDelete(printer.id)} aria-label={`Delete ${printer.displayName}`} data-testid={`device-delete-${printer.id}`}>
+                        <Trash2 />
+                      </Button>
+                    </TooltipFor>
                   </div>
                 ))}
               </div>

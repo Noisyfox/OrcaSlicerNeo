@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { buttonVariants } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
 import {
   formatMemory,
   memoryTotalLabel,
@@ -97,7 +98,9 @@ function MemoryGroup({ title, entries }: {
       <h3 className="font-medium text-muted-foreground">{title}</h3>
       {entries.map((entry) => (
         <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3">
-          <span className="min-w-0 truncate" title={entry.label}>{entry.label}</span>
+          <TooltipFor content={entry.label}>
+            <span className="min-w-0 truncate">{entry.label}</span>
+          </TooltipFor>
           <span>{formatMemory(entry.bytes)}</span>
           {entry.note && <span className="col-span-2 text-muted-foreground">{entry.note}</span>}
         </div>

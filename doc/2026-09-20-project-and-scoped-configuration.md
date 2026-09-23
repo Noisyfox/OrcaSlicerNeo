@@ -509,3 +509,16 @@ Acceptance checks passed:
 - `pnpm --filter @orca/slicer-app test -- --run` — 78 files, 604 tests passed.
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
 - `git diff --check` — passed (Windows line-ending warnings only).
+
+### 2026-09-23 — Shared shadcn tooltips
+
+All shared-app hover hints now use the shared shadcn Tooltip components and the
+provider mounted at the shared App root; native `title` attributes are no longer
+used for tooltip UI. Disabled controls retain hover hints through a non-disabled
+inline trigger. Dialog titles and other non-tooltip `title` props remain unchanged.
+
+Acceptance checks passed:
+
+- `pnpm --filter @orca/slicer-app test` — 79 files, 607 tests passed.
+- `pnpm --filter @orca/slicer-app typecheck` — passed.
+- `git diff --check` — passed (Windows line-ending warnings only).

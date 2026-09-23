@@ -2,11 +2,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { ScopedField } from './ScopedConfigurationPanel';
 import type { ScopedConfigurationField } from './scopedConfigurationProjection';
 
 let root: Root | undefined;
 let container: HTMLDivElement;
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(async () => {
   await act(async () => root?.unmount());
   container?.remove();
@@ -21,9 +23,9 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
-  const render = async () => act(async () => root!.render(<ScopedField field={field}
+  const render = async () => act(async () => root!.render(<TooltipProvider><ScopedField field={field}
     targets={[{ scope: 'object', id: '42', label: 'Object' }]}
-    onCommit={onCommit} onReset={onReset} />));
+    onCommit={onCommit} onReset={onReset} /></TooltipProvider>));
   await render();
   const input = container.querySelector('input')!;
   await act(async () => input.focus());
@@ -89,8 +91,7 @@ describe('scoped field drafts', () => {
     expect(label.classList.contains('scoped-config-local-override-label')).toBe(true);
     expect(container.querySelector('[data-testid="config-input-layer_height"]')!.classList.contains('scoped-config-local-override-label')).toBe(false);
     expect(container.querySelector('[data-testid="config-source-layer_height"]')).toBeNull();
-    expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.title).toBe('Effective value source: Object.');
-
+    expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.hasAttribute('title')).toBe(false);
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="config-reset-layer_height"]')!.click());
     expect(onReset).toHaveBeenCalledOnce();
     await rerender({ local: false, source: 'project' });
@@ -100,13 +101,26 @@ describe('scoped field drafts', () => {
     expect(container.querySelector('[data-testid="config-reset-layer_height"]')).toBeNull();
   });
 
+  it('shows the effective source through the UI tooltip on value hover, without a native title', async () => {
+    const { input } = await renderField();
+    expect(input.hasAttribute('title')).toBe(false);
+
+    await act(async () => {
+      input.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, clientX: 10, clientY: 10 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(input.getAttribute('data-slot')).toBe('input');
+    expect(document.body.querySelector('[data-slot="tooltip-content"]')?.textContent).toContain('Effective value source: Object.');
+  });
+
   it('does not highlight inherited values, mixed placeholders, or non-editable local fields', async () => {
     const inherited = await renderField({ local: false, source: 'project' });
     expect(inherited.getLabel().getAttribute('data-local-override-highlight')).toBe('false');
     expect(inherited.getLabel().classList.contains('scoped-config-local-override-label')).toBe(false);
     expect(inherited.input.classList.contains('scoped-config-local-override-label')).toBe(false);
     expect(container.querySelector('[data-testid="config-source-layer_height"]')).toBeNull();
-    expect(inherited.input.title).toBe('Effective value source: Project.');
+    expect(inherited.input.hasAttribute('title')).toBe(false);
 
     await afterEachCleanupRender();
     const mixed = await renderField({ mixed: true, value: null, source: 'mixed' });
