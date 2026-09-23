@@ -387,8 +387,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
             const result = await mutation(String(transactionId));
             const context = typeof afterContext === 'function'
               ? await (afterContext as () => unknown | Promise<unknown>)() : afterContext;
-            const status = await call('commitHistory', [transactionId, context]);
-            return { result, status };
+            const receipt = await call('commitHistory', [transactionId, context]) as import('./history').HistoryCommitResult;
+            return { result, ...receipt };
           } catch (error) {
             try { await call('abortHistory', [transactionId]); } catch { /* preserve mutation error */ }
             throw error;

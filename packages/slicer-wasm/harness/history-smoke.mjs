@@ -133,7 +133,7 @@ if (!freshAddTx.ok || typeof freshAddTx.transactionId !== 'string') throw new Er
 historyCheck('fresh-project Cube add succeeds',
   callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Fresh history Cube']).ok === true);
 const freshAddCommit = callJson('orc_history_commit', ['string', 'string'],
-  [freshAddTx.transactionId, JSON.stringify(context)]);
+  [freshAddTx.transactionId, JSON.stringify(context)]).status;
 if (!freshAddCommit.canUndo) throw new Error(`fresh Cube commit failed: ${JSON.stringify(freshAddCommit)}`);
 const freshBeforeMove = callJson('orc_get_model_mesh', [], []);
 const freshBeforeMoveStructure = callJson('orc_get_model_structure', [], []);
@@ -141,7 +141,7 @@ const freshStableIds = modelIdentity(freshBeforeMoveStructure);
 const freshMoveTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Move', 'project', JSON.stringify(context), '']);
 if (!freshMoveTx.ok || typeof freshMoveTx.transactionId !== 'string') throw new Error(JSON.stringify(freshMoveTx));
-const freshBody = freshBeforeMove.objects?.[0];
+const freshBody = freshBeforeMove.renderables?.[0];
 if (!freshBody) throw new Error(`fresh Cube mesh unavailable: ${JSON.stringify(freshBeforeMove)}`);
 const freshMove = { ...freshBody.instance_transform,
   offset: [freshBody.instance_transform.offset[0] + 10, freshBody.instance_transform.offset[1], freshBody.instance_transform.offset[2]] };
@@ -156,7 +156,7 @@ const freshScopedConfigMutation = mutateNativeScopedConfig(callJson, 'set', [
 historyCheck('fresh-project move transaction records object and part scoped config targets',
   freshScopedConfigMutation.ok === true, JSON.stringify(freshScopedConfigMutation));
 const freshMoveCommit = callJson('orc_history_commit', ['string', 'string'],
-  [freshMoveTx.transactionId, JSON.stringify(context)]);
+  [freshMoveTx.transactionId, JSON.stringify(context)]).status;
 if (!freshMoveCommit.canUndo) throw new Error(`fresh Cube move commit failed: ${JSON.stringify(freshMoveCommit)}`);
 const freshMoveId = freshMoveCommit.undoEntries?.[0]?.id;
 if (typeof freshMoveId !== 'string') throw new Error(`fresh Cube move ID missing: ${JSON.stringify(freshMoveCommit)}`);
@@ -204,17 +204,17 @@ historyCheck('instance transform and scoped config Undo retains unchanged render
     before: freshBeforeMoveStructure, after: callJson('orc_get_model_structure'), impact: freshMoveUndo.impact,
     transforms: freshMoveUndo.context.plateSession.instance_transforms }));
 const freshScenePatch = callJson('orc_get_model_scene_patch', ['string'],
-  [JSON.stringify(freshMoveUndo.scene_delta.object_ids)]);
+  [JSON.stringify({ object_ids: freshMoveUndo.scene_delta.object_ids, known_volume_ids: [] })]);
 historyCheck('fresh-project move Undo targeted patch returns only the touched native object',
   freshScenePatch.ok === true &&
   JSON.stringify(freshScenePatch.object_order) === JSON.stringify(freshMoveUndo.scene_delta.object_order) &&
   JSON.stringify(modelIdentity(freshScenePatch)) === JSON.stringify(freshStableIds) &&
-  freshScenePatch.meshes.length === 1 &&
-  freshScenePatch.meshes[0].object_id === freshStableIds[0].object_id &&
-  freshScenePatch.meshes[0].volume_id === freshStableIds[0].volume_ids[0] &&
-  freshScenePatch.meshes[0].instance_id === freshStableIds[0].instance_ids[0],
+  freshScenePatch.renderables.length === 1 &&
+  freshScenePatch.renderables[0].object_id === freshStableIds[0].object_id &&
+  freshScenePatch.renderables[0].volume_id === freshStableIds[0].volume_ids[0] &&
+  freshScenePatch.renderables[0].instance_id === freshStableIds[0].instance_ids[0],
   JSON.stringify(freshScenePatch));
-for (const mesh of freshScenePatch.meshes ?? []) {
+for (const mesh of freshScenePatch.geometries ?? []) {
   readAndFree(mesh.vertex_ptr, mesh.vertex_count * 3 * Float32Array.BYTES_PER_ELEMENT);
   readAndFree(mesh.index_ptr, mesh.index_count * Uint32Array.BYTES_PER_ELEMENT);
 }
@@ -251,7 +251,7 @@ const freshMoveRedo = callJson('orc_history_redo', [], []);
 const freshMoveRedoMesh = callJson('orc_get_model_mesh', [], []);
 const freshMoveRedoStructure = callJson('orc_get_model_structure', [], []);
 historyCheck('second Redo reapplies Move with exact native IDs', freshMoveRedo.ok === true &&
-  freshMoveRedoMesh.objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0] &&
+  freshMoveRedoMesh.renderables?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0] &&
   JSON.stringify(modelIdentity(freshMoveRedoStructure)) === JSON.stringify(freshStableIds),
   JSON.stringify({ freshMoveRedo, freshMoveRedoMesh, expected: freshStableIds,
     actual: modelIdentity(freshMoveRedoStructure) }));
@@ -292,13 +292,13 @@ if (threading.threaded) {
 }
 const freshMoveJumpUndo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'undo']);
 historyCheck('adjacent Undo jump loads the rematerialized Move target', freshMoveJumpUndo.ok === true &&
-  callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] ===
+  callJson('orc_get_model_mesh', [], []).renderables?.[0]?.instance_transform?.offset?.[0] ===
     freshBody.instance_transform.offset[0], JSON.stringify(freshMoveJumpUndo));
 assertSceneDelta('adjacent Undo jump publishes the exact move delta', freshMoveJumpUndo,
   freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
 const freshMoveJumpRedo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'redo']);
 historyCheck('adjacent Redo jump reapplies the rematerialized Move target', freshMoveJumpRedo.ok === true &&
-  callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0],
+  callJson('orc_get_model_mesh', [], []).renderables?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0],
   JSON.stringify(freshMoveJumpRedo));
 assertSceneDelta('adjacent Redo jump publishes the exact move delta', freshMoveJumpRedo,
   freshStableIds, freshPlateIds, freshStableIds.map((object) => object.object_id));
@@ -311,7 +311,7 @@ for (const name of ['History Cube A', 'History Cube B']) {
   const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', name]);
   if (!added.ok) throw new Error(JSON.stringify(added));
 }
-const committed = callJson('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(context)]);
+const committed = callJson('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(context)]).status;
 if (!committed.canUndo) throw new Error(`commit did not enable undo: ${JSON.stringify(committed)}`);
 if (!Number.isFinite(committed.bytesUsed) || committed.bytesUsed <= 512)
   throw new Error(`history accounting omitted native restore storage: ${JSON.stringify(committed)}`);
@@ -364,7 +364,7 @@ for (const name of ['Branched history Cube A', 'Branched history Cube B']) {
   if (!branchAdded.ok) throw new Error(JSON.stringify(branchAdded));
 }
 const uiBranchCommit = callJson('orc_history_commit', ['string', 'string'],
-  [uiBranchTx.transactionId, JSON.stringify(selectionBeforeB)]);
+  [uiBranchTx.transactionId, JSON.stringify(selectionBeforeB)]).status;
 if (uiBranchCommit.canRedo !== false)
   throw new Error(`mutation B did not truncate Redo: ${JSON.stringify(uiBranchCommit)}`);
 const branchMutationUndo = callJson('orc_history_undo', [], []);
@@ -390,7 +390,7 @@ const plateAdded = callJson('orc_add_plate', [], []);
 if (!plateAdded.ok || plateAdded.plates.length !== 2)
   throw new Error(`plate add did not create two plates: ${JSON.stringify(plateAdded)}`);
 const plateCommitted = callJson('orc_history_commit', ['string', 'string'],
-  [plateTx.transactionId, JSON.stringify(context)]);
+  [plateTx.transactionId, JSON.stringify(context)]).status;
 if (!plateCommitted.canUndo) throw new Error(`plate history commit failed: ${JSON.stringify(plateCommitted)}`);
 const plateUndone = callJson('orc_history_undo', [], []);
 const plateAfterUndo = callJson('orc_get_plate_session_snapshot', [], []);
@@ -428,7 +428,7 @@ const configured = setNativeScopedConfig(callJson, 'project', undefined, 'wipe_t
 if (configured.ok || configured.error_code !== 'unsupported_reference')
   throw new Error(`generic X/Y setting unexpectedly accepted: ${JSON.stringify(configured)}`);
 const configuredCommit = callJson('orc_history_commit', ['string', 'string'],
-  [configTx.transactionId, JSON.stringify(context)]);
+  [configTx.transactionId, JSON.stringify(context)]).status;
 const configuredAfter = callJson('orc_get_plate_session_snapshot', [], []);
 if (!configuredCommit.canUndo || configuredAfter.plates.some((plate) => Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x')))
   throw new Error(`plate configuration history commit failed: ${JSON.stringify({ configuredCommit, configuredAfter })}`);
@@ -455,10 +455,10 @@ const child = callJson('orc_history_begin', ['string', 'string', 'string', 'stri
 if (!child.ok || typeof child.transactionId !== 'string') throw new Error(JSON.stringify(child));
 const childEdit = callJson('orc_set_object_printable', ['number', 'number'], [activeBeforeEdit.objects[1].id, 0]);
 if (!childEdit.ok) throw new Error(JSON.stringify(childEdit));
-const childCommit = callJson('orc_history_commit', ['string', 'string'], [child.transactionId, JSON.stringify(context)]);
+const childCommit = callJson('orc_history_commit', ['string', 'string'], [child.transactionId, JSON.stringify(context)]).status;
 if (childCommit.activeTransactionId !== outer.transactionId)
   throw new Error(`coalesced child escaped outer transaction: ${JSON.stringify(childCommit)}`);
-const coalesced = callJson('orc_history_commit', ['string', 'string'], [outer.transactionId, JSON.stringify(context)]);
+const coalesced = callJson('orc_history_commit', ['string', 'string'], [outer.transactionId, JSON.stringify(context)]).status;
 if (!coalesced.canUndo || coalesced.undoEntries.length !== projectHistoryCountBeforeCoalesced + 1)
   throw new Error(`coalesced outer did not publish one entry: ${JSON.stringify(coalesced)}`);
 const coalescedUndo = callJson('orc_history_undo', [], []);
@@ -478,7 +478,7 @@ if (!editTx.ok || typeof editTx.transactionId !== 'string') throw new Error(JSON
 const targetId = activeBeforeEdit.objects[0].id;
 const edited = callJson('orc_set_object_printable', ['number', 'number'], [targetId, 0]);
 if (!edited.ok) throw new Error(JSON.stringify(edited));
-const editedCommit = callJson('orc_history_commit', ['string', 'string'], [editTx.transactionId, JSON.stringify(context)]);
+const editedCommit = callJson('orc_history_commit', ['string', 'string'], [editTx.transactionId, JSON.stringify(context)]).status;
 if (!editedCommit.canUndo || editedCommit.canRedo)
   throw new Error(`one-object edit did not commit: ${JSON.stringify(editedCommit)}`);
 const undone = callJson('orc_history_undo', [], []);
@@ -502,8 +502,8 @@ if (!restored.ok || restored.objects.length !== 2 || restored.objects[0].printab
 // verify that Undo/Redo restores the exact native model version.
 function modelMesh() {
   const result = callJson('orc_get_model_mesh', [], []);
-  if (!result.ok || !result.objects?.length) throw new Error(`mesh unavailable: ${JSON.stringify(result)}`);
-  return result.objects[0];
+  if (!result.ok || !result.renderables?.length) throw new Error(`mesh unavailable: ${JSON.stringify(result)}`);
+  return result.renderables[0];
 }
 function cloneTransform(transform) {
   return JSON.parse(JSON.stringify(transform));
@@ -526,7 +526,7 @@ function commitTransform(label, transform) {
       instanceTransform: transform, volumeTransform: modelMesh().volume_transform }])]);
   if (!result.ok) throw new Error(`${label} transform failed: ${JSON.stringify(result)}`);
   const status = callJson('orc_history_commit', ['string', 'string'],
-    [started.transactionId, JSON.stringify(context)]);
+    [started.transactionId, JSON.stringify(context)]).status;
   if (!status.canUndo || status.canRedo) throw new Error(`${label} commit failed: ${JSON.stringify(status)}`);
   return status;
 }
@@ -590,7 +590,7 @@ for (const [label, edit] of transformCases) {
 // with no observable intermediate add/move/delete state.
 const compoundBeforeStructure = callJson('orc_get_model_structure', [], []);
 const compoundBeforeMesh = callJson('orc_get_model_mesh', [], []);
-const compoundTransformState = (mesh) => mesh.objects.map((entry) => ({
+const compoundTransformState = (mesh) => mesh.renderables.map((entry) => ({
   object_idx: entry.object_idx, volume_idx: entry.volume_idx, instance_idx: entry.instance_idx,
   instance_transform: entry.instance_transform, volume_transform: entry.volume_transform,
 }));
@@ -610,7 +610,7 @@ historyCheck('compound transaction creates two stable-ID objects', compoundNewOb
 const compoundMesh = callJson('orc_get_model_mesh', [], []);
 const compoundMoveIndexes = [0, compoundAddedStructure.objects.findIndex((object) => object.id === compoundNewObjects[0].id)];
 const compoundMoves = compoundMoveIndexes.map((objectIdx, index) => {
-  const body = compoundMesh.objects.find((entry) => entry.object_idx === objectIdx);
+  const body = compoundMesh.renderables.find((entry) => entry.object_idx === objectIdx);
   if (!body) throw new Error(`compound move target ${objectIdx} missing`);
   const transform = cloneTransform(body.instance_transform);
   transform.offset[0] += 13 + index;
@@ -666,7 +666,7 @@ const atomicBefore = callJson('orc_get_model_mesh', [], []);
 const atomicTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Atomic multi-object Move', 'project', JSON.stringify(context), '']);
 if (!atomicTx.ok || typeof atomicTx.transactionId !== 'string') throw new Error(JSON.stringify(atomicTx));
-const atomicTransforms = atomicBefore.objects.slice(0, 2).map((entry, index) => {
+const atomicTransforms = atomicBefore.renderables.slice(0, 2).map((entry, index) => {
   const instanceTransform = cloneTransform(entry.instance_transform);
   delete instanceTransform.matrix;
   instanceTransform.offset[0] += (index + 1) * 11;
@@ -681,17 +681,17 @@ const atomicMoved = callJson('orc_set_model_transforms', ['string', 'string'],
 historyCheck('atomic multi-object transform result', atomicMoved.ok === true && Array.isArray(atomicMoved.instance_transforms));
 const atomicAfter = callJson('orc_get_model_mesh', [], []);
 historyCheck('atomic multi-object transform changes both live targets',
-  atomicAfter.objects.slice(0, 2).every((entry, index) =>
+  atomicAfter.renderables.slice(0, 2).every((entry, index) =>
     entry.instance_transform.offset[0] === atomicTransforms[index].instanceTransform.offset[0]),
   JSON.stringify({ atomicBefore, atomicTransforms, atomicAfter }));
-const atomicCommit = callJson('orc_history_commit', ['string', 'string'], [atomicTx.transactionId, JSON.stringify(context)]);
+const atomicCommit = callJson('orc_history_commit', ['string', 'string'], [atomicTx.transactionId, JSON.stringify(context)]).status;
 historyCheck('atomic multi-object transform commits one history entry',
   atomicCommit.undoEntries?.filter((entry) => entry.label === 'Atomic multi-object Move').length === 1,
   JSON.stringify(atomicCommit));
 const atomicUndo = callJson('orc_history_undo', [], []);
 historyCheck('atomic multi-object transform undo', atomicUndo.ok === true &&
-  callJson('orc_get_model_mesh', [], []).objects.slice(0, 2).every((entry, index) =>
-    entry.instance_transform.offset[0] === atomicBefore.objects[index].instance_transform.offset[0]));
+  callJson('orc_get_model_mesh', [], []).renderables.slice(0, 2).every((entry, index) =>
+    entry.instance_transform.offset[0] === atomicBefore.renderables[index].instance_transform.offset[0]));
 const atomicRedo = callJson('orc_history_redo', [], []);
 historyCheck('atomic multi-object transform redo', atomicRedo.ok === true);
 const rejectedTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
@@ -700,8 +700,8 @@ const beforeRejected = callJson('orc_get_model_mesh', [], []);
 const rejected = callJson('orc_set_model_transforms', ['string', 'string'], [rejectedTx.transactionId,
   JSON.stringify([atomicTransforms[0], { ...atomicTransforms[1], objectIdx: 999 }])]);
 historyCheck('atomic second target rejection rolls back all targets', rejected.ok === false &&
-  JSON.stringify(callJson('orc_get_model_mesh', [], []).objects.slice(0, 2).map((entry) => entry.instance_transform)) ===
-    JSON.stringify(beforeRejected.objects.slice(0, 2).map((entry) => entry.instance_transform)));
+  JSON.stringify(callJson('orc_get_model_mesh', [], []).renderables.slice(0, 2).map((entry) => entry.instance_transform)) ===
+    JSON.stringify(beforeRejected.renderables.slice(0, 2).map((entry) => entry.instance_transform)));
 const rejectedAbort = callJson('orc_history_abort', ['string'], [rejectedTx.transactionId]);
 historyCheck('atomic rejected transaction abort is revision-stable', rejectedAbort.ok === true && rejectedAbort.status.revision === atomicRedo.status.revision);
 const staleTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
@@ -804,7 +804,7 @@ const outOfBoundsAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube'
 historyCheck('add out-of-bounds fixture', outOfBoundsAdded.ok === true);
 
 const fixtureMesh = callJson('orc_get_model_mesh', [], []);
-const outOfBoundsObject = (fixtureMesh.objects ?? []).find((object) => object.object_idx === 3);
+const outOfBoundsObject = (fixtureMesh.renderables ?? []).find((object) => object.object_idx === 3);
 historyCheck('locate out-of-bounds fixture instance', outOfBoundsObject?.instance_idx === 0,
   JSON.stringify(fixtureMesh));
 const outOfBoundsTransform = JSON.stringify({
@@ -884,7 +884,7 @@ function beginHistory(label) {
 }
 function commitHistory(label, transactionId) {
   const committedHistory = callJson('orc_history_commit', ['string', 'string'],
-    [transactionId, JSON.stringify(context)]);
+    [transactionId, JSON.stringify(context)]).status;
   if (!committedHistory.canUndo || committedHistory.canRedo)
     throw new Error(`${label} commit failed: ${JSON.stringify(committedHistory)}`);
   return committedHistory;
@@ -1013,7 +1013,7 @@ historyCheck('return to three-plate baseline before add reflow profile',
 const addNoReflowBefore = callJson('orc_get_plate_session_snapshot', [], []);
 const addNoReflowBeforeMesh = callJson('orc_get_model_mesh', [], []);
 const addNoReflowPlateIds = new Set(addNoReflowBefore.plates.map((plate) => plate.plate_id));
-const modelTransformState = (mesh) => (mesh.objects ?? []).map((object) => ({
+const modelTransformState = (mesh) => (mesh.renderables ?? []).map((object) => ({
   object_idx: object.object_idx,
   instance_transform: object.instance_transform,
 }));
@@ -1088,10 +1088,10 @@ historyCheck('Add Plate reflow captures timestamp roots',
   addReflowHistorySamples.filter((sample) => sample.operation !== 'add_plate')
     .every((sample) => typeof sample.stages_ms.capture_model_state === 'number' &&
       typeof sample.stages_ms.capture_collection_cache === 'number'));
-const afterAddTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).objects ?? [])
+const afterAddTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).renderables ?? [])
   .find((object) => object.object_idx === 3)?.instance_transform);
 delete afterAddTransform.matrix;
-const afterAddVolumeTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).objects ?? [])
+const afterAddVolumeTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).renderables ?? [])
   .find((object) => object.object_idx === 3)?.volume_transform);
 delete afterAddVolumeTransform.matrix;
 const afterAddEdit = { ...afterAddTransform,
@@ -1106,7 +1106,7 @@ if (!normalAfterAddMutation.ok)
   throw new Error(`normal edit after Add Plate failed: ${JSON.stringify(normalAfterAddMutation)}`);
 const normalAfterAddCommit = commitHistory('Move After Add Plate', normalAfterAddTransaction);
 const normalAfterAddUndo = callJson('orc_history_undo', [], []);
-const afterAddUndoMesh = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+const afterAddUndoMesh = (callJson('orc_get_model_mesh', [], []).renderables ?? [])
   .find((object) => object.object_idx === 3)?.instance_transform;
 historyCheck('normal undo returns to Add Plate after-transform state',
   normalAfterAddUndo.ok === true && normalAfterAddUndo.impact?.model === 'delta' &&
@@ -1114,16 +1114,16 @@ historyCheck('normal undo returns to Add Plate after-transform state',
   callJson('orc_get_plate_session_snapshot', [], []).plates.length === 5,
   JSON.stringify({ normalAfterAddUndo, afterAddUndoMesh }));
 assertTransformEqual(afterAddUndoMesh, afterAddTransform, 'Add Plate after-transform state');
-const afterAddUndoVolume = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+const afterAddUndoVolume = (callJson('orc_get_model_mesh', [], []).renderables ?? [])
   .find((object) => object.object_idx === 3)?.volume_transform;
 assertTransformEqual(afterAddUndoVolume, afterAddVolumeTransform, 'Add Plate volume baseline state');
 const normalAfterAddRedo = callJson('orc_history_redo', [], []);
-const afterAddRedoMesh = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+const afterAddRedoMesh = (callJson('orc_get_model_mesh', [], []).renderables ?? [])
   .find((object) => object.object_idx === 3)?.instance_transform;
 historyCheck('normal redo restores edit after Add Plate', normalAfterAddRedo.ok === true,
   JSON.stringify(normalAfterAddRedo));
 assertTransformEqual(afterAddRedoMesh, afterAddEdit, 'normal edit after Add Plate');
-const afterAddRedoVolume = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+const afterAddRedoVolume = (callJson('orc_get_model_mesh', [], []).renderables ?? [])
   .find((object) => object.object_idx === 3)?.volume_transform;
 assertTransformEqual(afterAddRedoVolume, afterAddVolumeEdit, 'normal volume edit after Add Plate');
 const normalAfterAddUndoAgain = callJson('orc_history_undo', [], []);
@@ -1276,7 +1276,7 @@ const mixedFirstId = mixedFirstCommit.undoEntries[0]?.id;
 historyCheck('capture mixed jump first ID', typeof mixedFirstId === 'string', JSON.stringify(mixedFirstCommit));
 
 const mixedBeforeMove = callJson('orc_get_model_mesh', [], []);
-const mixedBody = mixedBeforeMove.objects?.[0];
+const mixedBody = mixedBeforeMove.renderables?.[0];
 if (!mixedBody) throw new Error(`mixed jump Cube mesh unavailable: ${JSON.stringify(mixedBeforeMove)}`);
 const mixedMoveTransform = cloneTransform(mixedBody.instance_transform);
 mixedMoveTransform.offset[0] += 10;
@@ -1353,7 +1353,7 @@ const accountingLongBegin = callJson('orc_history_begin', ['string', 'string', '
   [accountingLabel, 'project', accountingContextJson, '']);
 const accountingLongAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Accounting long']);
 const accountingLong = callJson('orc_history_commit', ['string', 'string'],
-  [accountingLongBegin.transactionId, accountingContextJson]);
+  [accountingLongBegin.transactionId, accountingContextJson]).status;
 historyCheck('history accounting exposes deterministic bridge diagnostics',
   Number.isSafeInteger(accountingBaseline.bytesUsed) &&
   accountingLongBegin.ok === true && accountingLongAdded.ok === true &&
@@ -1385,7 +1385,7 @@ for (const [key, value, preservesUsage] of [
 ]) {
   const usageTransaction = beginHistory(`Usage invalidation ${key}`);
   if (key === 'transform') {
-    const body = callJson('orc_get_model_mesh', [], []).objects[0];
+    const body = callJson('orc_get_model_mesh', [], []).renderables[0];
     const transform = { ...body.instance_transform,
       offset: [body.instance_transform.offset[0] + 2, body.instance_transform.offset[1], body.instance_transform.offset[2]] };
     delete transform.matrix;

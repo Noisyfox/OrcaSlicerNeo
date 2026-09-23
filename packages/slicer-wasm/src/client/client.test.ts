@@ -917,7 +917,7 @@ describe('SlicerClient bridge contract', () => {
     expect(added).toMatchObject({ ok: true, objects: 2, instances: 2 });
     expect((await c.getModelMesh()).objects).toHaveLength(2);
     expect(await c.clearModel()).toMatchObject({ ok: true });
-    expect((await c.getModelMesh()).error).toContain('no model loaded');
+    expect((await c.getModelMesh()).objects).toEqual([]);
   });
 
   it('deleteObjects removes whole objects, dedupes, and shifts remaining indices', async () => {
@@ -991,8 +991,8 @@ describe('SlicerClient bridge contract', () => {
     expect(before.objects).toHaveLength(4);
     expect(before.objects).toMatchObject([
       { instanceIdx: 0, volumeIdx: 0, offset: [0, 0, 0] },
-      { instanceIdx: 0, volumeIdx: 1, offset: [0, 0, 0] },
       { instanceIdx: 1, volumeIdx: 0, offset: [50, 0, 0] },
+      { instanceIdx: 0, volumeIdx: 1, offset: [0, 0, 0] },
       { instanceIdx: 1, volumeIdx: 1, offset: [50, 0, 0] },
     ]);
 

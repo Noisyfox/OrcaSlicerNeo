@@ -33,13 +33,14 @@ function platformFor(fileName: string, result: { ok: boolean; error?: string }) 
     _before: unknown,
     mutation: (transactionId: string) => Promise<T>,
     _after: unknown | (() => unknown | Promise<unknown>),
-  ) => ({ result: await mutation('tx-1'), status: {} as never }));
+  ) => ({ sceneDelta: { version: 1, objectIds: [1], volumeIds: [], instanceIds: [], plateIds: [], objectOrder: [1] }, result: await mutation('tx-1'), status: {} as never }));
   return {
     platform: {
       models: { pick: vi.fn(async () => ({ displayName: fileName, bytes: new Uint8Array([1]) })) },
       runtime: {
         addModel,
         runProjectHistoryTransaction,
+        getModelScenePatch: vi.fn(async () => ({ ok: true, objectOrder: [1], objects: [{ id: 1, index: 0, name: 'fixture', printable: true, instanceCount: 0, volumes: [], instances: [] }], meshes: [], geometries: [] })),
         getHistoryStatus: vi.fn(async () => ({ dirty: false })),
       },
     } as unknown as PlatformCapabilities,
@@ -133,7 +134,7 @@ describe('scene add-model action', () => {
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
-    ) => ({ result: await mutation('tx-1'), status: {} as never }));
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: {} as never }));
     const platform = { runtime: { addModel, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     const load = vi.fn(async () => {
       expect(useProjectStore.getState().operation).toMatchObject({ phase: 'model-import', progress: 0 });
@@ -220,7 +221,7 @@ describe('scene add-model action', () => {
       _before: unknown,
       mutation: (transactionId: string) => Promise<{ ok: boolean }>,
       _after: unknown,
-    ) => ({ result: await mutation('tx-1'), status: null }));
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: null }));
     const platform = {
       runtime: { addShape, runProjectHistoryTransaction },
     } as unknown as PlatformCapabilities;
@@ -247,7 +248,7 @@ describe('scene add-model action', () => {
           _before: unknown,
           mutation: (transactionId: string) => Promise<{ ok: boolean }>,
           _after: unknown,
-        ) => ({ result: await mutation('tx-1'), status: null })),
+        ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: null })),
         getFilamentSessionSnapshot: vi.fn(async () => {
           pendingAtRefresh.push(useProjectStore.getState().projectMutationPendingCount);
           return { ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},

@@ -26,7 +26,7 @@ describe('filterBuildPlateOccludedIntersections', () => {
       offset: [0, 0, 0],
       instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
       volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
-    });
+    }, { kind: 'exclusive' });
     const sceneChildren: THREE.Object3D[] = [];
     const state = {
       gl: { domElement: { getBoundingClientRect: () => ({ width: 100, height: 100 }) } },

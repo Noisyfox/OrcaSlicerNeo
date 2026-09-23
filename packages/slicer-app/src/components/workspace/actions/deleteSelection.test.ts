@@ -31,7 +31,7 @@ function makeRuntime(): SlicerRuntime {
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
-    ) => ({ result: await mutation('tx-1'), status: {} as never })),
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: {} as never })),
   } as unknown as SlicerRuntime;
 }
 

@@ -1,3 +1,4 @@
+import { decodeModelGeometry } from './modelGeometry';
 // packages/slicer-wasm/src/client/client.ts
 // ----------------------------------------------------------------
 // The typed promise-based bridge client — the ONLY JS that talks to
@@ -1176,6 +1177,7 @@ export function createClient(
   onBridgeProjectClosed?: ProjectClosedCallback,
   onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
 ): SlicerClient {
+  let geometrySession = crypto.randomUUID();
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
   // React StrictMode double-mounts the boot effect in dev, sending init
@@ -1385,13 +1387,16 @@ export function createClient(
   }
 
   async function commitHistory(transactionId: HistoryTransactionId,
-                               afterContext: HistoryContext): Promise<HistoryStatus> {
+                               afterContext: HistoryContext): Promise<import('./history').HistoryCommitResult> {
     const m = await module();
     const raw = callProfiledJson(m, 'orc_history_commit', ['string', 'string'],
       [transactionId, JSON.stringify(afterContext)]);
     if (raw && typeof raw === 'object' && 'error' in (raw as Record<string, unknown>))
       return historyFailure(raw, 'history commit failed');
-    return normalizeHistoryStatus(raw);
+    const receipt = raw as { status: unknown; scene_delta: unknown };
+    const sceneDelta = receipt.scene_delta === null ? null : normalizeSceneDelta(receipt.scene_delta);
+    if (sceneDelta === undefined) throw new Error('invalid committed scene delta');
+    return { status: normalizeHistoryStatus(receipt.status), sceneDelta };
   }
 
   async function abortHistory(transactionId: HistoryTransactionId): Promise<RestoreResult> {
@@ -1435,12 +1440,12 @@ export function createClient(
     beforeContext: HistoryContext,
     mutation: (transactionId: HistoryTransactionId) => Promise<T>,
     afterContext: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
-  ): Promise<{ result: T; status: HistoryStatus }> {
+  ): Promise<{ result: T } & import('./history').HistoryCommitResult> {
     const transactionId = await beginHistory(label, category, beforeContext);
     try {
       const result = await mutation(transactionId);
       const context = typeof afterContext === 'function' ? await afterContext() : afterContext;
-      return { result, status: await commitHistory(transactionId, context) };
+      return { result, ...await commitHistory(transactionId, context) };
     } catch (error) {
       try { await abortHistory(transactionId); } catch { /* preserve the mutation error */ }
       throw error;
@@ -1686,6 +1691,7 @@ export function createClient(
       if (!r.ok) return { ok: false, error: typeof r.error === 'string' ? r.error : 'project close failed' };
       const plateSession = normalizePlateMutationResult(r.plate_session);
       if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'invalid closed project session' };
+      geometrySession = crypto.randomUUID();
       onBridgeProjectClosed?.(plateSession);
       return { ok: true, plateSession };
     },
@@ -1705,6 +1711,7 @@ export function createClient(
           const plateSession = normalizePlateMutationResult(closed.plate_session);
           if (!plateSession.ok) return { ok: false, objects: 0, instances: 0,
             error: plateSession.error ?? 'invalid closed project session' };
+          geometrySession = crypto.randomUUID();
           onBridgeProjectClosed?.(plateSession);
           if (onProjectClosed !== onBridgeProjectClosed) onProjectClosed?.(plateSession);
           nativeName = 'orc_load_project_after_close';
@@ -1884,60 +1891,26 @@ export function createClient(
 
     async getModelMesh(): Promise<ModelMeshResult> {
       const m = await module();
-      const r = callJson(m, 'orc_get_model_mesh', [], []) as {
-        ok: boolean; error?: string; objects?: Array<{
-          object_id: number; volume_id: number; instance_id: number;
-          object_idx: number; volume_idx: number; instance_idx: number;
-          vertex_ptr: number; vertex_count: number;
-          index_ptr: number; index_count: number; offset: number[];
-          instance_transform: ModelTransform; volume_transform: ModelTransform;
-        }>;
-      };
-      if (!r.ok || !r.objects) return r as unknown as ModelMeshResult;
-      const objects: ModelObjectBuffer[] = r.objects.map((o) => {
-        const positions = new Float32Array(readBytes(m, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
-        const indices = new Uint32Array(readBytes(m, Number(o.index_ptr), o.index_count * 4).buffer);
-        return {
-          objectId: o.object_id, volumeId: o.volume_id, instanceId: o.instance_id,
-          objectIdx: o.object_idx,
-          volumeIdx: o.volume_idx,
-          instanceIdx: o.instance_idx,
-          positions, vertexCount: o.vertex_count,
-          indices, indexCount: o.index_count,
-          offset: [o.offset[0], o.offset[1], o.offset[2]] as [number, number, number],
-          instanceTransform: o.instance_transform,
-          volumeTransform: o.volume_transform,
-        };
-      });
-      return { ok: true, objects };
+      const decoded = decodeModelGeometry(m, callJson(m, 'orc_get_model_mesh', [], []), geometrySession);
+      const resources = new Map(decoded.geometries.map((geometry) => [geometry.geometryKey, geometry]));
+      return { ok: true, objects: decoded.meshes.map((mesh) => {
+        const geometry = resources.get(mesh.geometryKey);
+        if (!geometry) throw new Error(`missing model geometry ${mesh.geometryKey}`);
+        return { ...mesh, ...geometry };
+      }) };
     },
 
-    async getModelScenePatch(objectIds: readonly number[]): Promise<ModelScenePatchResult> {
+    async getModelScenePatch(objectIds, knownGeometryKeys): Promise<ModelScenePatchResult> {
       const m = await module();
-      const r = callJson(m, 'orc_get_model_scene_patch', ['string'], [JSON.stringify(objectIds)]) as {
-        ok: boolean; error?: string; object_order?: number[]; objects?: ModelStructureResult['objects'];
-        meshes?: Array<{
-          object_id: number; volume_id: number; instance_id: number;
-          object_idx: number; volume_idx: number; instance_idx: number;
-          vertex_ptr: number; vertex_count: number;
-          index_ptr: number; index_count: number; offset: number[];
-          instance_transform: ModelTransform; volume_transform: ModelTransform;
-        }>;
-      };
-      if (!r.ok || !r.object_order || !r.objects || !r.meshes)
-        return { ok: false, objectOrder: [], objects: [], meshes: [], error: r.error ?? 'invalid model scene patch' };
-      const meshes: ModelObjectBuffer[] = r.meshes.map((entry) => ({
-        objectId: entry.object_id, volumeId: entry.volume_id, instanceId: entry.instance_id,
-        objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
-        positions: new Float32Array(readBytes(m, Number(entry.vertex_ptr), entry.vertex_count * 3 * 4).buffer),
-        vertexCount: entry.vertex_count,
-        indices: new Uint32Array(readBytes(m, Number(entry.index_ptr), entry.index_count * 4).buffer),
-        indexCount: entry.index_count,
-        offset: [entry.offset[0], entry.offset[1], entry.offset[2]] as [number, number, number],
-        instanceTransform: entry.instance_transform,
-        volumeTransform: entry.volume_transform,
-      }));
-      return { ok: true, objectOrder: r.object_order, objects: r.objects, meshes };
+      const prefix = `${geometrySession}:`;
+      const knownVolumeIds = knownGeometryKeys.filter((key) => key.startsWith(prefix)).map((key) => Number(key.slice(prefix.length)));
+      const raw = callJson(m, 'orc_get_model_scene_patch', ['string'],
+        [JSON.stringify({ object_ids: objectIds, known_volume_ids: knownVolumeIds })]);
+      const decoded = decodeModelGeometry(m, raw, geometrySession);
+      const patch = raw as { object_order: number[]; objects: ModelStructureResult['objects'] };
+      if (!Array.isArray(patch.object_order) || !Array.isArray(patch.objects))
+        throw new Error('invalid model scene patch');
+      return { ok: true, objectOrder: patch.object_order, objects: patch.objects, ...decoded };
     },
 
     async getModelStructure(): Promise<ModelStructureResult> {

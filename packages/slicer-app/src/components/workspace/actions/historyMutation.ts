@@ -1,6 +1,11 @@
+import { applyPlateSessionTransforms } from './syncModelTransforms';
+import { glVolumeCollection } from '../viewport/GLVolume';
+import { readSceneDeltaProjection } from '../viewport/sceneDeltaProjection';
 import type {
   HistoryContext,
   HistoryStatus,
+  SceneDelta,
+  PlateSessionMutation,
   ModelStructureResult,
 } from '@slicer/client';
 import type { SlicerRuntime } from '@orca/platform-contract';
@@ -20,6 +25,7 @@ export { projectHistoryStatus } from '../../../history/projectHistoryStatus';
 export type HistoryMutationResult<T> = {
   result: T;
   status: HistoryStatus | null;
+  sceneDelta: SceneDelta | null;
 };
 
 type HistoryMutationRuntime = Pick<SlicerRuntime,
@@ -99,7 +105,7 @@ export interface ProjectHistoryMutationOptions<T extends MutationResponse = Muta
    * Omit for compound operations that require a fresh native projection. */
   contextReceipt?: (result: T) => HistoryContextReceipt;
   /** Renderer/application publication that must complete before the fence is released. */
-  publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void;
+  publish?: (result: T, status: HistoryStatus | null, sceneDelta: SceneDelta | null) => Promise<void> | void;
 }
 
 /**
@@ -177,7 +183,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
   beforeContext: HistoryContext | (() => HistoryContext),
   mutation: (transactionId: string) => Promise<T>,
   afterContext: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
-  publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void,
+  publish?: (result: T, status: HistoryStatus | null, sceneDelta: SceneDelta | null) => Promise<void> | void,
   onSynchronousError?: (error: unknown) => void,
   reconcileOnFailure?: () => Promise<void> | void,
   /** Runs under the shared FIFO immediately before the native transaction is
@@ -220,7 +226,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
         await refreshFilamentSession(runtime, undefined, lease);
         return {
           result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
-          status,
+          status, sceneDelta: null,
         };
       }
       try {
@@ -232,7 +238,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
         await refreshFilamentSession(runtime, undefined, lease);
         return {
           result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
-          status,
+          status, sceneDelta: null,
         };
       }
       if (response.status) projectHistoryStatus(response.status);
@@ -245,7 +251,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
         await refreshFilamentSession(runtime, undefined, lease);
       }
       const committedResult = attachCommittedScopedConfig(response.result, response.status);
-      await publish?.(committedResult, response.status);
+      await publish?.(committedResult, response.status, response.sceneDelta);
       return { ...response, result: committedResult };
     } finally {
       lease.release();
@@ -257,7 +263,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
 
 /** Run one project mutation through the Worker-owned history transaction. */
 export async function runProjectHistoryMutation<T extends MutationResponse>(
-  runtime: HistoryMutationRuntime,
+  runtime: HistoryMutationRuntime & Pick<SlicerRuntime, 'getModelScenePatch'>,
   label: string,
   mutation: () => Promise<T>,
   sceneInteraction?: SceneInteractionController | null,
@@ -286,7 +292,27 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
       if (plateSession?.ok) context = { ...context, activePlateId: plateSession.currentPlateId };
       return context;
     },
-    options.publish,
+    async (result, status, delta) => {
+      if (delta !== null && receipt?.structure !== 'preserved') {
+        const settings = useSettingsStore.getState();
+        const revision = settings.modelRevision;
+        const previous = glVolumeCollection.volumes;
+        const projection = await readSceneDeltaProjection(runtime, delta,
+          useObjectListStore.getState().structure, previous);
+        if (useSettingsStore.getState().modelRevision !== revision || glVolumeCollection.volumes !== previous) {
+          const retained = new Set(previous);
+          projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
+          throw new Error('committed scene projection was superseded');
+        }
+        projection.apply();
+        applyPlateSessionTransforms((result as T & { plateSession?: PlateSessionMutation }).plateSession, projection.volumes);
+        useObjectListStore.getState().setStructure(projection.structure);
+        useObjectListStore.getState().setLoaded(projection.structure.length > 0);
+        settings.setModelLoadedFromSceneDelta(projection.structure.length > 0);
+        glVolumeCollection.patch(projection.volumes, revision);
+      }
+      await options.publish?.(result, status, delta);
+    },
   );
 }
 

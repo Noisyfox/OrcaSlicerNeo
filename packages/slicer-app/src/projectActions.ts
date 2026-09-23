@@ -53,7 +53,7 @@ export interface ProjectActionResult {
   load?: ProjectLoadResult;
   loadReceipt?: ProjectLoadReceipt;
 }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getModelScenePatch' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
   Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'resetHistory'>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
@@ -204,7 +204,6 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
           }
           else useProjectStore.getState().markDirty('model-import');
           useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, scope: existing.scope });
-          useSettingsStore.getState().setModelLoaded(true);
         },
       },
     );

@@ -38,7 +38,7 @@ function makeRuntime(overrides: Partial<SlicerRuntime> = {}): SlicerRuntime {
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
-    ) => ({ result: await mutation('tx-1'), status: {} as never })),
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: {} as never })),
     ...overrides,
   } as unknown as SlicerRuntime;
 }
@@ -106,12 +106,12 @@ describe('object list action helpers', () => {
     expect(runtime.renameObject).toHaveBeenCalledWith(1, 'Renamed');
   });
 
-  it('changePartTypeInList triggers a geometry refresh (mesh reload)', async () => {
+  it('changePartTypeInList does not trigger a full mesh reload', async () => {
     const runtime = makeRuntime();
     const before = useSettingsStore.getState().modelRevision;
     await changePartTypeInList(runtime, 10, 'negative_volume');
     expect(runtime.setVolumeType).toHaveBeenCalledWith(10, 'negative_volume');
-    expect(useSettingsStore.getState().modelRevision).toBe(before + 1);
+    expect(useSettingsStore.getState().modelRevision).toBe(before);
   });
 
   it('setObjectPrintableInList toggles printable for every target and refreshes once', async () => {

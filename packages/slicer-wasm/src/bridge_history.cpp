@@ -1628,7 +1628,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             auto& nested = state().nested_history_transactions.back();
             if (requested != nested.id) return error_json("history transaction is stale or belongs to another writer");
             state().nested_history_transactions.pop_back();
-            return duplicate_json(history_status_json().dump());
+            return duplicate_json(json{{"status", history_status_json()}, {"scene_delta", nullptr}}.dump());
         }
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
@@ -1647,10 +1647,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             state().active_history_transaction.reset();
             state().nested_history_transactions.clear();
             state().history_live_context = after_context;
-            return duplicate_json(history_status_json().dump());
+            return duplicate_json(json{{"status", history_status_json()}, {"scene_delta", nullptr}}.dump());
         }
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
-        if (!state().history.commit_operation(after_roots)) return error_json("history commit rejected");
+        Neo::History::SceneDelta committed_delta;
+        if (!state().history.commit_operation(after_roots, &committed_delta)) return error_json("history commit rejected");
         HistoryMetadata::advance_history_epoch(state());
         state().history_live_context = after_context;
         const auto removed_native_scoped_config_targets = native_scoped_config_removed_targets(
@@ -1683,7 +1684,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             response["native_scoped_config"] = native_scoped_config_full_transport(
                 state().history_revision, removed_native_scoped_config_targets);
         }
-        return duplicate_json(response.dump());
+        return duplicate_json(json{{"status", std::move(response)}, {"scene_delta", {
+            {"version", 1}, {"object_ids", committed_delta.object_ids},
+            {"volume_ids", committed_delta.volume_ids}, {"instance_ids", committed_delta.instance_ids},
+            {"plate_ids", committed_delta.plate_ids}, {"object_order", committed_delta.object_order}
+        }}}.dump());
     } catch (const std::exception& e) {
         state().mutable_object_capture_cache.clear();
         return error_json(e.what());

@@ -86,7 +86,7 @@ if (noOp.plate_session || noOp.native_scoped_config.kind !== 'affected' ||
     noOp.native_scoped_config.replacements.length !== 2)
   throw new Error(`unexpected no-op receipt: ${JSON.stringify(noOp)}`);
 const afterNoOpStatus = callJson('orc_history_commit', ['string', 'string'],
-  [noOpTx.transactionId, JSON.stringify(historyContext)]);
+  [noOpTx.transactionId, JSON.stringify(historyContext)]).status;
 if (JSON.stringify(session()) !== JSON.stringify(beforeNoOpSession) ||
     afterNoOpStatus.revision !== beforeNoOpStatus.revision ||
     afterNoOpStatus.dirty !== beforeNoOpStatus.dirty ||
@@ -148,7 +148,7 @@ const tx = requireOk('begin reset transaction', callJson('orc_history_begin',
 requireOk('reset project key', resetProject('wall_loops'));
 if (Object.hasOwn(snapshot().project ?? {}, 'wall_loops')) throw new Error('reset did not erase local key');
 const committed = callJson('orc_history_commit',
-  ['string', 'string'], [tx.transactionId, JSON.stringify(historyContext)]);
+  ['string', 'string'], [tx.transactionId, JSON.stringify(historyContext)]).status;
 if (!committed.canUndo) throw new Error(`commit reset transaction: ${JSON.stringify(committed)}`);
 requireOk('undo reset', callJson('orc_history_undo'));
 if (snapshot().project?.wall_loops !== '5') throw new Error('Undo did not restore erased Project key');

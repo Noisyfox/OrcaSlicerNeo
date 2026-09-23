@@ -91,7 +91,7 @@ assertDirectEstimateProfile('multifilament rib');
 
 // A degenerate native height still gets the accepted minimum visible proxy
 // height. The zero-Z transform is setup only; the feature remains read-only.
-const meshEntries = callJson('orc_get_model_mesh').objects;
+const meshEntries = callJson('orc_get_model_mesh').renderables;
 for (const entry of meshEntries) {
   const instance = { ...entry.instance_transform, scale: [...entry.instance_transform.scale.slice(0, 2), 0] };
   delete instance.matrix;

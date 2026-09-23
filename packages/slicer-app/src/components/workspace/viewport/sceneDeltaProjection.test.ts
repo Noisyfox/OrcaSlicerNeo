@@ -57,20 +57,22 @@ function patch(objectOrder: number[], objectIds: number[], offset: number): Mode
     ok: true,
     objectOrder,
     objects: objectIds.map((id) => structure(id, objectOrder.indexOf(id))),
-    meshes: objectIds.map((id) => buffer(id, objectOrder.indexOf(id), offset)),
+    meshes: objectIds.map((id) => ({ ...buffer(id, objectOrder.indexOf(id), offset), geometryKey: `test:${id + 100}` })),
+    geometries: objectIds.map((id) => ({ ...buffer(id, objectOrder.indexOf(id), offset), geometryKey: `test:${id + 100}` })),
   };
 }
 
 describe('SceneDelta projection', () => {
   it('uses the native unchanged-renderer proof without copying or rebuilding displayed meshes', async () => {
     const current = structure(10, 0);
-    const volume = new GLVolume(buffer(10, 0));
+    const volume = new GLVolume(buffer(10, 0), { kind: 'exclusive' });
     const getModelScenePatch = vi.fn(async () => patch([10], [], 0));
     const result = await readSceneDeltaProjection({ getModelScenePatch }, {
       ...delta([10], ['plate-a']), objectIds: [10], retainedRendererObjectIds: [10],
       retainedVolumeTransforms: [{ volumeId: 110, transform: { ...volume.volumeTransform, offset: [2, 3, 4] } }],
     }, [current], [volume]);
-    expect(getModelScenePatch).toHaveBeenCalledWith([]);
+    expect(getModelScenePatch).toHaveBeenCalledWith([], []);
+    result.apply();
     expect(result.structure[0]).toBe(current);
     expect(result.volumes[0]).toBe(volume);
     expect(result.volumes[0].geometry).toBe(volume.geometry);
@@ -78,8 +80,8 @@ describe('SceneDelta projection', () => {
     volume.dispose();
   });
   it('publishes one collection update while retaining an unchanged GLVolume and geometry', () => {
-    const retained = new GLVolume(buffer(40, 0));
-    const replacement = new GLVolume(buffer(10, 1, 10));
+    const retained = new GLVolume(buffer(40, 0), { kind: 'exclusive' });
+    const replacement = new GLVolume(buffer(10, 1, 10), { kind: 'exclusive' });
     const retainedGeometry = retained.geometry;
     glVolumeCollection.replace([retained], 10);
     let publications = 0;
@@ -97,7 +99,7 @@ describe('SceneDelta projection', () => {
 
   it('applies a multi-object direct jump, undo, and redo while preserving every untouched mesh', () => {
     const initialStructure = [structure(10, 0), structure(20, 1), structure(40, 2)];
-    const initialVolumes = initialStructure.map((object) => new GLVolume(buffer(object.id, object.index)));
+    const initialVolumes = initialStructure.map((object) => new GLVolume(buffer(object.id, object.index), { kind: 'exclusive' }));
     const unchanged = initialVolumes[2];
     const unchangedGeometry = unchanged.geometry;
 
@@ -140,7 +142,7 @@ describe('SceneDelta projection', () => {
 
   it('does not mutate retained mesh indexes when a patch fails validation', () => {
     const currentStructure = [structure(10, 0), structure(40, 1)];
-    const currentVolumes = currentStructure.map((object) => new GLVolume(buffer(object.id, object.index)));
+    const currentVolumes = currentStructure.map((object) => new GLVolume(buffer(object.id, object.index), { kind: 'exclusive' }));
     const retained = currentVolumes[1];
 
     expect(() => composeSceneDeltaProjection(

@@ -95,7 +95,7 @@ public:
     // named before/after timestamp pair; its resulting topmost state remains
     // uncaptured until a later operation or the first Undo needs it.
     bool begin_operation(std::string label, const TimestampedRoots& predecessor);
-    bool commit_operation(const TimestampedRoots& successor);
+    bool commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta = nullptr);
     bool abort_operation(TimestampedRestore* predecessor = nullptr);
     bool operation_active() const;
 

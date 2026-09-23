@@ -36,6 +36,7 @@ function makeRuntime(): SlicerRuntime {
     separateInstances: vi.fn(async () => ({ ok: true, newObjectIds: [21] })),
     addInstance: vi.fn(async () => ({ ok: true, objectId: 1, instanceId: 22 })),
     removeInstance: vi.fn(async () => ({ ok: true })),
+    getModelScenePatch: vi.fn(async () => ({ ok: true, objectOrder: [1], objects: structure.objects, meshes: [], geometries: [] })),
     getModelStructure: vi.fn(async () => structure),
     getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
@@ -45,7 +46,7 @@ function makeRuntime(): SlicerRuntime {
       _before: unknown,
       mutation: (transactionId: string) => Promise<T>,
       _after: unknown | (() => unknown | Promise<unknown>),
-    ) => ({ result: await mutation('tx-1'), status: {} as never })),
+    ) => ({ sceneDelta: { version: 1, objectIds: [1], volumeIds: [], instanceIds: [], plateIds: [], objectOrder: [1] }, result: await mutation('tx-1'), status: {} as never })),
   } as unknown as SlicerRuntime;
 }
 
@@ -64,7 +65,7 @@ describe('object list structural actions', () => {
     const r = await deleteObjectsInList(runtime, [1]);
     expect(r).toEqual({ ok: true });
     expect(runtime.deleteObjects).toHaveBeenCalledWith([1]);
-    expect(useSettingsStore.getState().modelRevision).toBe(before + 1);
+    expect(useSettingsStore.getState().modelRevision).toBe(before);
     expect(useSlicerStore.getState().status).toBe('idle');
   });
 

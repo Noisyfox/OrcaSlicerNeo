@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ModelObjectBuffer, ModelTransform } from '@slicer/client';
+import type { ModelObjectBuffer, ModelTransform, ModelGeometry } from '@slicer/client';
 import { matrixFromTransform, normalizeTransform } from './transformDeltaMath';
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 
@@ -23,6 +23,45 @@ export function attachBoundsTree(geometry: THREE.BufferGeometry): BVHBufferGeome
 export function disposeBVHGeometry(geometry: BVHBufferGeometry): void {
   geometry.disposeBoundsTree();
   geometry.dispose();
+}
+
+export type GeometryOwnership = { kind: 'shared'; key: string } | { kind: 'exclusive' };
+type GeometryResource = { geometry: THREE.BufferGeometry; buffer: ModelGeometry; refs: number };
+const geometryResources = new Map<string, GeometryResource>();
+
+function buildGeometry(buffer: Pick<ModelObjectBuffer, 'positions' | 'indices'>): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  try {
+    geometry.setAttribute('position', new THREE.BufferAttribute(buffer.positions, 3));
+    // BVH construction may reorder indices; keep the immutable source untouched.
+    geometry.setIndex(new THREE.BufferAttribute(buffer.indices.slice(), 1));
+    geometry.computeVertexNormals();
+    attachBoundsTree(geometry);
+    return geometry;
+  } catch (error) { geometry.dispose(); throw error; }
+}
+function releaseGeometry(key: string): void {
+  const resource = geometryResources.get(key);
+  if (!resource) throw new Error(`missing owned geometry ${key}`);
+  if (--resource.refs === 0) {
+    geometryResources.delete(key);
+    disposeBVHGeometry(resource.geometry as BVHBufferGeometry);
+  }
+}
+export function retainedGeometry(key: string): ModelGeometry | undefined {
+  return geometryResources.get(key)?.buffer;
+}
+/** Pin exactly the advertised resources across the asynchronous Worker read. */
+export function leaseGeometry(keys: readonly string[]): () => void {
+  const pinned = [...new Set(keys)];
+  for (const key of pinned) if (!geometryResources.has(key)) throw new Error(`missing geometry ${key}`);
+  for (const key of pinned) geometryResources.get(key)!.refs++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const key of pinned) releaseGeometry(key);
+  };
 }
 
 type RevisionWaiter = {
@@ -88,24 +127,36 @@ export class GLVolume {
   // instance/volume transform actually changes.
   private worldBoundsCache: { matrix: THREE.Matrix4; bounds: THREE.Box3 } | null = null;
 
-  constructor(buffer: ModelObjectBuffer) {
+  private disposed = false;
+
+  constructor(buffer: ModelObjectBuffer, readonly ownership: GeometryOwnership) {
     this.buffer = buffer;
     this.id = `${buffer.objectId}:${buffer.volumeId}:${buffer.instanceId}`;
     // Drop a redundant matrix from the bridge on clean transforms so the TRS
     // gizmo path stays cheap; sheared transforms keep the authoritative matrix.
     this.instanceTransform = normalizeTransform(structuredClone(buffer.instanceTransform));
     this.volumeTransform = normalizeTransform(structuredClone(buffer.volumeTransform));
-    this.geometry = new THREE.BufferGeometry();
-    this.geometry.setAttribute('position', new THREE.BufferAttribute(buffer.positions, 3));
-    this.geometry.setIndex(new THREE.BufferAttribute(buffer.indices, 1));
-    this.geometry.computeVertexNormals();
-
-    // Set up BVH for faster raycasting.
-    attachBoundsTree(this.geometry);
+    if (ownership.kind === 'shared') {
+      let resource = geometryResources.get(ownership.key);
+      if (!resource) {
+        resource = { geometry: buildGeometry(buffer), refs: 0,
+          buffer: { geometryKey: ownership.key, volumeId: buffer.volumeId,
+            positions: buffer.positions, indices: buffer.indices,
+            vertexCount: buffer.vertexCount, indexCount: buffer.indexCount } };
+        geometryResources.set(ownership.key, resource);
+      }
+      resource.refs++;
+      this.buffer = { ...buffer, positions: resource.buffer.positions, indices: resource.buffer.indices,
+        vertexCount: resource.buffer.vertexCount, indexCount: resource.buffer.indexCount };
+      this.geometry = resource.geometry;
+    } else this.geometry = buildGeometry(buffer);
   }
 
   dispose(): void {
-    disposeBVHGeometry(this.geometry as BVHBufferGeometry);
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.ownership.kind === 'shared') releaseGeometry(this.ownership.key);
+    else disposeBVHGeometry(this.geometry as BVHBufferGeometry);
   }
 
   /**

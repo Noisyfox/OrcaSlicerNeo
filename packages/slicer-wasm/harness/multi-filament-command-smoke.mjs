@@ -419,7 +419,7 @@ const ordinaryBegin = callJson('orc_history_begin', ['string', 'string', 'string
 assert.equal(ordinaryBegin.ok, true, JSON.stringify(ordinaryBegin));
 assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', 'ordinary']).ok, true);
 const ordinaryCommit = callJson('orc_history_commit', ['string', 'string'],
-  [ordinaryBegin.transactionId, JSON.stringify(historyContext)]);
+  [ordinaryBegin.transactionId, JSON.stringify(historyContext)]).status;
 assert.equal(ordinaryCommit.canUndo, true, JSON.stringify(ordinaryCommit));
 // An ordinary model commit deliberately carries no direct filament frame.
 // Its undo/redo exercises the serialized/direct-missing fallback; the bridge
@@ -580,7 +580,7 @@ assert.equal(fenceBegin.ok, true, JSON.stringify(fenceBegin));
 const fenceShape = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']);
 assert.equal(fenceShape.ok, true, JSON.stringify(fenceShape));
 const fenceCommit = callJson('orc_history_commit', ['string', 'string'],
-  [fenceBegin.transactionId, fenceContext]);
+  [fenceBegin.transactionId, fenceContext]).status;
 assert.equal(fenceCommit.revision, snapshot.revisions.session + 1, JSON.stringify(fenceCommit));
 const fenceBeforeContext = callJson('orc_get_filament_session_snapshot');
 assert.equal(fenceBeforeContext.assignments.objects.length, 1, JSON.stringify(fenceBeforeContext));

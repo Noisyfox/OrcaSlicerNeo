@@ -56,7 +56,6 @@ async function commitAddedImpl(
       // Shared state receives only the display name; host-private absolute
       // paths must never cross the platform boundary.
       settings.setValue('modelPath', displayName);
-      settings.setModelLoaded(true);
       sceneInteraction?.resetForModel();
       await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
       useProjectStore.getState().setProject({ hasContent: true });

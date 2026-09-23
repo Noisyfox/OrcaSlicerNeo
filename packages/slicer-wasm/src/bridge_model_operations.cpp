@@ -170,8 +170,10 @@ json model_structure_json() {
     return model_structure_json_filtered(nullptr);
 }
 
-json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr) {
+json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr,
+                     const std::set<std::size_t>& known_volume_ids = {}) {
     json objects = json::array();
+    json geometries = json::array();
     auto& model = state().model;
     for (size_t oi = 0; oi < model.objects.size(); ++oi) {
         const auto& object = model.objects[oi];
@@ -181,7 +183,7 @@ json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr) {
         for (size_t vi = 0; vi < object->volumes.size(); ++vi) {
             const auto& volume_object = object->volumes[vi];
             const auto& its = volume_object->mesh().its;
-            for (size_t ii = 0; ii < object->instances.size(); ++ii) {
+            if (!object->instances.empty() && !known_volume_ids.count(volume_object->id().id)) {
                 MallocBuffer vbuf;
                 MallocBuffer ibuf;
                 for (const auto& vertex : its.vertices) {
@@ -198,21 +200,24 @@ json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr) {
                 const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
                 vbuf.release();
                 ibuf.release();
+                geometries.push_back(json{{"volume_id", volume_object->id().id},
+                    {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
+                    {"index_ptr", iptr}, {"index_count", its.indices.size() * 3}});
+            }
+            for (size_t ii = 0; ii < object->instances.size(); ++ii) {
                 const auto& instance_object = object->instances[ii];
                 const auto& instance = instance_object->get_transformation();
                 const auto& volume = volume_object->get_transformation();
                 objects.push_back(json{{"object_id", object->id().id},
                     {"volume_id", volume_object->id().id}, {"instance_id", instance_object->id().id},
                     {"object_idx", oi}, {"volume_idx", vi}, {"instance_idx", ii},
-                    {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
-                    {"index_ptr", iptr}, {"index_count", its.indices.size() * 3},
                     {"offset", {instance.get_offset().x(), instance.get_offset().y(), instance.get_offset().z()}},
                     {"instance_transform", transform_json(instance)},
                     {"volume_transform", transform_json(volume)}});
             }
         }
     }
-    return objects;
+    return json{{"ok", true}, {"renderables", std::move(objects)}, {"geometries", std::move(geometries)}};
 }
 }
 
@@ -866,15 +871,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
         const auto affected_before = member_plate_ids_for_instances(affected_instances);
 
         std::vector<std::size_t> new_object_ids;
-        for (const std::size_t iid : *ids) {
-            ModelInstance* src_inst = nullptr;
-            for (ModelInstance* inst : obj->instances)
-                if (inst->id().id == iid) { src_inst = inst; break; }
-            ModelObject* clone = state().model.add_object();
-            clone->name = obj->name;
-            for (const ModelVolume* vol : obj->volumes)
-                clone->add_volume(*vol);
-            clone->add_instance(*src_inst);
+        for (const std::size_t source_index : to_remove) {
+            // Match Orca: clone with fresh recursive IDs, then retain one instance.
+            ModelObject* clone = state().model.add_object(*obj);
+            for (std::size_t i = clone->instances.size(); i-- > 0;)
+                if (i != source_index) clone->delete_instance(i);
             new_object_ids.push_back(clone->id().id);
             append_instance_ids(*clone, affected_instances);
         }
@@ -1381,7 +1382,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
 
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     try {
-        return dup_json(json{{"ok", true}, {"objects", model_mesh_json()}}.dump());
+        return dup_json(model_mesh_json().dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1395,7 +1396,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
 // this read materializes only the stable object IDs named by its SceneDelta.
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_ids_cstr) {
     try {
-        const json requested = json::parse(object_ids_cstr ? object_ids_cstr : "[]");
+        const json request = json::parse(object_ids_cstr ? object_ids_cstr : "");
+        const json& requested = request.at("object_ids");
+        const auto& known_json = request.at("known_volume_ids");
+        const auto known = known_json.is_array() && known_json.empty()
+            ? std::optional<std::vector<std::size_t>>(std::vector<std::size_t>{})
+            : parse_positive_id_array(known_json);
+        if (!known) return error_json("scene patch known volume ids must be positive integers");
         if (!requested.is_array()) return error_json("scene patch object ids must be an array");
         std::set<std::size_t> object_ids;
         for (const auto& value : requested) {
@@ -1412,9 +1419,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_id
         }
         json object_order = json::array();
         for (const auto* object : state().model.objects) object_order.push_back(object->id().id);
-        return dup_json(json{{"ok", true}, {"object_order", std::move(object_order)},
-                             {"objects", model_structure_json_filtered(&object_ids)},
-                             {"meshes", model_mesh_json(&object_ids)}}.dump());
+        json response = model_mesh_json(&object_ids, std::set<std::size_t>(known->begin(), known->end()));
+        response["object_order"] = std::move(object_order);
+        response["objects"] = model_structure_json_filtered(&object_ids);
+        return dup_json(response.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

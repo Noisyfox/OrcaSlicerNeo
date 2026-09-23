@@ -530,9 +530,25 @@ export interface ModelTransform {
   ];
 }
 
+/** Native geometry resource; identity is client session plus ModelVolume ID. */
+export interface ModelGeometry {
+  geometryKey: string;
+  volumeId: number;
+  positions: Float32Array;
+  indices: Uint32Array;
+  vertexCount: number;
+  indexCount: number;
+}
+export interface ModelRenderable extends Omit<ModelObjectBuffer, 'positions' | 'indices' | 'vertexCount' | 'indexCount'> {
+  geometryKey: string;
+}
+export interface NativeModelObjectBuffer extends ModelObjectBuffer {
+  geometryKey: string;
+}
+
 export interface ModelMeshResult {
   ok: boolean;
-  objects: ModelObjectBuffer[];
+  objects: NativeModelObjectBuffer[];
   error?: string;
 }
 
@@ -541,7 +557,8 @@ export interface ModelScenePatchResult {
   ok: boolean;
   objectOrder: number[];
   objects: ModelObjectStructure[];
-  meshes: ModelObjectBuffer[];
+  meshes: ModelRenderable[];
+  geometries: ModelGeometry[];
   error?: string;
 }
 
@@ -1210,7 +1227,7 @@ export interface SlicerClient {
                beforeContext: import('./history').HistoryContext,
                options?: import('./history').HistoryTransactionOptions): Promise<import('./history').HistoryTransactionId>;
   commitHistory(transactionId: import('./history').HistoryTransactionId,
-                afterContext: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+                afterContext: import('./history').HistoryContext): Promise<import('./history').HistoryCommitResult>;
   abortHistory(transactionId: import('./history').HistoryTransactionId): Promise<import('./history').RestoreResult>;
   undoHistory(): Promise<import('./history').RestoreResult>;
   redoHistory(): Promise<import('./history').RestoreResult>;
@@ -1236,7 +1253,7 @@ export interface SlicerClient {
     beforeContext: import('./history').HistoryContext,
     mutation: import('./history').HistoryMutation<T>,
     afterContext: import('./history').HistoryContext | (() => import('./history').HistoryContext | Promise<import('./history').HistoryContext>),
-  ): Promise<{ result: T; status: import('./history').HistoryStatus }>;
+  ): Promise<{ result: T } & import('./history').HistoryCommitResult>;
   /** Read the authoritative headless plate session snapshot. */
   getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
   /** Read the native estimated Prepare Prime Tower for every plate. */
@@ -1292,7 +1309,7 @@ export interface SlicerClient {
   ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Materialize only objects touched by a native history SceneDelta. */
-  getModelScenePatch(objectIds: readonly number[]): Promise<ModelScenePatchResult>;
+  getModelScenePatch(objectIds: readonly number[], knownGeometryKeys: readonly string[]): Promise<ModelScenePatchResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
   getModelStructure(): Promise<ModelStructureResult>;
   /** Delete whole objects by their stable ObjectIDs. */

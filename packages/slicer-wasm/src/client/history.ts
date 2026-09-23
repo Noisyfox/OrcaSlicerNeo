@@ -97,6 +97,12 @@ export interface HistoryStatus {
   readonly nativeScopedConfig?: NativeScopedConfigTransport;
 }
 
+/** Receipt for this commit only; null means nested or no effective change. */
+export interface HistoryCommitResult {
+  readonly status: HistoryStatus;
+  readonly sceneDelta: SceneDelta | null;
+}
+
 export type HistoryErrorCode =
   | 'disabled'
   | 'transaction-active'
@@ -237,7 +243,7 @@ export interface HistoryRuntimeMethods {
   commitHistory: (
     transactionId: HistoryTransactionId,
     afterContext: HistoryContext,
-  ) => Promise<HistoryStatus>;
+  ) => Promise<HistoryCommitResult>;
   abortHistory: (transactionId: HistoryTransactionId) => Promise<RestoreResult>;
   undoHistory: () => Promise<RestoreResult>;
   redoHistory: () => Promise<RestoreResult>;

@@ -933,8 +933,12 @@ one restore rather than traversing sparse adjacent receipts.
   single restore response.
 - The bridge exposes one typed `orc_get_model_scene_patch` read that accepts
   the affected stable object IDs and returns only their current structure and
-  mesh buffers plus the complete target object order. Full mesh buffers and
-  targeted buffers both carry native object, volume, and instance IDs. The
+  renderable descriptions plus the complete target object order. The request
+  also names retained volume resources; only missing geometry buffers are
+  returned, once per native volume. Full and targeted renderable descriptions
+  carry native object, volume, and instance IDs. Ordinary history commits now
+  expose their already computed SceneDelta through the same projection path;
+  see [object interaction performance](2026-09-23-object-interaction-performance.md). The
   typed Worker/client boundary validates and copies those targeted buffers;
   application code never calls the Emscripten module directly.
 - The shared application validates the complete patch before publication,

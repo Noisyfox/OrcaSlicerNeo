@@ -17,7 +17,7 @@ function call(name, types = [], args = []) {
   const pointer = Number(Module.ccall(name, 'number', types, args));
   try {
     const result = JSON.parse(Module.UTF8ToString(pointer));
-    if (name === 'orc_history_commit') assert.equal(result.canUndo, true, JSON.stringify(result));
+    if (name === 'orc_history_commit') assert.equal(result.status.canUndo, true, JSON.stringify(result));
     else if (name === 'orc_slice_plate') assert.equal(result.accepted, true, JSON.stringify(result));
     else if (name !== 'orc_take_performance_profile')
       assert.equal(result.ok, true, `${name}: ${JSON.stringify(result)}`);
@@ -73,7 +73,7 @@ const beforeSelection = snapshot().input_revisions;
 call('orc_select_plate', ['string'], [first]);
 assert.deepEqual(snapshot().input_revisions, beforeSelection);
 assertCached(projection(), [first, second]);
-const entry = call('orc_get_model_mesh').objects.find((item) => item.object_idx === 0);
+const entry = call('orc_get_model_mesh').renderables.find((item) => item.object_idx === 0);
 const home = [...entry.instance_transform.offset];
 
 // A committed ordinary in-plate translation advances the authoritative stamp.

@@ -84,7 +84,7 @@ const childName = afterMutation.print?.name;
 check('first real ordinary Project mutation selects a project-embedded child',
   childName && childName !== parentName && /\(Project\)/.test(childName),
   JSON.stringify({ parentName, childName, print: afterMutation.print }));
-const committed = callJson('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(historyContext)]);
+const committed = callJson('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(historyContext)]).status;
 check('Project Print history transaction commits', committed.canUndo === true, JSON.stringify(committed));
 check('ordinary Project value is a native scoped diff', nativeSnapshot().project.layer_height === '0.24',
   JSON.stringify(nativeSnapshot()));

@@ -182,8 +182,8 @@ check('adding a model preserves the current plate identity',
 // the file's own origin was.
 {
   const mm = callJson('orc_get_model_mesh', [], []);
-  if (mm.ok && mm.objects?.length === 1) {
-    const o = mm.objects[0];
+  if (mm.ok && mm.renderables?.length === 1) {
+    const o = { ...mm.renderables[0], ...mm.geometries[0] };
     const verts = new Float32Array(readBytes(Module, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
     Module._free(Number(o.index_ptr));
     const min = [Infinity, Infinity, Infinity];
@@ -248,8 +248,8 @@ check('adding a model preserves the current plate identity',
           && sObj.volumes[0].name === p.type,
           JSON.stringify(sObj));
     const mm = callJson('orc_get_model_mesh', [], []);
-    if (mm.ok && mm.objects?.length === 1) {
-      const o = mm.objects[0];
+    if (mm.ok && mm.renderables?.length === 1) {
+      const o = { ...mm.renderables[0], ...mm.geometries[0] };
       check(`primitive is the ${p.verts}-vertex ${p.type} mesh`,
             o.vertex_count === p.verts && o.index_count === p.idx,
             `verts=${o.vertex_count} idx=${o.index_count}`);
@@ -334,13 +334,13 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
         !bad.ok && /object not found/.test(bad.error ?? ''), JSON.stringify(bad));
   const intact = callJson('orc_get_model_mesh', [], []);
   check('rejected delete leaves the scene intact',
-        intact.ok === true && intact.objects?.length === 2, JSON.stringify(intact));
+        intact.ok === true && intact.renderables?.length === 2, JSON.stringify(intact));
 
   const del = callJson('orc_delete_objects', ['string'], [JSON.stringify([ids[1], ids[0], ids[1]])]);
   check('orc_delete_objects removes deduped stable IDs',
         del.ok === true && del.objects === 0 && del.deleted === 2, JSON.stringify(del));
   const empty = callJson('orc_get_model_mesh', [], []);
-  check('empty scene reports an empty mesh', empty.ok === true && empty.objects?.length === 0,
+  check('empty scene reports an empty mesh', empty.ok === true && empty.renderables?.length === 0,
         JSON.stringify(empty));
 }
 
@@ -639,9 +639,9 @@ if (res2.toolpath && res2.toolpath.segment_count > 0) {
 
 // 7c. model mesh buffers (M2 contract)
 const mm = callJson('orc_get_model_mesh', [], []);
-check('orc_get_model_mesh ok', mm.ok === true && mm.objects?.length === 1, JSON.stringify(mm).slice(0, 200));
-if (mm.objects?.length === 1) {
-  const o = mm.objects[0];
+check('orc_get_model_mesh ok', mm.ok === true && mm.renderables?.length === 1, JSON.stringify(mm).slice(0, 200));
+if (mm.renderables?.length === 1) {
+  const o = { ...mm.renderables[0], ...mm.geometries[0] };
   check('model mesh has cube geometry', o.vertex_count === 8 && o.index_count === 36,
         `verts=${o.vertex_count} idx=${o.index_count}`);
   Module._free(Number(o.vertex_ptr));
@@ -655,11 +655,11 @@ check('orc_set_instance_offset ok', off.ok === true, JSON.stringify(off));
 const mm2 = callJson('orc_get_model_mesh', [], []);
 // Guard the object access so a failed check reports a check() failure
 // instead of throwing a TypeError on an undefined objects[0].
-check('offset applied', mm2.ok === true && mm2.objects?.[0]?.offset?.[0] === 10,
-      JSON.stringify(mm2.objects?.[0]?.offset));
-if (mm2.objects?.length === 1) {
-  Module._free(Number(mm2.objects[0].vertex_ptr));
-  Module._free(Number(mm2.objects[0].index_ptr));
+check('offset applied', mm2.ok === true && mm2.renderables?.[0]?.offset?.[0] === 10,
+      JSON.stringify(mm2.renderables?.[0]?.offset));
+if (mm2.renderables?.length === 1) {
+  Module._free(Number(mm2.geometries[0].vertex_ptr));
+  Module._free(Number(mm2.geometries[0].index_ptr));
 }
 
 // 8. export gcode (MEMFS) + validate
@@ -779,10 +779,10 @@ check('floating-box loads', boxLoaded.ok === true && boxLoaded.objects === 1, JS
 // This keeps the check about ERROR SURFACING, not about raw coordinates
 // surviving the load: offset.z is the ensure_on_bed lift, +0.3 re-floats it.
 const boxMesh = callJson('orc_get_model_mesh', [], []);
-if (boxMesh.ok && boxMesh.objects?.[0]) {
-  Module._free(Number(boxMesh.objects[0].vertex_ptr));
-  Module._free(Number(boxMesh.objects[0].index_ptr));
-  const [offsetX, offsetY, offsetZ] = boxMesh.objects[0].offset;
+if (boxMesh.ok && boxMesh.renderables?.[0]) {
+  Module._free(Number(boxMesh.geometries[0].vertex_ptr));
+  Module._free(Number(boxMesh.geometries[0].index_ptr));
+  const [offsetX, offsetY, offsetZ] = boxMesh.renderables[0].offset;
   const floatZ = offsetZ + 0.3;
   const boxLifted = callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
                              [0, 0, offsetX, offsetY, floatZ]);

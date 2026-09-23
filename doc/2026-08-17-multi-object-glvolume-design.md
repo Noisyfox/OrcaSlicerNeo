@@ -40,8 +40,9 @@ manipulation writes its volume transform to `ModelVolume::set_transformation`.
 
 `orc_get_model_mesh()` returns one entry per `(object_idx, volume_idx,
 instance_idx)`, with local `ModelVolume` geometry and both transformation
-states. The entry contains independent heap allocations because the JS client
-copies and frees each entry independently.
+states. The current resource transport separates these renderable descriptions
+from one heap allocation pair per native volume; see
+[object interaction performance](2026-09-23-object-interaction-performance.md).
 
 The bridge adds `orc_set_model_transform(object_idx, volume_idx, instance_idx,
 instance_transform_json, volume_transform_json)`. It is intentionally an

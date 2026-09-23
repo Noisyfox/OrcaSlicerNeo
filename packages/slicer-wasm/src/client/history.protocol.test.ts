@@ -22,7 +22,7 @@ describe('Worker-owned project history protocol', () => {
     const transaction = await client.beginHistory('Add Cube', 'project', before);
     await client.addShape('Cube');
     const after = context('plate-session-1-plate-1');
-    const status = await client.commitHistory(transaction, after);
+    const { status: status } = await client.commitHistory(transaction, after);
     expect(status.canUndo).toBe(true);
     expect((await client.getModelStructure()).objects).toHaveLength(1);
     const undone = await client.undoHistory();
@@ -184,7 +184,7 @@ describe('Worker-owned project history protocol', () => {
     const client = createClient(async () => createMockModule());
     const before = context();
     const transaction = await client.beginHistory('No-op', 'project', before);
-    const status = await client.commitHistory(transaction, before);
+    const { status: status } = await client.commitHistory(transaction, before);
     expect(status.canUndo).toBe(false);
     const aborted = await client.beginHistory('Abort', 'project', before);
     await client.addShape('Cube');
@@ -205,7 +205,7 @@ describe('Worker-owned project history protocol', () => {
       { objectIdx: 1, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(20), volumeTransform: transform(0) },
     ]);
     expect(result.ok).toBe(true);
-    const committed = await client.commitHistory(transaction, before);
+    const { status: committed } = await client.commitHistory(transaction, before);
     expect(committed.undoEntries).toHaveLength(1);
     expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([10, 20]);
     expect((await client.undoHistory()).ok).toBe(true);
@@ -354,9 +354,9 @@ describe('Worker-owned project history protocol', () => {
       coalesce: true, parentTransactionId: outer,
     });
     await client.addShape('Cube');
-    const nestedStatus = await client.commitHistory(inner, before);
+    const { status: nestedStatus } = await client.commitHistory(inner, before);
     expect(nestedStatus.activeTransactionId).toBe(outer);
-    const final = await client.commitHistory(outer, before);
+    const { status: final } = await client.commitHistory(outer, before);
     expect(final.undoEntries).toHaveLength(1);
     expect((await client.getModelStructure()).objects).toHaveLength(2);
   });

@@ -27,7 +27,7 @@ function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): 
     instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
     volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
   };
-  return new GLVolume(buffer);
+  return new GLVolume(buffer, { kind: 'exclusive' });
 }
 
 function selectedController(volumes: readonly GLVolume[]): SceneInteractionController {
@@ -77,7 +77,7 @@ function historyRuntime() {
       _before: unknown,
       mutation: (tx: string) => Promise<unknown>,
       _after: unknown | (() => unknown),
-    ) => ({ result: await mutation('tx-1'), status: { dirty: true } as never })),
+    ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: { dirty: true } as never })),
   };
 }
 
@@ -151,7 +151,7 @@ describe('TransformHistoryCoordinator', () => {
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
         _after: unknown | (() => unknown),
-      ) => ({ result: await mutation('tx-1'), status: {} as never })),
+      ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: {} as never })),
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
@@ -353,7 +353,7 @@ describe('TransformHistoryCoordinator', () => {
         _before: unknown,
         mutation: (tx: string) => Promise<unknown>,
         _after: unknown | (() => unknown),
-      ) => ({ result: await mutation('tx-1'), status: { dirty: true, revision: 2 } as never })),
+      ) => ({ sceneDelta: null, result: await mutation('tx-1'), status: { dirty: true, revision: 2 } as never })),
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);

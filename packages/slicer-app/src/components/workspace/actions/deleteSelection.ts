@@ -82,10 +82,9 @@ export async function deleteSelection(
         slicer.setResultExported(false);
         slicer.setError(null);
         if ((published.objects ?? 0) === 0) {
-          settings.setModelLoaded(false);
+          settings.setModelLoadedFromSceneDelta(false);
           useProjectStore.getState().setProject({ hasContent: false });
         }
-        else settings.refreshModel();
         if (published.plateSession) {
           invalidateAffectedPlateResults(runtime, published.plateSession.affectedPlateIds ?? []);
           if (published.plateSession.nativeScopedConfig) {

@@ -44,7 +44,7 @@ const stamps = () => session().input_revisions;
 const begin = (label) => requireOk(`begin ${label}`, callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], [label, 'project', JSON.stringify(context), '']));
 const commit = (label, tx) => requireStatus(`commit ${label}`, callJson('orc_history_commit',
-  ['string', 'string'], [tx.transactionId, JSON.stringify(context)]));
+  ['string', 'string'], [tx.transactionId, JSON.stringify(context)]).status);
 const setOverride = (scope, id, key, value) => setNativeScopedConfig(callJson, scope, id, key, value);
 const select = (plateId) => requireOk(`select ${plateId}`, callJson('orc_select_plate', ['string'], [plateId]));
 const receipts = new Map();

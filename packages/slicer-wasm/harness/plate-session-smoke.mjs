@@ -138,9 +138,9 @@ const beforeConfiguration = callJson('orc_get_plate_session_snapshot');
 const beforeConfigurationMesh = callJson('orc_get_model_mesh');
 const beforeConfigurationInstances = new Map((beforeConfiguration.instances ?? [])
   .map((item) => [`${item.object_index}:${item.instance_index}`, item]));
-const beforeConfigurationOffsets = new Map((beforeConfigurationMesh.objects ?? [])
+const beforeConfigurationOffsets = new Map((beforeConfigurationMesh.renderables ?? [])
   .map((item) => [`${item.object_idx}:${item.instance_idx}`, item.offset]));
-for (const item of beforeConfigurationMesh.objects ?? []) {
+for (const item of beforeConfigurationMesh.geometries ?? []) {
   if (item.vertex_ptr) Module._free(Number(item.vertex_ptr));
   if (item.index_ptr) Module._free(Number(item.index_ptr));
 }

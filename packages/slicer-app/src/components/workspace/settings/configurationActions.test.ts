@@ -42,7 +42,7 @@ function runProjectHistoryTransaction<T>(
   mutationCallback: (transactionId: string) => Promise<T>,
   _after: unknown | (() => unknown | Promise<unknown>),
 ): Promise<{ result: T; status: { revision: number; nativeScopedConfig?: unknown } }> {
-  return mutationCallback('tx-1').then((result) => ({ result, status: {
+  return mutationCallback('tx-1').then((result) => ({ sceneDelta: null, result, status: {
     revision: 1,
     nativeScopedConfig: (result as unknown as { nativeScopedConfig?: unknown }).nativeScopedConfig,
   } }));
