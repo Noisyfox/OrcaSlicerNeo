@@ -1077,7 +1077,8 @@ export interface FilamentMutationSummary {
   readonly revisionAfter: number;
   readonly dirty: true;
   readonly allPlateResultsInvalidated: boolean;
-  readonly affectedPlateIds?: readonly string[];
+  /** Authoritative per-plate result invalidation scope for this receipt. */
+  readonly affectedPlateIds: readonly string[];
   readonly acceptedTargets?: readonly { readonly kind: FilamentAssignmentTarget | FilamentRoutingTarget; readonly id: number; readonly objectId: number }[];
   readonly selector?: string;
 }

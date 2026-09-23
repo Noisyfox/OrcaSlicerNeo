@@ -429,6 +429,44 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
+  function affectedHistoryPlateIds(before: MockHistoryState, after: MockHistoryState): string[] {
+    const affected = new Set<string>();
+    const add = (plateId: string | undefined) => { if (plateId) affected.add(plateId); };
+    const objectById = (state: MockHistoryState) => new Map(state.objectMeta.map((object, index) => [object.id, {
+      plateId: state.objectPlateIds[index], transforms: state.objectTransforms[index],
+      volumeTransforms: state.objectVolumeTransforms[index], volumes: state.volumeMeta[index],
+      instances: state.instanceMeta[index],
+    }]));
+    const beforeObjects = objectById(before);
+    const afterObjects = objectById(after);
+    for (const id of new Set([...beforeObjects.keys(), ...afterObjects.keys()])) {
+      const previous = beforeObjects.get(id);
+      const next = afterObjects.get(id);
+      if (!previous || !next || JSON.stringify(previous) !== JSON.stringify(next)) {
+        add(previous?.plateId);
+        add(next?.plateId);
+      }
+    }
+    if (JSON.stringify(before.nativeScopedConfig.project) !== JSON.stringify(after.nativeScopedConfig.project)) {
+      for (const plateId of after.plateIds) add(plateId);
+    }
+    const changedKeys = (beforeValues: Record<string, unknown>, afterValues: Record<string, unknown>) =>
+      new Set([...Object.keys(beforeValues), ...Object.keys(afterValues)].filter((key) =>
+        JSON.stringify(beforeValues[key]) !== JSON.stringify(afterValues[key])));
+    for (const objectId of changedKeys(before.nativeScopedConfig.objects, after.nativeScopedConfig.objects)) {
+      add(beforeObjects.get(Number(objectId))?.plateId);
+      add(afterObjects.get(Number(objectId))?.plateId);
+    }
+    for (const volumeId of changedKeys(before.nativeScopedConfig.parts, after.nativeScopedConfig.parts)) {
+      const owner = (state: MockHistoryState) => state.volumeMeta.findIndex((volumes) => volumes.some((volume) => String(volume.id) === volumeId));
+      const beforeIndex = owner(before);
+      const afterIndex = owner(after);
+      add(beforeIndex >= 0 ? before.objectPlateIds[beforeIndex] : undefined);
+      add(afterIndex >= 0 ? after.objectPlateIds[afterIndex] : undefined);
+    }
+    for (const plateId of changedKeys(before.nativeScopedConfig.plates, after.nativeScopedConfig.plates)) add(plateId);
+    return [...affected].sort();
+  }
   function historyStatus() {
     const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0';
     const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse()
@@ -515,6 +553,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return { ok: true, renderables, geometries };
   }
   function historyRestore(entry: MockHistoryEntry) {
+    const beforeState = captureHistoryState();
     const before = nativeScopedConfigProjection();
     restoreHistoryState(entry);
     historyRevision++;
@@ -530,6 +569,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     };
     return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
       native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
+      affected_plate_ids: affectedHistoryPlateIds(beforeState, entry),
       scene_delta: sceneDelta,
       impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
@@ -827,6 +867,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const mutation: Record<string, unknown> = {
       kind, history_entry_delta: 1, revision_before: request.revision,
       revision_after: next.revisions.session, dirty: true, all_plate_results_invalidated: true,
+      affected_plate_ids: [...plateIds],
     };
     if (kind === 'add') mutation.slot = next.slots.length;
     else if (kind === 'select-preset' || kind === 'set-colour') {
@@ -899,7 +940,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ...historyStatus(), revision: next.revisions.session, dirty: true }, mutation: {
       kind, history_entry_delta: 1, revision_before: request.revision, revision_after: next.revisions.session,
       dirty: true, all_plate_results_invalidated: kind === 'routing' && accepted.some((target: any) => target.kind === 'project'), accepted_targets: accepted,
-      ...(kind === 'routing' ? { selector: request.selector, slot: request.slot } : { slot: request.slot }), affected_plate_ids: [],
+      ...(kind === 'routing' ? { selector: request.selector, slot: request.slot } : { slot: request.slot }),
+      affected_plate_ids: kind === 'routing' && accepted.some((target: any) => target.kind === 'project')
+        ? [...plateIds]
+        : [...new Set(accepted.map((target: any) => objectPlateIds[objectMeta.findIndex((object) => object.id === target.object_id)]).filter((id): id is string => typeof id === 'string'))],
     } } };
   }
   function plateMutation(
@@ -1283,7 +1327,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
           version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
           object_order: objectMeta.map((object) => object.id),
-        } };
+        }, affected_plate_ids: [] };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
@@ -1297,7 +1341,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
         version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
         object_order: objectMeta.map((object) => object.id),
-      } };
+      }, affected_plate_ids: [] };
     },
     orc_history_undo() {
       if (historyTransaction) return { error: 'history transaction is active' };

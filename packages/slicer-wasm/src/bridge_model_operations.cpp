@@ -40,9 +40,6 @@ char* dup_json(const std::string& text) {
 char* error_json(const std::string& message) {
     return dup_json(json{{"ok", false}, {"error", message}}.dump());
 }
-void invalidate_preview_source() {
-    Neo::Bridge::PrimeTower::invalidate_projection_cache();
-}
 std::string sanitized_model_basename(const char* filename, const char* ext) {
     std::string name = filename ? filename : "";
     const auto slash = name.find_last_of("\\/");
@@ -343,7 +340,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         }
         rebuild_plate_membership(true);
         // A model mutation makes any existing Print/G-code result stale.
-        invalidate_preview_source();
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
         // only has the objects list, Model.hpp:1553-1560). Sum per object.
@@ -434,7 +430,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
                                                             -new_object->origin_translation.z()));
         new_object->ensure_on_bed();
         // A model mutation makes any existing Print/G-code result stale.
-        invalidate_preview_source();
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
             instance_count += o->instances.size();
@@ -460,7 +455,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
 EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
         const auto affected_before = member_plate_ids();
-        invalidate_preview_source();
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();
         state().model = Model{};
@@ -496,7 +490,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
         for (const std::size_t id : *ids)
             state().model.delete_object(ObjectID(id));
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -546,7 +539,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
             obj->config.touch();
         }
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -584,7 +576,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
             append_instance_ids(*clone, affected_instances);
         }
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -624,7 +615,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
             objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(target), from_obj);
         }
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -666,7 +656,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
         }
         obj->invalidate_bounding_box();
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -712,7 +701,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
                 new_volume_ids.push_back(v->id().id);
 
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -762,7 +750,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
             state().model.adjust_min_z();
 
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -830,7 +817,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
             model.delete_object(src);
 
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -887,7 +873,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
         obj->config.touch();
 
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -925,7 +910,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
         obj->config.touch();
         append_instance_ids(*obj, affected_instances);
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true},
@@ -956,7 +940,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
                 obj->delete_instance(i);
                 obj->config.touch();
                 rebuild_plate_membership(true);
-                invalidate_preview_source();
                 const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                                json::array(), &affected_instances);
                 return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
@@ -1178,7 +1161,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         const double validation_finished_at = Neo::Bridge::Performance::now_ms();
 
         const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
-        const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
         const auto before_revisions = state().plate_input_revisions;
         const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const auto affected_before = affected_instances.empty()
@@ -1202,7 +1184,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
             rebuild_plate_membership(true);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
-                                                           json::array(), &affected_instances, &before_out_of_bounds);
+                                                           json::array(), &affected_instances);
             const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
             const double response_started_at = Neo::Bridge::Performance::now_ms();
             const std::string response = mutation.dump();
@@ -1268,7 +1250,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char*
         obj->config.touch();
         // A rename does not change geometry, but it does change the object's
         // reported name; the existing Print/G-code is still considered stale.
-        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1286,7 +1267,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char*
         if (vol == nullptr) return error_json("volume not found");
         vol->name = name_cstr;
         vol->get_object()->config.touch();
-        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1317,7 +1297,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         // object bounds so a later getModelMesh / slice recomputes them.
         vol->get_object()->invalidate_bounding_box();
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
@@ -1347,7 +1326,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
             inst->printable = value;
         obj->config.touch();
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
@@ -1369,7 +1347,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
         inst->printable = printable != 0.0;
         inst->get_object()->config.touch();
         rebuild_plate_membership(true);
-        invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
                                                        json::array(), &affected_instances);
         return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());

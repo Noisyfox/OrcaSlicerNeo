@@ -79,7 +79,7 @@ describe('filament session store lifecycle', () => {
     expect(useFilamentSessionStore.getState().snapshot).toBe(initial);
     await useFilamentSessionStore.getState().run(runtime, async () => ({ ok: true, version: 1, result: {
       snapshot: newer,
-      mutation: { kind: 'add', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 3, dirty: true, allPlateResultsInvalidated: true },
+      mutation: { kind: 'add', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 3, dirty: true, allPlateResultsInvalidated: true, affectedPlateIds: ['plate-a'] },
       historyStatus: historyStatus(3),
     } }));
     expect(useFilamentSessionStore.getState().snapshot).toBe(newer);
@@ -122,7 +122,7 @@ describe('filament session store lifecycle', () => {
     const result = { ok: true as const, version: 1 as const, result: {
       snapshot: newer,
       mutation: { kind: 'set-colour' as const, historyEntryDelta: 1 as const, revisionBefore: 1, revisionAfter: 2,
-        dirty: true as const, allPlateResultsInvalidated: true as const },
+        dirty: true as const, allPlateResultsInvalidated: true as const, affectedPlateIds: ['plate-a'] },
       historyStatus: historyStatus(2),
     } };
     const cancel = vi.fn(async () => ({ ok: true }));

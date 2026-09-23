@@ -206,6 +206,8 @@ export interface RestoreSuccess {
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
+  /** Native-authoritative before/after plate union for this restore. */
+  readonly affectedPlateIds: readonly StablePlateId[];
   readonly sceneDelta: SceneDelta;
 }
 

@@ -601,24 +601,17 @@ json plate_revisions_json()
 json plate_mutation_snapshot(const std::set<std::string>& before,
                              const std::vector<std::string>& dirty_reasons,
                              const json& instance_transforms,
-                             const std::set<std::size_t>* affected_instances,
-                             const std::map<std::string, std::set<std::size_t>>* before_out_of_bounds)
+                             const std::set<std::size_t>* affected_instances)
 {
     const auto after = affected_instances == nullptr ? member_plate_ids()
                                                        : member_plate_ids_for_instances(*affected_instances);
-    const bool structure_changed = std::find(dirty_reasons.begin(), dirty_reasons.end(), "plate-structure") != dirty_reasons.end();
-    const bool model_transform = std::find(dirty_reasons.begin(), dirty_reasons.end(), "model-transform") != dirty_reasons.end();
-    if (structure_changed)
-        PrimeTower::invalidate_projection_cache();
-    else if (model_transform && (before != after ||
-                                 (before_out_of_bounds != nullptr &&
-                                  *before_out_of_bounds != state().plate_out_of_bounds_ids))) {
-        std::set<std::string> changed = before;
-        changed.insert(after.begin(), after.end());
-        PrimeTower::invalidate_projection_cache(changed);
-    }
     std::set<std::string> affected = before;
     affected.insert(after.begin(), after.end());
+    // Projection entries are derived from one plate's membership and input
+    // stamp.  A model add/delete/transform therefore withdraws only the
+    // before/after plates; their used-slot summaries remain available for a
+    // delta update, while unrelated plates stay cache hits.
+    PrimeTower::invalidate_projection_cache(affected);
     // Allocate all new stamps before publishing any of them.  If the session
     // allocator is exhausted, the mutation must fail without leaving a
     // partially advanced set of live plate revisions or presentation state.
@@ -722,7 +715,7 @@ json configuration_mutation_snapshot(
     // A configuration edit withdraws only the transferable presentation.
     // Registry-owned Print and GCodeProcessorResult allocations deliberately
     // remain resident for native incremental invalidation on the next Slice.
-    PrimeTower::invalidate_projection_cache(live_affected);
+    PrimeTower::invalidate_projection_cache_and_usage_summaries(live_affected);
     state().plate_runtime_registry.invalidate_presentations(live_affected);
 
     json result = plate_session_snapshot_json(instance_transforms);
@@ -1139,13 +1132,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_recompute_plate_membership()
 {
     try {
         const auto affected_instances = state().pending_membership_instance_ids;
-        const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
         const auto affected_before = affected_instances.empty()
             ? std::set<std::string>{}
             : member_plate_ids_for_instances(affected_instances);
         rebuild_plate_membership(true);
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
-                                                       json::array(), &affected_instances, &before_out_of_bounds);
+                                                       json::array(), &affected_instances);
         state().pending_membership_instance_ids.clear();
         return dup_json(mutation.dump());
     } catch (const std::exception& e) {

@@ -54,6 +54,15 @@ function move(entry, offset) {
   call('orc_history_commit', ['string', 'string'], [transaction.transactionId, context]);
   return mutation;
 }
+function history(label, operation) {
+  const context = JSON.stringify({ selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+    activePlateId: snapshot().current_plate_id, gizmo: null, nativeScopedConfig: {} });
+  const transaction = call('orc_history_begin', ['string', 'string', 'string', 'string'],
+    [label, 'project', context, '']);
+  const result = operation();
+  call('orc_history_commit', ['string', 'string'], [transaction.transactionId, context]);
+  return result;
+}
 
 call('orc_init', ['string'], ['']);
 call('orc_add_shape', ['string', 'string'], ['Cube', 'first plate']);
@@ -67,6 +76,31 @@ let read = projection();
 assert.equal(read.tower(first).eligible, true);
 assert.equal(read.tower(second).eligible, true);
 assertCached(projection(), [first, second]);
+
+// Structural model transactions invalidate only their member plate.  The
+// retained used-slot summary must take the add/delete delta path, and the
+// unrelated plate remains a projection cache hit through Undo and Redo.
+const added = history('Add Cube', () => call('orc_add_shape', ['string', 'string'], ['Cube', 'history add']));
+const addedObjectId = call('orc_get_model_structure').objects.find((object) => object.name === 'history add').id;
+read = projection();
+assert.equal(read.sample.stages_ms.used_slot_full_scan_fallback, 0, 'add retains usage summaries');
+assertCached(read, [first]);
+for (const direction of ['undo', 'redo']) {
+  call(`orc_history_${direction}`);
+  read = projection();
+  assert.equal(read.sample.stages_ms.used_slot_full_scan_fallback, 0, `${direction} add retains usage summaries`);
+  assertCached(read, [first]);
+}
+history('Delete Cube', () => call('orc_delete_objects', ['string'], [JSON.stringify([addedObjectId])]));
+read = projection();
+assert.equal(read.sample.stages_ms.used_slot_full_scan_fallback, 0, 'delete retains usage summaries');
+assertCached(read, [first]);
+for (const direction of ['undo', 'redo']) {
+  call(`orc_history_${direction}`);
+  read = projection();
+  assert.equal(read.sample.stages_ms.used_slot_full_scan_fallback, 0, `${direction} delete retains usage summaries`);
+  assertCached(read, [first]);
+}
 
 // Plate selection must not invalidate derived geometry or advance input stamps.
 const beforeSelection = snapshot().input_revisions;
@@ -135,5 +169,5 @@ assert.equal(read.tower(first).eligible, false, 'deleting final object hides tow
 assert.equal(read.tower(first).empty, true);
 assert.equal(read.tower(second).eligible, true);
 assertCached(projection(), [first, second]);
-console.log(JSON.stringify({ ok: true, cases: ['selection', 'stamp-change', 'outside', 'return', 'configuration', 'reorder', 'delete'],
+console.log(JSON.stringify({ ok: true, cases: ['selection', 'structural-history', 'stamp-change', 'outside', 'return', 'configuration', 'reorder', 'delete'],
   unrelatedPlateRecomputedDuringMoves: false, fullUsedSlotScansDuringTranslation: 0 }));

@@ -527,15 +527,15 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
-  const baseKeys = ['kind', 'history_entry_delta', 'revision_before', 'revision_after', 'dirty', 'all_plate_results_invalidated'];
+  const baseKeys = ['kind', 'history_entry_delta', 'revision_before', 'revision_after', 'dirty', 'all_plate_results_invalidated', 'affected_plate_ids'];
   const kindKeys: Record<string, string[]> = {
     'select-preset': [...baseKeys, 'slot', 'preset'],
     'set-colour': [...baseKeys, 'slot', 'colour'],
     add: [...baseKeys, 'slot'],
     delete: [...baseKeys, 'source', 'destination', 'slot_count'],
     merge: [...baseKeys, 'source', 'destination', 'slot_count'],
-    assign: [...baseKeys, 'slot', 'accepted_targets', 'affected_plate_ids'],
-    routing: [...baseKeys, 'selector', 'slot', 'accepted_targets', 'affected_plate_ids'],
+    assign: [...baseKeys, 'slot', 'accepted_targets'],
+    routing: [...baseKeys, 'selector', 'slot', 'accepted_targets'],
   };
   const allowedKeys = new Set(kindKeys[String(mutation.kind)] ?? []);
   if (Object.keys(mutation).some((key) => !allowedKeys.has(key)))
@@ -572,10 +572,11 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
         Number(mutation.destination) < 1 || Number(mutation.destination) > snapshot.slots.length)
       return { ok: false, version: 1, error: 'invalid filament merge destination range', errorCode: 'invalid_response' };
   }
+  if (!Array.isArray(mutation.affected_plate_ids) ||
+      !mutation.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(mutation.affected_plate_ids as string[]).size !== mutation.affected_plate_ids.length)
+    return { ok: false, version: 1, error: 'invalid filament affected plate ids', errorCode: 'invalid_response' };
   if (mutation.kind === 'assign' || mutation.kind === 'routing') {
-    if (!Array.isArray(mutation.affected_plate_ids) ||
-        !mutation.affected_plate_ids.every((id) => typeof id === 'string'))
-      return { ok: false, version: 1, error: 'invalid filament affected plate ids', errorCode: 'invalid_response' };
     if (!Array.isArray(mutation.accepted_targets) || mutation.accepted_targets.length === 0)
       return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
     const selector = mutation.kind === 'routing' ? mutation.selector : undefined;
@@ -627,8 +628,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     revisionAfter: mutation.revision_after as number,
     dirty: true as const,
     allPlateResultsInvalidated: mutation.all_plate_results_invalidated as boolean,
-    ...(Array.isArray(mutation.affected_plate_ids) && mutation.affected_plate_ids.every((id) => typeof id === 'string')
-      ? { affectedPlateIds: mutation.affected_plate_ids as string[] } : {}),
+    affectedPlateIds: mutation.affected_plate_ids as string[],
     ...(Array.isArray(mutation.accepted_targets) ? { acceptedTargets: mutation.accepted_targets.map((target) => {
       const item = target as Record<string, unknown>;
       return { kind: item.kind as string, id: item.id as number, objectId: item.object_id as number };
@@ -1080,6 +1080,11 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   const impact = normalizeRestoreImpact(value.impact);
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
+  if (!Array.isArray(value.affected_plate_ids) ||
+      !(value.affected_plate_ids as unknown[]).every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(value.affected_plate_ids as string[]).size !== value.affected_plate_ids.length)
+    return historyFailure(raw, 'invalid history affected plate IDs');
+  const affectedPlateIds = value.affected_plate_ids as string[];
   const context = normalizeHistoryContext(value.context);
   if (!context || (impact.plateSession && !context.plateSession))
     return historyFailure(raw, 'invalid history plate session context');
@@ -1090,6 +1095,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     status,
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
+    affectedPlateIds,
     sceneDelta,
   };
 }

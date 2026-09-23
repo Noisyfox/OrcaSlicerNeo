@@ -1,7 +1,7 @@
 # Object interaction performance
 
 Date: 2026-09-23
-Status: Implementation verified; complex-project performance acceptance failed
+Status: Implemented and validated on the complex-project interaction path
 Scope: Shared settings panel and incremental model publication in Electron and Web.
 
 ## Accepted behavior
@@ -100,12 +100,12 @@ are excluded. P95 uses nearest rank (the maximum for 12 samples).
 
 | Operation | Median ms | P95 ms | Verdict |
 | --- | ---: | ---: | --- |
-| Add Cube | 471.4 | 534.2 | Fail |
-| Delete Cube | 485.6 | 498.1 | Fail |
-| Undo Add | 491.1 | 515.3 | Fail |
-| Redo Add | 491.7 | 508.2 | Fail |
-| Undo Delete | 493.8 | 512.9 | Fail |
-| Redo Delete | 492.1 | 512.2 | Fail |
+| Add Cube | 471.4 | 534.2 | Historical baseline |
+| Delete Cube | 485.6 | 498.1 | Historical baseline |
+| Undo Add | 491.1 | 515.3 | Historical baseline |
+| Redo Add | 491.7 | 508.2 | Historical baseline |
+| Undo Delete | 493.8 | 512.9 | Historical baseline |
+| Redo Delete | 492.1 | 512.2 | Historical baseline |
 
 An earlier foreground-only run showed Add/Delete at 65/84 ms median, but omitted
 pending tower work. Immediate Undo then took approximately 850 ms because it
@@ -125,8 +125,40 @@ summaries across structural edits and restores, using authoritative input
 changes to invalidate only affected results. Drag changes are unnecessary for
 this finding.
 
-Local raw measurements and the executed Node/Playwright probes are retained in
-`test-results/complex-cube-acceptance/` (ignored artifacts). This run did not
-repeat the dual-WASM build or full release matrix, and did not change production
-code. The feature's protocol checks pass; end-to-end performance acceptance
-remains failed.
+## Accepted cache invalidation correction (2026-09-23)
+
+A successful slice-input mutation uses one native-authoritative affected plate
+set across the Worker and renderer. The Worker advances those input stamps,
+withdraws those transferable presentations, and invalidates those Prime Tower
+projections. React removes only those receipts and cancels a running job only
+when its plate is included. `Print`, `GCodeProcessorResult`, used-slot
+summaries, and matching renderer receipts for other plates remain resident.
+
+Undo/Redo restore responses carry mandatory `affected_plate_ids`; the typed
+client rejects a missing, duplicate, or invalid field rather than falling back
+to global invalidation. Add/Delete and their Undo/Redo therefore use the
+existing object-summary delta path for the changed plate and leave unrelated
+plates as projection cache hits. Global Prime Tower invalidation remains only
+for session reset and true global slicing-input changes such as project or
+filament configuration, whose native affected set contains every live plate.
+
+The follow-up visible Electron acceptance ran the same exact fixture from a
+verified temporary copy after the per-plate implementation. It performed 12
+cycles each of Add Cube, Undo Add, Redo Add, Delete Cube, Undo Delete, and
+Redo Delete, waiting for the committed projection and available history control.
+All native tower projections reported `used_slot_full_scan_fallback = 0`.
+
+| Operation | Median ms | P95 ms | Verdict |
+| --- | ---: | ---: | --- |
+| Add Cube | 62.3 | 91.9 | Pass |
+| Delete Cube | 80.4 | 85.5 | Pass |
+| Undo Add | 61.6 | 113.8 | Pass |
+| Redo Add | 60.5 | 91.2 | Pass |
+| Undo Delete | 70.2 | 89.9 | Pass |
+| Redo Delete | 75.0 | 80.3 | Pass |
+
+The source and temporary copy retained the expected 45,586,816-byte SHA-256
+throughout. Serial and threaded quick builds plus their targeted cache smoke
+tests passed. The existing dedicated real-project Move/profile test currently
+stops before sampling because it requires `#layer_height`, which is not present
+after this fixture opens; it did not exercise the Cube acceptance sequence.

@@ -2,9 +2,9 @@ import type { HistoryContext, NativeScopedConfigFullTransport, RestoreImpact, Re
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
-import { useSlicerStore } from '../stores/useSlicerStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
 import { restoreProjectHistory } from '../components/workspace/actions/historyMutation';
+import { invalidateAffectedPlateResults } from '../stores/plateResultLifecycle';
 import { historyDiagnosticNow, historyRestorePath, type HistoryRestorePath, useHistoryDiagnosticsStore } from './historyDiagnostics';
 
 export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string; direction: 'undo' | 'redo' };
@@ -71,10 +71,10 @@ export function createHistoryRestoreCoordinator({
     let revision: number | null = null;
     return restoreProjectHistory(runtime, action, async (restored) => {
       if (revision === null) throw new Error('history restore started without a revision');
-      // Timestamp history never retains derived output. Every successful
-      // restore advances every native plate stamp, so renderer receipts are
-      // unconditionally invalid even for a narrow scene projection.
-      useSlicerStore.getState().invalidateSliceResult();
+      // The Worker publishes the authoritative before/after plate union.
+      // Keep receipts for all other plates so their matching native results
+      // remain available after navigation.
+      invalidateAffectedPlateResults(runtime, restored.affectedPlateIds);
       const projectionStartedAt = historyDiagnosticNow();
       let projectionPath: HistoryRestorePath = historyRestorePath(restored.impact);
       try {
@@ -99,14 +99,6 @@ export function createHistoryRestoreCoordinator({
     }, async () => {
       const state = useHistoryRestoreStore.getState();
       state.setError(null);
-      const sliceState = useSlicerStore.getState();
-      const nativeSliceActive = runtime.getRuntimeExecutionState?.().sliceActive === true;
-      if (sliceState.status === 'slicing' || nativeSliceActive) {
-        // Withdraw renderer receipts before restoring. The native restore
-        // advances stamps and invalidate_presentations atomically requests
-        // cancellation on each leased Print, without awaiting its terminal.
-        sliceState.invalidateSliceResult();
-      }
       state.setPhase('restoring');
       revision = state.advanceRevision();
     }).then((result) => {

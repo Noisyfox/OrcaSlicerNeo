@@ -343,7 +343,7 @@ describe('SlicerClient bridge contract', () => {
       ok: true, version: 1, result: { snapshot: toWire(snapshot), history_status: receipt(), mutation: {
         kind: 'select-preset', history_entry_delta: 1, revision_before: 0,
         revision_after: 1, dirty: true, all_plate_results_invalidated: true,
-        slot: 1, preset: 'p', ...mutation,
+        affected_plate_ids: ['plate-1'], slot: 1, preset: 'p', ...mutation,
       } },
     });
     const assignmentResponse = (fields: Record<string, unknown>, snapshot = validSnapshot) => ({
@@ -358,6 +358,11 @@ describe('SlicerClient bridge contract', () => {
     await expect(createClient(async () => createMockModule({ filamentMutation: missingReceipt }))
       .selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
       .resolves.toEqual({ ok: false, version: 1, error: 'missing filament mutation history status', errorCode: 'invalid_response' });
+    const missingAffectedPlateIds = response({});
+    delete ((missingAffectedPlateIds.result as Record<string, unknown>).mutation as Record<string, unknown>).affected_plate_ids;
+    await expect(createClient(async () => createMockModule({ filamentMutation: missingAffectedPlateIds }))
+      .selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'missing filament mutation field', errorCode: 'invalid_response' });
     await expect(createClient(async () => createMockModule({
       filamentMutation: assignmentResponse({ preset: 'unexpected' }),
     })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
@@ -420,7 +425,7 @@ describe('SlicerClient bridge contract', () => {
       ok: true, version: 1, result: { snapshot: toWire(oneSlot), history_status: receipt(), mutation: {
         kind: 'delete', history_entry_delta: 1, revision_before: 0, revision_after: 1,
         dirty: true, all_plate_results_invalidated: true, source: 2, destination: null,
-        slot_count: 1, ...fields,
+        slot_count: 1, affected_plate_ids: ['plate-1'], ...fields,
       } },
     });
     await expect(createClient(async () => createMockModule({ filamentMutation: deleteMutation({ destination: 1 }) }))
@@ -434,6 +439,7 @@ describe('SlicerClient bridge contract', () => {
       ok: true, version: 1, result: { snapshot: toWire(oneSlot), history_status: receipt(), mutation: {
         kind: 'merge', history_entry_delta: 1, revision_before: 0, revision_after: 1,
         dirty: true, all_plate_results_invalidated: true, source: 2, destination: 2, slot_count: 1,
+        affected_plate_ids: ['plate-1'],
       } },
     };
     await expect(createClient(async () => createMockModule({ filamentMutation: mergeResponse }))

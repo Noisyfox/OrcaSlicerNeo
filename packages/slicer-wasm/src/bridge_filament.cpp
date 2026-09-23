@@ -886,6 +886,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         mutation["revision_before"] = expected;
         mutation["revision_after"] = state().history_revision;
         mutation["dirty"] = state().history.project_modified();
+        mutation["affected_plate_ids"] = all_plate_ids();
         mutation["all_plate_results_invalidated"] = true;
         return filament_mutation_result(mutation);
     } catch (const FilamentCommandFailure& e) {
@@ -1012,6 +1013,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             mutation["revision_before"] = expected;
             mutation["revision_after"] = state().history_revision;
             mutation["dirty"] = state().history.project_modified();
+            mutation["affected_plate_ids"] = all_plate_ids();
             mutation["all_plate_results_invalidated"] = true;
             return filament_mutation_result(mutation);
         } catch (...) {
