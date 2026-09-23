@@ -66,7 +66,9 @@ function TooltipFor({
 }) {
   const trigger = disabled ? <span className="inline-flex">{children}</span> : children
   return (
-    <Tooltip>
+    // The trigger host changes between a wrapper span and the child control.
+    // Remount the root on that transition so Base UI binds the replacement node.
+    <Tooltip key={disabled ? "disabled-trigger" : "enabled-trigger"}>
       <TooltipTrigger render={trigger} />
       <TooltipContent>{content}</TooltipContent>
     </Tooltip>
