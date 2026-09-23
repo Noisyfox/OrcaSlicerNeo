@@ -124,6 +124,16 @@ reconstructs the currently active Printer and Filament drafts from those saved
 effective values; drafts are not written into the user preset repository in
 phase one.
 
+On load, Neo uses the ordinary project-difference metadata and imported
+effective configuration to reconstruct sparse overlays only for the active
+Printer and the Filament source selected by each slot. Slots resolving to the
+same canonical source name share the reconstructed overlay; distinct selected
+sources remain independent. Difference data for presets that are not selected
+is not used to recreate dormant drafts. The existing BBS project loader remains
+authoritative for compatibility and embedded-preset resolution; Neo preserves
+the embedded archive source configuration and keeps reconstructed overlay
+values separate from that source.
+
 The preset-editor feature adds no draft-specific cross-version migration,
 fallback-source behavior, or source-identity persistence. Ordinary project
 loading remains responsible for interpreting its saved configuration and

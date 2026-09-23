@@ -163,6 +163,18 @@ runs `pnpm test`, `pnpm typecheck`, focused Electron E2E, and the documented
 serial/threaded WASM checks; unavailable checks are reported explicitly rather
 than treated as passed.
 
+**Implementation result.** The standard BBS 3MF writer stores the current
+source selections and flattened effective configuration, with active draft
+fields represented by Orca's ordinary per-preset difference metadata; no Neo
+draft registry is serialized. Load reconstructs only selected Printer and
+Filament overlays from the imported effective values, keyed by canonical
+source name. Dormant drafts therefore remain session/history-only and do not
+return after reopening. The native BBS loader still resolves embedded sources;
+their archive configurations are preserved separately from runtime overlays.
+The real serial and threaded WASM round trips, embedded-source round trip,
+focused persistence/history and Printer-transition smokes, workspace tests and
+typechecks, and primary Electron preset-editor E2E passed for this closure.
+
 ## Completion boundary
 
 After Step 6 passes parent acceptance, this implementation record is updated
