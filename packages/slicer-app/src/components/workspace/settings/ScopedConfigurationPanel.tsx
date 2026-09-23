@@ -41,16 +41,9 @@ function isScalar(meta: OptionMeta): boolean {
   return meta.type === 'float' || meta.type === 'int';
 }
 
-function sourceBadge(field: ScopedConfigurationField) {
-  return (
-    <span
-      data-testid={`config-source-${field.key}`}
-      className="rounded border px-1 text-[0.6rem] uppercase tracking-wide text-muted-foreground"
-      title={field.source === 'mixed' ? 'The selected targets have different sources.' : `Inherited from ${SOURCE_LABEL[field.source]}`}
-    >
-      {SOURCE_LABEL[field.source] ?? field.source}
-    </span>
-  );
+function valueTooltip(field: ScopedConfigurationField): string {
+  if (field.mixed) return 'The selected targets have different effective values or sources.';
+  return `Effective value source: ${SOURCE_LABEL[field.source] ?? field.source}.`;
 }
 
 export function ScopedField({
@@ -98,23 +91,26 @@ export function ScopedField({
   const labelCls = 'w-32 shrink-0 truncate text-xs text-muted-foreground';
   const displayed = draft;
   const hasEditableLocalOverride = field.local && field.resettable;
+  const tooltip = valueTooltip(field);
 
   let control;
   if (field.meta.type === 'bool' && !field.mixed) {
     control = <Checkbox
       id={`scoped-${field.key}`}
+      title={tooltip}
       checked={displayed === '1'}
       onCheckedChange={(checked) => onDiscrete(checked ? '1' : '0')}
     />;
   } else if (field.meta.type === 'enum' && field.meta.enum_values?.length && !field.mixed) {
     control = <Select value={displayed} onValueChange={(value) => value != null && onDiscrete(value)}>
-      <SelectTrigger className="flex-1" data-testid={`config-input-${field.key}`}><SelectValue placeholder={displayed} /></SelectTrigger>
+      <SelectTrigger className="flex-1" data-testid={`config-input-${field.key}`} title={tooltip}><SelectValue placeholder={displayed} /></SelectTrigger>
       <SelectContent>{field.meta.enum_values.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
     </Select>;
   } else {
     control = <Input
       id={`scoped-${field.key}`}
       data-testid={`config-input-${field.key}`}
+      title={tooltip}
       value={displayed}
       placeholder={field.mixed ? 'Mixed' : undefined}
       min={field.meta.min}
@@ -145,7 +141,6 @@ export function ScopedField({
         >{label}</Label>
         {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Mixed</span>}
         {control}
-        {sourceBadge(field)}
         {field.local && field.resettable && <Button
           type="button"
           variant="ghost"

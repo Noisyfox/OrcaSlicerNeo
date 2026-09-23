@@ -88,7 +88,8 @@ describe('scoped field drafts', () => {
     expect(label.getAttribute('data-local-override-highlight')).toBe('true');
     expect(label.classList.contains('scoped-config-local-override-label')).toBe(true);
     expect(container.querySelector('[data-testid="config-input-layer_height"]')!.classList.contains('scoped-config-local-override-label')).toBe(false);
-    expect(container.querySelector('[data-testid="config-source-layer_height"]')!.classList.contains('scoped-config-local-override-label')).toBe(false);
+    expect(container.querySelector('[data-testid="config-source-layer_height"]')).toBeNull();
+    expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.title).toBe('Effective value source: Object.');
 
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="config-reset-layer_height"]')!.click());
     expect(onReset).toHaveBeenCalledOnce();
@@ -104,7 +105,8 @@ describe('scoped field drafts', () => {
     expect(inherited.getLabel().getAttribute('data-local-override-highlight')).toBe('false');
     expect(inherited.getLabel().classList.contains('scoped-config-local-override-label')).toBe(false);
     expect(inherited.input.classList.contains('scoped-config-local-override-label')).toBe(false);
-    expect(container.querySelector('[data-testid="config-source-layer_height"]')!.classList.contains('scoped-config-local-override-label')).toBe(false);
+    expect(container.querySelector('[data-testid="config-source-layer_height"]')).toBeNull();
+    expect(inherited.input.title).toBe('Effective value source: Project.');
 
     await afterEachCleanupRender();
     const mixed = await renderField({ mixed: true, value: null, source: 'mixed' });

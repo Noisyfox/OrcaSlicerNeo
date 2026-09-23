@@ -406,6 +406,10 @@ gizmo state. Drag-dependent transform panels, selection bounds, and gizmo pointe
 ownership retain their live scene subscriptions. Repository tests/typechecks and
 six focused Electron selection, drag, and Prime Tower cases passed.
 
+The configuration source badge was removed; its nearest-source explanation now
+appears as a tooltip on each value control. Mixed values keep their explicit Mixed
+state and expose the mixed-source/value explanation on hover.
+
 ### Step 6 — Slice-time and structural-operation integration
 
 Accepted on 2026-09-20. The serial Worker admission gate now explicitly rejects the

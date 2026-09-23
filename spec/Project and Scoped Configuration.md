@@ -315,8 +315,9 @@ selection-limited value, provenance, and a reset control whenever the resolved s
 owns a local override. Reset deletes that local value as specified in section 5.
 When `field.local` is true for an editable/resettable option, only its option label is
 colored Orca orange (`#F1754E`). Inherited values remain unhighlighted; the value
-control, mixed-value placeholder, and source badge retain their normal colors. A
-multi-target field follows the projected `field.local` and reset semantics without
+control and mixed-value placeholder retain their normal colors. The nearest
+effective source is shown in a tooltip when the user hovers over the value control.
+A multi-target field follows the projected `field.local` and reset semantics without
 recomputing target ownership in the view; after Reset, the updated projection removes
 the highlight.
 
@@ -339,8 +340,8 @@ the full slicing-precedence chain. With no Object or Volume selected, it shows
 shows `Preset -> Project -> Object`; a Part or Modifier selection shows
 `Preset -> Project -> Object -> Volume`. In particular, Plate values and provenance
 are shown only for an empty model selection, never as an Object/instance/Volume
-selection's representative inherited value. A field badge and hover detail show only
-the nearest source and chain within that visible range. This selection-limited editing
+selection's representative inherited value. The value tooltip shows only the nearest
+source within that visible range. This selection-limited editing
 projection does not alter the canonical slicing precedence in section 3 and is not an
 independently persisted UI annotation.
 
