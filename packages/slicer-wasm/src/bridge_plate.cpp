@@ -23,6 +23,7 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_filament.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "bridge_scoped_config.hpp"
 
 using namespace Slic3r;
@@ -108,8 +109,8 @@ PlateBounds selected_plate_bounds()
 {
     PlateBounds bounds;
     try {
-        const Preset& printer = state().presets.printers.get_selected_preset();
-        if (const auto* area = printer.config.opt<ConfigOptionPoints>("printable_area");
+        const DynamicPrintConfig printer_config = PresetDrafts::effective_printer_config();
+        if (const auto* area = printer_config.opt<ConfigOptionPoints>("printable_area");
             area != nullptr && area->values.size() >= 3) {
             bounds.min_x = bounds.max_x = area->values.front().x();
             bounds.min_y = bounds.max_y = area->values.front().y();
@@ -120,7 +121,7 @@ PlateBounds selected_plate_bounds()
                 bounds.max_y = std::max(bounds.max_y, point.y());
             }
         }
-        if (const auto* height = printer.config.opt<ConfigOptionFloat>("printable_height");
+        if (const auto* height = printer_config.opt<ConfigOptionFloat>("printable_height");
             height != nullptr && std::isfinite(height->value) && height->value > 0.)
             bounds.max_z = height->value;
     } catch (...) {

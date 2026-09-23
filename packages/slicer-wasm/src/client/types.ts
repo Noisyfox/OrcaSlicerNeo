@@ -411,6 +411,61 @@ export interface OptionMeta {
 
 export type OptionMetadata = Record<string, OptionMeta>;
 
+export type PresetDraftKind = 'printer' | 'filament';
+
+export interface PresetDraftTarget {
+  readonly kind: PresetDraftKind;
+  /** Native canonical preset name (not a display alias or positional index). */
+  readonly canonicalName: string;
+}
+
+export interface PresetDraftSnapshot extends PresetDraftTarget {
+  readonly ok: true;
+  readonly version: 1;
+  readonly draftExists: boolean;
+  readonly modified: boolean;
+  readonly overrides: Readonly<Record<string, string>>;
+  readonly sourceValues: Readonly<Record<string, string>>;
+  readonly effectiveValues: Readonly<Record<string, string>>;
+  /** Native option definitions for the source's available fields. */
+  readonly optionMetadata: OptionMetadata;
+  readonly revision: number;
+}
+
+export interface PresetDraftError {
+  readonly ok: false;
+  readonly version: 1;
+  readonly error: string;
+  readonly errorCode?: string;
+  readonly revision?: number;
+}
+
+export type PresetDraftSnapshotResult = PresetDraftSnapshot | PresetDraftError;
+
+interface PresetDraftMutationBase extends PresetDraftTarget {
+  readonly expectedRevision: number;
+}
+
+export type PresetDraftMutationRequest =
+  | (PresetDraftMutationBase & { readonly action: 'set'; readonly key: string; readonly value: string })
+  | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string })
+  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[] })
+  | (PresetDraftMutationBase & { readonly action: 'reset-preset' });
+
+export interface PresetDraftMutationSuccess extends PresetDraftSnapshot {
+  readonly historyEntryDelta: 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: boolean;
+  readonly affectedPlateIds: readonly string[];
+  readonly allPlateResultsInvalidated: true;
+  readonly plateSession: PlateSessionMutation;
+  readonly historyStatus: import('./history').HistoryStatus;
+  readonly nativeScopedConfig: NativeScopedConfigFullTransport;
+}
+
+export type PresetDraftMutationResult = PresetDraftMutationSuccess | PresetDraftError;
+
 export interface LoadModelResult {
   ok: boolean;
   objects: number;
@@ -1215,6 +1270,10 @@ export interface SlicerClient {
   init(): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */
   getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult>;
+  /** Open/read native source+effective values and metadata for one canonical preset identity. */
+  getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult>;
+  /** Apply one history-backed draft operation; reset-category receives its explicit field set. */
+  mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult>;
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;

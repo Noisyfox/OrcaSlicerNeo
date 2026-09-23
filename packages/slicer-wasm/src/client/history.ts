@@ -51,6 +51,10 @@ export interface HistoryContext {
   readonly nativeScopedConfig: HistoryJsonObject;
   /** Native-canonical session projection, present on Worker restore results. */
   readonly plateSession?: PlateSessionSnapshot;
+  /** Opaque Worker-authored history root; application code must not edit or mirror it. */
+  readonly presetDraftRegistry?: HistoryJsonObject;
+  /** Branchable native draft-operation marker retained only for history identity. */
+  readonly presetDraftRevision?: number;
 }
 
 /** Every retained history entry is a genuine project mutation. */
@@ -133,6 +137,7 @@ export interface RestoreImpact {
   readonly model: 'delta' | 'none';
   readonly plateSession: boolean;
   readonly filamentRack: boolean;
+  readonly presetDrafts: boolean;
   readonly nativeScopedConfig: boolean;
   readonly selectionContext: boolean;
   readonly primeTower: boolean;

@@ -5,12 +5,18 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <set>
 #include <stdexcept>
 
 #include <emscripten/emscripten.h>
 
 #include "bridge_state.hpp"
 #include "bridge_filament.hpp"
+#include "bridge_history.hpp"
+#include "bridge_plate.hpp"
+#include "bridge_prime_tower.hpp"
+#include "bridge_profiles.hpp"
+#include "bridge_scoped_config.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
@@ -103,6 +109,12 @@ json error_json(const std::string& message)
                 {"error_code", "native_validation_failure"}, {"error", message}};
 }
 
+json command_error(const std::string& code, const std::string& message)
+{
+    return json{{"ok", false}, {"version", 1}, {"error_code", code},
+                {"error", message}, {"revision", state().history_revision}};
+}
+
 } // namespace
 
 const PresetDraftRegistry::Overrides* PresetDraftRegistry::find(
@@ -123,6 +135,13 @@ bool PresetDraftRegistry::contains(const Preset::Type type,
                                    const std::string& canonical_name) const
 {
     return m_entries.find({type, canonical_name}) != m_entries.end();
+}
+
+void PresetDraftRegistry::ensure_entry(const Preset::Type type,
+                                       const std::string& canonical_name)
+{
+    if (canonical_name.empty()) throw std::invalid_argument("preset draft name is required");
+    m_entries.try_emplace({type, canonical_name});
 }
 
 void PresetDraftRegistry::set(const Preset::Type type,
@@ -151,6 +170,54 @@ void PresetDraftRegistry::erase_preset(const Preset::Type type,
 void PresetDraftRegistry::clear()
 {
     m_entries.clear();
+}
+
+json PresetDraftRegistry::snapshot_json() const
+{
+    json entries = json::array();
+    for (const auto& [identity, overrides] : m_entries) {
+        entries.push_back(json{{"kind", kind_name(identity.first)}, {"canonical_name", identity.second},
+                               {"overrides", overrides}});
+    }
+    return json{{"version", 1}, {"entries", std::move(entries)}};
+}
+
+PresetDraftRegistry PresetDraftRegistry::from_snapshot_json(const json& value,
+                                                             const PresetBundle& bundle)
+{
+    if (!value.is_object() || value.value("version", 0) != 1 ||
+        !value.contains("entries") || !value["entries"].is_array())
+        throw std::runtime_error("invalid preset draft registry history root");
+
+    PresetDraftRegistry result;
+    for (const auto& entry : value["entries"]) {
+        if (!entry.is_object() || !entry.contains("kind") || !entry["kind"].is_string() ||
+            !entry.contains("canonical_name") || !entry["canonical_name"].is_string() ||
+            !entry.contains("overrides") || !entry["overrides"].is_object())
+            throw std::runtime_error("invalid preset draft history entry");
+        const Preset::Type type = parse_kind(entry["kind"].get<std::string>());
+        const std::string canonical_name = entry["canonical_name"].get<std::string>();
+        if (canonical_name.empty() || result.contains(type, canonical_name))
+            throw std::runtime_error("invalid or duplicate preset draft identity");
+        const Preset* source = find_preset_source(bundle, type, canonical_name);
+        if (source == nullptr || source->name != canonical_name)
+            throw std::runtime_error("history preset draft source is unavailable: " + canonical_name);
+        for (auto it = entry["overrides"].begin(); it != entry["overrides"].end(); ++it) {
+            if (!it.value().is_string() || source->config.option(it.key()) == nullptr)
+                throw std::runtime_error("invalid preset draft history override: " + it.key());
+            Preset candidate = *source;
+            ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+            candidate.config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions);
+            const ConfigOption* accepted = candidate.config.option(it.key());
+            if (accepted == nullptr)
+                throw std::runtime_error("preset draft history option is unavailable: " + it.key());
+            result.set(type, canonical_name, it.key(), accepted->serialize());
+        }
+        // Preserve an empty overlay: field/category resets intentionally keep
+        // the child until the explicit Reset preset command removes it.
+        if (entry["overrides"].empty()) result.m_entries[{type, canonical_name}] = {};
+    }
+    return result;
 }
 
 namespace PresetDrafts {
@@ -220,6 +287,13 @@ DynamicPrintConfig effective_full_config_secure(
     return config;
 }
 
+DynamicPrintConfig effective_printer_config()
+{
+    Preset printer = state().presets.printers.get_selected_preset();
+    apply_draft(printer, state().preset_drafts);
+    return std::move(printer.config);
+}
+
 DynamicPrintConfig effective_full_config_secure(
     std::optional<std::vector<int>> filament_maps)
 {
@@ -238,75 +312,196 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
     apply_draft(effective, state().preset_drafts);
     const auto* overrides = state().preset_drafts.find(type, canonical_name);
     const json override_values = overrides == nullptr ? json::object() : json(*overrides);
+    const json all_metadata = Profiles::option_metadata_json();
+    json source_metadata = json::object();
+    for (const std::string& key : source->config.keys())
+        if (all_metadata.contains(key)) source_metadata[key] = all_metadata[key];
     return json{{"ok", true}, {"version", 1}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr},
                 {"modified", overrides != nullptr && !overrides->empty()},
                 {"overrides", override_values},
                 {"source_values", config_values_json(source->config)},
-                {"effective_values", config_values_json(effective.config)}};
+                {"effective_values", config_values_json(effective.config)},
+                {"option_metadata", std::move(source_metadata)},
+                {"revision", state().history_revision}};
 }
 
-json set_draft_option_json(const json& request)
+json mutate_draft_json(const json& request)
 {
     if (!request.is_object() || request.value("version", 0) != 1)
-        return error_json("invalid preset draft request");
+        return command_error("invalid_request", "invalid preset draft request");
+    if (state().active_history_transaction)
+        return command_error("history_transaction_active", "preset draft command cannot run inside another history transaction");
+    if (state().history_disabled)
+        return command_error("history_disabled", "project history is disabled");
+    if (!request.contains("expected_revision") || !request["expected_revision"].is_number_unsigned())
+        return command_error("stale_revision", "preset draft revision is required");
+    const std::uint64_t expected_revision = request["expected_revision"].get<std::uint64_t>();
+    if (expected_revision != state().history_revision)
+        return command_error("stale_revision", "preset draft revision is stale");
+
     const Preset::Type type = parse_kind(request.value("kind", std::string{}));
     const std::string canonical_name = request.value("canonical_name", std::string{});
-    const std::string key = request.value("key", std::string{});
-    if (canonical_name.empty() || key.empty() || !request.contains("value") ||
-        !request["value"].is_string())
-        return error_json("canonical_name, key, and serialized value are required");
+    const std::string action = request.value("action", std::string{});
+    if (canonical_name.empty())
+        return command_error("invalid_request", "canonical preset name is required");
+    if (action != "set" && action != "reset-field" && action != "reset-category" && action != "reset-preset")
+        return command_error("invalid_request", "action must be set|reset-field|reset-category|reset-preset");
 
     const Preset* source = find_preset_source(state().presets, type, canonical_name);
     if (source == nullptr)
-        return json{{"ok", false}, {"version", 1}, {"error_code", "preset_not_found"},
-                    {"error", "preset not found: " + canonical_name}};
-    if (print_config_def.get(key) == nullptr)
-        return json{{"ok", false}, {"version", 1}, {"error_code", "unsupported_option"},
-                    {"error", "unknown preset option: " + key}};
+        return command_error("preset_not_found", "preset not found: " + canonical_name);
 
-    // Deserialize into a temporary source copy first. Invalid values never
-    // create a draft entry and never reach a PresetCollection instance.
-    Preset candidate = *source;
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    candidate.config.set_deserialize(key, request["value"].get<std::string>(), substitutions);
-    const ConfigOption* accepted = candidate.config.option(key);
-    if (accepted == nullptr)
-        return json{{"ok", false}, {"version", 1}, {"error_code", "unsupported_option"},
-                    {"error", "option is not available on this preset: " + key}};
-
-    const bool had_draft = state().preset_drafts.contains(type, canonical_name);
-    std::optional<std::string> previous_value;
-    if (const auto* previous = state().preset_drafts.find(type, canonical_name)) {
-        const auto previous_field = previous->find(key);
-        if (previous_field != previous->end()) previous_value = previous_field->second;
+    std::string key;
+    std::string serialized_value;
+    std::vector<std::string> keys;
+    if (action == "set") {
+        if (!request.contains("key") || !request["key"].is_string() ||
+            request["key"].get<std::string>().empty() || !request.contains("value") ||
+            !request["value"].is_string())
+            return command_error("invalid_request", "set requires key and serialized value");
+        key = request["key"].get<std::string>();
+        if (source->config.option(key) == nullptr || print_config_def.get(key) == nullptr)
+            return command_error("unsupported_option", "option is not available on this preset: " + key);
+        try {
+            Preset candidate = *source;
+            ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+            candidate.config.set_deserialize(key, request["value"].get<std::string>(), substitutions);
+            const ConfigOption* accepted = candidate.config.option(key);
+            if (accepted == nullptr)
+                return command_error("unsupported_option", "option is not available on this preset: " + key);
+            serialized_value = accepted->serialize();
+        } catch (const std::exception& error) {
+            return command_error("native_validation_failure", error.what());
+        }
+    } else if (action == "reset-field") {
+        if (!request.contains("key") || !request["key"].is_string() ||
+            request["key"].get<std::string>().empty())
+            return command_error("invalid_request", "reset-field requires an option key");
+        key = request["key"].get<std::string>();
+        if (source->config.option(key) == nullptr)
+            return command_error("unsupported_option", "option is not available on this preset: " + key);
+        keys.push_back(key);
+    } else if (action == "reset-category") {
+        if (!request.contains("keys") || !request["keys"].is_array() || request["keys"].empty())
+            return command_error("invalid_request", "reset-category requires a non-empty explicit option key set");
+        std::set<std::string> unique;
+        for (const auto& value : request["keys"]) {
+            if (!value.is_string() || value.get<std::string>().empty() ||
+                !unique.insert(value.get<std::string>()).second)
+                return command_error("invalid_request", "reset-category option keys must be unique non-empty strings");
+            const std::string category_key = value.get<std::string>();
+            if (source->config.option(category_key) == nullptr)
+                return command_error("unsupported_option", "option is not available on this preset: " + category_key);
+            keys.push_back(category_key);
+        }
     }
 
-    auto& bundle = state().presets;
-    auto* flush_matrix = bundle.project_config.opt<ConfigOptionFloats>("flush_volumes_matrix");
-    const std::vector<double> previous_flush_matrix =
-        flush_matrix == nullptr ? std::vector<double>{} : flush_matrix->values;
-    state().preset_drafts.set(type, canonical_name, key, accepted->serialize());
+    const auto before_drafts = state().preset_drafts;
+    const auto before_draft_revision = state().preset_draft_revision;
+    const auto before_project_config = state().presets.project_config;
+    const Model before_model = state().model;
+    const auto before_plates = state().plate_session_plates;
+    const auto before_plate_revisions = state().plate_input_revisions;
+    const auto before_membership = state().instance_plate_ids;
+    const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
+    const auto before_parked = state().parked_instance_ids;
+    const auto before_pending = state().pending_membership_instance_ids;
+    const auto before_current_plate = state().current_plate_id;
+    const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
+    const auto before_live_context = state().history_live_context;
+    const std::uint64_t revision_before = state().history_revision;
+    const auto before_context = HistoryMetadata::default_history_context(
+        state(), PlateSession::plate_session_snapshot_json(),
+        Filament::State::history_state_json(state().presets));
+    if (!HistoryMetadata::begin_timestamped_operation(state(), "Edit " + canonical_name, before_context))
+        return command_error("native_validation_failure", "could not capture preset draft history predecessor");
+    bool history_started = true;
+    bool mutated = false;
+    bool history_committed = false;
+    const auto rollback = [&]() {
+        if (history_committed) return;
+        if (history_started) {
+            HistoryMetadata::abort_timestamped_operation(state());
+            history_started = false;
+        }
+        if (!mutated) return;
+        state().preset_drafts = before_drafts;
+        state().preset_draft_revision = before_draft_revision;
+        state().presets.project_config = before_project_config;
+        state().model = before_model;
+        state().mutable_object_capture_cache.clear();
+        state().plate_session_plates = before_plates;
+        PlateSession::reconcile_plate_runtime_registry();
+        state().plate_input_revisions = before_plate_revisions;
+        state().instance_plate_ids = before_membership;
+        state().plate_out_of_bounds_ids = before_out_of_bounds;
+        state().parked_instance_ids = before_parked;
+        state().pending_membership_instance_ids = before_pending;
+        state().current_plate_id = before_current_plate;
+        state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
+        state().history_live_context = before_live_context;
+        PrimeTower::invalidate_projection_cache();
+    };
+
     try {
+        mutated = true;
+        if (action == "set")
+            state().preset_drafts.set(type, canonical_name, key, serialized_value);
+        else if (action == "reset-field" || action == "reset-category")
+            state().preset_drafts.ensure_entry(type, canonical_name);
+        if (action == "reset-field" || action == "reset-category")
+            for (const auto& reset_key : keys)
+                state().preset_drafts.erase_field(type, canonical_name, reset_key);
+        else if (action == "reset-preset")
+            state().preset_drafts.erase_preset(type, canonical_name);
+
         // Material drafts feed the native minimum-flush calculation. Rebuild
-        // the project-owned matrix immediately so the next Slice/Prepare read
-        // cannot combine edited material values with a stale matrix.
+        // the project-owned matrix before the common all-plate mutation path.
+        auto& bundle = state().presets;
         if (type == Preset::TYPE_FILAMENT &&
             bundle.printers.get_selected_preset().printer_technology() == ptFFF)
             Filament::Commands::recalculate_filament_flush(bundle);
-    } catch (...) {
-        if (previous_value.has_value()) {
-            state().preset_drafts.set(type, canonical_name, key, *previous_value);
-        } else {
-            state().preset_drafts.erase_field(type, canonical_name, key);
-            if (!had_draft) state().preset_drafts.erase_preset(type, canonical_name);
+
+        const json plate_session = PlateSession::shared_configuration_mutation_snapshot();
+        ++state().preset_draft_revision;
+        json after_context = HistoryMetadata::default_history_context(
+            state(), plate_session, Filament::State::history_state_json(state().presets));
+        after_context["presetDraftRegistry"] = state().preset_drafts.snapshot_json();
+        after_context["presetDraftRevision"] = state().preset_draft_revision;
+
+        // Stage every snapshot that can fail before the history commit. The
+        // reply then publishes the exact committed revision without leaving a
+        // mutation behind if snapshot construction rejects native state.
+        json result = get_draft_json(type, canonical_name);
+        if (!result.value("ok", false))
+            throw std::runtime_error("committed preset draft could not be read back");
+        const json native_config = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
+
+        if (!HistoryMetadata::commit_timestamped_operation(state(), after_context)) {
+            rollback();
+            return command_error("native_validation_failure", "history commit rejected preset draft mutation");
         }
-        if (flush_matrix != nullptr) flush_matrix->values = previous_flush_matrix;
+        history_committed = true;
+        history_started = false;
+        SlicingPipeline::invalidate_preview_source();
+
+        result["history_entry_delta"] = 1;
+        result["revision_before"] = revision_before;
+        result["revision_after"] = revision_before + 1;
+        result["revision"] = revision_before + 1;
+        result["dirty"] = state().history.project_modified();
+        result["affected_plate_ids"] = plate_session.value("affected_plate_ids", json::array());
+        result["all_plate_results_invalidated"] = true;
+        result["plate_session"] = plate_session;
+        result["history_status"] = HistoryMetadata::history_status_json(state());
+        result["native_scoped_config"] = native_config;
+        return result;
+    } catch (...) {
+        rollback();
         throw;
     }
-    SlicingPipeline::invalidate_preview_result_only();
-    return get_draft_json(type, canonical_name);
 }
 
 } // namespace PresetDrafts
@@ -339,12 +534,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_preset_draft(const char* kind_cstr,
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_set_preset_draft_option(const char* request_cstr)
+EMSCRIPTEN_KEEPALIVE const char* orc_mutate_preset_draft(const char* request_cstr)
 {
     using namespace Slic3r::Neo::Bridge;
     try {
         const json request = request_cstr && *request_cstr ? json::parse(request_cstr) : json::object();
-        return duplicate_json(PresetDrafts::set_draft_option_json(request).dump());
+        return duplicate_json(PresetDrafts::mutate_draft_json(request).dump());
     } catch (const std::exception& error) {
         return duplicate_json(error_json(error.what()).dump());
     } catch (...) {

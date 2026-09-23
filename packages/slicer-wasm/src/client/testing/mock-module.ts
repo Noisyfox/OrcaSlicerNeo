@@ -148,10 +148,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sparse_infill_density: { type: 'percent', scopes: ['object', 'part'] },
       sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'], scopes: ['object', 'part'] },
       enable_support: { type: 'bool', scopes: ['object'] },
-      nozzle_temperature: { type: 'float', scopes: ['project'] },
+      nozzle_temperature: { type: 'float', category: 'Temperature', scopes: ['project'] },
+      filament_flow_ratio: { type: 'float', category: 'Filament', min: 0.5, max: 1.5 },
+      default_filament_colour: { type: 'strings', category: 'Filament' },
+      filament_type: { type: 'string', category: 'Filament' },
       enable_prime_tower: { type: 'bool', scopes: ['project'] },
       prime_tower_width: { type: 'float', scopes: ['project'] },
-      printable_area: { type: 'points', scopes: ['project'] },
+      printable_area: { type: 'points', category: 'Printer', scopes: ['project'] },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'], scopes: ['project'] },
       curr_bed_type: { type: 'enum', enum_values: ['Cool Plate', 'Engineering Plate', 'Textured PEI Plate'], scopes: ['project', 'plate'] },
       print_sequence: { type: 'enum', enum_values: ['by layer', 'by object'], scopes: ['project', 'plate'] },
@@ -225,6 +228,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     printer: presetFixtures.printer[0].name,
     print: presetFixtures.print[0].name,
   };
+  type MockPresetDraftRegistry = Record<'printer' | 'filament', Record<string, Record<string, string>>>;
+  let presetDraftRegistry: MockPresetDraftRegistry = { printer: {}, filament: {} };
+  let presetDraftRevision = 0;
 
   function isCompatible(kind: 'print' | 'filament', fixture: PresetFixture): boolean {
     if (fixture.compatible_printers && !fixture.compatible_printers.includes(selected.printer)) return false;
@@ -358,6 +364,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins: Array<[number, number, number]>;
     plateInputRevisions: Record<string, number>;
     nativeScopedConfig: MockNativeScopedConfig;
+    presetDraftRegistry: MockPresetDraftRegistry;
+    presetDraftRevision: number;
     primeTowerProjection?: unknown;
   };
   type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project'; context: any };
@@ -375,6 +383,131 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  function presetDraftRegistrySnapshot() {
+    return { version: 1, entries: (['printer', 'filament'] as const).flatMap((kind) =>
+      Object.entries(presetDraftRegistry[kind]).map(([canonical_name, overrides]) => ({
+        kind, canonical_name, overrides: clone(overrides),
+      }))) };
+  }
+  function presetSourceValues(kind: 'printer' | 'filament', canonicalName: string): Record<string, string> | undefined {
+    const preset = presetFixtures[kind].find((entry) => entry.name === canonicalName);
+    if (!preset) return undefined;
+    if (kind === 'printer') return {
+      nozzle_temperature: '220',
+      printable_area: JSON.stringify(preset.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]]),
+    };
+    return {
+      filament_flow_ratio: '1',
+      default_filament_colour: '#F2754E',
+      filament_type: 'PLA',
+    };
+  }
+  function presetDraftSnapshot(kind: 'printer' | 'filament', canonicalName: string): Record<string, unknown> {
+    const sourceValues = presetSourceValues(kind, canonicalName);
+    if (!sourceValues) return { ok: false, version: 1, error_code: 'preset_not_found',
+      error: `preset not found: ${canonicalName}`, revision: historyRevision };
+    const draft = presetDraftRegistry[kind][canonicalName];
+    const overrides = draft ? clone(draft) : {};
+    const optionMetadata = Object.fromEntries(Object.keys(sourceValues)
+      .filter((key) => metadata[key] !== undefined).map((key) => [key, clone(metadata[key])]));
+    return { ok: true, version: 1, kind, canonical_name: canonicalName,
+      draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
+      overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...overrides },
+      option_metadata: optionMetadata, revision: historyRevision };
+  }
+  function nativePresetDraftHistoryContext() {
+    return {
+      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: currentPlateId || null,
+      gizmo: null,
+      nativeScopedConfig: clone(nativeScopedConfig),
+      plateSession: plateSessionSnapshot(),
+      presetDraftRegistry: presetDraftRegistrySnapshot(),
+      presetDraftRevision,
+    };
+  }
+  function mutatePresetDraft(requestJson: string): Record<string, unknown> {
+    let request: any;
+    try { request = JSON.parse(requestJson); }
+    catch { return { ok: false, version: 1, error_code: 'invalid_request', error: 'invalid preset draft request', revision: historyRevision }; }
+    const fail = (errorCode: string, error: string) => ({ ok: false, version: 1, error_code: errorCode, error, revision: historyRevision });
+    if (!request || request.version !== 1 || !['printer', 'filament'].includes(request.kind) ||
+        typeof request.canonical_name !== 'string' || !request.canonical_name || typeof request.action !== 'string')
+      return fail('invalid_request', 'invalid preset draft request');
+    if (historyTransaction) return fail('history_transaction_active', 'preset draft command cannot run inside another history transaction');
+    if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision !== historyRevision)
+      return fail('stale_revision', 'preset draft revision is stale');
+    const kind = request.kind as 'printer' | 'filament';
+    const sourceValues = presetSourceValues(kind, request.canonical_name);
+    if (!sourceValues) return fail('preset_not_found', `preset not found: ${request.canonical_name}`);
+    const action = request.action as string;
+    const resetKeys: string[] = [];
+    if (action === 'set') {
+      if (typeof request.key !== 'string' || !(request.key in sourceValues) || typeof request.value !== 'string')
+        return fail('unsupported_option', 'option is not available on this preset');
+      const meta = metadata[request.key];
+      if ((meta?.type === 'float' || meta?.type === 'int' || meta?.type === 'percent') &&
+          (!request.value.trim() || !Number.isFinite(Number(request.value))))
+        return fail('native_validation_failure', 'native option validation failed');
+    } else if (action === 'reset-field') {
+      if (typeof request.key !== 'string' || !(request.key in sourceValues))
+        return fail('unsupported_option', 'option is not available on this preset');
+      resetKeys.push(request.key);
+    } else if (action === 'reset-category') {
+      if (!Array.isArray(request.keys) || request.keys.length === 0 ||
+          !request.keys.every((key: unknown) => typeof key === 'string' && key in sourceValues) ||
+          new Set(request.keys).size !== request.keys.length)
+        return fail('unsupported_option', 'reset-category requires distinct available option keys');
+      resetKeys.push(...request.keys);
+    } else if (action !== 'reset-preset') {
+      return fail('invalid_request', 'unknown preset draft action');
+    }
+
+    const beforeState = captureHistoryState();
+    const beforeContext = nativePresetDraftHistoryContext();
+    if (historyEntries.length === 0) {
+      historyEntries.push({ ...beforeState, id: 'entry-0', label: '', category: 'project', context: clone(beforeContext) });
+      historyCursor = 0;
+      savedHistoryCursor = 0;
+    }
+    const revisionBefore = historyRevision;
+    const canonicalName = request.canonical_name as string;
+    if (action === 'set') {
+      const current = presetDraftRegistry[kind][canonicalName] ?? {};
+      presetDraftRegistry[kind][canonicalName] = { ...current, [request.key]: request.value };
+    } else if (action === 'reset-field' || action === 'reset-category') {
+      const current = presetDraftRegistry[kind][canonicalName] ?? {};
+      for (const key of resetKeys) delete current[key];
+      presetDraftRegistry[kind][canonicalName] = current;
+    } else {
+      delete presetDraftRegistry[kind][canonicalName];
+    }
+    presetDraftRevision += 1;
+    for (const id of plateIds) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+    sliced = false;
+    for (const id of [...sliceReceipts.keys()]) sliceReceipts.delete(id);
+
+    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+      savedHistoryCheckpointEvicted = true;
+    historyEntries.splice(historyCursor + 1);
+    historyRevision += 1;
+    const context = nativePresetDraftHistoryContext();
+    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
+      label: `Edit ${canonicalName}`, category: 'project', context: clone(context) });
+    historyCursor = historyEntries.length - 1;
+
+    const result = presetDraftSnapshot(kind, canonicalName) as Record<string, unknown>;
+    const plateSession = plateSessionSnapshot() as Record<string, unknown>;
+    plateSession.affected_plate_ids_before = [...plateIds];
+    plateSession.affected_plate_ids_after = [...plateIds];
+    plateSession.affected_plate_ids = [...plateIds];
+    plateSession.dirty_reasons = ['shared-configuration'];
+    plateSession.native_scoped_config = nativeScopedConfigFullTransport();
+    return { ...result, history_entry_delta: 1, revision_before: revisionBefore,
+      revision_after: historyRevision, dirty: true, affected_plate_ids: [...plateIds],
+      all_plate_results_invalidated: true, plate_session: plateSession,
+      history_status: historyStatus(), native_scoped_config: nativeScopedConfigFullTransport() };
+  }
   type MockScopedTarget = { scope: 'project' | 'object' | 'part' | 'plate'; id?: string };
   function nativeScopedConfigRemovedTargets(before: MockNativeScopedConfig, after: MockNativeScopedConfig): MockScopedTarget[] {
     return (['objects', 'parts', 'plates'] as const).flatMap((bucket) => {
@@ -411,7 +544,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
-      nativeScopedConfig, primeTowerProjection: primeTowerProjectionState });
+      nativeScopedConfig, presetDraftRegistry, presetDraftRevision,
+      primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
     modelLoaded = snapshot.modelLoaded;
@@ -426,6 +560,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
     nativeScopedConfig = clone(snapshot.nativeScopedConfig ?? emptyNativeScopedConfig());
+    presetDraftRegistry = clone(snapshot.presetDraftRegistry ?? { printer: {}, filament: {} });
+    presetDraftRevision = snapshot.presetDraftRevision ?? 0;
     primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
@@ -554,8 +690,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function historyRestore(entry: MockHistoryEntry) {
     const beforeState = captureHistoryState();
+    const beforeDraftRegistry = JSON.stringify(beforeState.presetDraftRegistry);
+    const beforePlateInputRevisions = { ...beforeState.plateInputRevisions };
     const before = nativeScopedConfigProjection();
     restoreHistoryState(entry);
+    const presetDraftsChanged = beforeDraftRegistry !== JSON.stringify(entry.presetDraftRegistry);
+    if (presetDraftsChanged)
+      for (const id of plateIds)
+        plateInputRevisions[id] = Math.max(beforePlateInputRevisions[id] ?? 0, plateInputRevisions[id] ?? 0) + 1;
     historyRevision++;
     const removedTargets = nativeScopedConfigRemovedTargets(before, nativeScopedConfigProjection());
     const states = [...historyEntries, entry];
@@ -569,10 +711,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     };
     return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
       native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
-      affected_plate_ids: affectedHistoryPlateIds(beforeState, entry),
+      affected_plate_ids: presetDraftsChanged ? [...plateIds] : affectedHistoryPlateIds(beforeState, entry),
       scene_delta: sceneDelta,
       impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
-          selectionContext: true, primeTower: true, preview: 'all' } };
+          presetDrafts: presetDraftsChanged, selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function plateStride(): number {
     const area = presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area;
@@ -1234,6 +1376,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_init(_optionsJson?: string) {
+      presetDraftRegistry = { printer: {}, filament: {} };
+      presetDraftRevision = 0;
       resetPlateSession();
       resetHistory();
       return {
@@ -1286,7 +1430,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
         instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
         plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
-        nativeScopedConfig: previous.nativeScopedConfig } : null;
+        nativeScopedConfig: previous.nativeScopedConfig, presetDraftRegistry: previous.presetDraftRegistry,
+        presetDraftRevision: previous.presetDraftRevision } : null;
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
       if (changed) {
@@ -1704,6 +1849,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_preset_snapshot() {
       return snapshot();
     },
+    orc_get_preset_draft(kind: string, canonicalName: string) {
+      if (kind !== 'printer' && kind !== 'filament')
+        return { ok: false, version: 1, error_code: 'invalid_request', error: 'kind must be printer|filament', revision: historyRevision };
+      if (typeof canonicalName !== 'string' || !canonicalName)
+        return { ok: false, version: 1, error_code: 'invalid_request', error: 'canonical preset name required', revision: historyRevision };
+      return presetDraftSnapshot(kind, canonicalName);
+    },
+    orc_mutate_preset_draft(requestJson: string) {
+      return mutatePresetDraft(requestJson);
+    },
     orc_select_preset(kind: string, name: string) {
       if (kind !== 'printer' && kind !== 'print') return 'kind must be print|printer';
       const presetKind = kind as 'printer' | 'print';
@@ -1755,6 +1910,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       volumeMeta = [];
       instanceMeta = [];
       nativeScopedConfig = emptyNativeScopedConfig();
+      presetDraftRegistry = { printer: {}, filament: {} };
+      presetDraftRevision = 0;
       modelLoaded = false;
       sliced = false;
       resetPlateSession();
@@ -2504,6 +2661,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
+    orc_get_preset_draft: { ret: 'number', args: ['string', 'string'] },
+    orc_mutate_preset_draft: { ret: 'number', args: ['string'] },
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string', 'string'] },
     orc_load_project: { ret: 'number', args: ['pointer', 'number', 'number', 'string'] },

@@ -32,6 +32,21 @@ function request(name, body) {
   return callJson(name, ['string'], [JSON.stringify(body)]);
 }
 
+function historyStatus() {
+  return callJson('orc_history_status');
+}
+
+function mutateDraft(action, kind, canonicalName, fields = {}) {
+  const result = request('orc_mutate_preset_draft', {
+    version: 1, action, kind, canonical_name: canonicalName,
+    expected_revision: historyStatus().revision, ...fields,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.history_entry_delta, 1, 'each accepted draft command must add one history entry');
+  assert.equal(result.all_plate_results_invalidated, true);
+  return result;
+}
+
 function readBytes(pointer, length) {
   const bytes = Module.HEAPU8.slice(Number(pointer), Number(pointer) + Number(length));
   Module._free(Number(pointer));
@@ -78,22 +93,27 @@ assert.equal(firstSourceBefore.ok, true, JSON.stringify(firstSourceBefore));
 assert.equal(alternateSourceBefore.ok, true, JSON.stringify(alternateSourceBefore));
 assert.ok(Object.hasOwn(firstSourceBefore.source_values, 'filament_max_volumetric_speed'));
 assert.ok(Object.hasOwn(alternateSourceBefore.source_values, 'filament_max_volumetric_speed'));
+assert.ok(Object.hasOwn(alternateSourceBefore.source_values, 'filament_density'));
 
-const firstDraft = request('orc_set_preset_draft_option', {
-  version: 1, kind: 'filament', canonical_name: firstSource,
-  key: 'filament_max_volumetric_speed', value: '23',
-});
-assert.equal(firstDraft.ok, true, JSON.stringify(firstDraft));
+const emptyFieldReset = mutateDraft('reset-field', 'filament', firstSource,
+  { key: 'filament_max_volumetric_speed' });
+assert.equal(emptyFieldReset.draft_exists, true,
+  'resetting a field without overrides still retains an empty draft child');
+assert.equal(emptyFieldReset.modified, false);
+assert.deepEqual(emptyFieldReset.overrides, {});
+
+const historyBeforeFirstDraft = historyStatus();
+const staleRevision = historyBeforeFirstDraft.revision;
+const firstDraft = mutateDraft('set', 'filament', firstSource,
+  { key: 'filament_max_volumetric_speed', value: '23' });
+assert.equal(historyStatus().undoEntries.length, historyBeforeFirstDraft.undoEntries.length + 1);
 assert.equal(firstDraft.modified, true);
 assert.equal(firstDraft.source_values.filament_max_volumetric_speed,
   firstSourceBefore.source_values.filament_max_volumetric_speed,
   'draft edits must not mutate the source catalogue preset');
 
-const alternateDraft = request('orc_set_preset_draft_option', {
-  version: 1, kind: 'filament', canonical_name: alternateSource,
-  key: 'filament_max_volumetric_speed', value: '31',
-});
-assert.equal(alternateDraft.ok, true, JSON.stringify(alternateDraft));
+const alternateDraft = mutateDraft('set', 'filament', alternateSource,
+  { key: 'filament_max_volumetric_speed', value: '31' });
 assert.equal(alternateDraft.source_values.filament_max_volumetric_speed,
   alternateSourceBefore.source_values.filament_max_volumetric_speed,
   'an independent draft must not mutate its source catalogue preset');
@@ -102,6 +122,58 @@ const sharedSourceDraft = callJson('orc_get_preset_draft', ['string', 'string'],
 const independentSourceDraft = callJson('orc_get_preset_draft', ['string', 'string'], ['filament', alternateSource]);
 assert.deepEqual(sharedSourceDraft.overrides, { filament_max_volumetric_speed: '23' });
 assert.deepEqual(independentSourceDraft.overrides, { filament_max_volumetric_speed: '31' });
+
+const platesBeforeRejected = callJson('orc_get_plate_session_snapshot');
+const historyBeforeRejected = historyStatus();
+const stale = request('orc_mutate_preset_draft', {
+  version: 1, action: 'set', kind: 'filament', canonical_name: firstSource,
+  expected_revision: staleRevision, key: 'filament_max_volumetric_speed', value: '99',
+});
+assert.equal(stale.ok, false);
+assert.equal(stale.error_code, 'stale_revision');
+const invalid = request('orc_mutate_preset_draft', {
+  version: 1, action: 'set', kind: 'filament', canonical_name: firstSource,
+  expected_revision: historyStatus().revision, key: 'not_a_preset_option', value: '99',
+});
+assert.equal(invalid.ok, false);
+assert.equal(invalid.error_code, 'unsupported_option');
+assert.deepEqual(historyStatus(), historyBeforeRejected, 'rejected commands must not add history or advance revision');
+assert.deepEqual(callJson('orc_get_plate_session_snapshot').input_revisions, platesBeforeRejected.input_revisions,
+  'rejected commands must not change plate input revisions');
+
+const beforeFieldReset = historyStatus();
+const fieldReset = mutateDraft('reset-field', 'filament', alternateSource,
+  { key: 'filament_max_volumetric_speed' });
+assert.equal(fieldReset.draft_exists, true);
+assert.equal(fieldReset.modified, false);
+assert.deepEqual(fieldReset.overrides, {});
+assert.equal(historyStatus().undoEntries.length, beforeFieldReset.undoEntries.length + 1);
+mutateDraft('set', 'filament', alternateSource,
+  { key: 'filament_max_volumetric_speed', value: '31' });
+const categoryReset = mutateDraft('reset-category', 'filament', alternateSource,
+  { keys: ['filament_max_volumetric_speed', 'filament_density'] });
+assert.equal(categoryReset.draft_exists, true);
+assert.equal(categoryReset.modified, false);
+assert.deepEqual(categoryReset.overrides, {});
+const wholePresetReset = mutateDraft('reset-preset', 'filament', alternateSource);
+assert.equal(wholePresetReset.draft_exists, false);
+mutateDraft('set', 'filament', alternateSource,
+  { key: 'filament_max_volumetric_speed', value: '31' });
+
+const beforeUndo = callJson('orc_get_plate_session_snapshot').input_revisions;
+const undo = callJson('orc_history_undo');
+assert.equal(undo.ok, true, JSON.stringify(undo));
+assert.equal(undo.impact.presetDrafts, true, JSON.stringify(undo.impact));
+const afterUndoDraft = callJson('orc_get_preset_draft', ['string', 'string'], ['filament', alternateSource]);
+assert.equal(afterUndoDraft.draft_exists, false, 'history restores the registry before selected slot effective values');
+const afterUndo = callJson('orc_get_plate_session_snapshot');
+for (const [plateId, revision] of Object.entries(beforeUndo))
+  assert.ok(afterUndo.input_revisions[plateId] > revision, `undo must invalidate ${plateId}`);
+const redo = callJson('orc_history_redo');
+assert.equal(redo.ok, true, JSON.stringify(redo));
+assert.equal(redo.impact.presetDrafts, true, JSON.stringify(redo.impact));
+assert.deepEqual(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', alternateSource]).overrides,
+  { filament_max_volumetric_speed: '31' });
 const afterFilamentDrafts = callJson('orc_get_preset_snapshot');
 assert.equal(afterFilamentDrafts.project_config.filament_max_volumetric_speed, '23,23,31',
   'the effective slice config must overlay the same canonical draft into both slots and preserve the other preset draft');
@@ -109,11 +181,8 @@ assert.equal(afterFilamentDrafts.project_config.filament_max_volumetric_speed, '
 const printerBefore = callJson('orc_get_preset_draft', ['string', 'string'], ['printer', printer.name]);
 assert.equal(printerBefore.ok, true, JSON.stringify(printerBefore));
 assert.ok(Object.hasOwn(printerBefore.source_values, 'nozzle_diameter'));
-const printerDraft = request('orc_set_preset_draft_option', {
-  version: 1, kind: 'printer', canonical_name: printer.name,
-  key: 'nozzle_diameter', value: '0.6',
-});
-assert.equal(printerDraft.ok, true, JSON.stringify(printerDraft));
+const printerDraft = mutateDraft('set', 'printer', printer.name,
+  { key: 'nozzle_diameter', value: '0.6' });
 assert.equal(printerDraft.source_values.nozzle_diameter, printerBefore.source_values.nozzle_diameter,
   'the Printer draft must be isolated from its source preset');
 const afterPrinterDraft = callJson('orc_get_preset_snapshot');

@@ -22,12 +22,17 @@ public:
     const Overrides* find(Preset::Type type, const std::string& canonical_name) const;
     Overrides* find(Preset::Type type, const std::string& canonical_name);
     bool contains(Preset::Type type, const std::string& canonical_name) const;
+    void ensure_entry(Preset::Type type, const std::string& canonical_name);
     void set(Preset::Type type, const std::string& canonical_name,
              const std::string& key, const std::string& serialized_value);
     void erase_field(Preset::Type type, const std::string& canonical_name,
                      const std::string& key);
     void erase_preset(Preset::Type type, const std::string& canonical_name);
     void clear();
+    nlohmann::json snapshot_json() const;
+    static PresetDraftRegistry from_snapshot_json(const nlohmann::json& value,
+                                                 const PresetBundle& bundle);
+    bool operator==(const PresetDraftRegistry& other) const { return m_entries == other.m_entries; }
 
 private:
     std::map<Key, Overrides> m_entries;
@@ -53,8 +58,10 @@ DynamicPrintConfig effective_full_config_secure(
 DynamicPrintConfig effective_full_config_secure(
     std::optional<std::vector<int>> filament_maps = std::nullopt);
 
+DynamicPrintConfig effective_printer_config();
+
 nlohmann::json get_draft_json(Preset::Type type, const std::string& canonical_name);
-nlohmann::json set_draft_option_json(const nlohmann::json& request);
+nlohmann::json mutate_draft_json(const nlohmann::json& request);
 
 } // namespace PresetDrafts
 } // namespace Slic3r::Neo::Bridge

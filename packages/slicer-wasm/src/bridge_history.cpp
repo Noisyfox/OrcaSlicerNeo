@@ -44,6 +44,7 @@ using namespace Slic3r;
 namespace Slic3r::Neo::Bridge::HistoryRuntime {
 
 using Neo::Bridge::BridgeState;
+using Neo::Bridge::PresetDraftRegistry;
 using Neo::Bridge::state;
 using Neo::Bridge::Filament::Commands::validate_filament_candidate_components;
 using Neo::Bridge::Filament::State::apply_mutable;
@@ -380,6 +381,12 @@ json restore_timestamped_result(const Runtime& runtime,
     const json context = context_from_history_roots(restored.roots, staged_model, staged_plates);
     if (!context.contains("filamentState"))
         throw std::runtime_error("history context is missing filament state");
+    if (!context.contains("presetDraftRegistry"))
+        throw std::runtime_error("history context is missing preset draft registry");
+    auto staged_preset_drafts = PresetDraftRegistry::from_snapshot_json(
+        context["presetDraftRegistry"], state().presets);
+    const std::uint64_t staged_preset_draft_revision = context.value("presetDraftRevision", std::uint64_t{0});
+    const bool preset_drafts_changed = !(state().preset_drafts == staged_preset_drafts);
     const bool filament_changed = history_state_json(state().presets) != context["filamentState"];
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> staged_filament_state;
     if (filament_changed) staged_filament_state.emplace(stage_mutable(state().presets, context["filamentState"]));
@@ -405,11 +412,18 @@ json restore_timestamped_result(const Runtime& runtime,
     const auto before_current_plate = state().current_plate_id;
     const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
     const auto before_live_context = state().history_live_context;
+    const auto before_preset_drafts = state().preset_drafts;
+    const auto before_preset_draft_revision = state().preset_draft_revision;
     const auto before_native_scoped_config = native_scoped_config_snapshot();
     const auto before_native_print_preset = Neo::Bridge::ScopedConfig::native_print_preset_history_state();
     std::set<std::string> affected_plates;
     const double roots_restore_started_at = Neo::Bridge::Performance::now_ms();
     try {
+        // A history frame owns both the registry and the selected rack. Restore
+        // drafts first so resolving the selected filament source always sees
+        // the exact historical effective preset values.
+        state().preset_drafts = std::move(staged_preset_drafts);
+        state().preset_draft_revision = staged_preset_draft_revision;
         if (staged_filament_state) apply_mutable(state(), state().presets, std::move(*staged_filament_state));
         state().model = std::move(staged_model);
         state().mutable_object_capture_cache.clear();
@@ -498,7 +512,7 @@ json restore_timestamped_result(const Runtime& runtime,
         const bool membership_changed = before_membership != state().instance_plate_ids ||
             before_parked != state().parked_instance_ids ||
             normalized_out_of_bounds(before_out_of_bounds) != normalized_out_of_bounds(state().plate_out_of_bounds_ids);
-        if (filament_changed || project_changed) {
+        if (filament_changed || project_changed || preset_drafts_changed) {
             affected_plates = all_plate_ids();
         } else {
             if (membership_changed) {
@@ -572,6 +586,8 @@ json restore_timestamped_result(const Runtime& runtime,
         restore_timings.plate_session_native_config_restore_ms =
             Neo::Bridge::Performance::now_ms() - roots_restore_started_at;
     } catch (...) {
+        state().preset_drafts = before_preset_drafts;
+        state().preset_draft_revision = before_preset_draft_revision;
         if (before_filament_state) apply_mutable(state(), state().presets, std::move(*before_filament_state));
         state().model = std::move(before_model);
         state().plate_session_plates = before_plates;
@@ -687,7 +703,7 @@ json restore_timestamped_result(const Runtime& runtime,
         }
         return result;
     };
-    const bool filament_projection_changed = filament_changed ||
+    const bool filament_projection_changed = filament_changed || preset_drafts_changed ||
         retained_renderer_object_ids.size() != restored.scene_delta.object_ids.size() ||
         material_assignments(before_native_scoped_config) != material_assignments(staged_snapshot);
     json scene_delta{{"version", 1},
@@ -714,6 +730,7 @@ json restore_timestamped_result(const Runtime& runtime,
                 {"scene_delta", std::move(scene_delta)},
                 {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
                             {"filamentRack", filament_projection_changed}, {"nativeScopedConfig", true}, {"selectionContext", true},
+                            {"presetDrafts", preset_drafts_changed},
                             {"primeTower", true}, {"preview", "all"}}}};
     Neo::Bridge::Performance::record("history_restore", {
         {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},
@@ -1378,6 +1395,8 @@ json default_history_context(const BridgeState& state,
         {"nativePrintPreset", Neo::Bridge::ScopedConfig::native_print_preset_history_state()},
         {"plateSession", plate_session},
         {"filamentState", filament_state},
+        {"presetDraftRegistry", state.preset_drafts.snapshot_json()},
+        {"presetDraftRevision", state.preset_draft_revision},
     };
 }
 
@@ -1399,6 +1418,8 @@ json canonical_history_context(const BridgeState& state,
     // the current native filament state; the project config is a dedicated
     // native-scoped history root.
     context["filamentState"] = filament_state;
+    context["presetDraftRegistry"] = state.preset_drafts.snapshot_json();
+    context["presetDraftRevision"] = state.preset_draft_revision;
     return context;
 }
 

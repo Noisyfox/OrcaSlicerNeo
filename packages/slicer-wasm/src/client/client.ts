@@ -37,6 +37,8 @@ import type {
   RememberedFilamentRackRequest,
   FilamentAssignmentRequest, FilamentRoutingRequest,
   NativePerformanceProfile,
+  PresetDraftKind, PresetDraftMutationRequest, PresetDraftMutationResult,
+  PresetDraftSnapshotResult,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -938,6 +940,68 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
   };
 }
 
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== 'string') return undefined;
+    result[key] = item;
+  }
+  return result;
+}
+
+function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
+  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid preset draft response', errorCode: 'invalid_response' };
+  if (raw.ok !== true) {
+    if (raw.version !== 1 || raw.ok !== false || typeof raw.error !== 'string')
+      return { ok: false, version: 1, error: 'invalid preset draft error response', errorCode: 'invalid_response' };
+    return { ok: false, version: 1, error: raw.error,
+      ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
+      ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) };
+  }
+  const overrides = stringRecord(raw.overrides);
+  const sourceValues = stringRecord(raw.source_values);
+  const effectiveValues = stringRecord(raw.effective_values);
+  if (raw.version !== 1 || (raw.kind !== 'printer' && raw.kind !== 'filament') ||
+      typeof raw.canonical_name !== 'string' || !raw.canonical_name ||
+      typeof raw.draft_exists !== 'boolean' || typeof raw.modified !== 'boolean' ||
+      !overrides || !sourceValues || !effectiveValues || !isRecord(raw.option_metadata) ||
+      !Number.isSafeInteger(raw.revision))
+    return { ok: false, version: 1, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
+  const optionMetadata: OptionMetadata = {};
+  for (const [key, value] of Object.entries(raw.option_metadata)) {
+    if (!isRecord(value) || typeof value.type !== 'string')
+      return { ok: false, version: 1, error: 'invalid preset draft option metadata', errorCode: 'invalid_response' };
+    optionMetadata[key] = value as unknown as OptionMetadata[string];
+  }
+  return { ok: true, version: 1, kind: raw.kind, canonicalName: raw.canonical_name,
+    draftExists: raw.draft_exists, modified: raw.modified, overrides, sourceValues, effectiveValues,
+    optionMetadata, revision: raw.revision as number };
+}
+
+function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
+  const snapshot = normalizePresetDraftSnapshot(raw);
+  if (!snapshot.ok) return snapshot;
+  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
+  const plateSession = normalizePlateMutationResult(raw.plate_session);
+  if (!plateSession.ok) return { ok: false, version: 1, error: plateSession.error ?? 'invalid preset draft plate receipt', errorCode: 'invalid_response' };
+  let historyStatus: HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(raw.history_status); }
+  catch { return { ok: false, version: 1, error: 'invalid preset draft history status', errorCode: 'invalid_response' }; }
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+  if (raw.history_entry_delta !== 1 || !Number.isSafeInteger(raw.revision_before) ||
+      !Number.isSafeInteger(raw.revision_after) || typeof raw.dirty !== 'boolean' ||
+      !Array.isArray(raw.affected_plate_ids) ||
+      !raw.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      raw.all_plate_results_invalidated !== true || !nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
+      nativeScopedConfig.revision !== historyStatus.revision)
+    return { ok: false, version: 1, error: 'invalid preset draft mutation receipt', errorCode: 'invalid_response' };
+  return { ...snapshot, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
+    revisionAfter: raw.revision_after as number, dirty: raw.dirty,
+    affectedPlateIds: raw.affected_plate_ids as string[], allPlateResultsInvalidated: true,
+    plateSession, historyStatus, nativeScopedConfig };
+}
+
 function normalizeLoadModelResult(raw: unknown): LoadModelResult {
   if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
   const value = raw as Record<string, unknown>;
@@ -1103,12 +1167,13 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
   const fallback: import('./history').RestoreImpact = {
     version: 1, model: 'delta', plateSession: true, filamentRack: true,
-    nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
+    presetDrafts: true, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const value = raw as Record<string, unknown>;
   if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
+      typeof value.presetDrafts !== 'boolean' ||
       typeof value.nativeScopedConfig !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
       (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
@@ -1498,6 +1563,30 @@ export function createClient(
     async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
+    },
+
+    async getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult> {
+      const m = await module();
+      return normalizePresetDraftSnapshot(
+        callJson(m, 'orc_get_preset_draft', ['string', 'string'], [kind, canonicalName]),
+      );
+    },
+
+    async mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> {
+      const m = await module();
+      const payload: Record<string, unknown> = {
+        version: 1,
+        action: request.action,
+        kind: request.kind,
+        canonical_name: request.canonicalName,
+        expected_revision: request.expectedRevision,
+      };
+      if (request.action === 'set' || request.action === 'reset-field') payload.key = request.key;
+      if (request.action === 'set') payload.value = request.value;
+      if (request.action === 'reset-category') payload.keys = [...request.keys];
+      return normalizePresetDraftMutation(
+        callJson(m, 'orc_mutate_preset_draft', ['string'], [JSON.stringify(payload)]),
+      );
     },
 
     async selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError> {

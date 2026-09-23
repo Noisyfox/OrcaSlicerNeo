@@ -6,7 +6,7 @@ describe('restore impact normalization', () => {
     for (const value of [undefined, null, {}, { version: 2 }, { version: 1, model: 'none' }]) {
       expect(normalizeRestoreImpact(value)).toMatchObject({
         version: 1, model: 'delta', plateSession: true, filamentRack: true,
-        nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
+        presetDrafts: true, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
       });
     }
   });
@@ -14,7 +14,7 @@ describe('restore impact normalization', () => {
   it('retains only a complete current Worker descriptor', () => {
     expect(normalizeRestoreImpact({
       version: 1, model: 'none', plateSession: true, filamentRack: false,
-      nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'current-plate',
+      presetDrafts: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'current-plate',
     })).toMatchObject({ model: 'none', filamentRack: false, preview: 'current-plate' });
   });
 });

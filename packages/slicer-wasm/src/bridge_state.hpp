@@ -50,6 +50,10 @@ struct BridgeState {
     // Preset Editor Printer/Filament overlays are session-local sparse native
     // values. They never replace a collection's edited Preset instance.
     PresetDraftRegistry preset_drafts;
+    // Unlike history_revision (which invalidates stale commands), this branchable
+    // counter makes every accepted draft command an observable history root,
+    // including a reset that leaves an already-empty overlay unchanged.
+    std::uint64_t preset_draft_revision = 0;
     Model       model;
     // FFF per-plate native ownership. Selected-plate slice/result/export/
     // cancel operations resolve this registry; no singleton Print or result

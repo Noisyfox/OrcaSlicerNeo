@@ -105,6 +105,7 @@ json close_project_session()
     // not keep the old registry alive while the new archive is parsed.
     bridge_state.plate_runtime_registry.clear();
     bridge_state.preset_drafts.clear();
+    bridge_state.preset_draft_revision = 0;
     invalidate_preview_source();
 
     bridge_state.model = Model{};
