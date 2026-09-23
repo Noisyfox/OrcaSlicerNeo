@@ -7,6 +7,8 @@ export * from '@orca/platform-contract';
 export * from './components/workspace/viewport/SceneInteractionController';
 export * from './components/device/DevicePanel';
 export * from './components/send/SendGcodeDialog';
+export * from './components/presetEditor/PresetEditorDialog';
+export * from './components/presetEditor/presetEditorManifests';
 export * from './stores/useProjectStore';
 export * from './stores/usePlateSessionStore';
 export * from './projectActions';
