@@ -114,6 +114,31 @@ function isStructuredValue(metadata: OptionMeta | undefined): boolean {
   ].includes(metadata.type);
 }
 
+/**
+ * Keep scalar validation at the editor boundary. Native metadata is the
+ * declared UI constraint, while the Worker remains responsible for accepting
+ * the already-normalized configuration value. `Number()` deliberately rejects
+ * the partial values that C++ deserialization would otherwise truncate.
+ */
+function normalizeScalarInput(value: string, metadata: OptionMeta | undefined): string | null {
+  if (metadata?.type !== 'float' && metadata?.type !== 'int') return value;
+  const text = value.trim();
+  const valid = metadata.type === 'int'
+    ? /^[+-]?\d+$/.test(text)
+    : /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text);
+  if (!valid) return null;
+
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || (metadata.type === 'int' && !Number.isSafeInteger(parsed))) return null;
+  const minimum = typeof metadata.min === 'number' && Number.isFinite(metadata.min)
+    ? metadata.min : -Infinity;
+  const maximum = typeof metadata.max === 'number' && Number.isFinite(metadata.max)
+    ? metadata.max : Infinity;
+  if (minimum > maximum) return null;
+  const clamped = Math.min(maximum, Math.max(minimum, parsed));
+  return String(clamped);
+}
+
 function makeMutationRequest(
   snapshot: PresetDraftSnapshot,
   action: PresetDraftAction,
@@ -127,6 +152,7 @@ function FieldValue({
   snapshot,
   page,
   group,
+  loading,
   mutationPending,
   onMutate,
 }: {
@@ -135,6 +161,7 @@ function FieldValue({
   snapshot: PresetDraftSnapshot;
   page?: PresetEditorManifestPage;
   group?: PresetEditorManifestGroup;
+  loading: boolean;
   mutationPending: boolean;
   onMutate: PresetEditorDialogProps['onMutate'];
 }) {
@@ -166,7 +193,7 @@ function FieldValue({
   }, [effectiveValue, fieldError]);
 
   const submitSet = useCallback(async (value: string) => {
-    if (mutationPending || actionPending.current) return;
+    if (loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
     setDisplayValue(value);
@@ -179,11 +206,11 @@ function FieldValue({
     } finally {
       actionPending.current = false;
     }
-  }, [field.key, mutationPending, onMutate, snapshot]);
+  }, [field.key, loading, mutationPending, onMutate, snapshot]);
   setValueRef.current = submitSet;
 
   const resetField = async () => {
-    if (!overridden || readOnly || mutationPending || actionPending.current) return;
+    if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
     try {
@@ -222,6 +249,16 @@ function FieldValue({
   const textLike = metadata?.type === 'string' || metadata?.type === 'unknown' || metadata === undefined;
   const numeric = metadata?.type === 'float' || metadata?.type === 'int';
   const freeText = textLike || numeric || metadata?.type === 'percent' || metadata?.type === 'float_or_percent';
+  const controlsDisabled = loading || mutationPending;
+  const commitText = () => {
+    const normalized = normalizeScalarInput(displayValue, metadata);
+    if (normalized === null) {
+      setFieldError('Enter a valid number.');
+      return;
+    }
+    if (normalized !== displayValue) setDisplayValue(normalized);
+    if (normalized !== effectiveValue) void submitSet(normalized);
+  };
   const titleContext = page && group && (
     <p className="mb-1 text-[0.7rem] text-muted-foreground" data-testid={`preset-editor-context-${field.key}`}>
       {page.title} / {group.title}
@@ -235,14 +272,14 @@ function FieldValue({
       id={inputId}
       data-testid={`preset-editor-input-${field.key}`}
       checked={displayValue === '1' || displayValue.toLocaleLowerCase() === 'true'}
-      disabled={mutationPending}
+      disabled={controlsDisabled}
       onCheckedChange={(checked) => { void submitSet(checked ? '1' : '0'); }}
     />;
   } else if (!readOnly && metadata?.type === 'enum' && metadata.enum_values?.length) {
     control = <Select
       value={displayValue}
       onValueChange={(next) => { if (next !== null) void submitSet(next); }}
-      disabled={mutationPending}
+      disabled={controlsDisabled}
     >
       <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
         <SelectValue placeholder={displayValue} />
@@ -261,7 +298,7 @@ function FieldValue({
       data-testid={`preset-editor-input-${field.key}`}
       type="color"
       value={colourInputValue(displayValue)}
-      disabled={mutationPending}
+      disabled={controlsDisabled}
       onChange={() => undefined}
       className="size-8 cursor-pointer rounded border bg-background p-0.5"
     />;
@@ -273,7 +310,7 @@ function FieldValue({
       type="text"
       inputMode={numeric ? 'decimal' : 'text'}
       value={displayValue}
-      disabled={mutationPending}
+      disabled={controlsDisabled}
       onFocus={() => { focused.current = true; }}
       onBlur={() => {
         focused.current = false;
@@ -281,7 +318,7 @@ function FieldValue({
           cancelBlur.current = false;
           return;
         }
-        if (displayValue !== effectiveValue) void submitSet(displayValue);
+        if (displayValue !== effectiveValue) commitText();
       }}
       onChange={(event) => {
         setDisplayValue(event.currentTarget.value);
@@ -332,7 +369,7 @@ function FieldValue({
           variant="ghost"
           size="xs"
           data-testid={`preset-editor-reset-field-${field.key}`}
-          disabled={mutationPending}
+          disabled={controlsDisabled}
           onClick={() => void resetField()}
         >Reset</Button>}
       </div>
@@ -363,12 +400,14 @@ function FieldGroup({
   page,
   group,
   snapshot,
+  loading,
   mutationPending,
   onMutate,
 }: {
   page: PresetEditorManifestPage;
   group: PresetEditorManifestGroup;
   snapshot: PresetDraftSnapshot;
+  loading: boolean;
   mutationPending: boolean;
   onMutate: PresetEditorDialogProps['onMutate'];
 }) {
@@ -388,6 +427,7 @@ function FieldGroup({
           snapshot={snapshot}
           page={page}
           group={group}
+          loading={loading}
           mutationPending={mutationPending}
           onMutate={onMutate}
         />)}
@@ -443,7 +483,7 @@ export function PresetEditorDialog({
   }, [manifest, pages, query, snapshot]);
 
   const submitAction = async (action: PresetDraftAction) => {
-    if (!snapshot || mutationPending) return;
+    if (!snapshot || loading || mutationPending) return;
     setActionError(null);
     try {
       const result = await onMutate(makeMutationRequest(snapshot, action));
@@ -455,7 +495,13 @@ export function PresetEditorDialog({
 
   const activePageKeys = activePage?.groups.flatMap((optionGroup) =>
     optionGroup.fields.map((field) => field.key)) ?? [];
-  const categoryHasOverrides = snapshot !== null && activePageKeys.some((key) => hasOverride(snapshot, key));
+  // Layout-only manifest entries (for example the synthesized extruder count)
+  // do not exist in a native preset. Reset only declared native fields, while
+  // retaining read-only native fields in the atomic category request.
+  const activePageResetKeys = snapshot === null ? [] : [...new Set(activePageKeys.filter((key) =>
+    Object.prototype.hasOwnProperty.call(snapshot.sourceValues, key) ||
+    Object.prototype.hasOwnProperty.call(snapshot.effectiveValues, key)))];
+  const categoryHasOverrides = snapshot !== null && activePageResetKeys.some((key) => hasOverride(snapshot, key));
   const showSearchResults = query.length > 0;
 
   return (
@@ -487,7 +533,7 @@ export function PresetEditorDialog({
               variant="destructive"
               size="xs"
               data-testid="preset-editor-reset-preset"
-              disabled={mutationPending || !snapshot?.draftExists}
+              disabled={loading || mutationPending || !snapshot?.draftExists}
               onClick={() => void submitAction({ action: 'reset-preset' })}
             >Reset preset</Button>
           </div>
@@ -537,6 +583,7 @@ export function PresetEditorDialog({
                     snapshot={snapshot}
                     page={page}
                     group={group}
+                    loading={loading}
                     mutationPending={mutationPending}
                     onMutate={onMutate}
                   />)}
@@ -555,8 +602,8 @@ export function PresetEditorDialog({
                     variant="outline"
                     size="xs"
                     data-testid={`preset-editor-reset-category-${activePage.id}`}
-                    disabled={!categoryHasOverrides || mutationPending}
-                    onClick={() => void submitAction({ action: 'reset-category', keys: activePageKeys })}
+                    disabled={!categoryHasOverrides || loading || mutationPending}
+                    onClick={() => void submitAction({ action: 'reset-category', keys: activePageResetKeys })}
                   >Reset category</Button>
                 </div>
                 {activePage.groups.map((optionGroup) => <FieldGroup
@@ -564,6 +611,7 @@ export function PresetEditorDialog({
                   page={activePage}
                   group={optionGroup}
                   snapshot={snapshot}
+                  loading={loading}
                   mutationPending={mutationPending}
                   onMutate={onMutate}
                 />)}

@@ -147,6 +147,7 @@ export function Workspace({
   const [presetEditorMutationPending, setPresetEditorMutationPending] = useState(false);
   const presetEditorTargetRef = useRef<PresetDraftTarget | null>(null);
   const presetEditorMutationPendingRef = useRef(false);
+  const presetEditorHistoryRevisionRef = useRef<number | null>(null);
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const structure = useObjectListStore((s) => s.structure);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
@@ -168,6 +169,7 @@ export function Workspace({
     if (presetEditorTargetRef.current || presetEditorMutationPendingRef.current) return;
     const requestedTarget = { ...target };
     presetEditorTargetRef.current = requestedTarget;
+    presetEditorHistoryRevisionRef.current = historyRestoreRevision;
     setPresetEditorTarget(requestedTarget);
     setPresetEditorSnapshot(null);
     setPresetEditorLoadError(null);
@@ -183,11 +185,12 @@ export function Workspace({
     } finally {
       if (presetEditorTargetRef.current === requestedTarget) setPresetEditorLoading(false);
     }
-  }, [platform.runtime]);
+  }, [historyRestoreRevision, platform.runtime]);
 
   const closePresetEditor = useCallback(() => {
     if (presetEditorMutationPendingRef.current) return;
     presetEditorTargetRef.current = null;
+    presetEditorHistoryRevisionRef.current = null;
     setPresetEditorTarget(null);
     setPresetEditorSnapshot(null);
     setPresetEditorLoadError(null);
@@ -223,6 +226,33 @@ export function Workspace({
       if (presetEditorTargetRef.current === target) setPresetEditorMutationPending(false);
     }
   }, [platform]);
+
+  // A native Undo/Redo restores the draft registry before it publishes the
+  // history receipt. Keep an open editor as a projection of that restored
+  // registry, rather than leaving it with a superseded expected revision.
+  useEffect(() => {
+    const target = presetEditorTargetRef.current;
+    if (!target || presetEditorMutationPendingRef.current || historyRestorePhase !== 'idle' ||
+        presetEditorHistoryRevisionRef.current === historyRestoreRevision) return;
+    const restoreRevision = historyRestoreRevision;
+    presetEditorHistoryRevisionRef.current = restoreRevision;
+    setPresetEditorLoading(true);
+    setPresetEditorLoadError(null);
+    void platform.runtime.getPresetDraft(target.kind, target.canonicalName).then((result) => {
+      if (presetEditorTargetRef.current !== target ||
+          presetEditorHistoryRevisionRef.current !== restoreRevision) return;
+      if (result.ok) setPresetEditorSnapshot(result);
+      else setPresetEditorLoadError(result.error);
+    }).catch((error: unknown) => {
+      if (presetEditorTargetRef.current === target &&
+          presetEditorHistoryRevisionRef.current === restoreRevision)
+        setPresetEditorLoadError(error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (presetEditorTargetRef.current === target &&
+          presetEditorHistoryRevisionRef.current === restoreRevision)
+        setPresetEditorLoading(false);
+    });
+  }, [historyRestorePhase, historyRestoreRevision, platform.runtime]);
   const glVolumes = useModelLoader();
   // Typed-array/GPU projection exists only while Preview is active. Native
   // plate cores stay retained in the Worker registry across tab switches.

@@ -365,6 +365,26 @@ describe('PresetEditorDialog', () => {
     expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'set', key: 'time_cost', value: 'blur commit' }));
   });
 
+  it('rejects malformed scalar text locally and clamps a numeric value to native metadata bounds', async () => {
+    const source = snapshotFor('printer');
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => mutationSuccess(source, request));
+    await mount(source, vi.fn(), undefined, onMutate);
+    const height = document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement;
+
+    await changeInput(height, '1.2junk');
+    await press(height, 'Enter');
+    expect(onMutate).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="preset-editor-error-printable_height"]')?.textContent)
+      .toBe('Enter a valid number.');
+
+    await changeInput(height, '-5');
+    await press(height, 'Enter');
+    expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'set', key: 'printable_height', value: '1',
+    }));
+    expect(height.value).toBe('1');
+  });
+
   it('commits boolean, enum, and colour controls immediately', async () => {
     const source = snapshotFor('filament');
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => mutationSuccess(source, request));
@@ -421,6 +441,34 @@ describe('PresetEditorDialog', () => {
     expect((document.querySelector('[data-testid="preset-editor-reset-preset"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('excludes layout-only manifest fields from a category reset while retaining native read-only keys', async () => {
+    const base = snapshotFor('printer');
+    const sourceValues: Record<string, string> = { ...base.sourceValues };
+    const effectiveValues: Record<string, string> = { ...base.effectiveValues, manual_filament_change: '1' };
+    const optionMetadata: Record<string, OptionMeta> = { ...base.optionMetadata };
+    delete sourceValues.extruders_count;
+    delete effectiveValues.extruders_count;
+    delete optionMetadata.extruders_count;
+    const source: PresetDraftSnapshot = {
+      ...base,
+      sourceValues,
+      effectiveValues,
+      optionMetadata,
+      overrides: { manual_filament_change: '1' },
+      modified: true,
+    };
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => mutationSuccess(source, request));
+    await mount(source, vi.fn(), undefined, onMutate);
+
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-multimaterial"]'));
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-multimaterial"]'));
+    const request = onMutate.mock.calls.at(-1)?.[0] as Extract<PresetDraftMutationRequest, { action: 'reset-category' }>;
+    expect(request.action).toBe('reset-category');
+    expect(request.keys).toContain('single_extruder_multi_material');
+    expect(request.keys).toContain('manual_filament_change');
+    expect(request.keys).not.toContain('extruders_count');
+  });
+
   it('retains an empty draft after resetting its last field override', async () => {
     const source = snapshotFor('printer', { modified: true });
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => mutationSuccess(source, request));
@@ -435,9 +483,9 @@ describe('PresetEditorDialog', () => {
     const onMutate = vi.fn(async () => ({ ok: false as const, version: 1 as const, errorCode: 'stale_revision', error: 'stale native draft' }));
     await mount(source, vi.fn(), undefined, onMutate);
     const height = document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement;
-    await changeInput(height, 'not accepted');
+    await changeInput(height, '240');
     await press(height, 'Enter');
-    expect(height.value).toBe('not accepted');
+    expect(height.value).toBe('240');
     expect(document.querySelector('[data-testid="preset-editor-error-printable_height"]')?.textContent).toBe('stale native draft');
     expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('230');
   });

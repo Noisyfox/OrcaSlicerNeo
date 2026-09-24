@@ -139,6 +139,51 @@ describe('Workspace ownership', () => {
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer A');
   });
 
+  it('refreshes an open preset editor from the restored native draft after Undo or Redo', async () => {
+    let reads = 0;
+    const runtime = {
+      getPresetDraft: vi.fn(async (kind: 'printer' | 'filament', canonicalName: string) => {
+        reads += 1;
+        const height = reads === 1 ? '260' : '256';
+        return {
+          ok: true as const,
+          version: 1 as const,
+          kind,
+          canonicalName,
+          draftExists: reads === 1,
+          modified: reads === 1,
+          overrides: reads === 1 ? { printable_height: height } : {},
+          sourceValues: { printable_height: '256' },
+          effectiveValues: { printable_height: height },
+          optionMetadata: { printable_height: { type: 'float' as const, min: 0, max: 256 } },
+          revision: reads,
+        };
+      }),
+    };
+    platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace /></PlatformProvider>);
+    });
+
+    await act(async () => {
+      (container.querySelector('[data-testid="mock-printer-edit"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(runtime.getPresetDraft).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('260');
+
+    await act(async () => {
+      useHistoryRestoreStore.setState({ phase: 'restoring', revision: 4 });
+      useHistoryRestoreStore.setState({ phase: 'idle', revision: 4 });
+      await Promise.resolve();
+    });
+    expect(runtime.getPresetDraft).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('256');
+  });
+
   it('keeps the controller and scene resources stable across a workspace tab switch', async () => {
     const container = document.createElement('div');
     document.body.append(container);
