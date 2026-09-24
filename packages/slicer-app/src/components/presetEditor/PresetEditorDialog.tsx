@@ -460,7 +460,11 @@ function FieldValue({
       disabled={controlsDisabled}
     >
       <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
-        <SelectValue />
+        <SelectValue>
+          {(value) => value === NULL_ENUM_VALUE
+            ? 'Not set'
+            : value === 'true' ? 'Enabled' : 'Disabled'}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>
@@ -487,7 +491,11 @@ function FieldValue({
       disabled={controlsDisabled}
     >
       <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
-        <SelectValue placeholder={nullValue ? '(null)' : displayValue} />
+        <SelectValue>
+          {(value) => value === NULL_ENUM_VALUE
+            ? 'Not set'
+            : binding.enumOptions?.find((option) => String(option.value) === String(value))?.label ?? String(value)}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {binding.nullable && <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>}

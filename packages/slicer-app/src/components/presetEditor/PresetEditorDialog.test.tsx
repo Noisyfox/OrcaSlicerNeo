@@ -74,6 +74,9 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
       filament_flow_ratio: { scalarType: 'float', metadataType: 'floats', values: [1, 0.98] },
       filament_type: { scalarType: 'string', metadataType: 'strings', values: ['PLA'], guiType: 'f_enum_open' },
       filament_soluble: { scalarType: 'bool', metadataType: 'bools', values: [false] },
+      filament_adaptive_volumetric_speed: {
+        scalarType: 'bool', metadataType: 'bools', values: [null], nullable: true,
+      },
       default_filament_colour: { scalarType: 'string', metadataType: 'strings', values: ['#F2754E'], guiType: 'color' },
       filament_diameter: { scalarType: 'float', metadataType: 'floats', values: [1.75, 2.85] },
       filament_adhesiveness_category: { scalarType: 'int', metadataType: 'ints', values: [0] },
@@ -580,6 +583,8 @@ describe('PresetEditorDialog', () => {
       key: 'overhang_fan_threshold', scalarType: 'enum', value: 3 }));
 
     await click(document.querySelector('[data-testid="preset-editor-page-tab-filament"]'));
+    expect(document.querySelector('[data-testid="preset-editor-input-filament_adaptive_volumetric_speed"]')?.textContent)
+      .toContain('Not set');
     const category = document.querySelector('[data-testid="preset-editor-input-filament_adhesiveness_category"]') as HTMLInputElement;
     await changeInput(category, '3');
     await press(category, 'Enter');

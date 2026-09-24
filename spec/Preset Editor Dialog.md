@@ -342,6 +342,14 @@ control (for example compound arrays, per-extruder editors, or structured
 custom G-code) is read-only until its control is implemented. It has no
 separate unsupported-feature notice in phase one.
 
+Where the native option is a vector of ordinary scalar values, the generic
+editor binds its first native element as one scalar control and preserves the
+remaining elements. Its displayed numeric, boolean, percent, nullable, and
+closed-enum semantics come from native element metadata; the stored option
+remains in its existing serialized vector form. Filament scalar G-code and
+notes fields use multiline text controls and are editable through that native
+element binding. Printer scalar machine G-code remains read-only.
+
 The editor provides three reset scopes: an overridden editable field has a
 field Reset that removes its draft override and inherits the source preset;
 each category page has `Reset category`; and the dialog has `Reset preset`.
