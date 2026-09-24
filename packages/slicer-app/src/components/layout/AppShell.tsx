@@ -46,7 +46,7 @@ export function AppShell({ titleBar, home, workspace, device, activeTab = 'home'
   return (
     <div className="flex h-full flex-col">
       {titleBar}
-      <div className="flex h-6 items-center gap-2 px-1 mb-0.5">{toolbar}</div>
+      <div className="flex h-6 items-center gap-2 px-1 mb-0.5 bg-tabbar">{toolbar}</div>
       <div className="relative flex min-h-0 flex-1">
         <AppPagePanel active={activeTab === 'home'} id="app-panel-home" labelledBy="app-tab-home">
           {home}

@@ -104,8 +104,8 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
       >
         <shapeGeometry args={[shape]} />
         <meshStandardMaterial
-          color={outOfBounds ? '#7f1d1d' : current ? '#1e40af' : '#1e293b'}
-          roughness={0.9}
+          color={outOfBounds ? '#BB2A3A' : current ? '#34343A' : '#626269'}
+          roughness={1}
         />
       </mesh>
       {/* drei's Grid is a GROUND grid: its vertex shader swizzles to local
@@ -122,10 +122,10 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
         side={THREE.DoubleSide}
         cellSize={10}
         cellThickness={0.5}
-        cellColor="#334155"
+        cellColor="#3E3E45"
         sectionSize={50}
         sectionThickness={1}
-        sectionColor="#475569"
+        sectionColor="#4C4C55"
         // drei's fade is measured from the camera's projection onto the
         // grid plane. The default camera sits ~320-545mm off the bed (see
         // DEFAULT_CAMERA_POSITION in Viewport.tsx), so any finite

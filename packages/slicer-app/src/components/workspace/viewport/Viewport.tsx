@@ -469,7 +469,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
               }
             }}
           >
-            <color attach="background" args={['#0f172a']} />
+            <color attach="background" args={['#54545A']} />
             {/* Perf overlay (fps/ms/memory), top-left corner of the scene.
                 drei appends the DOM to document.body unless given a `parent`
                 ref. stats.js pins it inline as fixed with z-index: 10000, so
@@ -721,7 +721,7 @@ function BoxSelectionOverlay({ sceneInteraction }: {
   return (
     <div
       data-testid="box-select-marquee"
-      className="pointer-events-none absolute z-10 border border-sky-400/80 bg-sky-400/10"
+      className="pointer-events-none absolute z-10 border border-ring bg-primary/10"
       style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
     />
   );

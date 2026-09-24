@@ -140,7 +140,7 @@ function createWindow(): void {
     // 32px (2rem) custom bar (14px lights → y = (32-14)/2).
     titleBarStyle: 'hidden',
     ...(process.platform !== 'darwin'
-      ? { titleBarOverlay: { color: '#181818', symbolColor: '#e6e6e6', height: 32 } }
+      ? { titleBarOverlay: { color: '#262E30', symbolColor: '#e6e6e6', height: 32 } }
       : { trafficLightPosition: { x: 12, y: 9 } }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

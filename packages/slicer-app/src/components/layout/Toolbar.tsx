@@ -76,7 +76,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
       <Tabs value={activeTab} onValueChange={(value) => {
         if (isAppTab(value)) onTabChange?.(value);
       }}>
-        <TabsList className="px-0.5 py-0">
+        <TabsList className="bg-secondary px-0.5 py-0">
           <TabsTrigger value="home" id="app-tab-home" aria-controls="app-panel-home">
             <HouseIcon />
           </TabsTrigger>

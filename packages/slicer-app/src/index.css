@@ -8,31 +8,33 @@
 
 /* Native Tailwind v4 theme: palette values live directly in @theme as design
    tokens, so utilities reference var(--color-*) and opacity modifiers go
-   through color-mix. The app is dark-only (color-scheme: dark below), so the
-   old tw3 shadcn indirection (@theme inline + :root HSL-triplet variables)
-   that existed to allow runtime variable overrides is not needed. */
+   through color-mix. These are Orca's dark-mode surfaces and dark brand-teal
+   mappings; this application remains dark-only. */
 @theme {
-  --color-background: hsl(0 0% 9.4%);
-  --color-foreground: hsl(0 0% 93%);
-  --color-card: hsl(0 0% 10%);
-  --color-card-foreground: hsl(0 0% 93%);
+  --color-titlebar: #262E30;
+  --color-tabbar: #27272A;
+  --color-background: #27272A;
+  --color-foreground: #EFEFF0;
+  --color-card: #2D2D31;
+  --color-card-foreground: #EFEFF0;
   /* Popup surfaces use the same opaque dark surface as cards. */
-  --color-popover: hsl(0 0% 10%);
-  --color-popover-foreground: hsl(0 0% 93%);
-  --color-primary: hsl(217 91% 60%);
-  --color-primary-foreground: hsl(0 0% 100%);
-  --color-secondary: hsl(0 0% 16%);
-  --color-secondary-foreground: hsl(0 0% 93%);
-  --color-muted: hsl(0 0% 16%);
-  --color-muted-foreground: hsl(0 0% 60%);
+  --color-popover: #2C2C2C;
+  --color-popover-foreground: #EFEFF0;
+  --color-primary: #00675B;
+  --color-primary-hover: #008172;
+  --color-primary-foreground: #EFEFF0;
+  --color-secondary: #3D3F46;
+  --color-secondary-foreground: #EFEFF0;
+  --color-muted: #00675B;
+  --color-muted-foreground: #B2B3B5;
   --color-config-override: #F1754E;
-  --color-accent: hsl(217 91% 60%);
-  --color-accent-foreground: hsl(0 0% 100%);
-  --color-destructive: hsl(0 84% 60%);
-  --color-destructive-foreground: hsl(0 0% 100%);
-  --color-border: hsl(0 0% 20%);
-  --color-input: hsl(0 0% 20%);
-  --color-ring: hsl(217 91% 60%);
+  --color-accent: #00675B;
+  --color-accent-foreground: #EFEFF0;
+  --color-destructive: #BB2A3A;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #4C4C55;
+  --color-input: #4A4A51;
+  --color-ring: #008172;
 
   /* Radius scale: 0.5rem base with ±4px/2px steps (matches Tailwind's
      default radius scale, kept explicit to document the design intent). */

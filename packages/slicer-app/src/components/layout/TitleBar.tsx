@@ -87,7 +87,7 @@ export function TitleBar({ chrome, model, state, onCommand }: TitleBarProps) {
       data-testid="titlebar"
       aria-label="Application title bar"
       className={cn(
-        'flex h-8 shrink-0 items-center bg-background select-none',
+        'flex h-8 shrink-0 items-center bg-titlebar select-none',
         chrome.dragRegion && '[-webkit-app-region:drag]',
         chrome.macSafeInset && 'pl-20',
       )}

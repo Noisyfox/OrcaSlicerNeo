@@ -538,7 +538,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
                   data-testid={`gcode-line-${lineNumber}`}
                   aria-current={active ? 'true' : undefined}
                   onClick={() => selectLine(lineNumber)}
-                  className={`flex h-5 w-full items-start gap-3 px-2 text-left whitespace-pre ${active ? 'bg-primary/20 text-primary' : 'hover:bg-muted/60'}`}
+                  className={`flex h-5 w-full items-start gap-3 px-2 text-left whitespace-pre ${active ? 'bg-primary/20 text-foreground' : 'hover:bg-muted/60'}`}
                 >
                   <span className="w-12 shrink-0 select-none text-right text-muted-foreground">{lineNumber}</span>
                   <span className="min-w-0 truncate">{text}</span>
