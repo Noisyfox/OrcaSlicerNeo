@@ -141,23 +141,26 @@ describe('Workspace ownership', () => {
 
   it('refreshes an open preset editor from the restored native draft after Undo or Redo', async () => {
     let reads = 0;
+    let finishRefresh: (value: Record<string, unknown>) => void = () => undefined;
+    const refreshedSnapshot = new Promise<Record<string, unknown>>((resolve) => { finishRefresh = resolve; });
+    const snapshot = (kind: 'printer' | 'filament', canonicalName: string, height: string, revision: number) => ({
+      ok: true as const,
+      version: 1 as const,
+      kind,
+      canonicalName,
+      draftExists: revision === 1,
+      modified: revision === 1,
+      overrides: revision === 1 ? { printable_height: height } : {},
+      sourceValues: { printable_height: '256' },
+      effectiveValues: { printable_height: height },
+      optionMetadata: { printable_height: { type: 'float' as const, min: 0, max: 256 } },
+      revision,
+    });
     const runtime = {
       getPresetDraft: vi.fn(async (kind: 'printer' | 'filament', canonicalName: string) => {
         reads += 1;
-        const height = reads === 1 ? '260' : '256';
-        return {
-          ok: true as const,
-          version: 1 as const,
-          kind,
-          canonicalName,
-          draftExists: reads === 1,
-          modified: reads === 1,
-          overrides: reads === 1 ? { printable_height: height } : {},
-          sourceValues: { printable_height: '256' },
-          effectiveValues: { printable_height: height },
-          optionMetadata: { printable_height: { type: 'float' as const, min: 0, max: 256 } },
-          revision: reads,
-        };
+        if (reads === 1) return snapshot(kind, canonicalName, '260', 1);
+        return refreshedSnapshot;
       }),
     };
     platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
@@ -181,6 +184,14 @@ describe('Workspace ownership', () => {
       await Promise.resolve();
     });
     expect(runtime.getPresetDraft).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('[data-testid="preset-editor-loading"]')).toBeNull();
+    expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')).not.toBeNull();
+    expect((document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement).disabled).toBe(true);
+
+    await act(async () => {
+      finishRefresh(snapshot('printer', 'Printer A', '256', 2));
+      await Promise.resolve();
+    });
     expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('256');
   });
 

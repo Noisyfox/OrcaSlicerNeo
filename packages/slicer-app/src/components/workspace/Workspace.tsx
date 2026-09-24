@@ -143,10 +143,12 @@ export function Workspace({
   const [presetEditorTarget, setPresetEditorTarget] = useState<PresetDraftTarget | null>(null);
   const [presetEditorSnapshot, setPresetEditorSnapshot] = useState<PresetDraftSnapshot | null>(null);
   const [presetEditorLoading, setPresetEditorLoading] = useState(false);
+  const [presetEditorRefreshing, setPresetEditorRefreshing] = useState(false);
   const [presetEditorLoadError, setPresetEditorLoadError] = useState<string | null>(null);
   const [presetEditorMutationPending, setPresetEditorMutationPending] = useState(false);
   const presetEditorTargetRef = useRef<PresetDraftTarget | null>(null);
   const presetEditorMutationPendingRef = useRef(false);
+  const presetEditorRefreshingRef = useRef(false);
   const presetEditorHistoryRevisionRef = useRef<number | null>(null);
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const structure = useObjectListStore((s) => s.structure);
@@ -173,6 +175,8 @@ export function Workspace({
     setPresetEditorTarget(requestedTarget);
     setPresetEditorSnapshot(null);
     setPresetEditorLoadError(null);
+    presetEditorRefreshingRef.current = false;
+    setPresetEditorRefreshing(false);
     setPresetEditorLoading(true);
     try {
       const result = await platform.runtime.getPresetDraft(requestedTarget.kind, requestedTarget.canonicalName);
@@ -191,6 +195,8 @@ export function Workspace({
     if (presetEditorMutationPendingRef.current) return;
     presetEditorTargetRef.current = null;
     presetEditorHistoryRevisionRef.current = null;
+    presetEditorRefreshingRef.current = false;
+    setPresetEditorRefreshing(false);
     setPresetEditorTarget(null);
     setPresetEditorSnapshot(null);
     setPresetEditorLoadError(null);
@@ -202,7 +208,7 @@ export function Workspace({
     if (!target || request.kind !== target.kind || request.canonicalName !== target.canonicalName) {
       return { ok: false, version: 1, errorCode: 'invalid_request', error: 'The preset editor target is no longer active.' };
     }
-    if (presetEditorMutationPendingRef.current) {
+    if (presetEditorMutationPendingRef.current || presetEditorRefreshingRef.current) {
       return { ok: false, version: 1, errorCode: 'history_transaction_active', error: 'A preset editor operation is already in progress.' };
     }
     presetEditorMutationPendingRef.current = true;
@@ -236,7 +242,8 @@ export function Workspace({
         presetEditorHistoryRevisionRef.current === historyRestoreRevision) return;
     const restoreRevision = historyRestoreRevision;
     presetEditorHistoryRevisionRef.current = restoreRevision;
-    setPresetEditorLoading(true);
+    presetEditorRefreshingRef.current = true;
+    setPresetEditorRefreshing(true);
     setPresetEditorLoadError(null);
     void platform.runtime.getPresetDraft(target.kind, target.canonicalName).then((result) => {
       if (presetEditorTargetRef.current !== target ||
@@ -249,8 +256,10 @@ export function Workspace({
         setPresetEditorLoadError(error instanceof Error ? error.message : String(error));
     }).finally(() => {
       if (presetEditorTargetRef.current === target &&
-          presetEditorHistoryRevisionRef.current === restoreRevision)
-        setPresetEditorLoading(false);
+          presetEditorHistoryRevisionRef.current === restoreRevision) {
+        presetEditorRefreshingRef.current = false;
+        setPresetEditorRefreshing(false);
+      }
     });
   }, [historyRestorePhase, historyRestoreRevision, platform.runtime]);
   const glVolumes = useModelLoader();
@@ -811,6 +820,7 @@ export function Workspace({
     <PresetEditorDialog
       target={presetEditorTarget}
       snapshot={presetEditorSnapshot}
+      refreshing={presetEditorRefreshing}
       loading={presetEditorLoading}
       loadError={presetEditorLoadError}
       mutationPending={presetEditorMutationPending}

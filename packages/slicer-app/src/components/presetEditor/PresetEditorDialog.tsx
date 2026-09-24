@@ -26,6 +26,8 @@ export interface PresetEditorDialogProps {
   /** One native target at a time. Pass null when there is no active editor. */
   readonly target: PresetDraftTarget | null;
   readonly snapshot: PresetDraftSnapshot | null;
+  /** A history restore is fetching a newer snapshot without replacing the page. */
+  readonly refreshing?: boolean;
   readonly loading?: boolean;
   readonly loadError?: string | null;
   readonly mutationPending?: boolean;
@@ -454,6 +456,7 @@ function referencedSlotsLabel(slots: readonly number[]): string {
 export function PresetEditorDialog({
   target,
   snapshot,
+  refreshing = false,
   loading = false,
   loadError = null,
   mutationPending = false,
@@ -461,6 +464,7 @@ export function PresetEditorDialog({
   onClose,
   onMutate,
 }: PresetEditorDialogProps) {
+  const interactionPending = loading || refreshing || mutationPending;
   const manifest = target ? manifestFor(target.kind) : null;
   const pages = useMemo(() => manifest ? pageInstances(manifest, snapshot) : [], [manifest, snapshot]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
@@ -483,7 +487,7 @@ export function PresetEditorDialog({
   }, [manifest, pages, query, snapshot]);
 
   const submitAction = async (action: PresetDraftAction) => {
-    if (!snapshot || loading || mutationPending) return;
+    if (!snapshot || interactionPending) return;
     setActionError(null);
     try {
       const result = await onMutate(makeMutationRequest(snapshot, action));
@@ -533,7 +537,7 @@ export function PresetEditorDialog({
               variant="destructive"
               size="xs"
               data-testid="preset-editor-reset-preset"
-              disabled={loading || mutationPending || !snapshot?.draftExists}
+              disabled={interactionPending || !snapshot?.draftExists}
               onClick={() => void submitAction({ action: 'reset-preset' })}
             >Reset preset</Button>
           </div>
@@ -546,7 +550,7 @@ export function PresetEditorDialog({
             data-testid="preset-editor-search"
             placeholder="Search by name, key, or help text"
             value={search}
-            disabled={loading || !snapshot}
+            disabled={loading || refreshing || !snapshot}
             onChange={(event) => setSearch(event.currentTarget.value)}
           />
 
@@ -559,7 +563,7 @@ export function PresetEditorDialog({
               aria-selected={activePage?.id === page.id}
               aria-controls={`preset-editor-page-${page.id}`}
               data-testid={`preset-editor-page-tab-${page.id}`}
-              disabled={loading || !snapshot}
+              disabled={loading || refreshing || !snapshot}
               onClick={() => { setActivePageId(page.id); setSearch(''); setActionError(null); }}
               className="shrink-0 border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground aria-selected:border-primary aria-selected:text-foreground"
             >{page.title}</button>)}
@@ -583,7 +587,7 @@ export function PresetEditorDialog({
                     snapshot={snapshot}
                     page={page}
                     group={group}
-                    loading={loading}
+                    loading={interactionPending}
                     mutationPending={mutationPending}
                     onMutate={onMutate}
                   />)}
@@ -602,7 +606,7 @@ export function PresetEditorDialog({
                     variant="outline"
                     size="xs"
                     data-testid={`preset-editor-reset-category-${activePage.id}`}
-                    disabled={!categoryHasOverrides || loading || mutationPending}
+                    disabled={!categoryHasOverrides || interactionPending}
                     onClick={() => void submitAction({ action: 'reset-category', keys: activePageResetKeys })}
                   >Reset category</Button>
                 </div>
@@ -611,7 +615,7 @@ export function PresetEditorDialog({
                   page={activePage}
                   group={optionGroup}
                   snapshot={snapshot}
-                  loading={loading}
+                  loading={interactionPending}
                   mutationPending={mutationPending}
                   onMutate={onMutate}
                 />)}
