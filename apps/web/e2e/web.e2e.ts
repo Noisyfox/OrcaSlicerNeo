@@ -249,6 +249,7 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /, { timeout: 120_000 });
   await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 120_000 });
 
   // Switching away only gates navigation. It neither consumes the shortcut
@@ -267,9 +268,11 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
     await layerHeight.press('Control+z');
     await expect(layerHeight).toHaveValue(before);
   }
-  // The first navigation route is the shared keyboard shortcut. The controls
-  // stay disabled while the atomic restore projects the real WebGL model.
+  // Undo the model import and then the preceding atomic Printer selection.
+  // Wait for committed entry labels rather than a transient disabled state.
   await page.getByTestId('history-undo').focus();
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Select Printer', { timeout: 30_000 });
   await page.keyboard.press('Control+z');
   await expect(page.getByTestId('history-undo')).toBeDisabled({ timeout: 30_000 });
 
@@ -286,9 +289,13 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   const reloadedChooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
   await (await reloadedChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /, { timeout: 120_000 });
   await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 120_000 });
   await page.getByTestId('history-undo-menu-trigger').click();
   await expect(page.getByTestId(/history-undo-entry-/).first()).toBeVisible();
+  await page.getByTestId(/history-undo-entry-/).first().click();
+  await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Select Printer', { timeout: 30_000 });
+  await page.getByTestId('history-undo-menu-trigger').click();
   await page.getByTestId(/history-undo-entry-/).first().click();
   await expect(page.getByTestId('history-undo')).toBeDisabled({ timeout: 30_000 });
 });
