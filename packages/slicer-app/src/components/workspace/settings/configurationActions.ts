@@ -15,7 +15,7 @@ import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { projectFilamentHistoryRevision } from '../../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
@@ -213,7 +213,7 @@ async function commitPresetDraftMutationNow(
       throw new Error('native scoped configuration refresh was not accepted');
 
     unstable_batchedUpdates(() => {
-      projectFilamentHistoryRevision(result.historyStatus.revision, result.plateSession.inputRevisions);
+      useFilamentSessionStore.getState().publish(result.filamentSession);
       applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
       useProjectStore.getState().recordPlateMutation(result.plateSession);

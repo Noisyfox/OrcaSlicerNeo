@@ -912,12 +912,40 @@ describe('SlicerClient bridge contract', () => {
 
     const afterSet = await c.getFilamentSessionSnapshot();
     if (!afterSet.ok) throw new Error('expected filament session');
+    if (!set.ok) throw new Error('expected committed draft');
+    expect(set.filamentSession).toEqual(afterSet);
+    expect(set.filamentSession.revisions.session).toBe(set.historyStatus.revision);
     const selectedOther = await c.selectFilamentSlotPreset({ version: 1,
       revision: afterSet.revisions.session, slot: 2, preset: 'Bambu PLA Basic @BBL X1C' });
     expect(selectedOther.ok).toBe(true);
     const isolated = await c.getPresetDraft('filament', 'Bambu PLA Basic @BBL X1C');
     expect(isolated).toMatchObject({ ok: true, draftExists: false, modified: false,
       effectiveValues: { filament_flow_ratio: '1' } });
+  });
+
+  it.each(['missing', 'stale'] as const)('rejects a %s filament projection in a draft receipt', async (mode) => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name !== 'orc_mutate_preset_draft') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      if (mode === 'missing') delete payload.filament_session;
+      else payload.filament_session.revisions.session -= 1;
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const replacement = module._malloc(bytes.byteLength + 1);
+      module.HEAPU8.set(bytes, replacement);
+      module.HEAPU8[replacement + bytes.byteLength] = 0;
+      return replacement;
+    };
+    const c = createClient(async () => module);
+    await c.init();
+    const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
+    if (!draft.ok) throw new Error('expected draft');
+    await expect(c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set', expectedRevision: draft.revision, key: 'filament_flow_ratio', value: '0.92' }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'invalid_response' });
   });
 
   it('sets and resets fields, an explicit category key set, and a whole preset in one history entry each', async () => {

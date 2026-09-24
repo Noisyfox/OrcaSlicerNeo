@@ -515,6 +515,11 @@ json mutate_draft_json(const json& request)
         if (!result.value("ok", false))
             throw std::runtime_error("committed preset draft could not be read back");
         const json native_config = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
+        json filament_session = Filament::Session::filament_session_snapshot_json();
+        if (!filament_session.value("ok", false))
+            throw std::runtime_error("preset draft filament snapshot could not be constructed");
+        filament_session["revisions"]["session"] = revision_before + 1;
+        filament_session["revisions"]["project"] = revision_before + 1;
 
         if (!HistoryMetadata::commit_timestamped_operation(state(), after_context)) {
             rollback();
@@ -532,6 +537,7 @@ json mutate_draft_json(const json& request)
         result["affected_plate_ids"] = plate_session.value("affected_plate_ids", json::array());
         result["all_plate_results_invalidated"] = true;
         result["plate_session"] = plate_session;
+        result["filament_session"] = std::move(filament_session);
         result["history_status"] = HistoryMetadata::history_status_json(state());
         result["native_scoped_config"] = native_config;
         return result;

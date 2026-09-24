@@ -984,6 +984,8 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
   const snapshot = normalizePresetDraftSnapshot(raw);
   if (!snapshot.ok) return snapshot;
   if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
+  const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
+  if (!filamentSession.ok) return { ok: false, version: 1, error: 'invalid preset draft filament receipt', errorCode: 'invalid_response' };
   const plateSession = normalizePlateMutationResult(raw.plate_session);
   if (!plateSession.ok) return { ok: false, version: 1, error: plateSession.error ?? 'invalid preset draft plate receipt', errorCode: 'invalid_response' };
   let historyStatus: HistoryStatus;
@@ -995,12 +997,14 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
       !Array.isArray(raw.affected_plate_ids) ||
       !raw.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
       raw.all_plate_results_invalidated !== true || !nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
-      nativeScopedConfig.revision !== historyStatus.revision)
+      nativeScopedConfig.revision !== historyStatus.revision ||
+      filamentSession.revisions.session !== historyStatus.revision ||
+      filamentSession.revisions.project !== historyStatus.revision)
     return { ok: false, version: 1, error: 'invalid preset draft mutation receipt', errorCode: 'invalid_response' };
   return { ...snapshot, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
     revisionAfter: raw.revision_after as number, dirty: raw.dirty,
     affectedPlateIds: raw.affected_plate_ids as string[], allPlateResultsInvalidated: true,
-    plateSession, historyStatus, nativeScopedConfig };
+    plateSession, filamentSession, historyStatus, nativeScopedConfig };
 }
 
 function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {

@@ -30,6 +30,9 @@ and [Preset Editor Dialog](../spec/Preset%20Editor%20Dialog.md).
   their required placement and validity state.
 - The existing rollback Model copy remains: profiling measured it below 1 ms
   and removing it would weaken atomic failure recovery without useful savings.
+- Draft mutation receipts publish the complete committed Filament session,
+  including recalculated flushing values. Updating only the revision token on
+  the old renderer snapshot is insufficient for material configuration edits.
 
 No persistence migration, new file format, host-specific behavior, or mobile
 interaction is introduced. Both hosts retain their current desktop layout.

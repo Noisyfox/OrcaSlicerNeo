@@ -93,6 +93,7 @@ function mutationSuccess(snapshot: PresetDraftSnapshot, request: PresetDraftMuta
     affectedPlateIds: ['plate-1'],
     allPlateResultsInvalidated: true,
     plateSession: {} as never,
+    filamentSession: {} as never,
     historyStatus: {} as never,
     nativeScopedConfig: {} as never,
   } as PresetDraftMutationResult;

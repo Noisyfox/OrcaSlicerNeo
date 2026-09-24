@@ -506,9 +506,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateSession.affected_plate_ids = [...plateIds];
     plateSession.dirty_reasons = ['shared-configuration'];
     plateSession.native_scoped_config = nativeScopedConfigFullTransport();
+    const filamentSnapshot = filamentSessionSnapshot() as any;
+    filamentSnapshot.revisions = { ...filamentSnapshot.revisions,
+      session: historyRevision, project: historyRevision, plates: { ...plateInputRevisions } };
+    filamentSessionState = clone(filamentSnapshot);
     return { ...result, history_entry_delta: 1, revision_before: revisionBefore,
       revision_after: historyRevision, dirty: true, affected_plate_ids: [...plateIds],
       all_plate_results_invalidated: true, plate_session: plateSession,
+      filament_session: filamentSnapshot,
       history_status: historyStatus(), native_scoped_config: nativeScopedConfigFullTransport() };
   }
   type MockScopedTarget = { scope: 'project' | 'object' | 'part' | 'plate'; id?: string };

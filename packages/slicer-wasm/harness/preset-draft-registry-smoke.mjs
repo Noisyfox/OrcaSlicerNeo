@@ -45,6 +45,8 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.history_entry_delta, 1, 'each accepted draft command must add one history entry');
   assert.equal(result.all_plate_results_invalidated, true);
+  assert.deepEqual(result.filament_session, callJson('orc_get_filament_session_snapshot'),
+    'the commit must publish the current native rack and flushing projection');
   return result;
 }
 

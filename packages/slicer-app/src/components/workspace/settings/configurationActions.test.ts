@@ -85,6 +85,8 @@ function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMut
       affectedPlateIdsBefore: ['plate-1', 'plate-2'], affectedPlateIdsAfter: ['plate-1', 'plate-2'],
     },
     historyStatus: presetHistoryStatus(2),
+    filamentSession: { revisions: { session: 2, project: 2, plates: { 'plate-1': 12, 'plate-2': 18 } },
+      flushing: { matrix: [0, 140, 160, 0] } },
     nativeScopedConfig: {
       version: 1, revision: 1, kind: 'full',
       snapshot: { project: { printable_height: '250' }, objects: {}, parts: {}, plates: {} },
@@ -356,7 +358,7 @@ describe('commitPresetDraftMutation', () => {
     expect(useHistoryNavigationStore.getState().status).toBe(receipt.historyStatus);
     expect(useProjectStore.getState()).toMatchObject({ dirty: true, plateInputRevisions: { 'plate-1': 12, 'plate-2': 18 } });
     expect(usePlateSessionStore.getState().snapshot).toBe(receipt.plateSession);
-    expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(2);
+    expect(useFilamentSessionStore.getState().snapshot).toBe(receipt.filamentSession);
     expect(useSettingsStore.getState().nativeScopedConfig.project.printable_height).toBe('250');
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual([]);
     expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
