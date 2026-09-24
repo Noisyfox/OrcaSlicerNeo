@@ -1,0 +1,14 @@
+diff --git a/src/libslic3r/Config.hpp b/src/libslic3r/Config.hpp
+--- a/src/libslic3r/Config.hpp
++++ b/src/libslic3r/Config.hpp
+@@ -685,7 +685,9 @@ class ConfigOptionVector : public ConfigOptionVectorBase
+                 }
+             } else {
+                 // Resize by duplicating the last value.
+-                this->values.resize(n, this->values./*back*/front());
++                // resize may reallocate and invalidate a reference into values.
++                const T first_value = this->values./*back*/front();
++                this->values.resize(n, first_value);
+             }
+         }
+     }

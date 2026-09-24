@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const opts = {};
@@ -71,4 +72,29 @@ assert.equal(session.assignments.objects.length, 1, JSON.stringify(session));
 assert.equal(session.assignments.parts.length, 1, JSON.stringify(session));
 assert.equal(session.assignments.objects[0].effective_slot, 2, JSON.stringify(session));
 assert.equal(session.assignments.parts[0].effective_slot, 2, JSON.stringify(session));
+
+// A multi-nozzle project can name two source filaments while native preset
+// compatibility grows the active rack. Preserve the two saved plate mappings
+// and fill only the new slots, as the Orca Plater does after preset loading.
+const expandedEntries = readZipEntries(bytes);
+const expandedProject = JSON.parse(new TextDecoder().decode(expandedEntries.find(
+  (entry) => entry.name === 'Metadata/project_settings.config').content));
+Object.assign(expandedProject, {
+  single_extruder_multi_material: '0',
+  nozzle_diameter: ['0.4', '0.4', '0.4', '0.4'],
+  filament_diameter: ['1.75', '1.75'],
+});
+const expandedBytes = writeStoredZip(expandedEntries.map((entry) => entry.name === 'Metadata/project_settings.config'
+  ? { name: entry.name, content: new TextEncoder().encode(JSON.stringify(expandedProject)) }
+  : entry));
+const expandedPointer = Number(Module._malloc(expandedBytes.byteLength));
+Module.HEAPU8.set(expandedBytes, expandedPointer);
+const expanded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+  [expandedPointer, expandedBytes.byteLength, 0, 'independent-expanded-rack.3mf']);
+Module._free(expandedPointer);
+assert.equal(expanded.ok, true, JSON.stringify(expanded));
+const expandedSession = callJson('orc_get_filament_session_snapshot');
+const expandedPlates = callJson('orc_get_plate_session_snapshot');
+assert.equal(expandedSession.slots.length, 4, JSON.stringify(expandedSession));
+assert.equal(expandedPlates.plates[0].settings.filament_map, '1,1,1,1', JSON.stringify(expandedPlates));
 console.log(`multi-filament native reader smoke passed (objects=${loaded.objects}; slots=${session.slots.length}; object/part assignments=2)`);

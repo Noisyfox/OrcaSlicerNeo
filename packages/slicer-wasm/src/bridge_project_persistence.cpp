@@ -580,6 +580,39 @@ std::optional<std::string> read_archive_entry(const std::string& path, const std
     return result;
 }
 
+// Native preset compatibility can expand the active rack to the printer's
+// nozzle count. Older BBS projects may store plate maps for only the slots
+// named by project_settings.config. Extend those maps with the same defaults
+// used when a filament is added; leave any other size for validation to reject.
+void extend_imported_plate_filament_maps(std::vector<BridgeState::PlateSessionPlate>& plates,
+                                         const std::size_t source_slots,
+                                         const PresetBundle& bundle)
+{
+    const std::size_t active_slots = bundle.filament_presets.size();
+    if (source_slots == 0 || active_slots <= source_slots) return;
+    for (auto& plate : plates) {
+        bool extended = false;
+        for (const auto& [key, default_value] : {
+                 std::pair{"filament_map", 1},
+                 std::pair{"filament_nozzle_map", 0},
+                 std::pair{"filament_volume_map", 0}}) {
+            if (auto* values = plate.settings.option<ConfigOptionInts>(key);
+                values != nullptr && values->values.size() == source_slots) {
+                values->values.resize(active_slots, default_value);
+                extended = true;
+            }
+        }
+        if (auto* first = plate.settings.option<ConfigOptionInts>("first_layer_print_sequence");
+            first != nullptr && first->values.size() == source_slots &&
+            !first->values.empty() && first->values.front() != 0) {
+            for (std::size_t slot = source_slots; slot < active_slots; ++slot)
+                first->values.push_back(static_cast<int>(slot + 1));
+            extended = true;
+        }
+        if (extended) plate.settings_metadata = config_metadata_json(plate.settings);
+    }
+}
+
 std::string normalize_model_config_indices(const std::string& xml, size_t* plate_count)
 {
     std::string normalized = xml;
@@ -1006,6 +1039,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 current_plate_session_sequence() + 1,
                 staged_current_plate_id);
             Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(staged_plates);
+            extend_imported_plate_filament_maps(staged_plates,
+                                                requested_filament_slots.size(), candidate);
             Neo::Bridge::PlateSession::normalize_coordinate_arrays(candidate.project_config, staged_plates.size());
         }
 
@@ -1087,6 +1122,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().preset_draft_revision = 0;
                 initialize_plate_session_from_records(plate_data, raw_records);
                 Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(state().plate_session_plates);
+                extend_imported_plate_filament_maps(state().plate_session_plates,
+                                                    requested_filament_slots.size(), state().presets);
                 Neo::Bridge::PlateSession::normalize_coordinate_arrays(
                     state().presets.project_config, state().plate_session_plates.size());
                 // Results are deliberately not loaded from PlateData.
