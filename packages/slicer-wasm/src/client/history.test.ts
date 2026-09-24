@@ -61,7 +61,7 @@ describe('history contracts', () => {
       plateIds: ['plate-session-1-plate-1'], objectOrder: [101],
     }, affectedPlateIds: ['plate-session-1-plate-1'], impact: {
       version: 1, model: 'delta', plateSession: true, filamentRack: true,
-      presetDrafts: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
+      presetDrafts: false, profileSelection: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
     } };
     const mock: MockHistoryRuntime = {
       getHistoryStatus: async () => status,

@@ -365,6 +365,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins: Array<[number, number, number]>;
     plateInputRevisions: Record<string, number>;
     nativeScopedConfig: MockNativeScopedConfig;
+    selectedProfiles: Record<'printer' | 'print', string>;
     presetDraftRegistry: MockPresetDraftRegistry;
     presetDraftRevision: number;
     primeTowerProjection?: unknown;
@@ -546,7 +547,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
-      nativeScopedConfig, presetDraftRegistry, presetDraftRevision,
+      nativeScopedConfig, selectedProfiles: selected, presetDraftRegistry, presetDraftRevision,
       primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
@@ -562,8 +563,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
     nativeScopedConfig = clone(snapshot.nativeScopedConfig ?? emptyNativeScopedConfig());
-    presetDraftRegistry = clone(snapshot.presetDraftRegistry ?? { printer: {}, filament: {} });
-    presetDraftRevision = snapshot.presetDraftRevision ?? 0;
+    Object.assign(selected, snapshot.selectedProfiles);
+    presetDraftRegistry = clone(snapshot.presetDraftRegistry);
+    presetDraftRevision = snapshot.presetDraftRevision;
     primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
@@ -697,7 +699,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const before = nativeScopedConfigProjection();
     restoreHistoryState(entry);
     const presetDraftsChanged = beforeDraftRegistry !== JSON.stringify(entry.presetDraftRegistry);
-    if (presetDraftsChanged)
+    const profileSelection = JSON.stringify(beforeState.selectedProfiles) !== JSON.stringify(entry.selectedProfiles);
+    if (presetDraftsChanged || profileSelection)
       for (const id of plateIds)
         plateInputRevisions[id] = Math.max(beforePlateInputRevisions[id] ?? 0, plateInputRevisions[id] ?? 0) + 1;
     historyRevision++;
@@ -713,10 +716,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     };
     return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
       native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
-      affected_plate_ids: presetDraftsChanged ? [...plateIds] : affectedHistoryPlateIds(beforeState, entry),
+      affected_plate_ids: presetDraftsChanged || profileSelection ? [...plateIds] : affectedHistoryPlateIds(beforeState, entry),
+      ...(profileSelection ? { profile_snapshot: snapshot() } : {}),
       scene_delta: sceneDelta,
       impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
-          presetDrafts: presetDraftsChanged, selectionContext: true, primeTower: true, preview: 'all' } };
+          presetDrafts: presetDraftsChanged, profileSelection, selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function plateStride(): number {
     const area = presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area;
@@ -1434,7 +1438,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
         instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
         plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
-        nativeScopedConfig: previous.nativeScopedConfig, presetDraftRegistry: previous.presetDraftRegistry,
+        nativeScopedConfig: previous.nativeScopedConfig, selectedProfiles: previous.selectedProfiles, presetDraftRegistry: previous.presetDraftRegistry,
         presetDraftRevision: previous.presetDraftRevision } : null;
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
@@ -1476,7 +1480,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
           version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
           object_order: objectMeta.map((object) => object.id),
-        }, affected_plate_ids: [] };
+        }, affected_plate_ids: [], impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, presetDrafts: false, profileSelection: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' } };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
@@ -1490,7 +1494,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), scene_delta: {
         version: 1, object_ids: [], volume_ids: [], instance_ids: [], plate_ids: [],
         object_order: objectMeta.map((object) => object.id),
-      }, affected_plate_ids: [] };
+      }, affected_plate_ids: [], impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, presetDrafts: false, profileSelection: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all' } };
     },
     orc_history_undo() {
       if (historyTransaction) return { error: 'history transaction is active' };

@@ -229,3 +229,35 @@ must(JSON.stringify(rackProjection()) === JSON.stringify(finalRack),
   'initial project load retains its embedded rack instead of replaying remembered preferences', rackProjection());
 
 console.log(`native Printer transition smoke passed (${moduleArg})`);
+
+// These sources share Process/rack defaults and bed dimensions. Only Printer
+// identity changes, which must still invalidate every slice input on restore.
+assert.equal(callJson('orc_clear_model').ok, true);
+assert.equal(transition('Bambu Lab X1 Carbon 0.4 nozzle').ok, true);
+assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Printer-only undo']).ok, true);
+assert.equal(resetHistory().error, undefined);
+const carbon = presets();
+const carbonRack = rackProjection();
+const x1 = transition('Bambu Lab X1 0.4 nozzle');
+assert.equal(x1.ok, true, JSON.stringify(x1));
+assert.equal(x1.profile_snapshot.print.name, carbon.print.name);
+assert.deepEqual(rackProjection(), carbonRack);
+for (const command of ['orc_history_undo', 'orc_history_redo']) {
+  const before = callJson('orc_get_plate_session_snapshot');
+  const restored = callJson(command);
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+  assert.equal(restored.impact.profileSelection, true);
+  assert.deepEqual([...restored.affected_plate_ids].sort(), before.plates.map(p => p.plate_id).sort());
+  const after = callJson('orc_get_plate_session_snapshot');
+  for (const plate of after.plates)
+    assert.ok(after.input_revisions[plate.plate_id] > before.input_revisions[plate.plate_id]);
+}
+const tx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['No-op abort', 'project', JSON.stringify(historyContext()), '']);
+assert.equal(typeof tx.transactionId, 'string', JSON.stringify(tx));
+const aborted = callJson('orc_history_abort', ['string'], [tx.transactionId]);
+assert.equal(aborted.ok, true, JSON.stringify(aborted));
+assert.equal(aborted.impact.model, 'none');
+assert.equal(aborted.impact.profileSelection, false);
+assert.equal(aborted.native_scoped_config.kind, 'full');
+console.log('printer-only restore invalidation and complete no-op abort passed');

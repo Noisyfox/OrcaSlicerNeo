@@ -129,8 +129,8 @@ export interface HistoryError {
 
 /**
  * Worker-authored projection domains changed by one atomic restore commit.
- * Missing or malformed descriptors normalize to the broad SceneDelta path;
- * they never authorize a full renderer projection during history navigation.
+ * Missing or malformed descriptors reject the receipt instead of guessing
+ * which projections belong to the restored state.
  */
 export interface RestoreImpact {
   readonly version: 1;
@@ -139,7 +139,7 @@ export interface RestoreImpact {
   readonly filamentRack: boolean;
   readonly presetDrafts: boolean;
   /** Native Printer or Process root changed; restore its atomic picker snapshot. */
-  readonly profileSelection?: boolean;
+  readonly profileSelection: boolean;
   readonly nativeScopedConfig: boolean;
   readonly selectionContext: boolean;
   readonly primeTower: boolean;

@@ -388,7 +388,9 @@ json restore_timestamped_result(const Runtime& runtime,
         throw std::runtime_error("history context is missing preset draft registry");
     auto staged_preset_drafts = PresetDraftRegistry::from_snapshot_json(
         context["presetDraftRegistry"], state().presets);
-    const std::uint64_t staged_preset_draft_revision = context.value("presetDraftRevision", std::uint64_t{0});
+    if (!context.at("presetDraftRevision").is_number_unsigned())
+        throw std::runtime_error("invalid history preset draft revision");
+    const std::uint64_t staged_preset_draft_revision = context.at("presetDraftRevision").get<std::uint64_t>();
     const bool preset_drafts_changed = !(state().preset_drafts == staged_preset_drafts);
     const bool filament_changed = history_state_json(state().presets) != context["filamentState"];
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> staged_filament_state;
@@ -418,9 +420,9 @@ json restore_timestamped_result(const Runtime& runtime,
     const auto before_native_scoped_config = native_scoped_config_snapshot();
     const auto before_native_print_preset = Neo::Bridge::ScopedConfig::native_print_preset_history_state();
     const std::string before_print_name = state().presets.prints.get_selected_preset_name();
-    const std::string target_printer_name = context.contains("nativePrinterPreset")
-        ? context["nativePrinterPreset"].value("selected", before_printer_name)
-        : before_printer_name;
+    const std::string target_printer_name = context.at("nativePrinterPreset").at("selected").get<std::string>();
+    const bool printer_selection_changed = target_printer_name != before_printer_name;
+    const bool print_preset_changed = context.at("nativePrintPreset") != before_native_print_preset;
     if (target_printer_name.empty())
         throw std::runtime_error("history native Printer selection is empty");
     bool profile_selection_changed = false;
@@ -434,40 +436,13 @@ json restore_timestamped_result(const Runtime& runtime,
         state().preset_drafts = std::move(staged_preset_drafts);
         state().preset_draft_revision = staged_preset_draft_revision;
         auto& bundle = state().presets;
-        if (bundle.printers.find_preset(target_printer_name, false, true) == nullptr ||
-            !bundle.printers.select_preset_by_name(target_printer_name, true))
+        if (printer_selection_changed &&
+            (bundle.printers.find_preset(target_printer_name, false, true) == nullptr ||
+             !bundle.printers.select_preset_by_name(target_printer_name, true)))
             throw std::runtime_error("history native Printer selection is unavailable");
-        // Rebuild compatibility against the historical Printer draft. The
-        // native Print root is then restored exactly, so Process keeps its
-        // independently captured selection and project-embedded definition.
-        const DynamicPrintConfig original_printer_config = bundle.printers.get_edited_preset().config;
-        try {
-            bundle.printers.get_edited_preset().config = PresetDrafts::effective_preset_config(
-                bundle, state().preset_drafts, Preset::TYPE_PRINTER, target_printer_name);
-            bundle.update_compatible(PresetSelectCompatibleType::Always,
-                                     PresetSelectCompatibleType::Never);
-        } catch (...) {
-            bundle.printers.get_edited_preset().config = original_printer_config;
-            throw;
-        }
-        bundle.printers.get_edited_preset().config = original_printer_config;
-        bundle.printers.update_dirty();
-        Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(
-            context.at("nativePrintPreset"));
-        // Refresh compatibility flags without selecting another Process or
-        // changing the exact historical filament rack restored below.
-        const DynamicPrintConfig selected_printer_config = bundle.printers.get_edited_preset().config;
-        try {
-            bundle.printers.get_edited_preset().config = PresetDrafts::effective_preset_config(
-                bundle, state().preset_drafts, Preset::TYPE_PRINTER, target_printer_name);
-            bundle.update_compatible(PresetSelectCompatibleType::Never,
-                                     PresetSelectCompatibleType::Never);
-        } catch (...) {
-            bundle.printers.get_edited_preset().config = selected_printer_config;
-            throw;
-        }
-        bundle.printers.get_edited_preset().config = selected_printer_config;
-        bundle.printers.update_dirty();
+        if (print_preset_changed)
+            Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(
+                context.at("nativePrintPreset"));
         if (staged_filament_state) apply_mutable(state(), state().presets, std::move(*staged_filament_state));
         state().model = std::move(staged_model);
         state().mutable_object_capture_cache.clear();
@@ -485,6 +460,24 @@ json restore_timestamped_result(const Runtime& runtime,
             PresetDrafts::effective_preset_config(
                 bundle, state().preset_drafts, Preset::TYPE_PRINTER, target_printer_name),
             state().model, state().plate_session_plates, staged_snapshot);
+        // Restore exact roots first. A transform-only history frame cannot
+        // change compatibility, and must not traverse the preset catalog.
+        // Never select a replacement while restoring historical selections.
+        if (printer_selection_changed || print_preset_changed || preset_drafts_changed ||
+            filament_changed || before_print_config != bundle.prints.get_edited_preset().config) {
+            const DynamicPrintConfig source_config = bundle.printers.get_edited_preset().config;
+            try {
+                bundle.printers.get_edited_preset().config = PresetDrafts::effective_preset_config(
+                    bundle, state().preset_drafts, Preset::TYPE_PRINTER, target_printer_name);
+                bundle.update_compatible(PresetSelectCompatibleType::Never,
+                                         PresetSelectCompatibleType::Never);
+            } catch (...) {
+                bundle.printers.get_edited_preset().config = source_config;
+                throw;
+            }
+            bundle.printers.get_edited_preset().config = source_config;
+            bundle.printers.update_dirty();
+        }
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         profile_selection_changed = before_printer_name != bundle.printers.get_selected_preset_name() ||
             before_print_name != bundle.prints.get_selected_preset_name();
@@ -564,7 +557,7 @@ json restore_timestamped_result(const Runtime& runtime,
         const bool membership_changed = before_membership != state().instance_plate_ids ||
             before_parked != state().parked_instance_ids ||
             normalized_out_of_bounds(before_out_of_bounds) != normalized_out_of_bounds(state().plate_out_of_bounds_ids);
-        if (filament_changed || project_changed || preset_drafts_changed) {
+        if (printer_selection_changed || filament_changed || project_changed || preset_drafts_changed) {
             affected_plates = all_plate_ids();
         } else {
             if (membership_changed) {
@@ -1789,6 +1782,19 @@ EMSCRIPTEN_KEEPALIVE const char* orc_take_performance_profile()
 EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cstr)
 {
     try {
+        const auto unchanged_result = [](const json& context) {
+            json order = json::array();
+            for (const auto* object : state().model.objects) order.push_back(object->id().id);
+            return duplicate_json(json{{"ok", true}, {"context", context},
+                {"status", history_status_json()},
+                {"native_scoped_config", Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(state().history_revision)},
+                {"affected_plate_ids", json::array()},
+                {"scene_delta", {{"version", 1}, {"object_ids", json::array()}, {"volume_ids", json::array()},
+                    {"instance_ids", json::array()}, {"plate_ids", json::array()}, {"object_order", order}}},
+                {"impact", {{"version", 1}, {"model", "none"}, {"plateSession", false}, {"filamentRack", false},
+                    {"presetDrafts", false}, {"profileSelection", false}, {"nativeScopedConfig", false},
+                    {"selectionContext", false}, {"primeTower", false}, {"preview", "current-plate"}}}}.dump());
+        };
         const Runtime runtime = HistoryRuntime::runtime();
         const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
         if (!state().active_history_transaction) return error_json("history transaction is not active");
@@ -1807,8 +1813,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             const auto live_roots = HistoryMetadata::capture_history_roots(state(), live_context);
             if (roots_match(tx.before_roots, live_roots)) {
                 state().history_live_context = live_context;
-                return duplicate_json(json{{"ok", true}, {"context", live_context},
-                                           {"status", history_status_json()}}.dump());
+                return unchanged_result(live_context);
             }
             const Neo::History::TimestampedRestore predecessor{
                 state().history.current_timestamp(), tx.before_roots};
@@ -1830,8 +1835,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         state().nested_history_transactions.clear();
         if (roots_match(tx.before_roots, live_roots)) {
             state().history_live_context = live_context;
-            return duplicate_json(json{{"ok", true}, {"context", live_context},
-                                       {"status", history_status_json()}}.dump());
+            return unchanged_result(live_context);
         }
         json result = restore_timestamped_result(runtime, predecessor, 0);
         restore_transaction_runtime_snapshot(tx);

@@ -1203,6 +1203,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (nativeScopedConfig.revision !== status.revision)
     return historyFailure(raw, 'history scoped configuration revision mismatch');
   const impact = normalizeRestoreImpact(value.impact);
+  if (!impact) return historyFailure(raw, 'invalid history restore impact');
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
   let profileSnapshot: ProfileSnapshot | undefined;
@@ -1235,20 +1236,16 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   };
 }
 
-export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
-  const fallback: import('./history').RestoreImpact = {
-    version: 1, model: 'delta', plateSession: true, filamentRack: true,
-    presetDrafts: true, profileSelection: false, nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
-  };
-  if (!raw || typeof raw !== 'object') return fallback;
+export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact | undefined {
+  if (!isRecord(raw)) return undefined;
   const value = raw as Record<string, unknown>;
   if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
       typeof value.presetDrafts !== 'boolean' ||
-      (value.profileSelection !== undefined && typeof value.profileSelection !== 'boolean') ||
+      typeof value.profileSelection !== 'boolean' ||
       typeof value.nativeScopedConfig !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
-      (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
+      (value.preview !== 'all' && value.preview !== 'current-plate')) return undefined;
   return value as unknown as import('./history').RestoreImpact;
 }
 
