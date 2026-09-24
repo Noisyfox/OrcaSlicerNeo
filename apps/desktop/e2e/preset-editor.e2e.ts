@@ -66,6 +66,15 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await page.getByTestId('preset-edit-printer').click();
     const dialog = page.getByTestId('preset-editor-dialog');
     await expect(dialog).toBeVisible();
+    const sceneStats = page.getByTestId('viewport').locator('.scene-stats');
+    await expect(sceneStats).toHaveCSS('position', 'absolute');
+    await expect(sceneStats).toHaveCSS('z-index', '0');
+    expect(await sceneStats.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+        ?.closest('[data-slot="dialog-content"], [data-slot="dialog-overlay"]')
+        ?.getAttribute('data-slot');
+    })).toMatch(/^dialog-(content|overlay)$/);
     await expect(page.getByTestId('preset-editor-title')).not.toBeEmpty();
     const printerSourceHeight = await page.getByTestId('preset-editor-source-printable_height').textContent();
     const initialPrinterHeight = await page.getByTestId('preset-editor-effective-printable_height').textContent();

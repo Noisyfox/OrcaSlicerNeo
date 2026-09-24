@@ -472,10 +472,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             <color attach="background" args={['#0f172a']} />
             {/* Perf overlay (fps/ms/memory), top-left corner of the scene.
                 drei appends the DOM to document.body unless given a `parent`
-                ref, and stats.js pins it inline as position:fixed — so anchor
-                it to the viewport container and force absolute (the container
-                is itself an absolute-positioned box). Click a panel to switch. */}
-            <Stats parent={viewportRef} className="absolute!" />
+                ref. stats.js pins it inline as fixed with z-index: 10000, so
+                override both inline values to keep it in the scene layer and
+                below modal dialogs. Click a panel to switch. */}
+            <Stats parent={viewportRef} className="scene-stats absolute! z-0!" />
             <Scene
               activeTab={activeTab}
               controller={sceneInteraction}
