@@ -496,7 +496,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }));
   }
   function presetDraftRegistrySnapshot() {
-    return { version: 1, entries: (['printer', 'filament'] as const).flatMap((kind) =>
+    return { entries: (['printer', 'filament'] as const).flatMap((kind) =>
       Object.entries(presetDraftRegistry[kind]).map(([canonical_name, overrides]) => ({
         kind, canonical_name, overrides: clone(overrides),
       }))) };
@@ -519,13 +519,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function presetDraftSnapshot(kind: 'printer' | 'filament', canonicalName: string): Record<string, unknown> {
     const sourceValues = presetSourceValues(kind, canonicalName);
-    if (!sourceValues) return { ok: false, version: 1, error_code: 'preset_not_found',
+    if (!sourceValues) return { ok: false, error_code: 'preset_not_found',
       error: `preset not found: ${canonicalName}`, revision: historyRevision };
     const draft = presetDraftRegistry[kind][canonicalName];
     const overrides = draft ? clone(draft) : {};
     const optionMetadata = Object.fromEntries(Object.keys(sourceValues)
       .filter((key) => metadata[key] !== undefined).map((key) => [key, clone(metadata[key])]));
-    return { ok: true, version: 1, kind, canonical_name: canonicalName,
+    return { ok: true, kind, canonical_name: canonicalName,
       draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
       overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...overrides },
       option_metadata: optionMetadata, editor_bindings: editorBindingsFor(kind, canonicalName), revision: historyRevision };
@@ -544,9 +544,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function mutatePresetDraft(requestJson: string): Record<string, unknown> {
     let request: any;
     try { request = JSON.parse(requestJson); }
-    catch { return { ok: false, version: 1, error_code: 'invalid_request', error: 'invalid preset draft request', revision: historyRevision }; }
-    const fail = (errorCode: string, error: string) => ({ ok: false, version: 1, error_code: errorCode, error, revision: historyRevision });
-    if (!request || request.version !== 1 || !['printer', 'filament'].includes(request.kind) ||
+    catch { return { ok: false, error_code: 'invalid_request', error: 'invalid preset draft request', revision: historyRevision }; }
+    const fail = (errorCode: string, error: string) => ({ ok: false, error_code: errorCode, error, revision: historyRevision });
+    if (!request || !['printer', 'filament'].includes(request.kind) ||
         typeof request.canonical_name !== 'string' || !request.canonical_name || typeof request.action !== 'string')
       return fail('invalid_request', 'invalid preset draft request');
     if (historyTransaction) return fail('history_transaction_active', 'preset draft command cannot run inside another history transaction');
@@ -2031,9 +2031,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_get_preset_draft(kind: string, canonicalName: string) {
       if (kind !== 'printer' && kind !== 'filament')
-        return { ok: false, version: 1, error_code: 'invalid_request', error: 'kind must be printer|filament', revision: historyRevision };
+        return { ok: false, error_code: 'invalid_request', error: 'kind must be printer|filament', revision: historyRevision };
       if (typeof canonicalName !== 'string' || !canonicalName)
-        return { ok: false, version: 1, error_code: 'invalid_request', error: 'canonical preset name required', revision: historyRevision };
+        return { ok: false, error_code: 'invalid_request', error: 'canonical preset name required', revision: historyRevision };
       return presetDraftSnapshot(kind, canonicalName);
     },
     orc_mutate_preset_draft(requestJson: string) {
@@ -2070,15 +2070,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_select_printer_with_remembered_rack(requestJson: string) {
       let request: any;
       try { request = JSON.parse(requestJson); }
-      catch { return { ok: false, version: 1, error_code: 'invalid_request', error: 'invalid Printer transition request' }; }
-      if (request?.version !== 1 || typeof request.printer !== 'string' || !request.printer)
-        return { ok: false, version: 1, error_code: 'invalid_request', error: 'invalid Printer transition request' };
+      catch { return { ok: false, error_code: 'invalid_request', error: 'invalid Printer transition request' }; }
+      if (typeof request?.printer !== 'string' || !request.printer)
+        return { ok: false, error_code: 'invalid_request', error: 'invalid Printer transition request' };
       const printer = presetFixtures.printer.find((item) => item.name === request.printer && item.is_visible);
-      if (!printer) return { ok: false, version: 1, error_code: 'preset_not_found', error: 'Printer preset not found' };
+      if (!printer) return { ok: false, error_code: 'preset_not_found', error: 'Printer preset not found' };
       const before = historyRevision;
       selected.printer = request.printer;
       if (!resolveAfterPrinterChange())
-        return { ok: false, version: 1, error_code: 'native_validation_failure', error: 'no compatible Process preset available' };
+        return { ok: false, error_code: 'native_validation_failure', error: 'no compatible Process preset available' };
 
       const current = filamentSessionSnapshot() as any;
       const requestedSlots = request.remembered_rack?.version === 1 && Array.isArray(request.remembered_rack.slots)
@@ -2119,7 +2119,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const status = historyStatus();
       const affectedPlateIds = plateSession.affected_plate_ids as string[];
       return {
-        ok: true, version: 1, profile_snapshot: snapshot(), filament_session: filamentSessionSnapshot(),
+        ok: true, profile_snapshot: snapshot(), filament_session: filamentSessionSnapshot(),
         plate_session: plateSession, history_status: status,
         native_scoped_config: nativeScopedConfigFullTransport(),
         mutation: { kind: 'select-printer-with-remembered-rack', history_entry_delta: 1,

@@ -196,7 +196,6 @@ async function commitPresetDraftMutationNow(
     if (currentHistory && currentHistory.revision > request.expectedRevision) {
       return {
         ok: false,
-        version: 1,
         errorCode: 'stale_revision',
         error: 'Preset draft revision was superseded by a newer project history state.',
         revision: currentHistory.revision,

@@ -206,10 +206,10 @@ export function Workspace({
   const mutatePresetEditorDraft = useCallback(async (request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> => {
     const target = presetEditorTargetRef.current;
     if (!target || request.kind !== target.kind || request.canonicalName !== target.canonicalName) {
-      return { ok: false, version: 1, errorCode: 'invalid_request', error: 'The preset editor target is no longer active.' };
+      return { ok: false, errorCode: 'invalid_request', error: 'The preset editor target is no longer active.' };
     }
     if (presetEditorMutationPendingRef.current || presetEditorRefreshingRef.current) {
-      return { ok: false, version: 1, errorCode: 'history_transaction_active', error: 'A preset editor operation is already in progress.' };
+      return { ok: false, errorCode: 'history_transaction_active', error: 'A preset editor operation is already in progress.' };
     }
     presetEditorMutationPendingRef.current = true;
     setPresetEditorMutationPending(true);
@@ -223,7 +223,6 @@ export function Workspace({
     } catch (error) {
       return {
         ok: false,
-        version: 1,
         errorCode: 'runtime_failure',
         error: error instanceof Error ? error.message : String(error),
       };

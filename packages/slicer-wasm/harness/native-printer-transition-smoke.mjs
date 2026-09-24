@@ -56,14 +56,14 @@ function resetHistory() {
 }
 function transition(printer, slots) {
   return request('orc_select_printer_with_remembered_rack', {
-    version: 1, printer,
+    printer,
     remembered_rack: slots ? { version: 1, slots } : null,
   });
 }
 function setDraft(kind, canonicalName, key, value) {
   const source = draft(kind, canonicalName);
   const result = request('orc_mutate_preset_draft', {
-    version: 1, action: 'set', kind, canonical_name: canonicalName,
+    action: 'set', kind, canonical_name: canonicalName,
     expected_revision: source.revision, key, value,
   });
   assert.equal(result.ok, true, JSON.stringify(result));

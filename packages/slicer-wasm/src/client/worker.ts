@@ -131,7 +131,7 @@ function copyLayer(layer: HistoryDiagnosticLayer): HistoryDiagnosticLayer {
 }
 
 function copyDiagnostics(diagnostics: HistoryTransportDiagnostics): HistoryTransportDiagnostics {
-  return { version: 1, worker: copyLayer(diagnostics.worker), client: copyLayer(diagnostics.client) };
+  return { worker: copyLayer(diagnostics.worker), client: copyLayer(diagnostics.client) };
 }
 
 function collectTransferables(value: unknown): Transferable[] {
@@ -276,7 +276,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   let serialSliceActive = false;
   let serialTerminalEpoch = '0';
   let profileLastRestoreSliceActive: boolean | null = null;
-  let diagnostics: HistoryTransportDiagnostics = { version: 1, worker: emptyLayer(), client: emptyLayer() };
+  let diagnostics: HistoryTransportDiagnostics = { worker: emptyLayer(), client: emptyLayer() };
 
   function recordLayer(layer: 'worker' | 'client', diagnostic: HistoryWorkerDiagnostic): void {
     if (diagnostic.kind === 'read') {

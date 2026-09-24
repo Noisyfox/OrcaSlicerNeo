@@ -70,7 +70,7 @@ function presetHistoryStatus(revision: number): HistoryStatus {
 
 function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMutationResult, { ok: true }> {
   return {
-    ok: true, version: 1, kind: 'printer', canonicalName: 'Printer A', draftExists: true,
+    ok: true, kind: 'printer', canonicalName: 'Printer A', draftExists: true,
     modified: true, overrides: { printable_height: '250' },
     sourceValues: { printable_height: '230' }, effectiveValues: { printable_height: '250' },
     optionMetadata: {}, revision: 2,
@@ -366,7 +366,7 @@ describe('commitPresetDraftMutation', () => {
   });
 
   it('returns a native stale rejection without publishing history, project, session, config, or slice corrections', async () => {
-    const stale = { ok: false as const, version: 1 as const, errorCode: 'stale_revision', error: 'draft revision is stale' };
+    const stale = { ok: false as const, errorCode: 'stale_revision', error: 'draft revision is stale' };
     const mutatePresetDraft = vi.fn(async () => stale);
     const runProjectHistoryTransaction = vi.fn();
     const cancel = vi.fn(async () => undefined);

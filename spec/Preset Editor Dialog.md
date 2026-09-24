@@ -315,7 +315,7 @@ intermediate text is local UI state and never enters the effective slice
 configuration.
 
 The editor presents its target through explicit, Orca-style functional page and
-group definitions. A versioned React manifest lists each page, group, option
+group definitions. An explicit React manifest lists each page, group, option
 key, field order, and Phase-one editability. It is the authoritative layout and
 exposure allow-list: a newly introduced native option is not shown until it is
 intentionally added to the relevant Filament or Printer manifest.

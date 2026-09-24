@@ -200,7 +200,6 @@ export interface HistoryReadDiagnosticLayer {
  * data, contexts, or a renderer-owned history representation.
  */
 export interface HistoryTransportDiagnostics {
-  readonly version: 1;
   readonly worker: HistoryDiagnosticLayer;
   readonly client: HistoryDiagnosticLayer;
 }

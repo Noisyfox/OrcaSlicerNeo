@@ -98,7 +98,7 @@ and that the preference write is absent from Undo/Redo.
 
 ### Step 4 — Explicit Orca-derived layout manifests and read-only modal
 
-**Functional boundary.** Add versioned explicit Printer and Filament manifests
+**Functional boundary.** Add explicit Printer and Filament manifests
 transcribed from the pinned Orca `TabPrinter::build()` and
 `TabFilament::build()` page/group/field ordering. Implement the single shared
 `PresetEditorDialog` shell that renders source identity, Project-draft marker,

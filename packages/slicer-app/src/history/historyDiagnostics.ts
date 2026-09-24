@@ -26,7 +26,6 @@ export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
 }
 
 export interface HistoryObservabilitySnapshot {
-  readonly version: 1;
   readonly worker: HistoryDiagnosticLayer | null;
   readonly client: HistoryDiagnosticLayer | null;
   readonly app: HistoryAppDiagnostics;
@@ -105,7 +104,6 @@ function addRestore(app: HistoryAppDiagnostics, path: HistoryRestorePath, durati
  * model/context data.
  */
 export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) => ({
-  version: 1,
   worker: null,
   client: null,
   app: emptyApp(),
@@ -159,7 +157,8 @@ export function captureHistoryTransportDiagnostics(runtime: unknown): void {
   if (typeof read !== 'function') return;
   try {
     const diagnostics = read.call(runtime) as HistoryTransportDiagnostics;
-    if (diagnostics?.version === 1) useHistoryDiagnosticsStore.getState().setTransport(diagnostics);
+    if (diagnostics && diagnostics.worker && diagnostics.client)
+      useHistoryDiagnosticsStore.getState().setTransport(diagnostics);
   } catch {
     // Observability must not change a history operation's outcome.
   }

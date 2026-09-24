@@ -458,7 +458,6 @@ export interface PresetDraftEditorBinding {
 
 export interface PresetDraftSnapshot extends PresetDraftTarget {
   readonly ok: true;
-  readonly version: 1;
   readonly draftExists: boolean;
   readonly modified: boolean;
   readonly overrides: Readonly<Record<string, string>>;
@@ -473,7 +472,6 @@ export interface PresetDraftSnapshot extends PresetDraftTarget {
 
 export interface PresetDraftError {
   readonly ok: false;
-  readonly version: 1;
   readonly error: string;
   readonly errorCode?: string;
   readonly revision?: number;
@@ -1243,7 +1241,6 @@ export interface PrinterTransitionMutationReceipt {
 /** One committed native Printer + remembered-rack transition. */
 export interface PrinterTransitionSuccess {
   readonly ok: true;
-  readonly version: 1;
   readonly profileSnapshot: ProfileSnapshot;
   readonly filamentSession: FilamentSessionSnapshot;
   readonly plateSession: PlateSessionMutation;
@@ -1254,7 +1251,6 @@ export interface PrinterTransitionSuccess {
 
 export interface PrinterTransitionError {
   readonly ok: false;
-  readonly version?: 1;
   readonly error: string;
   readonly errorCode?: string;
   readonly revision?: number;

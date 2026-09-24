@@ -162,7 +162,7 @@ std::string effective_filament_default_colour(const PresetBundle& bundle,
 
 json transition_error(const std::string& code, const std::string& message)
 {
-    return json{{"ok", false}, {"version", 1}, {"error_code", code},
+    return json{{"ok", false}, {"error_code", code},
                 {"error", message}, {"revision", state().history_revision}};
 }
 
@@ -387,7 +387,7 @@ json preset_snapshot_json()
 
 json select_printer_with_remembered_rack_json(const json& request)
 {
-    if (!request.is_object() || request.value("version", 0) != 1 ||
+    if (!request.is_object() ||
         !request.contains("printer") || !request["printer"].is_string() ||
         request["printer"].get<std::string>().empty())
         return transition_error("invalid_request", "Printer transition request is invalid");
@@ -572,7 +572,7 @@ json select_printer_with_remembered_rack_json(const json& request)
                            {"dirty", history_status.value("dirty", false)},
                            {"all_plate_results_invalidated", true},
                            {"affected_plate_ids", plate_session.value("affected_plate_ids", json::array())}};
-        return json{{"ok", true}, {"version", 1},
+        return json{{"ok", true},
                     {"profile_snapshot", std::move(profile_snapshot)},
                     {"filament_session", std::move(filament_snapshot)},
                     {"plate_session", std::move(plate_session)},

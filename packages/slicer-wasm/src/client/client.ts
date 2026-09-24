@@ -1053,34 +1053,34 @@ function normalizePresetDraftEditorBindings(
 }
 
 function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
-  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid preset draft response', errorCode: 'invalid_response' };
+  if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft response', errorCode: 'invalid_response' };
   if (raw.ok !== true) {
-    if (raw.version !== 1 || raw.ok !== false || typeof raw.error !== 'string')
-      return { ok: false, version: 1, error: 'invalid preset draft error response', errorCode: 'invalid_response' };
-    return { ok: false, version: 1, error: raw.error,
+    if (raw.ok !== false || typeof raw.error !== 'string')
+      return { ok: false, error: 'invalid preset draft error response', errorCode: 'invalid_response' };
+    return { ok: false, error: raw.error,
       ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
       ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) };
   }
   const overrides = stringRecord(raw.overrides);
   const sourceValues = stringRecord(raw.source_values);
   const effectiveValues = stringRecord(raw.effective_values);
-  if (raw.version !== 1 || (raw.kind !== 'printer' && raw.kind !== 'filament') ||
+  if ((raw.kind !== 'printer' && raw.kind !== 'filament') ||
       typeof raw.canonical_name !== 'string' || !raw.canonical_name ||
       typeof raw.draft_exists !== 'boolean' || typeof raw.modified !== 'boolean' ||
       !overrides || !sourceValues || !effectiveValues || !isRecord(raw.option_metadata) ||
       !Number.isSafeInteger(raw.revision))
-    return { ok: false, version: 1, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
+    return { ok: false, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
   const optionMetadata: OptionMetadata = {};
   for (const [key, value] of Object.entries(raw.option_metadata)) {
     if (!isRecord(value) || typeof value.type !== 'string')
-      return { ok: false, version: 1, error: 'invalid preset draft option metadata', errorCode: 'invalid_response' };
+      return { ok: false, error: 'invalid preset draft option metadata', errorCode: 'invalid_response' };
     optionMetadata[key] = value as unknown as OptionMetadata[string];
   }
   const editorBindings = normalizePresetDraftEditorBindings(
     raw.editor_bindings, raw.option_metadata, sourceValues, effectiveValues);
   if (!editorBindings)
-    return { ok: false, version: 1, error: 'invalid preset draft editor bindings', errorCode: 'invalid_response' };
-  return { ok: true, version: 1, kind: raw.kind, canonicalName: raw.canonical_name,
+    return { ok: false, error: 'invalid preset draft editor bindings', errorCode: 'invalid_response' };
+  return { ok: true, kind: raw.kind, canonicalName: raw.canonical_name,
     draftExists: raw.draft_exists, modified: raw.modified, overrides, sourceValues, effectiveValues,
     optionMetadata, editorBindings, revision: raw.revision as number };
 }
@@ -1088,14 +1088,14 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
 function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
   const snapshot = normalizePresetDraftSnapshot(raw);
   if (!snapshot.ok) return snapshot;
-  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
+  if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
   const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
-  if (!filamentSession.ok) return { ok: false, version: 1, error: 'invalid preset draft filament receipt', errorCode: 'invalid_response' };
+  if (!filamentSession.ok) return { ok: false, error: 'invalid preset draft filament receipt', errorCode: 'invalid_response' };
   const plateSession = normalizePlateMutationResult(raw.plate_session);
-  if (!plateSession.ok) return { ok: false, version: 1, error: plateSession.error ?? 'invalid preset draft plate receipt', errorCode: 'invalid_response' };
+  if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'invalid preset draft plate receipt', errorCode: 'invalid_response' };
   let historyStatus: HistoryStatus;
   try { historyStatus = normalizeHistoryStatus(raw.history_status); }
-  catch { return { ok: false, version: 1, error: 'invalid preset draft history status', errorCode: 'invalid_response' }; }
+  catch { return { ok: false, error: 'invalid preset draft history status', errorCode: 'invalid_response' }; }
   const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
   if (raw.history_entry_delta !== 1 || !Number.isSafeInteger(raw.revision_before) ||
       !Number.isSafeInteger(raw.revision_after) || typeof raw.dirty !== 'boolean' ||
@@ -1105,7 +1105,7 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
       nativeScopedConfig.revision !== historyStatus.revision ||
       filamentSession.revisions.session !== historyStatus.revision ||
       filamentSession.revisions.project !== historyStatus.revision)
-    return { ok: false, version: 1, error: 'invalid preset draft mutation receipt', errorCode: 'invalid_response' };
+    return { ok: false, error: 'invalid preset draft mutation receipt', errorCode: 'invalid_response' };
   return { ...snapshot, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
     revisionAfter: raw.revision_after as number, dirty: raw.dirty,
     affectedPlateIds: raw.affected_plate_ids as string[], allPlateResultsInvalidated: true,
@@ -1114,18 +1114,16 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
 
 function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
   const invalid = (error: string): PrinterTransitionResult => ({
-    ok: false, version: 1, error, errorCode: 'invalid_response',
+    ok: false, error, errorCode: 'invalid_response',
   });
   if (!isRecord(raw)) return invalid('invalid Printer transition response');
   if (raw.ok !== true) {
-    return raw.version === 1 && typeof raw.error === 'string'
-      ? { ok: false, version: 1, error: raw.error,
+    return typeof raw.error === 'string'
+      ? { ok: false, error: raw.error,
         ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
         ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) }
       : invalid('invalid Printer transition error response');
   }
-  if (raw.version !== 1) return invalid('unsupported Printer transition response version');
-
   const profile = isRecord(raw.profile_snapshot)
     ? normalizeProfileSnapshot(raw.profile_snapshot) : { ok: false as const, error: 'missing Printer transition profile snapshot' };
   if (!profile.ok) return invalid(profile.error ?? 'invalid Printer transition profile snapshot');
@@ -1154,7 +1152,6 @@ function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
     return invalid('Printer transition affected-plate receipt mismatch');
   return {
     ok: true,
-    version: 1,
     profileSnapshot: profile,
     filamentSession,
     plateSession,
@@ -1753,7 +1750,6 @@ export function createClient(
     async mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> {
       const m = await module();
       const payload: Record<string, unknown> = {
-        version: 1,
         action: request.action,
         kind: request.kind,
         canonical_name: request.canonicalName,
@@ -1822,7 +1818,7 @@ export function createClient(
     getHistoryStatus,
     markHistorySaved,
     resetHistory,
-    getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
+    getHistoryDiagnostics: () => ({ worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
     getRuntimeExecutionState: () => ({
       threaded: runtimeThreaded ?? null,
       sliceActive: serialSliceAdmissionInProgress || pendingSliceTasks.size > 0,
@@ -1953,7 +1949,6 @@ export function createClient(
     ): Promise<PrinterTransitionResult> {
       const m = await module();
       const request = {
-        version: 1,
         printer,
         remembered_rack: rememberedRack ? {
           version: rememberedRack.version,

@@ -56,7 +56,7 @@ const resolvedRack: FilamentSessionSnapshot = {
 function printerTransition(profileSnapshot = resolvedSnapshot, filamentSession = resolvedRack): PrinterTransitionResult {
   const affectedPlateIds = ['plate-1'];
   return {
-    ok: true, version: 1, profileSnapshot, filamentSession,
+    ok: true, profileSnapshot, filamentSession,
     plateSession: {
       ok: true, version: 1, currentPlateId: 'plate-1',
       plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
@@ -322,7 +322,7 @@ describe('SettingsPanel preset transitions', () => {
   it('does not publish a remembered rack when the native Printer transition fails', async () => {
     resetStores();
     const { platform, runtime, repository } = makePlatform(async () => resolvedSnapshot,
-      async () => ({ ok: false, version: 1, error: 'compatibility failed', errorCode: 'native_validation_failure' }));
+      async () => ({ ok: false, error: 'compatibility failed', errorCode: 'native_validation_failure' }));
     const { container, root } = await render(platform);
     roots.push(root);
 

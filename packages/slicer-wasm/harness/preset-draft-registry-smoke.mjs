@@ -39,7 +39,7 @@ function historyStatus() {
 
 function mutateDraft(action, kind, canonicalName, fields = {}) {
   const result = request('orc_mutate_preset_draft', {
-    version: 1, action, kind, canonical_name: canonicalName,
+    action, kind, canonical_name: canonicalName,
     expected_revision: historyStatus().revision, ...fields,
   });
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -166,13 +166,13 @@ assert.deepEqual(independentSourceDraft.overrides, { filament_max_volumetric_spe
 const platesBeforeRejected = callJson('orc_get_plate_session_snapshot');
 const historyBeforeRejected = historyStatus();
 const stale = request('orc_mutate_preset_draft', {
-  version: 1, action: 'set', kind: 'filament', canonical_name: firstSource,
+  action: 'set', kind: 'filament', canonical_name: firstSource,
   expected_revision: staleRevision, key: 'filament_max_volumetric_speed', value: '99',
 });
 assert.equal(stale.ok, false);
 assert.equal(stale.error_code, 'stale_revision');
 const invalid = request('orc_mutate_preset_draft', {
-  version: 1, action: 'set', kind: 'filament', canonical_name: firstSource,
+  action: 'set', kind: 'filament', canonical_name: firstSource,
   expected_revision: historyStatus().revision, key: 'not_a_preset_option', value: '99',
 });
 assert.equal(invalid.ok, false);
@@ -264,7 +264,7 @@ for (const key of ['filament_ramming_parameters', 'volumetric_speed_coefficients
 function rejectDraftElement(fields, expectedCode) {
   const beforeHistory = historyStatus();
   const rejected = request('orc_mutate_preset_draft', {
-    version: 1, action: 'set-element', kind: 'filament', canonical_name: genericPlaSource,
+    action: 'set-element', kind: 'filament', canonical_name: genericPlaSource,
     expected_revision: beforeHistory.revision, ...fields,
   });
   assert.equal(rejected.ok, false, JSON.stringify(rejected));

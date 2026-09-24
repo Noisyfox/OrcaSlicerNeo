@@ -25,7 +25,6 @@ export interface PresetEditorManifestPage {
 }
 
 export interface PresetEditorManifest {
-  readonly version: 1;
   readonly kind: PresetDraftKind;
   readonly pages: readonly PresetEditorManifestPage[];
 }
@@ -58,7 +57,6 @@ const group = (id: string, title: string, fields: readonly ManifestFieldInput[])
  * and layout source; native option metadata never creates or reorders fields.
  */
 export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
-  version: 1,
   kind: 'filament',
   pages: [
     {
@@ -314,7 +312,6 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
  * vectors and the phase-one editor has no per-extruder control.
  */
 export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
-  version: 1,
   kind: 'printer',
   pages: [
     {

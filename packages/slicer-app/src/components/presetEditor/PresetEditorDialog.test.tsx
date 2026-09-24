@@ -120,7 +120,6 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
 
   return {
     ok: true,
-    version: 1,
     kind,
     canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical',
     draftExists: options.draftExists ?? true,
@@ -193,7 +192,7 @@ async function mount(
   onClose = vi.fn(),
   referencedFilamentSlots?: readonly number[],
   onMutate: (request: PresetDraftMutationRequest) => Promise<PresetDraftMutationResult> = async () => ({
-    ok: false, version: 1, error: 'mutation fixture not configured',
+    ok: false, error: 'mutation fixture not configured',
   }),
 ) {
   const container = document.createElement('div');
@@ -794,7 +793,7 @@ describe('PresetEditorDialog', () => {
 
   it('keeps rejected text visible with the native error and leaves effective state untouched', async () => {
     const source = snapshotFor('printer');
-    const onMutate = vi.fn(async () => ({ ok: false as const, version: 1 as const, errorCode: 'stale_revision', error: 'stale native draft' }));
+    const onMutate = vi.fn(async () => ({ ok: false as const, errorCode: 'stale_revision', error: 'stale native draft' }));
     await mount(source, vi.fn(), undefined, onMutate);
     const height = document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement;
     await changeInput(height, '240');

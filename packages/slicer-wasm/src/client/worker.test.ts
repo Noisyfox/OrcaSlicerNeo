@@ -336,7 +336,6 @@ describe('worker protocol', () => {
     await workerClient.getFilamentSessionSnapshot();
 
     const observed = workerClient.getHistoryDiagnostics();
-    expect(observed).toMatchObject({ version: 1 });
     expect(observed.worker.mutation.count).toBe(1);
     expect(observed.client.mutation.count).toBe(1);
     expect(observed.worker.directRestore.count).toBe(1);

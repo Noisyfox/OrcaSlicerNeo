@@ -111,13 +111,13 @@ char* duplicate_json(const std::string& value)
 
 json error_json(const std::string& message)
 {
-    return json{{"ok", false}, {"version", 1},
+    return json{{"ok", false},
                 {"error_code", "native_validation_failure"}, {"error", message}};
 }
 
 json command_error(const std::string& code, const std::string& message)
 {
-    return json{{"ok", false}, {"version", 1}, {"error_code", code},
+    return json{{"ok", false}, {"error_code", code},
                 {"error", message}, {"revision", state().history_revision}};
 }
 
@@ -185,14 +185,13 @@ json PresetDraftRegistry::snapshot_json() const
         entries.push_back(json{{"kind", kind_name(identity.first)}, {"canonical_name", identity.second},
                                {"overrides", overrides}});
     }
-    return json{{"version", 1}, {"entries", std::move(entries)}};
+    return json{{"entries", std::move(entries)}};
 }
 
 PresetDraftRegistry PresetDraftRegistry::from_snapshot_json(const json& value,
                                                              const PresetBundle& bundle)
 {
-    if (!value.is_object() || value.value("version", 0) != 1 ||
-        !value.contains("entries") || !value["entries"].is_array())
+    if (!value.is_object() || !value.contains("entries") || !value["entries"].is_array())
         throw std::runtime_error("invalid preset draft registry history root");
 
     PresetDraftRegistry result;
@@ -596,7 +595,7 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
 {
     const Preset* source = find_preset_source(state().presets, type, canonical_name);
     if (source == nullptr)
-        return json{{"ok", false}, {"version", 1}, {"error_code", "preset_not_found"},
+        return json{{"ok", false}, {"error_code", "preset_not_found"},
                     {"error", "preset not found: " + canonical_name}};
 
     Preset effective = *source;
@@ -616,7 +615,7 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
         json binding = editor_binding_json(key, *def, *source_option, *effective_option);
         if (!binding.is_null()) editor_bindings[key] = std::move(binding);
     }
-    return json{{"ok", true}, {"version", 1}, {"kind", kind_name(type)},
+    return json{{"ok", true}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr},
                 {"modified", overrides != nullptr && !overrides->empty()},
@@ -650,7 +649,7 @@ bool geometry_inputs_changed(const PresetDraftRegistry::Overrides* before,
 
 json mutate_draft_json(const json& request)
 {
-    if (!request.is_object() || request.value("version", 0) != 1)
+    if (!request.is_object())
         return command_error("invalid_request", "invalid preset draft request");
     if (state().active_history_transaction)
         return command_error("history_transaction_active", "preset draft command cannot run inside another history transaction");
@@ -864,12 +863,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_preset_draft(const char* kind_cstr,
         const Preset::Type type = kind == "printer" ? Preset::TYPE_PRINTER :
             (kind == "filament" ? Preset::TYPE_FILAMENT : Preset::TYPE_INVALID);
         if (type == Preset::TYPE_INVALID)
-            return duplicate_json(json{{"ok", false}, {"version", 1},
+            return duplicate_json(json{{"ok", false},
                                        {"error_code", "invalid_request"},
                                        {"error", "kind must be printer|filament"}}.dump());
         const std::string canonical_name = canonical_name_cstr ? canonical_name_cstr : "";
         if (canonical_name.empty())
-            return duplicate_json(json{{"ok", false}, {"version", 1},
+            return duplicate_json(json{{"ok", false},
                                        {"error_code", "invalid_request"},
                                        {"error", "canonical preset name required"}}.dump());
         return duplicate_json(PresetDrafts::get_draft_json(type, canonical_name).dump());
