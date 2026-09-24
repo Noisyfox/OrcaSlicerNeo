@@ -140,15 +140,36 @@ function exportedText(bytes, name) {
 
 const archive = buildImportedStateArchive();
 assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
-function loadImportedArchive() {
-  const archivePointer = writeBytes(archive);
+function legacyEmptyNotesArchive(source) {
+  const entries = readZipEntries(source);
+  const project = JSON.parse(textEntry(entries, 'Metadata/project_settings.config'));
+  // Match the legacy Bambu project shape: the Project config establishes the
+  // material-slot count, but serializes an unset per-filament note as a scalar
+  // empty string. Orca's Preset::normalize() expands it before preset loading.
+  project.filament_diameter = project.filament_settings_id.map(() => '1.75');
+  project.filament_notes = '';
+  return writeStoredZip(entries.map((entry) => entry.name === 'Metadata/project_settings.config'
+    ? { name: entry.name, content: encoder.encode(JSON.stringify(project)) }
+    : entry));
+}
+function loadArchive(bytes, name) {
+  const archivePointer = writeBytes(bytes);
   const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
-    [archivePointer, archive.byteLength, 0, 'imported-painting-tools.3mf']);
+    [archivePointer, bytes.byteLength, 0, name]);
   Module._free(archivePointer);
   return loaded;
 }
+function loadImportedArchive() {
+  return loadArchive(archive, 'imported-painting-tools.3mf');
+}
+const legacyNotes = loadArchive(legacyEmptyNotesArchive(archive), 'legacy-empty-filament-notes.3mf');
+assert.equal(legacyNotes.ok, true, JSON.stringify(legacyNotes));
 const loaded = loadImportedArchive();
 assert.equal(loaded.ok, true, JSON.stringify(loaded));
+if (options['load-only'] === 'true') {
+  console.log('PASS imported multi-filament legacy-vector load smoke');
+  process.exit(0);
+}
 
 const importedSession = callJson('orc_get_filament_session_snapshot');
 assert.equal(importedSession.slots.length, 4, JSON.stringify(importedSession));
