@@ -43,7 +43,7 @@ import type {
 } from '@slicer/client';
 import { readSceneDeltaProjection } from './viewport/sceneDeltaProjection';
 import { FilamentRack } from './FilamentRack';
-import { PresetEditorDialog } from '../presetEditor/PresetEditorDialog';
+import { PresetEditorDialog } from './settings/PresetEditorDialog';
 import { commitPresetDraftMutation } from './settings/configurationActions';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import { publishRememberedFilamentRack } from '../../preferences';
