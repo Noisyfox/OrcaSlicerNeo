@@ -29,6 +29,16 @@ describe('Prepare colour projection', () => {
   it('uses effective object assignment colour for printable model parts', () => {
     expect(prepareColourForVolume(volume(0), structure, snapshot)).toBe('#123456');
   });
+  it('retains imported eight-digit filament colours and alpha', () => {
+    const imported = {
+      ...snapshot,
+      slots: [{ ...snapshot.slots[0], colour: { effective: '#E72F1DFF', provenance: 'user' } }],
+    } as FilamentSessionSnapshot;
+    expect(prepareColourForVolume(volume(0), structure, imported)).toBe('#E72F1DFF');
+    expect(resolvePrepareMaterial({ baseColour: '#F4C032FF' }).colour).toBe('#f4c032');
+    expect(resolvePrepareMaterial({ baseColour: '#F4C032FF' })).toMatchObject({ opacity: 1, transparent: false, depthWrite: true });
+    expect(resolvePrepareMaterial({ baseColour: '#F4C03280' })).toMatchObject({ colour: '#f4c032', opacity: 128 / 255, transparent: true, depthWrite: false });
+  });
   it('does not colour modifiers from ordinary printable-volume state', () => {
     expect(prepareColourForVolume(volume(1), structure, snapshot)).toBe('#cbd5e1');
   });

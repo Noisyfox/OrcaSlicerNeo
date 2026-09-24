@@ -24,25 +24,32 @@ export function resolvePrepareMaterial(options: {
   transparent?: boolean;
 }): PrepareMaterialOverlay {
   const dimmed = options.disabled || options.outOfBounds;
-  const baseColour = adjustHexForRendering(normalizeHex(options.baseColour));
+  const configuredColour = normalizeHex(options.baseColour);
+  const baseColour = adjustHexForRendering(configuredColour.slice(0, 7));
+  const alpha = configuredColour.length === 9
+    ? Number.parseInt(configuredColour.slice(7), 16) / 255
+    : 1;
   return {
     colour: options.selected
       ? brightenForSelection(baseColour)
       : dimmed ? shade(baseColour, 0.52) : baseColour,
-    opacity: options.transparent ? 0.15 : 1,
-    transparent: Boolean(options.transparent),
-    depthWrite: !options.transparent,
+    opacity: options.transparent ? 0.15 : alpha,
+    transparent: Boolean(options.transparent) || alpha < 1,
+    depthWrite: !options.transparent && alpha === 1,
   };
 }
 
 function normalizeHex(value: string | undefined): string {
-  return /^#[0-9a-f]{6}$/i.test(value ?? '') ? value! : PREPARE_DEFAULT_COLOUR;
+  return /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value ?? '')
+    ? value!
+    : PREPARE_DEFAULT_COLOUR;
 }
 
 function shade(hex: string, factor: number): string {
-  const value = normalizeHex(hex).slice(1);
+  const colour = normalizeHex(hex);
+  const value = colour.slice(1, 7);
   const channels = [0, 2, 4].map((offset) => Math.max(0, Math.min(255, Math.round(Number.parseInt(value.slice(offset, offset + 2), 16) * factor))));
-  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}${colour.slice(7)}`;
 }
 
 function adjustHexForRendering(hex: string): string {

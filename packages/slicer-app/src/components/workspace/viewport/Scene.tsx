@@ -16,7 +16,7 @@ import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersi
 import { SelectionBoundsBox } from './SelectionBoundsBox';
 import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
-import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
+import { BUILD_PLATE_RAYCAST, MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSceneProjection';
 import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
@@ -112,6 +112,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           bounds: { minX: number; maxX: number; minY: number; maxY: number };
         }>;
         modelWorldCenters?: () => Array<[number, number, number]>;
+        modelMaterialColours?: () => Array<{ objectIndex: number; volumeIndex: number; colour: string }>;
         previewToolpathWorldBounds?: () => {
           min: [number, number, number];
           max: [number, number, number];
@@ -240,6 +241,23 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
         return [center.x, center.y, center.z];
       }),
+      modelMaterialColours: () => {
+        const colours: Array<{ objectIndex: number; volumeIndex: number; colour: string }> = [];
+        if (activeTab !== 'prepare') return colours;
+        scene.traverse((object) => {
+          if (object.userData.orcaRaycastRole !== MODEL_BODY_RAYCAST) return;
+          const volume = object.userData.orcaVolume as LoadedObject | undefined;
+          const mesh = object.getObjectByProperty('type', 'Mesh') as THREE.Mesh | undefined;
+          const material = mesh?.material;
+          if (!volume || !(material instanceof THREE.MeshStandardMaterial)) return;
+          colours.push({
+            objectIndex: volume.buffer.objectIdx,
+            volumeIndex: volume.buffer.volumeIdx,
+            colour: `#${material.color.getHexString()}`,
+          });
+        });
+        return colours;
+      },
       previewToolpathWorldBounds: () => {
         if (!toolpath || toolpath.segmentCount === 0) return null;
         const min: [number, number, number] = [Infinity, Infinity, Infinity];
@@ -373,6 +391,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             cameraState: _camera,
             bedPlateStates: _beds,
             modelWorldCenters: _models,
+            modelMaterialColours: _modelColours,
             previewToolpathWorldBounds: _toolpathBounds,
             realProjectModelWorldCentersProfile: _realProjectBounds,
             realProjectRendererMemorySnapshot: _realProjectMemory,
@@ -395,6 +414,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             cameraState: _camera,
             bedPlateStates: _beds,
             modelWorldCenters: _models,
+            modelMaterialColours: _modelColours,
             previewToolpathWorldBounds: _toolpathBounds,
             ...rest
           } = w.__orcaE2e;
