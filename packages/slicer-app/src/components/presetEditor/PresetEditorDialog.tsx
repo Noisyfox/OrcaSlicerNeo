@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { XIcon } from 'lucide-react';
 import type {
   OptionMeta,
   PresetDraftEditorBinding,
@@ -12,7 +13,7 @@ import type {
 import { errorText } from '@orca/slicer-runtime';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -877,6 +878,17 @@ export function PresetEditorDialog({
               disabled={interactionPending || !snapshot?.draftExists}
               onClick={() => void submitAction({ action: 'reset-preset' })}
             >Reset preset</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Close preset editor"
+              data-testid="preset-editor-close"
+              disabled={mutationPending}
+              onClick={onClose}
+            >
+              <XIcon aria-hidden="true" />
+            </Button>
           </div>
         </div>
 
@@ -960,10 +972,6 @@ export function PresetEditorDialog({
             ) : null}
           </div>
         </div>
-
-        <DialogFooter>
-          <Button type="button" onClick={onClose} disabled={mutationPending} data-testid="preset-editor-close">Close</Button>
-        </DialogFooter>
       </DialogContent>}
     </Dialog>
   );

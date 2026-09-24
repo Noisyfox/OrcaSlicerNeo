@@ -290,7 +290,8 @@ Printer or Filament target blocks opening another editor until the current
 dialog closes. This is a UI-concurrency rule only: multiple project drafts may
 remain resident and effective in the native session at the same time.
 
-The phase-one action surface has `Close` only as its primary dialog action.
+The phase-one action surface has a top-right X icon for `Close` as its only
+primary dialog action.
 There is no Save, Apply, or Cancel because accepted changes are already
 effective for the project session. `Reset preset` is a secondary destructive
 title-bar action and executes without confirmation.

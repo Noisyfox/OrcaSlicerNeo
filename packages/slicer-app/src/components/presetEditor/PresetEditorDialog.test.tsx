@@ -455,8 +455,10 @@ describe('PresetEditorDialog', () => {
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Filament Canonical');
     expect(document.querySelectorAll('[data-testid="preset-editor-close"]')).toHaveLength(1);
+    expect(document.querySelector('[data-testid="preset-editor-close"]')?.getAttribute('aria-label')).toBe('Close preset editor');
+    expect(document.querySelector('[data-testid="preset-editor-close"] svg')).not.toBeNull();
     const visibleActions = [...document.querySelectorAll('[role="dialog"] button')].map((button) => button.textContent?.trim());
-    expect(visibleActions).toContain('Close');
+    expect(visibleActions).not.toContain('Close');
     expect(visibleActions).not.toEqual(expect.arrayContaining(['Save', 'Apply', 'Cancel']));
     expect(document.querySelector('[data-testid="preset-editor-search"]')?.getAttribute('type')).toBe('search');
   });

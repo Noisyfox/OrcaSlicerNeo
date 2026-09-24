@@ -103,9 +103,10 @@ transcribed from the pinned Orca `TabPrinter::build()` and
 `TabFilament::build()` page/group/field ordering. Implement the single shared
 `PresetEditorDialog` shell that renders source identity, Project-draft marker,
 Filament referencing slots, all manifest fields, cross-page label/key/tooltip
-search, and the Close action. Native metadata supplies labels, types, help and
-constraints; it does not synthesize layout. Unsupported/structural fields are
-visibly read-only, including all specified topology-changing Printer fields.
+search, and the top-right X close action. Native metadata supplies labels,
+types, help and constraints; it does not synthesize layout. Unsupported or
+structural fields are visibly read-only, including all specified
+topology-changing Printer fields.
 
 **Done when.** Component tests demonstrate page/group ordering, search context,
 modified-marker rules, shared-slot title content, and read-only structural and
