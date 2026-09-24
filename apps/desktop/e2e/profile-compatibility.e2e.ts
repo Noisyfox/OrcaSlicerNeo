@@ -61,7 +61,7 @@ test('printer transitions atomically replace the Process picker while the Filame
     await popup.getByPlaceholder('Search presets…').fill('Bambu Lab P1S 0.4 nozzle');
     await popup.getByRole('option', { name: 'Bambu Lab P1S 0.4 nozzle', exact: true }).click();
 
-    // The e2e mock delays only selectProfile replies. This verifies that a
+    // The e2e mock delays profile selection and atomic Printer replies. This verifies that a
     // stale Process or Filament popup cannot be selected while the C++-shaped
     // atomic snapshot is still in flight.
     await expect(page.getByTestId('preset-transition-region')).toHaveAttribute('aria-busy', 'true');
