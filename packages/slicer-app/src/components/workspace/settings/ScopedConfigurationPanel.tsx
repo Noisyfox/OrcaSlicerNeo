@@ -144,7 +144,7 @@ export const ScopedField = memo(function ScopedField({
             htmlFor={`scoped-${field.key}`}
             data-testid={`config-option-label-${field.key}`}
             data-local-override-highlight={hasEditableLocalOverride ? 'true' : 'false'}
-            className={cn(labelCls, hasEditableLocalOverride && 'scoped-config-local-override-label')}
+            className={cn(labelCls, hasEditableLocalOverride && 'config-override-label')}
           >{label}</Label>
         </TooltipFor>
         {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Mixed</span>}

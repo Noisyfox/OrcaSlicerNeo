@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
   PRINTER_PRESET_EDITOR_MANIFEST,
@@ -696,7 +697,12 @@ function FieldValue({
       {titleContext}
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <Label className="block truncate text-sm font-medium" title={label}>{label}</Label>
+          <Label
+            data-testid={`preset-editor-option-label-${field.key}`}
+            data-draft-override-highlight={overridden ? 'true' : 'false'}
+            className={cn('block truncate text-sm font-medium', overridden && 'config-override-label')}
+            title={label}
+          >{label}</Label>
           <code className="break-all text-[0.7rem] text-muted-foreground">{field.key}</code>
         </div>
         {readOnly && <span

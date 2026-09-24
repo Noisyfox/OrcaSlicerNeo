@@ -337,6 +337,31 @@ describe('PresetEditorDialog', () => {
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('data-native-max')).toBe('1000');
   });
 
+  it('highlights overridden option labels like the print overlay and clears them after category reset', async () => {
+    const base = snapshotFor('printer', { modified: true });
+    const source: PresetDraftSnapshot = {
+      ...base,
+      overrides: { ...base.overrides, printer_variant: 'custom-variant' },
+      effectiveValues: { ...base.effectiveValues, printer_variant: 'custom-variant' },
+    };
+    await mount(source, vi.fn(), undefined, async (request) => mutationSuccess(source, request));
+
+    const label = (key: string) => document.querySelector(`[data-testid="preset-editor-option-label-${key}"]`);
+    for (const key of ['printable_height', 'printer_variant']) {
+      expect(label(key)?.getAttribute('data-draft-override-highlight')).toBe('true');
+      expect(label(key)?.classList.contains('config-override-label')).toBe(true);
+    }
+    expect(label('printer_model')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(label('printer_model')?.classList.contains('config-override-label')).toBe(false);
+    expect(document.querySelector('[data-testid="preset-editor-control-printable_height"]')?.classList.contains('config-override-label')).toBe(false);
+
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-basic-information"]'));
+    for (const key of ['printable_height', 'printer_variant']) {
+      expect(label(key)?.getAttribute('data-draft-override-highlight')).toBe('false');
+      expect(label(key)?.classList.contains('config-override-label')).toBe(false);
+    }
+  });
+
   it('marks a modified draft and lists the numbered slots sharing its Filament source', async () => {
     await mount(snapshotFor('filament', { modified: true }), vi.fn(), [3, 1, 3]);
     expect(document.querySelector('[data-testid="preset-editor-project-draft"]')?.textContent).toBe('Project draft');

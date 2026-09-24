@@ -354,6 +354,11 @@ element binding. Printer scalar machine G-code remains read-only.
 The editor provides three reset scopes: an overridden editable field has a
 field Reset that removes its draft override and inherits the source preset;
 each category page has `Reset category`; and the dialog has `Reset preset`.
+Every manifest-listed option with a runtime draft override highlights its label
+using the same modified-option color as the Print configuration overlay,
+including phase-one read-only fields. Removing that override clears the
+highlight; the input control itself remains unhighlighted.
+
 `Reset category` is one atomic native batch mutation: it either restores every
 override of every manifest field in that category, including Phase-one read-only
 fields, or makes no change. It produces one Undo/Redo history entry and

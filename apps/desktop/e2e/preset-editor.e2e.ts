@@ -71,6 +71,8 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     const initialPrinterHeight = await page.getByTestId('preset-editor-effective-printable_height').textContent();
     if (printerSourceHeight === null || initialPrinterHeight === null) throw new Error('expected Printer source/effective height');
     const printableHeight = page.getByTestId('preset-editor-input-printable_height');
+    const printableHeightLabel = page.getByTestId('preset-editor-option-label-printable_height');
+    await expect(printableHeightLabel).toHaveAttribute('data-draft-override-highlight', 'false');
     const printerHeightField = page.getByTestId('preset-editor-field-printable_height');
     const minimumText = await printerHeightField.getAttribute('data-native-min');
     const maximumText = await printerHeightField.getAttribute('data-native-max');
@@ -91,9 +93,11 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await printableHeight.press('Enter');
     await expect(printableHeight).toHaveValue(editedPrinterHeight);
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
+    await expect(printableHeightLabel).toHaveAttribute('data-draft-override-highlight', 'true');
     await page.getByTestId('preset-editor-reset-preset').click();
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
     await expect(printableHeight).toHaveValue(printerSourceHeight);
+    await expect(printableHeightLabel).toHaveAttribute('data-draft-override-highlight', 'false');
     await page.getByTestId('preset-editor-close').click();
 
     const initialActualColour = page.getByTestId('filament-colour-1');
@@ -116,6 +120,8 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     });
     await expect(defaultColour).toHaveValue('#123456');
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
+    await expect(page.getByTestId('preset-editor-option-label-default_filament_colour'))
+      .toHaveAttribute('data-draft-override-highlight', 'true');
     await expect(initialActualColour).toHaveValue(initialActualColourValue);
     await page.getByTestId('preset-editor-page-tab-advanced').click();
     const filamentStartGcode = page.getByTestId('preset-editor-input-filament_start_gcode');

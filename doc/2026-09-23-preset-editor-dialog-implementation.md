@@ -123,7 +123,9 @@ pinned Orca layout functions.
 colour controls to the typed contract. Reuse the current Scoped Project Config
 commit state machine: discrete changes commit immediately; free text commits
 on Enter/blur; Escape restores only local display text; native rejection stays
-inline. Add field, category, and preset reset actions. Add the Printer-picker
+inline. Highlight overridden option labels with the same color as the Print
+configuration overlay, and clear the highlight on reset. Add field, category,
+and preset reset actions. Add the Printer-picker
 Edit entry point and each Filament-slot menu Edit entry point. Preserve the
 separation between material `default_filament_colour` and project-owned actual
 slot colours.
