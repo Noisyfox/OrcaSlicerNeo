@@ -34,6 +34,8 @@ export type {
   ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
   PresetDraftKind, PresetDraftTarget, PresetDraftSnapshot, PresetDraftSnapshotResult,
+  PresetDraftEditorScalarType, PresetDraftEditorValue, PresetDraftEditorGuiType,
+  PresetDraftEditorEnumOption, PresetDraftEditorBinding,
   PresetDraftMutationRequest, PresetDraftMutationResult, PresetDraftMutationSuccess, PresetDraftError,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,

@@ -923,6 +923,94 @@ describe('SlicerClient bridge contract', () => {
       effectiveValues: { filament_flow_ratio: '1' } });
   });
 
+  it('normalizes native element bindings and sends explicit typed element intent', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    let elementRequest: Record<string, unknown> | undefined;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name === 'orc_get_preset_draft') {
+        const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        payload.option_metadata.filament_flow_ratio.type = 'floats';
+        payload.editor_bindings.filament_flow_ratio = {
+          scalar_type: 'float', index: 0, element_count: 2, nullable: false,
+          gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
+          source_value: 1, effective_value: 1,
+        };
+        payload.option_metadata.filament_type.type = 'strings';
+        payload.editor_bindings.filament_type = {
+          scalar_type: 'string', index: 0, element_count: 1, nullable: false,
+          gui_type: 'f_enum_open', gui_flags: 'show_value', multiline: false, is_code: false, readonly: false,
+          source_value: 'PLA', effective_value: 'PLA',
+        };
+        payload.source_values.filament_retract_lift_enforce = 'nil';
+        payload.effective_values.filament_retract_lift_enforce = '1';
+        payload.option_metadata.filament_retract_lift_enforce = { type: 'enums', label: 'Enforced surfaces' };
+        payload.editor_bindings.filament_retract_lift_enforce = {
+          scalar_type: 'enum', index: 0, element_count: 1, nullable: true,
+          gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
+          source_value: null, effective_value: 1,
+          enum_options: [
+            { value: 0, name: 'All Surfaces', label: 'All Surfaces' },
+            { value: 1, name: 'Top Only', label: 'Top Only' },
+          ],
+        };
+        const bytes = new TextEncoder().encode(JSON.stringify(payload));
+        const replacement = module._malloc(bytes.byteLength + 1);
+        module.HEAPU8.set(bytes, replacement);
+        module.HEAPU8[replacement + bytes.byteLength] = 0;
+        return replacement;
+      }
+      if (name === 'orc_mutate_preset_draft')
+        elementRequest = JSON.parse(String(args[0])) as Record<string, unknown>;
+      return pointer;
+    };
+    const c = createClient(async () => module);
+    await c.init();
+    const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
+    expect(draft).toMatchObject({ ok: true, editorBindings: {
+      filament_flow_ratio: { scalarType: 'float', index: 0, elementCount: 2,
+        sourceValue: 1, effectiveValue: 1 },
+      filament_type: { scalarType: 'string', guiType: 'f_enum_open', effectiveValue: 'PLA' },
+      filament_retract_lift_enforce: { scalarType: 'enum', sourceValue: null, effectiveValue: 1,
+        enumOptions: [{ value: 0, name: 'All Surfaces', label: 'All Surfaces' },
+          { value: 1, name: 'Top Only', label: 'Top Only' }] },
+    } });
+    if (!draft.ok) throw new Error('expected preset draft');
+    await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set-element', expectedRevision: draft.revision, key: 'filament_flow_ratio',
+      scalarType: 'float', index: 0, value: 1.25 });
+    expect(elementRequest).toMatchObject({ action: 'set-element', scalar_type: 'float',
+      index: 0, value: 1.25 });
+  });
+
+  it('rejects malformed native editor element projections', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name !== 'orc_get_preset_draft') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      payload.option_metadata.filament_flow_ratio.type = 'floats';
+      payload.editor_bindings.filament_flow_ratio = {
+        scalar_type: 'float', index: 0, element_count: 1, nullable: false,
+        gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
+        source_value: null, effective_value: 1,
+      };
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const replacement = module._malloc(bytes.byteLength + 1);
+      module.HEAPU8.set(bytes, replacement);
+      module.HEAPU8[replacement + bytes.byteLength] = 0;
+      return replacement;
+    };
+    const c = createClient(async () => module);
+    await c.init();
+    await expect(c.getPresetDraft('filament', 'Generic PLA @System'))
+      .resolves.toMatchObject({ ok: false, errorCode: 'invalid_response' });
+  });
+
   it.each(['missing', 'stale'] as const)('rejects a %s filament projection in a draft receipt', async (mode) => {
     const module = createMockModule();
     const originalCall = module.ccall;

@@ -50,6 +50,11 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
   return result;
 }
 
+function mutateDraftElement(kind, canonicalName, key, scalarType, index, value) {
+  return mutateDraft('set-element', kind, canonicalName,
+    { key, scalar_type: scalarType, index, value });
+}
+
 function readBytes(pointer, length) {
   const bytes = Module.HEAPU8.slice(Number(pointer), Number(pointer) + Number(length));
   Module._free(Number(pointer));
@@ -59,6 +64,13 @@ function readBytes(pointer, length) {
 const init = callJson('orc_init', ['string'], ['']);
 assert.equal(init.ok, true, JSON.stringify(init));
 const initial = callJson('orc_get_preset_snapshot');
+const genericPlaSource = initial.filament_catalog
+  .map((entry) => entry.name).find((name) => name === 'Generic PLA @System');
+assert.equal(genericPlaSource, 'Generic PLA @System',
+  'profile packages must provide the standard Generic PLA source for typed editor coverage');
+const genericPlaBefore = callJson('orc_get_preset_draft', ['string', 'string'],
+  ['filament', genericPlaSource]);
+assert.equal(genericPlaBefore.ok, true, JSON.stringify(genericPlaBefore));
 const printer = initial.printers.find((entry) => /Bambu Lab P1P 0\.4 nozzle/.test(entry.name))
   ?? initial.printers.find((entry) => /Bambu Lab/.test(entry.name));
 assert.ok(printer, 'profile packages must provide a flexible Bambu printer');
@@ -206,6 +218,159 @@ const afterFilamentDrafts = callJson('orc_get_preset_snapshot');
 assert.equal(afterFilamentDrafts.project_config.filament_max_volumetric_speed, '23,23,31',
   'the effective slice config must overlay the same canonical draft into both slots and preserve the other preset draft');
 
+// Pin the editor protocol to a standard, bundled source instead of relying on
+// whichever vendor preset happens to be selected by the current fixture.
+for (const key of [
+  'filament_shrink', 'filament_retract_length_nc', 'filament_type', 'filament_notes',
+  'filament_start_gcode', 'filament_retract_lift_enforce',
+]) {
+  assert.ok(Object.hasOwn(genericPlaBefore.editor_bindings, key),
+    `Generic PLA must expose its native editor binding for ${key}`);
+  assert.ok(Object.hasOwn(genericPlaBefore.source_values, key),
+    `Generic PLA must retain the full native option value for ${key}`);
+}
+assert.equal(genericPlaBefore.editor_bindings.filament_shrink.scalar_type, 'percent');
+assert.equal(genericPlaBefore.editor_bindings.filament_shrink.source_value, 100);
+assert.equal(genericPlaBefore.editor_bindings.filament_retract_length_nc.scalar_type, 'float');
+assert.equal(genericPlaBefore.editor_bindings.filament_retract_length_nc.nullable, true);
+assert.equal(genericPlaBefore.editor_bindings.filament_retract_length_nc.source_value, null);
+assert.equal(genericPlaBefore.source_values.filament_retract_length_nc, 'nil',
+  'a nil native vector element must project as null while its complete serialized value stays available');
+assert.equal(genericPlaBefore.editor_bindings.filament_type.scalar_type, 'string');
+assert.equal(genericPlaBefore.editor_bindings.filament_type.gui_type, 'f_enum_open');
+assert.equal(genericPlaBefore.editor_bindings.filament_type.gui_flags, 'show_value');
+assert.equal(Object.hasOwn(genericPlaBefore.editor_bindings.filament_type, 'enum_options'), false,
+  'the filament material field is an open string enum, not a closed integer enum');
+assert.equal(genericPlaBefore.editor_bindings.filament_notes.multiline, true);
+assert.equal(genericPlaBefore.editor_bindings.filament_start_gcode.multiline, true);
+assert.equal(genericPlaBefore.editor_bindings.filament_start_gcode.source_value, '; Filament gcode\n');
+assert.equal(genericPlaBefore.source_values.filament_start_gcode, '"; Filament gcode\\n"',
+  'native G-code escaping must remain available alongside the typed value');
+assert.equal(genericPlaBefore.editor_bindings.filament_retract_lift_enforce.scalar_type, 'enum');
+assert.equal(genericPlaBefore.editor_bindings.filament_retract_lift_enforce.nullable, true);
+assert.equal(genericPlaBefore.editor_bindings.filament_retract_lift_enforce.source_value, null);
+assert.ok(genericPlaBefore.editor_bindings.filament_retract_lift_enforce.enum_options.length > 0);
+assert.equal(Object.hasOwn(genericPlaBefore.editor_bindings, 'compatible_printers'), false,
+  'true compatible-printer lists must not be projected as one editable scalar');
+assert.equal(Object.hasOwn(genericPlaBefore.editor_bindings, 'compatible_prints'), false,
+  'true compatible-process lists must not be projected as one editable scalar');
+for (const key of ['filament_ramming_parameters', 'volumetric_speed_coefficients']) {
+  assert.ok(Object.hasOwn(genericPlaBefore.source_values, key),
+    `the source fixture must include the structured native option ${key}`);
+  assert.equal(Object.hasOwn(genericPlaBefore.editor_bindings, key), false,
+    `${key} must retain its specialized structure instead of being truncated to element zero`);
+}
+
+function rejectDraftElement(fields, expectedCode) {
+  const beforeHistory = historyStatus();
+  const rejected = request('orc_mutate_preset_draft', {
+    version: 1, action: 'set-element', kind: 'filament', canonical_name: genericPlaSource,
+    expected_revision: beforeHistory.revision, ...fields,
+  });
+  assert.equal(rejected.ok, false, JSON.stringify(rejected));
+  assert.equal(rejected.error_code, expectedCode);
+  assert.deepEqual(historyStatus(), beforeHistory,
+    'a malformed element command must not change registry history or the revision');
+}
+rejectDraftElement({ key: 'filament_shrink', scalar_type: 'percent', index: 1, value: 101 },
+  'invalid_index');
+rejectDraftElement({ key: 'filament_shrink', scalar_type: 'int', index: 0, value: 101 },
+  'invalid_element_type');
+rejectDraftElement({ key: 'filament_shrink', scalar_type: 'percent', index: 0, value: '101%' },
+  'invalid_value');
+rejectDraftElement({ key: 'filament_adhesiveness_category', scalar_type: 'float', index: 0, value: 2 },
+  'invalid_element_type');
+rejectDraftElement({ key: 'filament_adaptive_volumetric_speed', scalar_type: 'string', index: 0, value: 'true' },
+  'invalid_element_type');
+
+const genericPercentEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_shrink', 'percent', 0, 101.25);
+assert.equal(genericPercentEdit.source_values.filament_shrink, '100%');
+assert.equal(genericPercentEdit.effective_values.filament_shrink, '101.25%');
+assert.equal(genericPercentEdit.editor_bindings.filament_shrink.source_value, 100);
+assert.equal(genericPercentEdit.editor_bindings.filament_shrink.effective_value, 101.25);
+assert.equal(genericPercentEdit.overrides.filament_shrink, '101.25%',
+  'element edits must store the complete native serialized option in the existing registry');
+
+const genericIntegerEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_adhesiveness_category', 'int', 0, 2);
+assert.equal(genericIntegerEdit.editor_bindings.filament_adhesiveness_category.source_value, 0);
+assert.equal(genericIntegerEdit.editor_bindings.filament_adhesiveness_category.effective_value, 2);
+assert.equal(genericIntegerEdit.overrides.filament_adhesiveness_category, '2');
+const genericBooleanEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_adaptive_volumetric_speed', 'bool', 0, true);
+assert.equal(genericBooleanEdit.editor_bindings.filament_adaptive_volumetric_speed.source_value, false);
+assert.equal(genericBooleanEdit.editor_bindings.filament_adaptive_volumetric_speed.effective_value, true);
+assert.equal(genericBooleanEdit.overrides.filament_adaptive_volumetric_speed, '1');
+
+const genericVectorSeed = mutateDraft('set', 'filament', genericPlaSource,
+  { key: 'filament_max_volumetric_speed', value: '12,36' });
+assert.equal(genericVectorSeed.editor_bindings.filament_max_volumetric_speed.element_count, 2);
+assert.equal(genericVectorSeed.effective_values.filament_max_volumetric_speed, '12,36');
+const genericSecondElementEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_max_volumetric_speed', 'float', 1, 42);
+assert.equal(genericSecondElementEdit.editor_bindings.filament_max_volumetric_speed.effective_value, 12,
+  'the default projection stays bound to native index zero');
+assert.equal(genericSecondElementEdit.effective_values.filament_max_volumetric_speed, '12,42',
+  'editing a nonzero native index must preserve element zero and the full option serialization');
+const genericFirstElementEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_max_volumetric_speed', 'float', 0, 18);
+assert.equal(genericFirstElementEdit.editor_bindings.filament_max_volumetric_speed.element_count, 2);
+assert.equal(genericFirstElementEdit.editor_bindings.filament_max_volumetric_speed.effective_value, 18);
+assert.equal(genericFirstElementEdit.effective_values.filament_max_volumetric_speed, '18,42',
+  'editing index zero must preserve every other vector element');
+
+const genericNullableEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_retract_length_nc', 'float', 0, 8.5);
+assert.equal(genericNullableEdit.editor_bindings.filament_retract_length_nc.source_value, null);
+assert.equal(genericNullableEdit.editor_bindings.filament_retract_length_nc.effective_value, 8.5);
+assert.equal(genericNullableEdit.effective_values.filament_retract_length_nc, '8.5');
+const genericNullableReset = mutateDraftElement('filament', genericPlaSource,
+  'filament_retract_length_nc', 'float', 0, null);
+assert.equal(genericNullableReset.editor_bindings.filament_retract_length_nc.effective_value, null);
+assert.equal(genericNullableReset.effective_values.filament_retract_length_nc, 'nil');
+
+const genericEnumEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_retract_lift_enforce', 'enum', 0, 1);
+assert.equal(genericEnumEdit.editor_bindings.filament_retract_lift_enforce.effective_value, 1);
+assert.ok(genericEnumEdit.editor_bindings.filament_retract_lift_enforce.enum_options
+  .some((option) => option.value === 1));
+const escapedEditorText = 'PLA "prototype" \\ spool\nsecond line';
+const genericTextEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_notes', 'string', 0, escapedEditorText);
+assert.equal(genericTextEdit.editor_bindings.filament_notes.source_value, '');
+assert.equal(genericTextEdit.editor_bindings.filament_notes.effective_value, escapedEditorText);
+assert.equal(genericTextEdit.source_values.filament_notes, '""',
+  'an empty raw string remains distinct from the typed empty string value');
+assert.equal(genericTextEdit.overrides.filament_notes, genericTextEdit.effective_values.filament_notes);
+const genericOpenEnumEdit = mutateDraftElement('filament', genericPlaSource,
+  'filament_type', 'string', 0, 'PLA-CF "experimental"');
+assert.equal(genericOpenEnumEdit.editor_bindings.filament_type.gui_type, 'f_enum_open');
+assert.equal(genericOpenEnumEdit.editor_bindings.filament_type.effective_value, 'PLA-CF "experimental"');
+assert.equal(Object.hasOwn(genericOpenEnumEdit.editor_bindings.filament_type, 'enum_options'), false);
+assert.deepEqual(genericOpenEnumEdit.option_metadata, genericPlaBefore.option_metadata,
+  'the shared immutable option metadata cache must not change when editor values change');
+assert.ok(Object.values(genericOpenEnumEdit.overrides).every((value) => typeof value === 'string'),
+  'history registry state must continue to contain only complete native serialized option values');
+
+const genericBeforeUndo = callJson('orc_get_preset_draft', ['string', 'string'],
+  ['filament', genericPlaSource]);
+assert.equal(genericBeforeUndo.editor_bindings.filament_type.effective_value, 'PLA-CF "experimental"');
+const genericUndo = callJson('orc_history_undo');
+assert.equal(genericUndo.ok, true, JSON.stringify(genericUndo));
+assert.equal(genericUndo.impact.presetDrafts, true, JSON.stringify(genericUndo.impact));
+const genericAfterUndo = callJson('orc_get_preset_draft', ['string', 'string'],
+  ['filament', genericPlaSource]);
+assert.equal(genericAfterUndo.editor_bindings.filament_type.effective_value, 'PLA');
+assert.equal(genericAfterUndo.editor_bindings.filament_notes.effective_value, escapedEditorText,
+  'Undo must restore only the final element mutation while retaining prior element edits');
+const genericRedo = callJson('orc_history_redo');
+assert.equal(genericRedo.ok, true, JSON.stringify(genericRedo));
+assert.equal(genericRedo.impact.presetDrafts, true, JSON.stringify(genericRedo.impact));
+assert.equal(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', genericPlaSource])
+  .editor_bindings.filament_type.effective_value, 'PLA-CF "experimental"');
+mutateDraft('reset-preset', 'filament', genericPlaSource);
+
 const printerBefore = callJson('orc_get_preset_draft', ['string', 'string'], ['printer', printer.name]);
 assert.equal(printerBefore.ok, true, JSON.stringify(printerBefore));
 assert.ok(Object.hasOwn(printerBefore.source_values, 'nozzle_diameter'));
@@ -223,6 +388,21 @@ assert.equal(defaultColourDraft.overrides.default_filament_colour, '#123456');
 session = callJson('orc_get_filament_session_snapshot');
 assert.deepEqual(session.slots.map((slot) => slot.colour.effective), actualSlotColoursBeforeDraft,
   'editing the shared material default must not recolour project-owned actual slots');
+const firstSourceNotes = firstSourceBefore.editor_bindings.filament_notes;
+assert.ok(firstSourceNotes, 'the active source must expose the multiline notes element');
+const persistedElementText = 'Persisted "filament" \\ note\nsecond line';
+const persistedTextDraft = mutateDraftElement('filament', firstSource,
+  'filament_notes', 'string', 0, persistedElementText);
+assert.equal(persistedTextDraft.source_values.filament_notes,
+  firstSourceBefore.source_values.filament_notes,
+  'element mutation must not alter the source catalogue value');
+assert.equal(persistedTextDraft.editor_bindings.filament_notes.effective_value, persistedElementText);
+const persistedElementDraft = mutateDraftElement('filament', firstSource,
+  'filament_max_volumetric_speed', 'float', 0, 24.5);
+assert.equal(persistedElementDraft.source_values.filament_max_volumetric_speed,
+  firstSourceBefore.source_values.filament_max_volumetric_speed);
+assert.equal(persistedElementDraft.editor_bindings.filament_max_volumetric_speed.effective_value, 24.5);
+assert.equal(persistedElementDraft.overrides.filament_max_volumetric_speed, '24.5');
 const dormantDraft = mutateDraft('set', 'filament', dormantSource,
   { key: 'filament_cost', value: '47' });
 assert.equal(dormantDraft.modified, true);
@@ -238,7 +418,7 @@ assert.deepEqual(archive.filter(({ name }) => name.startsWith('Metadata/orca_neo
 const projectSettingsEntry = archive.find(({ name }) => name === 'Metadata/project_settings.config');
 assert.ok(projectSettingsEntry, 'standard project_settings.config must be present');
 const savedProjectConfig = JSON.parse(new TextDecoder().decode(projectSettingsEntry.content));
-assert.deepEqual(savedProjectConfig.filament_max_volumetric_speed.map(Number), [23, 23, 31],
+assert.deepEqual(savedProjectConfig.filament_max_volumetric_speed.map(Number), [24.5, 24.5, 31],
   'the ordinary project save must flatten effective Filament values');
 assert.deepEqual(savedProjectConfig.nozzle_diameter.map(Number), [0.6],
   'the ordinary project save must flatten the active Printer draft');
@@ -265,7 +445,7 @@ function loadArchive(bytes, displayName) {
 const reloaded = loadArchive(exportedBytes, 'preset-drafts-roundtrip.3mf');
 assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
 const reloadedPresets = callJson('orc_get_preset_snapshot');
-assert.equal(reloadedPresets.project_config.filament_max_volumetric_speed, '23,23,31',
+assert.equal(reloadedPresets.project_config.filament_max_volumetric_speed, '24.5,24.5,31',
   'real 3MF reload must preserve effective shared and independent Filament inputs');
 assert.equal(reloadedPresets.project_config.nozzle_diameter, '0.6',
   'real 3MF reload must preserve the active Printer draft value');
@@ -275,8 +455,12 @@ assert.equal(callJson('orc_get_preset_draft', ['string', 'string'], ['filament',
   .overrides.default_filament_colour, '#123456');
 assert.deepEqual(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', firstSource])
   .overrides, {
-  default_filament_colour: '#123456', filament_max_volumetric_speed: '23',
-}, 'reload must reconstruct one shared canonical Filament overlay');
+  default_filament_colour: '#123456', filament_max_volumetric_speed: '24.5',
+  filament_notes: persistedTextDraft.effective_values.filament_notes,
+}, 'reload must reconstruct the shared overlay including typed numeric and escaped text elements');
+assert.equal(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', firstSource])
+  .editor_bindings.filament_notes.effective_value, persistedElementText,
+  '3MF reload must recover exact text after native escaping and serialized overlay reconstruction');
 assert.deepEqual(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', alternateSource])
   .overrides, { filament_max_volumetric_speed: '31' },
 'reload must reconstruct an independent active Filament overlay');

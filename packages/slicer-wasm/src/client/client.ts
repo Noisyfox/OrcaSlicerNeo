@@ -39,7 +39,8 @@ import type {
   FilamentAssignmentRequest, FilamentRoutingRequest,
   NativePerformanceProfile,
   PresetDraftKind, PresetDraftMutationRequest, PresetDraftMutationResult,
-  PresetDraftSnapshotResult,
+  PresetDraftSnapshotResult, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
+  PresetDraftEditorGuiType, PresetDraftEditorScalarType, PresetDraftEditorValue,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -951,6 +952,106 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
   return result;
 }
 
+const PRESET_DRAFT_EDITOR_SCALAR_TYPES: readonly PresetDraftEditorScalarType[] = [
+  'float', 'int', 'bool', 'string', 'percent', 'float_or_percent', 'enum',
+];
+const PRESET_DRAFT_EDITOR_GUI_TYPES: readonly PresetDraftEditorGuiType[] = [
+  'undefined', 'i_enum_open', 'f_enum_open', 'color', 'select_open', 'slider',
+  'legend', 'one_string', 'plugin_picker', 'plugin_config', 'printer_agent_select',
+];
+const PRESET_DRAFT_EDITOR_NATIVE_TYPES: Record<PresetDraftEditorScalarType, string> = {
+  float: 'floats', int: 'ints', bool: 'bools', string: 'strings', percent: 'percents',
+  float_or_percent: 'floats_or_percents', enum: 'enums',
+};
+
+function isPresetDraftEditorValue(
+  value: unknown,
+  scalarType: PresetDraftEditorScalarType,
+  nullable: boolean,
+): value is PresetDraftEditorValue {
+  if (value === null) return nullable;
+  switch (scalarType) {
+    case 'float':
+    case 'percent':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'int':
+    case 'enum':
+      return typeof value === 'number' && Number.isSafeInteger(value) &&
+        value >= -2_147_483_648 && value <= 2_147_483_647;
+    case 'bool':
+      return typeof value === 'boolean';
+    case 'string':
+      return typeof value === 'string';
+    case 'float_or_percent':
+      return isRecord(value) && Object.keys(value).length === 2 &&
+        typeof value.value === 'number' && Number.isFinite(value.value) &&
+        typeof value.percent === 'boolean';
+  }
+}
+
+function normalizePresetDraftEditorBindings(
+  raw: unknown,
+  optionMetadata: Record<string, unknown>,
+  sourceValues: Record<string, string>,
+  effectiveValues: Record<string, string>,
+): Record<string, PresetDraftEditorBinding> | undefined {
+  if (!isRecord(raw)) return undefined;
+  const result: Record<string, PresetDraftEditorBinding> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isRecord(value) ||
+        typeof value.scalar_type !== 'string' ||
+        !PRESET_DRAFT_EDITOR_SCALAR_TYPES.includes(value.scalar_type as PresetDraftEditorScalarType) ||
+        !Number.isSafeInteger(value.index) || value.index !== 0 ||
+        !Number.isSafeInteger(value.element_count) || (value.element_count as number) < 1 ||
+        (value.index as number) >= (value.element_count as number) ||
+        typeof value.nullable !== 'boolean' ||
+        typeof value.gui_type !== 'string' ||
+        !PRESET_DRAFT_EDITOR_GUI_TYPES.includes(value.gui_type as PresetDraftEditorGuiType) ||
+        typeof value.gui_flags !== 'string' || typeof value.multiline !== 'boolean' ||
+        typeof value.is_code !== 'boolean' || typeof value.readonly !== 'boolean' ||
+        !Object.hasOwn(sourceValues, key) || !Object.hasOwn(effectiveValues, key))
+      return undefined;
+
+    const scalarType = value.scalar_type as PresetDraftEditorScalarType;
+    const metadata = optionMetadata[key];
+    if (!isRecord(metadata) || metadata.type !== PRESET_DRAFT_EDITOR_NATIVE_TYPES[scalarType] ||
+        !isPresetDraftEditorValue(value.source_value, scalarType, value.nullable) ||
+        !isPresetDraftEditorValue(value.effective_value, scalarType, value.nullable))
+      return undefined;
+
+    let enumOptions: PresetDraftEditorEnumOption[] | undefined;
+    if (scalarType === 'enum') {
+      if (!Array.isArray(value.enum_options) || value.enum_options.length === 0) return undefined;
+      const names = new Set<string>();
+      const enumValues = new Set<number>();
+      enumOptions = [];
+      for (const option of value.enum_options) {
+        if (!isRecord(option) || !Number.isSafeInteger(option.value) ||
+            (option.value as number) < -2_147_483_648 || (option.value as number) > 2_147_483_647 ||
+            typeof option.name !== 'string' || !option.name || typeof option.label !== 'string' ||
+            names.has(option.name) || enumValues.has(option.value as number))
+          return undefined;
+        names.add(option.name);
+        enumValues.add(option.value as number);
+        enumOptions.push({ value: option.value as number, name: option.name, label: option.label });
+      }
+      for (const enumValue of [value.source_value, value.effective_value])
+        if (enumValue !== null && !enumValues.has(enumValue as number)) return undefined;
+    } else if (Object.hasOwn(value, 'enum_options')) {
+      return undefined;
+    }
+
+    result[key] = {
+      scalarType, index: value.index as number, elementCount: value.element_count as number,
+      nullable: value.nullable, guiType: value.gui_type as PresetDraftEditorGuiType,
+      guiFlags: value.gui_flags, multiline: value.multiline, isCode: value.is_code,
+      readOnly: value.readonly, sourceValue: value.source_value,
+      effectiveValue: value.effective_value, ...(enumOptions ? { enumOptions } : {}),
+    };
+  }
+  return result;
+}
+
 function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
   if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid preset draft response', errorCode: 'invalid_response' };
   if (raw.ok !== true) {
@@ -975,9 +1076,13 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
       return { ok: false, version: 1, error: 'invalid preset draft option metadata', errorCode: 'invalid_response' };
     optionMetadata[key] = value as unknown as OptionMetadata[string];
   }
+  const editorBindings = normalizePresetDraftEditorBindings(
+    raw.editor_bindings, raw.option_metadata, sourceValues, effectiveValues);
+  if (!editorBindings)
+    return { ok: false, version: 1, error: 'invalid preset draft editor bindings', errorCode: 'invalid_response' };
   return { ok: true, version: 1, kind: raw.kind, canonicalName: raw.canonical_name,
     draftExists: raw.draft_exists, modified: raw.modified, overrides, sourceValues, effectiveValues,
-    optionMetadata, revision: raw.revision as number };
+    optionMetadata, editorBindings, revision: raw.revision as number };
 }
 
 function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
@@ -1656,6 +1761,12 @@ export function createClient(
       };
       if (request.action === 'set' || request.action === 'reset-field') payload.key = request.key;
       if (request.action === 'set') payload.value = request.value;
+      if (request.action === 'set-element') {
+        payload.key = request.key;
+        payload.scalar_type = request.scalarType;
+        payload.index = request.index;
+        payload.value = request.value;
+      }
       if (request.action === 'reset-category') payload.keys = [...request.keys];
       return normalizePresetDraftMutation(
         callJson(m, 'orc_mutate_preset_draft', ['string'], [JSON.stringify(payload)]),

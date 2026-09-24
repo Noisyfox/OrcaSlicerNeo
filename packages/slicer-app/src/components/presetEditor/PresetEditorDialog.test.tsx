@@ -56,6 +56,7 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     sourceValues,
     effectiveValues,
     optionMetadata,
+    editorBindings: {},
     revision: 1,
   };
 }

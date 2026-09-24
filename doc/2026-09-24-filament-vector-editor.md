@@ -64,6 +64,42 @@ agent until accepted.
    Gate: parent independently reruns the performance probe and reviews history
    storage/restore to confirm projections do not duplicate snapshot state.
 
+## Step 1 implementation evidence (self-verified; parent acceptance pending)
+
+The native draft response adds an `editor_bindings` map with scalar type,
+native index and vector length, nullability, GUI type/flags, multiline/code/
+read-only semantics, and typed source/effective element values. Closed native
+enum vectors include their integer choices and labels; open string enums such
+as `filament_type` retain `f_enum_open` and remain strings. Existing complete
+serialized source/effective values and overrides remain unchanged. True
+compatibility lists, serialized/plugin fields, identity metadata, points/groups,
+the RammingDialog parameter string, and volumetric coefficient strings are not
+projected as element zero.
+
+`set-element` requires an explicit native index and scalar type, validates the
+value and index, clones only the target source option, deserializes an existing
+full-option override into that clone with substitutions disabled, and writes
+its complete native serialization through the existing draft registry/history
+transaction. It does not add editor projections to registry or history
+snapshots. The existing full-option `set` action remains available.
+
+Self-verification used the bundled `Generic PLA @System` source: element edits
+preserved both elements of a two-value vector; integer and boolean edits were
+written; bad index/type/value requests left history unchanged; nullable,
+percent, closed-enum, open-enum, and escaped multiline text values round-tripped;
+shared-source isolation, Undo/Redo, cached metadata stability, and ordinary
+3MF save/reload passed. The current loaded catalog inventory was checked across
+all 1,009 Printer and 289 Filament sources (all draft snapshots succeeded); none
+exposes a `floats_or_percents` binding, so no real-profile `float_or_percent`
+write case exists in these resources. Parent acceptance is still pending.
+
+Checks passed: `pnpm --filter @orca/slicer-wasm test` (182 tests),
+`pnpm --filter @orca/slicer-wasm typecheck`,
+`pnpm --filter @orca/slicer-app typecheck`,
+`pnpm --filter @orca/slicer-app test` (639 tests),
+`scripts\build-windows.bat quick --variant serial -j 8`, and
+`pnpm --filter @orca/slicer-wasm preset-draft-registry-smoke`.
+
 Baseline: `%TEMP%/orca-preset-perf/final-serial.json` and scripts, prior serial
 artifact hash `3e4db847481e6256c7220b7ead7b9fa13aeceee9d104dfaa6fe475fb2ec723fd`.
 Odyssey fixture: 45,586,816 bytes, 14 objects/instances, 11 plates; SHA256
@@ -72,6 +108,6 @@ Path: `E:\OneDrive\Dokumente\3d打印\模型\奥德赛\OddseyHelmetFinalParts+(2
 
 ## Acceptance record
 
-- Step 1: pending.
-- Step 2: not started.
+- Step 1: accepted by parent after source review, independent WASM 182-test suite/typecheck and real preset draft smoke. Element updates clone one option; projections remain absent from history roots. Current bundled presets have no float-or-percent vector fixture (explicit coverage limitation).
+- Step 2: ready after Step 1 acceptance.
 - Step 3: not started.

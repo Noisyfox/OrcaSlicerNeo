@@ -416,7 +416,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return { ok: true, version: 1, kind, canonical_name: canonicalName,
       draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
       overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...overrides },
-      option_metadata: optionMetadata, revision: historyRevision };
+      option_metadata: optionMetadata, editor_bindings: {}, revision: historyRevision };
   }
   function nativePresetDraftHistoryContext() {
     return {

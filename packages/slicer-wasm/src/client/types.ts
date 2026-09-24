@@ -391,7 +391,7 @@ export type ProfileSnapshotResult = ProfileSnapshot | ProfileSnapshotError;
 export type OptionMetaType =
   | 'float' | 'int' | 'string' | 'bool' | 'percent' | 'floats' | 'ints'
   | 'strings' | 'bools' | 'enum' | 'float_or_percent' | 'percents'
-  | 'point' | 'points' | 'point3' | 'unknown';
+  | 'enums' | 'floats_or_percents' | 'point' | 'points' | 'point3' | 'unknown';
 
 export interface OptionMeta {
   type: OptionMetaType;
@@ -419,6 +419,43 @@ export interface PresetDraftTarget {
   readonly canonicalName: string;
 }
 
+export type PresetDraftEditorScalarType =
+  | 'float' | 'int' | 'bool' | 'string' | 'percent' | 'float_or_percent' | 'enum';
+
+export type PresetDraftEditorValue =
+  | number
+  | boolean
+  | string
+  | { readonly value: number; readonly percent: boolean }
+  | null;
+
+export type PresetDraftEditorGuiType =
+  | 'undefined' | 'i_enum_open' | 'f_enum_open' | 'color' | 'select_open'
+  | 'slider' | 'legend' | 'one_string' | 'plugin_picker' | 'plugin_config'
+  | 'printer_agent_select';
+
+export interface PresetDraftEditorEnumOption {
+  readonly value: number;
+  readonly name: string;
+  readonly label: string;
+}
+
+/** Native typed element projection; raw full-option values remain on the snapshot. */
+export interface PresetDraftEditorBinding {
+  readonly scalarType: PresetDraftEditorScalarType;
+  readonly index: number;
+  readonly elementCount: number;
+  readonly nullable: boolean;
+  readonly guiType: PresetDraftEditorGuiType;
+  readonly guiFlags: string;
+  readonly multiline: boolean;
+  readonly isCode: boolean;
+  readonly readOnly: boolean;
+  readonly sourceValue: PresetDraftEditorValue;
+  readonly effectiveValue: PresetDraftEditorValue;
+  readonly enumOptions?: readonly PresetDraftEditorEnumOption[];
+}
+
 export interface PresetDraftSnapshot extends PresetDraftTarget {
   readonly ok: true;
   readonly version: 1;
@@ -429,6 +466,8 @@ export interface PresetDraftSnapshot extends PresetDraftTarget {
   readonly effectiveValues: Readonly<Record<string, string>>;
   /** Native option definitions for the source's available fields. */
   readonly optionMetadata: OptionMetadata;
+  /** Native typed element projections; does not replace source/effective raw values. */
+  readonly editorBindings: Readonly<Record<string, PresetDraftEditorBinding>>;
   readonly revision: number;
 }
 
@@ -448,6 +487,17 @@ interface PresetDraftMutationBase extends PresetDraftTarget {
 
 export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'set'; readonly key: string; readonly value: string })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'float' | 'percent'; readonly value: number | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'int' | 'enum'; readonly value: number | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'bool'; readonly value: boolean | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'string'; readonly value: string | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'float_or_percent';
+      readonly value: { readonly value: number; readonly percent: boolean } | null })
   | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string })
   | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[] })
   | (PresetDraftMutationBase & { readonly action: 'reset-preset' });

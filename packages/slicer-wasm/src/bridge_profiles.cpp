@@ -195,6 +195,8 @@ std::string option_type_name(const ConfigOptionDef& def)
         case coEnum:             return "enum";
         case coFloatOrPercent:   return "float_or_percent";
         case coPercents:         return "percents";
+        case coFloatsOrPercents: return "floats_or_percents";
+        case coEnums:            return "enums";
         case coPoint:            return "point";
         case coPoints:           return "points";
         case coPoint3:           return "point3";
