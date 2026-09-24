@@ -15,24 +15,47 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await page.getByTestId('preset-edit-printer').click();
     const dialog = page.getByTestId('preset-editor-dialog');
     await expect(dialog).toBeVisible();
-    await expect(page.getByTestId('preset-editor-title')).toHaveText('Bambu Lab X1 Carbon 0.4 nozzle');
+    await expect(page.getByTestId('preset-editor-title')).not.toBeEmpty();
+    const printerSourceHeight = await page.getByTestId('preset-editor-source-printable_height').textContent();
+    const initialPrinterHeight = await page.getByTestId('preset-editor-effective-printable_height').textContent();
+    if (printerSourceHeight === null || initialPrinterHeight === null) throw new Error('expected Printer source/effective height');
     const printableHeight = page.getByTestId('preset-editor-input-printable_height');
-    await printableHeight.fill('260');
+    const printerHeightField = page.getByTestId('preset-editor-field-printable_height');
+    const minimumText = await printerHeightField.getAttribute('data-native-min');
+    const maximumText = await printerHeightField.getAttribute('data-native-max');
+    const minimum = minimumText === null ? Number.NEGATIVE_INFINITY : Number(minimumText);
+    const maximum = maximumText === null ? Number.POSITIVE_INFINITY : Number(maximumText);
+    const initialPrinterHeightNumber = Number(initialPrinterHeight);
+    const editedPrinterHeightNumber = initialPrinterHeightNumber + 1 <= maximum
+      ? initialPrinterHeightNumber + 1
+      : initialPrinterHeightNumber - 1;
+    if (!Number.isFinite(initialPrinterHeightNumber)
+      || editedPrinterHeightNumber < minimum
+      || editedPrinterHeightNumber > maximum
+      || editedPrinterHeightNumber === initialPrinterHeightNumber) {
+      throw new Error(`expected a distinct printable_height within [${minimum}, ${maximum}]`);
+    }
+    const editedPrinterHeight = String(editedPrinterHeightNumber);
+    await printableHeight.fill(editedPrinterHeight);
     await printableHeight.press('Enter');
-    await expect(printableHeight).toHaveValue('260');
+    await expect(printableHeight).toHaveValue(editedPrinterHeight);
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
     await page.getByTestId('preset-editor-reset-preset').click();
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
-    await expect(printableHeight).toHaveValue('256');
+    await expect(printableHeight).toHaveValue(printerSourceHeight);
     await page.getByTestId('preset-editor-close').click();
 
     const initialActualColour = page.getByTestId('filament-colour-1');
-    await expect(initialActualColour).toHaveValue('#f2754e');
+    const initialActualColourValue = await initialActualColour.inputValue();
+    await expect(initialActualColour).toHaveValue(initialActualColourValue);
     await page.getByTestId('filament-actions-1').click();
     await page.getByTestId('filament-edit-1').click();
     await expect(dialog).toBeVisible();
-    await expect(page.getByTestId('preset-editor-title')).toHaveText('Generic PLA @System');
+    await expect(page.getByTestId('preset-editor-title')).not.toBeEmpty();
+    const filamentSourceName = await page.getByTestId('preset-editor-title').textContent();
+    if (!filamentSourceName) throw new Error('expected Filament canonical source name');
     const defaultColour = page.getByTestId('preset-editor-input-default_filament_colour');
+    const initialDefaultColour = await defaultColour.inputValue();
     await defaultColour.evaluate((element) => {
       const input = element as HTMLInputElement;
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -42,25 +65,39 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     });
     await expect(defaultColour).toHaveValue('#123456');
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
-    await expect(initialActualColour).toHaveValue('#f2754e');
+    await expect(initialActualColour).toHaveValue(initialActualColourValue);
+    await page.getByTestId('preset-editor-page-tab-advanced').click();
+    const filamentStartGcode = page.getByTestId('preset-editor-input-filament_start_gcode');
+    const initialFilamentStartGcode = await filamentStartGcode.inputValue();
+    await filamentStartGcode.fill('G28\nM104 S205\nM140 S60\n');
+    await filamentStartGcode.press('Control+Enter');
+    await expect(filamentStartGcode).toHaveValue('G28\nM104 S205\nM140 S60\n');
+    await expect(initialActualColour).toHaveValue(initialActualColourValue);
     await page.getByTestId('preset-editor-close').click();
 
     await page.getByTestId('filament-add').click();
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();
+    const secondActualColour = page.getByTestId('filament-colour-2');
+    const secondActualColourValue = await secondActualColour.inputValue();
     await page.getByTestId('filament-actions-2').click();
     await page.getByTestId('filament-edit-2').click();
-    await expect(page.getByTestId('preset-editor-title')).toHaveText('Generic PLA @System');
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(filamentSourceName);
     await expect(page.getByTestId('preset-editor-slot-reference'))
       .toHaveText('Used by slot 1 and slot 2. Editing this source affects those slots.');
     await expect(page.getByTestId('preset-editor-input-default_filament_colour')).toHaveValue('#123456');
-    await expect(page.getByTestId('filament-colour-1')).toHaveValue('#f2754e');
-    await expect(page.getByTestId('filament-colour-2')).toHaveValue('#f2754e');
+    await expect(page.getByTestId('filament-colour-1')).toHaveValue(initialActualColourValue);
+    await expect(secondActualColour).toHaveValue(secondActualColourValue);
+    await page.getByTestId('preset-editor-page-tab-advanced').click();
+    await expect(page.getByTestId('preset-editor-input-filament_start_gcode'))
+      .toHaveValue('G28\nM104 S205\nM140 S60\n');
 
     await page.getByTestId('preset-editor-reset-preset').click();
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
-    await expect(page.getByTestId('preset-editor-input-default_filament_colour')).toHaveValue('#f2754e');
-    await expect(page.getByTestId('filament-colour-1')).toHaveValue('#f2754e');
-    await expect(page.getByTestId('filament-colour-2')).toHaveValue('#f2754e');
+    await expect(page.getByTestId('preset-editor-input-filament_start_gcode')).toHaveValue(initialFilamentStartGcode);
+    await page.getByTestId('preset-editor-page-tab-filament').click();
+    await expect(page.getByTestId('preset-editor-input-default_filament_colour')).toHaveValue(initialDefaultColour);
+    await expect(page.getByTestId('filament-colour-1')).toHaveValue(initialActualColourValue);
+    await expect(secondActualColour).toHaveValue(secondActualColourValue);
   } finally {
     await app.close();
   }

@@ -6,6 +6,10 @@ export interface PresetEditorManifestField {
   readonly key: string;
   readonly access: PresetEditorFieldAccess;
   readonly readOnlyReason?: string;
+  /** Render a multiline text control for native script values. */
+  readonly multiline?: boolean;
+  /** The field must have a native vector-element binding before it is editable. */
+  readonly nativeElementOnly?: boolean;
 }
 
 export interface PresetEditorManifestGroup {
@@ -31,6 +35,12 @@ const editable = (...keys: string[]): PresetEditorManifestField[] =>
 
 const readOnly = (readOnlyReason: string, ...keys: string[]): PresetEditorManifestField[] =>
   keys.map((key) => ({ key, access: 'read-only', readOnlyReason }));
+
+const editableMultiline = (...keys: string[]): PresetEditorManifestField[] =>
+  keys.map((key) => ({ key, access: 'editable', multiline: true, nativeElementOnly: true }));
+
+const editableNativeElement = (...keys: string[]): PresetEditorManifestField[] =>
+  keys.map((key) => ({ key, access: 'editable', nativeElementOnly: true }));
 
 type ManifestFieldInput = PresetEditorManifestField | readonly PresetEditorManifestField[];
 
@@ -216,13 +226,13 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
       title: 'Advanced',
       groups: [
         group('filament-start-gcode', 'Filament start G-code', [
-          readOnly('Custom G-code uses a dedicated editor.', 'filament_start_gcode'),
+          editableMultiline('filament_start_gcode'),
         ]),
         group('change-extrusion-role-gcode', 'Change extrusion role G-code', [
-          readOnly('Custom G-code uses a dedicated editor.', 'filament_change_extrusion_role_gcode'),
+          editableMultiline('filament_change_extrusion_role_gcode'),
         ]),
         group('filament-end-gcode', 'Filament end G-code', [
-          readOnly('Custom G-code uses a dedicated editor.', 'filament_end_gcode'),
+          editableMultiline('filament_end_gcode'),
         ]),
         group('plugin-configuration', 'Plugin Configuration', [
           readOnly('Plugin configuration is a structured value.', 'filament_plugin_config_overrides'),
@@ -292,7 +302,7 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
     {
       id: 'notes',
       title: 'Notes',
-      groups: [group('notes', 'Notes', editable('filament_notes'))],
+      groups: [group('notes', 'Notes', editableNativeElement('filament_notes'))],
     },
   ],
 };

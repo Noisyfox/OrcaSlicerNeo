@@ -37,6 +37,13 @@ The UI retains the existing desktop layout and uses existing shared controls.
 Mobile remains deferred. Additional work is per-option/per-editor projection,
 not model geometry; benchmark response size and history cost before handoff.
 
+For Step 2, the ordinary Filament vector fields `filament_start_gcode`,
+`filament_change_extrusion_role_gcode`, `filament_end_gcode`, and
+`filament_notes` are editable through native element bindings and explicit
+`set-element` mutations, using multiline controls where native metadata says
+multiline. Printer scalar machine G-code remains read-only as specified; this
+scope refinement does not enable other specialized controls.
+
 ## Sequential implementation and gates
 
 Each step is assigned to a new implementation subagent. The subagent implements
@@ -106,8 +113,60 @@ Odyssey fixture: 45,586,816 bytes, 14 objects/instances, 11 plates; SHA256
 `6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425`.
 Path: `E:\OneDrive\Dokumente\3d打印\模型\奥德赛\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf`.
 
+## Step 2 implementation evidence (self-verified; parent acceptance pending)
+
+The shared dialog renders bound bool, integer, float, percent, float-or-percent,
+closed numeric enum, open string enum, nullable, colour and multiline string
+elements from native bindings, and submits explicit `set-element` requests.
+Source/effective displays use typed projections when bound. Percent displays
+retain percent semantics, float-or-percent keeps its separate unit flag, and
+null remains distinct from empty text. It leaves whole serialized values to
+existing consumers and mutations, uses `nozzle_diameter.elementCount` for
+Printer template cardinality, and makes a missing required Filament G-code or
+notes binding read-only. The complete `editorBindings` map remains mandatory;
+there is no compatibility fallback for an absent map. Printer scalar machine
+G-code remains read-only.
+
+The mock module now reports native-shaped metadata and typed bindings for its
+vector fixtures, applies one-element mutations while preserving neighboring
+elements, includes typed state in mock history, and supports reset. App tests
+cover typed requests and resulting values, typed source/effective projection,
+neighbor preservation, null versus empty text, native enum semantics,
+multiline G-code, and field/category/preset resets. The focused real-runtime
+Electron E2E edits and resets the real Printer value and Filament colour/G-code,
+checks shared canonical source and confirms both actual slot colours remain
+unchanged. Its expectations capture the selected runtime's actual defaults;
+the edited Printer value is selected inside its native min/max range.
+
+Checks passed: `pnpm --filter @orca/slicer-app test` (643 tests), app
+typecheck, `pnpm --filter @orca/slicer-wasm test` (183 tests), WASM typecheck,
+desktop typecheck, CSS smoke, and focused real serial Electron E2E (1 test).
+`git diff --check` passed. The mock does not parse serialized values in the UI;
+its test-boundary fixture parser only handles the mock's native-shaped JSON
+vectors. No additional UI component system was introduced.
+
+For parent repeat acceptance from PowerShell, stage the artifacts and pin the
+desktop E2E build to the current serial WASM output (do not use the stale
+threaded artifact):
+
+```powershell
+pnpm exec node scripts/stage.mjs
+$env:VITE_USE_MOCK = '0'
+$env:VITE_REAL_PROJECT_PROFILE = '0'
+$env:VITE_E2E = '1'
+$env:VITE_SCOPED_CONFIGURATION_GATE = '1'
+$env:VITE_SCOPED_CONFIGURATION_GATE_VARIANT = 'serial'
+$env:ORCA_E2E_REAL = '1'
+pnpm --filter @orca/desktop exec electron-vite build --mode e2e
+pnpm --filter @orca/desktop exec playwright test e2e/preset-editor.e2e.ts
+```
+
+The serial WASM used by the passing E2E was 34,844,945 bytes with SHA256
+`566FAA684E3592E5D806B4DAAB5AC014654E3F40DCCB799E680933A7595BE1FE`; the
+staged renderer copy had the same size and hash. No threaded build was used.
+
 ## Acceptance record
 
 - Step 1: accepted by parent after source review, independent WASM 182-test suite/typecheck and real preset draft smoke. Element updates clone one option; projections remain absent from history roots. Current bundled presets have no float-or-percent vector fixture (explicit coverage limitation).
-- Step 2: ready after Step 1 acceptance.
-- Step 3: not started.
+- Step 2: accepted by parent after independent real serial Electron E2E (1 passed), app tests (646 passed), typecheck and source review. Review corrections cover all unbound vector types and typed field-reset values.
+- Step 3: ready after Step 2 acceptance.

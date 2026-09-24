@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type {
   OptionMeta,
+  PresetDraftEditorBinding,
+  PresetDraftEditorScalarType,
+  PresetDraftEditorValue,
   PresetDraftMutationRequest,
   PresetDraftMutationResult,
   PresetDraftSnapshot,
@@ -56,14 +59,9 @@ function manifestFor(kind: PresetDraftTarget['kind']): PresetEditorManifest {
 }
 
 function printerExtruderCount(snapshot: PresetDraftSnapshot): number | null {
-  const serialized = snapshot.effectiveValues.nozzle_diameter ?? snapshot.sourceValues.nozzle_diameter;
-  if (!serialized) return null;
-  const diameters = serialized.split(',');
-  if (diameters.some((diameter) => {
-    const value = Number(diameter.trim());
-    return !Number.isFinite(value) || value <= 0;
-  })) return null;
-  return diameters.length;
+  const count = snapshot.editorBindings.nozzle_diameter?.elementCount;
+  if (count === undefined) return null;
+  return Number.isSafeInteger(count) && count > 0 && count <= 64 ? count : null;
 }
 
 function pageInstances(manifest: PresetEditorManifest, snapshot: PresetDraftSnapshot | null): PresetEditorManifestPage[] {
@@ -112,8 +110,42 @@ function colourInputValue(value: string): string {
 
 function isStructuredValue(metadata: OptionMeta | undefined): boolean {
   return metadata !== undefined && [
-    'floats', 'ints', 'strings', 'bools', 'point', 'points', 'point3', 'unknown',
+    'floats', 'ints', 'strings', 'bools', 'percents', 'enums', 'floats_or_percents',
+    'point', 'points', 'point3', 'unknown',
   ].includes(metadata.type);
+}
+
+function inputTextForBinding(value: PresetDraftEditorValue, scalarType: PresetDraftEditorScalarType): string {
+  if (value === null) return '';
+  if (scalarType === 'float_or_percent' && typeof value === 'object') return String(value.value);
+  return String(value);
+}
+
+function projectedValueText(value: PresetDraftEditorValue, scalarType: PresetDraftEditorScalarType): string {
+  if (value === null) return '(null)';
+  if (scalarType === 'float_or_percent' && typeof value === 'object')
+    return `${value.value}${value.percent ? '%' : ''}`;
+  if (scalarType === 'percent' && typeof value === 'number') return `${value}%`;
+  if (typeof value === 'string') return value.length === 0 ? '(empty)' : value;
+  return String(value);
+}
+
+function makeElementMutationRequest(
+  snapshot: PresetDraftSnapshot,
+  key: string,
+  binding: PresetDraftEditorBinding,
+  value: PresetDraftEditorValue,
+): PresetDraftMutationRequest {
+  return {
+    kind: snapshot.kind,
+    canonicalName: snapshot.canonicalName,
+    expectedRevision: snapshot.revision,
+    action: 'set-element',
+    key,
+    scalarType: binding.scalarType,
+    index: binding.index,
+    value,
+  } as PresetDraftMutationRequest;
 }
 
 /**
@@ -123,15 +155,20 @@ function isStructuredValue(metadata: OptionMeta | undefined): boolean {
  * the partial values that C++ deserialization would otherwise truncate.
  */
 function normalizeScalarInput(value: string, metadata: OptionMeta | undefined): string | null {
-  if (metadata?.type !== 'float' && metadata?.type !== 'int') return value;
+  if (!metadata) return value;
+  const scalarType = metadata?.type;
+  if (scalarType !== 'float' && scalarType !== 'int' && scalarType !== 'percent' &&
+      scalarType !== 'float_or_percent' && scalarType !== 'floats' && scalarType !== 'ints' &&
+      scalarType !== 'percents' && scalarType !== 'floats_or_percents') return value;
   const text = value.trim();
-  const valid = metadata.type === 'int'
+  const integer = scalarType === 'int' || scalarType === 'ints';
+  const valid = integer
     ? /^[+-]?\d+$/.test(text)
     : /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text);
   if (!valid) return null;
 
   const parsed = Number(text);
-  if (!Number.isFinite(parsed) || (metadata.type === 'int' && !Number.isSafeInteger(parsed))) return null;
+  if (!Number.isFinite(parsed) || (integer && !Number.isSafeInteger(parsed))) return null;
   const minimum = typeof metadata.min === 'number' && Number.isFinite(metadata.min)
     ? metadata.min : -Infinity;
   const maximum = typeof metadata.max === 'number' && Number.isFinite(metadata.max)
@@ -140,6 +177,8 @@ function normalizeScalarInput(value: string, metadata: OptionMeta | undefined): 
   const clamped = Math.min(maximum, Math.max(minimum, parsed));
   return String(clamped);
 }
+
+const NULL_ENUM_VALUE = '__preset_editor_null__';
 
 function makeMutationRequest(
   snapshot: PresetDraftSnapshot,
@@ -169,16 +208,28 @@ function FieldValue({
 }) {
   const label = labelFor(field, metadata);
   const tooltip = metadata?.tooltip;
-  const sourceValue = valueText(snapshot.sourceValues, field.key);
-  const effectiveValue = snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
+  const binding = snapshot.editorBindings[field.key];
+  const sourceValue = binding
+    ? projectedValueText(binding.sourceValue, binding.scalarType)
+    : valueText(snapshot.sourceValues, field.key);
+  const effectiveValue = binding
+    ? inputTextForBinding(binding.effectiveValue, binding.scalarType)
+    : snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
   const colourField = isColourField(field, metadata);
-  const unsupportedStructured = isStructuredValue(metadata) && !colourField;
-  const readOnly = field.access === 'read-only' || unsupportedStructured;
+  const boundText = binding?.scalarType === 'string';
+  const missingRequiredBinding = field.nativeElementOnly === true && binding === undefined;
+  const unsupportedStructured = !binding && isStructuredValue(metadata);
+  const readOnly = field.access === 'read-only' || binding?.readOnly === true || missingRequiredBinding || unsupportedStructured;
   const readOnlyReason = field.readOnlyReason ?? (unsupportedStructured
     ? 'This value needs a specialized editor.'
-    : undefined);
+    : missingRequiredBinding ? 'This value needs native element metadata.' : undefined);
   const overridden = hasOverride(snapshot, field.key);
   const [displayValue, setDisplayValue] = useState(effectiveValue);
+  const [nullValue, setNullValue] = useState(binding?.effectiveValue === null);
+  const [percentMode, setPercentMode] = useState(
+    binding?.scalarType === 'float_or_percent' && binding.effectiveValue !== null &&
+      typeof binding.effectiveValue === 'object' && binding.effectiveValue.percent,
+  );
   const [fieldError, setFieldError] = useState<string | null>(null);
   const focused = useRef(false);
   const cancelBlur = useRef(false);
@@ -186,13 +237,19 @@ function FieldValue({
   const colourInput = useRef<HTMLInputElement>(null);
   const effectiveValueRef = useRef(effectiveValue);
   const setValueRef = useRef<(value: string) => Promise<void>>(async () => undefined);
+  const setElementRef = useRef<(value: PresetDraftEditorValue) => Promise<void>>(async () => undefined);
   effectiveValueRef.current = effectiveValue;
 
   const inputId = `preset-editor-input-${page?.id ?? 'field'}-${group?.id ?? 'group'}-${field.key}`;
 
   useEffect(() => {
-    if (!focused.current && fieldError === null) setDisplayValue(effectiveValue);
-  }, [effectiveValue, fieldError]);
+    if (focused.current || fieldError !== null) return;
+    setDisplayValue(effectiveValue);
+    setNullValue(binding?.effectiveValue === null);
+    if (binding?.scalarType === 'float_or_percent' && binding.effectiveValue !== null &&
+        typeof binding.effectiveValue === 'object')
+      setPercentMode(binding.effectiveValue.percent);
+  }, [binding?.effectiveValue, binding?.scalarType, effectiveValue, fieldError]);
 
   const submitSet = useCallback(async (value: string) => {
     if (loading || mutationPending || actionPending.current) return;
@@ -211,14 +268,58 @@ function FieldValue({
   }, [field.key, loading, mutationPending, onMutate, snapshot]);
   setValueRef.current = submitSet;
 
+  const submitElementSet = useCallback(async (value: PresetDraftEditorValue) => {
+    if (!binding || loading || mutationPending || actionPending.current) return;
+    actionPending.current = true;
+    setFieldError(null);
+    setNullValue(value === null);
+    setDisplayValue(inputTextForBinding(value, binding.scalarType));
+    if (binding.scalarType === 'float_or_percent' && value !== null && typeof value === 'object')
+      setPercentMode(value.percent);
+    try {
+      const result = await onMutate(makeElementMutationRequest(snapshot, field.key, binding, value));
+      if (result.ok) {
+        const current = result.editorBindings[field.key];
+        if (current) {
+          setDisplayValue(inputTextForBinding(current.effectiveValue, current.scalarType));
+          setNullValue(current.effectiveValue === null);
+          if (current.scalarType === 'float_or_percent' && current.effectiveValue !== null &&
+              typeof current.effectiveValue === 'object')
+            setPercentMode(current.effectiveValue.percent);
+        }
+      } else {
+        setFieldError(result.error);
+      }
+    } catch (error) {
+      setFieldError(errorText(error));
+    } finally {
+      actionPending.current = false;
+    }
+  }, [binding, field.key, loading, mutationPending, onMutate, snapshot]);
+  setElementRef.current = submitElementSet;
+
   const resetField = async () => {
     if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
     try {
       const result = await onMutate(makeMutationRequest(snapshot, { action: 'reset-field', key: field.key }));
-      if (result.ok) setDisplayValue(result.effectiveValues[field.key] ?? result.sourceValues[field.key] ?? '');
-      else setFieldError(result.error);
+      if (!result.ok) {
+        setFieldError(result.error);
+        return;
+      }
+      const current = result.editorBindings[field.key];
+      if (current) {
+        const value = current.effectiveValue;
+        setDisplayValue(inputTextForBinding(value, current.scalarType));
+        setNullValue(value === null);
+        setPercentMode(current.scalarType === 'float_or_percent' && value !== null &&
+          typeof value === 'object' && value.percent);
+      } else {
+        setDisplayValue(result.effectiveValues[field.key] ?? result.sourceValues[field.key] ?? '');
+        setNullValue(false);
+        setPercentMode(false);
+      }
     } catch (error) {
       setFieldError(errorText(error));
     } finally {
@@ -238,7 +339,8 @@ function FieldValue({
     const handleChange = () => {
       const next = input.value.toLowerCase();
       if (next === colourInputValue(effectiveValueRef.current).toLowerCase()) return;
-      void setValueRef.current(next);
+      if (binding && boundText) void setElementRef.current(next);
+      else void setValueRef.current(next);
     };
     input.addEventListener('input', handleInput);
     input.addEventListener('change', handleChange);
@@ -246,20 +348,100 @@ function FieldValue({
       input.removeEventListener('input', handleInput);
       input.removeEventListener('change', handleChange);
     };
-  }, [colourField, readOnly]);
+  }, [binding, boundText, colourField, readOnly]);
 
   const textLike = metadata?.type === 'string' || metadata?.type === 'unknown' || metadata === undefined;
-  const numeric = metadata?.type === 'float' || metadata?.type === 'int';
-  const freeText = textLike || numeric || metadata?.type === 'percent' || metadata?.type === 'float_or_percent';
+  const numeric = metadata?.type === 'float' || metadata?.type === 'int' || metadata?.type === 'percent' || metadata?.type === 'float_or_percent';
+  const freeText = textLike || numeric;
+  const boundNumeric = binding?.scalarType === 'float' || binding?.scalarType === 'int' ||
+    binding?.scalarType === 'percent' || binding?.scalarType === 'float_or_percent';
+  const multiline = field.multiline === true || binding?.multiline === true;
   const controlsDisabled = loading || mutationPending;
   const commitText = () => {
+    if (binding) {
+      if (binding.scalarType === 'string') {
+        if (binding.effectiveValue !== null && displayValue === effectiveValue) return;
+        void submitElementSet(displayValue);
+        return;
+      }
+      if (!boundNumeric) return;
+      if (!displayValue.trim() && binding.nullable) {
+        if (binding.effectiveValue !== null) void submitElementSet(null);
+        return;
+      }
+    }
     const normalized = normalizeScalarInput(displayValue, metadata);
     if (normalized === null) {
       setFieldError('Enter a valid number.');
       return;
     }
     if (normalized !== displayValue) setDisplayValue(normalized);
-    if (normalized !== effectiveValue) void submitSet(normalized);
+    if (binding && boundNumeric) {
+      const numericValue = Number(normalized);
+      if (!Number.isFinite(numericValue)) {
+        setFieldError('Enter a valid number.');
+        return;
+      }
+      if (binding.scalarType === 'float_or_percent') {
+        const current = binding.effectiveValue;
+        if (current !== null && typeof current === 'object' &&
+            current.value === numericValue && current.percent === percentMode) return;
+        void submitElementSet({ value: numericValue, percent: percentMode });
+      } else {
+        if (binding.effectiveValue === numericValue) return;
+        void submitElementSet(numericValue);
+      }
+    } else if (normalized !== effectiveValue) {
+      void submitSet(normalized);
+    }
+  };
+  const handleTextBlur = () => {
+    focused.current = false;
+    if (cancelBlur.current) {
+      cancelBlur.current = false;
+      return;
+    }
+    if (displayValue !== effectiveValue || (binding?.effectiveValue === null && !nullValue)) commitText();
+  };
+  const handleTextKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && (!multiline || event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      event.currentTarget.blur();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      focused.current = false;
+      cancelBlur.current = true;
+      setDisplayValue(effectiveValue);
+      setNullValue(binding?.effectiveValue === null);
+      if (binding?.scalarType === 'float_or_percent' && binding.effectiveValue !== null &&
+          typeof binding.effectiveValue === 'object')
+        setPercentMode(binding.effectiveValue.percent);
+      setFieldError(null);
+      event.currentTarget.blur();
+    }
+  };
+  const commitNull = (checked: boolean) => {
+    setNullValue(checked);
+    setFieldError(null);
+    if (checked) void submitElementSet(null);
+    else if (binding?.scalarType === 'string' && binding.effectiveValue === null)
+      void submitElementSet('');
+  };
+  const setText = (value: string) => {
+    setDisplayValue(value);
+    if (nullValue) setNullValue(false);
+    setFieldError(null);
+  };
+  const submitBoundNumber = (value: string, nextPercent = percentMode) => {
+    const normalized = normalizeScalarInput(value, metadata);
+    if (normalized === null || !normalized.trim()) return;
+    const numericValue = Number(normalized);
+    if (!Number.isFinite(numericValue)) return;
+    if (binding?.scalarType === 'float_or_percent')
+      void submitElementSet({ value: numericValue, percent: nextPercent });
+    else if (binding && (binding.scalarType === 'float' || binding.scalarType === 'int' || binding.scalarType === 'percent'))
+      void submitElementSet(numericValue);
   };
   const titleContext = page && group && (
     <p className="mb-1 text-[0.7rem] text-muted-foreground" data-testid={`preset-editor-context-${field.key}`}>
@@ -268,7 +450,172 @@ function FieldValue({
   );
 
   let control = null;
-  if (!readOnly && metadata?.type === 'bool') {
+  if (!readOnly && binding?.scalarType === 'bool' && binding.nullable) {
+    control = <Select
+      value={nullValue ? NULL_ENUM_VALUE : displayValue === 'true' ? 'true' : 'false'}
+      onValueChange={(next) => {
+        if (next === NULL_ENUM_VALUE) void submitElementSet(null);
+        else if (next !== null) void submitElementSet(next === 'true');
+      }}
+      disabled={controlsDisabled}
+    >
+      <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>
+        <SelectItem value="true">Enabled</SelectItem>
+        <SelectItem value="false">Disabled</SelectItem>
+      </SelectContent>
+    </Select>;
+  } else if (!readOnly && binding?.scalarType === 'bool') {
+    control = <Checkbox
+      aria-label={label}
+      id={inputId}
+      data-testid={`preset-editor-input-${field.key}`}
+      checked={displayValue === 'true'}
+      disabled={controlsDisabled}
+      onCheckedChange={(checked) => { void submitElementSet(checked === true); }}
+    />;
+  } else if (!readOnly && binding?.scalarType === 'enum' && binding.enumOptions?.length) {
+    control = <Select
+      value={nullValue ? NULL_ENUM_VALUE : String(binding.effectiveValue ?? displayValue)}
+      onValueChange={(next) => {
+        if (next === NULL_ENUM_VALUE) void submitElementSet(null);
+        else if (next !== null) void submitElementSet(Number(next));
+      }}
+      disabled={controlsDisabled}
+    >
+      <SelectTrigger id={inputId} aria-label={label} data-testid={`preset-editor-input-${field.key}`} className="w-full">
+        <SelectValue placeholder={nullValue ? '(null)' : displayValue} />
+      </SelectTrigger>
+      <SelectContent>
+        {binding.nullable && <SelectItem value={NULL_ENUM_VALUE}>Not set</SelectItem>}
+        {binding.enumOptions.map((option) => <SelectItem key={option.name} value={String(option.value)}>
+          {option.label}
+        </SelectItem>)}
+      </SelectContent>
+    </Select>;
+  } else if (!readOnly && binding && boundNumeric) {
+    control = <div className="flex min-w-0 items-center gap-2">
+      <Input
+        aria-label={label}
+        id={inputId}
+        data-testid={`preset-editor-input-${field.key}`}
+        type="text"
+        inputMode={binding.scalarType === 'int' ? 'numeric' : 'decimal'}
+        value={nullValue ? '' : displayValue}
+        disabled={controlsDisabled || nullValue}
+        onFocus={() => { focused.current = true; }}
+        onBlur={handleTextBlur}
+        onChange={(event) => setText(event.currentTarget.value)}
+        onKeyDown={handleTextKeyDown}
+      />
+      {binding.scalarType === 'percent' && <span className="text-xs text-muted-foreground">%</span>}
+      {binding.scalarType === 'float_or_percent' && <Select
+        value={percentMode ? 'percent' : 'absolute'}
+        onValueChange={(next) => {
+          if (next === null) return;
+          const nextPercent = next === 'percent';
+          setPercentMode(nextPercent);
+          submitBoundNumber(displayValue, nextPercent);
+        }}
+        disabled={controlsDisabled || nullValue}
+      >
+        <SelectTrigger aria-label={`${label} unit`} data-testid={`preset-editor-unit-${field.key}`} className="w-28">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="absolute">Absolute</SelectItem>
+          <SelectItem value="percent">Percent</SelectItem>
+        </SelectContent>
+      </Select>}
+      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+        <Checkbox
+          aria-label={`Set ${label} to null`}
+          data-testid={`preset-editor-null-${field.key}`}
+          checked={nullValue}
+          disabled={controlsDisabled}
+          onCheckedChange={(checked) => commitNull(checked === true)}
+        />
+        Null
+      </label>}
+    </div>;
+  } else if (!readOnly && binding && boundText && colourField) {
+    control = <div className="flex min-w-0 items-center gap-2">
+      <input
+        ref={colourInput}
+        aria-label={label}
+        id={inputId}
+        data-testid={`preset-editor-input-${field.key}`}
+        type="color"
+        value={colourInputValue(displayValue)}
+        disabled={controlsDisabled || nullValue}
+        onChange={() => undefined}
+        className="size-8 cursor-pointer rounded border bg-background p-0.5"
+      />
+      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+        <Checkbox
+          aria-label={`Set ${label} to null`}
+          data-testid={`preset-editor-null-${field.key}`}
+          checked={nullValue}
+          disabled={controlsDisabled}
+          onCheckedChange={(checked) => commitNull(checked === true)}
+        />
+        Null
+      </label>}
+    </div>;
+  } else if (!readOnly && binding && boundText && multiline) {
+    control = <div className="flex min-w-0 flex-col gap-2">
+      <textarea
+        aria-label={label}
+        id={inputId}
+        data-testid={`preset-editor-input-${field.key}`}
+        value={nullValue ? '' : displayValue}
+        disabled={controlsDisabled || nullValue}
+        onFocus={() => { focused.current = true; }}
+        onBlur={handleTextBlur}
+        onChange={(event) => setText(event.currentTarget.value)}
+        onKeyDown={handleTextKeyDown}
+        className="min-h-20 w-full min-w-0 rounded-md border border-input bg-input/20 px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-xs/relaxed dark:bg-input/30"
+      />
+      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+        <Checkbox
+          aria-label={`Set ${label} to null`}
+          data-testid={`preset-editor-null-${field.key}`}
+          checked={nullValue}
+          disabled={controlsDisabled}
+          onCheckedChange={(checked) => commitNull(checked === true)}
+        />
+        Null
+      </label>}
+    </div>;
+  } else if (!readOnly && binding && boundText) {
+    control = <div className="flex min-w-0 items-center gap-2">
+      <Input
+        aria-label={label}
+        id={inputId}
+        data-testid={`preset-editor-input-${field.key}`}
+        type="text"
+        value={nullValue ? '' : displayValue}
+        disabled={controlsDisabled || nullValue}
+        onFocus={() => { focused.current = true; }}
+        onBlur={handleTextBlur}
+        onChange={(event) => setText(event.currentTarget.value)}
+        onKeyDown={handleTextKeyDown}
+      />
+      {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+        <Checkbox
+          aria-label={`Set ${label} to null`}
+          data-testid={`preset-editor-null-${field.key}`}
+          checked={nullValue}
+          disabled={controlsDisabled}
+          onCheckedChange={(checked) => commitNull(checked === true)}
+        />
+        Null
+      </label>}
+    </div>;
+  } else if (!readOnly && !binding && metadata?.type === 'bool') {
     control = <Checkbox
       aria-label={label}
       id={inputId}
@@ -277,7 +624,7 @@ function FieldValue({
       disabled={controlsDisabled}
       onCheckedChange={(checked) => { void submitSet(checked ? '1' : '0'); }}
     />;
-  } else if (!readOnly && metadata?.type === 'enum' && metadata.enum_values?.length) {
+  } else if (!readOnly && !binding && metadata?.type === 'enum' && metadata.enum_values?.length) {
     control = <Select
       value={displayValue}
       onValueChange={(next) => { if (next !== null) void submitSet(next); }}
@@ -304,43 +651,24 @@ function FieldValue({
       onChange={() => undefined}
       className="size-8 cursor-pointer rounded border bg-background p-0.5"
     />;
-  } else if (!readOnly && freeText) {
-    control = <Input
-      aria-label={label}
-      id={inputId}
-      data-testid={`preset-editor-input-${field.key}`}
-      type="text"
-      inputMode={numeric ? 'decimal' : 'text'}
-      value={displayValue}
-      disabled={controlsDisabled}
-      onFocus={() => { focused.current = true; }}
-      onBlur={() => {
-        focused.current = false;
-        if (cancelBlur.current) {
-          cancelBlur.current = false;
-          return;
-        }
-        if (displayValue !== effectiveValue) commitText();
-      }}
-      onChange={(event) => {
+  } else if (!readOnly && !binding && freeText) {
+    const textProps = {
+      'aria-label': label,
+      id: inputId,
+      'data-testid': `preset-editor-input-${field.key}`,
+      value: displayValue,
+      disabled: controlsDisabled,
+      onFocus: () => { focused.current = true; },
+      onBlur: handleTextBlur,
+      onChange: (event: { currentTarget: { value: string } }) => {
         setDisplayValue(event.currentTarget.value);
         setFieldError(null);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          focused.current = false;
-          cancelBlur.current = true;
-          setDisplayValue(effectiveValue);
-          setFieldError(null);
-          event.currentTarget.blur();
-        }
-      }}
-    />;
+      },
+      onKeyDown: handleTextKeyDown,
+    };
+    control = multiline
+      ? <textarea {...textProps} className="min-h-20 w-full min-w-0 rounded-md border border-input bg-input/20 px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-xs/relaxed dark:bg-input/30" />
+      : <Input {...textProps} type="text" inputMode={numeric ? 'decimal' : 'text'} />;
   }
 
   return (
@@ -349,6 +677,7 @@ function FieldValue({
       data-field-key={field.key}
       data-field-access={field.access}
       data-native-type={metadata?.type ?? 'unknown'}
+      data-native-scalar-type={binding?.scalarType}
       data-native-min={metadata?.min}
       data-native-max={metadata?.max}
       aria-disabled={readOnly || undefined}
@@ -381,7 +710,7 @@ function FieldValue({
           <dt className="text-muted-foreground">Source</dt>
           <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</dd>
           <dt className="text-muted-foreground">Effective</dt>
-          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{valueText(snapshot.effectiveValues, field.key)}</dd>
+          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{binding ? projectedValueText(binding.effectiveValue, binding.scalarType) : valueText(snapshot.effectiveValues, field.key)}</dd>
         </dl>
       ) : (
         <div className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
@@ -390,7 +719,7 @@ function FieldValue({
           <span className="text-muted-foreground">Source</span>
           <span data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</span>
           <span className="text-muted-foreground">Effective</span>
-          <span data-testid={`preset-editor-effective-${field.key}`} className="break-all">{valueText(snapshot.effectiveValues, field.key)}</span>
+          <span data-testid={`preset-editor-effective-${field.key}`} className="break-all">{binding ? projectedValueText(binding.effectiveValue, binding.scalarType) : valueText(snapshot.effectiveValues, field.key)}</span>
         </div>
       )}
       {fieldError && <p role="alert" data-testid={`preset-editor-error-${field.key}`} className="mt-2 text-xs text-destructive">{fieldError}</p>}

@@ -7,7 +7,13 @@
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 
-import type { NativeScopedConfigScope, ProjectLoadResult, VolumeType } from '../types';
+import type {
+  NativeScopedConfigScope,
+  PresetDraftEditorScalarType,
+  PresetDraftEditorValue,
+  ProjectLoadResult,
+  VolumeType,
+} from '../types';
 
 export interface MockFeature {
   id: number;
@@ -150,9 +156,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       enable_support: { type: 'bool', scopes: ['object'] },
       nozzle_temperature: { type: 'float', category: 'Temperature', scopes: ['project'] },
       printable_height: { type: 'float', category: 'Printer', min: 1, max: 1000 },
-      filament_flow_ratio: { type: 'float', category: 'Filament', min: 0.5, max: 1.5 },
+      nozzle_diameter: { type: 'floats', category: 'Printer' },
+      filament_flow_ratio: { type: 'floats', category: 'Filament', min: 0.5, max: 1.5 },
       default_filament_colour: { type: 'strings', category: 'Filament' },
-      filament_type: { type: 'string', category: 'Filament' },
+      filament_type: { type: 'strings', category: 'Filament' },
+      filament_soluble: { type: 'bools', category: 'Filament' },
+      filament_diameter: { type: 'floats', category: 'Filament' },
+      filament_adhesiveness_category: { type: 'ints', category: 'Filament' },
+      filament_shrink: { type: 'percents', category: 'Filament' },
+      filament_retract_lift_enforce: { type: 'enums', category: 'Filament', enum_values: ['All Surfaces', 'Top Only'] },
+      overhang_fan_threshold: { type: 'enums', category: 'Filament', enum_values: ['0%', '10%', '25%', '50%', '75%', '95%'] },
+      filament_start_gcode: { type: 'strings', category: 'Filament' },
+      filament_change_extrusion_role_gcode: { type: 'strings', category: 'Filament' },
+      filament_end_gcode: { type: 'strings', category: 'Filament' },
+      filament_notes: { type: 'strings', category: 'Filament' },
       enable_prime_tower: { type: 'bool', scopes: ['project'] },
       prime_tower_width: { type: 'float', scopes: ['project'] },
       printable_area: { type: 'points', category: 'Printer', scopes: ['project'] },
@@ -230,7 +247,21 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     print: presetFixtures.print[0].name,
   };
   type MockPresetDraftRegistry = Record<'printer' | 'filament', Record<string, Record<string, string>>>;
+  type MockPresetEditorOption = {
+    readonly scalarType: PresetDraftEditorScalarType;
+    readonly metadataType: string;
+    readonly values: PresetDraftEditorValue[];
+    readonly guiType?: string;
+    readonly guiFlags?: string;
+    readonly multiline?: boolean;
+    readonly isCode?: boolean;
+    readonly nullable?: boolean;
+    readonly readOnly?: boolean;
+    readonly enumOptions?: Array<{ value: number; name: string; label: string }>;
+  };
+  type MockPresetEditorDraftRegistry = Record<'printer' | 'filament', Record<string, Record<string, PresetDraftEditorValue[]>>>;
   let presetDraftRegistry: MockPresetDraftRegistry = { printer: {}, filament: {} };
+  let presetDraftEditorRegistry: MockPresetEditorDraftRegistry = { printer: {}, filament: {} };
   let presetDraftRevision = 0;
 
   function isCompatible(kind: 'print' | 'filament', fixture: PresetFixture): boolean {
@@ -367,6 +398,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     nativeScopedConfig: MockNativeScopedConfig;
     selectedProfiles: Record<'printer' | 'print', string>;
     presetDraftRegistry: MockPresetDraftRegistry;
+    presetDraftEditorRegistry: MockPresetEditorDraftRegistry;
     presetDraftRevision: number;
     primeTowerProjection?: unknown;
   };
@@ -385,6 +417,84 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  const presetEditorOptions: Record<'printer' | 'filament', Record<string, MockPresetEditorOption>> = {
+    printer: {
+      nozzle_diameter: { scalarType: 'float', metadataType: 'floats', values: [0.4] },
+    },
+    filament: {
+      filament_flow_ratio: { scalarType: 'float', metadataType: 'floats', values: [1, 1] },
+      default_filament_colour: { scalarType: 'string', metadataType: 'strings', values: ['#F2754E'], guiType: 'color' },
+      filament_type: { scalarType: 'string', metadataType: 'strings', values: ['PLA'], guiType: 'f_enum_open', guiFlags: 'show_value' },
+      filament_soluble: { scalarType: 'bool', metadataType: 'bools', values: [false] },
+      filament_diameter: { scalarType: 'float', metadataType: 'floats', values: [1.75] },
+      filament_adhesiveness_category: { scalarType: 'int', metadataType: 'ints', values: [0] },
+      filament_shrink: { scalarType: 'percent', metadataType: 'percents', values: [100] },
+      overhang_fan_threshold: {
+        scalarType: 'enum', metadataType: 'enums', values: [2],
+        enumOptions: [
+          { value: 0, name: '0%', label: '0%' },
+          { value: 1, name: '10%', label: '10%' },
+          { value: 2, name: '25%', label: '25%' },
+          { value: 3, name: '50%', label: '50%' },
+          { value: 4, name: '75%', label: '75%' },
+          { value: 5, name: '95%', label: '95%' },
+        ],
+      },
+      filament_retract_lift_enforce: {
+        scalarType: 'enum', metadataType: 'enums', values: [null], nullable: true,
+        enumOptions: [
+          { value: 0, name: 'All Surfaces', label: 'All Surfaces' },
+          { value: 1, name: 'Top Only', label: 'Top Only' },
+        ],
+      },
+      filament_start_gcode: { scalarType: 'string', metadataType: 'strings', values: ['G28\n'], multiline: true, isCode: true },
+      filament_change_extrusion_role_gcode: { scalarType: 'string', metadataType: 'strings', values: ['; role change\n'], multiline: true, isCode: true },
+      filament_end_gcode: { scalarType: 'string', metadataType: 'strings', values: ['M104 S0\n'], multiline: true, isCode: true },
+      filament_notes: { scalarType: 'string', metadataType: 'strings', values: [''], multiline: true },
+    },
+  };
+  const serializePresetEditorValues = (values: readonly PresetDraftEditorValue[]) => JSON.stringify(values);
+  function editorValuesFor(kind: 'printer' | 'filament', canonicalName: string, key: string): PresetDraftEditorValue[] | undefined {
+    return presetDraftEditorRegistry[kind][canonicalName]?.[key] ?? presetEditorOptions[kind][key]?.values;
+  }
+  function parseMockEditorValue(raw: string, option: MockPresetEditorOption): PresetDraftEditorValue[] {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed as PresetDraftEditorValue[];
+      if (parsed === null || typeof parsed === 'string' || typeof parsed === 'number' || typeof parsed === 'boolean')
+        return [parsed as PresetDraftEditorValue];
+    } catch {
+      // A legacy whole-option scalar string remains accepted by the mock bridge.
+    }
+    if (raw === 'nil' && option.nullable) return [null];
+    if (option.scalarType === 'bool') return [raw === '1' || raw.toLocaleLowerCase() === 'true'];
+    if (option.scalarType === 'float' || option.scalarType === 'int' || option.scalarType === 'percent' || option.scalarType === 'enum') {
+      const numeric = Number(raw);
+      return Number.isFinite(numeric) ? [numeric] : [...option.values];
+    }
+    return [raw];
+  }
+  function editorBindingsFor(kind: 'printer' | 'filament', canonicalName: string): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(presetEditorOptions[kind]).flatMap(([key, option]) => {
+      const sourceValues = option.values;
+      const effectiveValues = editorValuesFor(kind, canonicalName, key) ?? sourceValues;
+      if (sourceValues.length === 0 || effectiveValues.length === 0) return [];
+      return [[key, {
+        scalar_type: option.scalarType,
+        index: 0,
+        element_count: effectiveValues.length,
+        nullable: option.nullable ?? false,
+        gui_type: option.guiType ?? 'undefined',
+        gui_flags: option.guiFlags ?? '',
+        multiline: option.multiline ?? false,
+        is_code: option.isCode ?? false,
+        readonly: option.readOnly ?? false,
+        source_value: clone(sourceValues[0]),
+        effective_value: clone(effectiveValues[0]),
+        ...(option.scalarType === 'enum' ? { enum_options: clone(option.enumOptions ?? []) } : {}),
+      }]];
+    }));
+  }
   function presetDraftRegistrySnapshot() {
     return { version: 1, entries: (['printer', 'filament'] as const).flatMap((kind) =>
       Object.entries(presetDraftRegistry[kind]).map(([canonical_name, overrides]) => ({
@@ -394,16 +504,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function presetSourceValues(kind: 'printer' | 'filament', canonicalName: string): Record<string, string> | undefined {
     const preset = presetFixtures[kind].find((entry) => entry.name === canonicalName);
     if (!preset) return undefined;
-    if (kind === 'printer') return {
+    const source: Record<string, string> = kind === 'printer' ? {
       nozzle_temperature: '220',
       printable_height: '256',
       printable_area: JSON.stringify(preset.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]]),
+      nozzle_diameter: serializePresetEditorValues(presetEditorOptions.printer.nozzle_diameter!.values),
+    } : {
+      filament_vendor: 'Generic',
+      enable_pressure_advance: '0',
     };
-    return {
-      filament_flow_ratio: '1',
-      default_filament_colour: '#F2754E',
-      filament_type: 'PLA',
-    };
+    for (const [key, option] of Object.entries(presetEditorOptions[kind]))
+      source[key] = serializePresetEditorValues(option.values);
+    return source;
   }
   function presetDraftSnapshot(kind: 'printer' | 'filament', canonicalName: string): Record<string, unknown> {
     const sourceValues = presetSourceValues(kind, canonicalName);
@@ -416,7 +528,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return { ok: true, version: 1, kind, canonical_name: canonicalName,
       draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
       overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...overrides },
-      option_metadata: optionMetadata, editor_bindings: {}, revision: historyRevision };
+      option_metadata: optionMetadata, editor_bindings: editorBindingsFor(kind, canonicalName), revision: historyRevision };
   }
   function nativePresetDraftHistoryContext() {
     return {
@@ -449,9 +561,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (typeof request.key !== 'string' || !(request.key in sourceValues) || typeof request.value !== 'string')
         return fail('unsupported_option', 'option is not available on this preset');
       const meta = metadata[request.key];
-      if ((meta?.type === 'float' || meta?.type === 'int' || meta?.type === 'percent') &&
+      if ((meta?.type === 'float' || meta?.type === 'floats' || meta?.type === 'int' || meta?.type === 'ints' || meta?.type === 'percent' || meta?.type === 'percents') &&
           (!request.value.trim() || !Number.isFinite(Number(request.value))))
         return fail('native_validation_failure', 'native option validation failed');
+    } else if (action === 'set-element') {
+      if (typeof request.key !== 'string' || !(request.key in sourceValues))
+        return fail('unsupported_option', 'option is not available on this preset');
+      const option = presetEditorOptions[kind][request.key];
+      if (!option || request.scalar_type !== option.scalarType)
+        return fail('invalid_element_type', 'preset editor element type does not match native option');
+      const values = editorValuesFor(kind, request.canonical_name, request.key) ?? option.values;
+      if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= values.length)
+        return fail('invalid_index', 'preset editor vector index is out of range');
+      const value = request.value as PresetDraftEditorValue;
+      if (value === null) {
+        if (!option.nullable) return fail('invalid_value', 'null is not valid for this preset editor element');
+      } else if (option.scalarType === 'string') {
+        if (typeof value !== 'string') return fail('invalid_value', 'preset editor element requires text');
+      } else if (option.scalarType === 'bool') {
+        if (typeof value !== 'boolean') return fail('invalid_value', 'preset editor element requires a boolean');
+      } else if (option.scalarType === 'float_or_percent') {
+        if (typeof value !== 'object' || !Number.isFinite(value.value) || typeof value.percent !== 'boolean')
+          return fail('invalid_value', 'preset editor element requires {value, percent}');
+      } else if (option.scalarType === 'int' || option.scalarType === 'enum') {
+        if (typeof value !== 'number' || !Number.isSafeInteger(value))
+          return fail('invalid_value', 'preset editor element requires an integer');
+      } else if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return fail('invalid_value', 'preset editor element requires a finite number');
+      }
     } else if (action === 'reset-field') {
       if (typeof request.key !== 'string' || !(request.key in sourceValues))
         return fail('unsupported_option', 'option is not available on this preset');
@@ -477,13 +614,39 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const canonicalName = request.canonical_name as string;
     if (action === 'set') {
       const current = presetDraftRegistry[kind][canonicalName] ?? {};
-      presetDraftRegistry[kind][canonicalName] = { ...current, [request.key]: request.value };
+      const option = presetEditorOptions[kind][request.key];
+      if (option) {
+        const values = parseMockEditorValue(request.value, option);
+        const editorValues = presetDraftEditorRegistry[kind][canonicalName] ?? {};
+        editorValues[request.key] = values;
+        presetDraftEditorRegistry[kind][canonicalName] = editorValues;
+        current[request.key] = serializePresetEditorValues(values);
+      } else {
+        current[request.key] = request.value;
+      }
+      presetDraftRegistry[kind][canonicalName] = current;
+    } else if (action === 'set-element') {
+      const option = presetEditorOptions[kind][request.key] as MockPresetEditorOption;
+      const values = [...(editorValuesFor(kind, canonicalName, request.key) ?? option.values)];
+      values[request.index] = clone(request.value as PresetDraftEditorValue);
+      const editorValues = presetDraftEditorRegistry[kind][canonicalName] ?? {};
+      editorValues[request.key] = values;
+      presetDraftEditorRegistry[kind][canonicalName] = editorValues;
+      const current = presetDraftRegistry[kind][canonicalName] ?? {};
+      current[request.key] = serializePresetEditorValues(values);
+      presetDraftRegistry[kind][canonicalName] = current;
     } else if (action === 'reset-field' || action === 'reset-category') {
       const current = presetDraftRegistry[kind][canonicalName] ?? {};
-      for (const key of resetKeys) delete current[key];
+      const editorValues = presetDraftEditorRegistry[kind][canonicalName] ?? {};
+      for (const key of resetKeys) {
+        delete current[key];
+        delete editorValues[key];
+      }
       presetDraftRegistry[kind][canonicalName] = current;
+      presetDraftEditorRegistry[kind][canonicalName] = editorValues;
     } else {
       delete presetDraftRegistry[kind][canonicalName];
+      delete presetDraftEditorRegistry[kind][canonicalName];
     }
     presetDraftRevision += 1;
     for (const id of plateIds) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
@@ -553,6 +716,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
       nativeScopedConfig, selectedProfiles: selected, presetDraftRegistry, presetDraftRevision,
+      presetDraftEditorRegistry,
       primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
@@ -570,6 +734,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     nativeScopedConfig = clone(snapshot.nativeScopedConfig ?? emptyNativeScopedConfig());
     Object.assign(selected, snapshot.selectedProfiles);
     presetDraftRegistry = clone(snapshot.presetDraftRegistry);
+    presetDraftEditorRegistry = clone(snapshot.presetDraftEditorRegistry ?? { printer: {}, filament: {} });
     presetDraftRevision = snapshot.presetDraftRevision;
     primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
@@ -1390,6 +1555,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_init(_optionsJson?: string) {
       presetDraftRegistry = { printer: {}, filament: {} };
+      presetDraftEditorRegistry = { printer: {}, filament: {} };
       presetDraftRevision = 0;
       resetPlateSession();
       resetHistory();
@@ -1443,8 +1609,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
         instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
         plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
-        nativeScopedConfig: previous.nativeScopedConfig, selectedProfiles: previous.selectedProfiles, presetDraftRegistry: previous.presetDraftRegistry,
-        presetDraftRevision: previous.presetDraftRevision } : null;
+        nativeScopedConfig: previous.nativeScopedConfig, selectedProfiles: previous.selectedProfiles,
+        presetDraftRegistry: previous.presetDraftRegistry, presetDraftRevision: previous.presetDraftRevision,
+        presetDraftEditorRegistry: previous.presetDraftEditorRegistry } : null;
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
       if (changed) {
@@ -1984,6 +2151,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       instanceMeta = [];
       nativeScopedConfig = emptyNativeScopedConfig();
       presetDraftRegistry = { printer: {}, filament: {} };
+      presetDraftEditorRegistry = { printer: {}, filament: {} };
       presetDraftRevision = 0;
       modelLoaded = false;
       sliced = false;
