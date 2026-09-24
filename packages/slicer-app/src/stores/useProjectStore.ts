@@ -64,7 +64,7 @@ export interface ProjectSessionState {
   projectPresets: ProjectPresetSelections | null;
   notices: ProjectNotice[];
   operation: ProjectOperation;
-  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'scope' | 'systemPresets' | 'projectPresets' | 'notices'>>) => void;
+  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'plateInputRevisions' | 'scope' | 'systemPresets' | 'projectPresets' | 'notices'>>) => void;
   beginProjectMutation: () => void;
   endProjectMutation: () => void;
   /** Compatibility projection for ordinary edits not yet migrated to history. */

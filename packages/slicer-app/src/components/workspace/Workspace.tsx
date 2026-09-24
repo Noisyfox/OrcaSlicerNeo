@@ -32,9 +32,19 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import type { PlateSessionSnapshot, NativeScopedConfigFullTransport } from '@slicer/client';
+import type {
+  NativeScopedConfigFullTransport,
+  PlateSessionSnapshot,
+  PresetDraftMutationRequest,
+  PresetDraftMutationResult,
+  PresetDraftSnapshot,
+  PresetDraftTarget,
+  ProfileSnapshot,
+} from '@slicer/client';
 import { readSceneDeltaProjection } from './viewport/sceneDeltaProjection';
 import { FilamentRack } from './FilamentRack';
+import { PresetEditorDialog } from './settings/PresetEditorDialog';
+import { commitPresetDraftMutation } from './settings/configurationActions';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import { publishRememberedFilamentRack } from '../../preferences';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
@@ -130,6 +140,16 @@ export function Workspace({
   onPreviewTransitionChange?: (transition: PreviewRenderTransition | null) => void;
 }) {
   const platform = usePlatform();
+  const [presetEditorTarget, setPresetEditorTarget] = useState<PresetDraftTarget | null>(null);
+  const [presetEditorSnapshot, setPresetEditorSnapshot] = useState<PresetDraftSnapshot | null>(null);
+  const [presetEditorLoading, setPresetEditorLoading] = useState(false);
+  const [presetEditorRefreshing, setPresetEditorRefreshing] = useState(false);
+  const [presetEditorLoadError, setPresetEditorLoadError] = useState<string | null>(null);
+  const [presetEditorMutationPending, setPresetEditorMutationPending] = useState(false);
+  const presetEditorTargetRef = useRef<PresetDraftTarget | null>(null);
+  const presetEditorMutationPendingRef = useRef(false);
+  const presetEditorRefreshingRef = useRef(false);
+  const presetEditorHistoryRevisionRef = useRef<number | null>(null);
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const structure = useObjectListStore((s) => s.structure);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
@@ -141,6 +161,106 @@ export function Workspace({
   const projectMutationPendingCount = useProjectStore((s) => s.projectMutationPendingCount);
   const slicerStatus = useSlicerStore((s) => s.status);
   const serialSliceBusy = isSerialSliceBusy(platform.runtime, slicerStatus);
+  const referencedPresetSlots = presetEditorTarget?.kind === 'filament'
+    ? (filamentSnapshot?.slots
+      .filter((slot) => slot.preset.name === presetEditorTarget.canonicalName)
+      .map((slot) => slot.slot) ?? [])
+    : [];
+
+  const openPresetEditor = useCallback(async (target: PresetDraftTarget) => {
+    if (presetEditorTargetRef.current || presetEditorMutationPendingRef.current) return;
+    const requestedTarget = { ...target };
+    presetEditorTargetRef.current = requestedTarget;
+    presetEditorHistoryRevisionRef.current = historyRestoreRevision;
+    setPresetEditorTarget(requestedTarget);
+    setPresetEditorSnapshot(null);
+    setPresetEditorLoadError(null);
+    presetEditorRefreshingRef.current = false;
+    setPresetEditorRefreshing(false);
+    setPresetEditorLoading(true);
+    try {
+      const result = await platform.runtime.getPresetDraft(requestedTarget.kind, requestedTarget.canonicalName);
+      if (presetEditorTargetRef.current !== requestedTarget) return;
+      if (result.ok) setPresetEditorSnapshot(result);
+      else setPresetEditorLoadError(result.error);
+    } catch (error) {
+      if (presetEditorTargetRef.current === requestedTarget)
+        setPresetEditorLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (presetEditorTargetRef.current === requestedTarget) setPresetEditorLoading(false);
+    }
+  }, [historyRestoreRevision, platform.runtime]);
+
+  const closePresetEditor = useCallback(() => {
+    if (presetEditorMutationPendingRef.current) return;
+    presetEditorTargetRef.current = null;
+    presetEditorHistoryRevisionRef.current = null;
+    presetEditorRefreshingRef.current = false;
+    setPresetEditorRefreshing(false);
+    setPresetEditorTarget(null);
+    setPresetEditorSnapshot(null);
+    setPresetEditorLoadError(null);
+    setPresetEditorLoading(false);
+  }, []);
+
+  const mutatePresetEditorDraft = useCallback(async (request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> => {
+    const target = presetEditorTargetRef.current;
+    if (!target || request.kind !== target.kind || request.canonicalName !== target.canonicalName) {
+      return { ok: false, errorCode: 'invalid_request', error: 'The preset editor target is no longer active.' };
+    }
+    if (presetEditorMutationPendingRef.current || presetEditorRefreshingRef.current) {
+      return { ok: false, errorCode: 'history_transaction_active', error: 'A preset editor operation is already in progress.' };
+    }
+    presetEditorMutationPendingRef.current = true;
+    setPresetEditorMutationPending(true);
+    try {
+      const result = await commitPresetDraftMutation(platform, request);
+      if (result.ok && presetEditorTargetRef.current === target) {
+        setPresetEditorSnapshot(result);
+        setPresetEditorLoadError(null);
+      }
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        errorCode: 'runtime_failure',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      presetEditorMutationPendingRef.current = false;
+      if (presetEditorTargetRef.current === target) setPresetEditorMutationPending(false);
+    }
+  }, [platform]);
+
+  // A native Undo/Redo restores the draft registry before it publishes the
+  // history receipt. Keep an open editor as a projection of that restored
+  // registry, rather than leaving it with a superseded expected revision.
+  useEffect(() => {
+    const target = presetEditorTargetRef.current;
+    if (!target || presetEditorMutationPendingRef.current || historyRestorePhase !== 'idle' ||
+        presetEditorHistoryRevisionRef.current === historyRestoreRevision) return;
+    const restoreRevision = historyRestoreRevision;
+    presetEditorHistoryRevisionRef.current = restoreRevision;
+    presetEditorRefreshingRef.current = true;
+    setPresetEditorRefreshing(true);
+    setPresetEditorLoadError(null);
+    void platform.runtime.getPresetDraft(target.kind, target.canonicalName).then((result) => {
+      if (presetEditorTargetRef.current !== target ||
+          presetEditorHistoryRevisionRef.current !== restoreRevision) return;
+      if (result.ok) setPresetEditorSnapshot(result);
+      else setPresetEditorLoadError(result.error);
+    }).catch((error: unknown) => {
+      if (presetEditorTargetRef.current === target &&
+          presetEditorHistoryRevisionRef.current === restoreRevision)
+        setPresetEditorLoadError(error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (presetEditorTargetRef.current === target &&
+          presetEditorHistoryRevisionRef.current === restoreRevision) {
+        presetEditorRefreshingRef.current = false;
+        setPresetEditorRefreshing(false);
+      }
+    });
+  }, [historyRestorePhase, historyRestoreRevision, platform.runtime]);
   const glVolumes = useModelLoader();
   // Typed-array/GPU projection exists only while Preview is active. Native
   // plate cores stay retained in the Worker registry across tab switches.
@@ -302,7 +422,8 @@ export function Workspace({
     historyRestoreRef.current = createHistoryRestoreCoordinator({
       runtime: platform.runtime,
       sceneInteraction,
-      refreshModel: async (context, impact, sceneDelta, nativeScopedConfig: NativeScopedConfigFullTransport, revision) => {
+      refreshModel: async (context, impact, sceneDelta, nativeScopedConfig: NativeScopedConfigFullTransport, revision,
+        profileSnapshot?: ProfileSnapshot) => {
         if (impact.model !== 'delta')
           throw new Error('ordinary history restore requires a SceneDelta projection');
         const freshPlateSession = impact.plateSession ? context.plateSession : undefined;
@@ -320,6 +441,16 @@ export function Workspace({
           const retained = new Set(currentVolumes);
           projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
           return;
+        }
+        if (impact.profileSelection) {
+          if (!profileSnapshot)
+            throw new Error('history profile-selection restore is missing its native profile snapshot');
+          useSettingsStore.getState().hydrateProfileSnapshot(profileSnapshot);
+          const project = useProjectStore.getState();
+          const selections = { printer: profileSnapshot.printer.name, print: profileSnapshot.print.name };
+          project.setProject(project.scope === 'project'
+            ? { projectPresets: selections }
+            : { systemPresets: selections });
         }
         if (impact.nativeScopedConfig) {
           const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(
@@ -624,6 +755,7 @@ export function Workspace({
   }
 
   return (
+    <>
     <div className="flex flex-1 min-h-0" inert={serialSliceBusy} aria-busy={serialSliceBusy}>
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"
@@ -638,7 +770,9 @@ export function Workspace({
             ::-webkit-scrollbar chrome as a rectangle, ignoring the
             scroller's rounded corners). */}
         <div className="h-full overflow-y-auto">
-          {activeTab === 'prepare' && <FilamentRack />}
+          {activeTab === 'prepare' && <FilamentRack onEditPreset={(canonicalName) =>
+            void openPresetEditor({ kind: 'filament', canonicalName })
+          } />}
           {isPreviewTab(activeTab) && plateSession && (
             <PreviewPlateList
               snapshot={plateSession}
@@ -647,7 +781,10 @@ export function Workspace({
             />
           )}
           <ObjectList sceneInteraction={sceneInteraction} />
-          <SettingsPanel sceneInteraction={sceneInteraction} />
+          <SettingsPanel
+            sceneInteraction={sceneInteraction}
+            onEditPrinter={(canonicalName) => void openPresetEditor({ kind: 'printer', canonicalName })}
+          />
         </div>
       </aside>
       <div
@@ -679,5 +816,17 @@ export function Workspace({
         />
       </main>
     </div>
+    <PresetEditorDialog
+      target={presetEditorTarget}
+      snapshot={presetEditorSnapshot}
+      refreshing={presetEditorRefreshing}
+      loading={presetEditorLoading}
+      loadError={presetEditorLoadError}
+      mutationPending={presetEditorMutationPending}
+      referencedFilamentSlots={referencedPresetSlots}
+      onClose={closePresetEditor}
+      onMutate={mutatePresetEditorDraft}
+    />
+    </>
   );
 }

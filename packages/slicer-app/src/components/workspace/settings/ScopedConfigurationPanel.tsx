@@ -144,7 +144,7 @@ export const ScopedField = memo(function ScopedField({
             htmlFor={`scoped-${field.key}`}
             data-testid={`config-option-label-${field.key}`}
             data-local-override-highlight={hasEditableLocalOverride ? 'true' : 'false'}
-            className={cn(labelCls, hasEditableLocalOverride && 'scoped-config-local-override-label')}
+            className={cn(labelCls, hasEditableLocalOverride && 'config-override-label')}
           >{label}</Label>
         </TooltipFor>
         {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Mixed</span>}
@@ -211,6 +211,10 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     }
     return [...grouped.entries()];
   }, [fields]);
+  const highlightedCategories = useMemo(() => new Set(allFields
+    .filter((field) => field.local && field.resettable)
+    .map((field) => field.category)), [allFields]);
+  const hasLocalOverrides = highlightedCategories.size > 0;
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode === 'scoped' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
@@ -288,7 +292,7 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
       {!metadata ? <div className="p-3 text-xs text-muted-foreground">Loading configuration…</div> : <>
       <div className="flex items-center justify-between gap-1 text-xs text-muted-foreground">
         <span data-testid="scoped-target-label">{mode === 'project' ? 'Project' : resolution.label}</span>
-        {(mode === 'project' || resolution.targets.length > 0) && <Button type="button" variant="ghost" size="xs" data-testid="config-reset-all" onClick={() => void resetAll()}>Reset All</Button>}
+        {(mode === 'project' || resolution.targets.length > 0) && <Button type="button" variant="ghost" size="xs" data-testid="config-reset-all" disabled={!hasLocalOverrides} onClick={() => void resetAll()}>Reset All</Button>}
       </div>
       {mode === 'scoped' && resolution.scope === 'invalid' ? (
         <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
@@ -298,12 +302,17 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
           {categories.length === 0 && <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div>}
           {categories.map(([category, categoryFields]) => {
             const open = expanded[category] ?? true;
+            const highlighted = highlightedCategories.has(category);
             return <div key={category} data-testid={`config-category-${category}`} className="rounded border">
               <div className="flex items-center justify-between px-2 py-1">
-                <Button type="button" variant="ghost" size="xs" className="flex-1 justify-start font-semibold" onClick={() => setExpanded((current) => ({ ...current, [category]: !open }))}>
+                <Button type="button" variant="ghost" size="xs"
+                  data-testid={`config-category-toggle-${category}`}
+                  data-local-override-highlight={highlighted ? 'true' : 'false'}
+                  className={cn('flex-1 justify-start font-semibold', highlighted && 'config-override-label')}
+                  onClick={() => setExpanded((current) => ({ ...current, [category]: !open }))}>
                   {open ? '▾' : '▸'} {category}
                 </Button>
-                <Button type="button" variant="ghost" size="xs" data-testid={`config-reset-category-${category}`} onClick={() => void resetCategory(category)}>Reset</Button>
+                <Button type="button" variant="ghost" size="xs" data-testid={`config-reset-category-${category}`} disabled={!highlighted} onClick={() => void resetCategory(category)}>Reset</Button>
               </div>
               {open && <div className="px-1 pb-1">{categoryFields.map((field) => <ScopedField key={field.key} field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />)}</div>}
             </div>;

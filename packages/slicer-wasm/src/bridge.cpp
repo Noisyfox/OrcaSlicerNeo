@@ -103,6 +103,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
             log_level = opts["log_level"].get<std::string>();
         wasm_log::init_with_level(log_level);
 
+        state().preset_drafts.clear();
+        state().preset_draft_revision = 0;
         const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles();
         Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
         Slic3r::Neo::Bridge::PrimeTower::invalidate_projection_cache();

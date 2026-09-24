@@ -51,6 +51,10 @@ export interface HistoryContext {
   readonly nativeScopedConfig: HistoryJsonObject;
   /** Native-canonical session projection, present on Worker restore results. */
   readonly plateSession?: PlateSessionSnapshot;
+  /** Opaque Worker-authored history root; application code must not edit or mirror it. */
+  readonly presetDraftRegistry?: HistoryJsonObject;
+  /** Branchable native draft-operation marker retained only for history identity. */
+  readonly presetDraftRevision?: number;
 }
 
 /** Every retained history entry is a genuine project mutation. */
@@ -125,14 +129,17 @@ export interface HistoryError {
 
 /**
  * Worker-authored projection domains changed by one atomic restore commit.
- * Missing or malformed descriptors normalize to the broad SceneDelta path;
- * they never authorize a full renderer projection during history navigation.
+ * Missing or malformed descriptors reject the receipt instead of guessing
+ * which projections belong to the restored state.
  */
 export interface RestoreImpact {
   readonly version: 1;
   readonly model: 'delta' | 'none';
   readonly plateSession: boolean;
   readonly filamentRack: boolean;
+  readonly presetDrafts: boolean;
+  /** Native Printer or Process root changed; restore its atomic picker snapshot. */
+  readonly profileSelection: boolean;
   readonly nativeScopedConfig: boolean;
   readonly selectionContext: boolean;
   readonly primeTower: boolean;
@@ -193,7 +200,6 @@ export interface HistoryReadDiagnosticLayer {
  * data, contexts, or a renderer-owned history representation.
  */
 export interface HistoryTransportDiagnostics {
-  readonly version: 1;
   readonly worker: HistoryDiagnosticLayer;
   readonly client: HistoryDiagnosticLayer;
 }
@@ -204,6 +210,8 @@ export interface RestoreSuccess {
   /** Full native scoped projection published atomically with this restore. */
   readonly nativeScopedConfig: NativeScopedConfigFullTransport;
   readonly status: HistoryStatus;
+  /** Present only when the restored frame changes native Printer/Process selection. */
+  readonly profileSnapshot?: import('./types').ProfileSnapshot;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
   /** Native-authoritative before/after plate union for this restore. */

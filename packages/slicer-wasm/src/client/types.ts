@@ -391,7 +391,7 @@ export type ProfileSnapshotResult = ProfileSnapshot | ProfileSnapshotError;
 export type OptionMetaType =
   | 'float' | 'int' | 'string' | 'bool' | 'percent' | 'floats' | 'ints'
   | 'strings' | 'bools' | 'enum' | 'float_or_percent' | 'percents'
-  | 'point' | 'points' | 'point3' | 'unknown';
+  | 'enums' | 'floats_or_percents' | 'point' | 'points' | 'point3' | 'unknown';
 
 export interface OptionMeta {
   type: OptionMetaType;
@@ -410,6 +410,110 @@ export interface OptionMeta {
 }
 
 export type OptionMetadata = Record<string, OptionMeta>;
+
+export type PresetDraftKind = 'printer' | 'filament';
+
+export interface PresetDraftTarget {
+  readonly kind: PresetDraftKind;
+  /** Native canonical preset name (not a display alias or positional index). */
+  readonly canonicalName: string;
+}
+
+export type PresetDraftEditorScalarType =
+  | 'float' | 'int' | 'bool' | 'string' | 'percent' | 'float_or_percent' | 'enum';
+
+export type PresetDraftEditorValue =
+  | number
+  | boolean
+  | string
+  | { readonly value: number; readonly percent: boolean }
+  | null;
+
+export type PresetDraftEditorGuiType =
+  | 'undefined' | 'i_enum_open' | 'f_enum_open' | 'color' | 'select_open'
+  | 'slider' | 'legend' | 'one_string' | 'plugin_picker' | 'plugin_config'
+  | 'printer_agent_select';
+
+export interface PresetDraftEditorEnumOption {
+  readonly value: number;
+  readonly name: string;
+  readonly label: string;
+}
+
+/** Native typed element projection; raw full-option values remain on the snapshot. */
+export interface PresetDraftEditorBinding {
+  readonly scalarType: PresetDraftEditorScalarType;
+  readonly index: number;
+  readonly elementCount: number;
+  readonly nullable: boolean;
+  readonly guiType: PresetDraftEditorGuiType;
+  readonly guiFlags: string;
+  readonly multiline: boolean;
+  readonly isCode: boolean;
+  readonly readOnly: boolean;
+  readonly sourceValue: PresetDraftEditorValue;
+  readonly effectiveValue: PresetDraftEditorValue;
+  readonly enumOptions?: readonly PresetDraftEditorEnumOption[];
+}
+
+export interface PresetDraftSnapshot extends PresetDraftTarget {
+  readonly ok: true;
+  readonly draftExists: boolean;
+  readonly modified: boolean;
+  readonly overrides: Readonly<Record<string, string>>;
+  readonly sourceValues: Readonly<Record<string, string>>;
+  readonly effectiveValues: Readonly<Record<string, string>>;
+  /** Native option definitions for the source's available fields. */
+  readonly optionMetadata: OptionMetadata;
+  /** Native typed element projections; does not replace source/effective raw values. */
+  readonly editorBindings: Readonly<Record<string, PresetDraftEditorBinding>>;
+  readonly revision: number;
+}
+
+export interface PresetDraftError {
+  readonly ok: false;
+  readonly error: string;
+  readonly errorCode?: string;
+  readonly revision?: number;
+}
+
+export type PresetDraftSnapshotResult = PresetDraftSnapshot | PresetDraftError;
+
+interface PresetDraftMutationBase extends PresetDraftTarget {
+  readonly expectedRevision: number;
+}
+
+export type PresetDraftMutationRequest =
+  | (PresetDraftMutationBase & { readonly action: 'set'; readonly key: string; readonly value: string })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'float' | 'percent'; readonly value: number | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'int' | 'enum'; readonly value: number | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'bool'; readonly value: boolean | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'string'; readonly value: string | null })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'float_or_percent';
+      readonly value: { readonly value: number; readonly percent: boolean } | null })
+  | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string })
+  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[] })
+  | (PresetDraftMutationBase & { readonly action: 'reset-preset' });
+
+export interface PresetDraftMutationSuccess extends PresetDraftSnapshot {
+  readonly filamentSession: FilamentSessionSnapshot;
+  readonly historyEntryDelta: 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: boolean;
+  readonly affectedPlateIds: readonly string[];
+  readonly allPlateResultsInvalidated: true;
+  readonly plateSession: PlateSessionMutation;
+  readonly historyStatus: import('./history').HistoryStatus;
+  readonly nativeScopedConfig: NativeScopedConfigFullTransport;
+}
+
+export type PresetDraftMutationResult = PresetDraftMutationSuccess | PresetDraftError;
 
 export interface LoadModelResult {
   ok: boolean;
@@ -1118,6 +1222,42 @@ export interface RememberedFilamentRackRequest extends FilamentCommandRequest {
   readonly slots: readonly { preset: string; colour: string }[];
 }
 
+/** Durable rack preference supplied to an explicit Printer selection. */
+export interface RememberedFilamentRackPreference {
+  readonly version: 1;
+  readonly slots: readonly { readonly preset: string; readonly colour: string }[];
+}
+
+export interface PrinterTransitionMutationReceipt {
+  readonly kind: 'select-printer-with-remembered-rack';
+  readonly historyEntryDelta: 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: boolean;
+  readonly allPlateResultsInvalidated: true;
+  readonly affectedPlateIds: readonly string[];
+}
+
+/** One committed native Printer + remembered-rack transition. */
+export interface PrinterTransitionSuccess {
+  readonly ok: true;
+  readonly profileSnapshot: ProfileSnapshot;
+  readonly filamentSession: FilamentSessionSnapshot;
+  readonly plateSession: PlateSessionMutation;
+  readonly historyStatus: import('./history').HistoryStatus;
+  readonly nativeScopedConfig: NativeScopedConfigFullTransport;
+  readonly mutation: PrinterTransitionMutationReceipt;
+}
+
+export interface PrinterTransitionError {
+  readonly ok: false;
+  readonly error: string;
+  readonly errorCode?: string;
+  readonly revision?: number;
+}
+
+export type PrinterTransitionResult = PrinterTransitionSuccess | PrinterTransitionError;
+
 export interface FilamentAssignmentTargetRequest {
   readonly kind: 'object' | 'instance' | 'instance-as-object' | 'model-part' | 'parameter-modifier';
   readonly id: number;
@@ -1215,6 +1355,10 @@ export interface SlicerClient {
   init(): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */
   getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult>;
+  /** Open/read native source+effective values and metadata for one canonical preset identity. */
+  getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult>;
+  /** Apply one history-backed draft operation; reset-category receives its explicit field set. */
+  mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult>;
   selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
   setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
@@ -1349,6 +1493,11 @@ export interface SlicerClient {
    * compatibility state. Filament selection is owned by the multi-filament
    * session/rack commands. */
   selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult>;
+  /** Atomically select one Printer, restore its remembered rack, publish one
+   * committed Worker snapshot, history entry and all-plate invalidation. */
+  selectPrinterWithRememberedRack(
+    printer: string, rememberedRack: RememberedFilamentRackPreference | null,
+  ): Promise<PrinterTransitionResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;

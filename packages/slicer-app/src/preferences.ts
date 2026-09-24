@@ -116,6 +116,23 @@ export async function applyRememberedFilamentRackFromRepository(
   }
 }
 
+/** Read a Printer's remembered rack without mutating native project state.
+ * Explicit Printer transitions pass this value into the one native command,
+ * unlike bootstrap/3MF restoration which applies it only to a fresh session. */
+export async function loadRememberedFilamentRackFromRepository(
+  repository: UserPreferencesRepository,
+  printer: string,
+): Promise<RememberedFilamentRack | null> {
+  const pending = rackWriteQueues.get(repository)?.get(printer);
+  if (pending) await pending.catch(() => undefined);
+  try {
+    return rememberedFilamentRack(await repository.load(), printer);
+  } catch (error) {
+    console.warn('remembered filament rack load failed; using native compatibility defaults', error);
+    return null;
+  }
+}
+
 function resolvedPreferences(preferences: UserPreferences, snapshot: ProfileSnapshot): UserPreferences {
   return {
     ...preferences,

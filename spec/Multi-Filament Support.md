@@ -59,6 +59,11 @@ C++/WASM session and returns one atomic replacement snapshot to the UI.
 - React does not independently filter candidates, select fallbacks, resize the
   slot list, or infer physical mappings.
 
+An explicit Printer transition, including remembered-rack restoration and any
+resulting compatibility replacement, is one native project-history transaction
+and one slice invalidation. Undo/Redo restores the complete transition state;
+the independent remembered-rack preference update is not undoable.
+
 The advanced mapping UI is deferred, but the typed contract must preserve the
 native mapping result so it can be displayed or edited by a later milestone.
 
@@ -70,7 +75,9 @@ eligible multi-filament configuration required to reproduce its slice.
 
 Project state has priority over remembered defaults:
 
-1. Opening a compatible 3MF restores the project's complete slot state.
+1. Opening a compatible 3MF restores the project's complete slot state. This
+   priority applies to project loading only; a later explicit Printer selection
+   restores that selected Printer's remembered rack.
 2. Creating a new project or working without an opened project restores the
    last-used slot state for the selected printer.
 3. Remembered state is namespaced by printer and never replaces explicit slot
@@ -79,6 +86,17 @@ Project state has priority over remembered defaults:
    remembered defaults after a successful explicit slot edit and after an
    Undo/Redo restoration that changes that state. It never alters another
    printer's defaults.
+
+The remembered rack records source-preset selections and actual slot colours;
+it never records a Preset Editor runtime draft or its overrides. Restoring a
+remembered rack is always followed by native compatibility normalization. A
+compatible restored source is retained; a missing or incompatible source is
+replaced using the selected Printer's corresponding default filament profile,
+then the ordinary compatible fallback. This matches Orca's restore-then-
+normalize behavior. After successful normalization, the corrected source
+selections and actual slot colours replace that Printer's remembered rack, so a
+stale incompatible selection is not retried. Runtime drafts and their
+overrides are never written to remembered state.
 
 There is no single selected-filament preference or compatibility projection.
 `selectedProfiles` contains only the Printer and Process names. A remembered
@@ -264,12 +282,11 @@ Add, Delete, and other commands are enabled from the capability fields in the
 Worker-provided filament-session snapshot. The UI does not infer device type
 or native slot-count constraints.
 
-The first release does not expose OrcaSlicer's slot **Edit** action. That
-action opens the full Filament Settings preset editor in native OrcaSlicer;
-Neo's initial multi-filament scope supports compatible-preset selection and
-slot-colour editing only. Imported project-embedded filament preset edits stay
-active and round-trip unchanged. A future complete preset-editor specification
-may add Edit without changing the slot command model.
+The slot **Edit** action opens the shared Filament preset editor defined by
+[`Preset Editor Dialog.md`](Preset%20Editor%20Dialog.md). It targets the slot's
+source preset (and therefore its shared project draft), without changing the
+slot command model. Imported project-embedded filament preset edits remain
+active and round-trip unchanged.
 
 ### 9.2 Object List assignment surface
 

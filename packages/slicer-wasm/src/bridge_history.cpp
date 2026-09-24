@@ -26,6 +26,8 @@
 #include "bridge_plate.hpp"
 #include "bridge_scoped_config.hpp"
 #include "bridge_prime_tower.hpp"
+#include "bridge_preset_drafts.hpp"
+#include "bridge_profiles.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "history/InstanceIdentity.hpp"
 #include "libslic3r/Model.hpp"
@@ -44,6 +46,7 @@ using namespace Slic3r;
 namespace Slic3r::Neo::Bridge::HistoryRuntime {
 
 using Neo::Bridge::BridgeState;
+using Neo::Bridge::PresetDraftRegistry;
 using Neo::Bridge::state;
 using Neo::Bridge::Filament::Commands::validate_filament_candidate_components;
 using Neo::Bridge::Filament::State::apply_mutable;
@@ -316,9 +319,9 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
 
 void validate_filament_history_candidate(
     PresetBundle& catalog, const std::vector<std::string>& filament_presets,
+    const DynamicPrintConfig& printer,
     Model& model, const std::vector<BridgeState::PlateSessionPlate>& plates, const json& snapshot)
 {
-    const auto& printer = catalog.printers.get_edited_preset().config;
     DynamicPrintConfig project_config = catalog.project_config;
     const json project_values = snapshot.value("project", json::object());
     for (const std::string& key : project_config.keys())
@@ -330,8 +333,9 @@ void validate_filament_history_candidate(
             if (!it.value().is_string()) throw std::runtime_error("invalid history project configuration value");
             project_config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions);
         }
+    const auto* nozzle_diameter = printer.opt<ConfigOptionFloats>("nozzle_diameter");
     validate_filament_candidate_components(filament_presets, project_config, printer,
-        std::max(1, catalog.get_printer_extruder_count()),
+        std::max(1, nozzle_diameter ? static_cast<int>(nozzle_diameter->values.size()) : 1),
         printer.opt_bool("single_extruder_multi_material") || catalog.is_bbl_vendor(),
         model, plates, snapshot);
 }
@@ -380,14 +384,18 @@ json restore_timestamped_result(const Runtime& runtime,
     const json context = context_from_history_roots(restored.roots, staged_model, staged_plates);
     if (!context.contains("filamentState"))
         throw std::runtime_error("history context is missing filament state");
+    if (!context.contains("presetDraftRegistry"))
+        throw std::runtime_error("history context is missing preset draft registry");
+    auto staged_preset_drafts = PresetDraftRegistry::from_snapshot_json(
+        context["presetDraftRegistry"], state().presets);
+    if (!context.at("presetDraftRevision").is_number_unsigned())
+        throw std::runtime_error("invalid history preset draft revision");
+    const std::uint64_t staged_preset_draft_revision = context.at("presetDraftRevision").get<std::uint64_t>();
+    const bool preset_drafts_changed = !(state().preset_drafts == staged_preset_drafts);
     const bool filament_changed = history_state_json(state().presets) != context["filamentState"];
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> staged_filament_state;
     if (filament_changed) staged_filament_state.emplace(stage_mutable(state().presets, context["filamentState"]));
     const json staged_snapshot = context["nativeScopedConfig"];
-    validate_filament_history_candidate(
-        state().presets,
-        staged_filament_state ? staged_filament_state->names : state().presets.filament_presets,
-        staged_model, staged_plates, staged_snapshot);
 
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> before_filament_state;
     if (filament_changed) before_filament_state.emplace(stage_mutable(state().presets, history_state_json(state().presets)));
@@ -396,6 +404,8 @@ json restore_timestamped_result(const Runtime& runtime,
     for (const auto* object : before_model.objects) before_objects.emplace(object->id().id, object);
     const auto before_plates = state().plate_session_plates;
     const auto before_project_config = state().presets.project_config;
+    const std::string before_printer_name = state().presets.printers.get_selected_preset_name();
+    const auto before_edited_printer = state().presets.printers.get_edited_preset();
     const auto before_print_config = state().presets.prints.get_edited_preset().config;
     const auto before_plate_revisions = state().plate_input_revisions;
     const auto before_membership = state().instance_plate_ids;
@@ -405,17 +415,38 @@ json restore_timestamped_result(const Runtime& runtime,
     const auto before_current_plate = state().current_plate_id;
     const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
     const auto before_live_context = state().history_live_context;
+    const auto before_preset_drafts = state().preset_drafts;
+    const auto before_preset_draft_revision = state().preset_draft_revision;
     const auto before_native_scoped_config = native_scoped_config_snapshot();
     const auto before_native_print_preset = Neo::Bridge::ScopedConfig::native_print_preset_history_state();
+    const std::string before_print_name = state().presets.prints.get_selected_preset_name();
+    const std::string target_printer_name = context.at("nativePrinterPreset").at("selected").get<std::string>();
+    const bool printer_selection_changed = target_printer_name != before_printer_name;
+    const bool print_preset_changed = context.at("nativePrintPreset") != before_native_print_preset;
+    if (target_printer_name.empty())
+        throw std::runtime_error("history native Printer selection is empty");
+    bool profile_selection_changed = false;
+    json restored_profile_snapshot;
     std::set<std::string> affected_plates;
     const double roots_restore_started_at = Neo::Bridge::Performance::now_ms();
     try {
+        // A history frame owns both the registry and the selected rack. Restore
+        // drafts first so resolving the selected filament source always sees
+        // the exact historical effective preset values.
+        state().preset_drafts = std::move(staged_preset_drafts);
+        state().preset_draft_revision = staged_preset_draft_revision;
+        auto& bundle = state().presets;
+        if (printer_selection_changed &&
+            (bundle.printers.find_preset(target_printer_name, false, true) == nullptr ||
+             !bundle.printers.select_preset_by_name(target_printer_name, true)))
+            throw std::runtime_error("history native Printer selection is unavailable");
+        if (print_preset_changed)
+            Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(
+                context.at("nativePrintPreset"));
         if (staged_filament_state) apply_mutable(state(), state().presets, std::move(*staged_filament_state));
         state().model = std::move(staged_model);
         state().mutable_object_capture_cache.clear();
         restore_history_plate_session(plate_session, state().model);
-        Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(
-            context.at("nativePrintPreset"));
         // The Project history root is an exact owner-aware replacement:
         // native project options restore to project_config, while ordinary
         // Print options restore as edited-preset differences from its parent.
@@ -423,7 +454,35 @@ json restore_timestamped_result(const Runtime& runtime,
             staged_snapshot.value("project", json::object()));
         Neo::Bridge::PlateSession::normalize_coordinate_arrays(
             state().presets.project_config, state().plate_session_plates.size());
+        validate_filament_history_candidate(
+            bundle,
+            bundle.filament_presets,
+            PresetDrafts::effective_preset_config(
+                bundle, state().preset_drafts, Preset::TYPE_PRINTER, target_printer_name),
+            state().model, state().plate_session_plates, staged_snapshot);
+        // Restore exact roots first. A transform-only history frame cannot
+        // change compatibility, and must not traverse the preset catalog.
+        // Never select a replacement while restoring historical selections.
+        if (printer_selection_changed || print_preset_changed || preset_drafts_changed ||
+            filament_changed || before_print_config != bundle.prints.get_edited_preset().config) {
+            const DynamicPrintConfig source_config = bundle.printers.get_edited_preset().config;
+            try {
+                bundle.printers.get_edited_preset().config = PresetDrafts::effective_preset_config(
+                    bundle, state().preset_drafts, Preset::TYPE_PRINTER, target_printer_name);
+                bundle.update_compatible(PresetSelectCompatibleType::Never,
+                                         PresetSelectCompatibleType::Never);
+            } catch (...) {
+                bundle.printers.get_edited_preset().config = source_config;
+                throw;
+            }
+            bundle.printers.get_edited_preset().config = source_config;
+            bundle.printers.update_dirty();
+        }
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
+        profile_selection_changed = before_printer_name != bundle.printers.get_selected_preset_name() ||
+            before_print_name != bundle.prints.get_selected_preset_name();
+        if (profile_selection_changed)
+            restored_profile_snapshot = Neo::Bridge::Profiles::preset_snapshot_json();
         // A history restore publishes only the plates whose native input
         // changed. Project/filament roots fan out to every plate; model
         // topology and transforms use the restored instance membership.
@@ -498,7 +557,7 @@ json restore_timestamped_result(const Runtime& runtime,
         const bool membership_changed = before_membership != state().instance_plate_ids ||
             before_parked != state().parked_instance_ids ||
             normalized_out_of_bounds(before_out_of_bounds) != normalized_out_of_bounds(state().plate_out_of_bounds_ids);
-        if (filament_changed || project_changed) {
+        if (printer_selection_changed || filament_changed || project_changed || preset_drafts_changed) {
             affected_plates = all_plate_ids();
         } else {
             if (membership_changed) {
@@ -572,13 +631,19 @@ json restore_timestamped_result(const Runtime& runtime,
         restore_timings.plate_session_native_config_restore_ms =
             Neo::Bridge::Performance::now_ms() - roots_restore_started_at;
     } catch (...) {
-        if (before_filament_state) apply_mutable(state(), state().presets, std::move(*before_filament_state));
+        state().preset_drafts = before_preset_drafts;
+        state().preset_draft_revision = before_preset_draft_revision;
+        auto& bundle = state().presets;
+        if (!before_printer_name.empty()) bundle.printers.select_preset_by_name(before_printer_name, true);
+        bundle.printers.get_edited_preset() = before_edited_printer;
+        bundle.printers.update_dirty();
+        Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(before_native_print_preset);
+        if (before_filament_state) apply_mutable(state(), bundle, std::move(*before_filament_state));
         state().model = std::move(before_model);
         state().plate_session_plates = before_plates;
-        state().presets.project_config = before_project_config;
-        state().presets.prints.get_edited_preset().config = before_print_config;
-        state().presets.prints.update_dirty();
-        Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(before_native_print_preset);
+        bundle.project_config = before_project_config;
+        bundle.prints.get_edited_preset().config = before_print_config;
+        bundle.prints.update_dirty();
         state().plate_input_revisions = before_plate_revisions;
         state().instance_plate_ids = before_membership;
         state().plate_out_of_bounds_ids = before_out_of_bounds;
@@ -687,7 +752,7 @@ json restore_timestamped_result(const Runtime& runtime,
         }
         return result;
     };
-    const bool filament_projection_changed = filament_changed ||
+    const bool filament_projection_changed = filament_changed || preset_drafts_changed ||
         retained_renderer_object_ids.size() != restored.scene_delta.object_ids.size() ||
         material_assignments(before_native_scoped_config) != material_assignments(staged_snapshot);
     json scene_delta{{"version", 1},
@@ -714,7 +779,11 @@ json restore_timestamped_result(const Runtime& runtime,
                 {"scene_delta", std::move(scene_delta)},
                 {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
                             {"filamentRack", filament_projection_changed}, {"nativeScopedConfig", true}, {"selectionContext", true},
+                            {"presetDrafts", preset_drafts_changed},
+                            {"profileSelection", profile_selection_changed},
                             {"primeTower", true}, {"preview", "all"}}}};
+    if (profile_selection_changed)
+        result["profile_snapshot"] = std::move(restored_profile_snapshot);
     Neo::Bridge::Performance::record("history_restore", {
         {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},
         {"immutable_mesh_reconnect", restore_timings.immutable_mesh_reconnect_ms},
@@ -1349,6 +1418,11 @@ json parse_history_context(const char* context_cstr)
             !preset.contains("project_embedded_presets") || !preset["project_embedded_presets"].is_array())
             throw std::runtime_error("invalid history native Print preset state");
     }
+    if (context.contains("nativePrinterPreset") &&
+        (!context["nativePrinterPreset"].is_object() ||
+         !context["nativePrinterPreset"].contains("selected") ||
+         !context["nativePrinterPreset"]["selected"].is_string()))
+        throw std::runtime_error("invalid history native Printer preset state");
     const auto& selection = context["selection"];
     if (!selection.contains("mode") || !selection["mode"].is_string() ||
         !selection.contains("objectIds") || !selection["objectIds"].is_array() ||
@@ -1375,9 +1449,12 @@ json default_history_context(const BridgeState& state,
         {"activePlateId", state.current_plate_id.empty() ? json(nullptr) : json(state.current_plate_id)},
         {"gizmo", nullptr},
         {"nativeScopedConfig", Neo::Bridge::ScopedConfig::native_scoped_config_snapshot()},
+        {"nativePrinterPreset", {{"selected", state.presets.printers.get_selected_preset_name()}}},
         {"nativePrintPreset", Neo::Bridge::ScopedConfig::native_print_preset_history_state()},
         {"plateSession", plate_session},
         {"filamentState", filament_state},
+        {"presetDraftRegistry", state.preset_drafts.snapshot_json()},
+        {"presetDraftRevision", state.preset_draft_revision},
     };
 }
 
@@ -1393,12 +1470,15 @@ json canonical_history_context(const BridgeState& state,
         ? json(nullptr) : json(state.current_plate_id);
     context["plateSession"] = plate_session;
     context["nativeScopedConfig"] = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
+    context["nativePrinterPreset"] = {{"selected", state.presets.printers.get_selected_preset_name()}};
     context["nativePrintPreset"] = Neo::Bridge::ScopedConfig::native_print_preset_history_state();
     // Filament presets, colours, routing, and matrices are not part of
     // ModelState. Every authoritative history context must therefore carry
     // the current native filament state; the project config is a dedicated
     // native-scoped history root.
     context["filamentState"] = filament_state;
+    context["presetDraftRegistry"] = state.preset_drafts.snapshot_json();
+    context["presetDraftRevision"] = state.preset_draft_revision;
     return context;
 }
 
@@ -1702,6 +1782,19 @@ EMSCRIPTEN_KEEPALIVE const char* orc_take_performance_profile()
 EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cstr)
 {
     try {
+        const auto unchanged_result = [](const json& context) {
+            json order = json::array();
+            for (const auto* object : state().model.objects) order.push_back(object->id().id);
+            return duplicate_json(json{{"ok", true}, {"context", context},
+                {"status", history_status_json()},
+                {"native_scoped_config", Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(state().history_revision)},
+                {"affected_plate_ids", json::array()},
+                {"scene_delta", {{"version", 1}, {"object_ids", json::array()}, {"volume_ids", json::array()},
+                    {"instance_ids", json::array()}, {"plate_ids", json::array()}, {"object_order", order}}},
+                {"impact", {{"version", 1}, {"model", "none"}, {"plateSession", false}, {"filamentRack", false},
+                    {"presetDrafts", false}, {"profileSelection", false}, {"nativeScopedConfig", false},
+                    {"selectionContext", false}, {"primeTower", false}, {"preview", "current-plate"}}}}.dump());
+        };
         const Runtime runtime = HistoryRuntime::runtime();
         const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
         if (!state().active_history_transaction) return error_json("history transaction is not active");
@@ -1720,8 +1813,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             const auto live_roots = HistoryMetadata::capture_history_roots(state(), live_context);
             if (roots_match(tx.before_roots, live_roots)) {
                 state().history_live_context = live_context;
-                return duplicate_json(json{{"ok", true}, {"context", live_context},
-                                           {"status", history_status_json()}}.dump());
+                return unchanged_result(live_context);
             }
             const Neo::History::TimestampedRestore predecessor{
                 state().history.current_timestamp(), tx.before_roots};
@@ -1743,8 +1835,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         state().nested_history_transactions.clear();
         if (roots_match(tx.before_roots, live_roots)) {
             state().history_live_context = live_context;
-            return duplicate_json(json{{"ok", true}, {"context", live_context},
-                                       {"status", history_status_json()}}.dump());
+            return unchanged_result(live_context);
         }
         json result = restore_timestamped_result(runtime, predecessor, 0);
         restore_transaction_runtime_snapshot(tx);

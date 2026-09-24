@@ -26,6 +26,8 @@ interface FilamentSessionState {
   snapshot: FilamentSessionSnapshot | null;
   pendingKind: string | null;
   rejected: string | null;
+  /** Publish a complete rack snapshot returned by a composite native receipt. */
+  publish: (snapshot: FilamentSessionSnapshot) => void;
   load: (runtime: SlicerClient) => Promise<FilamentSessionSnapshotResult>;
   refresh: (runtime: Pick<SlicerClient, 'getFilamentSessionSnapshot'>, isCurrent?: () => boolean, lease?: ProjectMutationLease) => Promise<FilamentSessionSnapshotResult>;
   run: (runtime: SlicerClient, command: () => Promise<FilamentMutationResultOrError>) => Promise<FilamentMutationResultOrError>;
@@ -86,6 +88,7 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
   snapshot: null,
   pendingKind: null,
   rejected: null,
+  publish: (snapshot) => set({ snapshot, rejected: null }),
   load: (runtime): Promise<FilamentSessionSnapshotResult> => enqueueProjectMutationOperation(
     () => readFilamentSnapshot(runtime, set, () => true),
   ),

@@ -16,6 +16,28 @@ class Channel implements WorkerTransport {
 }
 
 describe('Worker-owned project history protocol', () => {
+  it.each(['missing', 'version', 'profileSelection'])('rejects an incomplete restore receipt: %s', async (fault) => {
+    const module = createMockModule();
+    const client = createClient(async () => module);
+    await client.runProjectHistoryTransaction('Add Cube', 'project', context(),
+      () => client.addShape('Cube'), context());
+    const call = module.ccall.bind(module);
+    module.ccall = ((name, ret, argTypes, args) => {
+      const pointer = call(name, ret, argTypes, args);
+      if (name !== 'orc_history_undo') return pointer;
+      const receipt = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      if (fault === 'missing') delete receipt.impact;
+      else if (fault === 'version') receipt.impact.version = 2;
+      else delete receipt.impact.profileSelection;
+      const bytes = new TextEncoder().encode(JSON.stringify(receipt) + '\0');
+      const replaced = Number(module._malloc(bytes.length));
+      module.HEAPU8.set(bytes, replaced);
+      return replaced;
+    }) as typeof module.ccall;
+    await expect(client.undoHistory()).rejects.toThrow('invalid history restore impact');
+  });
+
   it('commits a controlled mutation and restores it through undo/redo and jump', async () => {
     const client = createClient(async () => createMockModule());
     const before = context('plate-session-1-plate-1');

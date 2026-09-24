@@ -46,6 +46,7 @@ const historyMutationOperations = new Set([
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'assignFilament',
   'setFilamentRouting', 'movePrimeTower', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
+  'mutatePresetDraft', 'selectPrinterWithRememberedRack',
 ]);
 
 // Serial Print::process() occupies the sole stateful Worker. These commands
@@ -59,7 +60,7 @@ const restrictedWhileSerialSlicing = new Set([
   'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
   'markSharedConfigurationMutation', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
-  'revalidateNativeScopedConfig', 'selectProfile', 'addModel', 'closeProject',
+  'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'addModel', 'closeProject',
   'loadProject', 'importProjectGeometry', 'addShape', 'clearModel',
   'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
   'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
@@ -130,7 +131,7 @@ function copyLayer(layer: HistoryDiagnosticLayer): HistoryDiagnosticLayer {
 }
 
 function copyDiagnostics(diagnostics: HistoryTransportDiagnostics): HistoryTransportDiagnostics {
-  return { version: 1, worker: copyLayer(diagnostics.worker), client: copyLayer(diagnostics.client) };
+  return { worker: copyLayer(diagnostics.worker), client: copyLayer(diagnostics.client) };
 }
 
 function collectTransferables(value: unknown): Transferable[] {
@@ -275,7 +276,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   let serialSliceActive = false;
   let serialTerminalEpoch = '0';
   let profileLastRestoreSliceActive: boolean | null = null;
-  let diagnostics: HistoryTransportDiagnostics = { version: 1, worker: emptyLayer(), client: emptyLayer() };
+  let diagnostics: HistoryTransportDiagnostics = { worker: emptyLayer(), client: emptyLayer() };
 
   function recordLayer(layer: 'worker' | 'client', diagnostic: HistoryWorkerDiagnostic): void {
     if (diagnostic.kind === 'read') {

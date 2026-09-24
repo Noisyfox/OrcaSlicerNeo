@@ -26,13 +26,16 @@
 #include "bridge_model_operations.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_preset_drafts.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_scoped_config.hpp"
 #include "libslic3r/Exception.hpp"
+#include "libslic3r/Config.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/miniz_extension.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/Preset.hpp"
 #include "libslic3r/Utils.hpp"
 #include "nlohmann/json.hpp"
 
@@ -103,6 +106,8 @@ json close_project_session()
     // empty session. The project-load replacement boundary intentionally does
     // not keep the old registry alive while the new archive is parsed.
     bridge_state.plate_runtime_registry.clear();
+    bridge_state.preset_drafts.clear();
+    bridge_state.preset_draft_revision = 0;
     invalidate_preview_source();
 
     bridge_state.model = Model{};
@@ -144,6 +149,322 @@ std::vector<std::string> requested_filament_slots_from_project_settings(
         }
     }
     return fallback;
+}
+
+using PresetDiffKeys = std::vector<std::set<std::string>>;
+
+PresetDiffKeys project_preset_diff_keys(const DynamicPrintConfig& config,
+                                       std::size_t* filament_count = nullptr)
+{
+    std::size_t count = 0;
+    if (const auto* diameters = config.opt<ConfigOptionFloats>("filament_diameter"))
+        count = diameters->values.size();
+    if (const auto* ids = config.opt<ConfigOptionStrings>("filament_settings_id"))
+        count = std::max(count, ids->values.size());
+    if (const auto* colours = config.opt<ConfigOptionStrings>("filament_colour"))
+        count = std::max(count, colours->values.size());
+    if (filament_count != nullptr) *filament_count = count;
+
+    PresetDiffKeys result(count + 2);
+    const auto* encoded = config.opt<ConfigOptionStrings>("different_settings_to_system");
+    if (encoded == nullptr) return result;
+
+    for (std::size_t index = 0; index < std::min(result.size(), encoded->values.size()); ++index) {
+        std::vector<std::string> keys;
+        if (!Slic3r::unescape_strings_cstyle(encoded->values[index], keys)) continue;
+        result[index].insert(keys.begin(), keys.end());
+    }
+    return result;
+}
+
+std::optional<std::pair<std::size_t, std::size_t>> project_filament_variant_span(
+    const DynamicPrintConfig& config, const std::size_t slot)
+{
+    if (config.option("extruder_variant_list") == nullptr) return std::nullopt;
+    const auto* diameters = config.opt<ConfigOptionFloats>("filament_diameter");
+    const auto* variants = config.opt<ConfigOptionStrings>("filament_extruder_variant");
+    const auto* self_indices = config.opt<ConfigOptionInts>("filament_self_index");
+    if (diameters == nullptr || variants == nullptr || self_indices == nullptr ||
+        slot >= diameters->values.size() || variants->values.size() <= diameters->values.size() ||
+        self_indices->values.size() != variants->values.size())
+        return std::nullopt;
+
+    std::vector<std::size_t> first_variant(diameters->values.size(), variants->values.size());
+    std::size_t current_slot = 1;
+    for (std::size_t index = 0; index < self_indices->values.size(); ++index) {
+        if (self_indices->values[index] != static_cast<int>(current_slot)) continue;
+        first_variant[current_slot - 1] = index;
+        ++current_slot;
+        if (current_slot > first_variant.size()) break;
+    }
+    if (first_variant[slot] == variants->values.size()) return std::nullopt;
+    const std::size_t end = slot + 1 < first_variant.size()
+        ? first_variant[slot + 1] : variants->values.size();
+    if (end <= first_variant[slot]) return std::nullopt;
+    return std::pair{first_variant[slot], end - first_variant[slot]};
+}
+
+struct ProjectEmbeddedPresetSnapshot {
+    std::map<std::string, DynamicPrintConfig> configs;
+    std::map<std::string, bool> dirty;
+};
+
+ProjectEmbeddedPresetSnapshot snapshot_project_embedded_presets(
+    const PresetCollection& collection)
+{
+    ProjectEmbeddedPresetSnapshot snapshot;
+    for (const Preset& preset : collection.get_presets()) {
+        if (!preset.is_project_embedded) continue;
+        snapshot.configs.emplace(preset.name, preset.config);
+        snapshot.dirty.emplace(preset.name, preset.is_dirty);
+    }
+    return snapshot;
+}
+
+void restore_project_embedded_presets(PresetCollection& collection,
+                                      const ProjectEmbeddedPresetSnapshot& snapshot)
+{
+    for (const auto& [name, config] : snapshot.configs) {
+        Preset* preset = collection.find_preset(name, false, true);
+        if (preset == nullptr || !preset->is_project_embedded) continue;
+        preset->config = config;
+        const auto dirty = snapshot.dirty.find(name);
+        preset->is_dirty = dirty != snapshot.dirty.end() && dirty->second;
+    }
+}
+
+const DynamicPrintConfig* project_preset_source_config(
+    PresetCollection& collection,
+    const ProjectEmbeddedPresetSnapshot& embedded_snapshot,
+    const std::string& canonical_name)
+{
+    const auto embedded = embedded_snapshot.configs.find(canonical_name);
+    if (embedded != embedded_snapshot.configs.end()) return &embedded->second;
+    const Preset* preset = collection.find_preset(canonical_name, false, true);
+    return preset == nullptr ? nullptr : &preset->config;
+}
+
+std::string project_load_source_name(PresetCollection& collection,
+                                     const ProjectEmbeddedPresetSnapshot& embedded_snapshot,
+                                     const std::string& loaded_name,
+                                     const std::string& requested_name,
+                                     const std::set<std::string>& diff_keys)
+{
+    if (loaded_name.empty() || requested_name.empty() || diff_keys.empty() ||
+        embedded_snapshot.configs.count(loaded_name) != 0)
+        return loaded_name;
+
+    const Preset* loaded = collection.find_preset(loaded_name, false, true);
+    if (loaded == nullptr || !loaded->is_project_embedded ||
+        loaded->inherits() != requested_name ||
+        collection.find_preset(requested_name, false, true) == nullptr)
+        return loaded_name;
+
+    // The native loader may materialize a temporary @Project child for an
+    // ordinary different-settings value (notably on a later filament slot).
+    // The 3MF still names the real source preset; retain the embedded source
+    // record and represent those changed fields in Neo's session overlay.
+    return requested_name;
+}
+
+void restore_native_modified_presets(PresetCollection& collection,
+                                     const std::string& loaded_name,
+                                     const std::string& source_name,
+                                     const std::set<std::string>& archive_embedded_names)
+{
+    if (loaded_name.empty() || source_name.empty()) return;
+    if (collection.get_selected_preset_name() == loaded_name)
+        collection.select_preset_by_name(source_name, true);
+
+    if (loaded_name == source_name || archive_embedded_names.count(loaded_name) != 0)
+        return;
+    const Preset* child = collection.find_preset(loaded_name, false, true);
+    if (child != nullptr && child->is_project_embedded)
+        collection.delete_preset(loaded_name, true);
+}
+
+void add_active_draft_overrides(PresetDraftRegistry& drafts,
+                                PresetCollection& collection,
+                                const ProjectEmbeddedPresetSnapshot& embedded_snapshot,
+                                const Preset::Type type,
+                                const std::string& canonical_name,
+                                const DynamicPrintConfig& imported_config,
+                                const std::set<std::string>& diff_keys,
+                                const std::optional<std::size_t> filament_slot = std::nullopt)
+{
+    if (canonical_name.empty() || diff_keys.empty()) return;
+    const DynamicPrintConfig* source_config = project_preset_source_config(
+        collection, embedded_snapshot, canonical_name);
+    if (source_config == nullptr) return;
+
+    for (const std::string& key : diff_keys) {
+        const ConfigOption* source_option = source_config->option(key);
+        const ConfigOption* imported_option = imported_config.option(key);
+        if (source_option == nullptr || imported_option == nullptr ||
+            source_option->type() != imported_option->type())
+            continue;
+
+        ConfigOptionUniquePtr effective_option(source_option->clone());
+        if (source_option->is_scalar()) {
+            effective_option->set(imported_option);
+        } else if (filament_slot) {
+            auto* effective_vector = dynamic_cast<ConfigOptionVectorBase*>(effective_option.get());
+            const auto* imported_vector = dynamic_cast<const ConfigOptionVectorBase*>(imported_option);
+            if (effective_vector == nullptr || imported_vector == nullptr) continue;
+            const auto* variants = imported_config.opt<ConfigOptionStrings>("filament_extruder_variant");
+            const auto span = filament_options_with_variant.count(key) != 0
+                ? project_filament_variant_span(imported_config, *filament_slot)
+                : std::nullopt;
+            if (span && variants != nullptr &&
+                imported_vector->size() == variants->values.size()) {
+                if (span->first + span->second > imported_vector->size()) continue;
+                // Multi-extruder projects flatten variant-aware Filament
+                // options by physical-extruder variant. Follow the exact
+                // filament_self_index span used by PresetBundle's loader.
+                effective_vector->set(imported_vector, span->first, span->second);
+            } else {
+                if (*filament_slot >= imported_vector->size()) continue;
+                // In ordinary project_settings.config, a filament-associated
+                // vector is flattened by material slot. Neo draft edits may
+                // also intentionally collapse a variant field to one value
+                // per slot, so use the native variant span only when the
+                // stored vector actually carries every variant value.
+                effective_vector->resize(1);
+                effective_vector->set_at(imported_vector, 0, *filament_slot);
+            }
+        } else {
+            effective_option->set(imported_option);
+        }
+
+        const std::string source_value = source_option->serialize();
+        const std::string effective_value = effective_option->serialize();
+        if (source_value != effective_value)
+            drafts.set(type, canonical_name, key, effective_value);
+    }
+}
+
+void reconstruct_active_project_drafts(
+    PresetBundle& candidate,
+    const DynamicPrintConfig& imported_config,
+    const std::vector<std::string>& requested_filament_slots,
+    const PresetDiffKeys& diff_keys,
+    const ProjectEmbeddedPresetSnapshot& embedded_printers,
+    const ProjectEmbeddedPresetSnapshot& embedded_filaments,
+    PresetDraftRegistry& drafts)
+{
+    std::vector<std::string> loaded_filament_names = candidate.filament_presets;
+    std::vector<std::string> canonical_filament_names;
+    canonical_filament_names.reserve(loaded_filament_names.size());
+    const std::set<std::string> archive_embedded_filament_names = [&]() {
+        std::set<std::string> names;
+        for (const auto& entry : embedded_filaments.configs) names.insert(entry.first);
+        return names;
+    }();
+    const std::set<std::string> archive_embedded_printer_names = [&]() {
+        std::set<std::string> names;
+        for (const auto& entry : embedded_printers.configs) names.insert(entry.first);
+        return names;
+    }();
+
+    // Capture every active slot's loaded values before restoring any embedded
+    // source record. PresetCollection has one edited Filament copy; later
+    // slots may instead refer to a real embedded preset or a temporary child.
+    struct LoadedFilament {
+        std::string loaded_name;
+        std::string canonical_name;
+    };
+    std::vector<LoadedFilament> loaded_filaments;
+    loaded_filaments.reserve(loaded_filament_names.size());
+    for (std::size_t index = 0; index < loaded_filament_names.size(); ++index) {
+        const std::string& loaded_name = loaded_filament_names[index];
+        const std::string requested_name = index < requested_filament_slots.size()
+            ? requested_filament_slots[index] : std::string{};
+        const std::set<std::string> empty_keys;
+        const std::set<std::string>& keys = index + 1 < diff_keys.size()
+            ? diff_keys[index + 1] : empty_keys;
+        const std::string canonical_name = project_load_source_name(
+            candidate.filaments, embedded_filaments, loaded_name, requested_name, keys);
+        add_active_draft_overrides(drafts, candidate.filaments, embedded_filaments,
+                                   Preset::TYPE_FILAMENT, canonical_name,
+                                   imported_config, keys, index);
+        canonical_filament_names.push_back(canonical_name);
+        loaded_filaments.push_back({loaded_name, canonical_name});
+    }
+
+    const std::string loaded_printer_name = candidate.printers.get_selected_preset_name();
+    const std::string requested_printer_name = imported_config.opt_string("printer_settings_id");
+    const std::set<std::string> empty_printer_keys;
+    const std::set<std::string>& printer_keys = diff_keys.size() > 1
+        ? diff_keys.back() : empty_printer_keys;
+    const std::string canonical_printer_name = project_load_source_name(
+        candidate.printers, embedded_printers, loaded_printer_name,
+        requested_printer_name, printer_keys);
+    if (!loaded_printer_name.empty()) {
+        add_active_draft_overrides(drafts, candidate.printers, embedded_printers,
+                                   Preset::TYPE_PRINTER, canonical_printer_name,
+                                   imported_config, printer_keys);
+    }
+
+    // Orca's loader remains the source of compatibility, fallback, and
+    // project-embedded parsing decisions. Undo only the in-place update it
+    // performs for later embedded Filament slots; those archive entries are
+    // sources, not the Neo runtime overlays reconstructed above.
+    restore_project_embedded_presets(candidate.filaments, embedded_filaments);
+    restore_project_embedded_presets(candidate.printers, embedded_printers);
+
+    for (std::size_t index = 0; index < loaded_filaments.size(); ++index) {
+        auto& loaded = loaded_filaments[index];
+        restore_native_modified_presets(candidate.filaments, loaded.loaded_name,
+                                        loaded.canonical_name,
+                                        archive_embedded_filament_names);
+        if (index < candidate.filament_presets.size())
+            candidate.filament_presets[index] = loaded.canonical_name;
+    }
+    if (!loaded_printer_name.empty())
+        restore_native_modified_presets(candidate.printers, loaded_printer_name,
+                                        canonical_printer_name,
+                                        archive_embedded_printer_names);
+    if (!canonical_filament_names.empty() &&
+        std::find(canonical_filament_names.begin(), canonical_filament_names.end(),
+                  candidate.filaments.get_selected_preset_name()) == canonical_filament_names.end()) {
+        const std::string& first = canonical_filament_names.front();
+        if (candidate.filaments.find_preset(first, false, true) != nullptr)
+            candidate.filaments.select_preset_by_name(first, true);
+    }
+    candidate.update_multi_material_filament_presets();
+}
+
+void merge_active_draft_keys_into_project_metadata(
+    DynamicPrintConfig& output_config,
+    const DynamicPrintConfig& native_metadata,
+    const PresetBundle& bundle,
+    const PresetDraftRegistry& drafts)
+{
+    const std::size_t filament_count = bundle.filament_presets.size();
+    std::vector<std::string> values(filament_count + 2);
+    if (const auto* native_values = native_metadata.opt<ConfigOptionStrings>("different_settings_to_system")) {
+        const std::size_t count = std::min(values.size(), native_values->values.size());
+        std::copy_n(native_values->values.begin(), count, values.begin());
+    }
+
+    const auto merge = [&values](const std::size_t index,
+                                 const PresetDraftRegistry::Overrides* overrides) {
+        if (overrides == nullptr || overrides->empty() || index >= values.size()) return;
+        std::vector<std::string> keys;
+        if (!Slic3r::unescape_strings_cstyle(values[index], keys)) return;
+        std::set<std::string> existing(keys.begin(), keys.end());
+        for (const auto& entry : *overrides)
+            if (existing.insert(entry.first).second) keys.push_back(entry.first);
+        values[index] = Slic3r::escape_strings_cstyle(keys);
+    };
+
+    merge(filament_count + 1,
+          drafts.find(Preset::TYPE_PRINTER, bundle.printers.get_selected_preset_name()));
+    for (std::size_t index = 0; index < filament_count; ++index)
+        merge(index + 1, drafts.find(Preset::TYPE_FILAMENT, bundle.filament_presets[index]));
+
+    output_config.set_key_value("different_settings_to_system",
+                                new ConfigOptionStrings(std::move(values)));
 }
 
 std::string xml_unescape_value(std::string value)
@@ -544,6 +865,14 @@ static const char* orc_load_project_impl(const char* data, int len,
             throw Slic3r::RuntimeError("Loading of a project file failed.");
         publish_slicer_progress(55, geometry_only ? "Preparing imported geometry" : "Reading project settings");
         imported.add_default_instances();
+        if (!geometry_only) {
+            // Match the desktop Plater path. Project JSON may encode a
+            // filament vector as an empty scalar, while the multi-filament
+            // preset loader expects every ordinary filament vector to have
+            // one value per slot. This normalized form is Neo's canonical
+            // imported project config for the entire transaction.
+            Preset::normalize(imported_config);
+        }
 
         // Geometry-only imports intentionally discard object/part overrides;
         // extruder assignment is the one per-object value that remains.
@@ -621,6 +950,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             requested_filament_slots = requested_filament_slots_from_project_settings(
                 project_settings,
                 requested_filament_slots_from_import(imported_config, candidate.filament_presets));
+        PresetDraftRegistry staged_preset_drafts;
         std::size_t printer_preset_count = 0;
         std::size_t process_preset_count = 0;
         std::size_t filament_preset_count = 0;
@@ -634,6 +964,13 @@ static const char* orc_load_project_impl(const char* data, int len,
         if (!geometry_only && (!project_presets.empty() || is_bbl_3mf || is_orca_3mf)) {
             candidate.load_project_embedded_presets(project_presets,
                 ForwardCompatibilitySubstitutionRule::Enable);
+            const ProjectEmbeddedPresetSnapshot embedded_printers =
+                snapshot_project_embedded_presets(candidate.printers);
+            const ProjectEmbeddedPresetSnapshot embedded_filaments =
+                snapshot_project_embedded_presets(candidate.filaments);
+            const PresetDiffKeys diff_keys = project_preset_diff_keys(imported_config);
+            const std::vector<std::string> native_requested_filament_slots =
+                requested_filament_slots_from_import(imported_config, requested_filament_slots);
             warning_details = inspect_project_preset_warnings(candidate, imported_config, load_path);
 
             // This is Orca's native project-load sequence after embedded
@@ -651,6 +988,9 @@ static const char* orc_load_project_impl(const char* data, int len,
             // printer replacement.
             candidate.update_compatible(PresetSelectCompatibleType::Always);
             candidate.update_multi_material_filament_presets();
+            reconstruct_active_project_drafts(candidate, imported_config,
+                native_requested_filament_slots, diff_keys, embedded_printers,
+                embedded_filaments, staged_preset_drafts);
         }
         publish_slicer_progress(75, geometry_only ? "Finalizing geometry import" : "Applying project settings");
 
@@ -695,6 +1035,8 @@ static const char* orc_load_project_impl(const char* data, int len,
             struct ProjectCommitRollback {
                 Model model;
                 PresetBundle presets;
+                PresetDraftRegistry preset_drafts;
+                std::uint64_t preset_draft_revision { 0 };
                 Neo::History::TimestampedHistory history;
                 json history_live_context;
                 std::vector<BridgeState::PlateSessionPlate> plates;
@@ -713,6 +1055,8 @@ static const char* orc_load_project_impl(const char* data, int len,
             } rollback;
             rollback.model = std::move(state().model);
             rollback.presets = std::move(state().presets);
+            rollback.preset_drafts = std::move(state().preset_drafts);
+            rollback.preset_draft_revision = state().preset_draft_revision;
             rollback.history = std::move(state().history);
             // TimestampedHistory is move-only. Keep the publication target
             // valid while rollback owns the closed session; the successful
@@ -739,6 +1083,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 // provenance report; PresetBundle copy is the established
                 // bridge staging boundary.
                 state().presets = candidate;
+                state().preset_drafts = std::move(staged_preset_drafts);
+                state().preset_draft_revision = 0;
                 initialize_plate_session_from_records(plate_data, raw_records);
                 Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(state().plate_session_plates);
                 Neo::Bridge::PlateSession::normalize_coordinate_arrays(
@@ -761,6 +1107,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().model = std::move(rollback.model);
                 state().mutable_object_capture_cache.clear();
                 state().presets = std::move(rollback.presets);
+                state().preset_drafts = std::move(rollback.preset_drafts);
+                state().preset_draft_revision = rollback.preset_draft_revision;
                 state().history = std::move(rollback.history);
                 state().history_live_context = std::move(rollback.history_live_context);
                 state().plate_session_plates = std::move(rollback.plates);
@@ -946,7 +1294,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
             plates.push_back(plate.get());
             owned.push_back(std::move(plate));
         }
-        DynamicPrintConfig config = state().presets.full_config_secure();
+        DynamicPrintConfig config = Neo::Bridge::PresetDrafts::effective_full_config_secure();
+        if (state().presets.printers.get_edited_preset().printer_technology() == ptFFF) {
+            // construct_full_config() intentionally omits BBS's aggregate
+            // different_settings_to_system metadata because slicing does not
+            // consume it. The project writer does: without this vector, the
+            // 3MF reader treats a project-embedded Process value as inherited
+            // and replaces it with the parent on reopen. Preserve the native
+            // bundle's Process/Printer/Filament diff metadata while keeping
+            // the effective config (including supported preset drafts) as
+            // the flattened value source.
+            const DynamicPrintConfig native_metadata = state().presets.full_config_secure();
+            merge_active_draft_keys_into_project_metadata(
+                config, native_metadata, state().presets, state().preset_drafts);
+        }
         StoreParams params;
         params.path = path;
         params.model = &state().model;

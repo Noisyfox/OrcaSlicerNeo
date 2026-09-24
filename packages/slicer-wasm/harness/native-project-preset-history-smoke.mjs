@@ -117,6 +117,13 @@ requireOk('add roundtrip geometry', callJson('orc_add_shape', ['string', 'string
 const exported = requireOk('save Process override', callJson('orc_export_project'));
 const projectBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
 Module._free(Number(exported.bytes_ptr));
+const entries = readZipEntries(projectBytes);
+const projectConfig = JSON.parse(new TextDecoder().decode(
+  entries.find(entry => entry.name === 'Metadata/project_settings.config').content));
+const processDiffs = projectConfig.different_settings_to_system ?? [];
+check('saved embedded Process archive declares its edited key as a diff',
+  String(Array.isArray(processDiffs) ? processDiffs[0] : processDiffs).includes('layer_height'),
+  JSON.stringify(processDiffs));
 function loadArchive(bytes, name) {
   const ptr = Number(Module._malloc(bytes.length));
   Module.HEAPU8.set(bytes, ptr);
@@ -136,9 +143,6 @@ check('Process-only save/reopen preserves the edited value',
   reloaded.preset_snapshot.project_config.layer_height === '0.24',
   JSON.stringify(reloaded.preset_snapshot.project_config.layer_height));
 
-const entries = readZipEntries(projectBytes);
-const projectConfig = JSON.parse(new TextDecoder().decode(
-  entries.find(entry => entry.name === 'Metadata/project_settings.config').content));
 function withProjectConfig(changes) {
   return replaceEntry(projectBytes, 'Metadata/project_settings.config',
     JSON.stringify({ ...projectConfig, ...changes }));

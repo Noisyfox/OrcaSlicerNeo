@@ -5,11 +5,15 @@ import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError } from '@slicer/client';
 import { publishRememberedFilamentRack } from '../../preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
+import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
   ComboboxList, ComboboxTrigger, ComboboxValue,
 } from '@/components/ui/combobox';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary } | null;
 
@@ -37,7 +41,7 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
   );
 }
 
-function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onDelete, onMerge }: {
+function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
   slot: { slot: number; preset: { name: string }; colour: { effective: string } };
   presetNames: readonly string[];
   mergeDestinations: readonly number[];
@@ -46,6 +50,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   pending: boolean;
   onPreset: (name: string) => void;
   onColour: (colour: string) => void;
+  onEdit?: () => void;
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
@@ -102,7 +107,33 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
           className="size-6 cursor-pointer rounded border-0 bg-transparent p-0"
         />
         <span className="min-w-0 flex-1 truncate text-xs font-medium">Slot {slot.slot}</span>
-        <Button variant="ghost" size="icon-xs" data-testid={`filament-delete-${slot.slot}`} disabled={pending || !canDelete} onClick={onDelete} aria-label={`Delete slot ${slot.slot}`}>×</Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button
+              variant="ghost"
+              size="icon-xs"
+              data-testid={`filament-actions-${slot.slot}`}
+              disabled={pending}
+              aria-label={`Actions for slot ${slot.slot}`}
+            />}
+          >
+            <MoreHorizontal aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {onEdit && <DropdownMenuItem data-testid={`filament-edit-${slot.slot}`} onClick={onEdit}>Edit</DropdownMenuItem>}
+            <DropdownMenuItem
+              data-testid={`filament-merge-${slot.slot}`}
+              disabled={!canMerge}
+              onClick={() => setMergeOpen(true)}
+            >Merge with…</DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid={`filament-delete-${slot.slot}`}
+              variant="destructive"
+              disabled={!canDelete}
+              onClick={onDelete}
+            >Delete</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="mt-2 flex min-w-0 gap-1">
         <Combobox value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
@@ -115,7 +146,6 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
             <ComboboxEmpty>No compatible preset</ComboboxEmpty>
           </ComboboxContent>
         </Combobox>
-        <Button variant="outline" size="sm" data-testid={`filament-merge-${slot.slot}`} disabled={pending || !canMerge} onClick={() => setMergeOpen((open) => !open)}>Merge</Button>
       </div>
       {mergeOpen && (
         <div className="mt-1 flex flex-wrap gap-1" data-testid={`filament-merge-menu-${slot.slot}`}>
@@ -133,7 +163,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   );
 }
 
-export function FilamentRack() {
+export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: string) => void }) {
   const platform = usePlatform();
   const snapshot = useFilamentSessionStore((state) => state.snapshot);
   const pendingKind = useFilamentSessionStore((state) => state.pendingKind);
@@ -222,6 +252,7 @@ export function FilamentRack() {
               pending={pending}
               onPreset={(preset) => void updateSlot(() => platform.runtime.selectFilamentSlotPreset({ version: 1, revision: revision(), slot: slot.slot, preset }))}
               onColour={(colour) => void updateSlot(() => platform.runtime.setFilamentSlotColour({ version: 1, revision: revision(), slot: slot.slot, colour }))}
+              onEdit={onEditPreset ? () => onEditPreset(slot.preset.name) : undefined}
               onDelete={() => askOrRun('delete', slot.slot, null)}
               onMerge={(destination) => askOrRun('merge', slot.slot, destination)}
             />

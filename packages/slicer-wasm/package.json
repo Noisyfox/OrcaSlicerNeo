@@ -14,6 +14,11 @@
     "scoped-config-interoperability:threaded": "node harness/scoped-config-interoperability.mjs --module out/threaded/orca_slice.js",
     "native-project-preset-history-smoke": "node harness/native-project-preset-history-smoke.mjs out/serial/orca_slice.js",
     "native-project-preset-history-smoke:threaded": "node harness/native-project-preset-history-smoke.mjs out/threaded/orca_slice.js",
+    "native-printer-transition-smoke": "node harness/native-printer-transition-smoke.mjs out/serial/orca_slice.js",
+    "native-printer-transition-smoke:threaded": "node harness/native-printer-transition-smoke.mjs out/threaded/orca_slice.js",
+    "preset-draft-registry-smoke": "node harness/preset-draft-registry-smoke.mjs --module out/serial/orca_slice.js",
+    "preset-draft-registry-smoke:threaded": "node harness/preset-draft-registry-smoke.mjs --module out/threaded/orca_slice.js",
+    "filament-vector-project-benchmark": "node harness/filament-vector-project-benchmark.mjs",
     "project-preset-restoration": "node harness/project-preset-restoration.mjs --module out/serial/orca_slice.js",
     "sinking-out-of-bounds-smoke": "node harness/sinking-out-of-bounds-smoke.mjs out/serial/orca_slice.js"
   },

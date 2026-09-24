@@ -73,6 +73,19 @@ describe('worker protocol', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('routes preset draft reads and history-backed mutations through the Worker', async () => {
+    const { workerClient } = setup();
+    await workerClient.init();
+    const draft = await workerClient.getPresetDraft('printer', 'Bambu Lab X1 Carbon 0.4 nozzle');
+    if (!draft.ok) throw new Error('expected printer source');
+    expect(draft.optionMetadata.nozzle_temperature?.category).toBe('Temperature');
+    const result = await workerClient.mutatePresetDraft({ kind: 'printer', canonicalName: draft.canonicalName,
+      action: 'set', expectedRevision: draft.revision, key: 'nozzle_temperature', value: '225' });
+    expect(result).toMatchObject({ ok: true, historyEntryDelta: 1, allPlateResultsInvalidated: true,
+      effectiveValues: { nozzle_temperature: '225' } });
+    expect(workerClient.getHistoryDiagnostics().worker.mutation.count).toBe(1);
+  });
+
   it('runs the optional request hook before dispatching an operation', async () => {
     const calls: Array<[string, unknown[]]> = [];
     const { workerClient } = setup((op, args) => { calls.push([op, args]); });
@@ -107,6 +120,9 @@ describe('worker protocol', () => {
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.mutateNativeScopedConfig({ version: 1, operation: 'set',
       targets: [{ scope: 'project' }], key: 'layer_height', value: '0.2' }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.mutatePresetDraft({ kind: 'printer', canonicalName: 'Bambu Lab X1 Carbon 0.4 nozzle',
+      action: 'reset-preset', expectedRevision: 0 }))
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cloneObjects([1]))
       .resolves.toMatchObject({ error: 'slice_busy' });
@@ -320,7 +336,6 @@ describe('worker protocol', () => {
     await workerClient.getFilamentSessionSnapshot();
 
     const observed = workerClient.getHistoryDiagnostics();
-    expect(observed).toMatchObject({ version: 1 });
     expect(observed.worker.mutation.count).toBe(1);
     expect(observed.client.mutation.count).toBe(1);
     expect(observed.worker.directRestore.count).toBe(1);

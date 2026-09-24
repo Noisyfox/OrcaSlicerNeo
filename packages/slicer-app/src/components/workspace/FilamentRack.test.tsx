@@ -50,13 +50,21 @@ function mutation(snapshot: FilamentSessionSnapshot, kind: 'add' | 'delete' | 's
   } };
 }
 
-function renderRack(runtime: Record<string, unknown>) {
+function renderRack(runtime: Record<string, unknown>, onEditPreset?: (canonicalName: string) => void) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   const platform = { runtime } as unknown as PlatformCapabilities;
-  act(() => { root.render(<PlatformProvider value={platform}><FilamentRack /></PlatformProvider>); });
+  act(() => { root.render(<PlatformProvider value={platform}><FilamentRack onEditPreset={onEditPreset} /></PlatformProvider>); });
   return { container, root };
+}
+
+async function openSlotAction(container: HTMLElement, slot: number, action: 'edit' | 'delete' | 'merge') {
+  await act(async () => {
+    (container.querySelector(`[data-testid="filament-actions-${slot}"]`) as HTMLButtonElement).click();
+    await Promise.resolve();
+  });
+  return document.querySelector(`[data-testid="filament-${action}-${slot}"]`) as HTMLElement | null;
 }
 
 describe('FilamentRack runtime interaction', () => {
@@ -83,6 +91,20 @@ describe('FilamentRack runtime interaction', () => {
     expect(add).toHaveBeenCalledWith({ version: 1, revision: 4 });
     expect(rendered.container.querySelector('[data-testid="filament-slot-3"]')).not.toBeNull();
     expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(5);
+  });
+
+  it('routes each slot action-menu Edit to that slot preset canonical name', async () => {
+    const initial = makeSnapshot();
+    useFilamentSessionStore.setState({ snapshot: initial });
+    const onEditPreset = vi.fn();
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => initial) }, onEditPreset);
+    root = rendered.root;
+
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { (await openSlotAction(rendered.container, 2, 'edit'))?.click(); });
+
+    expect(onEditPreset).toHaveBeenCalledOnce();
+    expect(onEditPreset).toHaveBeenCalledWith('PETG');
   });
 
   it('keeps continuous colour input local and commits one final native change', async () => {
@@ -154,7 +176,8 @@ describe('FilamentRack runtime interaction', () => {
     useFilamentSessionStore.setState({ snapshot: initial });
     const rendered = renderRack(runtime); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
-    await act(async () => { (rendered.container.querySelector('[data-testid="filament-delete-2"]') as HTMLButtonElement).click(); });
+    const deleteAction = await openSlotAction(rendered.container, 2, 'delete');
+    await act(async () => { deleteAction?.click(); });
     expect(rendered.container.querySelector('[data-testid="filament-impact-summary"]')).not.toBeNull();
     await act(async () => { (rendered.container.querySelector('[data-testid="filament-impact-cancel"]') as HTMLButtonElement).click(); });
     expect(deleteSlot).not.toHaveBeenCalled();
@@ -168,8 +191,10 @@ describe('FilamentRack runtime interaction', () => {
     const rendered = renderRack(runtime); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
     expect((rendered.container.querySelector('[data-testid="filament-add"]') as HTMLButtonElement).disabled).toBe(true);
-    expect((rendered.container.querySelector('[data-testid="filament-delete-1"]') as HTMLButtonElement).disabled).toBe(true);
-    expect((rendered.container.querySelector('[data-testid="filament-merge-1"]') as HTMLButtonElement).disabled).toBe(true);
+    const deleteAction = await openSlotAction(rendered.container, 1, 'delete');
+    const mergeAction = await openSlotAction(rendered.container, 1, 'merge');
+    expect(deleteAction?.getAttribute('data-disabled')).not.toBeNull();
+    expect(mergeAction?.getAttribute('data-disabled')).not.toBeNull();
     const rejected = { ok: false as const, version: 1 as const, error: 'native rejected', errorCode: 'native_validation_failure' };
     let release: ((value: typeof rejected) => void) | undefined;
     const pendingAdd = vi.fn(() => new Promise<typeof rejected>((resolve) => { release = resolve; }));

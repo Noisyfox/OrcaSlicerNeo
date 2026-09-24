@@ -136,6 +136,10 @@ describe('transactional project actions', () => {
     const result = await openProject(platform, { loadBehaviour: 'load_all' });
     expect(result.status).toBe('ok');
     expect(runtime.getProfileSnapshot).not.toHaveBeenCalled();
+    expect(runtime.applyRememberedFilamentRack).not.toHaveBeenCalled();
+    expect(useFilamentSessionStore.getState().snapshot).toMatchObject({
+      slots: [{ preset: { name: 'PLA 0' } }],
+    });
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', scope: 'project', dirty: false });
   });
 

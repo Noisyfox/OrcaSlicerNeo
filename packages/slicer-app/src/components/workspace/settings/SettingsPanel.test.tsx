@@ -2,12 +2,14 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
-import type { FilamentSessionSnapshot, PresetInfo, ProfileSnapshot, ProfileSnapshotResult } from '@slicer/client';
+import { PlatformProvider, type PlatformCapabilities, type RememberedFilamentRack, type UserPreferences } from '@orca/platform-contract';
+import type { FilamentSessionSnapshot, PresetInfo, ProfileSnapshot, ProfileSnapshotResult, PrinterTransitionResult } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 import { SettingsPanel } from './SettingsPanel';
 
 vi.mock('./MovePanel', () => ({ MovePanel: () => null }));
@@ -51,9 +53,42 @@ const resolvedRack: FilamentSessionSnapshot = {
   status: { state: 'ready', error: null },
 };
 
+function printerTransition(profileSnapshot = resolvedSnapshot, filamentSession = resolvedRack): PrinterTransitionResult {
+  const affectedPlateIds = ['plate-1'];
+  return {
+    ok: true, profileSnapshot, filamentSession,
+    plateSession: {
+      ok: true, version: 1, currentPlateId: 'plate-1',
+      plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
+      instances: [], instanceTransforms: [], inputRevisions: { 'plate-1': 1 },
+      affectedPlateIdsBefore: affectedPlateIds, affectedPlateIdsAfter: affectedPlateIds,
+      affectedPlateIds, dirtyReasons: ['shared-configuration'],
+    },
+    historyStatus: {
+      canUndo: true, canRedo: false, undoLabel: 'Select Printer',
+      undoEntries: [{ id: 'entry-1', label: 'Select Printer', category: 'project' }], redoEntries: [],
+      cursor: 1, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
+      bytesUsed: 128, byteBudget: 256 * 1024 * 1024, evictedEntryCount: 0,
+      lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
+      disabled: false, activeTransactionId: null, revision: 1,
+    },
+    nativeScopedConfig: {
+      version: 1, revision: 1, kind: 'full',
+      snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+    },
+    mutation: {
+      kind: 'select-printer-with-remembered-rack', historyEntryDelta: 1,
+      revisionBefore: 0, revisionAfter: 1, dirty: true,
+      allPlateResultsInvalidated: true, affectedPlateIds,
+    },
+  };
+}
+
 function resetStores() {
   useProjectStore.getState().reset();
   usePlateSessionStore.getState().reset();
+  useFilamentSessionStore.getState().reset();
+  useHistoryNavigationStore.getState().reset();
     useSettingsStore.setState({
       metadata: {},
     printers: initialSnapshot.printers,
@@ -70,7 +105,10 @@ function resetStores() {
   });
 }
 
-function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) => Promise<ProfileSnapshotResult>) {
+function makePlatform(
+  selectProfile: (kind: 'printer' | 'print', name: string) => Promise<ProfileSnapshotResult>,
+  selectPrinterWithRememberedRack: (printer: string, rack: RememberedFilamentRack | null) => Promise<PrinterTransitionResult> = async () => printerTransition(),
+) {
   const preferences: UserPreferences = { version: 1, selectedProfiles: { printer: 'saved' }, ui: { switchToDeviceAfterSend: true } };
   const repository = {
     load: vi.fn(async () => preferences),
@@ -78,6 +116,7 @@ function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) =
   };
   const runtime = {
         selectProfile: vi.fn(selectProfile),
+        selectPrinterWithRememberedRack: vi.fn(selectPrinterWithRememberedRack),
         revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
           version: 1 as const, revision: 0, kind: 'full' as const,
           snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
@@ -109,12 +148,12 @@ function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) =
   };
 }
 
-async function render(platform: PlatformCapabilities) {
+async function render(platform: PlatformCapabilities, onEditPrinter?: (canonicalName: string) => void) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(<PlatformProvider value={platform}><SettingsPanel sceneInteraction={null} /></PlatformProvider>);
+    root.render(<PlatformProvider value={platform}><SettingsPanel sceneInteraction={null} onEditPrinter={onEditPrinter} /></PlatformProvider>);
   });
   return { container, root };
 }
@@ -159,11 +198,25 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="process-preset-select"]')).not.toBeNull();
   });
 
-  it('locks every selector, atomically applies the resolved snapshot, clears overrides, invalidates once, and persists the resolved triple', async () => {
+  it('opens Printer editing for the currently selected canonical preset without changing selection', async () => {
     resetStores();
-    let resolveSelection!: (snapshot: ProfileSnapshotResult) => void;
-    const pending = new Promise<ProfileSnapshotResult>((resolve) => { resolveSelection = resolve; });
-    const { platform, repository } = makePlatform(async () => pending);
+    const onEditPrinter = vi.fn();
+    const { platform } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform, onEditPrinter);
+    roots.push(root);
+
+    await act(async () => { (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLButtonElement).click(); });
+
+    expect(onEditPrinter).toHaveBeenCalledOnce();
+    expect(onEditPrinter).toHaveBeenCalledWith('Old Printer');
+    expect(useSettingsStore.getState().selectedPrinter).toBe('Old Printer');
+  });
+
+  it('locks every selector, publishes one native Printer receipt, invalidates once, and persists its resolved state', async () => {
+    resetStores();
+    let resolveSelection!: (transition: PrinterTransitionResult) => void;
+    const pending = new Promise<PrinterTransitionResult>((resolve) => { resolveSelection = resolve; });
+    const { platform, repository, runtime } = makePlatform(async () => resolvedSnapshot, async () => pending);
     const { container, root } = await render(platform);
     roots.push(root);
     let slicerUpdates = 0;
@@ -177,7 +230,7 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('true');
 
     await act(async () => {
-      resolveSelection(resolvedSnapshot);
+      resolveSelection(printerTransition());
       await Promise.resolve();
     });
     unsubscribe();
@@ -189,10 +242,15 @@ describe('SettingsPanel preset transitions', () => {
     expect([settings.selectedPrinter, settings.selectedPrint])
       .toEqual(['New Printer', 'Resolved Process']);
     expect(settings.values).toEqual({});
-    expect((platform.runtime as unknown as { markSharedConfigurationMutation: ReturnType<typeof vi.fn> })
-      .markSharedConfigurationMutation).toHaveBeenCalledOnce();
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
+    expect(runtime.markSharedConfigurationMutation).not.toHaveBeenCalled();
+    expect(runtime.getFilamentSessionSnapshot).not.toHaveBeenCalled();
+    expect(runtime.revalidateNativeScopedConfig).not.toHaveBeenCalled();
+    expect(useFilamentSessionStore.getState().snapshot).toEqual(resolvedRack);
+    expect(useHistoryNavigationStore.getState().status).toMatchObject({ revision: 1, undoLabel: 'Select Printer' });
     expect(useProjectStore.getState()).toMatchObject({
-      dirtyReasons: ['shared-configuration'],
+      dirty: true,
+      dirtyReasons: [],
       plateInputRevisions: { 'plate-1': 1 },
     });
     expect(slicerUpdates).toBe(1);
@@ -203,14 +261,20 @@ describe('SettingsPanel preset transitions', () => {
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       selectedProfiles: { printer: 'New Printer', print: 'Resolved Process' },
     }));
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
+      rememberedFilamentRacks: { 'New Printer': { version: 1, slots: [
+        { preset: 'Resolved Filament', colour: '#112233' },
+      ] } },
+    }));
     expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('false');
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('keeps the resolved session state when preference persistence fails', async () => {
+  it('keeps the resolved session state when selected-profile preference persistence fails', async () => {
     resetStores();
     const { platform, repository, preferences } = makePlatform(async () => resolvedSnapshot);
-    repository.load.mockResolvedValueOnce(preferences).mockRejectedValueOnce(new Error('storage unavailable'));
+    repository.load.mockResolvedValueOnce(preferences).mockResolvedValueOnce(preferences)
+      .mockRejectedValueOnce(new Error('storage unavailable'));
     const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { container, root } = await render(platform);
     roots.push(root);
@@ -228,26 +292,47 @@ describe('SettingsPanel preset transitions', () => {
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('applies the resolved printer remembered rack before publishing the profile transition', async () => {
+  it('passes the remembered rack into one native transition and publishes preference only after success', async () => {
     resetStores();
-    const { platform, runtime, preferences } = makePlatform(async () => resolvedSnapshot);
+    const events: string[] = [];
+    const { platform, runtime, preferences, repository } = makePlatform(async () => resolvedSnapshot,
+      async (_printer, rack) => { events.push('native-transition'); expect(rack?.slots[0]).toEqual({ preset: 'Resolved Filament', colour: '#112233' }); return printerTransition(); });
     preferences.rememberedFilamentRacks = {
       'New Printer': { version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233' }] },
     };
+    repository.load.mockImplementation(async () => { events.push('preference-load'); return preferences; });
+    repository.save.mockImplementation(async (next: UserPreferences) => { events.push('preference-save'); Object.assign(preferences, next); });
     const { container, root } = await render(platform);
     roots.push(root);
 
     await selectOption(container, 'preset-select', 'New Printer');
     await act(async () => { await Promise.resolve(); });
 
-    expect(runtime.applyRememberedFilamentRack).toHaveBeenCalledWith({
-      version: 1, revision: 1,
-      slots: [{ preset: 'Resolved Filament', colour: '#112233' }],
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', {
+      version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233' }],
     });
-    expect(runtime.applyRememberedFilamentRack.mock.invocationCallOrder[0])
-      .toBeLessThan(runtime.markSharedConfigurationMutation.mock.invocationCallOrder[0]);
-    expect(runtime.markSharedConfigurationMutation.mock.invocationCallOrder[0])
-      .toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder.at(-1)!);
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
+    expect(runtime.applyRememberedFilamentRack).not.toHaveBeenCalled();
+    expect(runtime.markSharedConfigurationMutation).not.toHaveBeenCalled();
+    expect(runtime.getFilamentSessionSnapshot).not.toHaveBeenCalled();
+    expect(events.indexOf('preference-load')).toBeLessThan(events.indexOf('native-transition'));
+    expect(events.indexOf('native-transition')).toBeLessThan(events.indexOf('preference-save'));
+  });
+
+  it('does not publish a remembered rack when the native Printer transition fails', async () => {
+    resetStores();
+    const { platform, runtime, repository } = makePlatform(async () => resolvedSnapshot,
+      async () => ({ ok: false, error: 'compatibility failed', errorCode: 'native_validation_failure' }));
+    const { container, root } = await render(platform);
+    roots.push(root);
+
+    await selectOption(container, 'preset-select', 'New Printer');
+    await act(async () => { await Promise.resolve(); });
+
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().selectedPrinter).toBe('Old Printer');
+    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
   });
 
   it('renders prime-tower controls without exposing scene-owned coordinates', async () => {

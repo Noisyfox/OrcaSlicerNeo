@@ -865,6 +865,308 @@ describe('SlicerClient bridge contract', () => {
     expect(m.sparse_infill_pattern?.enum_values).toContain('grid');
   });
 
+  it('selectPrinterWithRememberedRack returns one complete native commit receipt', async () => {
+    const c = makeClient();
+    const before = await c.getHistoryStatus();
+    const result = await c.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', {
+      version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456' }],
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      profileSnapshot: { printer: { name: 'Bambu Lab P1S 0.4 nozzle' }, print: { name: '0.20mm Standard @BBL P1S' } },
+      filamentSession: { slots: [{ preset: { name: 'Bambu PLA Basic @BBL P1S' }, colour: { effective: '#123456' } }] },
+      mutation: { kind: 'select-printer-with-remembered-rack', historyEntryDelta: 1,
+        revisionBefore: before.revision, revisionAfter: before.revision + 1,
+        allPlateResultsInvalidated: true, affectedPlateIds: expect.any(Array) },
+      nativeScopedConfig: { kind: 'full', revision: before.revision + 1 },
+      historyStatus: { revision: before.revision + 1, canUndo: true },
+    });
+    expect(await c.getHistoryStatus()).toMatchObject({ revision: before.revision + 1, undoEntries: [
+      expect.objectContaining({ label: 'Select Printer', category: 'project' }),
+    ] });
+  });
+
+  it('reads source/effective preset values and shares drafts by canonical source across filament slots', async () => {
+    const c = makeClient();
+    await c.init();
+    const firstSession = await c.getFilamentSessionSnapshot();
+    if (!firstSession.ok) throw new Error('expected filament session');
+    const added = await c.addFilamentSlot({ version: 1, revision: firstSession.revisions.session });
+    if (!added.ok) throw new Error('expected second filament slot');
+    const sameSourceSession = await c.getFilamentSessionSnapshot();
+    if (!sameSourceSession.ok) throw new Error('expected filament session');
+    expect(sameSourceSession.slots.map((slot) => slot.preset.name)).toEqual([
+      'Generic PLA @System', 'Generic PLA @System',
+    ]);
+
+    const opened = await c.getPresetDraft('filament', 'Generic PLA @System');
+    expect(opened).toMatchObject({ ok: true, sourceValues: { filament_flow_ratio: '[1,1]' },
+      optionMetadata: { filament_flow_ratio: { type: 'floats', category: 'Filament' } } });
+    if (!opened.ok) throw new Error('expected draft source');
+    const set = await c.mutatePresetDraft({ kind: 'filament', canonicalName: opened.canonicalName,
+      action: 'set', expectedRevision: opened.revision, key: 'filament_flow_ratio', value: '0.92' });
+    expect(set).toMatchObject({ ok: true, modified: true, effectiveValues: { filament_flow_ratio: '[0.92]' },
+      historyEntryDelta: 1, allPlateResultsInvalidated: true });
+    const shared = await c.getPresetDraft('filament', 'Generic PLA @System');
+    expect(shared).toMatchObject({ ok: true, overrides: { filament_flow_ratio: '[0.92]' } });
+
+    const afterSet = await c.getFilamentSessionSnapshot();
+    if (!afterSet.ok) throw new Error('expected filament session');
+    if (!set.ok) throw new Error('expected committed draft');
+    expect(set.filamentSession).toEqual(afterSet);
+    expect(set.filamentSession.revisions.session).toBe(set.historyStatus.revision);
+    const selectedOther = await c.selectFilamentSlotPreset({ version: 1,
+      revision: afterSet.revisions.session, slot: 2, preset: 'Bambu PLA Basic @BBL X1C' });
+    expect(selectedOther.ok).toBe(true);
+    const isolated = await c.getPresetDraft('filament', 'Bambu PLA Basic @BBL X1C');
+    expect(isolated).toMatchObject({ ok: true, draftExists: false, modified: false,
+      effectiveValues: { filament_flow_ratio: '[1,1]' } });
+  });
+
+  it('normalizes native element bindings and sends explicit typed element intent', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    let elementRequest: Record<string, unknown> | undefined;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name === 'orc_get_preset_draft') {
+        const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        payload.option_metadata.filament_flow_ratio.type = 'floats';
+        payload.editor_bindings.filament_flow_ratio = {
+          scalar_type: 'float', index: 0, element_count: 2, nullable: false,
+          gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
+          source_value: 1, effective_value: 1,
+        };
+        payload.option_metadata.filament_type.type = 'strings';
+        payload.editor_bindings.filament_type = {
+          scalar_type: 'string', index: 0, element_count: 1, nullable: false,
+          gui_type: 'f_enum_open', gui_flags: 'show_value', multiline: false, is_code: false, readonly: false,
+          source_value: 'PLA', effective_value: 'PLA',
+        };
+        payload.source_values.filament_retract_lift_enforce = 'nil';
+        payload.effective_values.filament_retract_lift_enforce = '1';
+        payload.option_metadata.filament_retract_lift_enforce = { type: 'enums', label: 'Enforced surfaces' };
+        payload.editor_bindings.filament_retract_lift_enforce = {
+          scalar_type: 'enum', index: 0, element_count: 1, nullable: true,
+          gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
+          source_value: null, effective_value: 1,
+          enum_options: [
+            { value: 0, name: 'All Surfaces', label: 'All Surfaces' },
+            { value: 1, name: 'Top Only', label: 'Top Only' },
+          ],
+        };
+        const bytes = new TextEncoder().encode(JSON.stringify(payload));
+        const replacement = module._malloc(bytes.byteLength + 1);
+        module.HEAPU8.set(bytes, replacement);
+        module.HEAPU8[replacement + bytes.byteLength] = 0;
+        return replacement;
+      }
+      if (name === 'orc_mutate_preset_draft')
+        elementRequest = JSON.parse(String(args[0])) as Record<string, unknown>;
+      return pointer;
+    };
+    const c = createClient(async () => module);
+    await c.init();
+    const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
+    expect(draft).toMatchObject({ ok: true, editorBindings: {
+      filament_flow_ratio: { scalarType: 'float', index: 0, elementCount: 2,
+        sourceValue: 1, effectiveValue: 1 },
+      filament_type: { scalarType: 'string', guiType: 'f_enum_open', effectiveValue: 'PLA' },
+      filament_retract_lift_enforce: { scalarType: 'enum', sourceValue: null, effectiveValue: 1,
+        enumOptions: [{ value: 0, name: 'All Surfaces', label: 'All Surfaces' },
+          { value: 1, name: 'Top Only', label: 'Top Only' }] },
+    } });
+    if (!draft.ok) throw new Error('expected preset draft');
+    await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set-element', expectedRevision: draft.revision, key: 'filament_flow_ratio',
+      scalarType: 'float', index: 0, value: 1.25 });
+    expect(elementRequest).toMatchObject({ action: 'set-element', scalar_type: 'float',
+      index: 0, value: 1.25 });
+  });
+
+  it('models native preset vector metadata, full raw values, element edits, and resets in the mock bridge', async () => {
+    const c = makeClient();
+    await c.init();
+    const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
+    if (!draft.ok) throw new Error('expected filament source');
+    expect(draft).toMatchObject({
+      sourceValues: { filament_flow_ratio: '[1,1]', filament_type: '["PLA"]', filament_start_gcode: '["G28\\n"]' },
+      optionMetadata: {
+        filament_flow_ratio: { type: 'floats' }, filament_type: { type: 'strings' },
+        filament_soluble: { type: 'bools' }, filament_shrink: { type: 'percents' },
+        overhang_fan_threshold: { type: 'enums' }, filament_notes: { type: 'strings' },
+      },
+      editorBindings: {
+        filament_flow_ratio: { scalarType: 'float', index: 0, elementCount: 2, sourceValue: 1, effectiveValue: 1 },
+        filament_type: { scalarType: 'string', guiType: 'f_enum_open', effectiveValue: 'PLA' },
+        filament_soluble: { scalarType: 'bool', effectiveValue: false },
+        filament_shrink: { scalarType: 'percent', effectiveValue: 100 },
+        overhang_fan_threshold: { scalarType: 'enum', effectiveValue: 2 },
+        filament_start_gcode: { scalarType: 'string', multiline: true, isCode: true, effectiveValue: 'G28\n' },
+        filament_notes: { scalarType: 'string', multiline: true, effectiveValue: '' },
+        filament_retract_lift_enforce: { scalarType: 'enum', nullable: true, effectiveValue: null },
+      },
+    });
+    expect(draft.ok && draft.editorBindings.overhang_fan_threshold?.enumOptions)
+      .toContainEqual({ value: 3, name: '50%', label: '50%' });
+
+    const element = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set-element', expectedRevision: draft.revision, key: 'filament_flow_ratio',
+      scalarType: 'float', index: 0, value: 1.25 });
+    expect(element).toMatchObject({ ok: true, sourceValues: { filament_flow_ratio: '[1,1]' },
+      effectiveValues: { filament_flow_ratio: '[1.25,1]' }, overrides: { filament_flow_ratio: '[1.25,1]' },
+      editorBindings: { filament_flow_ratio: { elementCount: 2, sourceValue: 1, effectiveValue: 1.25 } } });
+    if (!element.ok) throw new Error('expected committed typed element mutation');
+
+    const script = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set-element', expectedRevision: element.revisionAfter, key: 'filament_start_gcode',
+      scalarType: 'string', index: 0, value: 'G28\nM104 S205\n' });
+    expect(script).toMatchObject({ ok: true, effectiveValues: { filament_start_gcode: '["G28\\nM104 S205\\n"]' },
+      editorBindings: { filament_start_gcode: { effectiveValue: 'G28\nM104 S205\n' } } });
+    if (!script.ok) throw new Error('expected committed script element mutation');
+
+    const reset = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'reset-category', expectedRevision: script.revisionAfter,
+      keys: ['filament_flow_ratio', 'filament_start_gcode'] });
+    expect(reset).toMatchObject({ ok: true, effectiveValues: {
+      filament_flow_ratio: '[1,1]', filament_start_gcode: '["G28\\n"]',
+    }, editorBindings: {
+      filament_flow_ratio: { effectiveValue: 1 }, filament_start_gcode: { effectiveValue: 'G28\n' },
+    } });
+  });
+
+  it('rejects malformed native editor element projections', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name !== 'orc_get_preset_draft') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      payload.option_metadata.filament_flow_ratio.type = 'floats';
+      payload.editor_bindings.filament_flow_ratio = {
+        scalar_type: 'float', index: 0, element_count: 1, nullable: false,
+        gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
+        source_value: null, effective_value: 1,
+      };
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const replacement = module._malloc(bytes.byteLength + 1);
+      module.HEAPU8.set(bytes, replacement);
+      module.HEAPU8[replacement + bytes.byteLength] = 0;
+      return replacement;
+    };
+    const c = createClient(async () => module);
+    await c.init();
+    await expect(c.getPresetDraft('filament', 'Generic PLA @System'))
+      .resolves.toMatchObject({ ok: false, errorCode: 'invalid_response' });
+  });
+
+  it.each(['missing', 'stale'] as const)('rejects a %s filament projection in a draft receipt', async (mode) => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name !== 'orc_mutate_preset_draft') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      if (mode === 'missing') delete payload.filament_session;
+      else payload.filament_session.revisions.session -= 1;
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const replacement = module._malloc(bytes.byteLength + 1);
+      module.HEAPU8.set(bytes, replacement);
+      module.HEAPU8[replacement + bytes.byteLength] = 0;
+      return replacement;
+    };
+    const c = createClient(async () => module);
+    await c.init();
+    const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
+    if (!draft.ok) throw new Error('expected draft');
+    await expect(c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set', expectedRevision: draft.revision, key: 'filament_flow_ratio', value: '0.92' }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'invalid_response' });
+  });
+
+  it('sets and resets fields, an explicit category key set, and a whole preset in one history entry each', async () => {
+    const c = makeClient();
+    await c.init();
+    let draft = await c.getPresetDraft('printer', 'Bambu Lab X1 Carbon 0.4 nozzle');
+    if (!draft.ok) throw new Error('expected printer source');
+    const actions = [
+      { action: 'reset-field', key: 'nozzle_temperature' } as const,
+      { action: 'set', key: 'nozzle_temperature', value: '225' } as const,
+      { action: 'reset-field', key: 'nozzle_temperature' } as const,
+      { action: 'set', key: 'nozzle_temperature', value: '225' } as const,
+      { action: 'set', key: 'printable_area', value: 'custom-area' } as const,
+      { action: 'reset-category', keys: ['nozzle_temperature', 'printable_area'] } as const,
+      { action: 'set', key: 'nozzle_temperature', value: '225' } as const,
+      { action: 'reset-preset' } as const,
+    ];
+    let expectedRevision = draft.revision;
+    for (const action of actions) {
+      const result = await c.mutatePresetDraft({ kind: 'printer', canonicalName: draft.canonicalName,
+        expectedRevision, ...action } as Parameters<typeof c.mutatePresetDraft>[0]);
+      expect(result).toMatchObject({ ok: true, historyEntryDelta: 1, revisionBefore: expectedRevision });
+      if (!result.ok) throw new Error('expected accepted preset draft operation');
+      expect(result.revisionAfter).toBe(result.historyStatus.revision);
+      expectedRevision = result.revisionAfter;
+      draft = result;
+      if (action.action === 'reset-field' || action.action === 'reset-category')
+        expect(result).toMatchObject({ draftExists: true, modified: false, overrides: {} });
+      if (action.action === 'reset-preset')
+        expect(result).toMatchObject({ draftExists: false, modified: false, overrides: {} });
+    }
+    expect((await c.getHistoryStatus()).undoEntries).toHaveLength(actions.length);
+  });
+
+  it('rejects stale and invalid draft operations without changing history or slice revisions', async () => {
+    const c = makeClient();
+    await c.init();
+    const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
+    if (!draft.ok) throw new Error('expected filament source');
+    const beforeStatus = await c.getHistoryStatus();
+    const beforePlates = await c.getPlateSessionSnapshot();
+    if (!beforePlates.ok) throw new Error('expected plate session snapshot');
+    const stale = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set', expectedRevision: draft.revision - 1, key: 'filament_flow_ratio', value: '0.9' });
+    expect(stale).toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    const invalid = await c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'set', expectedRevision: draft.revision, key: 'unsupported_key', value: '0.9' });
+    expect(invalid).toMatchObject({ ok: false, errorCode: 'unsupported_option' });
+    expect(await c.getHistoryStatus()).toMatchObject({ revision: beforeStatus.revision, cursor: beforeStatus.cursor,
+      undoEntries: beforeStatus.undoEntries });
+    expect(await c.getPlateSessionSnapshot()).toMatchObject({ inputRevisions: beforePlates.inputRevisions });
+    expect(await c.getPresetDraft('filament', draft.canonicalName)).toMatchObject({ ok: true, draftExists: false, overrides: {} });
+  });
+
+  it('undo and redo restore the native draft snapshot and invalidate every plate', async () => {
+    const c = makeClient();
+    await c.init();
+    const source = await c.getPresetDraft('filament', 'Generic PLA @System');
+    if (!source.ok) throw new Error('expected filament source');
+    const edited = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+      action: 'set-element', expectedRevision: source.revision, key: 'filament_flow_ratio',
+      scalarType: 'float', index: 0, value: 0.88 });
+    if (!edited.ok) throw new Error('expected accepted draft edit');
+    const beforeUndo = await c.getPlateSessionSnapshot();
+    if (!beforeUndo.ok) throw new Error('expected plate session snapshot before undo');
+    const undone = await c.undoHistory();
+    expect(undone).toMatchObject({ ok: true, impact: { presetDrafts: true } });
+    expect(await c.getPresetDraft('filament', source.canonicalName)).toMatchObject({
+      ok: true, draftExists: false, effectiveValues: { filament_flow_ratio: '[1,1]' },
+    });
+    const afterUndo = await c.getPlateSessionSnapshot();
+    if (!afterUndo.ok) throw new Error('expected plate session snapshot after undo');
+    for (const plate of afterUndo.plates)
+      expect(afterUndo.inputRevisions?.[plate.plateId]).toBeGreaterThan(beforeUndo.inputRevisions?.[plate.plateId] ?? -1);
+    const redone = await c.redoHistory();
+    expect(redone).toMatchObject({ ok: true, impact: { presetDrafts: true } });
+    expect(await c.getPresetDraft('filament', source.canonicalName)).toMatchObject({
+      ok: true, draftExists: true, effectiveValues: { filament_flow_ratio: '[0.88,1]' },
+      editorBindings: { filament_flow_ratio: { effectiveValue: 0.88, elementCount: 2 } },
+    });
+  });
+
   it('addModel stages bytes, preserves the selected basename, and reports objects', async () => {
     const c = makeClient();
     const bytes = new Uint8Array([1, 2, 3, 4]);

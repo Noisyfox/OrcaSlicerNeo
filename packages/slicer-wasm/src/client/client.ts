@@ -35,8 +35,12 @@ import type {
   FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
   RememberedFilamentRackRequest,
+  RememberedFilamentRackPreference, PrinterTransitionResult,
   FilamentAssignmentRequest, FilamentRoutingRequest,
   NativePerformanceProfile,
+  PresetDraftKind, PresetDraftMutationRequest, PresetDraftMutationResult,
+  PresetDraftSnapshotResult, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
+  PresetDraftEditorGuiType, PresetDraftEditorScalarType, PresetDraftEditorValue,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -938,6 +942,233 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
   };
 }
 
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== 'string') return undefined;
+    result[key] = item;
+  }
+  return result;
+}
+
+const PRESET_DRAFT_EDITOR_SCALAR_TYPES: readonly PresetDraftEditorScalarType[] = [
+  'float', 'int', 'bool', 'string', 'percent', 'float_or_percent', 'enum',
+];
+const PRESET_DRAFT_EDITOR_GUI_TYPES: readonly PresetDraftEditorGuiType[] = [
+  'undefined', 'i_enum_open', 'f_enum_open', 'color', 'select_open', 'slider',
+  'legend', 'one_string', 'plugin_picker', 'plugin_config', 'printer_agent_select',
+];
+const PRESET_DRAFT_EDITOR_NATIVE_TYPES: Record<PresetDraftEditorScalarType, string> = {
+  float: 'floats', int: 'ints', bool: 'bools', string: 'strings', percent: 'percents',
+  float_or_percent: 'floats_or_percents', enum: 'enums',
+};
+
+function isPresetDraftEditorValue(
+  value: unknown,
+  scalarType: PresetDraftEditorScalarType,
+  nullable: boolean,
+): value is PresetDraftEditorValue {
+  if (value === null) return nullable;
+  switch (scalarType) {
+    case 'float':
+    case 'percent':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'int':
+    case 'enum':
+      return typeof value === 'number' && Number.isSafeInteger(value) &&
+        value >= -2_147_483_648 && value <= 2_147_483_647;
+    case 'bool':
+      return typeof value === 'boolean';
+    case 'string':
+      return typeof value === 'string';
+    case 'float_or_percent':
+      return isRecord(value) && Object.keys(value).length === 2 &&
+        typeof value.value === 'number' && Number.isFinite(value.value) &&
+        typeof value.percent === 'boolean';
+  }
+}
+
+function normalizePresetDraftEditorBindings(
+  raw: unknown,
+  optionMetadata: Record<string, unknown>,
+  sourceValues: Record<string, string>,
+  effectiveValues: Record<string, string>,
+): Record<string, PresetDraftEditorBinding> | undefined {
+  if (!isRecord(raw)) return undefined;
+  const result: Record<string, PresetDraftEditorBinding> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isRecord(value) ||
+        typeof value.scalar_type !== 'string' ||
+        !PRESET_DRAFT_EDITOR_SCALAR_TYPES.includes(value.scalar_type as PresetDraftEditorScalarType) ||
+        !Number.isSafeInteger(value.index) || value.index !== 0 ||
+        !Number.isSafeInteger(value.element_count) || (value.element_count as number) < 1 ||
+        (value.index as number) >= (value.element_count as number) ||
+        typeof value.nullable !== 'boolean' ||
+        typeof value.gui_type !== 'string' ||
+        !PRESET_DRAFT_EDITOR_GUI_TYPES.includes(value.gui_type as PresetDraftEditorGuiType) ||
+        typeof value.gui_flags !== 'string' || typeof value.multiline !== 'boolean' ||
+        typeof value.is_code !== 'boolean' || typeof value.readonly !== 'boolean' ||
+        !Object.hasOwn(sourceValues, key) || !Object.hasOwn(effectiveValues, key))
+      return undefined;
+
+    const scalarType = value.scalar_type as PresetDraftEditorScalarType;
+    const metadata = optionMetadata[key];
+    if (!isRecord(metadata) || metadata.type !== PRESET_DRAFT_EDITOR_NATIVE_TYPES[scalarType] ||
+        !isPresetDraftEditorValue(value.source_value, scalarType, value.nullable) ||
+        !isPresetDraftEditorValue(value.effective_value, scalarType, value.nullable))
+      return undefined;
+
+    let enumOptions: PresetDraftEditorEnumOption[] | undefined;
+    if (scalarType === 'enum') {
+      if (!Array.isArray(value.enum_options) || value.enum_options.length === 0) return undefined;
+      const names = new Set<string>();
+      const enumValues = new Set<number>();
+      enumOptions = [];
+      for (const option of value.enum_options) {
+        if (!isRecord(option) || !Number.isSafeInteger(option.value) ||
+            (option.value as number) < -2_147_483_648 || (option.value as number) > 2_147_483_647 ||
+            typeof option.name !== 'string' || !option.name || typeof option.label !== 'string' ||
+            names.has(option.name) || enumValues.has(option.value as number))
+          return undefined;
+        names.add(option.name);
+        enumValues.add(option.value as number);
+        enumOptions.push({ value: option.value as number, name: option.name, label: option.label });
+      }
+      for (const enumValue of [value.source_value, value.effective_value])
+        if (enumValue !== null && !enumValues.has(enumValue as number)) return undefined;
+    } else if (Object.hasOwn(value, 'enum_options')) {
+      return undefined;
+    }
+
+    result[key] = {
+      scalarType, index: value.index as number, elementCount: value.element_count as number,
+      nullable: value.nullable, guiType: value.gui_type as PresetDraftEditorGuiType,
+      guiFlags: value.gui_flags, multiline: value.multiline, isCode: value.is_code,
+      readOnly: value.readonly, sourceValue: value.source_value,
+      effectiveValue: value.effective_value, ...(enumOptions ? { enumOptions } : {}),
+    };
+  }
+  return result;
+}
+
+function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
+  if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft response', errorCode: 'invalid_response' };
+  if (raw.ok !== true) {
+    if (raw.ok !== false || typeof raw.error !== 'string')
+      return { ok: false, error: 'invalid preset draft error response', errorCode: 'invalid_response' };
+    return { ok: false, error: raw.error,
+      ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
+      ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) };
+  }
+  const overrides = stringRecord(raw.overrides);
+  const sourceValues = stringRecord(raw.source_values);
+  const effectiveValues = stringRecord(raw.effective_values);
+  if ((raw.kind !== 'printer' && raw.kind !== 'filament') ||
+      typeof raw.canonical_name !== 'string' || !raw.canonical_name ||
+      typeof raw.draft_exists !== 'boolean' || typeof raw.modified !== 'boolean' ||
+      !overrides || !sourceValues || !effectiveValues || !isRecord(raw.option_metadata) ||
+      !Number.isSafeInteger(raw.revision))
+    return { ok: false, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
+  const optionMetadata: OptionMetadata = {};
+  for (const [key, value] of Object.entries(raw.option_metadata)) {
+    if (!isRecord(value) || typeof value.type !== 'string')
+      return { ok: false, error: 'invalid preset draft option metadata', errorCode: 'invalid_response' };
+    optionMetadata[key] = value as unknown as OptionMetadata[string];
+  }
+  const editorBindings = normalizePresetDraftEditorBindings(
+    raw.editor_bindings, raw.option_metadata, sourceValues, effectiveValues);
+  if (!editorBindings)
+    return { ok: false, error: 'invalid preset draft editor bindings', errorCode: 'invalid_response' };
+  return { ok: true, kind: raw.kind, canonicalName: raw.canonical_name,
+    draftExists: raw.draft_exists, modified: raw.modified, overrides, sourceValues, effectiveValues,
+    optionMetadata, editorBindings, revision: raw.revision as number };
+}
+
+function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
+  const snapshot = normalizePresetDraftSnapshot(raw);
+  if (!snapshot.ok) return snapshot;
+  if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
+  const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
+  if (!filamentSession.ok) return { ok: false, error: 'invalid preset draft filament receipt', errorCode: 'invalid_response' };
+  const plateSession = normalizePlateMutationResult(raw.plate_session);
+  if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'invalid preset draft plate receipt', errorCode: 'invalid_response' };
+  let historyStatus: HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(raw.history_status); }
+  catch { return { ok: false, error: 'invalid preset draft history status', errorCode: 'invalid_response' }; }
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+  if (raw.history_entry_delta !== 1 || !Number.isSafeInteger(raw.revision_before) ||
+      !Number.isSafeInteger(raw.revision_after) || typeof raw.dirty !== 'boolean' ||
+      !Array.isArray(raw.affected_plate_ids) ||
+      !raw.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      raw.all_plate_results_invalidated !== true || !nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
+      nativeScopedConfig.revision !== historyStatus.revision ||
+      filamentSession.revisions.session !== historyStatus.revision ||
+      filamentSession.revisions.project !== historyStatus.revision)
+    return { ok: false, error: 'invalid preset draft mutation receipt', errorCode: 'invalid_response' };
+  return { ...snapshot, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
+    revisionAfter: raw.revision_after as number, dirty: raw.dirty,
+    affectedPlateIds: raw.affected_plate_ids as string[], allPlateResultsInvalidated: true,
+    plateSession, filamentSession, historyStatus, nativeScopedConfig };
+}
+
+function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
+  const invalid = (error: string): PrinterTransitionResult => ({
+    ok: false, error, errorCode: 'invalid_response',
+  });
+  if (!isRecord(raw)) return invalid('invalid Printer transition response');
+  if (raw.ok !== true) {
+    return typeof raw.error === 'string'
+      ? { ok: false, error: raw.error,
+        ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
+        ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) }
+      : invalid('invalid Printer transition error response');
+  }
+  const profile = isRecord(raw.profile_snapshot)
+    ? normalizeProfileSnapshot(raw.profile_snapshot) : { ok: false as const, error: 'missing Printer transition profile snapshot' };
+  if (!profile.ok) return invalid(profile.error ?? 'invalid Printer transition profile snapshot');
+  const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
+  if (!filamentSession.ok) return invalid(filamentSession.error ?? 'invalid Printer transition filament session');
+  const plateSession = normalizePlateMutationResult(raw.plate_session);
+  if (!plateSession.ok) return invalid(plateSession.error ?? 'invalid Printer transition plate receipt');
+  let historyStatus: HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(raw.history_status); }
+  catch { return invalid('invalid Printer transition history status'); }
+  const nativeScopedConfig = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+  const mutation = isRecord(raw.mutation) ? raw.mutation : undefined;
+  if (!nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
+      nativeScopedConfig.revision !== historyStatus.revision ||
+      !mutation || mutation.kind !== 'select-printer-with-remembered-rack' ||
+      mutation.history_entry_delta !== 1 || !Number.isSafeInteger(mutation.revision_before) ||
+      !Number.isSafeInteger(mutation.revision_after) || mutation.revision_after !== historyStatus.revision ||
+      mutation.revision_after !== (mutation.revision_before as number) + 1 ||
+      typeof mutation.dirty !== 'boolean' || mutation.dirty !== historyStatus.dirty ||
+      mutation.all_plate_results_invalidated !== true || !Array.isArray(mutation.affected_plate_ids) ||
+      !mutation.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(mutation.affected_plate_ids).size !== mutation.affected_plate_ids.length)
+    return invalid('invalid Printer transition commit receipt');
+  const affectedPlateIds = mutation.affected_plate_ids as string[];
+  if (JSON.stringify(affectedPlateIds) !== JSON.stringify(plateSession.affectedPlateIds ?? []))
+    return invalid('Printer transition affected-plate receipt mismatch');
+  return {
+    ok: true,
+    profileSnapshot: profile,
+    filamentSession,
+    plateSession,
+    historyStatus,
+    nativeScopedConfig,
+    mutation: {
+      kind: 'select-printer-with-remembered-rack',
+      historyEntryDelta: 1,
+      revisionBefore: mutation.revision_before as number,
+      revisionAfter: mutation.revision_after as number,
+      dirty: mutation.dirty,
+      allPlateResultsInvalidated: true,
+      affectedPlateIds,
+    },
+  };
+}
+
 function normalizeLoadModelResult(raw: unknown): LoadModelResult {
   if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
   const value = raw as Record<string, unknown>;
@@ -1078,8 +1309,18 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (nativeScopedConfig.revision !== status.revision)
     return historyFailure(raw, 'history scoped configuration revision mismatch');
   const impact = normalizeRestoreImpact(value.impact);
+  if (!impact) return historyFailure(raw, 'invalid history restore impact');
   const sceneDelta = normalizeSceneDelta(value.scene_delta);
   if (!sceneDelta) return historyFailure(raw, 'invalid history scene delta');
+  let profileSnapshot: ProfileSnapshot | undefined;
+  if (value.profile_snapshot !== undefined) {
+    if (!isRecord(value.profile_snapshot)) return historyFailure(raw, 'invalid history profile snapshot');
+    const profile = normalizeProfileSnapshot(value.profile_snapshot);
+    if (!profile.ok) return historyFailure(raw, 'invalid history profile snapshot');
+    profileSnapshot = profile;
+  }
+  if (impact.profileSelection && !profileSnapshot)
+    return historyFailure(raw, 'history Printer/Process restore omitted its profile snapshot');
   if (!Array.isArray(value.affected_plate_ids) ||
       !(value.affected_plate_ids as unknown[]).every((id) => typeof id === 'string' && id.length > 0) ||
       new Set(value.affected_plate_ids as string[]).size !== value.affected_plate_ids.length)
@@ -1094,24 +1335,23 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     nativeScopedConfig,
     status,
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
+    ...(profileSnapshot ? { profileSnapshot } : {}),
     impact,
     affectedPlateIds,
     sceneDelta,
   };
 }
 
-export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
-  const fallback: import('./history').RestoreImpact = {
-    version: 1, model: 'delta', plateSession: true, filamentRack: true,
-    nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
-  };
-  if (!raw || typeof raw !== 'object') return fallback;
+export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact | undefined {
+  if (!isRecord(raw)) return undefined;
   const value = raw as Record<string, unknown>;
   if (value.version !== 1 || (value.model !== 'delta' && value.model !== 'none') ||
       typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
+      typeof value.presetDrafts !== 'boolean' ||
+      typeof value.profileSelection !== 'boolean' ||
       typeof value.nativeScopedConfig !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
       typeof value.primeTower !== 'boolean' ||
-      (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
+      (value.preview !== 'all' && value.preview !== 'current-plate')) return undefined;
   return value as unknown as import('./history').RestoreImpact;
 }
 
@@ -1500,6 +1740,35 @@ export function createClient(
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
     },
 
+    async getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult> {
+      const m = await module();
+      return normalizePresetDraftSnapshot(
+        callJson(m, 'orc_get_preset_draft', ['string', 'string'], [kind, canonicalName]),
+      );
+    },
+
+    async mutatePresetDraft(request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> {
+      const m = await module();
+      const payload: Record<string, unknown> = {
+        action: request.action,
+        kind: request.kind,
+        canonical_name: request.canonicalName,
+        expected_revision: request.expectedRevision,
+      };
+      if (request.action === 'set' || request.action === 'reset-field') payload.key = request.key;
+      if (request.action === 'set') payload.value = request.value;
+      if (request.action === 'set-element') {
+        payload.key = request.key;
+        payload.scalar_type = request.scalarType;
+        payload.index = request.index;
+        payload.value = request.value;
+      }
+      if (request.action === 'reset-category') payload.keys = [...request.keys];
+      return normalizePresetDraftMutation(
+        callJson(m, 'orc_mutate_preset_draft', ['string'], [JSON.stringify(payload)]),
+      );
+    },
+
     async selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError> {
       const m = await module();
       return normalizeFilamentMutationResult(callJson(m, 'orc_select_filament_slot_preset', ['string'], [JSON.stringify(request)]));
@@ -1549,7 +1818,7 @@ export function createClient(
     getHistoryStatus,
     markHistorySaved,
     resetHistory,
-    getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
+    getHistoryDiagnostics: () => ({ worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
     getRuntimeExecutionState: () => ({
       threaded: runtimeThreaded ?? null,
       sliceActive: serialSliceAdmissionInProgress || pendingSliceTasks.size > 0,
@@ -1673,6 +1942,22 @@ export function createClient(
     async selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult> {
       const m = await module();
       return normalizeProfileSnapshot(callJson(m, 'orc_select_preset', ['string', 'string'], [kind, name]) as Record<string, unknown>);
+    },
+
+    async selectPrinterWithRememberedRack(
+      printer: string, rememberedRack: RememberedFilamentRackPreference | null,
+    ): Promise<PrinterTransitionResult> {
+      const m = await module();
+      const request = {
+        printer,
+        remembered_rack: rememberedRack ? {
+          version: rememberedRack.version,
+          slots: rememberedRack.slots.map(({ preset, colour }) => ({ preset, colour })),
+        } : null,
+      };
+      return normalizePrinterTransition(
+        callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
+      );
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {
