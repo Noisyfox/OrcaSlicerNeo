@@ -10,7 +10,7 @@ import {
 } from './real-project-fixture.mjs';
 
 if (process.platform !== 'win32')
-  throw new Error('the licensed Odyssey acceptance fixture and visible Electron profile are Windows-only');
+  throw new Error('the big-proj acceptance fixture and visible Electron profile are Windows-only');
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = join(root, 'apps/desktop');
@@ -18,9 +18,9 @@ const exactFixture = EXPECTED_FIXTURE_PATH;
 const configuredSource = process.env.ORCA_REAL_PROJECT_FIXTURE_SOURCE?.trim() ||
   process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
 if (configuredSource && resolve(configuredSource).toLowerCase() !== exactFixture.toLowerCase())
-  throw new Error(`ORCA_REAL_PROJECT_FIXTURE_SOURCE must name the exact u1 fixture: ${exactFixture}`);
+  throw new Error(`ORCA_REAL_PROJECT_FIXTURE_SOURCE must name the repository big-proj fixture: ${exactFixture}`);
 if (!existsSync(exactFixture))
-  throw new Error(`the exact u1 fixture is missing: ${exactFixture}`);
+  throw new Error(`the repository big-proj fixture is missing: ${exactFixture}`);
 
 const emsdkLookup = spawnSync('where.exe', ['emsdk_env.bat'], { encoding: 'utf8', shell: false });
 const emsdkEnv = process.env.EMSDK

@@ -17,7 +17,7 @@ const runs = [
   ['multi-filament.e2e.ts', 'filament rack remains enabled during history restore'],
   ['project-load-proof.e2e.ts', 'commits the requested multi-plate project'],
   ['prime-tower-project.e2e.ts', 'opened project keeps prime-tower UI'],
-  ['prime-tower-history-performance.e2e.ts', 'measures Odyssey Prime Tower commit'],
+  ['prime-tower-history-performance.e2e.ts', 'measures real-project Prime Tower commit'],
   ['plate-add-history-profile.e2e.ts', 'profiles Add Plate click'],
   ['object-move-history-profile.e2e.ts', 'profiles a real object move'],
 ];

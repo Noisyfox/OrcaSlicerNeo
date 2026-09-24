@@ -25,7 +25,7 @@ function lastDelta(before: Timing, after: Timing): number {
   return after.lastMs;
 }
 
-test('profiles Add Plate click through its visible Undo entry on the real Odyssey project', async () => {
+test('profiles Add Plate click through its visible Undo entry on the real project fixture', async () => {
   const preferencesPath = join(mkdtempSync(join(tmpdir(), 'orca-plate-add-history-profile-')), 'preferences.json');
   writeFileSync(preferencesPath, JSON.stringify({
     version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {},

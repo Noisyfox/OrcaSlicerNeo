@@ -1,12 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { cp } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { assertFixtureUnchanged, createFixtureCopy } from './real-project-fixture.mjs';
 
 const command = (name) => process.platform === 'win32' ? `${name}.cmd` : name;
-const projectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
-if (!projectPath) {
-  throw new Error('ORCA_E2E_PRIME_TOWER_PROJECT must name the exact real 3MF used by acceptance');
-}
+const fixture = await createFixtureCopy();
 const env = {
   ...process.env,
   ORCA_E2E_REAL: '1',
@@ -17,9 +15,8 @@ const env = {
   // Keep the stable semantic viewport hooks in the real acceptance bundle;
   // this is a test-only Vite flag and is never set by production hosts.
   VITE_E2E: '1',
-  ORCA_E2E_PRIME_TOWER_PROJECT: projectPath,
+  ORCA_E2E_PRIME_TOWER_PROJECT: fixture.copyPath,
 };
-const objectMoveProjectPath = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
 // The focused real run proves native DRC import through Electron without
 // substituting its small fixture into unrelated 20 mm STL regressions.
 const testRuns = [
@@ -28,7 +25,7 @@ const testRuns = [
   ['e2e/multi-filament.e2e.ts', '-g', 'filament rack remains enabled during history restore'],
   ['e2e/project-load-proof.e2e.ts', '-g', 'commits the requested multi-plate project'],
   ['e2e/prime-tower-project.e2e.ts', '-g', 'opened project keeps prime-tower UI'],
-  ['e2e/prime-tower-history-performance.e2e.ts', '-g', 'measures Odyssey Prime Tower commit'],
+  ['e2e/prime-tower-history-performance.e2e.ts', '-g', 'measures real-project Prime Tower commit'],
   ['e2e/plate-add-history-profile.e2e.ts', '-g', 'profiles Add Plate click'],
   ['e2e/object-move-history-profile.e2e.ts', '-g', 'profiles a real object move'],
 ];
@@ -47,12 +44,13 @@ await cp(resolve(process.cwd(), 'src/renderer/public'), resolve(process.cwd(), '
   recursive: true, force: true,
 });
 for (const args of testRuns) {
-  const runEnv = args[0] === 'e2e/object-move-history-profile.e2e.ts'
-    ? { ...env, ORCA_E2E_PRIME_TOWER_PROJECT: objectMoveProjectPath }
-    : env;
   const result = spawnSync(command('playwright'), ['test', ...args], {
-    cwd: process.cwd(), env: runEnv, stdio: 'inherit', shell: process.platform === 'win32',
+    cwd: process.cwd(), env, stdio: 'inherit', shell: process.platform === 'win32',
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    process.exitCode = result.status ?? 1;
+    break;
+  }
 }
+await assertFixtureUnchanged(fixture.sourcePath);

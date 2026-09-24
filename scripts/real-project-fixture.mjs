@@ -1,17 +1,22 @@
-// Test/profile-only identity and staging helpers for the licensed Odyssey
-// acceptance project.  Production code must not import this module.
+// Test/profile-only identity and staging helpers for the repository's real
+// project fixture. Production code must not import this module.
 import { createHash } from 'node:crypto';
 import { copyFile, mkdtemp, readFile } from 'node:fs/promises';
 import { basename, resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 export const EXPECTED_FIXTURE_PATH = resolve(
-  'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf',
+  import.meta.dirname,
+  '..',
+  'packages',
+  'slicer-wasm',
+  'fixtures',
+  'big-proj.3mf',
 );
 export const EXPECTED_FIXTURE_BASENAME = basename(EXPECTED_FIXTURE_PATH);
-export const EXPECTED_FIXTURE_BYTES = 45_586_816;
+export const EXPECTED_FIXTURE_BYTES = 44_473_498;
 export const EXPECTED_FIXTURE_SHA256 =
-  '6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425';
+  'de8afeac2e7b53a63fe5925d8b05ddfe0c0b7f0a7b3f88fbc2a5fc29c0524ce0';
 
 export function fixtureIdentity(bytes) {
   return {

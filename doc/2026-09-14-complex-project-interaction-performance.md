@@ -7,6 +7,14 @@ history, renderer-local adjacent Move restore, bounded Prime Tower projection,
 and the exact-u1 visible real-WASM performance gate
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
+## Repository fixture update (2026-09-25)
+
+Current real-project Electron E2E and profile runners use the repository fixture
+`packages/slicer-wasm/fixtures/big-proj.3mf`. The shared helper pins its byte
+length and SHA-256, then stages a same-basename copy for each run. Historical
+measurements below remain tied to the project used when those samples were
+recorded.
+
 ## Lifecycle snapshot refinement (2026-09-20)
 
 Per-plate rollback snapshots retain only presentation availability and the
@@ -155,9 +163,7 @@ used by the desktop plate-switch performance coverage.
 
 The acceptance boundary is not `orc_add_plate` returning. It is the time from
 the renderer dispatching Add Plate until the toolbar shows enabled `Undo Add
-Plate`. The focused Electron profile uses the exact h2d fixture:
-
-`E:\OneDrive\Dokumente\3d打印\模型\奥德赛\OddseyHelmetFinalParts+(2)wholemorecolor-h2d.3mf`
+Plate`. The focused Electron profile used the historical h2d project fixture.
 
 It proves the 45,201,991-byte project receipt and its 11 native plates before
 measuring, drains load-time native samples, and records the following latest

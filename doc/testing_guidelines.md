@@ -146,13 +146,14 @@ only when it runs against WASM artifacts built for the current source tree.
 that selection at renderer build time, and Electron can otherwise boot a stale
 `out/renderer` copy of the prior WASM.
 
-Use `pnpm --filter @orca/desktop test:e2e:real` (with
-`ORCA_E2E_PRIME_TOWER_PROJECT` set to the exact fixture). The runner stages the
-current artifacts, builds the renderer with `VITE_USE_MOCK=0`, then copies the
-fresh staged public WASM set into `apps/desktop/out/renderer` before launching
-Playwright. A focused real-project E2E must perform the equivalent sequence and
-verify both the project-load receipt (file name and byte length) and the active
-artifact identity. Do not report a real-project result when either rebuild,
+Use `pnpm --filter @orca/desktop test:e2e:real`; it verifies and stages
+`packages/slicer-wasm/fixtures/big-proj.3mf` as the exact
+`ORCA_E2E_PRIME_TOWER_PROJECT`. The runner stages the current artifacts, builds
+the renderer with `VITE_USE_MOCK=0`, then copies the fresh staged public WASM
+set into `apps/desktop/out/renderer` before launching Playwright. A focused
+real-project E2E must perform the equivalent sequence and verify both the
+project-load receipt (file name and byte length) and the active artifact
+identity. Do not report a real-project result when either rebuild,
 staging/copy, or receipt verification was skipped.
 
 ## Test Quality and Maintenance

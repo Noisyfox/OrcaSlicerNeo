@@ -83,7 +83,7 @@ function totalMsDelta(before: Timing, after: Timing): number {
   return after.totalMs - before.totalMs;
 }
 
-test('measures Odyssey Prime Tower commit and history restore stages after a proven project load', async () => {
+test('measures real-project Prime Tower commit and history restore stages after a proven project load', async () => {
   const preferencesPath = join(mkdtempSync(join(tmpdir(), 'orca-prime-tower-history-performance-')), 'preferences.json');
   writeFileSync(preferencesPath, JSON.stringify({
     version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {},

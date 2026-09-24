@@ -78,9 +78,11 @@ type BedState = {
   bounds: { minX: number; maxX: number; minY: number; maxY: number };
 };
 
-const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
-const EXPECTED_PROJECT_BYTES = 45_586_816;
-const EXPECTED_PROJECT_SHA256 = '6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425';
+const EXPECTED_PROJECT_PATH = resolve(
+  __dirname, '..', '..', '..', 'packages', 'slicer-wasm', 'fixtures', 'big-proj.3mf',
+);
+const EXPECTED_PROJECT_BYTES = 44_473_498;
+const EXPECTED_PROJECT_SHA256 = 'de8afeac2e7b53a63fe5925d8b05ddfe0c0b7f0a7b3f88fbc2a5fc29c0524ce0';
 const SOURCE_PROJECT_PATH = resolve(process.env.ORCA_REAL_PROJECT_FIXTURE_SOURCE?.trim() || EXPECTED_PROJECT_PATH);
 const PROJECT_PATH = resolve(process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim() || EXPECTED_PROJECT_PATH);
 const EXPECTED_COPY_PATH = resolve(process.env.ORCA_REAL_PROJECT_FIXTURE_COPY?.trim() || PROJECT_PATH);
@@ -118,7 +120,7 @@ const ENABLED = process.env.ORCA_E2E_REAL === '1' && process.env.ORCA_E2E_VISIBL
   process.env.VITE_USE_MOCK === '0' && process.env.VITE_REAL_PROJECT_PROFILE === '1' && identityMatches;
 const DESKTOP_ROOT = resolve(__dirname, '..');
 
-test.skip(!ENABLED, 'requires the dedicated visible real-project profile runner and exact u1 fixture');
+test.skip(!ENABLED, 'requires the dedicated visible real-project profile runner and exact big-proj fixture');
 
 function timingDelta(before: Timing, after: Timing, label: string): number {
   expect(after.count, `${label} must record exactly one operation`).toBe(before.count + 1);

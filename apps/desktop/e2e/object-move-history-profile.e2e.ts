@@ -29,19 +29,22 @@ type ProjectLoadEvidence = {
 type Point = { x: number; y: number };
 type Bounds = { min: number[]; max: number[]; center: number[]; size: number[] } | null;
 
-const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
+const EXPECTED_PROJECT_PATH = resolve(
+  __dirname, '..', '..', '..', 'packages', 'slicer-wasm', 'fixtures', 'big-proj.3mf',
+);
 const configuredProjectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
 const PROJECT_PATH = resolve(configuredProjectPath || EXPECTED_PROJECT_PATH);
 const fixtureBytes = configuredProjectPath && existsSync(PROJECT_PATH) ? readFileSync(PROJECT_PATH) : null;
 const EXACT_FIXTURE = PROJECT_PATH.toLowerCase() !== resolve(EXPECTED_PROJECT_PATH).toLowerCase() &&
-  fixtureBytes?.length === 45_586_816 && createHash('sha256').update(fixtureBytes).digest('hex') ===
-    '6db07e50b4692f95bfef65595e9fcd0bf902c9660b7b1d7bc1a4f98b4d7d2425';
+  basename(PROJECT_PATH).toLowerCase() === basename(EXPECTED_PROJECT_PATH).toLowerCase() &&
+  fixtureBytes?.length === 44_473_498 && createHash('sha256').update(fixtureBytes).digest('hex') ===
+    'de8afeac2e7b53a63fe5925d8b05ddfe0c0b7f0a7b3f88fbc2a5fc29c0524ce0';
 const REAL = process.env.ORCA_E2E_REAL === '1';
 const REAL_ARTIFACT = process.env.VITE_USE_MOCK === '0';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 
 test.skip(!REAL || !REAL_ARTIFACT || !EXACT_FIXTURE || !existsSync(PROJECT_PATH),
-  'requires ORCA_E2E_REAL=1, VITE_USE_MOCK=0, and a verified temporary copy of the Odyssey u1 fixture');
+  'requires ORCA_E2E_REAL=1, VITE_USE_MOCK=0, and a verified temporary copy of big-proj.3mf');
 
 function delta(before: Timing, after: Timing, label: string): number {
   expect(after.count, `${label} must record exactly one operation`).toBe(before.count + 1);
