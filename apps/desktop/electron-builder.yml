@@ -20,6 +20,7 @@ asarUnpack:
   # tooling) can distinguish a missing/corrupt core from an asar read issue.
   - out/renderer/profiles/**
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64, arm64]
@@ -37,6 +38,7 @@ linux:
   category: Utility
   artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}
 mac:
+  icon: build/icon.icns
   target:
     - target: dmg
       arch: [x64, arm64]

@@ -59,6 +59,9 @@ if (
 // ELECTRON_RENDERER_URL branch (Vite dev server). See
 // doc/2026-08-14-http-origin-for-workers.md.
 const RENDERER_ROOT = join(__dirname, '../renderer');
+const APP_ICON_PATH = app.isPackaged
+  ? join(RENDERER_ROOT, 'orca-icon.png')
+  : join(__dirname, '../../src/renderer/public/orca-icon.png');
 
 const MIME_BY_EXT: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -127,6 +130,7 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    icon: APP_ICON_PATH,
     show: false,
     autoHideMenuBar: true,
     // Frameless everywhere — the renderer's TitleBar is the only chrome.
@@ -493,6 +497,9 @@ function startRendererServer(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    app.dock?.setIcon(APP_ICON_PATH);
+  }
   setupSessionHeaders();
   setupWebViewGuestSecurity();
   registerIpc();
