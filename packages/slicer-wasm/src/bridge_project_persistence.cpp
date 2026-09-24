@@ -865,6 +865,14 @@ static const char* orc_load_project_impl(const char* data, int len,
             throw Slic3r::RuntimeError("Loading of a project file failed.");
         publish_slicer_progress(55, geometry_only ? "Preparing imported geometry" : "Reading project settings");
         imported.add_default_instances();
+        if (!geometry_only) {
+            // Match the desktop Plater path. Project JSON may encode a
+            // filament vector as an empty scalar, while the multi-filament
+            // preset loader expects every ordinary filament vector to have
+            // one value per slot. This normalized form is Neo's canonical
+            // imported project config for the entire transaction.
+            Preset::normalize(imported_config);
+        }
 
         // Geometry-only imports intentionally discard object/part overrides;
         // extruder assignment is the one per-object value that remains.
@@ -973,13 +981,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             // multi-material filament list.  Keeping this call on the
             // candidate preserves the transaction while also handling a
             // parentless project preset (such as Lily.3mf) exactly as Orca.
-            DynamicPrintConfig config_for_preset_load = imported_config;
-            // Match the desktop Plater path: project JSON may encode a
-            // filament vector as an empty scalar, while the multi-filament
-            // preset loader expects every ordinary filament vector to have
-            // one value per slot.
-            Preset::normalize(config_for_preset_load);
-            candidate.load_config_model(project_name, std::move(config_for_preset_load), file_version);
+            candidate.load_config_model(project_name, imported_config, file_version);
             // The GUI refreshes its active preset controls after this native
             // load.  Re-run the bridge's authoritative compatibility pass so
             // stale selections from the previous project cannot survive a
