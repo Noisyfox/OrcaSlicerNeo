@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Status:** Final user experience; delivered in the shared Electron and Web application.
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-24
 
 This specification records the final behavior visible to users. Project-wide and
 selection-scoped configuration share one settings surface and follow OrcaSlicer's
@@ -70,6 +70,18 @@ not highlighted. For a multi-selection, the label is highlighted if at least
 one target owns a local value. The existing object list also shows a
 non-interactive marker for model items with supported local overrides; editing
 and reset remain in the settings surface.
+
+The `Project` mode tab uses the same orange when any supported Project option
+has a local override. The `Scoped` tab does so when any supported Plate,
+Object, or Part/Modifier target has a local override, including targets not
+currently selected. In the displayed mode, a category heading is orange when
+any option in that category has a local override for the current target(s).
+Category highlighting considers the full catalogue, even while search hides
+the overridden option. Reset clears each highlight when its last qualifying
+local override is removed.
+`Reset All` is enabled only when the current mode and target(s) have supported
+local overrides; a category's Reset is enabled only when that category has
+one. An explicit local value counts even when it equals the inherited value.
 
 Scoped presents the complete set of options supported for the resolved scope,
 grouped by category, with search across categories. For a same-scope

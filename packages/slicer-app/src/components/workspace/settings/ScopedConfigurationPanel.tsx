@@ -1,8 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   NativeScopedConfigMutationRequest,
+  NativeScopedConfigScope,
+  NativeScopedConfigSnapshot,
   NativeScopedConfigTarget,
   OptionMeta,
+  OptionMetadata,
 } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -19,6 +22,7 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import {
+  isKeyEligibleForScope,
   localKeysForTarget,
   projectScopedConfigurationFields,
   resolveScopedConfigurationTarget,
@@ -35,6 +39,32 @@ const PROJECT_RESOLUTION: ScopedTargetResolution = {
   scope: 'project', targets: [{ scope: 'project', label: 'Project' }],
   label: 'Project', visibleScopes: ['preset', 'project'],
 };
+
+function hasEligibleOverrides(
+  values: Readonly<Record<string, string>>,
+  scope: NativeScopedConfigScope,
+  metadata: OptionMetadata,
+): boolean {
+  return Object.keys(values).some((key) => {
+    const option = metadata[key];
+    return option !== undefined && isKeyEligibleForScope(key, option, scope);
+  });
+}
+
+function modeOverrideHighlights(snapshot: NativeScopedConfigSnapshot, metadata: OptionMetadata) {
+  const hasScopedOverrides = (
+    [
+      ['plate', snapshot.plates],
+      ['object', snapshot.objects],
+      ['part', snapshot.parts],
+    ] as const
+  ).some(([scope, targets]) => Object.values(targets)
+    .some((values) => hasEligibleOverrides(values, scope, metadata)));
+  return {
+    project: hasEligibleOverrides(snapshot.project, 'project', metadata),
+    scoped: hasScopedOverrides,
+  };
+}
 
 function targetRequestTargets(targets: readonly ScopedConfigurationTarget[]): NativeScopedConfigTarget[] {
   return targets.map(({ scope, id }) => ({ scope, ...(id === undefined ? {} : { id }) }));
@@ -211,6 +241,13 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     }
     return [...grouped.entries()];
   }, [fields]);
+  const highlightedCategories = useMemo(() => new Set(allFields
+    .filter((field) => field.local && field.resettable)
+    .map((field) => field.category)), [allFields]);
+  const hasLocalOverrides = highlightedCategories.size > 0;
+  const highlightedModes = useMemo(() => metadata
+    ? modeOverrideHighlights(snapshot, metadata)
+    : { project: false, scoped: false }, [metadata, snapshot]);
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode === 'scoped' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
@@ -271,8 +308,10 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
           role="tab"
           aria-selected={mode === 'project'}
           data-testid="config-mode-project"
+          data-local-override-highlight={highlightedModes.project ? 'true' : 'false'}
           variant={mode === 'project' ? 'secondary' : 'ghost'}
           size="sm"
+          className={cn(highlightedModes.project && 'config-override-label')}
           onClick={() => setConfigurationMode('project')}
         >Project</Button>
         <Button
@@ -280,15 +319,17 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
           role="tab"
           aria-selected={mode === 'scoped'}
           data-testid="config-mode-scoped"
+          data-local-override-highlight={highlightedModes.scoped ? 'true' : 'false'}
           variant={mode === 'scoped' ? 'secondary' : 'ghost'}
           size="sm"
+          className={cn(highlightedModes.scoped && 'config-override-label')}
           onClick={() => setConfigurationMode('scoped')}
         >Scoped</Button>
       </div>
       {!metadata ? <div className="p-3 text-xs text-muted-foreground">Loading configuration…</div> : <>
       <div className="flex items-center justify-between gap-1 text-xs text-muted-foreground">
         <span data-testid="scoped-target-label">{mode === 'project' ? 'Project' : resolution.label}</span>
-        {(mode === 'project' || resolution.targets.length > 0) && <Button type="button" variant="ghost" size="xs" data-testid="config-reset-all" onClick={() => void resetAll()}>Reset All</Button>}
+        {(mode === 'project' || resolution.targets.length > 0) && <Button type="button" variant="ghost" size="xs" data-testid="config-reset-all" disabled={!hasLocalOverrides} onClick={() => void resetAll()}>Reset All</Button>}
       </div>
       {mode === 'scoped' && resolution.scope === 'invalid' ? (
         <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
@@ -298,12 +339,17 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
           {categories.length === 0 && <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div>}
           {categories.map(([category, categoryFields]) => {
             const open = expanded[category] ?? true;
+            const highlighted = highlightedCategories.has(category);
             return <div key={category} data-testid={`config-category-${category}`} className="rounded border">
               <div className="flex items-center justify-between px-2 py-1">
-                <Button type="button" variant="ghost" size="xs" className="flex-1 justify-start font-semibold" onClick={() => setExpanded((current) => ({ ...current, [category]: !open }))}>
+                <Button type="button" variant="ghost" size="xs"
+                  data-testid={`config-category-toggle-${category}`}
+                  data-local-override-highlight={highlighted ? 'true' : 'false'}
+                  className={cn('flex-1 justify-start font-semibold', highlighted && 'config-override-label')}
+                  onClick={() => setExpanded((current) => ({ ...current, [category]: !open }))}>
                   {open ? '▾' : '▸'} {category}
                 </Button>
-                <Button type="button" variant="ghost" size="xs" data-testid={`config-reset-category-${category}`} onClick={() => void resetCategory(category)}>Reset</Button>
+                <Button type="button" variant="ghost" size="xs" data-testid={`config-reset-category-${category}`} disabled={!highlighted} onClick={() => void resetCategory(category)}>Reset</Button>
               </div>
               {open && <div className="px-1 pb-1">{categoryFields.map((field) => <ScopedField key={field.key} field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />)}</div>}
             </div>;

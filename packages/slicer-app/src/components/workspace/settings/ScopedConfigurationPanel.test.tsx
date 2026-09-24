@@ -50,6 +50,80 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 }
 
 describe('scoped field drafts', () => {
+  it('highlights mode tabs and categories from supported local overrides and enables only applicable resets', async () => {
+    const metadata = {
+      layer_height: { type: 'float' as const, label: 'Layer height', category: 'Quality', scopes: ['project', 'object'] as const },
+      first_layer_height: { type: 'float' as const, label: 'First layer height', category: 'Quality', scopes: ['project', 'object'] as const },
+      wall_loops: { type: 'int' as const, label: 'Wall loops', category: 'Strength', scopes: ['object'] as const },
+      machine_gcode: { type: 'string' as const, label: 'Machine G-code', category: 'Machine', scopes: ['object'] as const },
+    };
+    useSettingsStore.setState({ configurationMode: 'project', metadata,
+      baseValues: { layer_height: '0.2', first_layer_height: '0.2', wall_loops: '2' },
+      nativeScopedConfig: { project: { layer_height: '0.2' }, plates: {}, parts: {},
+        objects: { '42': { wall_loops: '3' } } } });
+    const selection = new Selection();
+    selection.replaceIds(['42']);
+    const controller = { selection, computeSelectionKind: () => 'object',
+      selectedVolumes: () => [...selection.ids].map((id) => ({ buffer: { objectId: Number(id), volumeId: 100 } })),
+    } as unknown as SceneInteractionController;
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+      <ScopedConfigurationPanel sceneInteraction={controller} />
+    </TooltipProvider></PlatformProvider>));
+
+    const button = (testId: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+    const projectTab = button('config-mode-project');
+    const scopedTab = button('config-mode-scoped');
+    const quality = button('config-category-toggle-Quality');
+    expect(projectTab.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(scopedTab.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(quality.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(quality.classList.contains('config-override-label')).toBe(true);
+    expect(button('config-reset-category-Quality').disabled).toBe(false);
+    expect(button('config-reset-all').disabled).toBe(false);
+
+    const search = container.querySelector<HTMLInputElement>('[data-testid="scoped-config-search"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'First layer height');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(container.querySelector('[data-testid="config-option-label-layer_height"]')).toBeNull();
+    expect(quality.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(button('config-reset-category-Quality').disabled).toBe(false);
+
+    await act(async () => useSettingsStore.setState({ nativeScopedConfig: {
+      project: {}, plates: {}, parts: {}, objects: { '42': { wall_loops: '3' } },
+    } }));
+    expect(projectTab.getAttribute('data-local-override-highlight')).toBe('false');
+    expect(scopedTab.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(quality.getAttribute('data-local-override-highlight')).toBe('false');
+    expect(button('config-reset-category-Quality').disabled).toBe(true);
+    expect(button('config-reset-all').disabled).toBe(true);
+
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, '');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      scopedTab.click();
+    });
+    const strength = button('config-category-toggle-Strength');
+    expect(strength.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(strength.classList.contains('config-override-label')).toBe(true);
+    expect(button('config-reset-category-Strength').disabled).toBe(false);
+    expect(button('config-reset-all').disabled).toBe(false);
+    expect(button('config-category-toggle-Quality').getAttribute('data-local-override-highlight')).toBe('false');
+    expect(button('config-reset-category-Quality').disabled).toBe(true);
+
+    await act(async () => useSettingsStore.setState({ nativeScopedConfig: {
+      project: {}, plates: {}, parts: {}, objects: { '42': { machine_gcode: 'G28' } },
+    } }));
+    expect(scopedTab.getAttribute('data-local-override-highlight')).toBe('false');
+    expect(strength.getAttribute('data-local-override-highlight')).toBe('false');
+    expect(button('config-reset-category-Strength').disabled).toBe(true);
+    expect(button('config-reset-all').disabled).toBe(true);
+  });
+
   it('does not render Project settings on selection changes and reads the latest target on switching to Scoped', async () => {
     useSettingsStore.setState({ configurationMode: 'project', metadata: {
       layer_height: { type: 'float', label: 'Layer height', scopes: ['project', 'object'] },

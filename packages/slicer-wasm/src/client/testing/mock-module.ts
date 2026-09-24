@@ -1980,7 +1980,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           } else {
             for (const key of Object.keys(bucket)) {
               if (!resettable(key)) continue;
-              if (request.operation === 'reset-category' && metadata[key]?.category !== request.category) continue;
+              if (request.operation === 'reset-category' && (metadata[key]?.category ?? 'General') !== request.category) continue;
               delete bucket[key];
             }
           }
