@@ -331,36 +331,40 @@ const char* error_json(const std::string& message)
     return make_error_json(message);
 }
 
-json option_metadata_json()
+const json& option_metadata_json()
 {
-    const auto& defs = print_config_def.options;
-    // Keep scope eligibility in the native PrintConfig class slices.  The
-    // renderer derives its catalogue from this metadata; it must not guess
-    // which arbitrary FFF keys happen to deserialize on a target.
-    const PrintConfig project_config;
-    const PrintObjectConfig object_config;
-    const PrintRegionConfig region_config;
-    json output = json::object();
-    for (const auto& [key, def] : defs) {
-        json entry = option_def_to_json(def);
-        json scopes = json::array();
-        const bool project = project_config.option(key) != nullptr;
-        const bool object = object_config.option(key) != nullptr || region_config.option(key) != nullptr;
-        const bool part = region_config.option(key) != nullptr;
-        // Native filament-routing slots stay in project_config so standard
-        // slicing/history can round-trip them, but their typed commands are
-        // the only mutation authority; never advertise them as generic
-        // Project/Scoped catalogue entries.
-        const bool generic_scoped_key = !ScopedConfig::is_bridge_owned_project_routing_key(key);
-        if (generic_scoped_key && project) scopes.push_back("project");
-        if (generic_scoped_key && project && ScopedConfig::is_editable_plate_override_key(key))
-            scopes.push_back("plate");
-        if (generic_scoped_key && object) scopes.push_back("object");
-        if (generic_scoped_key && part) scopes.push_back("part");
-        entry["scopes"] = std::move(scopes);
-        output[key] = std::move(entry);
-    }
-    return output;
+    // PrintConfig definitions are immutable within one loaded module.
+    static const json metadata = [] {
+        const auto& defs = print_config_def.options;
+        // Keep scope eligibility in the native PrintConfig class slices.  The
+        // renderer derives its catalogue from this metadata; it must not guess
+        // which arbitrary FFF keys happen to deserialize on a target.
+        const PrintConfig project_config;
+        const PrintObjectConfig object_config;
+        const PrintRegionConfig region_config;
+        json output = json::object();
+        for (const auto& [key, def] : defs) {
+            json entry = option_def_to_json(def);
+            json scopes = json::array();
+            const bool project = project_config.option(key) != nullptr;
+            const bool object = object_config.option(key) != nullptr || region_config.option(key) != nullptr;
+            const bool part = region_config.option(key) != nullptr;
+            // Native filament-routing slots stay in project_config so standard
+            // slicing/history can round-trip them, but their typed commands are
+            // the only mutation authority; never advertise them as generic
+            // Project/Scoped catalogue entries.
+            const bool generic_scoped_key = !ScopedConfig::is_bridge_owned_project_routing_key(key);
+            if (generic_scoped_key && project) scopes.push_back("project");
+            if (generic_scoped_key && project && ScopedConfig::is_editable_plate_override_key(key))
+                scopes.push_back("plate");
+            if (generic_scoped_key && object) scopes.push_back("object");
+            if (generic_scoped_key && part) scopes.push_back("part");
+            entry["scopes"] = std::move(scopes);
+            output[key] = std::move(entry);
+        }
+        return output;
+    }();
+    return metadata;
 }
 
 json preset_snapshot_json()

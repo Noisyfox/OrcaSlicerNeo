@@ -251,8 +251,28 @@ struct UsedSlotContext {
     std::set<int> object_slots(const ModelObject& object) const
     {
         std::set<int> slots;
+        const auto source_object = std::find_if(state().model.objects.begin(), state().model.objects.end(),
+            [&](const ModelObject* source) { return source->id() == object.id(); });
         for (const ModelVolume* volume : object.volumes) {
             if (volume == nullptr) continue;
+            // Plate models are temporary copies. Populate the authoritative
+            // volume's native painting cache so the next copy does not decode
+            // the same facets again. Keep the copy's own extruder/config value;
+            // only share the mesh- and timestamp-matched painting cache.
+            if (volume->mmuseg_ts != volume->mmu_segmentation_facets.timestamp() &&
+                source_object != state().model.objects.end()) {
+                const auto& sources = (*source_object)->volumes;
+                const auto source = std::find_if(sources.begin(), sources.end(),
+                    [&](const ModelVolume* candidate) { return candidate->id() == volume->id(); });
+                if (source != sources.end() && *source != volume &&
+                    (*source)->type() == volume->type() &&
+                    (*source)->get_mesh_shared_ptr() == volume->get_mesh_shared_ptr() &&
+                    (*source)->mmu_segmentation_facets.timestamp() == volume->mmu_segmentation_facets.timestamp()) {
+                    (void)(*source)->get_extruders();
+                    volume->mmuseg_extruders = (*source)->mmuseg_extruders;
+                    volume->mmuseg_ts = (*source)->mmuseg_ts;
+                }
+            }
             for (const int slot : volume->get_extruders()) append(slots, slot);
         }
         for (const auto& layer_range : object.layer_config_ranges) {

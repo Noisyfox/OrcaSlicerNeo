@@ -324,7 +324,7 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
     apply_draft(effective, state().preset_drafts);
     const auto* overrides = state().preset_drafts.find(type, canonical_name);
     const json override_values = overrides == nullptr ? json::object() : json(*overrides);
-    const json all_metadata = Profiles::option_metadata_json();
+    const json& all_metadata = Profiles::option_metadata_json();
     json source_metadata = json::object();
     for (const std::string& key : source->config.keys())
         if (all_metadata.contains(key)) source_metadata[key] = all_metadata[key];
@@ -337,6 +337,26 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
                 {"effective_values", config_values_json(effective.config)},
                 {"option_metadata", std::move(source_metadata)},
                 {"revision", state().history_revision}};
+}
+
+// Only notes are excluded: all other keys conservatively retain native
+// geometry/placement refresh. Compare actual overlays so resets use the same
+// policy as sets, including a Reset preset that removes structural overrides.
+bool geometry_inputs_changed(const PresetDraftRegistry::Overrides* before,
+                             const PresetDraftRegistry::Overrides* after)
+{
+    const PresetDraftRegistry::Overrides empty;
+    const auto& old_values = before == nullptr ? empty : *before;
+    const auto& new_values = after == nullptr ? empty : *after;
+    const auto has_change = [](const auto& left, const auto& right) {
+        for (const auto& [key, value] : left) {
+            if (key == "printer_notes" || key == "filament_notes") continue;
+            const auto other = right.find(key);
+            if (other == right.end() || other->second != value) return true;
+        }
+        return false;
+    };
+    return has_change(old_values, new_values) || has_change(new_values, old_values);
 }
 
 json mutate_draft_json(const json& request)
@@ -471,12 +491,17 @@ json mutate_draft_json(const json& request)
 
         // Material drafts feed the native minimum-flush calculation. Rebuild
         // the project-owned matrix before the common all-plate mutation path.
+        const bool refresh_geometry = geometry_inputs_changed(
+            before_drafts.find(type, canonical_name), state().preset_drafts.find(type, canonical_name));
         auto& bundle = state().presets;
-        if (type == Preset::TYPE_FILAMENT &&
+        if (refresh_geometry && type == Preset::TYPE_FILAMENT &&
             bundle.printers.get_selected_preset().printer_technology() == ptFFF)
             Filament::Commands::recalculate_filament_flush(bundle);
 
-        const json plate_session = PlateSession::shared_configuration_mutation_snapshot();
+        const json plate_session = refresh_geometry
+            ? PlateSession::shared_configuration_mutation_snapshot()
+            : PlateSession::configuration_mutation_snapshot(
+                PlateSession::all_plate_ids(), {"shared-configuration"}, json::array());
         ++state().preset_draft_revision;
         json after_context = HistoryMetadata::default_history_context(
             state(), plate_session, Filament::State::history_state_json(state().presets));

@@ -63,6 +63,27 @@ assert.ok(printer, 'profile packages must provide a flexible Bambu printer');
 const selection = callJson('orc_select_preset', ['string', 'string'], ['printer', printer.name]);
 assert.equal(selection.ok, true, JSON.stringify(selection));
 
+// Notes keep geometry intact; resetting a mixed draft must still restore the
+// build volume and validity, even when the last edited field was only notes.
+assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', 'draft geometry']).ok, true);
+const geometryBefore = callJson('orc_get_plate_session_snapshot');
+assert.equal(geometryBefore.instances[0].out_of_bounds, false);
+const notes = mutateDraft('set', 'printer', printer.name,
+  { key: 'printer_notes', value: 'notes geometry regression' });
+assert.deepEqual(notes.plate_session.instance_transforms, geometryBefore.instance_transforms);
+assert.equal(notes.plate_session.instances[0].out_of_bounds, false);
+const shortBed = mutateDraft('set', 'printer', printer.name,
+  { key: 'printable_height', value: '1' });
+assert.equal(shortBed.plate_session.instances[0].out_of_bounds, true);
+const notesOnShortBed = mutateDraft('set', 'printer', printer.name,
+  { key: 'printer_notes', value: 'still a short build volume' });
+assert.equal(notesOnShortBed.plate_session.instances[0].out_of_bounds, true);
+const resetGeometry = mutateDraft('reset-preset', 'printer', printer.name);
+assert.equal(resetGeometry.plate_session.instances[0].out_of_bounds, false,
+  'reset-preset must inspect removed geometry overrides rather than the last edited key');
+assert.deepEqual(resetGeometry.option_metadata, notes.option_metadata,
+  'cached metadata must stay identical across effective config changes');
+
 let session = callJson('orc_get_filament_session_snapshot');
 assert.equal(session.ok, true, JSON.stringify(session));
 assert.equal(session.capabilities.flexible, true, JSON.stringify(session));
