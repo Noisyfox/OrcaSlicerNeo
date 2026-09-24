@@ -337,14 +337,19 @@ describe('PresetEditorDialog', () => {
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('data-native-max')).toBe('1000');
   });
 
-  it('highlights overridden option labels like the print overlay and clears them after category reset', async () => {
+  it('highlights overridden options, groups, and page tabs and clears only the reset category', async () => {
     const base = snapshotFor('printer', { modified: true });
     const source: PresetDraftSnapshot = {
       ...base,
-      overrides: { ...base.overrides, printer_variant: 'custom-variant' },
-      effectiveValues: { ...base.effectiveValues, printer_variant: 'custom-variant' },
+      overrides: { ...base.overrides, printer_variant: 'custom-variant', machine_start_gcode: 'G28' },
+      effectiveValues: { ...base.effectiveValues, printer_variant: 'custom-variant', machine_start_gcode: 'G28' },
     };
-    await mount(source, vi.fn(), undefined, async (request) => mutationSuccess(source, request));
+    let current = source;
+    await mount(source, vi.fn(), undefined, async (request) => {
+      const result = mutationSuccess(current, request);
+      if (result.ok) current = result;
+      return result;
+    });
 
     const label = (key: string) => document.querySelector(`[data-testid="preset-editor-option-label-${key}"]`);
     for (const key of ['printable_height', 'printer_variant']) {
@@ -355,11 +360,39 @@ describe('PresetEditorDialog', () => {
     expect(label('printer_model')?.classList.contains('config-override-label')).toBe(false);
     expect(document.querySelector('[data-testid="preset-editor-control-printable_height"]')?.classList.contains('config-override-label')).toBe(false);
 
+    const tab = (page: string) => document.querySelector(`[data-testid="preset-editor-page-tab-${page}"]`);
+    const group = (page: string, id: string) => document.querySelector(`[data-testid="preset-editor-group-title-${page}-${id}"]`);
+    for (const page of ['basic-information', 'machine-gcode']) {
+      expect(tab(page)?.getAttribute('data-draft-override-highlight')).toBe('true');
+      expect(tab(page)?.classList.contains('config-override-label')).toBe(true);
+    }
+    expect(tab('motion-ability')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    for (const id of ['identity', 'printable-space']) {
+      expect(group('basic-information', id)?.getAttribute('data-draft-override-highlight')).toBe('true');
+      expect(group('basic-information', id)?.classList.contains('config-override-label')).toBe(true);
+    }
+    expect(group('basic-information', 'advanced')?.getAttribute('data-draft-override-highlight')).toBe('false');
+
+    await click(document.querySelector('[data-testid="preset-editor-reset-field-printable_height"]'));
+    expect(label('printable_height')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(group('basic-information', 'printable-space')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(group('basic-information', 'identity')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    expect(tab('basic-information')?.getAttribute('data-draft-override-highlight')).toBe('true');
+
     await click(document.querySelector('[data-testid="preset-editor-reset-category-basic-information"]'));
     for (const key of ['printable_height', 'printer_variant']) {
       expect(label(key)?.getAttribute('data-draft-override-highlight')).toBe('false');
       expect(label(key)?.classList.contains('config-override-label')).toBe(false);
     }
+    expect(tab('basic-information')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(tab('machine-gcode')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    for (const id of ['identity', 'printable-space']) {
+      expect(group('basic-information', id)?.getAttribute('data-draft-override-highlight')).toBe('false');
+    }
+
+    await click(tab('machine-gcode'));
+    expect(group('machine-gcode', 'machine-start-gcode')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    expect(group('machine-gcode', 'file-header-gcode')?.getAttribute('data-draft-override-highlight')).toBe('false');
   });
 
   it('marks a modified draft and lists the numbered slots sharing its Filament source', async () => {

@@ -100,6 +100,14 @@ function hasOverride(snapshot: PresetDraftSnapshot, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(snapshot.overrides, key);
 }
 
+function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup): boolean {
+  return group.fields.some((field) => hasOverride(snapshot, field.key));
+}
+
+function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage): boolean {
+  return page.groups.some((group) => groupHasOverrides(snapshot, group));
+}
+
 function isColourField(field: PresetEditorManifestField, metadata: OptionMeta | undefined): boolean {
   return field.key === 'default_filament_colour' || metadata?.type === ('color' as OptionMeta['type']);
 }
@@ -758,13 +766,19 @@ function FieldGroup({
   onMutate: PresetEditorDialogProps['onMutate'];
 }) {
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
+  const overridden = groupHasOverrides(snapshot, group);
   return (
     <section
       data-testid={`preset-editor-group-${page.id}-${group.id}`}
       aria-labelledby={titleId}
       className="min-w-0 space-y-2"
     >
-      <h3 id={titleId} className="text-sm font-semibold">{group.title}</h3>
+      <h3
+        id={titleId}
+        data-testid={`preset-editor-group-title-${page.id}-${group.id}`}
+        data-draft-override-highlight={overridden ? 'true' : 'false'}
+        className={cn('text-sm font-semibold', overridden && 'config-override-label')}
+      >{group.title}</h3>
       <div className="grid min-w-0 gap-2 xl:grid-cols-2">
         {group.fields.map((field) => <FieldValue
           key={field.key}
@@ -910,18 +924,27 @@ export function PresetEditorDialog({
           />
 
           {!showSearchResults && <div role="tablist" aria-label="Preset setting pages" className="flex shrink-0 gap-1 overflow-x-auto border-b">
-            {pages.map((page) => <button
-              key={page.id}
-              id={`preset-editor-tab-${page.id}`}
-              type="button"
-              role="tab"
-              aria-selected={activePage?.id === page.id}
-              aria-controls={`preset-editor-page-${page.id}`}
-              data-testid={`preset-editor-page-tab-${page.id}`}
-              disabled={loading || refreshing || !snapshot}
-              onClick={() => { setActivePageId(page.id); setSearch(''); setActionError(null); }}
-              className="shrink-0 border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground aria-selected:border-primary aria-selected:text-foreground"
-            >{page.title}</button>)}
+            {pages.map((page) => {
+              const overridden = snapshot !== null && pageHasOverrides(snapshot, page);
+              return (
+                <button
+                  key={page.id}
+                  id={`preset-editor-tab-${page.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={activePage?.id === page.id}
+                  aria-controls={`preset-editor-page-${page.id}`}
+                  data-testid={`preset-editor-page-tab-${page.id}`}
+                  data-draft-override-highlight={overridden ? 'true' : 'false'}
+                  disabled={loading || refreshing || !snapshot}
+                  onClick={() => { setActivePageId(page.id); setSearch(''); setActionError(null); }}
+                  className={cn(
+                    'shrink-0 border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground aria-selected:border-primary aria-selected:text-foreground',
+                    overridden && 'config-override-label',
+                  )}
+                >{page.title}</button>
+              );
+            })}
           </div>}
 
           {actionError && <p role="alert" data-testid="preset-editor-action-error" className="text-xs text-destructive">{actionError}</p>}
