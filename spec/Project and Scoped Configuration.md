@@ -71,11 +71,11 @@ one target owns a local value. The existing object list also shows a
 non-interactive marker for model items with supported local overrides; editing
 and reset remain in the settings surface.
 
-The `Project` mode tab uses the same orange when any supported Project option
-has a local override. The `Scoped` tab does so when any supported Plate,
-Object, or Part/Modifier target has a local override, including targets not
-currently selected. In the displayed mode, a category heading is orange when
-any option in that category has a local override for the current target(s).
+The `Project | Scoped` switch does not indicate override state. Only the
+displayed mode's categories are evaluated for highlighting; hidden Scoped
+targets are not scanned while Project mode is displayed. A category heading
+is orange when any option in that category has a local override for the current
+target(s).
 Category highlighting considers the full catalogue, even while search hides
 the overridden option. Reset clears each highlight when its last qualifying
 local override is removed.

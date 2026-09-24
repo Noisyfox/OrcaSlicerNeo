@@ -50,7 +50,7 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 }
 
 describe('scoped field drafts', () => {
-  it('highlights mode tabs and categories from supported local overrides and enables only applicable resets', async () => {
+  it('highlights visible categories from supported local overrides and enables only applicable resets', async () => {
     const metadata = {
       layer_height: { type: 'float' as const, label: 'Layer height', category: 'Quality', scopes: ['project', 'object'] as const },
       first_layer_height: { type: 'float' as const, label: 'First layer height', category: 'Quality', scopes: ['project', 'object'] as const },
@@ -74,11 +74,10 @@ describe('scoped field drafts', () => {
     </TooltipProvider></PlatformProvider>));
 
     const button = (testId: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
-    const projectTab = button('config-mode-project');
     const scopedTab = button('config-mode-scoped');
     const quality = button('config-category-toggle-Quality');
-    expect(projectTab.getAttribute('data-local-override-highlight')).toBe('true');
-    expect(scopedTab.getAttribute('data-local-override-highlight')).toBe('true');
+    expect(button('config-mode-project').hasAttribute('data-local-override-highlight')).toBe(false);
+    expect(scopedTab.hasAttribute('data-local-override-highlight')).toBe(false);
     expect(quality.getAttribute('data-local-override-highlight')).toBe('true');
     expect(quality.classList.contains('config-override-label')).toBe(true);
     expect(button('config-reset-category-Quality').disabled).toBe(false);
@@ -96,8 +95,6 @@ describe('scoped field drafts', () => {
     await act(async () => useSettingsStore.setState({ nativeScopedConfig: {
       project: {}, plates: {}, parts: {}, objects: { '42': { wall_loops: '3' } },
     } }));
-    expect(projectTab.getAttribute('data-local-override-highlight')).toBe('false');
-    expect(scopedTab.getAttribute('data-local-override-highlight')).toBe('true');
     expect(quality.getAttribute('data-local-override-highlight')).toBe('false');
     expect(button('config-reset-category-Quality').disabled).toBe(true);
     expect(button('config-reset-all').disabled).toBe(true);
@@ -118,17 +115,21 @@ describe('scoped field drafts', () => {
     await act(async () => useSettingsStore.setState({ nativeScopedConfig: {
       project: {}, plates: {}, parts: {}, objects: { '42': { machine_gcode: 'G28' } },
     } }));
-    expect(scopedTab.getAttribute('data-local-override-highlight')).toBe('false');
     expect(strength.getAttribute('data-local-override-highlight')).toBe('false');
     expect(button('config-reset-category-Strength').disabled).toBe(true);
     expect(button('config-reset-all').disabled).toBe(true);
   });
 
-  it('does not render Project settings on selection changes and reads the latest target on switching to Scoped', async () => {
+  it('does not scan hidden Scoped overrides or render Project settings on selection changes', async () => {
+    const hiddenScopedReads = vi.fn();
+    const scopedObjects = new Proxy({ '42': { layer_height: '0.3' }, '43': { layer_height: '0.4' } }, {
+      ownKeys(target) { hiddenScopedReads(); return Reflect.ownKeys(target); },
+      get(target, key, receiver) { hiddenScopedReads(); return Reflect.get(target, key, receiver); },
+    });
     useSettingsStore.setState({ configurationMode: 'project', metadata: {
       layer_height: { type: 'float', label: 'Layer height', scopes: ['project', 'object'] },
     }, baseValues: { layer_height: '0.2' }, nativeScopedConfig: {
-      project: {}, plates: {}, parts: {}, objects: { '42': { layer_height: '0.3' }, '43': { layer_height: '0.4' } },
+      project: {}, plates: {}, parts: {}, objects: scopedObjects,
     } });
     const selection = new Selection();
     const controller = { selection, computeSelectionKind: () => 'object',
@@ -141,13 +142,16 @@ describe('scoped field drafts', () => {
     await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
       <Profiler id="settings" onRender={onRender}><ScopedConfigurationPanel sceneInteraction={controller} /></Profiler>
     </TooltipProvider></PlatformProvider>));
+    expect(hiddenScopedReads).not.toHaveBeenCalled();
     onRender.mockClear();
     await act(async () => { selection.replaceIds(['42']); });
     await act(async () => { selection.replaceIds(['43']); usePlateSessionStore.getState().reset(); });
     expect(onRender).not.toHaveBeenCalled();
+    expect(hiddenScopedReads).not.toHaveBeenCalled();
     expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.value).toBe('0.2');
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="config-mode-scoped"]')!.click());
     expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.value).toBe('0.4');
+    expect(hiddenScopedReads).toHaveBeenCalled();
     await act(async () => { selection.replaceIds(['42']); });
     expect(container.querySelector<HTMLInputElement>('[data-testid="config-input-layer_height"]')!.value).toBe('0.3');
   });

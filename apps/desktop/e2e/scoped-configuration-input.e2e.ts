@@ -1,7 +1,7 @@
 import { _electron, expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
 
-test('Project override highlights its mode and category and enables Reset only while local values exist', async () => {
+test('Project override highlights its category and enables Reset only while local values exist', async () => {
   const desktop = resolve(__dirname, '..');
   const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
@@ -10,14 +10,14 @@ test('Project override highlights its mode and category and enables Reset only w
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
     await page.locator('#app-tab-prepare').click();
-    const projectTab = page.getByTestId('config-mode-project');
     const height = page.getByTestId('config-input-layer_height');
     const category = page.locator('[data-testid^="config-category-"]').filter({ has: height });
     const categoryToggle = category.locator('[data-testid^="config-category-toggle-"]');
     const categoryReset = category.locator('[data-testid^="config-reset-category-"]');
     const resetAll = page.getByTestId('config-reset-all');
     if (await resetAll.isEnabled()) await resetAll.click();
-    await expect(projectTab).toHaveAttribute('data-local-override-highlight', 'false');
+    await expect(page.getByTestId('config-mode-project')).not.toHaveAttribute('data-local-override-highlight');
+    await expect(page.getByTestId('config-mode-scoped')).not.toHaveAttribute('data-local-override-highlight');
     await expect(categoryToggle).toHaveAttribute('data-local-override-highlight', 'false');
     await expect(categoryReset).toBeDisabled();
     await expect(resetAll).toBeDisabled();
@@ -26,15 +26,12 @@ test('Project override highlights its mode and category and enables Reset only w
     const changedHeight = String(Number(sourceHeight) + 0.01);
     await height.fill(changedHeight);
     await height.press('Enter');
-    await expect(projectTab).toHaveAttribute('data-local-override-highlight', 'true');
-    await expect(projectTab).toHaveCSS('color', 'rgb(241, 117, 78)');
     await expect(categoryToggle).toHaveAttribute('data-local-override-highlight', 'true');
     await expect(categoryToggle).toHaveCSS('color', 'rgb(241, 117, 78)');
     await expect(categoryReset).toBeEnabled();
     await expect(resetAll).toBeEnabled();
 
     await categoryReset.click();
-    await expect(projectTab).toHaveAttribute('data-local-override-highlight', 'false');
     await expect(categoryToggle).toHaveAttribute('data-local-override-highlight', 'false');
     await expect(categoryReset).toBeDisabled();
     await expect(resetAll).toBeDisabled();

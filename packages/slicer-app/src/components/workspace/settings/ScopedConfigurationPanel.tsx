@@ -1,11 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type {
   NativeScopedConfigMutationRequest,
-  NativeScopedConfigScope,
-  NativeScopedConfigSnapshot,
   NativeScopedConfigTarget,
   OptionMeta,
-  OptionMetadata,
 } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -22,7 +19,6 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import {
-  isKeyEligibleForScope,
   localKeysForTarget,
   projectScopedConfigurationFields,
   resolveScopedConfigurationTarget,
@@ -39,32 +35,6 @@ const PROJECT_RESOLUTION: ScopedTargetResolution = {
   scope: 'project', targets: [{ scope: 'project', label: 'Project' }],
   label: 'Project', visibleScopes: ['preset', 'project'],
 };
-
-function hasEligibleOverrides(
-  values: Readonly<Record<string, string>>,
-  scope: NativeScopedConfigScope,
-  metadata: OptionMetadata,
-): boolean {
-  return Object.keys(values).some((key) => {
-    const option = metadata[key];
-    return option !== undefined && isKeyEligibleForScope(key, option, scope);
-  });
-}
-
-function modeOverrideHighlights(snapshot: NativeScopedConfigSnapshot, metadata: OptionMetadata) {
-  const hasScopedOverrides = (
-    [
-      ['plate', snapshot.plates],
-      ['object', snapshot.objects],
-      ['part', snapshot.parts],
-    ] as const
-  ).some(([scope, targets]) => Object.values(targets)
-    .some((values) => hasEligibleOverrides(values, scope, metadata)));
-  return {
-    project: hasEligibleOverrides(snapshot.project, 'project', metadata),
-    scoped: hasScopedOverrides,
-  };
-}
 
 function targetRequestTargets(targets: readonly ScopedConfigurationTarget[]): NativeScopedConfigTarget[] {
   return targets.map(({ scope, id }) => ({ scope, ...(id === undefined ? {} : { id }) }));
@@ -245,9 +215,6 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     .filter((field) => field.local && field.resettable)
     .map((field) => field.category)), [allFields]);
   const hasLocalOverrides = highlightedCategories.size > 0;
-  const highlightedModes = useMemo(() => metadata
-    ? modeOverrideHighlights(snapshot, metadata)
-    : { project: false, scoped: false }, [metadata, snapshot]);
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
     if (mode === 'scoped' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
@@ -308,10 +275,8 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
           role="tab"
           aria-selected={mode === 'project'}
           data-testid="config-mode-project"
-          data-local-override-highlight={highlightedModes.project ? 'true' : 'false'}
           variant={mode === 'project' ? 'secondary' : 'ghost'}
           size="sm"
-          className={cn(highlightedModes.project && 'config-override-label')}
           onClick={() => setConfigurationMode('project')}
         >Project</Button>
         <Button
@@ -319,10 +284,8 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
           role="tab"
           aria-selected={mode === 'scoped'}
           data-testid="config-mode-scoped"
-          data-local-override-highlight={highlightedModes.scoped ? 'true' : 'false'}
           variant={mode === 'scoped' ? 'secondary' : 'ghost'}
           size="sm"
-          className={cn(highlightedModes.scoped && 'config-override-label')}
           onClick={() => setConfigurationMode('scoped')}
         >Scoped</Button>
       </div>
