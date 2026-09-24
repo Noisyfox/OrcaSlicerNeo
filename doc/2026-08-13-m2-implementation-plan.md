@@ -2003,12 +2003,12 @@ today, no duplicated schema (design §Electron App). Also: the "Open" flow
 (native dialog → read bytes → `loadModel`) and the toolbar/status bar.
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `packages/slicer-app/src/components/layout/Toolbar.tsx`, `packages/slicer-app/src/components/layout/StatusBar.tsx`, `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`, `packages/slicer-app/src/components/workspace/settings/fields.tsx`, `packages/slicer-app/src/components/workspace/settings/OptionField.tsx`
+- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `packages/slicer-app/src/components/layout/Toolbar.tsx`, `packages/slicer-app/src/components/layout/StatusBar.tsx`, `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`
 - Modify: `apps/desktop/src/renderer/src/App.tsx` (boot effect)
 
 **Interfaces:**
 - Consumes: `createWorkerClient` (Task 3), `window.orca` (Task 4), stores (Task 5).
-- Produces: `slicerClient` singleton (the one `SlicerClient` instance the app drives); `App` boot effect: `slicerClient.init()` → `getPresets` ×3 → `getOptionMetadata` → fill `useSettingsStore`. `SettingsPanel`: preset dropdowns (printer/print/filament) + process option groups rendered by `OptionField` (per `OptionMeta.type`: float/int → `Input type=number`; enum → `Select`; bool → `Checkbox`; string → `Input`; others → string input). `Toolbar`: Open / Slice / Export buttons (actions wired in Tasks 8–10; Slice/Export disabled until a model loads — a `modelLoaded` flag on `useSettingsStore` for now, replaced by real state in Task 8). `StatusBar`: slicer store status + progress bar.
+- Produces: `slicerClient` singleton (the one `SlicerClient` instance the app drives); `App` boot effect: `slicerClient.init()` → `getPresets` ×3 → `getOptionMetadata` → fill `useSettingsStore`. The current `SettingsPanel` delegates Project/Scoped option editing to `ScopedConfigurationPanel`; `spec/Project and Scoped Configuration.md` defines the delivered behavior. `Toolbar`: Open / Slice / Export buttons (actions wired in Tasks 8–10; Slice/Export disabled until a model loads — a `modelLoaded` flag on `useSettingsStore` for now, replaced by real state in Task 8). `StatusBar`: slicer store status + progress bar.
 
 - [ ] **Step 1: Write `slicerClient.ts`**
 
@@ -2054,150 +2054,17 @@ describe('useSettingsStore', () => {
 Run: `pnpm --filter desktop test`
 First run: FAIL (module missing). After the store file exists (Task 5 Step 5 already created it), PASS. (The test is written now so the rig is exercised before Task 8 work depends on it.)
 
-- [ ] **Step 4: Write `OptionField.tsx` + `fields.tsx`**
+- [ ] **Step 4: Use the current Project/Scoped field catalogue**
 
-```tsx
-// packages/slicer-app/src/components/workspace/settings/OptionField.tsx
-import type { OptionMeta } from '@slicer/client';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
-import { Checkbox } from '../ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+The delivered settings surface derives eligible options from native metadata and
+scope rules. See `spec/Project and Scoped Configuration.md` for the accepted
+behavior.
 
-export function OptionField({ optionKey, meta }: { optionKey: string; meta: OptionMeta }) {
-  const value = useSettingsStore((s) => s.values[optionKey] ?? meta.default ?? '');
-  const setValue = useSettingsStore((s) => s.setValue);
-  const label = meta.label ?? optionKey;
+- [ ] **Step 5: Wire `SettingsPanel.tsx` to the current settings surface**
 
-  if (meta.type === 'bool') {
-    return (
-      <div className="flex items-center justify-between py-1">
-        <Label htmlFor={optionKey} className="text-xs text-muted-foreground">{label}</Label>
-        <Checkbox
-          id={optionKey}
-          checked={value === '1'}
-          onChange={(e) => setValue(optionKey, e.target.checked ? '1' : '0')}
-        />
-      </div>
-    );
-  }
+`SettingsPanel` owns the preset selectors and renders
+`ScopedConfigurationPanel` for Project/Scoped option editing.
 
-  if (meta.type === 'enum' && meta.enum_values?.length) {
-    return (
-      <div className="space-y-1 py-1">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <Select value={value} onValueChange={(v) => setValue(optionKey, v)}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder={value} />
-          </SelectTrigger>
-          <SelectContent>
-            {meta.enum_values.map((ev) => (
-              <SelectItem key={ev} value={ev}>{ev}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1 py-1">
-      <Label htmlFor={optionKey} className="text-xs text-muted-foreground">{label}</Label>
-      <Input
-        id={optionKey}
-        className="h-8 text-xs"
-        value={value}
-        min={meta.min}
-        max={meta.max}
-        type={['float', 'int'].includes(meta.type) ? 'number' : 'text'}
-        step={meta.type === 'int' ? 1 : 'any'}
-        onChange={(e) => setValue(optionKey, e.target.value)}
-      />
-    </div>
-  );
-}
-```
-
-- [ ] **Step 5: Write `SettingsPanel.tsx`**
-
-```tsx
-// packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx
-import { useMemo } from 'react';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { OptionField } from './OptionField';
-import { Label } from '../ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-
-const PROCESS_KEYS = [
-  'layer_height', 'wall_loops', 'top_shell_layers', 'bottom_shell_layers',
-  'sparse_infill_density', 'sparse_infill_pattern', 'enable_support',
-  'nozzle_temperature', 'nozzle_temperature_initial_layer',
-  'hot_plate_temp_initial_layer', 'print_speed', 'outer_wall_speed',
-  'sparse_infill_speed', 'travel_speed',
-];
-
-export function SettingsPanel() {
-  const metadata = useSettingsStore((s) => s.metadata);
-  const printers = useSettingsStore((s) => s.printers);
-  const prints = useSettingsStore((s) => s.prints);
-  const filaments = useSettingsStore((s) => s.filaments);
-  const values = useSettingsStore((s) => s.values);
-  const setValue = useSettingsStore((s) => s.setValue);
-
-  // Only render option keys the metadata actually declares (no duplicated
-  // schema — PROCESS_KEYS is a render hint, not the schema).
-  const processKeys = useMemo(
-    () => PROCESS_KEYS.filter((k) => metadata?.[k] !== undefined),
-    [metadata],
-  );
-
-  if (!metadata) {
-    return <div className="p-3 text-xs text-muted-foreground">Loading presets…</div>;
-  }
-
-  return (
-    <div className="space-y-4 p-3">
-      <section>
-        <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
-        <PresetRow label="Printer" items={printers} value={values['printer'] ?? ''} onValue={(v) => setValue('printer', v)} />
-        <PresetRow label="Process" items={prints} value={values['print'] ?? ''} onValue={(v) => setValue('print', v)} />
-        <PresetRow label="Filament" items={filaments} value={values['filament'] ?? ''} onValue={(v) => setValue('filament', v)} />
-      </section>
-      <section>
-        <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Process</h2>
-        {processKeys.map((k) => (
-          <OptionField key={k} optionKey={k} meta={metadata[k]} />
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function PresetRow({ label, items, value, onValue }: {
-  label: string;
-  items: string[];
-  value: string;
-  onValue: (v: string) => void;
-}) {
-  if (items.length === 0) return null;
-  return (
-    <div className="space-y-1 py-1">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Select value={value || undefined} onValueChange={onValue}>
-        <SelectTrigger className="h-8 text-xs">
-          <SelectValue placeholder="— select —" />
-        </SelectTrigger>
-        <SelectContent>
-          {items.map((name) => (
-            <SelectItem key={name} value={name}>{name}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-```
 
 - [ ] **Step 6: Write `Toolbar.tsx` + `StatusBar.tsx`**
 
