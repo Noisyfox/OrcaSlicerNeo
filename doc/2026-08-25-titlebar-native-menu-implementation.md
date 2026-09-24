@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-25  
 **Status:** Implemented; focused cross-host verification is recorded below.  
-**Scope:** Shared File/Help menu behavior for Web and Electron custom/native
-surfaces.
+**Scope:** Shared titlebar branding and File/Help menu behavior for Web and
+Electron custom/native surfaces.
 
 ## Delivered behavior
 
@@ -18,6 +18,9 @@ surfaces.
 - macOS Electron suppresses the shared dropdown and installs the File/Help
   application menu through the typed preload/main boundary. Its titlebar keeps
   only the traffic-light safe inset and drag region.
+- Custom Electron and browser titlebars show the Orca icon to the left of the
+  shared menu. Native macOS menu mode hides the icon with the renderer menu,
+  using the same native-menu condition.
 - This scope intentionally excludes View, gizmo, Add Cube/Add Primitive, and
   keyboard-shortcut menu entries.
 - Native selections and titlebar clicks use the same guarded command
@@ -61,6 +64,9 @@ The pre-existing dirty
 `packages/slicer-wasm/cpp` submodule state is unrelated and was not changed.
 
 ## Verification
+
+For the Orca icon follow-up on 2026-09-24, `pnpm --filter @orca/slicer-app typecheck`
+and `git diff --check` passed. UI tests were not run for this follow-up.
 
 The following checks were actually run from the repository root:
 

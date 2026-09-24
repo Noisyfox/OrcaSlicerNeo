@@ -5,6 +5,7 @@ import type {
   MenuStateSnapshot,
   PlatformChrome,
 } from '@orca/platform-contract';
+import orcaIconUrl from '@/resources/orca-icon.png';
 import {
   Menubar,
   MenubarContent,
@@ -92,6 +93,14 @@ export function TitleBar({ chrome, model, state, onCommand }: TitleBarProps) {
         chrome.macSafeInset && 'pl-20',
       )}
     >
+      {!native && (
+        <img
+          src={orcaIconUrl}
+          alt="OrcaSlicer"
+          data-testid="titlebar-brand-icon"
+          className="ml-2 mr-2 h-5 w-5 shrink-0 object-contain"
+        />
+      )}
       {!native && (
         <Menubar
           data-testid="titlebar-menu"

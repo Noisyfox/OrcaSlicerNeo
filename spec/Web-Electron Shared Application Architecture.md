@@ -101,11 +101,13 @@ Themes, global CSS, shadcn wrappers, and application components belong to
 `slicer-app`; hosts may add only narrow platform CSS, such as Electron window
 drag regions.
 
-The common app includes a visually shared `BrandBar`. Electron supplies its
-drag-region styling and, on macOS, the traffic-light safe inset; Web renders
-the same branded bar without a drag region, native-window inset, or window
-controls. This preserves the intentional Electron frameless design without
-making it a Web-only or desktop-only component.
+The common app includes a visually shared `BrandBar`. In custom Electron and
+browser menu modes, it places the Orca icon at the left beside the shared menu.
+Native macOS menu mode hides both the icon and renderer menu, while retaining
+the traffic-light safe inset and draggable area. Electron supplies drag-region
+styling; Web renders the branded bar without a drag region, native-window inset,
+or window controls. This preserves the intentional Electron frameless design
+without making it a Web-only or desktop-only component.
 
 The first-release Web layout is a desktop layout that adapts fluidly to the
 viewport size: it retains the complete layout at any window size, shrinking
