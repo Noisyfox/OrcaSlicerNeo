@@ -26,9 +26,10 @@ export function WipeTowerVolumes({ collection, selectionRevision, bodyDragEnable
       }),
       primeTowerSelection: () => sceneInteraction.selectedWipeTower()?.plateId ?? null,
       primeTowerMoveCommands: () => collection.moveCommandCount,
+      primeTowerCommitBusy: () => collection.busy,
       primeTowerProxyIds: () => { const ids = new Set<string>(); scene.traverse((object) => { if (object.userData.primeTower === true && typeof object.userData.plateId === 'string') ids.add(object.userData.plateId); }); return [...ids].sort(); },
     };
-    return () => { if (!w.__orcaE2e) return; const { primeTowerStates: _a, primeTowerSelection: _b, primeTowerMoveCommands: _c, primeTowerProxyIds: _d, ...rest } = w.__orcaE2e; w.__orcaE2e = rest; };
+    return () => { if (!w.__orcaE2e) return; const { primeTowerStates: _a, primeTowerSelection: _b, primeTowerMoveCommands: _c, primeTowerCommitBusy: _d, primeTowerProxyIds: _e, ...rest } = w.__orcaE2e; w.__orcaE2e = rest; };
   }, [collection, scene, sceneInteraction]);
   // Prepare renders every eligible plate tower through the same interactive
   // GLVolumeMesh wrapper.  The volume's plateId remains the immutable target

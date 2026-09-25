@@ -123,6 +123,12 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const readMoves = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { primeTowerMoveCommands?: () => number } }).__orcaE2e?.primeTowerMoveCommands?.() ?? 0,
     );
+    const readCommitBusy = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { primeTowerCommitBusy?: () => boolean } }).__orcaE2e?.primeTowerCommitBusy?.() ?? false,
+    );
+    const readPointerOwner = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
+    );
     const readProxyIds = () => page.evaluate(() => {
       const hook = (window as unknown as { __orcaE2e?: { primeTowerProxyIds?: () => string[] } }).__orcaE2e;
       return hook?.primeTowerProxyIds?.() ?? null;
@@ -281,6 +287,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect(page.getByTestId('history-redo')).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId('history-redo').click();
     await expect.poll(() => positionError(movedPosition!)).toBeLessThan(0.001);
+    await expect.poll(readCommitBusy).toBe(false);
 
     // A tower on another displayed plate is also a real scene target.  Drag
     // it toward/through the neighbouring plate area and assert that native
@@ -295,6 +302,10 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const movesBeforeOther = await readMoves();
     await page.mouse.move(box!.x + otherPoint!.x, box!.y + otherPoint!.y);
     await page.mouse.down();
+    // This tower can sit near the canvas edge. Cross DragControls' movement
+    // threshold while still inside the canvas before trying outside targets.
+    await page.mouse.move(box!.x + otherPoint!.x - 24, box!.y + otherPoint!.y + 12, { steps: 3 });
+    await expect.poll(readPointerOwner).toBe('body');
     let otherDrafted = false;
     for (const target of dragTargets) {
       await page.mouse.move(target.x, target.y, { steps: 4 });

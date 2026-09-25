@@ -1,7 +1,7 @@
 # GitHub Pages deployment
 
 **Date:** 2026-09-25
-**Status:** Pages deployed; CI matrix repair in progress
+**Status:** Pages deployed; CI fixes under pull-request validation
 
 The public project site is published from `main` by the existing
 `.github/workflows/ci.yml` workflow at
@@ -113,3 +113,6 @@ interaction, preserving the selected tower through its authoritative receipt.
 The Prime Tower E2E sends pointer-down and threshold-crossing movement through
 Electron's native input channel in one task, like the passing model-body drag
 test, then continues the held gesture before releasing it.
+For the non-current tower near a canvas edge, the real E2E crosses the drag
+threshold inside the canvas before moving toward an outside boundary. It waits
+for the previous native tower commit to finish before starting that gesture.
