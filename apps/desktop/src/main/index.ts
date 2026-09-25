@@ -33,10 +33,9 @@ app.commandLine.appendSwitch('force_high_performance_gpu');
 // context.
 if (
   process.platform === 'linux' &&
-  // Dev mode always uses the Vite renderer URL. Apply the software GL path
-  // there even if /dev/dri exists but VA-API is broken; also cover packaged
-  // GPU-less Linux machines that have no /dev/dri at all.
-  (process.env.ELECTRON_RENDERER_URL || !existsSync('/dev/dri'))
+  // Dev and E2E always use software GL, even when a runner exposes /dev/dri
+  // without a usable GPU. Packaged GPU-less Linux machines use it as well.
+  (process.env.ELECTRON_RENDERER_URL || process.env.ORCA_E2E === '1' || !existsSync('/dev/dri'))
 ) {
   // app.commandLine.appendSwitch('in-process-gpu');
   app.commandLine.appendSwitch('use-angle', 'swiftshader-webgl');

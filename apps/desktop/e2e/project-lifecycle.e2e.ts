@@ -120,8 +120,11 @@ test('Electron close requests honor Cancel then Save/Don\'t Save choices', async
     const closed = page.waitForEvent('close');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
     await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
-    await page.getByTestId('project-dirty-dont-save').click();
-    await closed;
+    // The click closes the window. On Linux, Playwright can observe the page
+    // closing before its click promise settles even though the action worked.
+    const click = page.getByTestId('project-dirty-dont-save').click()
+      .catch((error) => { if (!page.isClosed()) throw error; });
+    await Promise.all([closed, click]);
   } finally {
     // The assertions above close the window. If a failure occurs earlier, the
     // lifecycle bridge still lets a clean renderer answer this teardown.
