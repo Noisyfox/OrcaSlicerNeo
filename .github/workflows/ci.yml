@@ -48,9 +48,16 @@ jobs:
         run: pnpm --filter @orca/profile-resources test
       - name: Build profile packages (no WASM dependency)
         run: pnpm --filter @orca/profile-resources build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
+          if-no-files-found: error
+          retention-days: 7
 
   wasm:
     name: WASM build + smoke
+    needs: profile-pack
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -178,15 +185,21 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
           name: orca-slice-web
           path: packages/slicer-wasm/out
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
       - uses: actions/configure-pages@v5
-      - name: Build profile packages
-        run: pnpm --filter @orca/profile-resources build
       - name: Verify Web host
         run: |
           pnpm --filter @orca/web test

@@ -29,3 +29,6 @@ tests/typecheck pass.
 The first CI run reached the existing Linux WASM builder and found that the
 OCCT helper was invoked directly despite lacking an executable Git file mode.
 The builder now invokes that helper through `bash`, like its other helpers.
+The next run compiled WASM, then found that the bridge smoke requires the
+profile manifest. The existing profile-pack job now uploads its output once;
+the WASM smoke and Pages build download that same artifact.
