@@ -42,3 +42,8 @@ miss compiles both threaded and serial dependency variants in a separate CI
 step, verifies their staged files, and saves the cache before compiling the
 core. A cache hit skips dependency compilation. The small generated headers
 are refreshed by the idempotent fetch script on every run.
+
+The first dependency-cache run built both variants, but its verification step
+looked for the Boost filesystem archive name produced on Windows. Linux's
+`b2` stages `libboost_filesystem.a`; the verification now accepts either
+platform's suffix before saving the cache.

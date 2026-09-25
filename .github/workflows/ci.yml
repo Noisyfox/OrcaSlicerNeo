@@ -100,13 +100,17 @@ jobs:
       - name: Verify staged WASM dependencies
         run: |
           deps=packages/slicer-wasm/.work/deps
-          test -f "$deps/boost-1.84.0/boost/version.hpp"
-          test -f "$deps/boost-1.84.0/stage-wasm64/lib/libboost_filesystem-clang-mt-s-1_84.a"
-          test -f "$deps/oneTBB-3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3/stage-wasm64-pthreads/lib/libtbb.a"
+          require_file() {
+            test -f "$1" || { echo "::error::Missing compiled WASM dependency: $1"; exit 1; }
+          }
+          require_file "$deps/boost-1.84.0/boost/version.hpp"
+          boost_filesystem=("$deps/boost-1.84.0/stage-wasm64/lib"/libboost_filesystem*.a)
+          require_file "${boost_filesystem[0]}"
+          require_file "$deps/oneTBB-3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3/stage-wasm64-pthreads/lib/libtbb.a"
           for variant in threaded serial; do
-            test -f "$deps/draco-1.5.7/stage-wasm64-$variant/lib/libdraco.a"
-            test -f "$deps/occt-7.6.0/stage-wasm64-$variant/include/opencascade/Standard.hxx"
-            test -f "$deps/occt-7.6.0/stage-wasm64-$variant/lib/libTKXDESTEP.a"
+            require_file "$deps/draco-1.5.7/stage-wasm64-$variant/lib/libdraco.a"
+            require_file "$deps/occt-7.6.0/stage-wasm64-$variant/include/opencascade/Standard.hxx"
+            require_file "$deps/occt-7.6.0/stage-wasm64-$variant/lib/libTKXDESTEP.a"
           done
       - name: Save compiled WASM dependencies
         if: steps.dependency-cache.outputs.cache-hit != 'true'
