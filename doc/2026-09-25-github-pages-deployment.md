@@ -73,3 +73,8 @@ and the renderer is bundled by Vite. Exclude production `node_modules` from
 electron-builder's file collection so packaged installers do not carry the
 WASM workspace source tree and temporary `.work` dependency builds. Keep
 staged `out/renderer/wasm` and `out/renderer/profiles` as the runtime assets.
+
+The mock Electron E2E suite runs on a Windows runner. Its full 50-test flow
+passes on Windows; four canvas and selection assertions remain unstable under
+the Linux Xvfb software renderer even after enabling SwiftShader. The real
+WASM E2E job remains on Linux to exercise that host separately.

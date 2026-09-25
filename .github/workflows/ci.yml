@@ -225,7 +225,7 @@ jobs:
 
   e2e-mock:
     name: e2e (mock module)
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -237,7 +237,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: e2e — full v1 flow (mock-built app)
-        run: xvfb-run -a pnpm --filter @orca/desktop test:e2e
+        run: pnpm --filter @orca/desktop test:e2e
       - name: Upload mock e2e failures
         if: failure()
         uses: actions/upload-artifact@v7
