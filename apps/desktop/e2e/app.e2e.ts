@@ -115,10 +115,10 @@ async function launchApp({
     args: ['.', ...glFlag],
     cwd: DESKTOP_ROOT,
     env,
-    viewport: { width: 1280, height: 800 },
   });
+  const page = await app.firstWindow();
+  await page.setViewportSize({ width: 1280, height: 800 });
   if (process.env.CI === 'true' && !ciDisplayLogged) {
-    const page = await app.firstWindow();
     const display = await page.evaluate(() => ({
       screen: [screen.width, screen.height],
       viewport: [innerWidth, innerHeight],
@@ -131,7 +131,6 @@ async function launchApp({
   // flow tests exercise the workspace, so opt them into Prepare at the test
   // boundary rather than weakening the product default.
   if (initialTab === 'prepare') {
-    const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: PRESET_READY_TIMEOUT });
     await page.locator('#app-tab-prepare').click();
   }

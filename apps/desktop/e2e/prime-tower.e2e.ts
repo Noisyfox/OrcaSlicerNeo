@@ -8,7 +8,9 @@ async function launchApp(extraEnv: Record<string, string> = {}): Promise<Electro
   const env = { ...process.env, ORCA_E2E: '1', ...extraEnv } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const glFlag = process.platform === 'linux' ? ['--use-angle=swiftshader-webgl'] : [];
-  return _electron.launch({ args: ['.', ...glFlag], cwd: DESKTOP_ROOT, env, viewport: { width: 1280, height: 800 } });
+  const app = await _electron.launch({ args: ['.', ...glFlag], cwd: DESKTOP_ROOT, env });
+  await (await app.firstWindow()).setViewportSize({ width: 1280, height: 800 });
+  return app;
 }
 
 type TowerState = {
