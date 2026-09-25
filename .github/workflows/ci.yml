@@ -12,8 +12,8 @@
 # WASM build notes (AGENTS.md "WASM Build Workflow"): missing <tbb/X.h> →
 # add to TBB_HEADERS; undefined symbol → DROP_PATTERNS or stubs; API drift →
 # bridge signatures. First runs will iterate; fixes land in this repo and CI
-# re-runs. Hosted runners have ~14 GB disk; the dep cache below makes the
-# ~50 GB-class boost build a first-run-only cost.
+# re-runs. The dependency cache is saved before core compilation so a core
+# failure cannot discard a completed dependency build.
 name: CI
 on:
   push:
@@ -74,21 +74,46 @@ jobs:
       - uses: emscripten-core/setup-emsdk@v15 # official action; jaxvanyang/setup-emsdk repo no longer resolves
         with:
           version: "6.0.4" # spike-validated (design doc risk table); emsdk tag verified to exist
-      - name: Cache deps (Eigen/Boost/oneTBB sources + wasm64 archives + cereal)
-        uses: actions/cache@v6
+      - name: Select compiled dependency cache key
+        id: dependency-key
+        env:
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/stubs/freetype-port-probe.c') }}
+        run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-6.0.4-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
+      - name: Restore compiled WASM dependencies
+        id: dependency-cache
+        uses: actions/cache/restore@v6
         with:
           path: packages/slicer-wasm/.work/deps
-          key: wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh') }}-${{ hashFiles('packages/slicer-wasm/build.sh') }}
-          restore-keys: |
-            wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh') }}-
+          key: ${{ steps.dependency-key.outputs.key }}
       - name: Fetch deps (Eigen/Boost/cereal)
         run: bash packages/slicer-wasm/fetch-deps.sh
-      - name: Build Boost 1.84 wasm64 archives
-        run: bash packages/slicer-wasm/build-boost-wasm64.sh
-      - name: Build oneTBB pthread archives + prove parallel workers
-        run: bash packages/slicer-wasm/build-onetbb.sh
-      - name: oneTBB pthread parallelism probe
-        run: node packages/slicer-wasm/harness/run-tbb-parallelism-probe.mjs packages/slicer-wasm/out/orca_tbb_probe.js
+      - name: Compile dependencies for both WASM variants
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: |
+          bash packages/slicer-wasm/build-boost-wasm64.sh
+          bash packages/slicer-wasm/build-onetbb.sh
+          node packages/slicer-wasm/harness/run-tbb-parallelism-probe.mjs packages/slicer-wasm/out/orca_tbb_probe.js
+          WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded bash packages/slicer-wasm/build-draco-wasm64.sh
+          WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-draco-wasm64.sh
+          WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded bash packages/slicer-wasm/build-occt-wasm64.sh
+          WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-occt-wasm64.sh
+      - name: Verify staged WASM dependencies
+        run: |
+          deps=packages/slicer-wasm/.work/deps
+          test -f "$deps/boost-1.84.0/boost/version.hpp"
+          test -f "$deps/boost-1.84.0/stage-wasm64/lib/libboost_filesystem-clang-mt-s-1_84.a"
+          test -f "$deps/oneTBB-3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3/stage-wasm64-pthreads/lib/libtbb.a"
+          for variant in threaded serial; do
+            test -f "$deps/draco-1.5.7/stage-wasm64-$variant/lib/libdraco.a"
+            test -f "$deps/occt-7.6.0/stage-wasm64-$variant/include/opencascade/Standard.hxx"
+            test -f "$deps/occt-7.6.0/stage-wasm64-$variant/lib/libTKXDESTEP.a"
+          done
+      - name: Save compiled WASM dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: packages/slicer-wasm/.work/deps
+          key: ${{ steps.dependency-key.outputs.key }}
       - name: Configure + build the module (preload-file bundle included)
         run: bash packages/slicer-wasm/build.sh
       - name: Smoke — slice cube.stl end to end

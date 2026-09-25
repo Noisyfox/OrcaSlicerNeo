@@ -33,3 +33,12 @@ The builder now invokes that helper through `bash`, like its other helpers.
 The next run compiled WASM, then found that the bridge smoke requires the
 profile manifest. The existing profile-pack job now uploads its output once;
 the WASM smoke and Pages build download that same artifact.
+
+The WASM job restores a cache of fetched sources and compiled Boost, oneTBB,
+Draco, and OCCT dependencies. Its key includes the Emscripten version and the
+dependency fetch/build scripts, OCCT patches, and FreeType probe; changes to
+the core build script or pinned slicer source do not invalidate it. A cache
+miss compiles both threaded and serial dependency variants in a separate CI
+step, verifies their staged files, and saves the cache before compiling the
+core. A cache hit skips dependency compilation. The small generated headers
+are refreshed by the idempotent fetch script on every run.
