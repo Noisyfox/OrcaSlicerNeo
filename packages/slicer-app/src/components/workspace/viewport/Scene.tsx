@@ -5,6 +5,7 @@ import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
 import { glVolumeCollection } from './GLVolume';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { BedPlate, getPrintableAreaBounds, normalizePrintableArea } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
@@ -193,7 +194,11 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         // array snapshot, so comparing the array object itself would reject
         // every valid snapshot even when all published GLVolume identities
         // match.
-        if (glVolumeCollection.revision !== useSettingsStore.getState().modelRevision
+        // A mutation can publish its new collection before its history
+        // transaction finishes the final scene reset. Do not let this test
+        // helper select into that short publication window.
+        if (useProjectStore.getState().projectMutationPendingCount !== 0
+          || glVolumeCollection.revision !== useSettingsStore.getState().modelRevision
           || glVolumeCollection.volumes.length !== glVolumes.length
           || glVolumeCollection.volumes.some((volume, index) => volume !== glVolumes[index])) return false;
         const hit = glVolumes.find((volume) => volume.buffer.instanceIdx === instanceIdx);

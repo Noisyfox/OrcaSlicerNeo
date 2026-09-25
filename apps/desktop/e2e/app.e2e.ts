@@ -318,7 +318,8 @@ async function selectStableRealPrinter(page: Page): Promise<void> {
 
 /** Select a mock instance once the model's mock volumes are live (the Slice
  *  button enables on modelLoaded, which can precede the async mesh fetch, so a
- *  bare selectMockInstance can race the GL volume collection). */
+ *  bare selectMockInstance can race the GL volume collection. It also waits
+ *  for an in-flight project mutation to finish its final scene reset. */
 async function selectMockInstance(page: Page, instanceIdx: number, additive = false): Promise<void> {
   await expect.poll(() => page.evaluate(([idx, add]) =>
     (window as unknown as {
@@ -1744,11 +1745,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       // moved the aggregate pivot; controller tests pin equal member deltas.
       const secondCubeCenter = await project([60, 10, 10]);
       if (!secondCubeCenter) throw new Error('second cube projection unavailable');
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(1, true),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 1, true);
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
       // Still hidden while the gizmo stays armed.
       await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
@@ -1776,11 +1773,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       // A plain click on a selected member retains the group. Toggle the
       // second instance explicitly to return to one instance, so the
       // X-grabber overlaps its mesh below.
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(1, true),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 1, true);
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
 
       // The X shaft is at the first selection's pivot (10,10,10) plus
@@ -1825,11 +1818,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
       const secondCenter = await project([60, 10, 10]);
       if (!secondCenter) throw new Error('second cube projection unavailable');
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(1, true),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 1, true);
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
 
       // Numeric edits translate the whole selection by the pivot delta.
@@ -1970,19 +1959,11 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
 
       // Multi-selection forces world space and disables the coord toggle; the
       // factor inputs fall back to the neutral 100%.
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(1, true),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 1, true);
       await expect(page.getByTestId('scale-space-world')).toBeDisabled();
       await expect(page.getByTestId('scale-space-local')).toBeDisabled();
       await expect(page.getByTestId('scale-factor-x')).toHaveValue('100.0');
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(1, true),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 1, true);
       await expect(page.getByTestId('scale-space-local')).toBeEnabled();
 
       // Panel edits: factor input sets the absolute percent, size input sets
