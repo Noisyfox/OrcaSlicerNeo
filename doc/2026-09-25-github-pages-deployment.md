@@ -94,5 +94,6 @@ loaded runner; the E2E sends another movement in the same held gesture before
 asserting translation. While a Prime Tower native move is pending, a model
 mesh republish prunes stable selection IDs instead of resetting scene
 interaction, preserving the selected tower through its authoritative receipt.
-The Prime Tower E2E polls pointer ownership after the gesture reaches its
-movement threshold, allowing the slower hosted renderer to process that event.
+The Prime Tower E2E sends pointer-down and threshold-crossing movement through
+Electron's native input channel in one task, like the passing model-body drag
+test, then continues the held gesture before releasing it.

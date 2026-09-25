@@ -190,13 +190,22 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     const historyBeforeBody = await readHistoryUntilEntries();
     const cameraBefore = await readCamera();
     await page.mouse.move(bodyDragScreen.x, bodyDragScreen.y);
-    await page.mouse.down();
-    await page.mouse.move(bodyDragScreen.x + 32, bodyDragScreen.y - 18, { steps: 4 });
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+      if (!contents) throw new Error('window missing');
+      contents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+      contents.sendInputEvent({ type: 'mouseMove', x: x + 32, y: y - 18, button: 'left' });
+    }, bodyDragScreen);
     expect(await readMoves()).toBe(0);
     expect((await page.getByTestId('history-undo').getAttribute('aria-label'))).toBe(historyBeforeBody.undoButtonLabel);
     await expect.poll(readPointerOwner).toBe('body');
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({ type: 'mouseMove', x, y, button: 'left' });
+    }, { x: bodyDragScreen.x + 48, y: bodyDragScreen.y - 24 });
     expect(await readCamera()).toEqual(cameraBefore);
-    await page.mouse.up();
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+    }, { x: bodyDragScreen.x + 48, y: bodyDragScreen.y - 24 });
     await expect.poll(readMoves).toBe(1);
     await expect.poll(async () => {
       const history = await readHistoryUntilEntries();
