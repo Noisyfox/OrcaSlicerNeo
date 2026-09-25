@@ -75,6 +75,11 @@ WASM workspace source tree and temporary `.work` dependency builds. Keep
 staged `out/renderer/wasm` and `out/renderer/profiles` as the runtime assets.
 
 The mock Electron E2E suite runs on a Windows runner. Its full 50-test flow
-passes on Windows; four canvas and selection assertions remain unstable under
-the Linux Xvfb software renderer even after enabling SwiftShader. The real
-WASM E2E job remains on Linux to exercise that host separately.
+passes on the local Windows desktop; hosted runners have canvas and selection
+assertions still under investigation. The real WASM E2E job remains on Linux
+to exercise that host separately.
+
+Mock E2E also downloads the profile-packages artifact. Soft staging now copies
+profiles even without a WASM build, matching the asset set used by local E2E.
+On a clean checkout, the Preview nozzle marker assertion failed without those
+profiles and passed after staging them.

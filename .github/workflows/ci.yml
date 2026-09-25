@@ -225,6 +225,7 @@ jobs:
 
   e2e-mock:
     name: e2e (mock module)
+    needs: [profile-pack]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -236,6 +237,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
       - name: e2e — full v1 flow (mock-built app)
         run: pnpm --filter @orca/desktop test:e2e
       - name: Upload mock e2e failures

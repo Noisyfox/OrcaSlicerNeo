@@ -31,20 +31,20 @@ await rm(obsoletePreviewDst, { recursive: true, force: true });
 // for its compile-time-enabled Electron build.
 await rm(dedicatedProfileDst, { recursive: true, force: true });
 
-if (!existsSync(outRoot)) {
-  if (soft) {
-    console.warn('[stage] no WASM build — skipped WASM/profile staging (mock-mode / UI-only dev)');
-    process.exit(0);
-  }
-  console.error('no WASM build found — run: bash packages/slicer-wasm/build.sh');
-  process.exit(1);
-}
 if (existsSync(profileSrc)) {
   await cp(profileSrc, profileDst, { recursive: true, force: true });
 } else if (soft) {
   console.warn('[stage] no profile packages — skipping (build with: pnpm --filter @orca/profile-resources build)');
 } else {
   console.error('no profile packages in packages/profile-resources/dist — run: pnpm --filter @orca/profile-resources build');
+  process.exit(1);
+}
+if (!existsSync(outRoot)) {
+  if (soft) {
+    console.warn('[stage] no WASM build — skipped WASM staging (mock-mode / UI-only dev)');
+    process.exit(0);
+  }
+  console.error('no WASM build found — run: bash packages/slicer-wasm/build.sh');
   process.exit(1);
 }
 for (const variant of ['threaded', 'serial']) {
