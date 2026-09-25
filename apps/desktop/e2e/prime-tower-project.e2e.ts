@@ -141,8 +141,12 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       const menuTrigger = page.getByTestId('history-undo-menu-trigger');
       if (!(await menuTrigger.isEnabled())) return [] as string[];
       await menuTrigger.click();
-      const labels = await page.getByTestId(/history-undo-entry-/).allTextContents();
-      await page.keyboard.press('Escape');
+      const entries = page.getByTestId(/history-undo-entry-/);
+      await expect(entries.first()).toBeVisible({ timeout: 30_000 });
+      const labels = await entries.allTextContents();
+      await menuTrigger.click();
+      await expect(entries).toHaveCount(0);
+      await expect(page.locator('[data-base-ui-inert]')).toHaveCount(0);
       return labels;
     };
     // The pinned big-proj.3mf fixture owns eleven serialized plates and

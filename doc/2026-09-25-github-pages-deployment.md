@@ -86,10 +86,10 @@ profiles even without a WASM build, matching the asset set used by local E2E.
 On a clean checkout, the Preview nozzle marker assertion failed without those
 profiles and passed after staging them.
 
-The Prime Tower E2E history helper closes its menu through the trigger:
+The Prime Tower E2E history helpers close their menus through the trigger:
 pressing Escape could also invoke Prepare's global deselection shortcut and
-invalidate the selection assertion. The helper waits for the Undo trigger and
-first entry to become available, then waits for the menu to close before
+leave the menu's inert overlay over the toolbar. The helpers wait for the Undo
+trigger and first entry to become available, then wait for the menu to close before
 testing gizmo hover. After a canceled drag, the test releases the held mouse
 button and reselects only if cancellation cleared selection.
 
