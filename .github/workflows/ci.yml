@@ -67,6 +67,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
       - uses: emscripten-core/setup-emsdk@v15 # official action; jaxvanyang/setup-emsdk repo no longer resolves
         with:
           version: "6.0.4" # spike-validated (design doc risk table); emsdk tag verified to exist
@@ -185,10 +189,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: actions/download-artifact@v8
-        with:
-          name: profile-packages
-          path: packages/profile-resources/dist
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8

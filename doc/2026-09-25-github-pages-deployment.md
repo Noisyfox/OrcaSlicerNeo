@@ -9,8 +9,9 @@ The public project site is published from `main` by the existing
 is `main`; it has no `master` branch. GitHub Pages must use **GitHub Actions**
 as its publishing source. The existing `wasm` job builds the threaded artifact
 and now also builds the serial artifact. The Pages job downloads both from that
-same run, packages profiles, builds the Web host, checks its subpath behavior,
-and uploads `apps/web/dist`. The deploy job runs only for pushes to `main`.
+same run and the packaged profiles, builds the Web host, checks its subpath
+behavior, and uploads `apps/web/dist`. The deploy job runs only for pushes to
+`main`.
 
 GitHub Pages serves HTTPS but does not provide the COOP/COEP response headers
 required by threaded WASM. The runtime therefore selects the existing serial
