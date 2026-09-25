@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { basename, dirname, join } from 'node:path';
 import { writeFileAtomically, type AtomicFileDependencies } from './atomicFile';
 
 function dependencies(overrides: Partial<AtomicFileDependencies> = {}): any {
@@ -13,11 +14,13 @@ function dependencies(overrides: Partial<AtomicFileDependencies> = {}): any {
 describe('atomic project writes', () => {
   it('writes a unique sibling temporary file before replacing the target', async () => {
     const fs = dependencies();
-    await writeFileAtomically('C:\\projects\\scene.3mf', Uint8Array.from([1, 2]), fs);
+    const target = join('projects', 'scene.3mf');
+    await writeFileAtomically(target, Uint8Array.from([1, 2]), fs);
     const temporary = fs.writeFile.mock.calls[0]![0];
-    expect(temporary).toMatch(/^C:\\projects\\\.scene\.3mf\.[0-9a-f-]+\.tmp$/);
+    expect(dirname(temporary)).toBe(dirname(target));
+    expect(basename(temporary)).toMatch(/^\.scene\.3mf\.[0-9a-f-]+\.tmp$/);
     expect(fs.writeFile).toHaveBeenCalledWith(temporary, expect.any(Uint8Array), { flag: 'wx' });
-    expect(fs.rename).toHaveBeenCalledWith(temporary, 'C:\\projects\\scene.3mf');
+    expect(fs.rename).toHaveBeenCalledWith(temporary, target);
     expect(fs.unlink).not.toHaveBeenCalled();
   });
 

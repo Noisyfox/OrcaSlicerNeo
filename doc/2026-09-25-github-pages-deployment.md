@@ -1,7 +1,7 @@
 # GitHub Pages deployment
 
 **Date:** 2026-09-25
-**Status:** Implemented locally; first CI deployment pending
+**Status:** Pages deployed; CI matrix repair in progress
 
 The public project site is published from `main` by the existing
 `.github/workflows/ci.yml` workflow at
@@ -47,3 +47,11 @@ The first dependency-cache run built both variants, but its verification step
 looked for the Boost filesystem archive name produced on Windows. Linux's
 `b2` stages `libboost_filesystem.a`; the verification now accepts either
 platform's suffix before saving the cache.
+
+The first successful Pages run exposed failures in older desktop CI jobs. The
+real Electron E2E and installer jobs now download both WASM variants and the
+same packaged profiles as Pages, check out the pinned C++ resources, and run
+the current `scripts/stage.mjs`. Mock E2E also checks out those resources.
+Unit tests and typechecks remain independent of generated WASM; Electron
+build coverage comes from mock E2E and the packaging matrix. The atomic-file
+test now checks sibling placement using the host platform's path rules.

@@ -2,11 +2,11 @@
 #
 # Jobs:
 #   wasm       build threaded and serial wasm64 artifacts with emsdk 6.0.4;
-#              retain the existing threaded artifact for desktop consumers.
-#   unit       vitest + typecheck + electron-vite build (all packages)
+#              retain the existing threaded artifact for external consumers.
+#   unit       vitest + typecheck (independent of generated WASM artifacts)
 #   e2e-mock   Playwright full v1 flow against the mock-built app (no emsdk)
-#   e2e-real   Playwright full v1 flow against the REAL module (staged artifact)
-#   package    electron-builder matrix → all six targets, same wasm artifact
+#   e2e-real   Playwright full v1 flow against the REAL module (staged artifacts)
+#   package    electron-builder matrix → all six targets, same WASM artifacts
 #   pages-build/pages-deploy  reuse the WASM job on main pushes for GitHub Pages
 #
 # WASM build notes (AGENTS.md "WASM Build Workflow"): missing <tbb/X.h> →
@@ -128,7 +128,7 @@ jobs:
         run: WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
       - name: Smoke — serial fallback slices cube.stl
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
-      - name: Upload the one module (all six packages + e2e-real use it)
+      - name: Upload the legacy threaded WASM artifact
         uses: actions/upload-artifact@v7
         with:
           name: orca-slice
@@ -152,7 +152,7 @@ jobs:
           retention-days: 7
 
   unit:
-    name: Unit + typecheck + app build
+    name: Unit + typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -164,13 +164,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r test
       - run: pnpm -r typecheck
-      - run: pnpm --filter @orca/desktop build
 
   e2e-mock:
     name: e2e (mock module)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
       - uses: actions/setup-node@v7
         with:
@@ -182,12 +183,14 @@ jobs:
 
   e2e-real:
     name: e2e (real module)
-    needs: wasm
+    needs: [wasm, profile-pack]
     runs-on: ubuntu-latest
     env:
       ORCA_E2E_REAL: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
       - uses: actions/setup-node@v7
         with:
@@ -196,9 +199,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
-          name: orca-slice
+          name: orca-slice-web
           path: packages/slicer-wasm/out
-      - run: node scripts/stage-wasm.mjs
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
+      - run: node scripts/stage.mjs
       - name: e2e — full v1 flow (real module, asserts G1 moves in exported gcode)
         run: xvfb-run -a pnpm --filter @orca/desktop test:e2e:real
 
@@ -261,7 +268,7 @@ jobs:
 
   package:
     name: Package (${{ matrix.name }})
-    needs: wasm
+    needs: [wasm, profile-pack]
     strategy:
       fail-fast: false
       matrix:
@@ -281,6 +288,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
       - uses: actions/setup-node@v7
         with:
@@ -289,9 +298,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
-          name: orca-slice
+          name: orca-slice-web
           path: packages/slicer-wasm/out
-      - run: node scripts/stage-wasm.mjs
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
+      - run: node scripts/stage.mjs
       - name: electron-builder (${{ matrix.name }})
         run: pnpm --filter @orca/desktop package -- ${{ matrix.args }}
       - name: Upload installer(s)
