@@ -23,7 +23,6 @@ win:
   icon: build/icon.ico
   target:
     - target: nsis
-      arch: [x64, arm64]
   artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}
 nsis:
   oneClick: false
@@ -33,7 +32,6 @@ nsis:
 linux:
   target:
     - target: AppImage
-      arch: [x64, arm64]
   executableName: OrcaSlicerNeo
   category: Utility
   artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}
@@ -41,7 +39,6 @@ mac:
   icon: build/icon.icns
   target:
     - target: dmg
-      arch: [x64, arm64]
   category: public.app-category.graphics-design
   identity: null # unsigned v1 (design: "macOS signing deferred")
   artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}

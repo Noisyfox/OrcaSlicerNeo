@@ -61,3 +61,9 @@ test now checks sibling placement using the host platform's path rules.
 
 Linux mock E2E still has viewport and interaction failures. On a failed E2E
 job, Playwright retains a trace and CI uploads `test-results` for diagnosis.
+
+The installer matrix runs one job for each of the six platform and architecture
+targets. The electron-builder target configuration leaves architecture selection
+to each job's CLI flag; an explicit one-installer check guards against the
+builder silently producing both architectures. Each installer is uploaded as
+its own artifact.

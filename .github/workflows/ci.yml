@@ -349,24 +349,36 @@ jobs:
         uses: actions/deploy-pages@v4
 
   package:
-    name: Package (${{ matrix.name }})
+    name: Package (${{ matrix.id }})
     needs: [wasm_threaded, wasm_serial, profile-pack]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: win x64 + arm64 (NSIS)
+          - id: win-x64-nsis
             os: windows-latest
-            args: --win
-          - name: linux x64 + arm64 (AppImage)
+            args: --win --x64
+            suffix: -win-x64.exe
+          - id: win-arm64-nsis
+            os: windows-latest
+            args: --win --arm64
+            suffix: -win-arm64.exe
+          - id: linux-x64-appimage
             os: ubuntu-latest
-            args: --linux
-          - name: mac x64 (DMG)
+            args: --linux --x64
+            suffix: -linux-x86_64.AppImage
+          - id: linux-arm64-appimage
+            os: ubuntu-latest
+            args: --linux --arm64
+            suffix: -linux-arm64.AppImage
+          - id: mac-x64-dmg
             os: macos-14 # macos-13 runners retired (2026); electron-builder downloads the x64 Electron dist
             args: --mac --x64
-          - name: mac arm64 (DMG)
+            suffix: -mac-x64.dmg
+          - id: mac-arm64-dmg
             os: macos-14
             args: --mac --arm64
+            suffix: -mac-arm64.dmg
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -391,15 +403,14 @@ jobs:
           name: profile-packages
           path: packages/profile-resources/dist
       - run: node scripts/stage.mjs
-      - name: electron-builder (${{ matrix.name }})
+      - name: electron-builder (${{ matrix.id }})
         run: pnpm --filter @orca/desktop package -- ${{ matrix.args }}
-      - name: Upload installer(s)
+      - name: Verify one installer for this architecture
+        run: node scripts/verify-installer.mjs '${{ matrix.suffix }}'
+      - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
-          name: installers-${{ matrix.name }}
-          path: |
-            apps/desktop/release/*.exe
-            apps/desktop/release/*.AppImage
-            apps/desktop/release/*.dmg
+          name: installers-${{ matrix.id }}
+          path: apps/desktop/release/*${{ matrix.suffix }}
           if-no-files-found: error
           retention-days: 14
