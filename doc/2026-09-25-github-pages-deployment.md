@@ -89,9 +89,10 @@ profiles and passed after staging them.
 
 The Prime Tower E2E history helper closes its menu through the trigger:
 pressing Escape could also invoke Prepare's global deselection shortcut and
-invalidate the selection assertion. The helper waits for the menu to close
-before testing gizmo hover. After a canceled drag, the test releases the held
-mouse button and reselects only if cancellation cleared selection.
+invalidate the selection assertion. The helper waits for the Undo trigger and
+first entry to become available, then waits for the menu to close before
+testing gizmo hover. After a canceled drag, the test releases the held mouse
+button and reselects only if cancellation cleared selection.
 
 The real-project plate-switch budget observes the next renderer frame instead
 of Playwright's default backoff intervals, which inflated reported latency on

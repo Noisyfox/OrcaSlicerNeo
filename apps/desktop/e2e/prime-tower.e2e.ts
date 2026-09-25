@@ -93,22 +93,20 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
       let undoLabels: string[] = [];
       if (await menuTrigger.isEnabled()) {
         await menuTrigger.click();
-        undoLabels = await page.getByTestId(/history-undo-entry-/).allTextContents();
+        const entries = page.getByTestId(/history-undo-entry-/);
+        await expect(entries.first()).toBeVisible({ timeout: 30_000 });
+        undoLabels = await entries.allTextContents();
         // Escape is also the Prepare viewport shortcut for clearing selection.
         // Close the menu through its trigger so history inspection cannot
         // change the Prime Tower selection under test.
         await menuTrigger.click();
-        await expect(page.getByTestId(/history-undo-entry-/)).toHaveCount(0);
+        await expect(entries).toHaveCount(0);
       }
       return { undoLabels, undoButtonLabel };
     };
     const readHistoryUntilEntries = async (): Promise<HistorySnapshot> => {
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        const snapshot = await readHistory();
-        if (snapshot.undoLabels.length > 0) return snapshot;
-        await page.waitForTimeout(25);
-      }
-      throw new Error('Worker history menu did not publish project entries');
+      await expect(page.getByTestId('history-undo-menu-trigger')).toBeEnabled({ timeout: 30_000 });
+      return readHistory();
     };
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const screenForWorld = async (point: Point): Promise<{ x: number; y: number }> => {
