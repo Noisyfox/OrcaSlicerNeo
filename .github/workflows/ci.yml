@@ -409,7 +409,7 @@ jobs:
           path: packages/profile-resources/dist
       - run: node scripts/stage.mjs
       - name: electron-builder (${{ matrix.id }})
-        run: pnpm --filter @orca/desktop package -- ${{ matrix.args }}
+        run: pnpm --filter @orca/desktop package ${{ matrix.args }}
       - name: Verify one installer for this architecture
         run: node scripts/verify-installer.mjs '${{ matrix.suffix }}'
       - name: Upload installer
