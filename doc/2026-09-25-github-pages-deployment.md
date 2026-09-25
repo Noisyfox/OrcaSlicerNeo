@@ -116,3 +116,6 @@ test, then continues the held gesture before releasing it.
 For the non-current tower near a canvas edge, the real E2E crosses the drag
 threshold inside the canvas before moving toward an outside boundary. It waits
 for the previous native tower commit to finish before starting that gesture.
+After exporting G-code, the real E2E checks the current plate in the plate
+session. The raycast bed projection can be absent while the scene changes to
+Preview, while the plate session is the target used by the export command.
