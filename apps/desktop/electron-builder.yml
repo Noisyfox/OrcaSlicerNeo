@@ -10,6 +10,10 @@ directories:
 files:
   - out/**
   - "!out/**/*.map"
+  # Main and preload import only Electron/Node builtins; the renderer is bundled.
+  # Without this exclusion electron-builder copies workspace source and .work
+  # dependency builds through production node_modules into every installer.
+  - "!**/node_modules/**"
 # The .data preload bundle is ~70 MB and read on app start; unpacking skips
 # asar decompression. (Main serves out/renderer over http; its fs reads are
 # asar-aware either way — unpacking is a load-time win, not a requirement.)

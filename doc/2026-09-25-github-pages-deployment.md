@@ -67,3 +67,9 @@ targets. The electron-builder target configuration leaves architecture selection
 to each job's CLI flag; an explicit one-installer check guards against the
 builder silently producing both architectures. Each installer is uploaded as
 its own artifact.
+
+The desktop's main and preload bundles have no external production imports,
+and the renderer is bundled by Vite. Exclude production `node_modules` from
+electron-builder's file collection so packaged installers do not carry the
+WASM workspace source tree and temporary `.work` dependency builds. Keep
+staged `out/renderer/wasm` and `out/renderer/profiles` as the runtime assets.
