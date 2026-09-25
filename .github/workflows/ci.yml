@@ -1,13 +1,14 @@
 # .github/workflows/ci.yml — M3 CI matrix (Grand Plan M3, high-level plan Epic 3.2).
 #
 # Jobs:
-#   wasm       build threaded and serial wasm64 artifacts with emsdk 6.0.4;
+#   wasm_deps  cache compiled dependencies for both wasm64 variants.
+#   wasm_threaded / wasm_serial  compile each core on its own runner;
 #              retain the existing threaded artifact for external consumers.
 #   unit       vitest + typecheck (independent of generated WASM artifacts)
 #   e2e-mock   Playwright full v1 flow against the mock-built app (no emsdk)
 #   e2e-real   Playwright full v1 flow against the REAL module (staged artifacts)
 #   package    electron-builder matrix → all six targets, same WASM artifacts
-#   pages-build/pages-deploy  reuse the WASM job on main pushes for GitHub Pages
+#   pages-build/pages-deploy  reuse both WASM artifacts on main pushes
 #
 # WASM build notes (AGENTS.md "WASM Build Workflow"): missing <tbb/X.h> →
 # add to TBB_HEADERS; undefined symbol → DROP_PATTERNS or stubs; API drift →
@@ -55,22 +56,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  wasm:
-    name: WASM build + smoke
-    needs: profile-pack
+  wasm_deps:
+    name: WASM dependencies
     runs-on: ubuntu-latest
+    outputs:
+      cache_key: ${{ steps.dependency-key.outputs.key }}
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
-          fetch-depth: 0 # version header reads `git describe` on the submodule
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: actions/download-artifact@v8
-        with:
-          name: profile-packages
-          path: packages/profile-resources/dist
       - uses: emscripten-core/setup-emsdk@v15 # official action; jaxvanyang/setup-emsdk repo no longer resolves
         with:
           version: "6.0.4" # spike-validated (design doc risk table); emsdk tag verified to exist
@@ -118,16 +115,42 @@ jobs:
         with:
           path: packages/slicer-wasm/.work/deps
           key: ${{ steps.dependency-key.outputs.key }}
-      - name: Configure + build the module (preload-file bundle included)
+
+  wasm_threaded:
+    name: WASM threaded build + smoke
+    needs: [wasm_deps, profile-pack]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0 # version header reads `git describe` on the submodule
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: "6.0.4"
+      - name: Restore compiled WASM dependencies
+        id: dependency-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: packages/slicer-wasm/.work/deps
+          key: ${{ needs.wasm_deps.outputs.cache_key }}
+      - name: Require the compiled dependency cache
+        run: test "${{ steps.dependency-cache.outputs.cache-hit }}" = "true"
+      - name: Refresh generated dependency headers
+        run: bash packages/slicer-wasm/fetch-deps.sh
+      - name: Configure + build threaded module (preload-file bundle included)
         run: bash packages/slicer-wasm/build.sh
       - name: Smoke — slice cube.stl end to end
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Bridge smoke — binary-buffer contract (M2 deferred verification)
         run: node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
-      - name: Build serial WASM for the Web fallback
-        run: WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
-      - name: Smoke — serial fallback slices cube.stl
-        run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Upload the legacy threaded WASM artifact
         uses: actions/upload-artifact@v7
         with:
@@ -137,17 +160,52 @@ jobs:
             packages/slicer-wasm/out/orca_slice.wasm
             packages/slicer-wasm/out/orca_slice.data
           retention-days: 7
-      - name: Upload both Web WASM variants
+      - name: Upload threaded Web WASM artifact
         uses: actions/upload-artifact@v7
         with:
-          name: orca-slice-web
-          path: |
-            packages/slicer-wasm/out/threaded/orca_slice.js
-            packages/slicer-wasm/out/threaded/orca_slice.wasm
-            packages/slicer-wasm/out/threaded/orca_slice.data
-            packages/slicer-wasm/out/serial/orca_slice.js
-            packages/slicer-wasm/out/serial/orca_slice.wasm
-            packages/slicer-wasm/out/serial/orca_slice.data
+          name: orca-slice-threaded
+          path: packages/slicer-wasm/out/threaded
+          if-no-files-found: error
+          retention-days: 7
+
+  wasm_serial:
+    name: WASM serial build + smoke
+    needs: [wasm_deps, profile-pack]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0 # version header reads `git describe` on the submodule
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: profile-packages
+          path: packages/profile-resources/dist
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: "6.0.4"
+      - name: Restore compiled WASM dependencies
+        id: dependency-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: packages/slicer-wasm/.work/deps
+          key: ${{ needs.wasm_deps.outputs.cache_key }}
+      - name: Require the compiled dependency cache
+        run: test "${{ steps.dependency-cache.outputs.cache-hit }}" = "true"
+      - name: Refresh generated dependency headers
+        run: bash packages/slicer-wasm/fetch-deps.sh
+      - name: Build serial WASM for the Web fallback
+        run: WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
+      - name: Smoke — serial fallback slices cube.stl
+        run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
+      - name: Upload serial Web WASM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: orca-slice-serial
+          path: packages/slicer-wasm/out/serial
           if-no-files-found: error
           retention-days: 7
 
@@ -180,10 +238,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: e2e — full v1 flow (mock-built app)
         run: xvfb-run -a pnpm --filter @orca/desktop test:e2e
+      - name: Upload mock e2e failures
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-mock-failures
+          path: apps/desktop/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
   e2e-real:
     name: e2e (real module)
-    needs: [wasm, profile-pack]
+    needs: [wasm_threaded, wasm_serial, profile-pack]
     runs-on: ubuntu-latest
     env:
       ORCA_E2E_REAL: "1"
@@ -199,8 +265,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
-          name: orca-slice-web
-          path: packages/slicer-wasm/out
+          name: orca-slice-threaded
+          path: packages/slicer-wasm/out/threaded
+      - uses: actions/download-artifact@v8
+        with:
+          name: orca-slice-serial
+          path: packages/slicer-wasm/out/serial
       - uses: actions/download-artifact@v8
         with:
           name: profile-packages
@@ -208,11 +278,19 @@ jobs:
       - run: node scripts/stage.mjs
       - name: e2e — full v1 flow (real module, asserts G1 moves in exported gcode)
         run: xvfb-run -a pnpm --filter @orca/desktop test:e2e:real
+      - name: Upload real e2e failures
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-real-failures
+          path: apps/desktop/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
   pages-build:
     name: Build Web Pages
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: wasm
+    needs: [wasm_threaded, wasm_serial]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -229,8 +307,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
-          name: orca-slice-web
-          path: packages/slicer-wasm/out
+          name: orca-slice-threaded
+          path: packages/slicer-wasm/out/threaded
+      - uses: actions/download-artifact@v8
+        with:
+          name: orca-slice-serial
+          path: packages/slicer-wasm/out/serial
       - uses: actions/download-artifact@v8
         with:
           name: profile-packages
@@ -268,7 +350,7 @@ jobs:
 
   package:
     name: Package (${{ matrix.name }})
-    needs: [wasm, profile-pack]
+    needs: [wasm_threaded, wasm_serial, profile-pack]
     strategy:
       fail-fast: false
       matrix:
@@ -298,8 +380,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
-          name: orca-slice-web
-          path: packages/slicer-wasm/out
+          name: orca-slice-threaded
+          path: packages/slicer-wasm/out/threaded
+      - uses: actions/download-artifact@v8
+        with:
+          name: orca-slice-serial
+          path: packages/slicer-wasm/out/serial
       - uses: actions/download-artifact@v8
         with:
           name: profile-packages

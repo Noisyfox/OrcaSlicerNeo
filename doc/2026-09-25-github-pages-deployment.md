@@ -7,10 +7,11 @@ The public project site is published from `main` by the existing
 `.github/workflows/ci.yml` workflow at
 `https://noisyfox.github.io/OrcaSlicerNeo/`. The repository's default branch
 is `main`; it has no `master` branch. GitHub Pages must use **GitHub Actions**
-as its publishing source. The existing `wasm` job builds the threaded artifact
-and now also builds the serial artifact. The Pages job downloads both from that
-same run and the packaged profiles, builds the Web host, checks its subpath
-behavior, and uploads `apps/web/dist`. The deploy job runs only for pushes to
+as its publishing source. The WASM dependency job prepares the shared compiled
+dependency cache, then two runners build the threaded and serial cores
+concurrently. The Pages job downloads both artifacts from that same run and
+the packaged profiles, builds the Web host, checks its subpath behavior, and
+uploads `apps/web/dist`. The deploy job runs only for pushes to
 `main`.
 
 GitHub Pages serves HTTPS but does not provide the COOP/COEP response headers
@@ -34,14 +35,16 @@ The next run compiled WASM, then found that the bridge smoke requires the
 profile manifest. The existing profile-pack job now uploads its output once;
 the WASM smoke and Pages build download that same artifact.
 
-The WASM job restores a cache of fetched sources and compiled Boost, oneTBB,
-Draco, and OCCT dependencies. Its key includes the Emscripten version and the
-dependency fetch/build scripts, OCCT patches, and FreeType probe; changes to
-the core build script or pinned slicer source do not invalidate it. A cache
-miss compiles both threaded and serial dependency variants in a separate CI
-step, verifies their staged files, and saves the cache before compiling the
-core. A cache hit skips dependency compilation. The small generated headers
-are refreshed by the idempotent fetch script on every run.
+The WASM dependency job restores a cache of fetched sources and compiled
+Boost, oneTBB, Draco, and OCCT dependencies. Its key includes the Emscripten
+version and the dependency fetch/build scripts, OCCT patches, and FreeType
+probe; changes to the core build script or pinned slicer source do not
+invalidate it. A cache miss compiles both threaded and serial dependency
+variants, verifies their staged files, and saves the cache before compiling
+either core. A cache hit
+skips dependency compilation. The two core jobs restore the same cache and
+refresh the small generated headers with the idempotent fetch script. Each
+job uploads its own variant; downstream jobs wait for both.
 
 The first dependency-cache run built both variants, but its verification step
 looked for the Boost filesystem archive name produced on Windows. Linux's
@@ -55,3 +58,6 @@ the current `scripts/stage.mjs`. Mock E2E also checks out those resources.
 Unit tests and typechecks remain independent of generated WASM; Electron
 build coverage comes from mock E2E and the packaging matrix. The atomic-file
 test now checks sibling placement using the host platform's path rules.
+
+Linux mock E2E still has viewport and interaction failures. On a failed E2E
+job, Playwright retains a trace and CI uploads `test-results` for diagnosis.
