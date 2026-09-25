@@ -90,7 +90,7 @@ test('profiles a real object move through the visible Undo Move boundary', async
     const projectEvidence = await readEvidence();
     const plateCount = projectEvidence?.receipt?.nativeResult.plateCount;
     if (typeof plateCount !== 'number' || !Number.isSafeInteger(plateCount) || plateCount <= 1)
-      throw new Error('the real u1 project must report its native multi-plate count');
+      throw new Error('the real project fixture must report its native multi-plate count');
     console.log('[object-move-history-profile] project receipt', JSON.stringify({
       filename: projectEvidence?.receipt?.sourceDisplayName,
       bytes: projectEvidence?.receipt?.sourceByteLength,

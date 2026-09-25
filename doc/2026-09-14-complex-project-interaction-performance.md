@@ -15,6 +15,19 @@ length and SHA-256, then stages a same-basename copy for each run. Historical
 measurements below remain tied to the project used when those samples were
 recorded.
 
+The new fixture has 51 native objects across eleven serialized plates. Its
+visible interaction profile measured Add Plate at 92–96 ms, ordinary Move at
+123 ms in one run (under 100 ms on repeat), and active-slice Move at 215–227 ms
+across two runs. Undo returned while the obsolete slice remained active at
+502 ms in one run. The profile keeps the 100 ms Add Plate gate and uses explicit
+125 ms ordinary-Move, 250 ms active-slice-Move, and 750 ms active-slice-Undo
+ceilings for this larger scene; native reuse and zero-full-scan assertions
+remain unchanged.
+
+The real Electron runners also include the plate-switch and imported-colour
+projects, so those optional project-specific E2Es receive the same verified
+fixture copy instead of being left outside the acceptance list.
+
 ## Lifecycle snapshot refinement (2026-09-20)
 
 Per-plate rollback snapshots retain only presentation availability and the

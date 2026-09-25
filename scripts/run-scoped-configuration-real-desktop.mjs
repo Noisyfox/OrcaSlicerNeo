@@ -16,6 +16,8 @@ const runs = [
   ['app.e2e.ts', 'real DRC flow'], ['app.e2e.ts', 'real STEP flow'],
   ['multi-filament.e2e.ts', 'filament rack remains enabled during history restore'],
   ['project-load-proof.e2e.ts', 'commits the requested multi-plate project'],
+  ['plate-switch-performance.e2e.ts', 'switches several non-current plates within the interactive budget'],
+  ['prepare-colour-project.e2e.ts', 'imported opaque RGBA slots colour Prepare models like the filament rack'],
   ['prime-tower-project.e2e.ts', 'opened project keeps prime-tower UI'],
   ['prime-tower-history-performance.e2e.ts', 'measures real-project Prime Tower commit'],
   ['plate-add-history-profile.e2e.ts', 'profiles Add Plate click'],
@@ -47,7 +49,8 @@ try {
       const fixture = await createFixtureCopy();
       if (built) await run(`${variant}-${file}-${title.replace(/[^a-z0-9]/gi, '-')}`,
         ['exec', 'playwright', 'test', `e2e/${file}`, '-g', `"${title}"`],
-        { ...env, ORCA_E2E_PRIME_TOWER_PROJECT: fixture.copyPath });
+        { ...env, ORCA_E2E_PRIME_TOWER_PROJECT: fixture.copyPath,
+          ORCA_E2E_PREPARE_COLOUR_PROJECT: fixture.copyPath });
       else report.commands.push({ name: `${variant}-${file}`, blocked: 'renderer build failed', exitCode: null });
       await assertFixtureUnchanged(EXPECTED_FIXTURE_PATH);
       await persist();

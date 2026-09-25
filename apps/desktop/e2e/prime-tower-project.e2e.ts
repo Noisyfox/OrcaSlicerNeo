@@ -139,11 +139,9 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       await page.keyboard.press('Escape');
       return labels;
     };
-    // The project owns eleven serialized plates. Native eligibility projects
-    // nine of them into the scene: the two empty/single-filament plates stay
-    // out, while the ninth eligible plate is a real multi-filament plate and
-    // must not be dropped merely because it is not the active plate.
-    await expect.poll(async () => (await readTowers()).length, { timeout: 300_000 }).toBe(9);
+    // The pinned big-proj.3mf fixture owns eleven serialized plates and
+    // materializes ten Prime Tower projections in the scene.
+    await expect.poll(async () => (await readTowers()).length, { timeout: 300_000 }).toBe(10);
     await expect(page.getByTestId('project-progress-message')).toHaveCount(0, { timeout: 300_000 });
     await expect(page.locator('[role="dialog"]')).toHaveCount(0, { timeout: 300_000 });
     const towers = await readTowers();
@@ -151,17 +149,15 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const current = towers.find((tower) => tower.current);
     expect(current).toBeDefined();
     expect(current?.eligible).toBe(true);
-    expect(current?.bands).toBe(2);
-    // The imported u1 project currently resolves its first plate's two
-    // material bands in native slot order (black then yellow). Keep this
-    // exact assertion tied to the verified fixture rather than the older
-    // stale colour ordering.
-    expect(current?.colours).toEqual(['#333333', '#F4C032']);
+    expect(current?.bands).toBe(3);
+    // big-proj.3mf resolves its first plate's three material bands in native
+    // slot order (red, yellow, then light gray).
+    expect(current?.colours).toEqual(['#E72F1D', '#F4C032', '#E5E5E5']);
     expect(current?.opacity.every((value) => Math.abs(value - 0.66) < 0.01)).toBe(true);
     // Every projected tower is eligible and has a distinct native plate
-    // identity; this proves the ninth count is not a duplicate proxy.
+    // identity; this proves the tenth count is not a duplicate proxy.
     expect(towers.every((tower) => tower.eligible)).toBe(true);
-    expect(new Set(towers.map((tower) => tower.plateId)).size).toBe(9);
+    expect(new Set(towers.map((tower) => tower.plateId)).size).toBe(10);
     const other = towers.find((tower) => !tower.current);
     expect(other).toBeDefined();
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');

@@ -59,7 +59,7 @@ test('switches several non-current plates within the interactive budget', async 
     await expect.poll(() => page.evaluate(() => {
       const hook = (window as unknown as { __orcaE2e?: { primeTowerStates?: () => unknown[] } }).__orcaE2e;
       return hook?.primeTowerStates?.() ?? [];
-    }), { timeout: 300_000 }).toHaveLength(8);
+    }), { timeout: 300_000 }).toHaveLength(10);
 
     const readBeds = () => page.evaluate(() => {
       const hook = (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{
@@ -109,7 +109,7 @@ test('switches several non-current plates within the interactive budget', async 
     expect(latencies).toHaveLength(5);
     expect(latencies[0]).toBeLessThanOrEqual(500);
     expect(Math.max(...latencies.slice(1))).toBeLessThanOrEqual(250);
-    expect(statSync(resolve(projectPath)).size).toBe(45_201_991);
+    expect(statSync(resolve(projectPath)).size).toBe(44_473_498);
   } finally {
     await app.close();
   }

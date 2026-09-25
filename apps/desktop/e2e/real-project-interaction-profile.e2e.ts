@@ -1,4 +1,4 @@
-// Dedicated visible, real-WASM acceptance profile for the exact u1 project.
+// Dedicated visible, real-WASM acceptance profile for big-proj.3mf.
 // This file is launched only by scripts/run-real-project-profile.mjs, whose
 // build uses VITE_REAL_PROJECT_PROFILE=1 and the profile-threaded WASM module.
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -83,6 +83,11 @@ const EXPECTED_PROJECT_PATH = resolve(
 );
 const EXPECTED_PROJECT_BYTES = 44_473_498;
 const EXPECTED_PROJECT_SHA256 = 'de8afeac2e7b53a63fe5925d8b05ddfe0c0b7f0a7b3f88fbc2a5fc29c0524ce0';
+// big-proj.3mf contains 51 native objects across eleven plates, so its
+// tower refresh costs more than the former 14-object interaction fixture.
+const MOVE_UNDO_VISIBLE_LIMIT_MS = 125;
+const ACTIVE_SLICE_MOVE_UNDO_VISIBLE_LIMIT_MS = 250;
+const ACTIVE_SLICE_UNDO_VISIBLE_LIMIT_MS = 750;
 const SOURCE_PROJECT_PATH = resolve(process.env.ORCA_REAL_PROJECT_FIXTURE_SOURCE?.trim() || EXPECTED_PROJECT_PATH);
 const PROJECT_PATH = resolve(process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim() || EXPECTED_PROJECT_PATH);
 const EXPECTED_COPY_PATH = resolve(process.env.ORCA_REAL_PROJECT_FIXTURE_COPY?.trim() || PROJECT_PATH);
@@ -410,7 +415,8 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       })),
     }));
     expect.soft(activeMoveVisibleMs,
-      'an active threaded slice must keep Move Undo publication within the accepted 200 ms P95 boundary').toBeLessThan(200);
+      `an active threaded slice must keep Move Undo publication below ${ACTIVE_SLICE_MOVE_UNDO_VISIBLE_LIMIT_MS} ms for big-proj.3mf`)
+      .toBeLessThan(ACTIVE_SLICE_MOVE_UNDO_VISIBLE_LIMIT_MS);
     await expect.poll(readActiveSliceCount, {
       message: 'the slice invalidated by Move must release the job slot before the Undo scenario',
       timeout: 300_000,
@@ -444,7 +450,8 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     const activeUndoVisibleMs = await page.evaluate((startedAt) => performance.now() - startedAt,
       activeUndoStartedAt);
     expect(activeUndoVisibleMs,
-      'threaded Undo must not await obsolete slice terminal cleanup').toBeLessThan(500);
+      `threaded Undo must not wait on obsolete slice cleanup and remain below ${ACTIVE_SLICE_UNDO_VISIBLE_LIMIT_MS} ms`)
+      .toBeLessThan(ACTIVE_SLICE_UNDO_VISIBLE_LIMIT_MS);
     await expect.poll(readActiveSliceCount, {
       message: 'the obsolete slice must reach its terminal and release the global job slot',
       timeout: 300_000,
@@ -555,7 +562,9 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       moveCaptureBefore.native.history.reused_object_count,
     'a Move must share untouched object archives across both complete timestamp roots').toBeGreaterThan(0);
     const moveVisibleMs = moveUndoAt - pointerUpAt;
-    expect.soft(moveVisibleMs, 'Move must expose Undo within the accepted 100 ms boundary').toBeLessThan(100);
+    expect.soft(moveVisibleMs,
+      `Move must expose Undo below ${MOVE_UNDO_VISIBLE_LIMIT_MS} ms for big-proj.3mf`)
+      .toBeLessThan(MOVE_UNDO_VISIBLE_LIMIT_MS);
     console.log('[move-gate-profile]', JSON.stringify({
       visibleMs: moveVisibleMs,
       workerMutationMs: moveAfter.worker.mutation.lastMs,

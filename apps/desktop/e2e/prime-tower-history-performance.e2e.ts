@@ -1,5 +1,5 @@
 // Real-WASM timing regression. This intentionally has its own Electron
-// session so the functional eight-tower/slice scenario cannot hide a load or
+// session so the functional ten-tower/slice scenario cannot hide a load or
 // history performance regression.
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
@@ -169,11 +169,11 @@ test('measures real-project Prime Tower commit and history restore stages after 
     }));
 
     await page.locator('#app-tab-prepare').click();
-    await expect.poll(async () => await readTowers(), { timeout: 300_000 }).toHaveLength(9);
+    await expect.poll(async () => await readTowers(), { timeout: 300_000 }).toHaveLength(10);
     const eligibleTowers = await readTowers();
-    expect(eligibleTowers).toHaveLength(9);
+    expect(eligibleTowers).toHaveLength(10);
     expect(eligibleTowers.every((tower) => tower.eligible)).toBe(true);
-    expect(new Set(eligibleTowers.map((tower) => tower.plateId)).size).toBe(9);
+    expect(new Set(eligibleTowers.map((tower) => tower.plateId)).size).toBe(10);
     const current = eligibleTowers.find((tower) => tower.current && tower.eligible);
     expect(current, 'the committed project must expose an active eligible Prime Tower').toBeDefined();
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');

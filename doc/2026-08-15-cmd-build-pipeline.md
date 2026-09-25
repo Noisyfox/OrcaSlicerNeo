@@ -71,8 +71,8 @@ batch files (multiline blocks get misread). All `.bat` are CRLF and pinned by
 
 b2 auto-loads `project-config.jam` from the boost root. The bash-era
 `bootstrap.sh` generated one containing `using python : 3.12 :
-"C:\Users\noisyfox\.pyenv\..."` — **jam treats `\` as an escape in string
-literals**, so b2 parsed the path as `C:Users\noisyfox\...` and its python
+"C:\Users\<user>\.pyenv\..."` — **jam treats `\` as an escape in string
+literals**, so b2 parsed the path as `C:Users\<user>\...` and its python
 toolset init tried to *run* that as a command → `'C:Users' is not
 recognized` on every b2 invocation (non-fatal; boost builds fine without
 python, which is why the error hid under b2's noise). b2 never regenerates
@@ -157,7 +157,7 @@ Repro chain (proved 2026-08-15): `build-windows.bat dev` → dispatch
 Swapping the first token for a non-batch (`x ...`) runs the body cleanly
 (`'x' is not recognized`); running `pnpm --filter desktop dev` directly
 (no outer batch) never shows the error. Root cause: `pnpm` is a `.CMD`
-shim (`C:\Users\noisyfox\AppData\Local\pnpm\bin\pnpm.CMD`) — the classic
+shim (`C:\Users\<user>\AppData\Local\pnpm\bin\pnpm.CMD`) — the classic
 "invoke a batch from a batch without `call`" hand-over, made fatal by the
 outer `call :label` frame.
 
