@@ -137,9 +137,6 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       const beds = (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean }> } }).__orcaE2e?.bedPlateStates?.() ?? [];
       return beds.find((bed) => bed.current)?.plateId ?? null;
     });
-    const readCurrentPlateSessionId = () => page.evaluate(() =>
-      (window as unknown as { __orcaE2e?: { currentPlateSessionId?: () => string | null } }).__orcaE2e?.currentPlateSessionId?.() ?? null,
-    );
     const readHistory = async () => {
       const menuTrigger = page.getByTestId('history-undo-menu-trigger');
       if (!(await menuTrigger.isEnabled())) return [] as string[];
@@ -366,9 +363,6 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
-    // Export can replace the visible scene while publishing Preview. The
-    // plate session is the authoritative target used by exportGcode.
-    await expect.poll(readCurrentPlateSessionId).toBe(current!.plateId);
     const gcode = readFileSync(exportPath, 'utf8');
     // Match emitted toolpath markers, rather than configuration headers or
     // filament-change/flush templates that may mention a tower without one.

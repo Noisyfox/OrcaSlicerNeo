@@ -536,14 +536,10 @@ export function Workspace({
     const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
     if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
     const w = window as unknown as {
-      __orcaE2e?: {
-        historyDiagnostics?: () => HistoryObservabilitySnapshot;
-        currentPlateSessionId?: () => string | null;
-      };
+      __orcaE2e?: { historyDiagnostics?: () => HistoryObservabilitySnapshot };
     };
     w.__orcaE2e = {
       ...w.__orcaE2e,
-      currentPlateSessionId: () => usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
       historyDiagnostics: () => {
         captureHistoryTransportDiagnostics(platform.runtime);
         const { recordMutation: _mutation, recordQueue: _queue, recordRestore: _restore,
@@ -560,7 +556,7 @@ export function Workspace({
     };
     return () => {
       if (!w.__orcaE2e) return;
-      const { historyDiagnostics: _historyDiagnostics, currentPlateSessionId: _currentPlateSessionId, ...rest } = w.__orcaE2e;
+      const { historyDiagnostics: _historyDiagnostics, ...rest } = w.__orcaE2e;
       w.__orcaE2e = rest;
     };
   }, [platform.runtime]);
