@@ -194,7 +194,7 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await page.mouse.move(bodyDragScreen.x + 32, bodyDragScreen.y - 18, { steps: 4 });
     expect(await readMoves()).toBe(0);
     expect((await page.getByTestId('history-undo').getAttribute('aria-label'))).toBe(historyBeforeBody.undoButtonLabel);
-    expect(await readPointerOwner()).toBe('body');
+    await expect.poll(readPointerOwner).toBe('body');
     expect(await readCamera()).toEqual(cameraBefore);
     await page.mouse.up();
     await expect.poll(readMoves).toBe(1);
