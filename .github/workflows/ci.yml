@@ -8,7 +8,8 @@
 #   e2e-mock   Playwright full v1 flow against the mock-built app (no emsdk)
 #   e2e-real   Playwright full v1 flow against the REAL module (staged artifacts)
 #   package    electron-builder matrix → all six targets, same WASM artifacts
-#   pages-build/pages-deploy  reuse both WASM artifacts on main pushes
+#   pages-build  verify the Web artifact on PRs and main pushes;
+#   pages-deploy  publish the verified artifact only on main pushes
 #
 # WASM build notes (AGENTS.md "WASM Build Workflow"): missing <tbb/X.h> →
 # add to TBB_HEADERS; undefined symbol → DROP_PATTERNS or stubs; API drift →
@@ -294,7 +295,6 @@ jobs:
 
   pages-build:
     name: Build Web Pages
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [wasm_threaded, wasm_serial]
     runs-on: ubuntu-latest
     permissions:

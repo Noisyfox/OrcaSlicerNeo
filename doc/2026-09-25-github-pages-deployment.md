@@ -11,8 +11,8 @@ as its publishing source. The WASM dependency job prepares the shared compiled
 dependency cache, then two runners build the threaded and serial cores
 concurrently. The Pages job downloads both artifacts from that same run and
 the packaged profiles, builds the Web host, checks its subpath behavior, and
-uploads `apps/web/dist`. The deploy job runs only for pushes to
-`main`.
+uploads `apps/web/dist`. Pull requests run this Pages build and its checks,
+while the deploy job runs only for pushes to `main`.
 
 GitHub Pages serves HTTPS but does not provide the COOP/COEP response headers
 required by threaded WASM. The runtime therefore selects the existing serial
