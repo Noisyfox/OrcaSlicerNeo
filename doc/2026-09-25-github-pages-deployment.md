@@ -67,6 +67,9 @@ targets. The electron-builder target configuration leaves architecture selection
 to each job's CLI flag; an explicit one-installer check guards against the
 builder silently producing both architectures. Each installer is uploaded as
 its own artifact.
+Pass matrix flags directly after the pnpm script name. An extra `--` reached
+electron-builder literally, causing arm64 jobs to package the host's x64
+architecture; the one-installer check exposed this before upload.
 
 The desktop's main and preload bundles have no external production imports,
 and the renderer is bundled by Vite. Exclude production `node_modules` from
@@ -81,12 +84,18 @@ to exercise that host separately.
 
 Mock E2E also downloads the profile-packages artifact. Soft staging now copies
 profiles even without a WASM build, matching the asset set used by local E2E.
-The Prime Tower E2E history helper closes its menu through the trigger:
-pressing Escape could also invoke Prepare's global deselection shortcut and
-invalidate the selection assertion. After a canceled drag, the test releases
-the held mouse button and explicitly clears selection before reselecting.
 On a clean checkout, the Preview nozzle marker assertion failed without those
 profiles and passed after staging them.
+
+The Prime Tower E2E history helper closes its menu through the trigger:
+pressing Escape could also invoke Prepare's global deselection shortcut and
+invalidate the selection assertion. The helper waits for the menu to close
+before testing gizmo hover. After a canceled drag, the test releases the held
+mouse button and reselects only if cancellation cleared selection.
+
+The real-project plate-switch budget observes the next renderer frame instead
+of Playwright's default backoff intervals, which inflated reported latency on
+the hosted Linux runner after the visible plate had already changed.
 
 The hosted Windows runner reports a 1024×768 screen and starts Electron with a
 1024×720 content viewport. The local desktop uses a roughly 1280×800 viewport.

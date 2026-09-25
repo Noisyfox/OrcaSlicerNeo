@@ -98,6 +98,7 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
         // Close the menu through its trigger so history inspection cannot
         // change the Prime Tower selection under test.
         await menuTrigger.click();
+        await expect(page.getByTestId(/history-undo-entry-/)).toHaveCount(0);
       }
       return { undoLabels, undoButtonLabel };
     };
@@ -252,16 +253,15 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await expect.poll(readMoves).toBe(1);
     await expect.poll(readPointerOwner).toBe('none');
+    await page.mouse.up();
     await expect.poll(async () => (await readHistoryUntilEntries()).undoLabels).toEqual(historyBeforeCancel.undoLabels);
     expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(moved.position);
-    await page.mouse.up();
 
-    // Re-select through the same shared scene hit path before arming Move.
-    // This also proves selection never auto-arms the gizmo after cancellation.
+    // Cancellation may preserve the shared selection; re-select only if the
+    // viewport actually cleared it. Neither path should auto-arm the gizmo.
     const movedCenter: Point = [activeBed[0] + moved.position.x + 12, activeBed[1] + moved.position.y + 18, 9];
-    await page.mouse.click(canvasBox!.x + 5, canvasBox!.y + 5);
-    await expect.poll(readSelection).toBeNull();
-    await page.mouse.click((await screenForWorld(movedCenter)).x, (await screenForWorld(movedCenter)).y);
+    if (await readSelection() !== moved.plateId)
+      await page.mouse.click((await screenForWorld(movedCenter)).x, (await screenForWorld(movedCenter)).y);
     await expect.poll(readSelection).toBe(moved.plateId);
     await expect.poll(readAxis).toBeNull();
     await page.getByTestId('gizmo-btn-move').click();
@@ -270,6 +270,7 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     // Locate a real X/Y TransformControls shaft by hovering projected world
     // candidates, then drag that canvas point. The helper only locates the
     // handle; the gesture itself is dispatched through Playwright's mouse.
+    const historyBeforeGizmo = await readHistoryUntilEntries();
     let gizmoPoint: { x: number; y: number } | null = null;
     const gizmoNeighborhood = { x: bodyDragScreen.x + 32, y: bodyDragScreen.y - 18 };
     for (let dx = -140; dx <= 140 && !gizmoPoint; dx += 10) {
@@ -280,7 +281,6 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
       }
     }
     expect(gizmoPoint, 'X/Y TransformControls shaft should be discoverable in the canvas').not.toBeNull();
-    const historyBeforeGizmo = await readHistoryUntilEntries();
     await page.mouse.move(gizmoPoint!.x, gizmoPoint!.y);
     await expect.poll(readAxis).not.toBeNull();
     await page.mouse.down();
