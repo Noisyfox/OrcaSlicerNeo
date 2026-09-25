@@ -258,6 +258,7 @@ jobs:
     needs: [wasm_threaded, wasm_serial, profile-pack]
     runs-on: ubuntu-latest
     env:
+      CI: "true"
       ORCA_E2E_REAL: "1"
     steps:
       - uses: actions/checkout@v7

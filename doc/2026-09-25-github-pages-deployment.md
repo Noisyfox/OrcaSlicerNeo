@@ -59,8 +59,8 @@ Unit tests and typechecks remain independent of generated WASM; Electron
 build coverage comes from mock E2E and the packaging matrix. The atomic-file
 test now checks sibling placement using the host platform's path rules.
 
-Linux mock E2E still has viewport and interaction failures. On a failed E2E
-job, Playwright retains a trace and CI uploads `test-results` for diagnosis.
+On a failed E2E job, Playwright retains a trace and CI uploads `test-results`
+for diagnosis.
 
 The installer matrix runs one job for each of the six platform and architecture
 targets. The electron-builder target configuration leaves architecture selection
@@ -77,9 +77,8 @@ electron-builder's file collection so packaged installers do not carry the
 WASM workspace source tree and temporary `.work` dependency builds. Keep
 staged `out/renderer/wasm` and `out/renderer/profiles` as the runtime assets.
 
-The mock Electron E2E suite runs on a Windows runner. Its full 50-test flow
-passes on the local Windows desktop; hosted runners have canvas and selection
-assertions still under investigation. The real WASM E2E job remains on Linux
+The mock Electron E2E suite runs on a Windows runner and its 50-test flow
+passes locally and in the pull request. The real WASM E2E job remains on Linux
 to exercise that host separately.
 
 Mock E2E also downloads the profile-packages artifact. Soft staging now copies
@@ -94,9 +93,12 @@ first entry to become available, then waits for the menu to close before
 testing gizmo hover. After a canceled drag, the test releases the held mouse
 button and reselects only if cancellation cleared selection.
 
-The real-project plate-switch budget observes the next renderer frame instead
-of Playwright's default backoff intervals, which inflated reported latency on
-the hosted Linux runner after the visible plate had already changed.
+The real-project plate-switch test observes the next renderer frame instead of
+Playwright's backoff intervals. The hosted Linux runner still reports roughly
+0.5–1.5 seconds against about 0.1 seconds locally for the same project. CI
+omits the plate-switch and other performance/profile E2E cases while retaining
+the real WASM functional cases. Local runs keep the 500 ms cold and 250 ms
+steady-state budgets and all profiling cases.
 
 The hosted Windows runner reports a 1024×768 screen and starts Electron with a
 1024×720 content viewport. The local desktop uses a roughly 1280×800 viewport.

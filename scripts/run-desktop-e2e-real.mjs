@@ -23,18 +23,25 @@ const env = {
 };
 // The focused real run proves native DRC import through Electron without
 // substituting its small fixture into unrelated 20 mm STL regressions.
-const testRuns = [
+const functionalTestRuns = [
   ['e2e/app.e2e.ts', '-g', 'real DRC flow'],
   ['e2e/app.e2e.ts', '-g', 'real STEP flow'],
   ['e2e/multi-filament.e2e.ts', '-g', 'filament rack remains enabled during history restore'],
   ['e2e/project-load-proof.e2e.ts', '-g', 'commits the requested multi-plate project'],
-  ['e2e/plate-switch-performance.e2e.ts', '-g', 'switches several non-current plates within the interactive budget'],
   ['e2e/prepare-colour-project.e2e.ts', '-g', 'imported opaque RGBA slots colour Prepare models like the filament rack'],
   ['e2e/prime-tower-project.e2e.ts', '-g', 'opened project keeps prime-tower UI'],
+];
+const performanceTestRuns = [
+  ['e2e/plate-switch-performance.e2e.ts', '-g', 'switches several non-current plates within the interactive budget'],
   ['e2e/prime-tower-history-performance.e2e.ts', '-g', 'measures real-project Prime Tower commit'],
   ['e2e/plate-add-history-profile.e2e.ts', '-g', 'profiles Add Plate click'],
   ['e2e/object-move-history-profile.e2e.ts', '-g', 'profiles a real object move'],
 ];
+// Shared CI runners do not provide a stable latency baseline. Keep the real
+// WASM functional path in CI; run timing budgets and profiles on local or
+// dedicated machines through this same command.
+const testRuns = process.env.CI === 'true'
+  ? functionalTestRuns : [...functionalTestRuns, ...performanceTestRuns];
 
 for (const [name, childArgs] of [['electron-vite', ['build']]]) {
   const result = spawnSync(command(name), childArgs, {
