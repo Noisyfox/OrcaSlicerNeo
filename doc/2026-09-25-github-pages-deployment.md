@@ -81,6 +81,10 @@ to exercise that host separately.
 
 Mock E2E also downloads the profile-packages artifact. Soft staging now copies
 profiles even without a WASM build, matching the asset set used by local E2E.
+The Prime Tower E2E history helper closes its menu through the trigger:
+pressing Escape could also invoke Prepare's global deselection shortcut and
+invalidate the selection assertion. After a canceled drag, the test releases
+the held mouse button and explicitly clears selection before reselecting.
 On a clean checkout, the Preview nozzle marker assertion failed without those
 profiles and passed after staging them.
 
