@@ -115,6 +115,7 @@ async function launchApp({
     args: ['.', ...glFlag],
     cwd: DESKTOP_ROOT,
     env,
+    viewport: { width: 1280, height: 800 },
   });
   if (process.env.CI === 'true' && !ciDisplayLogged) {
     const page = await app.firstWindow();

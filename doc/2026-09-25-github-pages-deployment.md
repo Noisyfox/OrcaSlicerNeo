@@ -83,3 +83,8 @@ Mock E2E also downloads the profile-packages artifact. Soft staging now copies
 profiles even without a WASM build, matching the asset set used by local E2E.
 On a clean checkout, the Preview nozzle marker assertion failed without those
 profiles and passed after staging them.
+
+The hosted Windows runner reports a 1024×768 screen and starts Electron with a
+1024×720 content viewport. The local desktop uses a roughly 1280×800 viewport.
+Set the mock canvas test launch viewport to 1280×800 before the scene mounts,
+so world-to-screen projection and pointer gestures use the same dimensions.
