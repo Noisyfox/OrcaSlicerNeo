@@ -199,7 +199,7 @@ fi
 if [[ ! -f "$OCCT_ROOT/include/opencascade/Standard.hxx" || ! -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]]; then
   log "Building OCCT 7.6.0 XCAF/STEP closure ($ARTIFACT_VARIANT wasm64)"
   WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
-    WORK_DIR="$WORK_DIR" "$PKG_DIR/build-occt-wasm64.sh" \
+    WORK_DIR="$WORK_DIR" bash "$PKG_DIR/build-occt-wasm64.sh" \
     || die "OCCT build failed"
 fi
 [[ -f "$OCCT_ROOT/include/opencascade/Standard.hxx" && -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \

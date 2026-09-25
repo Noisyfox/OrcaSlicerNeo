@@ -25,3 +25,7 @@ both variants for hosts that provide cross-origin isolation.
 The repository's Pages source must be set to GitHub Actions once. Thereafter,
 each push to `main` publishes the current site after the WASM job and Web
 tests/typecheck pass.
+
+The first CI run reached the existing Linux WASM builder and found that the
+OCCT helper was invoked directly despite lacking an executable Git file mode.
+The builder now invokes that helper through `bash`, like its other helpers.
