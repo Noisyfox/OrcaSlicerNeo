@@ -68,8 +68,12 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   // for the new collection; otherwise a polling selection can land between
   // the helper effect and this reset and be cleared immediately afterwards.
   useEffect(() => {
-    sceneInteraction.resetForModel();
-  }, [glVolumes, sceneInteraction]);
+    // A Prime Tower move can republish model meshes while its native commit
+    // is still in flight. The tower keeps its stable selection ID across that
+    // receipt; prune against the current collection instead of clearing it.
+    if (wipeTowerVolumes?.busy) sceneInteraction.pruneSelection();
+    else sceneInteraction.resetForModel();
+  }, [glVolumes, sceneInteraction, wipeTowerVolumes]);
   // Test-only projection hook (e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (the e2e-only VITE_E2E flag is unset).

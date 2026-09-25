@@ -1634,6 +1634,12 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
         (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.(),
       ))
       .toBe('body');
+    // DragControls can use the threshold-crossing move to claim ownership
+    // before publishing a translation. Continue the same held pointer gesture
+    // so the position assertion does not depend on an extra synthetic frame.
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({ type: 'mouseMove', x, y, button: 'left' });
+    }, { x: box.x + center.x + 16, y: box.y + center.y + 8 });
     await expect
       .poll(() => page.evaluate(() =>
         (window as unknown as {
@@ -1643,7 +1649,7 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
       .not.toEqual([10, 10, 10]);
     await app.evaluate(({ BrowserWindow }, { x, y }) => {
       BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
-    }, { x: box.x + center.x + 8, y: box.y + center.y + 4 });
+    }, { x: box.x + center.x + 16, y: box.y + center.y + 8 });
 
     await expect
       .poll(() => page.evaluate(() =>
