@@ -29,6 +29,7 @@ const PRINTER_PROFILE = process.env.ORCA_E2E_PRINTER ?? (
 );
 const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
 const SLICE_RESULT_TIMEOUT = REAL ? 60_000 : 5_000;
+let ciDisplayLogged = false;
 
 /** Captures renderer console/pageerror/crash/navigation evidence; dump() is
  *  called only on failure so CI logs carry the renderer's story when red. */
@@ -115,6 +116,16 @@ async function launchApp({
     cwd: DESKTOP_ROOT,
     env,
   });
+  if (process.env.CI === 'true' && !ciDisplayLogged) {
+    const page = await app.firstWindow();
+    const display = await page.evaluate(() => ({
+      screen: [screen.width, screen.height],
+      viewport: [innerWidth, innerHeight],
+      devicePixelRatio,
+    }));
+    console.log(`[e2e display] ${JSON.stringify(display)}`);
+    ciDisplayLogged = true;
+  }
   // The production app deliberately starts on the blank Home tab. Existing
   // flow tests exercise the workspace, so opt them into Prepare at the test
   // boundary rather than weakening the product default.
