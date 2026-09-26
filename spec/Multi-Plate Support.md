@@ -38,10 +38,12 @@
 - Membership follows native OrcaSlicer's convex-hull bounding-box intersection
   rule. If an instance intersects multiple plates, it belongs to the
   lowest-numbered matching plate.
-- Membership and printability are separate states. An instance that intersects
-  a plate but is partly outside its printable volume remains a member of that
-  plate, is visibly marked as out of bounds, and makes that plate unavailable
-  for slice, export, and send until the instance is fully back in bounds.
+- Membership and printability are separate states. A printable instance that
+  intersects a plate but is partly outside its printable volume remains a
+  member of that plate, is visibly marked as out of bounds, and makes that plate
+  unavailable for slice, export, and send until the instance is fully back in
+  bounds. Instances marked non-printable remain members where their geometry
+  intersects, but do not affect the plate's out-of-bounds validity.
 - Slice, G-code export, and send-to-printer operate on the current plate only
   in the first implementation. Batch "Slice all" and multi-plate export/send
   behaviour are deferred decisions.

@@ -371,6 +371,13 @@ BoundingBoxf3 instance_hull_box(const PlateInstanceRef& ref)
     return ref.object->instance_convex_hull_bounding_box(ref.instance);
 }
 
+bool is_marked_printable(const PlateInstanceRef& ref)
+{
+    // Do not use ModelInstance::is_printable(): it also depends on the
+    // print-volume state that this plate-membership pass is validating.
+    return ref.object->printable && ref.instance->printable;
+}
+
 bool box_intersects_plate(const BoundingBoxf3& box, const BridgeState::PlateSessionPlate& plate,
                           const PlateBounds& bounds)
 {
@@ -534,7 +541,7 @@ void rebuild_plate_membership(bool clear_parked, const std::set<std::size_t>* af
         for (const auto& plate : state().plate_session_plates) {
             if (!box_intersects_plate(box, plate, bounds)) continue;
             state().instance_plate_ids[ref.instance_id] = plate.id;
-            if (!box_fully_inside_plate(ref, box, plate, bounds))
+            if (is_marked_printable(ref) && !box_fully_inside_plate(ref, box, plate, bounds))
                 state().plate_out_of_bounds_ids[plate.id].insert(ref.instance_id);
             break; // lowest display-index plate wins ties, matching Orca.
         }
@@ -777,6 +784,7 @@ void refresh_existing_plate_validity(const PlateBounds& bounds)
         if (plate == nullptr) continue;
         const auto ref = refs_by_id.find(instance_id);
         if (ref == refs_by_id.end()) continue;
+        if (!is_marked_printable(*ref->second)) continue;
         if (!box_fully_inside_plate(*ref->second, instance_hull_box(*ref->second), *plate, bounds))
             state().plate_out_of_bounds_ids[plate_id].insert(instance_id);
     }

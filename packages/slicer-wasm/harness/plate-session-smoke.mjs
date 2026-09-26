@@ -115,6 +115,24 @@ const partial = JSON.stringify({ offset: [243, 0, 10], rotation: [0, 0, 0], scal
 check('move partially into plate', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, partial, volumeIdentity]).ok === true);
 membership = callJson('orc_recompute_plate_membership');
 check('membership and out-of-bounds are independent', membership.instances?.find((item) => item.object_index === 1)?.plate_id === session.plates[1].plate_id && membership.instances?.find((item) => item.object_index === 1)?.out_of_bounds === true);
+const partiallyOutsideObjectId = callJson('orc_get_model_structure').objects?.[1]?.id;
+check('find partially outside object id', Number.isSafeInteger(partiallyOutsideObjectId) && partiallyOutsideObjectId > 0);
+const disabledOutside = callJson('orc_set_object_printable', ['number', 'number'], [partiallyOutsideObjectId, 0]);
+const disabledOutsideSession = callJson('orc_get_plate_session_snapshot');
+const disabledOutsideInstance = disabledOutsideSession.instances?.find((item) => item.object_index === 1);
+const disabledOutsidePlate = disabledOutsideSession.plates?.find((plate) => plate.plate_id === disabledOutsideInstance?.plate_id);
+check('non-printable outside member does not invalidate its plate', disabledOutside.ok === true &&
+  disabledOutsideInstance?.plate_id === session.plates[1].plate_id && disabledOutsideInstance?.out_of_bounds === false &&
+  disabledOutsidePlate?.valid === true && disabledOutsidePlate.out_of_bounds_instance_ids?.length === 0,
+  JSON.stringify({ instance: disabledOutsideInstance, plate: disabledOutsidePlate }));
+const enabledOutside = callJson('orc_set_object_printable', ['number', 'number'], [partiallyOutsideObjectId, 1]);
+const enabledOutsideSession = callJson('orc_get_plate_session_snapshot');
+const enabledOutsideInstance = enabledOutsideSession.instances?.find((item) => item.object_index === 1);
+const enabledOutsidePlate = enabledOutsideSession.plates?.find((plate) => plate.plate_id === enabledOutsideInstance?.plate_id);
+check('restoring printability restores out-of-bounds validity', enabledOutside.ok === true &&
+  enabledOutsideInstance?.out_of_bounds === true && enabledOutsidePlate?.valid === false,
+  JSON.stringify({ instance: enabledOutsideInstance, plate: enabledOutsidePlate }));
+callJson('orc_set_object_printable', ['number', 'number'], [partiallyOutsideObjectId, 0]);
 check('moving from unprintable increments destination revision only', membership.affected_plate_ids_before?.length === 0 &&
   membership.affected_plate_ids_after?.length === 1 && membership.affected_plate_ids_after[0] === session.plates[1].plate_id &&
   membership.input_revisions?.[session.plates[1].plate_id] > (revisionsBeforePartial[session.plates[1].plate_id] ?? 0) &&
@@ -133,6 +151,10 @@ membership = callJson('orc_recompute_plate_membership');
 const edgeFixtureBefore = membership.instances?.find((item) => item.object_index === 2);
 check('validity fixture is initially a valid member', edgeFixtureBefore?.plate_id === session.plates[1].plate_id &&
   edgeFixtureBefore?.out_of_bounds === false, JSON.stringify(edgeFixtureBefore));
+const edgeFixtureObjectId = callJson('orc_get_model_structure').objects?.[2]?.id;
+const disabledEdgeFixture = callJson('orc_set_object_printable', ['number', 'number'], [edgeFixtureObjectId, 0]);
+check('mark bed-edge fixture non-printable', disabledEdgeFixture.ok === true &&
+  Number.isSafeInteger(edgeFixtureObjectId) && edgeFixtureObjectId > 0);
 const revisionsBeforeConfiguration = { ...(membership.input_revisions ?? {}) };
 const beforeConfiguration = callJson('orc_get_plate_session_snapshot');
 const beforeConfigurationMesh = callJson('orc_get_model_mesh');
@@ -185,10 +207,17 @@ check('shared configuration preserves current plate and membership state',
   }), JSON.stringify(configuration.instances));
 const edgeFixtureAfter = configuration.instances?.find((item) => item.object_index === 2);
 const edgeFixturePlate = configuration.plates.find((plate) => plate.plate_id === edgeFixtureBefore?.plate_id);
-check('shared configuration refreshes validity without reassigning the member',
-  edgeFixtureAfter?.plate_id === edgeFixtureBefore?.plate_id && edgeFixtureAfter?.out_of_bounds === true &&
-  edgeFixturePlate?.valid === false && edgeFixturePlate.out_of_bounds_instance_ids?.includes(edgeFixtureAfter.instance_id),
+check('shared configuration ignores out-of-bounds non-printable member',
+  edgeFixtureAfter?.plate_id === edgeFixtureBefore?.plate_id && edgeFixtureAfter?.out_of_bounds === false &&
+  edgeFixturePlate?.valid === true && !edgeFixturePlate.out_of_bounds_instance_ids?.includes(edgeFixtureAfter.instance_id),
   JSON.stringify({ instance: edgeFixtureAfter, plate: edgeFixturePlate }));
+const enabledEdgeFixture = callJson('orc_set_object_printable', ['number', 'number'], [edgeFixtureObjectId, 1]);
+const enabledEdgeSession = callJson('orc_get_plate_session_snapshot');
+const enabledEdgeInstance = enabledEdgeSession.instances?.find((item) => item.object_index === 2);
+const enabledEdgePlate = enabledEdgeSession.plates?.find((plate) => plate.plate_id === enabledEdgeInstance?.plate_id);
+check('printable member after bed change becomes out of bounds', enabledEdgeFixture.ok === true &&
+  enabledEdgeInstance?.out_of_bounds === true && enabledEdgePlate?.valid === false,
+  JSON.stringify({ instance: enabledEdgeInstance, plate: enabledEdgePlate }));
 const changedConfigurationMesh = configuration.instance_transforms ?? [];
 check('shared configuration returns world transforms for moved members', changedConfigurationMesh.length > 0 &&
   changedConfigurationMesh.every((entry) => {
