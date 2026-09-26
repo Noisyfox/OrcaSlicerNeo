@@ -47,7 +47,6 @@ export function toolMarkerModelTransform(
 }
 
 const hotendBytes = new WeakMap<object, Map<string, Promise<ArrayBuffer | null>>>();
-const readHotendProfileAsset = import('@orca/slicer-runtime').then((runtime) => runtime.readHotendProfileAsset);
 
 function loadHotendBytes(
   profiles: ProfileSource,
@@ -58,7 +57,7 @@ function loadHotendBytes(
   if (!cache) { cache = new Map(); hotendBytes.set(profiles as object, cache); }
   let cached = cache.get(cacheKey);
   if (!cached) {
-    cached = readHotendProfileAsset.then((read) => read(profiles, printer)).then((bytes) => bytes
+    cached = import('@orca/slicer-runtime').then((runtime) => runtime.readHotendProfileAsset(profiles, printer)).then((bytes) => bytes
       ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
       : null);
     cache.set(cacheKey, cached);
