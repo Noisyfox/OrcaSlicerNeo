@@ -19,6 +19,7 @@ type TowerState = {
   empty: boolean;
   selected: boolean;
   position: { x: number; y: number };
+  renderedWorldPosition: Point | null;
   width: number;
   depth: number;
   height: number;
@@ -128,11 +129,14 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await expect.poll(async () => hasExpectedBands(await readTowers())).toBe(true);
     await page.getByTestId('add-plate').click();
     await expect.poll(readTowers).toHaveLength(2);
+    await expect.poll(async () => (await readTowers()).every((tower) => tower.renderedWorldPosition !== null)).toBe(true);
     const towers = await readTowers();
     let current = towers.find((tower) => tower.current);
     const other = towers.find((tower) => !tower.current);
     expect(current).toBeDefined();
     expect(other).toBeDefined();
+    const initialRenderedWorldPosition = current!.renderedWorldPosition;
+    if (!initialRenderedWorldPosition) throw new Error('current Prime Tower scene mesh is missing');
     expect(towers.every((tower) => tower.bands === 2
       && JSON.stringify(tower.colours) === JSON.stringify(['#333333', '#ffd700'])
       && tower.opacity.every((opacity) => Math.abs(opacity - 0.66) < 0.01))).toBe(true);
@@ -216,6 +220,8 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     }).toBe(true);
     await expect.poll(readPointerOwner).toBe('none');
     await expect.poll(readCamera).toEqual(cameraBefore);
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.renderedWorldPosition)
+      .not.toEqual(initialRenderedWorldPosition);
     const afterBody = await readTowers();
     expect(afterBody.find((tower) => tower.current)?.position).not.toEqual(current!.position);
     const bodyPosition = afterBody.find((tower) => tower.current)?.position;
@@ -224,6 +230,8 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     // rendered selection brackets, and the controller pivot must all consume
     // that receipt rather than retaining the local drag-start/draft position.
     const bodyTower = afterBody.find((tower) => tower.current)!;
+    const bodyRenderedWorldPosition = bodyTower.renderedWorldPosition;
+    if (!bodyRenderedWorldPosition) throw new Error('moved Prime Tower scene mesh is missing');
     const expectedBodyBounds = expectedTowerBounds(bodyTower);
     await expect.poll(readSelectionBounds).toEqual(expectedBodyBounds);
     await expect.poll(readRenderedSelectionBox).toEqual({
@@ -231,13 +239,22 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
       max: expectedBodyBounds.max,
       segmentCount: 24,
     });
+    // Leave selection unchanged across history navigation. Otherwise a
+    // selection revision could accidentally force the memoized scene mesh to
+    // pick up the restored transform and hide a missing projection revision.
+    await page.keyboard.press('Escape');
+    await expect.poll(readSelection).toBeNull();
     await page.getByTestId('history-undo').click();
     await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
       .toEqual(current!.position);
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.renderedWorldPosition)
+      .toEqual(initialRenderedWorldPosition);
     await expect(page.getByTestId('history-redo')).toBeEnabled();
     await page.getByTestId('history-redo').click();
     await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
       .toEqual(bodyPosition);
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.renderedWorldPosition)
+      .toEqual(bodyRenderedWorldPosition);
 
     // A canceled canvas gesture restores the native position and does not add history.
     const moved = afterBody.find((tower) => tower.current)!;
