@@ -4,15 +4,11 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
-test('Web memory indicator shows a transparent total or JS-heap fallback with shared details', async ({ page }) => {
+test('Web memory indicator shows a JS-heap plus WASM estimate with shared details', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   const indicator = page.getByTestId('memory-indicator');
-  if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
-    await expect(indicator).toHaveText(/^JS heap estimate: \d/, { timeout: 30_000 });
-  } else {
-    await expect(indicator).toHaveText(/^(Memory|JS heap estimate): \d/, { timeout: 30_000 });
-  }
+  await expect(indicator).toHaveText(/^Total memory estimate: \d/, { timeout: 30_000 });
   await indicator.click();
   const popup = page.getByTestId('memory-indicator-popup');
   await expect(popup).toContainText('Shared runtime diagnostics');

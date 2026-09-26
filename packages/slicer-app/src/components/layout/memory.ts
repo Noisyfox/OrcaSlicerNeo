@@ -1,6 +1,6 @@
 import type { MemoryEntry, PlatformMemory, PlatformMemorySnapshot, SlicerRuntime } from '@orca/platform-contract';
 
-export type MemoryTotalKind = 'platform' | 'browser' | 'js-heap-estimate';
+export type MemoryTotalKind = 'platform' | 'total-estimate';
 
 export interface SharedRuntimeMemoryEntry extends MemoryEntry {
   readonly includedInTotal: boolean;
@@ -18,44 +18,17 @@ export interface MemoryIndicatorPlatform {
   readonly runtime: Pick<SlicerRuntime, 'getRuntimeMemory'>;
 }
 
-type BrowserPerformance = Performance & {
+type PerformanceWithMemory = Performance & {
   memory?: { usedJSHeapSize?: unknown };
-  measureUserAgentSpecificMemory?: () => Promise<{ bytes?: unknown }>;
 };
-
-const BROWSER_TOTAL_TIMEOUT_MS = 1_000;
-let pendingBrowserTotal: Promise<number | undefined> | undefined;
 
 function validBytes(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function rendererJsHeapBytes(): number | undefined {
-  const bytes = (performance as BrowserPerformance).memory?.usedJSHeapSize;
+  const bytes = (performance as PerformanceWithMemory).memory?.usedJSHeapSize;
   return validBytes(bytes) ? bytes : undefined;
-}
-
-async function browserTotalBytes(): Promise<number | undefined> {
-  const measure = (performance as BrowserPerformance).measureUserAgentSpecificMemory;
-  if (!measure) return undefined;
-  if (!pendingBrowserTotal) {
-    const measurement = measure.call(performance)
-      .then((result) => validBytes(result?.bytes) ? result.bytes : undefined)
-      .catch(() => undefined);
-    pendingBrowserTotal = measurement;
-    void measurement.finally(() => {
-      if (pendingBrowserTotal === measurement) pendingBrowserTotal = undefined;
-    });
-  }
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      pendingBrowserTotal,
-      new Promise<undefined>((resolve) => { timeout = setTimeout(() => resolve(undefined), BROWSER_TOTAL_TIMEOUT_MS); }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
 }
 
 function validatePlatformSnapshot(value: PlatformMemorySnapshot): PlatformMemorySnapshot {
@@ -77,29 +50,27 @@ export async function sampleMemoryIndicator(
     platform.memory.sample().then(validatePlatformSnapshot),
     platform.runtime.getRuntimeMemory(),
   ]);
-  const browserBytes = platformSnapshot.totalBytes === undefined ? await browserTotalBytes() : undefined;
-  const fallbackJsBytes = [rendererBytes, workerSnapshot.jsHeapUsedBytes]
+  const jsHeapBytes = [rendererBytes, workerSnapshot.jsHeapUsedBytes]
     .filter((bytes): bytes is number => bytes !== undefined)
     .reduce((total, bytes) => total + bytes, 0);
   const totalKind: MemoryTotalKind = platformSnapshot.totalBytes !== undefined
     ? 'platform'
-    : browserBytes !== undefined ? 'browser' : 'js-heap-estimate';
-  const totalBytes = platformSnapshot.totalBytes ?? browserBytes ?? fallbackJsBytes;
-  if (totalKind === 'js-heap-estimate' && rendererBytes === undefined && workerSnapshot.jsHeapUsedBytes === undefined)
+    : 'total-estimate';
+  const totalBytes = platformSnapshot.totalBytes ?? jsHeapBytes + workerSnapshot.wasmLinearMemoryBytes;
+  if (totalKind === 'total-estimate' && rendererBytes === undefined && workerSnapshot.jsHeapUsedBytes === undefined)
     throw new Error('JavaScript heap measurement is unavailable');
 
-  const jsHeapIncluded = totalKind !== 'js-heap-estimate' || fallbackJsBytes > 0;
   const sharedRuntime: SharedRuntimeMemoryEntry[] = [
     ...(rendererBytes === undefined ? [] : [{
-      id: 'renderer-js-heap', label: 'Renderer JS heap', bytes: rendererBytes, includedInTotal: jsHeapIncluded,
+      id: 'renderer-js-heap', label: 'Renderer JS heap', bytes: rendererBytes, includedInTotal: true,
     }]),
     ...(workerSnapshot.jsHeapUsedBytes === undefined ? [] : [{
-      id: 'worker-js-heap', label: 'Slicer Worker JS heap', bytes: workerSnapshot.jsHeapUsedBytes, includedInTotal: jsHeapIncluded,
+      id: 'worker-js-heap', label: 'Slicer Worker JS heap', bytes: workerSnapshot.jsHeapUsedBytes, includedInTotal: true,
     }]),
     {
       id: 'wasm-linear-memory', label: 'WASM linear-memory capacity',
       bytes: workerSnapshot.wasmLinearMemoryBytes,
-      includedInTotal: totalKind !== 'js-heap-estimate',
+      includedInTotal: true,
     },
   ];
   return { totalBytes, totalKind, platform: platformSnapshot, sharedRuntime };
@@ -111,5 +82,5 @@ export function formatMemory(bytes: number): string {
 }
 
 export function memoryTotalLabel(kind: MemoryTotalKind): string {
-  return kind === 'js-heap-estimate' ? 'JS heap estimate' : 'Memory';
+  return kind === 'total-estimate' ? 'Total memory estimate' : 'Memory';
 }

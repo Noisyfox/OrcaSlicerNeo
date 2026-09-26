@@ -15,14 +15,11 @@ function platform(overrides: {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('memory indicator sampling', () => {
-  it('uses the browser page-and-Worker total while keeping shared details non-additive', async () => {
-    vi.stubGlobal('performance', {
-      memory: { usedJSHeapSize: 5 },
-      measureUserAgentSpecificMemory: vi.fn(async () => ({ bytes: 100 })),
-    });
+  it('estimates Web total from renderer and Worker JS heaps plus WASM capacity', async () => {
+    vi.stubGlobal('performance', { memory: { usedJSHeapSize: 5 } });
     const result = await sampleMemoryIndicator(platform());
-    expect(result.totalKind).toBe('browser');
-    expect(result.totalBytes).toBe(100);
+    expect(result.totalKind).toBe('total-estimate');
+    expect(result.totalBytes).toBe(23);
     expect(result.sharedRuntime).toEqual([
       { id: 'renderer-js-heap', label: 'Renderer JS heap', bytes: 5, includedInTotal: true },
       { id: 'worker-js-heap', label: 'Slicer Worker JS heap', bytes: 7, includedInTotal: true },
@@ -30,13 +27,13 @@ describe('memory indicator sampling', () => {
     ]);
   });
 
-  it('falls back to a renderer-plus-Worker JS heap estimate without adding WASM capacity', async () => {
+  it('labels the combined JavaScript and WASM total as an estimate', async () => {
     vi.stubGlobal('performance', { memory: { usedJSHeapSize: 5 } });
     const result = await sampleMemoryIndicator(platform());
-    expect(result.totalKind).toBe('js-heap-estimate');
-    expect(result.totalBytes).toBe(12);
+    expect(result.totalKind).toBe('total-estimate');
+    expect(result.totalBytes).toBe(23);
     expect(result.sharedRuntime.find((entry) => entry.id === 'wasm-linear-memory'))
-      .toMatchObject({ includedInTotal: false });
+      .toMatchObject({ includedInTotal: true });
   });
 
   it('prefers the host total and preserves generic platform detail items', async () => {
@@ -49,7 +46,7 @@ describe('memory indicator sampling', () => {
     expect(result.platform.entries).toEqual([{ id: 'desktop:gpu', label: 'GPU process', bytes: 30 }]);
   });
 
-  it('reports unavailable when neither full memory nor JS heap measurement is available', async () => {
+  it('reports unavailable when no JavaScript heap measurement is available', async () => {
     vi.stubGlobal('performance', {});
     await expect(sampleMemoryIndicator(platform({ worker: { wasmLinearMemoryBytes: 11 } })))
       .rejects.toThrow('JavaScript heap measurement is unavailable');
