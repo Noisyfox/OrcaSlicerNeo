@@ -14,6 +14,11 @@ function call(name, types = [], args = []) {
   try { return JSON.parse(module.UTF8ToString(pointer)); }
   finally { module._free(pointer); }
 }
+function paintFacetDecodeCount() {
+  const result = call('orc_test_get_model_paint_decode_count');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  return result.paint_facet_decode_count;
+}
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 function begin(label, parent) {
@@ -84,6 +89,11 @@ const first = patch([objectId]);
 assert.equal(first.geometries.length, 1);
 assert.equal(first.renderables[0].paint_key, null);
 assert.equal(first.paint_geometries.length, 0);
+assert.equal(paintFacetDecodeCount(), 0, 'an unpainted volume must skip native facet reconstruction');
+const unpaintedFull = fullModel();
+assert.equal(unpaintedFull.renderables[0].paint_key, null);
+assert.equal(unpaintedFull.paint_geometries.length, 0);
+assert.equal(paintFacetDecodeCount(), 0, 'full model loading must also skip native facet reconstruction');
 const volumeId = first.geometries[0].volume_id;
 assert.equal(patch([objectId], [volumeId]).geometries.length, 0);
 const second = edit('Second cube', () => call('orc_add_shape', ['string', 'string'], ['Cube', 'Second']));
@@ -147,6 +157,7 @@ assert.ok(paintedResource, `the imported 3MF fixture must expose native MMU pain
   originalVolumes: paintedFull.geometries.map(({ volume_id, index_count }) => ({ volume_id, index_count })),
   paintCount: paintedFull.paint_geometries.length,
 })}`);
+assert.equal(paintFacetDecodeCount(), 1, 'initial paint load must build native split facets once');
 const paintedStates = paintedResource.draw_groups.map((group) => group.state_id);
 assert.ok(paintedStates.includes(0), 'paint geometry must retain the unpainted state 0 group');
 assert.ok(paintedStates.some((state) => state > 0), 'paint geometry must contain a positive filament state');
@@ -174,6 +185,8 @@ const paintKnown = patch([paintedRenderable.object_id], [], [paintedResource.pai
 assert.equal(paintKnown.geometries.filter((geometry) => geometry.volume_id === paintedResource.volume_id).length, 1,
   'a retained paint resource must not suppress a missing original mesh');
 assert.equal(paintKnown.paint_geometries.some((geometry) => geometry.volume_id === paintedResource.volume_id), false);
+assert.equal(paintFacetDecodeCount(), 3,
+  'a retained paint key must skip native facet reconstruction while the original mesh is requested');
 
-console.log('PASS targeted geometry, 101-instance reuse, split MMU paint groups, 2-instance paint dedup, independent paint/mesh reuse, Undo/Redo');
+console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, multi-instance dedup, independent resource reuse, Undo/Redo');
 process.exit(0);

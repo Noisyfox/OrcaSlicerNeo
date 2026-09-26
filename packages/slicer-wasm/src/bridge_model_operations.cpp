@@ -61,6 +61,8 @@ static json transform_json(const Slic3r::Geometry::Transformation& transformatio
 }
 
 namespace Slic3r::Neo::Bridge::ModelOperations {
+std::uint64_t paint_facet_decode_count = 0;
+
 std::size_t model_instance_count(const Model& model) {
     std::size_t count = 0;
     for (const ModelObject* object : model.objects) count += object->instances.size();
@@ -195,9 +197,8 @@ void hash_float(std::uint64_t& hash, const float value) {
 }
 
 std::string paint_resource_key(const std::size_t volume_id,
-                               const ModelVolume& volume,
-                               const std::vector<indexed_triangle_set>& facets_per_state) {
-    // Include the original mesh as well as the native split output. A volume
+                               const ModelVolume& volume) {
+    // Include the original mesh and raw annotation. A volume
     // ID may be restored from history, while either mesh or facet data can
     // have changed since its previous renderer resource was retained.
     std::uint64_t hash = 14695981039346656037ull;
@@ -215,21 +216,16 @@ std::string paint_resource_key(const std::size_t volume_id,
         for (unsigned corner = 0; corner < 3; ++corner)
             hash_u64(hash, static_cast<std::uint64_t>(triangle[corner]));
 
-    hash_u64(hash, facets_per_state.size());
-    for (std::size_t state = 0; state < facets_per_state.size(); ++state) {
-        const auto& facets = facets_per_state[state];
-        hash_u64(hash, state);
-        hash_u64(hash, facets.vertices.size());
-        for (const auto& vertex : facets.vertices) {
-            hash_float(hash, vertex.x());
-            hash_float(hash, vertex.y());
-            hash_float(hash, vertex.z());
-        }
-        hash_u64(hash, facets.indices.size());
-        for (const auto& triangle : facets.indices)
-            for (unsigned corner = 0; corner < 3; ++corner)
-                hash_u64(hash, static_cast<std::uint64_t>(triangle[corner]));
+    const auto& annotation = volume.mmu_segmentation_facets.get_data();
+    hash_u64(hash, annotation.triangles_to_split.size());
+    for (const auto& triangle : annotation.triangles_to_split) {
+        hash_u64(hash, static_cast<std::uint64_t>(static_cast<std::int64_t>(triangle.triangle_idx)));
+        hash_u64(hash, static_cast<std::uint64_t>(static_cast<std::int64_t>(triangle.bitstream_start_idx)));
     }
+    hash_u64(hash, annotation.bitstream.size());
+    for (const bool bit : annotation.bitstream) hash_byte(hash, bit ? 1 : 0);
+    hash_u64(hash, annotation.used_states.size());
+    for (const bool used : annotation.used_states) hash_byte(hash, used ? 1 : 0);
 
     static constexpr char digits[] = "0123456789abcdef";
     std::string suffix(16, '0');
@@ -325,34 +321,43 @@ ModelGeometryReply model_mesh_json(const std::set<std::size_t>* object_ids = nul
             }
 
             std::optional<std::string> paint_key;
-            std::vector<indexed_triangle_set> facets_per_state;
-            volume_object->mmu_segmentation_facets.get_facets(*volume_object, facets_per_state);
-            const bool is_painted = std::any_of(facets_per_state.begin() + std::min<std::size_t>(1, facets_per_state.size()),
-                facets_per_state.end(), [](const indexed_triangle_set& facets) { return !facets.indices.empty(); });
-            if (is_painted) {
-                paint_key = paint_resource_key(volume_object->id().id, *volume_object, facets_per_state);
-                if (!known_paint_keys.count(*paint_key)) {
-                    std::vector<float> paint_positions;
-                    std::vector<std::uint32_t> paint_indices;
-                    json draw_groups = json::array();
-                    for (std::size_t state_id = 0; state_id < facets_per_state.size(); ++state_id)
-                        append_paint_state(facets_per_state[state_id], static_cast<std::uint32_t>(state_id),
-                                           paint_positions, paint_indices, draw_groups);
-                    if (paint_positions.empty() || paint_indices.empty() || draw_groups.empty())
-                        throw Slic3r::RuntimeError("painted model volume produced empty facet geometry");
+            const auto& paint_annotation = volume_object->mmu_segmentation_facets;
+            if (!paint_annotation.empty()) {
+                const std::string candidate_key = paint_resource_key(volume_object->id().id, *volume_object);
+                if (known_paint_keys.count(candidate_key)) {
+                    paint_key = candidate_key;
+                } else {
+                    std::vector<indexed_triangle_set> facets_per_state;
+                    ++paint_facet_decode_count;
+                    paint_annotation.get_facets(*volume_object, facets_per_state);
+                    const bool is_painted = std::any_of(
+                        facets_per_state.begin() + std::min<std::size_t>(1, facets_per_state.size()),
+                        facets_per_state.end(),
+                        [](const indexed_triangle_set& facets) { return !facets.indices.empty(); });
+                    if (is_painted) {
+                        paint_key = candidate_key;
+                        std::vector<float> paint_positions;
+                        std::vector<std::uint32_t> paint_indices;
+                        json draw_groups = json::array();
+                        for (std::size_t state_id = 0; state_id < facets_per_state.size(); ++state_id)
+                            append_paint_state(facets_per_state[state_id], static_cast<std::uint32_t>(state_id),
+                                               paint_positions, paint_indices, draw_groups);
+                        if (paint_positions.empty() || paint_indices.empty() || draw_groups.empty())
+                            throw Slic3r::RuntimeError("painted model volume produced empty facet geometry");
 
-                    MallocBuffer vertex_buffer;
-                    MallocBuffer index_buffer;
-                    vertex_buffer.append(paint_positions.data(), paint_positions.size() * sizeof(float));
-                    index_buffer.append(paint_indices.data(), paint_indices.size() * sizeof(std::uint32_t));
-                    const std::uintptr_t vertex_ptr = reinterpret_cast<std::uintptr_t>(vertex_buffer.data);
-                    const std::uintptr_t index_ptr = reinterpret_cast<std::uintptr_t>(index_buffer.data);
-                    paint_geometries.push_back(json{{"paint_key", *paint_key}, {"volume_id", volume_object->id().id},
-                        {"vertex_ptr", vertex_ptr}, {"vertex_count", paint_positions.size() / 3},
-                        {"index_ptr", index_ptr}, {"index_count", paint_indices.size()},
-                        {"draw_groups", std::move(draw_groups)}});
-                    reply.buffers.push_back(std::move(vertex_buffer));
-                    reply.buffers.push_back(std::move(index_buffer));
+                        MallocBuffer vertex_buffer;
+                        MallocBuffer index_buffer;
+                        vertex_buffer.append(paint_positions.data(), paint_positions.size() * sizeof(float));
+                        index_buffer.append(paint_indices.data(), paint_indices.size() * sizeof(std::uint32_t));
+                        const std::uintptr_t vertex_ptr = reinterpret_cast<std::uintptr_t>(vertex_buffer.data);
+                        const std::uintptr_t index_ptr = reinterpret_cast<std::uintptr_t>(index_buffer.data);
+                        paint_geometries.push_back(json{{"paint_key", *paint_key}, {"volume_id", volume_object->id().id},
+                            {"vertex_ptr", vertex_ptr}, {"vertex_count", paint_positions.size() / 3},
+                            {"index_ptr", index_ptr}, {"index_count", paint_indices.size()},
+                            {"draw_groups", std::move(draw_groups)}});
+                        reply.buffers.push_back(std::move(vertex_buffer));
+                        reply.buffers.push_back(std::move(index_buffer));
+                    }
                 }
             }
 
@@ -1576,6 +1581,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_id
         char* result = dup_json(response.value.dump());
         if (result != nullptr) response.transfer_buffers();
         return result;
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Focused native smoke hook: count costly native facet reconstruction calls.
+EMSCRIPTEN_KEEPALIVE const char* orc_test_get_model_paint_decode_count() {
+    try {
+        return dup_json(json{{"ok", true}, {"paint_facet_decode_count", paint_facet_decode_count}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
