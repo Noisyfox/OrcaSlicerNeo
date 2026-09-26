@@ -63,6 +63,28 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     page.on('console', (message) => {
       if (message.type() === 'error') recordRendererError(`console: ${message.text()}`);
     });
+    const clickPreviewTab = async (label: string) => {
+      try {
+        await page.locator('#app-tab-preview').click();
+      } catch (error) {
+        const pageState = await Promise.race([
+          page.evaluate(() => ({
+            href: window.location.href,
+            readyState: document.readyState,
+            bodyText: document.body?.innerText.slice(0, 2_000) ?? null,
+            bodyHtml: document.body?.outerHTML.slice(0, 2_000) ?? null,
+          })).catch((evaluateError: unknown) => ({ evaluateError: String(evaluateError) })),
+          new Promise<{ evaluateTimeout: true }>((resolve) => setTimeout(() => resolve({ evaluateTimeout: true }), 5_000)),
+        ]);
+        const diagnostics = { label, pageState, rendererErrors };
+        console.error('[real Prime Tower E2E] Preview tab unavailable', JSON.stringify(diagnostics));
+        await test.info().attach('missing-preview-state', {
+          body: Buffer.from(JSON.stringify(diagnostics, null, 2)), contentType: 'application/json',
+        });
+        await page.screenshot({ path: test.info().outputPath('missing-preview.png'), timeout: 5_000 }).catch(() => {});
+        throw error;
+      }
+    };
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
 
@@ -516,7 +538,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
         expect(previewBounds.max[0], `${label} extrusion excludes adjacent plate`).toBeLessThan(adjacentPlate.position[0] + bounds.minX - tolerance);
       }
     };
-    await page.locator('#app-tab-preview').click();
+    await clickPreviewTab('after first export');
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
     await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(indexedFirst.plateId);
     await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();
@@ -553,25 +575,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     expect(indexedSecond.plateId).not.toBe(indexedFirst.plateId);
     expect(indexedSecond.displayIndex).not.toBe(indexedFirst.displayIndex);
 
-    const secondPreviewTab = page.locator('#app-tab-preview');
-    if (await secondPreviewTab.count() === 0) {
-      const pageState = await Promise.race([
-        page.evaluate(() => ({
-          href: window.location.href,
-          readyState: document.readyState,
-          bodyText: document.body?.innerText.slice(0, 2_000) ?? null,
-          bodyHtml: document.body?.outerHTML.slice(0, 2_000) ?? null,
-        })).catch((error: unknown) => ({ evaluateError: String(error) })),
-        new Promise<{ evaluateTimeout: true }>((resolve) => setTimeout(() => resolve({ evaluateTimeout: true }), 5_000)),
-      ]);
-      const diagnostics = { pageState, rendererErrors };
-      console.error('[real Prime Tower E2E] Preview tab missing after second export', JSON.stringify(diagnostics));
-      await test.info().attach('missing-second-preview-state', {
-        body: Buffer.from(JSON.stringify(diagnostics, null, 2)), contentType: 'application/json',
-      });
-      await page.screenshot({ path: test.info().outputPath('missing-second-preview.png'), timeout: 5_000 }).catch(() => {});
-    }
-    await secondPreviewTab.click();
+    await clickPreviewTab('after second export');
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
     await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(indexedSecond.plateId);
     await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();

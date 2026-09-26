@@ -884,8 +884,7 @@ test('real DRC flow: import → slice → export gcode', async () => {
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
     await page.getByTestId('btn-export').click();
-    await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
-    expect(readFileSync(exportPath, 'utf8')).toContain('G1');
+    await expect.poll(() => existsSync(exportPath) ? readFileSync(exportPath, 'utf8') : '', { timeout: 30_000 }).toContain('G1');
   } finally {
     await app.close();
   }
@@ -914,10 +913,7 @@ test('real STEP flow: Add Model → renders named solid → slice → export G-c
       await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
       await expect(page.getByTestId('btn-export')).toBeEnabled();
       await page.getByTestId('btn-export').click();
-      await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
-      const gcode = readFileSync(exportPath, 'utf8');
-      expect(gcode).toContain('G1');
-      expect(gcode).not.toHaveLength(0);
+      await expect.poll(() => existsSync(exportPath) ? readFileSync(exportPath, 'utf8') : '', { timeout: 30_000 }).toContain('G1');
     } catch (error) {
       await diag.dump();
       throw error;
