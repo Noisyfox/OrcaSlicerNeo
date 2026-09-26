@@ -65,7 +65,9 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     });
     const clickPreviewTab = async (label: string) => {
       try {
-        await page.locator('#app-tab-preview').click();
+        const previewTab = page.getByRole('tab', { name: 'Preview', exact: true });
+        if (await previewTab.getAttribute('aria-selected') === 'true') return;
+        await previewTab.click();
       } catch (error) {
         const pageState = await Promise.race([
           page.evaluate(() => ({
@@ -420,7 +422,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       // replaces the active scene projection and can hide non-current beds.
       const bed = beds.find((candidate) => candidate.plateId === plateId);
       if (!bed) {
-        await page.locator('#app-tab-preview').click();
+        await clickPreviewTab('select plate from preview list');
         const item = page.getByTestId(`preview-plate-${plateId}`);
         await expect(item).toBeVisible({ timeout: 30_000 });
         await item.scrollIntoViewIfNeeded();
@@ -438,7 +440,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       }
       // The preview list is the authoritative UI fallback after a slice has
       // replaced the prepare scene with only the active bed.
-      await page.locator('#app-tab-preview').click();
+      await clickPreviewTab('select plate from preview list');
       const item = page.getByTestId(`preview-plate-${plateId}`);
       await expect(item).toBeVisible({ timeout: 30_000 });
       await item.scrollIntoViewIfNeeded();
@@ -598,7 +600,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     // Coordinate equality across plates is valid; the retained-result proof is
     // the indexed plate identity and its own native values, checked above.
     expect(indexedFirst.plateId).not.toBe(indexedSecond.plateId);
-    await page.locator('#app-tab-preview').click();
+    await clickPreviewTab('after returning to first plate');
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
     await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(current!.plateId);
     await expect.poll(readProxyIds, { timeout: 30_000 }).toBeNull();
