@@ -841,7 +841,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       instance_ids: [...new Set(instances)], plate_ids: [...new Set([...before.plateIds, ...after.plateIds])],
       object_order: after.objectMeta.map((object) => object.id) };
   }
-  function modelGeometry(requested: Set<number>, known: Set<number>) {
+  function modelGeometry(requested: Set<number>, known: Set<number>, _knownPaint = new Set<string>()) {
     const geometries: Record<string, unknown>[] = [];
     const renderables = objectTransforms.flatMap((instances, object_idx) => {
       if (!requested.has(objectMeta[object_idx].id)) return [];
@@ -857,10 +857,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return instances.map((instance_transform, instance_idx) => ({
           object_id: objectMeta[object_idx].id, volume_id, instance_id: instanceMeta[object_idx][instance_idx].id,
           object_idx, volume_idx, instance_idx, offset: instance_transform.offset, instance_transform, volume_transform,
+          paint_key: null,
         }));
       });
     });
-    return { ok: true, renderables, geometries };
+    return { ok: true, renderables, geometries, paint_geometries: [] };
   }
   function historyRestore(entry: MockHistoryEntry) {
     const beforeState = captureHistoryState();
@@ -2577,12 +2578,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return modelGeometry(new Set(objectMeta.map((object) => object.id)), new Set());
     },
     orc_get_model_scene_patch(requestJson: string) {
-      const { object_ids, known_volume_ids } = JSON.parse(requestJson);
-      if (![object_ids, known_volume_ids].every((ids) => Array.isArray(ids) && ids.every((id: number) => Number.isSafeInteger(id) && id > 0)))
+      const { object_ids, known_volume_ids, known_paint_keys = [] } = JSON.parse(requestJson);
+      if (![object_ids, known_volume_ids].every((ids) => Array.isArray(ids) && ids.every((id: number) => Number.isSafeInteger(id) && id > 0)) ||
+          !Array.isArray(known_paint_keys) || !known_paint_keys.every((key: unknown) => typeof key === 'string'))
         return { error: 'scene patch ids must be positive integers' };
       const requested = new Set<number>(object_ids);
       const structure = buildStructure();
-      return { ...modelGeometry(requested, new Set<number>(known_volume_ids)),
+      return { ...modelGeometry(requested, new Set<number>(known_volume_ids), new Set<string>(known_paint_keys)),
         object_order: structure.map((object) => object.id), objects: structure.filter((object) => requested.has(object.id)) };
     },
     orc_get_model_structure() {

@@ -16,6 +16,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 #include <emscripten/emscripten.h>
 #include "bridge_buffers.hpp"
 #include "bridge_plate.hpp"
@@ -167,20 +168,141 @@ json model_structure_json() {
     return model_structure_json_filtered(nullptr);
 }
 
-json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr,
-                     const std::set<std::size_t>& known_volume_ids = {}) {
+struct ModelGeometryReply {
+    json value;
+    std::vector<MallocBuffer> buffers;
+
+    void transfer_buffers() {
+        for (MallocBuffer& buffer : buffers) buffer.release();
+    }
+};
+
+void hash_byte(std::uint64_t& hash, const std::uint8_t byte) {
+    hash ^= byte;
+    hash *= 1099511628211ull;
+}
+
+void hash_u64(std::uint64_t& hash, const std::uint64_t value) {
+    for (unsigned shift = 0; shift < 64; shift += 8)
+        hash_byte(hash, static_cast<std::uint8_t>(value >> shift));
+}
+
+void hash_float(std::uint64_t& hash, const float value) {
+    std::uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value), "WASM model geometry expects 32-bit floats");
+    std::memcpy(&bits, &value, sizeof(bits));
+    hash_u64(hash, bits);
+}
+
+std::string paint_resource_key(const std::size_t volume_id,
+                               const ModelVolume& volume,
+                               const std::vector<indexed_triangle_set>& facets_per_state) {
+    // Include the original mesh as well as the native split output. A volume
+    // ID may be restored from history, while either mesh or facet data can
+    // have changed since its previous renderer resource was retained.
+    std::uint64_t hash = 14695981039346656037ull;
+    hash_u64(hash, volume_id);
+    hash_u64(hash, volume.mmu_segmentation_facets.timestamp());
+    const auto& source = volume.mesh().its;
+    hash_u64(hash, source.vertices.size());
+    for (const auto& vertex : source.vertices) {
+        hash_float(hash, vertex.x());
+        hash_float(hash, vertex.y());
+        hash_float(hash, vertex.z());
+    }
+    hash_u64(hash, source.indices.size());
+    for (const auto& triangle : source.indices)
+        for (unsigned corner = 0; corner < 3; ++corner)
+            hash_u64(hash, static_cast<std::uint64_t>(triangle[corner]));
+
+    hash_u64(hash, facets_per_state.size());
+    for (std::size_t state = 0; state < facets_per_state.size(); ++state) {
+        const auto& facets = facets_per_state[state];
+        hash_u64(hash, state);
+        hash_u64(hash, facets.vertices.size());
+        for (const auto& vertex : facets.vertices) {
+            hash_float(hash, vertex.x());
+            hash_float(hash, vertex.y());
+            hash_float(hash, vertex.z());
+        }
+        hash_u64(hash, facets.indices.size());
+        for (const auto& triangle : facets.indices)
+            for (unsigned corner = 0; corner < 3; ++corner)
+                hash_u64(hash, static_cast<std::uint64_t>(triangle[corner]));
+    }
+
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string suffix(16, '0');
+    for (unsigned i = 0; i < suffix.size(); ++i)
+        suffix[i] = digits[(hash >> ((suffix.size() - i - 1) * 4)) & 0xf];
+    return std::to_string(volume_id) + ":" + suffix;
+}
+
+void append_paint_state(const indexed_triangle_set& facets,
+                        const std::uint32_t state_id,
+                        std::vector<float>& positions,
+                        std::vector<std::uint32_t>& indices,
+                        json& draw_groups) {
+    if (facets.indices.empty()) return;
+    if (facets.indices.size() > std::numeric_limits<std::size_t>::max() / 3)
+        throw Slic3r::RuntimeError("paint facet index count overflow");
+
+    const std::size_t base_vertex = positions.size() / 3;
+    const std::size_t max_vertex_index = std::numeric_limits<std::uint32_t>::max();
+    if (base_vertex > max_vertex_index || facets.vertices.size() > max_vertex_index - base_vertex)
+        throw Slic3r::RuntimeError("paint geometry exceeds 32-bit index range");
+    if (facets.vertices.size() > (std::numeric_limits<std::size_t>::max() - positions.size()) / 3 ||
+        facets.indices.size() > (std::numeric_limits<std::size_t>::max() - indices.size()) / 3)
+        throw Slic3r::RuntimeError("paint geometry buffer size overflow");
+    const std::size_t start_index = indices.size();
+
+    positions.reserve(positions.size() + facets.vertices.size() * 3);
+    for (const auto& vertex : facets.vertices) {
+        positions.push_back(vertex.x());
+        positions.push_back(vertex.y());
+        positions.push_back(vertex.z());
+    }
+    indices.reserve(indices.size() + facets.indices.size() * 3);
+    for (const auto& triangle : facets.indices) {
+        for (unsigned corner = 0; corner < 3; ++corner) {
+            const std::size_t local_index = static_cast<std::size_t>(triangle[corner]);
+            if (local_index >= facets.vertices.size())
+                throw Slic3r::RuntimeError("paint facet contains an invalid vertex index");
+            indices.push_back(static_cast<std::uint32_t>(base_vertex + local_index));
+        }
+    }
+    draw_groups.push_back(json{{"state_id", state_id}, {"start_index", start_index},
+                               {"index_count", facets.indices.size() * 3}});
+}
+
+json parse_known_paint_keys(const json& value) {
+    if (!value.is_array()) return nullptr;
+    json keys = json::array();
+    for (const auto& key : value) {
+        if (!key.is_string()) return nullptr;
+        keys.push_back(key.get<std::string>());
+    }
+    return keys;
+}
+
+ModelGeometryReply model_mesh_json(const std::set<std::size_t>* object_ids = nullptr,
+                                  const std::set<std::size_t>& known_volume_ids = {},
+                                  const std::set<std::string>& known_paint_keys = {}) {
     json objects = json::array();
     json geometries = json::array();
+    json paint_geometries = json::array();
+    ModelGeometryReply reply;
     auto& model = state().model;
     for (size_t oi = 0; oi < model.objects.size(); ++oi) {
         const auto& object = model.objects[oi];
         if (object_ids != nullptr && object_ids->find(object->id().id) == object_ids->end()) continue;
+        if (object->instances.empty()) continue;
         // LOCAL (volume-transformed, instance-untouched) vertices: the
         // instance transform is reported separately and applied by Three.
         for (size_t vi = 0; vi < object->volumes.size(); ++vi) {
             const auto& volume_object = object->volumes[vi];
             const auto& its = volume_object->mesh().its;
-            if (!object->instances.empty() && !known_volume_ids.count(volume_object->id().id)) {
+            if (!known_volume_ids.count(volume_object->id().id)) {
                 MallocBuffer vbuf;
                 MallocBuffer ibuf;
                 for (const auto& vertex : its.vertices) {
@@ -195,26 +317,63 @@ json model_mesh_json(const std::set<std::size_t>* object_ids = nullptr,
                 }
                 const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
                 const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
-                vbuf.release();
-                ibuf.release();
                 geometries.push_back(json{{"volume_id", volume_object->id().id},
                     {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
                     {"index_ptr", iptr}, {"index_count", its.indices.size() * 3}});
+                reply.buffers.push_back(std::move(vbuf));
+                reply.buffers.push_back(std::move(ibuf));
             }
+
+            std::optional<std::string> paint_key;
+            std::vector<indexed_triangle_set> facets_per_state;
+            volume_object->mmu_segmentation_facets.get_facets(*volume_object, facets_per_state);
+            const bool is_painted = std::any_of(facets_per_state.begin() + std::min<std::size_t>(1, facets_per_state.size()),
+                facets_per_state.end(), [](const indexed_triangle_set& facets) { return !facets.indices.empty(); });
+            if (is_painted) {
+                paint_key = paint_resource_key(volume_object->id().id, *volume_object, facets_per_state);
+                if (!known_paint_keys.count(*paint_key)) {
+                    std::vector<float> paint_positions;
+                    std::vector<std::uint32_t> paint_indices;
+                    json draw_groups = json::array();
+                    for (std::size_t state_id = 0; state_id < facets_per_state.size(); ++state_id)
+                        append_paint_state(facets_per_state[state_id], static_cast<std::uint32_t>(state_id),
+                                           paint_positions, paint_indices, draw_groups);
+                    if (paint_positions.empty() || paint_indices.empty() || draw_groups.empty())
+                        throw Slic3r::RuntimeError("painted model volume produced empty facet geometry");
+
+                    MallocBuffer vertex_buffer;
+                    MallocBuffer index_buffer;
+                    vertex_buffer.append(paint_positions.data(), paint_positions.size() * sizeof(float));
+                    index_buffer.append(paint_indices.data(), paint_indices.size() * sizeof(std::uint32_t));
+                    const std::uintptr_t vertex_ptr = reinterpret_cast<std::uintptr_t>(vertex_buffer.data);
+                    const std::uintptr_t index_ptr = reinterpret_cast<std::uintptr_t>(index_buffer.data);
+                    paint_geometries.push_back(json{{"paint_key", *paint_key}, {"volume_id", volume_object->id().id},
+                        {"vertex_ptr", vertex_ptr}, {"vertex_count", paint_positions.size() / 3},
+                        {"index_ptr", index_ptr}, {"index_count", paint_indices.size()},
+                        {"draw_groups", std::move(draw_groups)}});
+                    reply.buffers.push_back(std::move(vertex_buffer));
+                    reply.buffers.push_back(std::move(index_buffer));
+                }
+            }
+
             for (size_t ii = 0; ii < object->instances.size(); ++ii) {
                 const auto& instance_object = object->instances[ii];
                 const auto& instance = instance_object->get_transformation();
                 const auto& volume = volume_object->get_transformation();
-                objects.push_back(json{{"object_id", object->id().id},
+                json renderable{{"object_id", object->id().id},
                     {"volume_id", volume_object->id().id}, {"instance_id", instance_object->id().id},
                     {"object_idx", oi}, {"volume_idx", vi}, {"instance_idx", ii},
                     {"offset", {instance.get_offset().x(), instance.get_offset().y(), instance.get_offset().z()}},
                     {"instance_transform", transform_json(instance)},
-                    {"volume_transform", transform_json(volume)}});
+                    {"volume_transform", transform_json(volume)},
+                    {"paint_key", paint_key ? json(*paint_key) : json(nullptr)}};
+                objects.push_back(std::move(renderable));
             }
         }
     }
-    return json{{"ok", true}, {"renderables", std::move(objects)}, {"geometries", std::move(geometries)}};
+    reply.value = json{{"ok", true}, {"renderables", std::move(objects)},
+        {"geometries", std::move(geometries)}, {"paint_geometries", std::move(paint_geometries)}};
+    return reply;
 }
 }
 
@@ -1359,7 +1518,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
 
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     try {
-        return dup_json(model_mesh_json().dump());
+        ModelGeometryReply response = model_mesh_json();
+        char* result = dup_json(response.value.dump());
+        if (result != nullptr) response.transfer_buffers();
+        return result;
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1376,10 +1538,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_id
         const json request = json::parse(object_ids_cstr ? object_ids_cstr : "");
         const json& requested = request.at("object_ids");
         const auto& known_json = request.at("known_volume_ids");
+        const json known_paint_json = request.contains("known_paint_keys")
+            ? parse_known_paint_keys(request.at("known_paint_keys")) : json::array();
         const auto known = known_json.is_array() && known_json.empty()
             ? std::optional<std::vector<std::size_t>>(std::vector<std::size_t>{})
             : parse_positive_id_array(known_json);
         if (!known) return error_json("scene patch known volume ids must be positive integers");
+        if (!known_paint_json.is_array())
+            return error_json("scene patch known paint keys must be strings");
         if (!requested.is_array()) return error_json("scene patch object ids must be an array");
         std::set<std::size_t> object_ids;
         for (const auto& value : requested) {
@@ -1394,12 +1560,22 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_id
                 return error_json("scene patch object ids must be positive integers");
             object_ids.insert(static_cast<std::size_t>(id));
         }
+        std::set<std::string> known_paint_keys;
+        for (const auto& key : known_paint_json) {
+            const std::string native_key = key.get<std::string>();
+            if (native_key.empty() || native_key.size() > 128)
+                return error_json("scene patch known paint keys must be non-empty and bounded");
+            known_paint_keys.insert(native_key);
+        }
         json object_order = json::array();
         for (const auto* object : state().model.objects) object_order.push_back(object->id().id);
-        json response = model_mesh_json(&object_ids, std::set<std::size_t>(known->begin(), known->end()));
-        response["object_order"] = std::move(object_order);
-        response["objects"] = model_structure_json_filtered(&object_ids);
-        return dup_json(response.dump());
+        ModelGeometryReply response = model_mesh_json(&object_ids,
+            std::set<std::size_t>(known->begin(), known->end()), known_paint_keys);
+        response.value["object_order"] = std::move(object_order);
+        response.value["objects"] = model_structure_json_filtered(&object_ids);
+        char* result = dup_json(response.value.dump());
+        if (result != nullptr) response.transfer_buffers();
+        return result;
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
