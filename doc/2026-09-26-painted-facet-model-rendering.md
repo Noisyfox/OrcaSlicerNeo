@@ -36,6 +36,22 @@ and [Workspace Prepare and Preview Modes](../spec/Workspace%20Prepare%20and%20Pr
 - The original, unpainted mesh is the sole source of any model BVH and model
   picking. The painted geometry is display-only and has no BVH.
 
+## Accepted data and lifecycle rules
+
+- Extend the existing model-loading response so one Worker interaction carries
+  the original geometry and the current facet-paint geometry or references to
+  versions already retained by the renderer. Publish a painted model only when
+  both required resources are ready; fetching paint in a second interaction is
+  not part of this design.
+- Apply that same response rule to initial loading, incremental scene patches,
+  and history restoration. A response must identify the current paint version
+  independently of the original mesh version so the renderer cannot reuse stale
+  paint after a paint-only change.
+- A paint-only change rebuilds the paint display resource while retaining the
+  original geometry and its BVH. A source-mesh change may rebuild both.
+- Instances of the same model volume share one paint geometry resource and
+  retain separate instance transforms and display state.
+
 ## OrcaSlicer reference
 
 OrcaSlicer's ordinary `GLVolume::simple_render` reads
