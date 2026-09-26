@@ -6,6 +6,7 @@ import type { LoadedObject } from './useModelLoader';
 import { glVolumeCollection } from './GLVolume';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 import { BedPlate, getPrintableAreaBounds, normalizePrintableArea } from './BedPlate';
 import { BVH_RAYCAST, GLVolumeMesh, NO_RAYCAST } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
@@ -51,8 +52,8 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
 }) {
   const sceneInteraction = useSceneInteraction();
   const previewVolumes = useMemo(
-    () => isPreviewTab(activeTab) ? previewVolumesForCurrentPlate(glVolumes, plateSession) : glVolumes,
-    [activeTab, glVolumes, plateSession],
+    () => isPreviewTab(activeTab) ? previewVolumesForCurrentPlate(glVolumes, plateSession, structure) : glVolumes,
+    [activeTab, glVolumes, plateSession, structure],
   );
   const previousActiveTabRef = useRef<'prepare' | 'preview' | null>(null);
   useEffect(() => {
@@ -117,7 +118,44 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           bounds: { minX: number; maxX: number; minY: number; maxY: number };
         }>;
         modelWorldCenters?: () => Array<[number, number, number]>;
-        modelMaterialColours?: () => Array<{ id: string; objectIndex: number; volumeIndex: number; stateId: number; colour: string }>;
+        modelMaterialColours?: () => Array<{
+          id: string;
+          objectIndex: number;
+          volumeIndex: number;
+          stateId: number;
+          colour: string;
+          opacity: number;
+          transparent: boolean;
+          depthWrite: boolean;
+        }>;
+        previewFirstCommitPaintMaterialsByVolume?: Record<string, Array<{
+          id: string;
+          objectIndex: number;
+          volumeIndex: number;
+          instanceIndex: number;
+          stateId: number;
+          colour: string;
+          opacity: number;
+          transparent: boolean;
+          depthWrite: boolean;
+        }>>;
+        previewFirstCommitPaintMaterials?: () => Array<{
+          id: string;
+          objectIndex: number;
+          volumeIndex: number;
+          instanceIndex: number;
+          stateId: number;
+          colour: string;
+          opacity: number;
+          transparent: boolean;
+          depthWrite: boolean;
+        }>;
+        modelFilamentState?: () => {
+          pendingKind: string | null;
+          rejected: string | null;
+          slots: Array<{ slot: number; colour: string }>;
+          partAssignments: Array<{ id: number; effectiveSlot: number }>;
+        };
         modelPaintResources?: () => Array<{
           id: string;
           objectIndex: number;
@@ -269,8 +307,16 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         return [center.x, center.y, center.z];
       }),
       modelMaterialColours: () => {
-        const colours: Array<{ id: string; objectIndex: number; volumeIndex: number; stateId: number; colour: string }> = [];
-        if (activeTab !== 'prepare') return colours;
+        const colours: Array<{
+          id: string;
+          objectIndex: number;
+          volumeIndex: number;
+          stateId: number;
+          colour: string;
+          opacity: number;
+          transparent: boolean;
+          depthWrite: boolean;
+        }> = [];
         scene.traverse((object) => {
           if (object.userData.orcaRaycastRole !== MODEL_BODY_RAYCAST) return;
           const volume = object.userData.orcaVolume as LoadedObject | undefined;
@@ -285,11 +331,17 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
               volumeIndex: volume.buffer.volumeIdx,
               stateId: volume.paintDrawGroups[materialIndex]?.stateId ?? 0,
               colour: `#${material.color.getHexString()}`,
+              opacity: material.opacity,
+              transparent: material.transparent,
+              depthWrite: material.depthWrite,
             });
           });
         });
         return colours;
       },
+      previewFirstCommitPaintMaterials: () => Object.values(
+        w.__orcaE2e?.previewFirstCommitPaintMaterialsByVolume ?? {},
+      ).flat(),
       modelPaintResources: () => glVolumes.map((volume) => {
         const surfaces: { display: THREE.Object3D | null; originalPick: THREE.Object3D | null; visibleMesh: THREE.Mesh | null } = {
           display: null,
@@ -322,6 +374,19 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           originalPickUsesBvhRaycast: surfaces.originalPick?.raycast === BVH_RAYCAST,
         };
       }),
+      modelFilamentState: () => {
+        const state = useFilamentSessionStore.getState();
+        const snapshot = state.snapshot;
+        return {
+          pendingKind: state.pendingKind,
+          rejected: state.rejected,
+          slots: snapshot?.slots.map((slot) => ({ slot: slot.slot, colour: slot.colour.effective })) ?? [],
+          partAssignments: snapshot?.assignments.parts.map((assignment) => ({
+            id: assignment.id,
+            effectiveSlot: assignment.effectiveSlot,
+          })) ?? [],
+        };
+      },
       modelSelectionIdentities: () => glVolumes.filter((volume) => sceneInteraction.selection.has(volume)).map((volume) => ({
         id: volume.id,
         objectId: volume.buffer.objectId,
@@ -462,6 +527,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             bedPlateStates: _beds,
             modelWorldCenters: _models,
             modelMaterialColours: _modelColours,
+            previewFirstCommitPaintMaterials: _previewFirstCommitPaintMaterials,
             modelPaintResources: _modelPaintResources,
             modelSelectionIdentities: _modelSelectionIdentities,
             previewToolpathWorldBounds: _toolpathBounds,
@@ -487,6 +553,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             bedPlateStates: _beds,
             modelWorldCenters: _models,
             modelMaterialColours: _modelColours,
+            previewFirstCommitPaintMaterials: _previewFirstCommitPaintMaterials,
             modelPaintResources: _modelPaintResources,
             modelSelectionIdentities: _modelSelectionIdentities,
             previewToolpathWorldBounds: _toolpathBounds,

@@ -174,6 +174,7 @@ export function preparePaintMaterialOverlays(
   snapshot: FilamentSessionSnapshot | null | undefined,
   plateSession?: PlateSessionSnapshot | null,
   selected = false,
+  transparent = false,
 ): PreparePaintMaterialOverlay[] {
   const { object, part } = stableVolume(volume, structure);
   const assignment = object && part
@@ -194,7 +195,7 @@ export function preparePaintMaterialOverlays(
     // Match prepareColourForVolume's existing out-of-bounds shading order so
     // selected volumes brighten the same already-dimmed colour as before.
     const baseColour = dimmed ? shade(configuredColour, 0.52) : configuredColour;
-    return { stateId, ...resolvePrepareMaterial({ baseColour, selected }) };
+    return { stateId, ...resolvePrepareMaterial({ baseColour, selected, transparent }) };
   });
 }
 

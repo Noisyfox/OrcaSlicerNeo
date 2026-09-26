@@ -101,6 +101,35 @@ describe('Prepare colour projection', () => {
     ]);
   });
 
+  it('keeps Prepare paint colours in Preview while applying only the transparent shell overlay', () => {
+    const twoSlots = {
+      ...snapshot,
+      slots: [
+        { ...snapshot.slots[0], slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
+        { ...snapshot.slots[0], slot: 2, colour: { effective: '#123456', provenance: 'user' } },
+      ],
+      assignments: {
+        ...snapshot.assignments,
+        parts: [{ target: 'part', id: 20, objectId: 10, explicitSlot: 2, effectiveSlot: 2, inherited: false }],
+      },
+    } as unknown as FilamentSessionSnapshot;
+    const groups = [
+      { stateId: 0, startIndex: 0, indexCount: 3 },
+      { stateId: 1, startIndex: 3, indexCount: 3 },
+    ];
+    const prepare = preparePaintMaterialOverlays(volume(0), groups, structure, twoSlots);
+    const preview = preparePaintMaterialOverlays(volume(0), groups, structure, twoSlots, null, false, true);
+
+    expect(preview.map(({ stateId, colour }) => [stateId, colour]))
+      .toEqual(prepare.map(({ stateId, colour }) => [stateId, colour]));
+    expect(preview).toEqual(prepare.map((material) => ({
+      ...material,
+      opacity: 0.15,
+      transparent: true,
+      depthWrite: false,
+    })));
+  });
+
   it('applies selection and out-of-bounds overlays to every paint group', () => {
     const groups = [
       { stateId: 0, startIndex: 0, indexCount: 3 },

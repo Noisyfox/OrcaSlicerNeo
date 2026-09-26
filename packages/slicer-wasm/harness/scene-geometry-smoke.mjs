@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
-import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 
 const profiles = resolve(import.meta.dirname, '../../profile-resources/dist');
 const factory = await loadModuleFactory(process.argv[2]);
@@ -63,23 +63,6 @@ function fullModel() {
   finally { freeGeometryBuffers(result); }
   return result;
 }
-function paintedSplitFixture() {
-  const entries = readZipEntries(buildIndependentReader3mf());
-  const modelEntry = entries.find((entry) => entry.name === '3D/3dmodel.model');
-  assert.ok(modelEntry, 'paint fixture must contain its 3MF model');
-  const source = new TextDecoder().decode(modelEntry.content);
-  // 401 encodes a split root (side nibble 1) followed by state 0 and state 1 children.
-  const states = ['401', '', '4', '8', '0C', '1C', '4', '8', '0C', '1C', '4', '8'];
-  let triangle = 0;
-  const model = source.replace(/<triangle\b[^>]*\/>/g, (original) => {
-    const state = states[triangle++];
-    return state ? original.replace('/>', ` paint_color="${state}"/>`) : original;
-  });
-  assert.equal(triangle, states.length, 'paint fixture must annotate each cube facet deterministically');
-  return writeStoredZip(entries.map((entry) => entry.name === modelEntry.name
-    ? { ...entry, content: new TextEncoder().encode(model) }
-    : entry));
-}
 assert.equal(call('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
 call('orc_history_reset', ['string'], [JSON.stringify(context)]);
 const added = edit('Cube', () => call('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']));
@@ -138,17 +121,27 @@ call('orc_rename_object', ['number', 'string'], [objectId, 'Nested']);
 assert.equal(commit(inner).scene_delta, null);
 assert.deepEqual(commit(outer).scene_delta.object_ids, [objectId]);
 
-const paintedFixture = paintedSplitFixture();
+const paintedFixtureDir = resolve(import.meta.dirname, '../fixtures/painted-facet');
+const paintedFixtureManifest = JSON.parse(await readFile(resolve(paintedFixtureDir, 'manifest.json'), 'utf8'));
+const paintedFixture = new Uint8Array(await readFile(resolve(paintedFixtureDir, paintedFixtureManifest.path)));
 const projectPtr = module._malloc(paintedFixture.length);
 module.HEAPU8.set(paintedFixture, projectPtr);
 let importedPaintFixture;
 try {
   importedPaintFixture = call('orc_load_project', ['pointer', 'number', 'number', 'string'],
-    [projectPtr, paintedFixture.length, 0, 'painted-facet-fixture.3mf']);
+    [projectPtr, paintedFixture.length, 0, 'painted-facet-instances.3mf']);
 } finally {
   module._free(projectPtr);
 }
 assert.equal(importedPaintFixture.ok, true, JSON.stringify(importedPaintFixture));
+assert.equal(importedPaintFixture.mode, 'project', 'the fixture must take the full project load path');
+const paintedPlateSession = call('orc_get_plate_session_snapshot');
+assert.equal(paintedPlateSession.ok, true, JSON.stringify(paintedPlateSession));
+const paintedPlate = paintedPlateSession.plates.find((plate) => plate.plate_id === paintedPlateSession.current_plate_id);
+assert.ok(paintedPlate, 'painted fixture must restore its current plate');
+assert.equal(paintedPlate.instance_ids.length, 2, 'painted fixture must restore both placed instances');
+assert.deepEqual(paintedPlate.out_of_bounds_instance_ids, [],
+  'both painted fixture instances must start inside the positive-coordinate H2D bed');
 const paintedFull = fullModel();
 const paintedResource = paintedFull.paint_geometries[0];
 assert.ok(paintedResource, `the imported 3MF fixture must expose native MMU paint geometry: ${JSON.stringify({
@@ -157,8 +150,12 @@ assert.ok(paintedResource, `the imported 3MF fixture must expose native MMU pain
   originalVolumes: paintedFull.geometries.map(({ volume_id, index_count }) => ({ volume_id, index_count })),
   paintCount: paintedFull.paint_geometries.length,
 })}`);
+assert.equal(paintedFull.renderables.length, 2,
+  'the imported project must load both instances of its painted model');
 assert.equal(paintFacetDecodeCount(), 1, 'initial paint load must build native split facets once');
 const paintedStates = paintedResource.draw_groups.map((group) => group.state_id);
+assert.deepEqual([...new Set(paintedStates)].sort((a, b) => a - b), paintedFixtureManifest.expected.paintStates,
+  'native imported paint groups must match the fixture manifest');
 assert.ok(paintedStates.includes(0), 'paint geometry must retain the unpainted state 0 group');
 assert.ok(paintedStates.some((state) => state > 0), 'paint geometry must contain a positive filament state');
 const originalResource = paintedFull.geometries.find((geometry) => geometry.volume_id === paintedResource.volume_id);
@@ -168,6 +165,8 @@ assert.ok(paintedResource.index_count > originalResource.index_count,
 const paintedRenderable = paintedFull.renderables.find((entry) => entry.paint_key === paintedResource.paint_key);
 assert.ok(paintedRenderable, 'renderables must reference their paint resource version');
 assert.ok(paintedRenderable.paint_key.includes(':'), 'paint version key must be independent of the original volume key');
+assert.equal(new Set(paintedFull.renderables.map((entry) => entry.instance_id)).size, 2,
+  'two imported instances must retain distinct instance identities');
 
 assert.equal(call('orc_add_instance', ['number'], [paintedRenderable.object_id]).ok, true);
 const paintedInstances = patch([paintedRenderable.object_id]);
@@ -188,5 +187,5 @@ assert.equal(paintKnown.paint_geometries.some((geometry) => geometry.volume_id =
 assert.equal(paintFacetDecodeCount(), 3,
   'a retained paint key must skip native facet reconstruction while the original mesh is requested');
 
-console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, multi-instance dedup, independent resource reuse, Undo/Redo');
+console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, imported multi-instance dedup, independent resource reuse, Undo/Redo');
 process.exit(0);
