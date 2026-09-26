@@ -634,7 +634,7 @@ export interface ModelTransform {
   ];
 }
 
-/** Native geometry resource; identity is client session plus ModelVolume ID. */
+/** Original native mesh resource; identity is client session plus ModelVolume ID. */
 export interface ModelGeometry {
   geometryKey: string;
   volumeId: number;
@@ -643,16 +643,35 @@ export interface ModelGeometry {
   vertexCount: number;
   indexCount: number;
 }
+export interface ModelPaintDrawGroup {
+  stateId: number;
+  startIndex: number;
+  indexCount: number;
+}
+/** Split MMU facet geometry; its version is independent of the source mesh key. */
+export interface ModelPaintGeometry {
+  paintGeometryKey: string;
+  volumeId: number;
+  positions: Float32Array;
+  indices: Uint32Array;
+  vertexCount: number;
+  indexCount: number;
+  drawGroups: ModelPaintDrawGroup[];
+}
 export interface ModelRenderable extends Omit<ModelObjectBuffer, 'positions' | 'indices' | 'vertexCount' | 'indexCount'> {
   geometryKey: string;
+  /** Null means that this model volume has no MMU facet painting. */
+  paintGeometryKey: string | null;
 }
 export interface NativeModelObjectBuffer extends ModelObjectBuffer {
   geometryKey: string;
+  paintGeometryKey: string | null;
 }
 
 export interface ModelMeshResult {
   ok: boolean;
   objects: NativeModelObjectBuffer[];
+  paintGeometries: ModelPaintGeometry[];
   error?: string;
 }
 
@@ -663,6 +682,7 @@ export interface ModelScenePatchResult {
   objects: ModelObjectStructure[];
   meshes: ModelRenderable[];
   geometries: ModelGeometry[];
+  paintGeometries: ModelPaintGeometry[];
   error?: string;
 }
 
@@ -1454,7 +1474,8 @@ export interface SlicerClient {
   ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Materialize only objects touched by a native history SceneDelta. */
-  getModelScenePatch(objectIds: readonly number[], knownGeometryKeys: readonly string[]): Promise<ModelScenePatchResult>;
+  getModelScenePatch(objectIds: readonly number[], knownGeometryKeys: readonly string[],
+                     knownPaintGeometryKeys?: readonly string[]): Promise<ModelScenePatchResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
   getModelStructure(): Promise<ModelStructureResult>;
   /** Delete whole objects by their stable ObjectIDs. */

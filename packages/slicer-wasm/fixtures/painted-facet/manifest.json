@@ -1,0 +1,17 @@
+{
+  "id": "painted-facet.preview-shell.v1",
+  "path": "painted-facet-instances.3mf",
+  "builder": "packages/slicer-wasm/harness/painted-facet-fixture-builder.mjs",
+  "sourceFixture": "packages/slicer-wasm/fixtures/multi-filament/independent-reader-basic.3mf",
+  "expected": {
+    "bytes": 5791,
+    "sha256": "10471af07fd7a7c4090d2c56a89874c9fa37a492df2f17f2b78d492e76b3e503",
+    "objectCount": 1,
+    "instanceCount": 2,
+    "plateCount": 1,
+    "slotCount": 2,
+    "triangleCount": 12,
+    "splitPaintState": "401",
+    "paintStates": [0, 1, 2, 3, 4]
+  }
+}

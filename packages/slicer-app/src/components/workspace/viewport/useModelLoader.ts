@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection, rejectGLVolumeRevision } from './GLVolume';
+import { projectFullModelMesh } from './modelMeshProjection';
 
 export type LoadedObject = GLVolume;
 
@@ -26,9 +27,7 @@ export function useModelLoader(): LoadedObject[] {
       const loaded: LoadedObject[] = [];
       try {
         const res = await platform.runtime.getModelMesh();
-        if (!res.ok) throw new Error(res.error ?? 'getModelMesh failed');
-        for (const buffer of res.objects)
-          loaded.push(new GLVolume(buffer, { kind: 'shared', key: buffer.geometryKey }));
+        loaded.push(...projectFullModelMesh(res));
         if (disposed || useSettingsStore.getState().modelRevision !== requestedRevision) {
           // The load finished after unmount/change — nothing consumes these
           // geometries; dispose them instead of leaking (review Minor 1).
@@ -38,6 +37,24 @@ export function useModelLoader(): LoadedObject[] {
           // render — the previous scene stays visible while the fetch is in
           // flight, instead of flashing empty on every revision bump.
           glVolumeCollection.replace(loaded, requestedRevision);
+          const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+          if (env.MODE === 'e2e' || env.VITE_E2E === '1') {
+            const w = window as unknown as { __orcaE2e?: Record<string, unknown> };
+            w.__orcaE2e = {
+              ...w.__orcaE2e,
+              modelMeshResponse: () => ({
+                objects: res.objects.map((object) => ({
+                  volumeId: object.volumeId, objectId: object.objectId, instanceId: object.instanceId,
+                  geometryKey: object.geometryKey, paintGeometryKey: object.paintGeometryKey,
+                })),
+                paintGeometries: res.paintGeometries.map((paint) => ({
+                  volumeId: paint.volumeId, paintGeometryKey: paint.paintGeometryKey,
+                  indexCount: paint.indexCount, drawGroups: paint.drawGroups,
+                })),
+              }),
+              previewFirstCommitPaintMaterialsByVolume: {},
+            };
+          }
         }
       } catch (err) {
         loaded.forEach((volume) => volume.dispose());

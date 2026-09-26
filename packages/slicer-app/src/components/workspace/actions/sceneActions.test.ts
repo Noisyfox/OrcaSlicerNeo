@@ -40,7 +40,7 @@ function platformFor(fileName: string, result: { ok: boolean; error?: string }) 
       runtime: {
         addModel,
         runProjectHistoryTransaction,
-        getModelScenePatch: vi.fn(async () => ({ ok: true, objectOrder: [1], objects: [{ id: 1, index: 0, name: 'fixture', printable: true, instanceCount: 0, volumes: [], instances: [] }], meshes: [], geometries: [] })),
+        getModelScenePatch: vi.fn(async () => ({ ok: true, objectOrder: [1], objects: [{ id: 1, index: 0, name: 'fixture', printable: true, instanceCount: 0, volumes: [], instances: [] }], meshes: [], geometries: [], paintGeometries: [] })),
         getHistoryStatus: vi.fn(async () => ({ dirty: false })),
       },
     } as unknown as PlatformCapabilities,

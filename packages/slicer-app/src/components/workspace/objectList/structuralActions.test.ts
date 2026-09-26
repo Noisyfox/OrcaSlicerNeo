@@ -36,7 +36,7 @@ function makeRuntime(): SlicerRuntime {
     separateInstances: vi.fn(async () => ({ ok: true, newObjectIds: [21] })),
     addInstance: vi.fn(async () => ({ ok: true, objectId: 1, instanceId: 22 })),
     removeInstance: vi.fn(async () => ({ ok: true })),
-    getModelScenePatch: vi.fn(async () => ({ ok: true, objectOrder: [1], objects: structure.objects, meshes: [], geometries: [] })),
+    getModelScenePatch: vi.fn(async () => ({ ok: true, objectOrder: [1], objects: structure.objects, meshes: [], geometries: [], paintGeometries: [] })),
     getModelStructure: vi.fn(async () => structure),
     getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),

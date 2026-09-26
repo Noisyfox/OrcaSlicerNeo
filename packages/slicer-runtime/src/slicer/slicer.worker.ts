@@ -15,6 +15,7 @@ const mockInstanceCount = Number(import.meta.env.VITE_MOCK_INSTANCE_COUNT ?? 1);
 const mockVolumeCount = Number(import.meta.env.VITE_MOCK_VOLUME_COUNT ?? 1);
 const mockPresetTransitionDelayMs = Math.max(0, Number(import.meta.env.VITE_MOCK_PRESET_TRANSITION_DELAY_MS ?? 0) || 0);
 const mockPrimeTowerFixture = import.meta.env.VITE_MOCK_PRIME_TOWER === '1';
+const mockPaintedFacetFixture = import.meta.env.VITE_MOCK_PAINTED_FACET_FIXTURE === '1';
 const mockPrimeTowerWarnings = import.meta.env.VITE_MOCK_PRIME_TOWER_WARNINGS === '1';
 const realProjectProfileBuild = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
 
@@ -30,6 +31,7 @@ if (envLogLevel) {
 
 const factory: OrcaModuleFactory = useMock
   ? async () => createMockModule({ instanceCount: mockInstanceCount, volumeCount: mockVolumeCount, primeTowerFixture: mockPrimeTowerFixture,
+    paintedFacetFixture: mockPaintedFacetFixture,
     sliceWarnings: mockPrimeTowerWarnings ? [
       'Prime Tower intersects an exclusion area.', 'Prime Tower is outside the printable area.',
     ] : undefined })

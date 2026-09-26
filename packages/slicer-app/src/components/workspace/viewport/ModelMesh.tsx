@@ -11,11 +11,19 @@ import { EULER_ORDER } from './transformDeltaMath';
 import { acceleratedRaycast } from 'three-mesh-bvh';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
-import { prepareColourForVolume, resolvePrepareMaterial } from './prepareColourProjection';
+import {
+  canRenderPreparePaint,
+  isModelInstanceMarkedUnprintable,
+  prepareColourForVolume,
+  preparePaintMaterialOverlays,
+  resolvePrepareMaterial,
+  resolveUnprintableMaterial,
+} from './prepareColourProjection';
 import { WipeTowerVolume } from './WipeTowerVolume';
 
 const BAND_Z_FUDGE = 0.0005;
 export const BVH_RAYCAST = acceleratedRaycast;
+export const NO_RAYCAST: THREE.Object3D['raycast'] = () => undefined;
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   if (transform.matrix) {
@@ -53,10 +61,19 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   const sceneInteraction = useSceneInteraction();
   const filamentSnapshot = useFilamentSessionStore((state) => state.snapshot);
   const selected = !preview && sceneInteraction.selection.has(data);
+  const markedUnprintable = !preview && !(data instanceof WipeTowerVolume)
+    && isModelInstanceMarkedUnprintable(data, structure);
+  const paintedPrintable = !(data instanceof WipeTowerVolume) && data.paintGeometry !== null
+    && canRenderPreparePaint(data, structure);
   const prepareColour = !preview
     ? prepareColourForVolume(data, structure, filamentSnapshot, plateSession)
     : '#cbd5e1';
-  const material = resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
+  const material = markedUnprintable
+    ? resolveUnprintableMaterial(selected)
+    : resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
+  const paintMaterials = paintedPrintable
+    ? preparePaintMaterialOverlays(data, data.paintDrawGroups, structure, filamentSnapshot, plateSession, selected, preview)
+    : [];
   const scratch = useMemo(() => new THREE.Vector3(), []);
 
   const applySceneTransforms = useCallback(() => {
@@ -74,6 +91,48 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
     applySceneTransforms();
     return sceneInteraction.subscribe(applySceneTransforms);
   }, [applySceneTransforms, data.instanceTransform, data.volumeTransform, dataRevision, sceneInteraction]);
+
+  // Snapshot the first committed Preview materials for integration tests. This
+  // runs after React Three Fiber has attached the materials to the paint mesh,
+  // so the assertion observes the same commit the renderer can first draw.
+  useLayoutEffect(() => {
+    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+    if (!preview || (env.MODE !== 'e2e' && env.VITE_E2E !== '1') || !paintMaterials.length) return;
+    const volumeGroup = volumeGroupRef.current;
+    if (!volumeGroup) return;
+    const paintMesh = volumeGroup.getObjectByName('orca-painted-model-display') as THREE.Mesh | undefined;
+    if (!paintMesh) return;
+    const materials = Array.isArray(paintMesh.material) ? paintMesh.material : [paintMesh.material];
+    const snapshot = materials.flatMap((material, materialIndex) => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) return [];
+      return [{
+        id: data.id,
+        objectIndex: data.buffer.objectIdx,
+        volumeIndex: data.buffer.volumeIdx,
+        instanceIndex: data.buffer.instanceIdx,
+        stateId: data.paintDrawGroups[materialIndex]?.stateId ?? 0,
+        colour: `#${material.color.getHexString()}`,
+        opacity: material.opacity,
+        transparent: material.transparent,
+        depthWrite: material.depthWrite,
+      }];
+    });
+    if (snapshot.length !== paintMaterials.length) return;
+    const w = window as unknown as {
+      __orcaE2e?: {
+        previewFirstCommitPaintMaterialsByVolume?: Record<string, typeof snapshot>;
+      };
+    };
+    const current = w.__orcaE2e?.previewFirstCommitPaintMaterialsByVolume ?? {};
+    if (current[data.id]) return;
+    w.__orcaE2e = {
+      ...w.__orcaE2e,
+      previewFirstCommitPaintMaterialsByVolume: {
+        ...current,
+        [data.id]: snapshot,
+      },
+    };
+  }, [data, paintMaterials, preview]);
 
   const modelMesh = (
     <group ref={volumeGroupRef}>
@@ -112,7 +171,26 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
             <meshStandardMaterial color={band.colour} transparent opacity={band.opacity} depthWrite roughness={0.7}
               polygonOffset polygonOffsetFactor={BAND_Z_FUDGE} />
           </mesh>
-        )) : <mesh geometry={data.geometry} raycast={BVH_RAYCAST}>
+        )) : paintedPrintable && data.paintGeometry ? <>
+          <mesh name="orca-painted-model-display" geometry={data.paintGeometry} raycast={NO_RAYCAST}
+            userData={{ orcaModelSurface: 'paint-display' }}>
+            {paintMaterials.map((paintMaterial, index) => (
+              <meshStandardMaterial
+                key={`${paintMaterial.stateId}-${index}`}
+                attach={`material-${index}`}
+                color={paintMaterial.colour}
+                roughness={0.6}
+                metalness={0.1}
+                side={THREE.DoubleSide}
+                transparent={paintMaterial.transparent}
+                opacity={paintMaterial.opacity}
+                depthWrite={paintMaterial.depthWrite}
+              />
+            ))}
+          </mesh>
+          {!preview && <mesh name="orca-original-model-pick" geometry={data.geometry} raycast={BVH_RAYCAST} visible={false}
+            userData={{ orcaModelSurface: 'original-pick' }} />}
+        </> : <mesh geometry={data.geometry} raycast={BVH_RAYCAST}>
           <meshStandardMaterial
           color={material.colour}
           roughness={0.6}
