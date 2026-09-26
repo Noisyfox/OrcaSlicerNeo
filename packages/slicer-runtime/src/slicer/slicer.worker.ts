@@ -85,7 +85,9 @@ const profileSource = createFetchProfileSource(
 );
 startWorker(factory, undefined, undefined, async (module) => {
   if (useMock) return;
-  await installProfiles(module, profileSource);
+  await installProfiles(module, profileSource, undefined, ({ index, total }) => {
+    self.postMessage({ type: 'startup-progress', text: `Downloading profiles (${index + 1}/${total})...` });
+  });
 }, useMock && mockPresetTransitionDelayMs > 0 ? async (op) => {
   // E2E-only fixture support: production builds never set this mock env var.
   // Delaying just the bridge response makes the UI's stale-picker lock

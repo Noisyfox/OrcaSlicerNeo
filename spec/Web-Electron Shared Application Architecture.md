@@ -288,9 +288,10 @@ reproducible as upstream profiles are added, removed, or reorganized.
 The first release includes all packages and installs every package before
 slicer initialization; it does not defer a vendor package until profile
 selection. A shared startup screen remains visible until the WASM runtime and
-all attempted package installs complete, and shows coarse progress such as
-runtime initialization and system-profile installation. The main application
-is not interactive before that point.
+all attempted package installs complete, and shows a text label for the current
+startup step. Profile downloads include their current package count, such as
+`Downloading profiles (N/Total)...`. The main application is not interactive
+before that point.
 
 Profile packaging is an independent build/CI target. A profile-content change
 generates only the manifest and profile packages; it must not trigger a WASM

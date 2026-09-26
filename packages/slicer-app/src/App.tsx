@@ -86,6 +86,7 @@ function AppContent() {
   })));
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
+  const [bootProgress, setBootProgress] = useState('Loading preferences...');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
   const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'notice' | 'project-confirm' | null>(null);
@@ -431,16 +432,25 @@ function AppContent() {
 
   useEffect(() => {
     let cancelled = false;
+    const unsubscribeStartupProgress = platform.runtime.onStartupProgress?.((text) => {
+      if (!cancelled) setBootProgress(text);
+    });
     (async () => {
       try {
         setBoot('starting');
+        setBootProgress('Loading preferences...');
         const preferences = await platform.preferences.load();
+        if (cancelled) return;
+        setBootProgress('Starting slicer runtime...');
         const init = await platform.runtime.init();
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
+        if (cancelled) return;
+        setBootProgress('Loading slicer settings...');
         const metadata = await platform.runtime.getOptionMetadata();
         const nativeScopedConfig = await platform.runtime.getNativeScopedConfig();
         if (!nativeScopedConfig.ok || nativeScopedConfig.nativeScopedConfig.kind !== 'full')
           throw new Error(nativeScopedConfig.ok ? 'boot scoped configuration is not a full snapshot' : nativeScopedConfig.error);
+        setBootProgress('Restoring profile selections...');
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
@@ -474,7 +484,10 @@ function AppContent() {
         }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      unsubscribeStartupProgress?.();
+    };
   }, [applyNativeScopedConfigTransport, hydrateProfileSnapshot, setMetadata, setError, platform.preferences, platform.runtime]);
 
   useEffect(() => {
@@ -561,7 +574,7 @@ function AppContent() {
                 <p className="break-words text-sm text-muted-foreground" data-testid="startup-error">{bootError}</p>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground" data-testid="startup-progress">Loading slicer runtime and profiles…</p>
+              <p className="text-sm text-muted-foreground" data-testid="startup-progress" role="status" aria-live="polite">{bootProgress}</p>
             )}
           </section>
         </main>

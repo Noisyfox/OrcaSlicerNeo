@@ -9,6 +9,7 @@
 //   main → worker: {type:'request', id, op, args}
 //   worker → main: {type:'response', id, ok, result}
 //   worker → main: {type:'progress', percent, text}   (no id)
+//   worker → main: {type:'startup-progress', text}     (no id)
 // ----------------------------------------------------------------
 import type { SlicerClient, OrcaModuleFactory, PlateSessionMutation, ProjectClosedCallback } from './types';
 import type {
@@ -28,6 +29,7 @@ export type WorkerMessage =
   | { type: 'history-diagnostic'; diagnostic: HistoryWorkerDiagnostic }
   | { type: 'project-closed'; plateSession: PlateSessionMutation }
   | { type: 'progress'; percent: number; text: string }
+  | { type: 'startup-progress'; text: string }
   | { type: 'runtime-state'; threaded: boolean; serialTerminalEpoch: string };
 
 export interface HistoryWorkerDiagnostic {

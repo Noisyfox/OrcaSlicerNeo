@@ -57,10 +57,19 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
   let rejectReady!: (error: unknown) => void;
   const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
   const client = createWorkerClient(options.transport) as SlicerClient;
+  const startupProgressListeners = new Set<(text: string) => void>();
+  options.transport.onMessage((message) => {
+    if (message.type !== 'startup-progress') return;
+    for (const listener of startupProgressListeners) listener(message.text);
+  });
   // Keep lifecycle properties outside the client's Proxy dispatch. Defining
   // `status` on the Proxy itself would still be intercepted as an operation.
   const runtime = Object.create(client) as SlicerRuntime & { ready: Promise<void> };
   runtime.ready = ready;
+  runtime.onStartupProgress = (listener) => {
+    startupProgressListeners.add(listener);
+    return () => startupProgressListeners.delete(listener);
+  };
   Object.defineProperty(runtime, 'status', { enumerable: true, get: () => status });
   const caps = options.capabilities ?? detectRuntimeCapabilities();
   if (selectRuntimeArtifact(caps) === 'unsupported') {
