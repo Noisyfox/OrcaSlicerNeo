@@ -13,9 +13,11 @@ import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client'
 import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 import {
   canRenderPreparePaint,
+  isModelInstanceMarkedUnprintable,
   prepareColourForVolume,
   preparePaintMaterialOverlays,
   resolvePrepareMaterial,
+  resolveUnprintableMaterial,
 } from './prepareColourProjection';
 import { WipeTowerVolume } from './WipeTowerVolume';
 
@@ -57,12 +59,16 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   const sceneInteraction = useSceneInteraction();
   const filamentSnapshot = useFilamentSessionStore((state) => state.snapshot);
   const selected = !preview && sceneInteraction.selection.has(data);
+  const markedUnprintable = !preview && !(data instanceof WipeTowerVolume)
+    && isModelInstanceMarkedUnprintable(data, structure);
   const paintedPrintable = !(data instanceof WipeTowerVolume) && data.paintGeometry !== null
-    && canRenderPreparePaint(data, structure, plateSession);
+    && canRenderPreparePaint(data, structure);
   const prepareColour = !preview
     ? prepareColourForVolume(data, structure, filamentSnapshot, plateSession)
     : '#cbd5e1';
-  const material = resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
+  const material = markedUnprintable
+    ? resolveUnprintableMaterial(selected)
+    : resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
   const paintMaterials = paintedPrintable
     ? preparePaintMaterialOverlays(data, data.paintDrawGroups, structure, filamentSnapshot, plateSession, selected, preview)
     : [];

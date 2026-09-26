@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   canRenderPreparePaint,
+  isModelInstanceMarkedUnprintable,
   prepareColourForVolume,
   preparePaintMaterialOverlays,
   resolvePrepareMaterial,
+  resolveUnprintableMaterial,
 } from './prepareColourProjection';
 import type { FilamentSessionSnapshot, ModelObjectStructure } from '@slicer/client';
 
@@ -71,6 +73,15 @@ describe('Prepare colour projection', () => {
       colour: '#2874bf', opacity: 0.15, transparent: true, depthWrite: false,
     });
     expect(resolvePrepareMaterial({ baseColour: '#123456', disabled: true })).toMatchObject({ opacity: 1, transparent: false, depthWrite: true });
+  });
+
+  it('uses Orca default semi-transparent black for a model marked unprintable', () => {
+    expect(resolveUnprintableMaterial()).toEqual({
+      colour: '#000000', opacity: 0.5, transparent: true, depthWrite: false,
+    });
+    expect(resolveUnprintableMaterial(true)).toEqual({
+      colour: '#404040', opacity: 0.5, transparent: true, depthWrite: false,
+    });
   });
 
   it('resolves painted states through the effective part assignment and numbered slots', () => {
@@ -148,18 +159,31 @@ describe('Prepare colour projection', () => {
     expect(selected[0]?.colour).not.toBe(selected[1]?.colour);
   });
 
-  it('uses the single-colour path for unprintable painted instances', () => {
-    const unprintable = { instances: [{
-      objectIndex: 0, instanceIndex: 0, outOfBounds: false, unprintable: true, member: true,
+  it('keeps painted groups when the model moves completely outside every plate', () => {
+    const groups = [0, 1].map((stateId) => ({ stateId, startIndex: stateId * 3, indexCount: 3 }));
+    const crossing = { instances: [{
+      objectIndex: 0, instanceIndex: 0, outOfBounds: true, unprintable: false, member: true,
     }] } as any;
-    expect(canRenderPreparePaint(volume(0), structure, unprintable)).toBe(false);
-    expect(canRenderPreparePaint(volume(0), [{ ...structure[0]!, printable: false }], null)).toBe(false);
-    expect(canRenderPreparePaint(volume(0), structure, {
-      instances: [{ objectIndex: 0, instanceIndex: 0, outOfBounds: false, unprintable: false, member: false }],
-    } as any)).toBe(true);
+    const fullyOutside = { instances: [{
+      objectIndex: 0, instanceIndex: 0, outOfBounds: false, unprintable: true, member: false,
+    }] } as any;
+
+    expect(canRenderPreparePaint(volume(0), structure)).toBe(true);
+    expect(isModelInstanceMarkedUnprintable(volume(0), structure)).toBe(false);
+    const outsideMaterials = preparePaintMaterialOverlays(volume(0), groups, structure, snapshot, fullyOutside);
+    expect(outsideMaterials).toEqual(preparePaintMaterialOverlays(volume(0), groups, structure, snapshot, crossing));
+    expect(outsideMaterials[0]?.colour).not.toBe(outsideMaterials[1]?.colour);
+    expect(preparePaintMaterialOverlays(volume(0), groups, structure, snapshot, fullyOutside, true))
+      .toEqual(preparePaintMaterialOverlays(volume(0), groups, structure, snapshot, crossing, true));
   });
 
-  it('uses the native instance printable flag when the plate still reports membership', () => {
+  it('uses the single-colour path for an object marked unprintable', () => {
+    const unprintableObject = [{ ...structure[0]!, printable: false }];
+    expect(canRenderPreparePaint(volume(0), unprintableObject)).toBe(false);
+    expect(isModelInstanceMarkedUnprintable(volume(0), unprintableObject)).toBe(true);
+  });
+
+  it('uses the native instance printable flag independently of plate status', () => {
     const twoInstances: ModelObjectStructure[] = [{
       ...structure[0]!,
       instanceCount: 2,
@@ -168,14 +192,9 @@ describe('Prepare colour projection', () => {
         { id: 30, index: 0, printable: true },
       ],
     }];
-    const plateSession = { instances: [{
-      objectId: 10, instanceId: 31, objectIndex: 0, instanceIndex: 1,
-      outOfBounds: false, unprintable: false, member: true,
-    }] } as any;
-
-    expect(plateSession.instances[0]).toMatchObject({ member: true, unprintable: false });
-    expect(canRenderPreparePaint(volume(0, 31, 1), twoInstances, plateSession)).toBe(false);
-    expect(canRenderPreparePaint(volume(0, 999, 1), twoInstances, plateSession)).toBe(false);
-    expect(canRenderPreparePaint(volume(0, 30, 0), twoInstances, plateSession)).toBe(true);
+    expect(canRenderPreparePaint(volume(0, 31, 1), twoInstances)).toBe(false);
+    expect(isModelInstanceMarkedUnprintable(volume(0, 31, 1), twoInstances)).toBe(true);
+    expect(canRenderPreparePaint(volume(0, 999, 1), twoInstances)).toBe(false);
+    expect(canRenderPreparePaint(volume(0, 30, 0), twoInstances)).toBe(true);
   });
 });

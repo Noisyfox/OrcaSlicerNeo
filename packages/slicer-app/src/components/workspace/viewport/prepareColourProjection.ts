@@ -16,6 +16,17 @@ export interface PreparePaintMaterialOverlay extends PrepareMaterialOverlay {
   stateId: number;
 }
 
+/** Orca's default GLVolume::UNPRINTABLE_COLOR is black at 50% opacity.
+ * Selection raises its HSL lightness to 0.25 while preserving alpha. */
+export function resolveUnprintableMaterial(selected = false): PrepareMaterialOverlay {
+  return {
+    colour: selected ? brightenForSelection('#000000') : '#000000',
+    opacity: 0.5,
+    transparent: true,
+    depthWrite: false,
+  };
+}
+
 /** Compose Prepare's slot colour with renderer overlays. Selection brightens
  * the effective slot colour using OrcaSlicer's GLVolume algorithm, while
  * transparency remains an independent overlay; callers cannot accidentally
@@ -148,20 +159,32 @@ function instanceForVolume(
   );
 }
 
-/** Paint is shown only for a printable object instance. An instance-level
- * unprintable override uses the regular single-colour Prepare material. */
-export function canRenderPreparePaint(
+function nativePrintability(
   volume: LoadedObject,
   structure: readonly ModelObjectStructure[],
-  plateSession?: PlateSessionSnapshot | null,
-): boolean {
+) {
   const object = structure.find((entry) => entry.id === volume.buffer.objectId)
     ?? structure.find((entry) => entry.index === volume.buffer.objectIdx);
   const instance = object?.instances.find((entry) => entry.id === volume.buffer.instanceId)
     ?? object?.instances.find((entry) => entry.index === volume.buffer.instanceIdx);
-  return Boolean(object?.printable)
-    && instance?.printable !== false
-    && !instanceForVolume(volume, plateSession)?.unprintable;
+  return { object, instance };
+}
+
+/** Plate membership does not change the model's own printable flag. */
+export function canRenderPreparePaint(
+  volume: LoadedObject,
+  structure: readonly ModelObjectStructure[],
+): boolean {
+  const { object, instance } = nativePrintability(volume, structure);
+  return Boolean(object?.printable) && instance?.printable !== false;
+}
+
+export function isModelInstanceMarkedUnprintable(
+  volume: LoadedObject,
+  structure: readonly ModelObjectStructure[],
+): boolean {
+  const { object, instance } = nativePrintability(volume, structure);
+  return object?.printable === false || instance?.printable === false;
 }
 
 /** Resolve one Prepare material overlay for each native facet-state group.

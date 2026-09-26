@@ -48,6 +48,9 @@ test('Prepare painted model uses original BVH for selection and dragging', async
         volumeIndex: number;
         stateId: number;
         colour: string;
+        opacity: number;
+        transparent: boolean;
+        depthWrite: boolean;
       }> } }).__orcaE2e?.modelMaterialColours?.() ?? [],
     );
     const readCenters = () => page.evaluate(() =>
@@ -136,6 +139,22 @@ test('Prepare painted model uses original BVH for selection and dragging', async
     await page.mouse.up();
     await expect.poll(readCenters, { timeout: 10_000 }).not.toEqual([beforeDrag]);
     await expect.poll(async () => (await readSelection()).map((item) => item.id).sort()).toEqual(expectedSelectedIds);
+
+    // Native printable=false suppresses facet materials and uses Orca's
+    // semi-transparent black default. Restoring printability reveals paint.
+    const objectRow = page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first();
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await page.getByTestId('objectlist-printable').click();
+    await expect.poll(async () => (await readResources())[0]?.visibleUsesOriginalGeometry).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect.poll(readSelection).toHaveLength(0);
+    await expect.poll(async () => (await readColours())[0]).toMatchObject({
+      colour: '#000000', opacity: 0.5, transparent: true, depthWrite: false,
+    });
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await page.getByTestId('objectlist-printable').click();
+    await expect.poll(async () => (await readResources())[0]?.visibleGeometryUuid).toBe(before.paintGeometryUuid);
   } finally {
     await app.close();
   }

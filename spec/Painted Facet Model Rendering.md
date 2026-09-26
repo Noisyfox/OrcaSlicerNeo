@@ -36,10 +36,12 @@ painting already present in the native model, including imported 3MF projects.
   both Prepare and Preview. Loading or restoring the model must not briefly
   show it as a single-colour model while its paint geometry is still being
   prepared.
-- In Prepare, an instance marked unprintable temporarily uses the ordinary
-  single-colour unprintable appearance; its facet painting remains stored.
-  Preview omits unprintable instances from the model shell. A printable model
-  that is out of bounds retains its facet colour groups, with Neo's existing
+- In Prepare, an object or instance marked unprintable temporarily uses Orca's
+  default single-colour unprintable appearance: black at opacity `0.5`, with
+  selection brightening; its facet painting remains stored.
+  Preview omits unprintable instances from the model shell. In Prepare, a
+  printable model retains its facet colour groups whether it crosses a plate
+  boundary or lies entirely outside every plate, with Neo's existing
   out-of-bounds dimming applied to each group.
 - The original, unpainted mesh is the sole source of any model BVH and model
   picking. The painted geometry is display-only and has no BVH.
