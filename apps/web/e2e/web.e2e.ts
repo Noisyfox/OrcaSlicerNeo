@@ -8,9 +8,10 @@ test('Web memory indicator shows a JS-heap plus WASM estimate with shared detail
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   const indicator = page.getByTestId('memory-indicator');
-  await expect(indicator).toHaveText(/^Total memory estimate: \d/, { timeout: 30_000 });
+  await expect(indicator).toHaveText(/^Memory: \d/, { timeout: 30_000 });
   await indicator.click();
   const popup = page.getByTestId('memory-indicator-popup');
+  await expect(popup).toContainText('Total memory estimate');
   await expect(popup).toContainText('Shared runtime diagnostics');
   await expect(popup).toContainText('Renderer JS heap');
   await expect(popup).toContainText('WASM linear-memory capacity');

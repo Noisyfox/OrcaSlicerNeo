@@ -10,7 +10,8 @@ Web hosts.
 ## Accepted behaviour
 
 The right side of the shared status bar shows the current application memory
-figure. Activating it opens a popup with a total and two labelled groups:
+figure with the compact **Memory** label. Activating it opens a popup with the
+full total label and two labelled groups:
 
 - **Platform memory** contains host-provided, additive entries. Electron
   reports the sum of every associated process working set and groups that sum

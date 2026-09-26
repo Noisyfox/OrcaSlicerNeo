@@ -46,7 +46,7 @@ export function MemoryIndicator() {
   }, [refresh]);
 
   const label = state.status === 'available'
-    ? `${memoryTotalLabel(state.sample.totalKind)}: ${formatMemory(state.sample.totalBytes)}`
+    ? `Memory: ${formatMemory(state.sample.totalBytes)}`
     : state.status === 'unavailable' ? 'Memory unavailable' : 'Memory…';
 
   return (
