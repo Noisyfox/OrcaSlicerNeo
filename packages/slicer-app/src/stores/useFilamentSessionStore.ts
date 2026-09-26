@@ -15,6 +15,10 @@ import { applyFilamentMutationResult } from './plateResultLifecycle';
 import { usePlateSessionStore } from './usePlateSessionStore';
 import { enqueueProjectMutationOperation, type ProjectMutationLease } from '../history/projectMutationGate';
 import { projectHistoryStatus } from '../history/projectHistoryStatus';
+import { glVolumeCollection } from '../components/workspace/viewport/GLVolume';
+import { readSceneDeltaProjection } from '../components/workspace/viewport/sceneDeltaProjection';
+import { useObjectListStore } from '../components/workspace/objectList/useObjectListStore';
+import { useSettingsStore } from './useSettingsStore';
 
 /**
  * UI state for the material rack. `snapshot` is always the last complete
@@ -84,6 +88,32 @@ async function readFilamentSnapshot(
   }
 }
 
+/** Slot deletion/merge rewrites native facet states without changing object
+ * membership. Replace only the painted display resources before publishing
+ * the new rack palette, while retaining the original mesh and BVH. */
+async function refreshRemappedPaint(runtime: SlicerClient): Promise<void> {
+  const previous = glVolumeCollection.volumes;
+  const touched = [...new Set(previous.filter((volume) => volume.paintGeometryKey !== null)
+    .map((volume) => volume.buffer.objectId))];
+  if (touched.length === 0) return;
+  const structure = useObjectListStore.getState().structure;
+  const revision = useSettingsStore.getState().modelRevision;
+  const delta = {
+    version: 1 as const,
+    objectIds: touched,
+    volumeIds: [], instanceIds: [], plateIds: [],
+    objectOrder: structure.map((object) => object.id),
+  };
+  const projection = await readSceneDeltaProjection(runtime, delta, structure, previous);
+  if (useSettingsStore.getState().modelRevision !== revision || glVolumeCollection.volumes !== previous) {
+    const retained = new Set(previous);
+    projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
+    throw new Error('filament paint projection was superseded');
+  }
+  projection.apply();
+  glVolumeCollection.patch(projection.volumes, revision);
+}
+
 export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
   snapshot: null,
   pendingKind: null,
@@ -103,6 +133,8 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
       try {
         const result = await command();
         if (result.ok) {
+          if (result.result.mutation.kind === 'delete' || result.result.mutation.kind === 'merge')
+            await refreshRemappedPaint(runtime);
           // The native command and this receipt share one commit. Project it
           // before any dependent session/result publication; do not issue a
           // competing history-status read from this FIFO operation.

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useFilamentSessionStore } from './useFilamentSessionStore';
 import { useSlicerStore } from './useSlicerStore';
-import type { FilamentSessionSnapshot, HistoryStatus, PlateSessionSnapshot, SlicerClient } from '@slicer/client';
+import type { FilamentSessionSnapshot, HistoryStatus, ModelObjectStructure, PlateSessionSnapshot, SlicerClient } from '@slicer/client';
 import { useHistoryNavigationStore } from './useHistoryNavigationStore';
 import { useProjectStore } from './useProjectStore';
 import { usePlateSessionStore } from './usePlateSessionStore';
+import { useObjectListStore } from '../components/workspace/objectList/useObjectListStore';
+import { glVolumeCollection, retainedPaintGeometry } from '../components/workspace/viewport/GLVolume';
+import { projectFullModelMesh } from '../components/workspace/viewport/modelMeshProjection';
 
 function snapshot(revision: number): FilamentSessionSnapshot {
   return {
@@ -32,9 +35,64 @@ afterEach(() => {
   usePlateSessionStore.getState().reset();
   useHistoryNavigationStore.getState().setStatus(null);
   useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
+  glVolumeCollection.clear();
+  useObjectListStore.getState().clear();
 });
 
 describe('filament session store lifecycle', () => {
+  it.each(['delete', 'merge'] as const)('refreshes painted models on two plates after a %s mutation', async (kind) => {
+    const transform = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number],
+      scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    const structures: ModelObjectStructure[] = [10, 20].map((id, index) => ({
+      id, index, name: `object-${id}`, printable: true, instanceCount: 1,
+      volumes: [{ id: id + 100, index: 0, name: 'part', type: 'model_part', isSplittable: false }],
+      instances: [{ id: id + 200, index: 0, printable: true }],
+    }));
+    const original = [10, 20].map((id, objectIdx) => ({
+      objectId: id, volumeId: id + 100, instanceId: id + 200, objectIdx, volumeIdx: 0, instanceIdx: 0,
+      geometryKey: `original:${id}`, paintGeometryKey: `paint:${id}:before`,
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]),
+      vertexCount: 3, indexCount: 3, offset: [0, 0, 0] as [number, number, number],
+      instanceTransform: transform, volumeTransform: transform,
+    }));
+    const paint = (id: number, version: string) => ({
+      paintGeometryKey: `paint:${id}:${version}`, volumeId: id + 100,
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]),
+      vertexCount: 3, indexCount: 3,
+      drawGroups: [{ stateId: version === 'before' ? 2 : 1, startIndex: 0, indexCount: 3 }],
+    });
+    useObjectListStore.getState().setStructure(structures);
+    glVolumeCollection.replace(projectFullModelMesh({ ok: true, objects: original,
+      paintGeometries: [paint(10, 'before'), paint(20, 'before')] }));
+    const beforeOriginal = glVolumeCollection.volumes.map((volume) => volume.geometry);
+    const getModelScenePatch = vi.fn(async (ids: number[], knownOriginal: string[], knownPaint: string[]) => ({
+      ok: true, objectOrder: [10, 20], objects: structures,
+      meshes: original.map((mesh) => ({ ...mesh, paintGeometryKey: `paint:${mesh.objectId}:after` })),
+      geometries: [], paintGeometries: [paint(10, 'after'), paint(20, 'after')],
+    }));
+    const runtime = { getModelScenePatch } as unknown as SlicerClient;
+    useFilamentSessionStore.setState({ snapshot: snapshot(1) });
+    const result = await useFilamentSessionStore.getState().run(runtime, async () => ({
+      ok: true as const, version: 1 as const, result: {
+        snapshot: snapshot(2), historyStatus: historyStatus(2), mutation: {
+          kind, source: 2, destination: kind === 'merge' ? 1 : null,
+          historyEntryDelta: 1 as const, revisionBefore: 1, revisionAfter: 2, dirty: true as const,
+          allPlateResultsInvalidated: true, affectedPlateIds: ['plate-a', 'plate-b'],
+        },
+      },
+    }));
+    expect(result.ok).toBe(true);
+    expect(getModelScenePatch).toHaveBeenCalledWith([10, 20], ['original:10', 'original:20'],
+      ['paint:10:before', 'paint:20:before']);
+    expect(glVolumeCollection.volumes.map((volume) => volume.paintGeometryKey))
+      .toEqual(['paint:10:after', 'paint:20:after']);
+    glVolumeCollection.volumes.forEach((volume, index) => expect(volume.geometry).toBe(beforeOriginal[index]));
+    expect(glVolumeCollection.volumes.map((volume) => volume.paintDrawGroups[0]?.stateId)).toEqual([1, 1]);
+    expect(retainedPaintGeometry('paint:10:before')).toBeUndefined();
+    expect(retainedPaintGeometry('paint:20:before')).toBeUndefined();
+    expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(2);
+  });
+
   it('publishes only a current complete Worker snapshot', async () => {
     const initial = snapshot(1); const newer = snapshot(2);
     const runtime = { getFilamentSessionSnapshot: vi.fn(async () => newer) } as unknown as SlicerClient;

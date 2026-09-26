@@ -61,6 +61,14 @@ painting already present in the native model, including imported 3MF projects.
   original geometry and its BVH. A source-mesh change may rebuild both.
 - Instances of the same model volume share one paint geometry resource and
   retain separate instance transforms and display state.
+- Deleting or merging a filament slot can rewrite native facet states. Before
+  publishing the new filament snapshot, refresh the painted scene resources
+  for affected models on all plates through the existing scene-patch path.
+  Undo and Redo use the committed scene delta to restore the matching version.
+- The internal geometry protocol always includes `paint_geometries` (an empty
+  array for unpainted models), each renderable's `paint_key` (null when
+  unpainted), and `known_paint_keys` in patch requests. Reject missing fields
+  rather than treating an older internal reply as an unpainted model.
 
 ## OrcaSlicer reference and Neo boundary
 
@@ -99,6 +107,9 @@ runtime boundary.
    changes, even when a restored model reuses the same volume ID. The original
    geometry version and paint version are separate. A palette or effective
    assignment change updates materials without rebuilding either geometry.
+   Cache the content-derived paint key by the immutable source mesh owner and
+   the facet annotation's content timestamp so repeated reads of unchanged
+   models do not scan the full mesh or annotation bitstream.
 4. The scene projection resolves both versions before publishing a painted
    model. The renderer retains shared resources while instances use them and
    releases them when the last instance is removed. History restore, project
@@ -138,7 +149,8 @@ split-triangle positions/indices, and facet-state draw groups. Use native
 `get_facets`; keep original geometry and paint in the same response. Extend the
 typed client to validate, copy, and free every returned WASM buffer, including
 on malformed responses. Let scene patches reference independently retained
-original and paint resources. Existing unpainted responses remain valid.
+original and paint resources. Unpainted responses explicitly carry an empty
+paint resource list and null paint references.
 
 **Acceptance:** A focused native/client fixture proves split-side painting,
 state 0 and positive states, multiple instances sharing one returned paint
