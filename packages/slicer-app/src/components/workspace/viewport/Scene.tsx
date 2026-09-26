@@ -7,7 +7,7 @@ import { glVolumeCollection } from './GLVolume';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { BedPlate, getPrintableAreaBounds, normalizePrintableArea } from './BedPlate';
-import { GLVolumeMesh } from './ModelMesh';
+import { BVH_RAYCAST, GLVolumeMesh, NO_RAYCAST } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
 import { ToolpathMarker } from './ToolpathMarker';
@@ -117,7 +117,25 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           bounds: { minX: number; maxX: number; minY: number; maxY: number };
         }>;
         modelWorldCenters?: () => Array<[number, number, number]>;
-        modelMaterialColours?: () => Array<{ objectIndex: number; volumeIndex: number; colour: string }>;
+        modelMaterialColours?: () => Array<{ id: string; objectIndex: number; volumeIndex: number; stateId: number; colour: string }>;
+        modelPaintResources?: () => Array<{
+          id: string;
+          objectIndex: number;
+          volumeIndex: number;
+          instanceIndex: number;
+          originalGeometryUuid: string;
+          originalHasBvh: boolean;
+          paintGeometryUuid: string | null;
+          paintHasBvh: boolean;
+          paintGroupStates: number[];
+          visibleGeometryUuid: string | null;
+          visibleUsesOriginalGeometry: boolean;
+          visibleUsesBvhRaycast: boolean;
+          paintDisplayRaycastDisabled: boolean;
+          originalPickVisible: boolean | null;
+          originalPickUsesBvhRaycast: boolean;
+        }>;
+        modelSelectionIdentities?: () => Array<{ id: string; objectId: number; volumeId: number; instanceId: number }>;
         previewToolpathWorldBounds?: () => {
           min: [number, number, number];
           max: [number, number, number];
@@ -251,22 +269,65 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         return [center.x, center.y, center.z];
       }),
       modelMaterialColours: () => {
-        const colours: Array<{ objectIndex: number; volumeIndex: number; colour: string }> = [];
+        const colours: Array<{ id: string; objectIndex: number; volumeIndex: number; stateId: number; colour: string }> = [];
         if (activeTab !== 'prepare') return colours;
         scene.traverse((object) => {
           if (object.userData.orcaRaycastRole !== MODEL_BODY_RAYCAST) return;
           const volume = object.userData.orcaVolume as LoadedObject | undefined;
           const mesh = object.getObjectByProperty('type', 'Mesh') as THREE.Mesh | undefined;
-          const material = mesh?.material;
-          if (!volume || !(material instanceof THREE.MeshStandardMaterial)) return;
-          colours.push({
-            objectIndex: volume.buffer.objectIdx,
-            volumeIndex: volume.buffer.volumeIdx,
-            colour: `#${material.color.getHexString()}`,
+          const materials = Array.isArray(mesh?.material) ? mesh.material : [mesh?.material];
+          if (!volume) return;
+          materials.forEach((material, materialIndex) => {
+            if (!(material instanceof THREE.MeshStandardMaterial)) return;
+            colours.push({
+              id: volume.id,
+              objectIndex: volume.buffer.objectIdx,
+              volumeIndex: volume.buffer.volumeIdx,
+              stateId: volume.paintDrawGroups[materialIndex]?.stateId ?? 0,
+              colour: `#${material.color.getHexString()}`,
+            });
           });
         });
         return colours;
       },
+      modelPaintResources: () => glVolumes.map((volume) => {
+        const surfaces: { display: THREE.Object3D | null; originalPick: THREE.Object3D | null; visibleMesh: THREE.Mesh | null } = {
+          display: null,
+          originalPick: null,
+          visibleMesh: null,
+        };
+        scene.traverse((object) => {
+          if (object.userData.orcaVolume !== volume) return;
+          surfaces.visibleMesh = object.getObjectByProperty('type', 'Mesh') as THREE.Mesh | null;
+          object.traverse((child) => {
+            if (child.userData.orcaModelSurface === 'paint-display') surfaces.display = child;
+            if (child.userData.orcaModelSurface === 'original-pick') surfaces.originalPick = child;
+          });
+        });
+        return {
+          id: volume.id,
+          objectIndex: volume.buffer.objectIdx,
+          volumeIndex: volume.buffer.volumeIdx,
+          instanceIndex: volume.buffer.instanceIdx,
+          originalGeometryUuid: volume.geometry.uuid,
+          originalHasBvh: 'boundsTree' in volume.geometry && Boolean((volume.geometry as { boundsTree?: unknown }).boundsTree),
+          paintGeometryUuid: volume.paintGeometry?.uuid ?? null,
+          paintHasBvh: Boolean(volume.paintGeometry && 'boundsTree' in volume.paintGeometry),
+          paintGroupStates: volume.paintDrawGroups.map((group) => group.stateId),
+          visibleGeometryUuid: surfaces.visibleMesh?.geometry.uuid ?? null,
+          visibleUsesOriginalGeometry: surfaces.visibleMesh?.geometry === volume.geometry,
+          visibleUsesBvhRaycast: surfaces.visibleMesh?.raycast === BVH_RAYCAST,
+          paintDisplayRaycastDisabled: surfaces.display?.raycast === NO_RAYCAST,
+          originalPickVisible: surfaces.originalPick?.visible ?? null,
+          originalPickUsesBvhRaycast: surfaces.originalPick?.raycast === BVH_RAYCAST,
+        };
+      }),
+      modelSelectionIdentities: () => glVolumes.filter((volume) => sceneInteraction.selection.has(volume)).map((volume) => ({
+        id: volume.id,
+        objectId: volume.buffer.objectId,
+        volumeId: volume.buffer.volumeId,
+        instanceId: volume.buffer.instanceId,
+      })),
       previewToolpathWorldBounds: () => {
         if (!toolpath || toolpath.segmentCount === 0) return null;
         const min: [number, number, number] = [Infinity, Infinity, Infinity];
@@ -401,6 +462,8 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             bedPlateStates: _beds,
             modelWorldCenters: _models,
             modelMaterialColours: _modelColours,
+            modelPaintResources: _modelPaintResources,
+            modelSelectionIdentities: _modelSelectionIdentities,
             previewToolpathWorldBounds: _toolpathBounds,
             realProjectModelWorldCentersProfile: _realProjectBounds,
             realProjectRendererMemorySnapshot: _realProjectMemory,
@@ -424,6 +487,8 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             bedPlateStates: _beds,
             modelWorldCenters: _models,
             modelMaterialColours: _modelColours,
+            modelPaintResources: _modelPaintResources,
+            modelSelectionIdentities: _modelSelectionIdentities,
             previewToolpathWorldBounds: _toolpathBounds,
             ...rest
           } = w.__orcaE2e;

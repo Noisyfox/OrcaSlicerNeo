@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { prepareColourForVolume, resolvePrepareMaterial } from './prepareColourProjection';
+import {
+  canRenderPreparePaint,
+  prepareColourForVolume,
+  preparePaintMaterialOverlays,
+  resolvePrepareMaterial,
+} from './prepareColourProjection';
 import type { FilamentSessionSnapshot, ModelObjectStructure } from '@slicer/client';
 
 const structure: ModelObjectStructure[] = [{
@@ -63,5 +68,62 @@ describe('Prepare colour projection', () => {
       colour: '#2874bf', opacity: 0.15, transparent: true, depthWrite: false,
     });
     expect(resolvePrepareMaterial({ baseColour: '#123456', disabled: true })).toMatchObject({ opacity: 1, transparent: false, depthWrite: true });
+  });
+
+  it('resolves painted states through the effective part assignment and numbered slots', () => {
+    const twoSlots = {
+      ...snapshot,
+      slots: [
+        { ...snapshot.slots[0], slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
+        { ...snapshot.slots[0], slot: 2, colour: { effective: '#123456', provenance: 'user' } },
+      ],
+      assignments: {
+        ...snapshot.assignments,
+        objects: [{ ...snapshot.assignments.objects[0]!, effectiveSlot: 1 }],
+        parts: [{ target: 'part', id: 20, objectId: 10, explicitSlot: 2, effectiveSlot: 2, inherited: false }],
+      },
+    } as unknown as FilamentSessionSnapshot;
+    const overlays = preparePaintMaterialOverlays(
+      volume(0),
+      [0, 1, 2, 4].map((stateId) => ({ stateId, startIndex: stateId * 3, indexCount: 3 })),
+      structure,
+      twoSlots,
+    );
+
+    expect(overlays.map(({ stateId, colour }) => [stateId, colour])).toEqual([
+      [0, '#123456'], // state 0 follows the part assignment rather than the object fallback
+      [1, '#ff0000'],
+      [2, '#123456'],
+      [4, '#ff0000'], // missing slots display slot 1 without changing native state
+    ]);
+  });
+
+  it('applies selection and out-of-bounds overlays to every paint group', () => {
+    const groups = [
+      { stateId: 0, startIndex: 0, indexCount: 3 },
+      { stateId: 1, startIndex: 3, indexCount: 3 },
+    ];
+    const outOfBounds = { instances: [{
+      objectIndex: 0, instanceIndex: 0, outOfBounds: true, unprintable: false, member: true,
+    }] } as any;
+    const unselected = preparePaintMaterialOverlays(volume(0), groups, structure, snapshot, outOfBounds);
+    const selected = preparePaintMaterialOverlays(volume(0), groups, structure, snapshot, outOfBounds, true);
+
+    expect(unselected[0]?.colour).not.toBe('#123456');
+    expect(unselected[1]?.colour).not.toBe('#cbd5e1');
+    expect(selected[0]?.colour).not.toBe(unselected[0]?.colour);
+    expect(selected[1]?.colour).not.toBe(unselected[1]?.colour);
+    expect(selected[0]?.colour).not.toBe(selected[1]?.colour);
+  });
+
+  it('uses the single-colour path for unprintable painted instances', () => {
+    const unprintable = { instances: [{
+      objectIndex: 0, instanceIndex: 0, outOfBounds: false, unprintable: true, member: true,
+    }] } as any;
+    expect(canRenderPreparePaint(volume(0), structure, unprintable)).toBe(false);
+    expect(canRenderPreparePaint(volume(0), [{ ...structure[0]!, printable: false }], null)).toBe(false);
+    expect(canRenderPreparePaint(volume(0), structure, {
+      instances: [{ objectIndex: 0, instanceIndex: 0, outOfBounds: false, unprintable: false, member: false }],
+    } as any)).toBe(true);
   });
 });

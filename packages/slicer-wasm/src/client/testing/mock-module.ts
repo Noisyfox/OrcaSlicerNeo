@@ -95,6 +95,8 @@ export interface MockModuleOptions {
   nativePerformanceProfile?: unknown;
   /** Deterministic eligible tower projections for mock Electron interaction tests. */
   primeTowerFixture?: boolean;
+  /** Give mock model volumes one paint group for Prepare rendering E2E. */
+  paintedFacetFixture?: boolean;
   /** Native-shaped advisory warnings returned by the deterministic slice fixture. */
   sliceWarnings?: readonly string[];
 }
@@ -843,25 +845,49 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function modelGeometry(requested: Set<number>, known: Set<number>, _knownPaint = new Set<string>()) {
     const geometries: Record<string, unknown>[] = [];
+    const paintGeometries: Record<string, unknown>[] = [];
     const renderables = objectTransforms.flatMap((instances, object_idx) => {
       if (!requested.has(objectMeta[object_idx].id)) return [];
       return objectVolumeTransforms[object_idx].flatMap((volume_transform, volume_idx) => {
         const volume_id = volumeMeta[object_idx][volume_idx].id;
-        if (instances.length && !known.has(volume_id)) {
-          const { verts, tris } = primitiveMesh(objectMeta[object_idx]?.primitive);
+        const paintKey = opts.paintedFacetFixture ? `mock-${volume_id}-v1` : null;
+        const needsOriginal = instances.length > 0 && !known.has(volume_id);
+        const needsPaint = instances.length > 0 && paintKey !== null && !_knownPaint.has(paintKey);
+        const sourceMesh = needsOriginal || needsPaint
+          ? primitiveMesh(objectMeta[object_idx]?.primitive)
+          : undefined;
+        if (needsOriginal && sourceMesh) {
+          const { verts, tris } = sourceMesh;
           const vertex_ptr = malloc(verts.length * 12), index_ptr = malloc(tris.length * 12);
           verts.forEach((vertex, i) => HEAPF32.set(vertex, vertex_ptr / 4 + i * 3));
           tris.forEach((triangle, i) => HEAPU32.set(triangle, index_ptr / 4 + i * 3));
           geometries.push({ volume_id, vertex_ptr, vertex_count: verts.length, index_ptr, index_count: tris.length * 3 });
         }
+        if (needsPaint && sourceMesh && paintKey) {
+          const positions = Float32Array.from(sourceMesh.verts.flat());
+          const indices = Uint32Array.from(sourceMesh.tris.flat());
+          const vertex_ptr = malloc(positions.length * Float32Array.BYTES_PER_ELEMENT);
+          const index_ptr = malloc(indices.length * Uint32Array.BYTES_PER_ELEMENT);
+          HEAPF32.set(positions, vertex_ptr / Float32Array.BYTES_PER_ELEMENT);
+          HEAPU32.set(indices, index_ptr / Uint32Array.BYTES_PER_ELEMENT);
+          paintGeometries.push({
+            paint_key: paintKey,
+            volume_id,
+            vertex_ptr,
+            vertex_count: positions.length / 3,
+            index_ptr,
+            index_count: indices.length,
+            draw_groups: [{ state_id: 1, start_index: 0, index_count: indices.length }],
+          });
+        }
         return instances.map((instance_transform, instance_idx) => ({
           object_id: objectMeta[object_idx].id, volume_id, instance_id: instanceMeta[object_idx][instance_idx].id,
           object_idx, volume_idx, instance_idx, offset: instance_transform.offset, instance_transform, volume_transform,
-          paint_key: null,
+          paint_key: paintKey,
         }));
       });
     });
-    return { ok: true, renderables, geometries, paint_geometries: [] };
+    return { ok: true, renderables, geometries, paint_geometries: paintGeometries };
   }
   function historyRestore(entry: MockHistoryEntry) {
     const beforeState = captureHistoryState();
