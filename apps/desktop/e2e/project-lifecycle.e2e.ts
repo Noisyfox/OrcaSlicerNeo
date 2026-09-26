@@ -37,7 +37,7 @@ async function ready(page: Page): Promise<void> {
 async function openPickerProject(page: Page): Promise<void> {
   await page.getByTestId('menu-file-trigger').click();
   await page.getByTestId('file-open-project').click();
-  await expect(page.getByTestId('file-save-project-as')).toBeAttached();
+  await expect(page.getByTestId('object-list').getByRole('button', { name: 'picked-project.3mf' })).toBeVisible();
 }
 
 async function makeDirty(page: Page): Promise<void> {
