@@ -7,7 +7,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { argv } from 'node:process';
-import { exportGcode, getSliceResult } from './async-task-mailbox.mjs';
+import { awaitAsyncTask, exportGcode, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
@@ -506,22 +506,8 @@ function readBytes(Module, ptr, len) {
 }
 
 const observedTaskMessages = [];
-function drainTaskMessages() {
-  const drained = callJson('orc_drain_async_task_mailbox', [], []);
-  if (drained.ok && Array.isArray(drained.messages)) observedTaskMessages.push(...drained.messages);
-  return drained.messages ?? [];
-}
-async function awaitTaskResult(accepted) {
-  if (accepted?.accepted !== true) return accepted;
-  const deadline = Date.now() + 120_000;
-  while (Date.now() < deadline) {
-    const terminal = drainTaskMessages().find((message) =>
-      message.type === 'task-terminal' && message.task_id === accepted.task_id);
-    if (terminal) return terminal.result;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return { error: `timed out waiting for task ${accepted.task_id}` };
-}
+const awaitTaskResult = (accepted) => awaitAsyncTask(callJson, accepted, 120_000,
+  (messages) => observedTaskMessages.push(...messages));
 async function callSlice(name, argTypes, args) {
   return awaitTaskResult(callJson(name, argTypes, args));
 }
