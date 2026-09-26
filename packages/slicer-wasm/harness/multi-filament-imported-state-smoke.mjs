@@ -117,6 +117,17 @@ function callJson(name, types = [], args = []) {
 }
 
 function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
+function paintedModelKey() {
+  const model = callJson('orc_get_model_mesh');
+  for (const list of [model.geometries, model.paint_geometries])
+    for (const geometry of list ?? []) {
+      Module._free(Number(geometry.vertex_ptr));
+      Module._free(Number(geometry.index_ptr));
+    }
+  assert.equal(model.ok, true, JSON.stringify(model));
+  assert.ok(model.paint_geometries.length > 0, 'imported fixture must have native paint geometry');
+  return model.paint_geometries[0].paint_key;
+}
 function writeBytes(bytes) {
   const pointer = Number(Module._malloc(bytes.byteLength));
   Module.HEAPU8.set(bytes, pointer);
@@ -173,6 +184,7 @@ if (options['load-only'] === 'true') {
 
 const importedSession = callJson('orc_get_filament_session_snapshot');
 assert.equal(importedSession.slots.length, 4, JSON.stringify(importedSession));
+const importedPaintKey = paintedModelKey();
 const importedPlates = callJson('orc_get_plate_session_snapshot');
 const importedPlate = importedPlates.plates.find((plate) => plate.plate_id === importedPlates.current_plate_id);
 assert.ok(importedPlate, JSON.stringify(importedPlates));
@@ -200,6 +212,8 @@ const deleted = request('orc_delete_filament_slot', {
   version: 1, revision: importedSession.revisions.session, slot: 2,
 });
 assert.equal(deleted.ok, true, JSON.stringify(deleted));
+const deletedPaintKey = paintedModelKey();
+assert.notEqual(deletedPaintKey, importedPaintKey, 'deletion must version the rendered facet resource');
 const remapped = exportProject();
 const remappedModel = exportedText(remapped, '3D/3dmodel.model');
 const remappedLayers = exportedText(remapped, 'Metadata/custom_gcode_per_layer.xml');
@@ -216,11 +230,20 @@ assert.match(remappedLayers, /gcode="tool_change"/);
 // facet encoding therefore maps old states 1,2,3,4 to 1,3,2,3.
 assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
 assert.equal(loadImportedArchive().ok, true);
+const mergeBaselinePaintKey = paintedModelKey();
 const mergeSession = callJson('orc_get_filament_session_snapshot');
 const merged = request('orc_merge_filament_slots', {
   version: 1, revision: mergeSession.revisions.session, source: 2, destination: 4,
 });
 assert.equal(merged.ok, true, JSON.stringify(merged));
+const mergedPaintKey = paintedModelKey();
+assert.notEqual(mergedPaintKey, mergeBaselinePaintKey, 'merge must version the rendered facet resource');
+const mergeUndo = callJson('orc_history_undo');
+assert.equal(mergeUndo.ok, true, JSON.stringify(mergeUndo));
+assert.equal(paintedModelKey(), mergeBaselinePaintKey, 'Undo must restore pre-merge paint geometry');
+const mergeRedo = callJson('orc_history_redo');
+assert.equal(mergeRedo.ok, true, JSON.stringify(mergeRedo));
+assert.equal(paintedModelKey(), mergedPaintKey, 'Redo must restore merged paint geometry');
 const mergedArchive = exportProject();
 const mergedModel = exportedText(mergedArchive, '3D/3dmodel.model');
 const mergedLayers = exportedText(mergedArchive, 'Metadata/custom_gcode_per_layer.xml');

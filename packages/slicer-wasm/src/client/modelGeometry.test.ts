@@ -6,12 +6,12 @@ import type { OrcaModule } from './types';
 
 const transform = { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
 
-function renderable(instanceId: number, paintKey?: string | null) {
+function renderable(instanceId: number, paintKey: string | null = null) {
   return {
     object_id: 21, volume_id: 41, instance_id: instanceId,
     object_idx: 0, volume_idx: 0, instance_idx: instanceId - 22,
     offset: [0, 0, 0], instance_transform: transform, volume_transform: transform,
-    ...(paintKey === undefined ? {} : { paint_key: paintKey }),
+    paint_key: paintKey,
   };
 }
 
@@ -55,7 +55,7 @@ describe('native geometry resource transport', () => {
     expect([...decoded.paintGeometries[0].positions]).toHaveLength(12);
   });
 
-  it('accepts legacy unpainted replies and makes the absence explicit', () => {
+  it('requires an explicit null paint reference and empty paint resource list for unpainted replies', () => {
     const free = vi.fn();
     const heap = new Uint8Array(128);
     writeArray(heap, 16, [0, 0, 0, 1, 0, 0, 0, 1, 0], 'float');
@@ -65,11 +65,26 @@ describe('native geometry resource transport', () => {
       ok: true,
       renderables: [renderable(22)],
       geometries: [{ volume_id: 41, vertex_ptr: 16, vertex_count: 3, index_ptr: 64, index_count: 3 }],
+      paint_geometries: [],
     }, 'session');
 
     expect(decoded.meshes[0].paintGeometryKey).toBeNull();
     expect(decoded.paintGeometries).toEqual([]);
     expect(free.mock.calls.map(([pointer]) => pointer)).toEqual([16, 64]);
+  });
+
+  it('rejects missing paint protocol fields and frees original geometry allocations', () => {
+    const free = vi.fn();
+    const module = { HEAPU8: new Uint8Array(128), _free: free } as unknown as OrcaModule;
+    const geometry = { volume_id: 41, vertex_ptr: 16, vertex_count: 3, index_ptr: 64, index_count: 3 };
+    expect(() => decodeModelGeometry(module, {
+      ok: true, renderables: [renderable(22)], geometries: [geometry],
+    }, 'session')).toThrow('invalid model geometry reply');
+    expect(() => decodeModelGeometry(module, {
+      ok: true, renderables: [{ ...renderable(22), paint_key: undefined }],
+      geometries: [geometry], paint_geometries: [],
+    }, 'session')).toThrow('missing model paint reference');
+    expect(free.mock.calls.map(([pointer]) => pointer)).toEqual([16, 64, 16, 64]);
   });
 
   it('references independently retained original and paint resources', () => {

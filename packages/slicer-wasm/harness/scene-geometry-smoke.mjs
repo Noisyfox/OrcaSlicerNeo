@@ -19,6 +19,11 @@ function paintFacetDecodeCount() {
   assert.equal(result.ok, true, JSON.stringify(result));
   return result.paint_facet_decode_count;
 }
+function paintResourceHashCount() {
+  const result = call('orc_test_get_model_paint_decode_count');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  return result.paint_resource_hash_count;
+}
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 function begin(label, parent) {
@@ -68,6 +73,9 @@ call('orc_history_reset', ['string'], [JSON.stringify(context)]);
 const added = edit('Cube', () => call('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']));
 assert.equal(added.scene_delta.object_ids.length, 1);
 const objectId = added.scene_delta.object_ids[0];
+assert.equal(call('orc_get_model_scene_patch', ['string'],
+  [JSON.stringify({ object_ids: [objectId], known_volume_ids: [] })]).ok, false,
+'scene patch requests must explicitly include known_paint_keys');
 const first = patch([objectId]);
 assert.equal(first.geometries.length, 1);
 assert.equal(first.renderables[0].paint_key, null);
@@ -153,6 +161,7 @@ assert.ok(paintedResource, `the imported 3MF fixture must expose native MMU pain
 assert.equal(paintedFull.renderables.length, 2,
   'the imported project must load both instances of its painted model');
 assert.equal(paintFacetDecodeCount(), 1, 'initial paint load must build native split facets once');
+const initialPaintHashCount = paintResourceHashCount();
 const paintedStates = paintedResource.draw_groups.map((group) => group.state_id);
 assert.deepEqual([...new Set(paintedStates)].sort((a, b) => a - b), paintedFixtureManifest.expected.paintStates,
   'native imported paint groups must match the fixture manifest');
@@ -186,6 +195,26 @@ assert.equal(paintKnown.geometries.filter((geometry) => geometry.volume_id === p
 assert.equal(paintKnown.paint_geometries.some((geometry) => geometry.volume_id === paintedResource.volume_id), false);
 assert.equal(paintFacetDecodeCount(), 3,
   'a retained paint key must skip native facet reconstruction while the original mesh is requested');
+assert.equal(paintResourceHashCount(), initialPaintHashCount,
+  'unchanged scene reads must reuse the paint key without hashing source mesh or facet bits');
 
-console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, imported multi-instance dedup, independent resource reuse, Undo/Redo');
+const filamentBeforeRemap = call('orc_get_filament_session_snapshot');
+const deletedPaintSlot = call('orc_delete_filament_slot', ['string'],
+  [JSON.stringify({ version: 1, revision: filamentBeforeRemap.revisions.session, slot: 2 })]);
+assert.equal(deletedPaintSlot.ok, true, JSON.stringify(deletedPaintSlot));
+const deletedPaint = patch([paintedRenderable.object_id], [paintedResource.volume_id], [paintedResource.paint_key]);
+const deletedPaintKey = deletedPaint.renderables.find((entry) => entry.volume_id === paintedResource.volume_id).paint_key;
+assert.notEqual(deletedPaintKey, paintedResource.paint_key, 'slot deletion must publish a new paint key');
+assert.equal(deletedPaint.geometries.length, 0, 'slot remap must retain the original source mesh');
+const deletedUndo = call('orc_history_undo');
+assert.equal(deletedUndo.ok, true, JSON.stringify(deletedUndo));
+assert.ok(deletedUndo.scene_delta.object_ids.includes(paintedRenderable.object_id));
+assert.equal(patch([paintedRenderable.object_id], [paintedResource.volume_id]).renderables[0].paint_key,
+  paintedResource.paint_key, 'Undo must restore the original paint version');
+const deletedRedo = call('orc_history_redo');
+assert.equal(deletedRedo.ok, true, JSON.stringify(deletedRedo));
+assert.equal(patch([paintedRenderable.object_id], [paintedResource.volume_id]).renderables[0].paint_key,
+  deletedPaintKey, 'Redo must restore the deleted-slot paint version');
+
+console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, imported multi-instance dedup, independent resource reuse, slot deletion, Undo/Redo');
 process.exit(0);

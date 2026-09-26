@@ -96,7 +96,7 @@ export function composeSceneDeltaProjection(
 
   const resources = new Map(patch.geometries.map((geometry) => [geometry.geometryKey, geometry]));
   if (resources.size !== patch.geometries.length) throw new Error('duplicate model geometry');
-  const responsePaintGeometries = patch.paintGeometries ?? [];
+  const responsePaintGeometries = patch.paintGeometries;
   const paintResources = new Map<string, ModelPaintGeometry>(
     responsePaintGeometries.map((geometry) => [geometry.paintGeometryKey, geometry]),
   );

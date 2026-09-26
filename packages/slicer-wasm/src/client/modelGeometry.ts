@@ -99,7 +99,8 @@ export function decodeModelGeometry(
     collectPointers(raw.geometries, allocations, module.HEAPU8.length);
     collectPointers(raw.paint_geometries, allocations, module.HEAPU8.length);
 
-    if (raw.ok !== true || !Array.isArray(raw.renderables) || !Array.isArray(raw.geometries))
+    if (raw.ok !== true || !Array.isArray(raw.renderables) || !Array.isArray(raw.geometries) ||
+        !Array.isArray(raw.paint_geometries))
       throw new Error(typeof raw.error === 'string' ? raw.error : 'invalid model geometry reply');
     const originalByVolume = new Map<number, ModelGeometry>();
     const geometries = raw.geometries.map((entry): ModelGeometry => {
@@ -121,8 +122,7 @@ export function decodeModelGeometry(
       return geometry;
     });
 
-    const nativePaint = raw.paint_geometries === undefined ? [] : raw.paint_geometries;
-    if (!Array.isArray(nativePaint)) throw new Error('invalid model paint geometry list');
+    const nativePaint = raw.paint_geometries;
     const paintByKey = new Map<string, ModelPaintGeometry>();
     const paintGeometries = nativePaint.map((entry): ModelPaintGeometry => {
       if (!isRecord(entry) || typeof entry.paint_key !== 'string' || entry.paint_key.length === 0)
@@ -167,7 +167,8 @@ export function decodeModelGeometry(
 
       let paintGeometryKey: string | null = null;
       const nativePaintKey = entry.paint_key;
-      if (nativePaintKey !== undefined && nativePaintKey !== null) {
+      if (nativePaintKey === undefined) throw new Error('missing model paint reference');
+      if (nativePaintKey !== null) {
         if (typeof nativePaintKey !== 'string' || nativePaintKey.length === 0)
           throw new Error('invalid model paint reference');
         paintGeometryKey = `${session}:paint:${nativePaintKey}`;

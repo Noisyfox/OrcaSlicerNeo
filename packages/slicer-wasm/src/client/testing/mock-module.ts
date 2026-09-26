@@ -2604,7 +2604,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return modelGeometry(new Set(objectMeta.map((object) => object.id)), new Set());
     },
     orc_get_model_scene_patch(requestJson: string) {
-      const { object_ids, known_volume_ids, known_paint_keys = [] } = JSON.parse(requestJson);
+      const { object_ids, known_volume_ids, known_paint_keys } = JSON.parse(requestJson);
       if (![object_ids, known_volume_ids].every((ids) => Array.isArray(ids) && ids.every((id: number) => Number.isSafeInteger(id) && id > 0)) ||
           !Array.isArray(known_paint_keys) || !known_paint_keys.every((key: unknown) => typeof key === 'string'))
         return { error: 'scene patch ids must be positive integers' };

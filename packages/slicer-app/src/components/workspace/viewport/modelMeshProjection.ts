@@ -6,7 +6,7 @@ export function projectFullModelMesh(result: ModelMeshResult): GLVolume[] {
   if (!result.ok) throw new Error(result.error ?? 'model mesh load failed');
 
   const paintResources = new Map<string, ModelPaintGeometry>();
-  for (const paint of result.paintGeometries ?? []) {
+  for (const paint of result.paintGeometries) {
     if (!paint.paintGeometryKey || paintResources.has(paint.paintGeometryKey))
       throw new Error(`duplicate or invalid model paint geometry ${paint.paintGeometryKey}`);
     paintResources.set(paint.paintGeometryKey, paint);

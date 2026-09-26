@@ -62,6 +62,7 @@ static json transform_json(const Slic3r::Geometry::Transformation& transformatio
 
 namespace Slic3r::Neo::Bridge::ModelOperations {
 std::uint64_t paint_facet_decode_count = 0;
+std::uint64_t paint_resource_hash_count = 0;
 
 std::size_t model_instance_count(const Model& model) {
     std::size_t count = 0;
@@ -196,11 +197,12 @@ void hash_float(std::uint64_t& hash, const float value) {
     hash_u64(hash, bits);
 }
 
-std::string paint_resource_key(const std::size_t volume_id,
-                               const ModelVolume& volume) {
+std::string hash_paint_resource(const std::size_t volume_id,
+                                const ModelVolume& volume) {
     // Include the original mesh and raw annotation. A volume
     // ID may be restored from history, while either mesh or facet data can
     // have changed since its previous renderer resource was retained.
+    ++paint_resource_hash_count;
     std::uint64_t hash = 14695981039346656037ull;
     hash_u64(hash, volume_id);
     hash_u64(hash, volume.mmu_segmentation_facets.timestamp());
@@ -232,6 +234,28 @@ std::string paint_resource_key(const std::size_t volume_id,
     for (unsigned i = 0; i < suffix.size(); ++i)
         suffix[i] = digits[(hash >> ((suffix.size() - i - 1) * 4)) & 0xf];
     return std::to_string(volume_id) + ":" + suffix;
+}
+
+std::string paint_resource_key(const std::size_t volume_id, const ModelVolume& volume) {
+    // TriangleMesh ownership is immutable through ModelVolume's const shared
+    // mesh. FacetsAnnotation::touch gives each edit a new content timestamp,
+    // including slot remaps; history restores bring back the prior timestamp.
+    // Weak ownership avoids retaining deleted project meshes in this cache.
+    struct CachedKey {
+        std::weak_ptr<const TriangleMesh> mesh;
+        std::uint64_t facets_timestamp;
+        std::string key;
+    };
+    static std::map<std::size_t, CachedKey> cache;
+    const auto& mesh = volume.get_mesh_shared_ptr();
+    const auto timestamp = volume.mmu_segmentation_facets.timestamp();
+    const auto found = cache.find(volume_id);
+    if (found != cache.end() && found->second.facets_timestamp == timestamp &&
+        found->second.mesh.lock() == mesh)
+        return found->second.key;
+    auto key = hash_paint_resource(volume_id, volume);
+    cache.insert_or_assign(volume_id, CachedKey{mesh, timestamp, key});
+    return key;
 }
 
 void append_paint_state(const indexed_triangle_set& facets,
@@ -1543,8 +1567,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_id
         const json request = json::parse(object_ids_cstr ? object_ids_cstr : "");
         const json& requested = request.at("object_ids");
         const auto& known_json = request.at("known_volume_ids");
-        const json known_paint_json = request.contains("known_paint_keys")
-            ? parse_known_paint_keys(request.at("known_paint_keys")) : json::array();
+        const json known_paint_json = parse_known_paint_keys(request.at("known_paint_keys"));
         const auto known = known_json.is_array() && known_json.empty()
             ? std::optional<std::vector<std::size_t>>(std::vector<std::size_t>{})
             : parse_positive_id_array(known_json);
@@ -1591,7 +1614,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_scene_patch(const char* object_id
 // Focused native smoke hook: count costly native facet reconstruction calls.
 EMSCRIPTEN_KEEPALIVE const char* orc_test_get_model_paint_decode_count() {
     try {
-        return dup_json(json{{"ok", true}, {"paint_facet_decode_count", paint_facet_decode_count}}.dump());
+        return dup_json(json{{"ok", true}, {"paint_facet_decode_count", paint_facet_decode_count},
+            {"paint_resource_hash_count", paint_resource_hash_count}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
