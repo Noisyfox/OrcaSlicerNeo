@@ -48,8 +48,10 @@ are not persisted in either host during the first release.
   web application shows an unsupported-environment screen and does not start.
 - **WASM threading:** prefer the threaded wasm64 artifact. When cross-origin
   isolation/thread support is unavailable, automatically run a separate
-  single-thread wasm64 artifact. No manual mode picker is needed. The active
-  single-thread fallback is shown as a non-blocking UI status.
+  single-thread wasm64 artifact. No manual mode picker is needed. The Web host
+  shows the active single-thread fallback as a non-blocking upper-right status
+  notice with a circular close control. Dismissing it hides the notice for the
+  current page session and does not change runtime selection.
 - **WASM artifacts:** both threaded and single-thread wasm64 builds ship with
   Electron and Web. They expose the same typed client contract.
 - **Thread pool:** the threaded artifact uses all logical cores reported by

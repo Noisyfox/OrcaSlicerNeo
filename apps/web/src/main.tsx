@@ -11,6 +11,28 @@ function message(text: string, detail: string) {
   document.getElementById('root')!.innerHTML = `<main class="web-startup"><h1>OrcaSlicerNeo</h1><h2>${text}</h2><p>${detail}</p><a href="https://github.com/Noisyfox/OrcaSlicerNeo" target="_blank" rel="noreferrer">AGPL-3.0 source</a></main>`;
 }
 
+function SerialFallbackNotice() {
+  const [visible, setVisible] = React.useState(true);
+  if (!visible) return null;
+
+  return (
+    <aside className="web-serial-status" data-testid="serial-fallback-status" role="status">
+      <span className="web-serial-status-message">
+        Threaded WebAssembly is unavailable in this page, so OrcaSlicerNeo is running the serial wasm64 fallback.
+      </span>
+      <button
+        type="button"
+        className="web-serial-status-close"
+        aria-label="Dismiss serial fallback notice"
+        data-testid="serial-fallback-dismiss"
+        onClick={() => setVisible(false)}
+      >
+        <span aria-hidden="true">×</span>
+      </button>
+    </aside>
+  );
+}
+
 void startWebApp({
   detect: detectWebCapabilities,
   isolated: crossOriginIsolated,
@@ -22,9 +44,7 @@ void startWebApp({
     // The global Z-up convention (THREE.Object3D.DEFAULT_UP) is set by the
     // @orca/slicer-app package entry, before anything here constructs an Object3D.
     createRoot(document.getElementById('root')!).render(<React.StrictMode><div className="web-app-shell">
-      {state.serialFallback && <aside className="web-serial-status" data-testid="serial-fallback-status" role="status">
-        Threaded WebAssembly is unavailable in this page, so OrcaSlicerNeo is running the serial wasm64 fallback.
-      </aside>}
+      {state.serialFallback && <SerialFallbackNotice />}
       <PlatformProvider value={createBrowserAdapter(slicerClient)}><App /></PlatformProvider>
     </div></React.StrictMode>);
   },
