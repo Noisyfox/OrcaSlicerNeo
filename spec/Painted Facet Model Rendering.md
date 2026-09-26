@@ -121,20 +121,76 @@ runtime boundary.
   appearance using the original mesh and keeps the stored paint intact.
   Printable out-of-bounds instances keep their groups and dim each group.
 
-## Implementation and verification
+## Implementation plan and acceptance gates
 
-Implement in independently testable pieces: extend the native bridge and
-typed client response; add paint resource ownership and independent version
-handling to scene projection; then mount the paint display and original pick
-surfaces in Prepare and Preview. Keep the source mesh and paint geometry in
-the same full-model or scene-patch response for every piece.
+Implement the following steps in order. Each step is independently reviewable
+and must pass its own verification before the next begins. The established
+[testing guidelines](../doc/testing_guidelines.md) determine the exact command
+scope for a complete piece and for final handoff.
 
-Verification must cover a repository-owned imported 3MF with split-triangle
-painting, state 0 and explicit slot colours, invalid-slot fallback, multiple
-instances, selection and dragging, out-of-bounds and unprintable states, and
-Prepare-to-Preview colour continuity. Check that the first visible frame is
-already coloured, Preview transparency and toolpath visibility are correct,
-palette changes avoid geometry and BVH rebuilds, paint-only changes preserve
-the original BVH, and history/scene patches do not show stale paint. Validate
-the bridge on applicable WASM variants and the affected shared-host paths
-according to the [testing guidelines](../doc/testing_guidelines.md).
+### Step 1 — Native and typed model-loading protocol
+
+Extend the full-model and scene-patch bridge responses to provide one paint
+resource per painted model volume, including its independently versioned key,
+split-triangle positions/indices, and facet-state draw groups. Use native
+`get_facets`; keep original geometry and paint in the same response. Extend the
+typed client to validate, copy, and free every returned WASM buffer, including
+on malformed responses. Let scene patches reference independently retained
+original and paint resources. Existing unpainted responses remain valid.
+
+**Acceptance:** A focused native/client fixture proves split-side painting,
+state 0 and positive states, multiple instances sharing one returned paint
+resource, unpainted volume behavior, independent known-resource omission, and
+allocation cleanup on failure. The affected client suite and typecheck pass;
+the changed bridge passes an applicable WASM quick build and focused smoke.
+No viewport rendering change is required in this step.
+
+### Step 2 — Renderer resource ownership and atomic scene projection
+
+Build one grouped paint `BufferGeometry` per paint resource and share it across
+instances. Keep the original `GLVolume.geometry` and its BVH unchanged. Extend
+full-load and delta projections to resolve both resources before publishing a
+painted volume; lease and release each resource independently. A paint-only
+change replaces paint geometry without rebuilding the original BVH, while a
+source-mesh change invalidates both. Palette changes leave both geometries in
+place.
+
+**Acceptance:** Focused tests prove atomic initial publication, independent
+cache hits and misses, multiple-instance sharing and final release, paint-only
+updates, source-mesh updates, and Undo/Redo or scene-patch restoration with no
+stale paint. The affected app suite and typecheck pass. The visible model can
+still use its existing ordinary material until Step 3.
+
+### Step 3 — Prepare painted model display and original-mesh picking
+
+Render a painted printable volume using the grouped geometry and per-state
+materials. State 0 follows its effective part assignment; positive states use
+their numbered slots, with out-of-range states displayed in slot 1's colour.
+Apply Neo's selection brightening and out-of-bounds dimming per group. An
+unprintable instance keeps the ordinary single-colour model appearance. Use a
+non-rendering original-mesh surface for picking and dragging; the visible paint
+surface neither raycasts nor builds a BVH.
+
+**Acceptance:** Unit/component checks prove the colour and overlay rules and
+that palette changes do not rebuild geometry. A focused interaction test proves
+click, selection, and drag on a painted area hit the original mesh and retain
+the correct volume identity. The affected app suite, typecheck, and focused
+host E2E pass. Unpainted and wipe-tower rendering remain unaffected.
+
+### Step 4 — Preview shell and real-project integration
+
+Reuse Step 3's paint geometry and current-model palette in Preview. Render each
+group unselected at opacity 0.15 without depth writing, keep the toolpath's
+slice-result palette independent, and omit unprintable instances. Preserve the
+current-plate filter and the first-frame Preview transparency behavior. Add or
+reuse a repository-owned imported 3MF fixture with split painting for the
+end-to-end acceptance path.
+
+**Acceptance:** Focused tests prove Prepare-to-Preview colour continuity,
+current-plate and printability filtering, first-visible-frame paint and shell
+opacity, and unobscured toolpaths. Real imported-project coverage exercises
+full load, multiple instances, slot recolouring, scene patch/history restore,
+and Preview. The affected app suite, typecheck, and focused Electron and Web
+paths pass. The final handoff runs repository-level tests/typecheck and the
+bridge/host matrix required by the testing guidelines; every skipped or
+unavailable check is reported explicitly.
