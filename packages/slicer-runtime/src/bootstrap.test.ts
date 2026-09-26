@@ -59,7 +59,14 @@ describe('portable runtime bootstrap', () => {
       transport,
       capabilities: { webgl2: true, wasm64: true, threadedWasm: false },
     });
+    const progress: string[] = [];
+    const stopProgress = runtime.onStartupProgress!((text) => progress.push(text));
+    receive({ type: 'startup-progress', text: 'Downloading profiles (1/2)...' });
+    expect(progress).toEqual(['Downloading profiles (1/2)...']);
     const snapshot = await runtime.getPlateSessionSnapshot();
+    stopProgress();
+    receive({ type: 'startup-progress', text: 'Downloading profiles (2/2)...' });
+    expect(progress).toEqual(['Downloading profiles (1/2)...']);
     expect(snapshot).toEqual({
       instances: [],
       ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
