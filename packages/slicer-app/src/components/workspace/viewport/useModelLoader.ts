@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection, rejectGLVolumeRevision } from './GLVolume';
+import { projectFullModelMesh } from './modelMeshProjection';
 
 export type LoadedObject = GLVolume;
 
@@ -26,9 +27,7 @@ export function useModelLoader(): LoadedObject[] {
       const loaded: LoadedObject[] = [];
       try {
         const res = await platform.runtime.getModelMesh();
-        if (!res.ok) throw new Error(res.error ?? 'getModelMesh failed');
-        for (const buffer of res.objects)
-          loaded.push(new GLVolume(buffer, { kind: 'shared', key: buffer.geometryKey }));
+        loaded.push(...projectFullModelMesh(res));
         if (disposed || useSettingsStore.getState().modelRevision !== requestedRevision) {
           // The load finished after unmount/change — nothing consumes these
           // geometries; dispose them instead of leaking (review Minor 1).
