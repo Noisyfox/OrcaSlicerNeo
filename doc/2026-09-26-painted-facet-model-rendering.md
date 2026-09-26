@@ -30,9 +30,15 @@ and [Workspace Prepare and Preview Modes](../spec/Workspace%20Prepare%20and%20Pr
   An explicit state beyond the available slots is displayed using slot 1's
   colour, without rewriting the stored facet state. Native filament deletion
   continues to remap painting references.
-- A painted model first becomes visible with its facet colours in both Prepare
-  and Preview. Loading or restoring the model must not briefly show it as a
-  single-colour model while its paint geometry is still being prepared.
+- A printable painted model first becomes visible with its facet colours in
+  both Prepare and Preview. Loading or restoring the model must not briefly
+  show it as a single-colour model while its paint geometry is still being
+  prepared.
+- In Prepare, an instance marked unprintable temporarily uses the ordinary
+  single-colour unprintable appearance; its facet painting remains stored.
+  Preview omits unprintable instances from the model shell. A printable model
+  that is out of bounds retains its facet colour groups, with Neo's existing
+  out-of-bounds dimming applied to each group.
 - The original, unpainted mesh is the sole source of any model BVH and model
   picking. The painted geometry is display-only and has no BVH.
 
@@ -57,5 +63,6 @@ and [Workspace Prepare and Preview Modes](../spec/Workspace%20Prepare%20and%20Pr
 OrcaSlicer's ordinary `GLVolume::simple_render` reads
 `mmu_segmentation_facets` and renders the resulting per-colour meshes. Preview
 loads its model shells as `GLVolume`s, so those shells follow the same facet
-rendering path. The other facet annotations are rendered by their respective
-painting Gizmos.
+rendering path. It loads only printable instances into the Preview shell, and
+`simple_render` skips the painted branch for unprintable volumes. The other
+facet annotations are rendered by their respective painting Gizmos.
