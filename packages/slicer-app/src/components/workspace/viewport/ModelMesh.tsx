@@ -41,7 +41,7 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
   group.updateMatrix();
 }
 
-export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, selectionRevision, bodyDragEnabled, onModelSelection }: {
+export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, selectionRevision, bodyDragEnabled, dataRevision, onModelSelection }: {
   data: GLVolume;
   interactive?: boolean;
   preview?: boolean;
@@ -49,6 +49,8 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   plateSession?: PlateSessionSnapshot | null;
   selectionRevision: number;
   bodyDragEnabled: boolean;
+  /** Revision for scene objects reconciled in place rather than replaced. */
+  dataRevision?: number;
   onModelSelection?: () => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -88,7 +90,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   useLayoutEffect(() => {
     applySceneTransforms();
     return sceneInteraction.subscribe(applySceneTransforms);
-  }, [applySceneTransforms, data.instanceTransform, data.volumeTransform, sceneInteraction]);
+  }, [applySceneTransforms, data.instanceTransform, data.volumeTransform, dataRevision, sceneInteraction]);
 
   // Snapshot the first committed Preview materials for integration tests. This
   // runs after React Three Fiber has attached the materials to the paint mesh,
@@ -245,6 +247,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   && previous.structure === next.structure
   && previous.selectionRevision === next.selectionRevision
   && previous.bodyDragEnabled === next.bodyDragEnabled
+  && previous.dataRevision === next.dataRevision
   // Selection navigation replaces only the outer session object. Membership
   // and validity arrays remain identical, so avoid remounting every model
   // mesh for a currentPlateId-only change.

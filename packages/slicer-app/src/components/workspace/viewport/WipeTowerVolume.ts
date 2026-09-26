@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { HistoryStatus, PlateSessionSnapshot, PrimeTowerMoveRequest, PrimeTowerMoveResultOrError, PrimeTowerPlateProjection, PrimeTowerProjection } from '@slicer/client';
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { attachBoundsTree, disposeBVHGeometry, GLVolume, type BVHBufferGeometry } from './GLVolume';
 import { clampPrimeTowerPosition, type PrimeTowerPosition } from './primeTowerGeometry';
 import { runProjectMutationOperation } from '../actions/historyMutation';
@@ -150,6 +150,7 @@ export class WipeTowerVolumeCollection {
   private projectionState: PrimeTowerProjection | null = null;
   private volumesState: WipeTowerVolume[] = [];
   private sessionState: PlateSessionSnapshot | null = null;
+  private projectionRevisionState = 0;
   private moveCommandCountState = 0;
   private commitInFlight = false;
 
@@ -160,11 +161,13 @@ export class WipeTowerVolumeCollection {
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   get projection(): PrimeTowerProjection | null { return this.projectionState; }
   get volumes(): readonly WipeTowerVolume[] { return this.volumesState; }
+  get projectionRevision(): number { return this.projectionRevisionState; }
   get moveCommandCount(): number { return this.moveCommandCountState; }
   get busy(): boolean { return this.commitInFlight; }
 
   setProjection(projection: PrimeTowerProjection | null, session?: PlateSessionSnapshot | null): void {
     const setStartedAt = projectionDiagnosticNow();
+    this.projectionRevisionState += 1;
     this.projectionState = projection;
     if (session !== undefined) this.sessionState = session;
     const activeSession = this.sessionState;
@@ -261,8 +264,11 @@ export class WipeTowerVolumeCollection {
   private emit(): void { for (const listener of this.listeners) listener(); }
 }
 
-export function useWipeTowerVolumeVersion(collection: WipeTowerVolumeCollection | undefined): number {
-  const [version, setVersion] = useState(0);
-  useEffect(() => collection?.subscribe(() => setVersion((current) => current + 1)), [collection]);
-  return version;
+export function useWipeTowerVolumeRevision(collection: WipeTowerVolumeCollection | undefined): number {
+  const subscribe = useCallback(
+    (listener: () => void) => collection?.subscribe(listener) ?? (() => undefined),
+    [collection],
+  );
+  const getSnapshot = useCallback(() => collection?.projectionRevision ?? 0, [collection]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
