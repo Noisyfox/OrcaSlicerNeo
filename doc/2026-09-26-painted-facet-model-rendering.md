@@ -25,6 +25,14 @@ and [Workspace Prepare and Preview Modes](../spec/Workspace%20Prepare%20and%20Pr
   slice-result colour source; the shell does not obscure them.
 - In Prepare, selecting a painted model brightens each colour group using
   Neo's existing selection treatment, so the groups remain distinguishable.
+- Facet state `0` uses the part's current effective filament assignment.
+  Explicit facet states `1`, `2`, and so on use those numbered filament slots.
+  An explicit state beyond the available slots is displayed using slot 1's
+  colour, without rewriting the stored facet state. Native filament deletion
+  continues to remap painting references.
+- A painted model first becomes visible with its facet colours in both Prepare
+  and Preview. Loading or restoring the model must not briefly show it as a
+  single-colour model while its paint geometry is still being prepared.
 - The original, unpainted mesh is the sole source of any model BVH and model
   picking. The painted geometry is display-only and has no BVH.
 
