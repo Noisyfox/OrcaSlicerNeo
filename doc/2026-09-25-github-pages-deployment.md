@@ -1,7 +1,7 @@
 # GitHub Pages deployment
 
 **Date:** 2026-09-25
-**Status:** Pages deployed; CI matrix repair in progress
+**Status:** Pages deployed; CI fixes under pull-request validation
 
 The public project site is published from `main` by the existing
 `.github/workflows/ci.yml` workflow at
@@ -11,8 +11,8 @@ as its publishing source. The WASM dependency job prepares the shared compiled
 dependency cache, then two runners build the threaded and serial cores
 concurrently. The Pages job downloads both artifacts from that same run and
 the packaged profiles, builds the Web host, checks its subpath behavior, and
-uploads `apps/web/dist`. The deploy job runs only for pushes to
-`main`.
+uploads `apps/web/dist`. Pull requests run this Pages build and its checks,
+while the deploy job runs only for pushes to `main`.
 
 GitHub Pages serves HTTPS but does not provide the COOP/COEP response headers
 required by threaded WASM. The runtime therefore selects the existing serial
@@ -59,14 +59,17 @@ Unit tests and typechecks remain independent of generated WASM; Electron
 build coverage comes from mock E2E and the packaging matrix. The atomic-file
 test now checks sibling placement using the host platform's path rules.
 
-Linux mock E2E still has viewport and interaction failures. On a failed E2E
-job, Playwright retains a trace and CI uploads `test-results` for diagnosis.
+On a failed E2E job, Playwright retains a trace and CI uploads `test-results`
+for diagnosis.
 
 The installer matrix runs one job for each of the six platform and architecture
 targets. The electron-builder target configuration leaves architecture selection
 to each job's CLI flag; an explicit one-installer check guards against the
 builder silently producing both architectures. Each installer is uploaded as
 its own artifact.
+Pass matrix flags directly after the pnpm script name. An extra `--` reached
+electron-builder literally, causing arm64 jobs to package the host's x64
+architecture; the one-installer check exposed this before upload.
 
 The desktop's main and preload bundles have no external production imports,
 and the renderer is bundled by Vite. Exclude production `node_modules` from
@@ -74,15 +77,28 @@ electron-builder's file collection so packaged installers do not carry the
 WASM workspace source tree and temporary `.work` dependency builds. Keep
 staged `out/renderer/wasm` and `out/renderer/profiles` as the runtime assets.
 
-The mock Electron E2E suite runs on a Windows runner. Its full 50-test flow
-passes on the local Windows desktop; hosted runners have canvas and selection
-assertions still under investigation. The real WASM E2E job remains on Linux
+The mock Electron E2E suite runs on a Windows runner and its 50-test flow
+passes locally and in the pull request. The real WASM E2E job remains on Linux
 to exercise that host separately.
 
 Mock E2E also downloads the profile-packages artifact. Soft staging now copies
 profiles even without a WASM build, matching the asset set used by local E2E.
 On a clean checkout, the Preview nozzle marker assertion failed without those
 profiles and passed after staging them.
+
+The Prime Tower E2E history helpers close their menus through the trigger:
+pressing Escape could also invoke Prepare's global deselection shortcut and
+leave the menu's inert overlay over the toolbar. The helpers wait for the Undo
+trigger and first entry to become available, then wait for the menu to close before
+testing gizmo hover. After a canceled drag, the test releases the held mouse
+button and reselects only if cancellation cleared selection.
+
+The real-project plate-switch test observes the next renderer frame instead of
+Playwright's backoff intervals. The hosted Linux runner still reports roughly
+0.5–1.5 seconds against about 0.1 seconds locally for the same project. CI
+omits the plate-switch and other performance/profile E2E cases while retaining
+the real WASM functional cases. Local runs keep the 500 ms cold and 250 ms
+steady-state budgets and all profiling cases.
 
 The hosted Windows runner reports a 1024×768 screen and starts Electron with a
 1024×720 content viewport. The local desktop uses a roughly 1280×800 viewport.
@@ -97,3 +113,10 @@ interaction, preserving the selected tower through its authoritative receipt.
 The Prime Tower E2E sends pointer-down and threshold-crossing movement through
 Electron's native input channel in one task, like the passing model-body drag
 test, then continues the held gesture before releasing it.
+For the non-current tower near a canvas edge, the real E2E crosses the drag
+threshold inside the canvas before moving toward an outside boundary. It waits
+for the previous native tower commit to finish before starting that gesture.
+After export, the real E2E verifies the selected plate through the G-code's
+native indexed Prime Tower values and then checks the rendered Preview bed.
+It does not infer the active plate from a transient raycast bed during the
+Prepare-to-Preview scene publication.

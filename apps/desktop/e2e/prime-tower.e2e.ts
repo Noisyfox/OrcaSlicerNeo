@@ -93,18 +93,20 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
       let undoLabels: string[] = [];
       if (await menuTrigger.isEnabled()) {
         await menuTrigger.click();
-        undoLabels = await page.getByTestId(/history-undo-entry-/).allTextContents();
-        await page.keyboard.press('Escape');
+        const entries = page.getByTestId(/history-undo-entry-/);
+        await expect(entries.first()).toBeVisible({ timeout: 30_000 });
+        undoLabels = await entries.allTextContents();
+        // Escape is also the Prepare viewport shortcut for clearing selection.
+        // Close the menu through its trigger so history inspection cannot
+        // change the Prime Tower selection under test.
+        await menuTrigger.click();
+        await expect(entries).toHaveCount(0);
       }
       return { undoLabels, undoButtonLabel };
     };
     const readHistoryUntilEntries = async (): Promise<HistorySnapshot> => {
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        const snapshot = await readHistory();
-        if (snapshot.undoLabels.length > 0) return snapshot;
-        await page.waitForTimeout(25);
-      }
-      throw new Error('Worker history menu did not publish project entries');
+      await expect(page.getByTestId('history-undo-menu-trigger')).toBeEnabled({ timeout: 30_000 });
+      return readHistory();
     };
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const screenForWorld = async (point: Point): Promise<{ x: number; y: number }> => {
@@ -249,13 +251,15 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await expect.poll(readMoves).toBe(1);
     await expect.poll(readPointerOwner).toBe('none');
+    await page.mouse.up();
     await expect.poll(async () => (await readHistoryUntilEntries()).undoLabels).toEqual(historyBeforeCancel.undoLabels);
     expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(moved.position);
 
-    // Re-select through the same shared scene hit path before arming Move.
-    // This also proves selection never auto-arms the gizmo after cancellation.
+    // Cancellation may preserve the shared selection; re-select only if the
+    // viewport actually cleared it. Neither path should auto-arm the gizmo.
     const movedCenter: Point = [activeBed[0] + moved.position.x + 12, activeBed[1] + moved.position.y + 18, 9];
-    await page.mouse.click((await screenForWorld(movedCenter)).x, (await screenForWorld(movedCenter)).y);
+    if (await readSelection() !== moved.plateId)
+      await page.mouse.click((await screenForWorld(movedCenter)).x, (await screenForWorld(movedCenter)).y);
     await expect.poll(readSelection).toBe(moved.plateId);
     await expect.poll(readAxis).toBeNull();
     await page.getByTestId('gizmo-btn-move').click();
@@ -264,6 +268,7 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     // Locate a real X/Y TransformControls shaft by hovering projected world
     // candidates, then drag that canvas point. The helper only locates the
     // handle; the gesture itself is dispatched through Playwright's mouse.
+    const historyBeforeGizmo = await readHistoryUntilEntries();
     let gizmoPoint: { x: number; y: number } | null = null;
     const gizmoNeighborhood = { x: bodyDragScreen.x + 32, y: bodyDragScreen.y - 18 };
     for (let dx = -140; dx <= 140 && !gizmoPoint; dx += 10) {
@@ -274,7 +279,6 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
       }
     }
     expect(gizmoPoint, 'X/Y TransformControls shaft should be discoverable in the canvas').not.toBeNull();
-    const historyBeforeGizmo = await readHistoryUntilEntries();
     await page.mouse.move(gizmoPoint!.x, gizmoPoint!.y);
     await expect.poll(readAxis).not.toBeNull();
     await page.mouse.down();

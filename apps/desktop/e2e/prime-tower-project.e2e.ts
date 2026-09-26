@@ -53,6 +53,16 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
   const app: ElectronApplication = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   try {
     const page = await app.firstWindow();
+    const rendererErrors: string[] = [];
+    const recordRendererError = (message: string) => {
+      rendererErrors.push(message);
+      if (rendererErrors.length > 20) rendererErrors.shift();
+    };
+    page.on('pageerror', (error) => recordRendererError(`pageerror: ${error.message}`));
+    page.on('crash', () => recordRendererError('renderer crashed'));
+    page.on('console', (message) => {
+      if (message.type() === 'error') recordRendererError(`console: ${message.text()}`);
+    });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
 
@@ -123,6 +133,12 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const readMoves = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { primeTowerMoveCommands?: () => number } }).__orcaE2e?.primeTowerMoveCommands?.() ?? 0,
     );
+    const readCommitBusy = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { primeTowerCommitBusy?: () => boolean } }).__orcaE2e?.primeTowerCommitBusy?.() ?? false,
+    );
+    const readPointerOwner = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
+    );
     const readProxyIds = () => page.evaluate(() => {
       const hook = (window as unknown as { __orcaE2e?: { primeTowerProxyIds?: () => string[] } }).__orcaE2e;
       return hook?.primeTowerProxyIds?.() ?? null;
@@ -135,8 +151,12 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       const menuTrigger = page.getByTestId('history-undo-menu-trigger');
       if (!(await menuTrigger.isEnabled())) return [] as string[];
       await menuTrigger.click();
-      const labels = await page.getByTestId(/history-undo-entry-/).allTextContents();
-      await page.keyboard.press('Escape');
+      const entries = page.getByTestId(/history-undo-entry-/);
+      await expect(entries.first()).toBeVisible({ timeout: 30_000 });
+      const labels = await entries.allTextContents();
+      await menuTrigger.click();
+      await expect(entries).toHaveCount(0);
+      await expect(page.locator('[data-base-ui-inert]')).toHaveCount(0);
       return labels;
     };
     // The pinned big-proj.3mf fixture owns eleven serialized plates and
@@ -281,6 +301,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect(page.getByTestId('history-redo')).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId('history-redo').click();
     await expect.poll(() => positionError(movedPosition!)).toBeLessThan(0.001);
+    await expect.poll(readCommitBusy).toBe(false);
 
     // A tower on another displayed plate is also a real scene target.  Drag
     // it toward/through the neighbouring plate area and assert that native
@@ -295,6 +316,10 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const movesBeforeOther = await readMoves();
     await page.mouse.move(box!.x + otherPoint!.x, box!.y + otherPoint!.y);
     await page.mouse.down();
+    // This tower can sit near the canvas edge. Cross DragControls' movement
+    // threshold while still inside the canvas before trying outside targets.
+    await page.mouse.move(box!.x + otherPoint!.x - 24, box!.y + otherPoint!.y + 12, { steps: 3 });
+    await expect.poll(readPointerOwner).toBe('body');
     let otherDrafted = false;
     for (const target of dragTargets) {
       await page.mouse.move(target.x, target.y, { steps: 4 });
@@ -348,7 +373,6 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
-    await expect.poll(readCurrentPlateId).toBe(current!.plateId);
     const gcode = readFileSync(exportPath, 'utf8');
     // Match emitted toolpath markers, rather than configuration headers or
     // filament-change/flush templates that may mention a tower without one.
@@ -494,7 +518,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     };
     await page.locator('#app-tab-preview').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
-    await expect.poll(readCurrentPlateId).toBe(indexedFirst.plateId);
+    await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(indexedFirst.plateId);
     await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();
     const firstPreviewBounds = await readPreviewToolpathWorldBounds();
     expect(firstPreviewBounds).not.toBeNull();
@@ -529,9 +553,27 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     expect(indexedSecond.plateId).not.toBe(indexedFirst.plateId);
     expect(indexedSecond.displayIndex).not.toBe(indexedFirst.displayIndex);
 
-    await page.locator('#app-tab-preview').click();
+    const secondPreviewTab = page.locator('#app-tab-preview');
+    if (await secondPreviewTab.count() === 0) {
+      const pageState = await Promise.race([
+        page.evaluate(() => ({
+          href: window.location.href,
+          readyState: document.readyState,
+          bodyText: document.body?.innerText.slice(0, 2_000) ?? null,
+          bodyHtml: document.body?.outerHTML.slice(0, 2_000) ?? null,
+        })).catch((error: unknown) => ({ evaluateError: String(error) })),
+        new Promise<{ evaluateTimeout: true }>((resolve) => setTimeout(() => resolve({ evaluateTimeout: true }), 5_000)),
+      ]);
+      const diagnostics = { pageState, rendererErrors };
+      console.error('[real Prime Tower E2E] Preview tab missing after second export', JSON.stringify(diagnostics));
+      await test.info().attach('missing-second-preview-state', {
+        body: Buffer.from(JSON.stringify(diagnostics, null, 2)), contentType: 'application/json',
+      });
+      await page.screenshot({ path: test.info().outputPath('missing-second-preview.png'), timeout: 5_000 }).catch(() => {});
+    }
+    await secondPreviewTab.click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
-    await expect.poll(readCurrentPlateId).toBe(indexedSecond.plateId);
+    await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(indexedSecond.plateId);
     await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();
     const secondPreviewBounds = await readPreviewToolpathWorldBounds();
     expect(secondPreviewBounds).not.toBeNull();
@@ -554,7 +596,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     expect(indexedFirst.plateId).not.toBe(indexedSecond.plateId);
     await page.locator('#app-tab-preview').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
-    await expect.poll(readCurrentPlateId).toBe(current!.plateId);
+    await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(current!.plateId);
     await expect.poll(readProxyIds, { timeout: 30_000 }).toBeNull();
   } finally {
     await app.close();

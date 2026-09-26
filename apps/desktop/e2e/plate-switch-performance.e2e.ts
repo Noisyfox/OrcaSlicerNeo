@@ -93,11 +93,17 @@ test('switches several non-current plates within the interactive budget', async 
         const started = performance.now();
         await page.mouse.click(box!.x + point.x, box!.y + point.y);
         try {
-          await expect.poll(async () => {
-            const selected = (await readBeds()).some((bed) => bed.current && bed.plateId === target!.plateId);
-            const label = await readCurrentLabel();
-            return selected && label !== previousLabel;
-          }, { timeout: 1_000 }).toBe(true);
+          // Measure the visible response at the next renderer frame. The
+          // default expect.poll backoff can add hundreds of milliseconds to
+          // the elapsed time after the plate has already changed.
+          await page.waitForFunction(({ plateId, oldLabel }) => {
+            const hook = (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{
+              plateId?: string; current: boolean;
+            }> } }).__orcaE2e;
+            const selected = hook?.bedPlateStates?.().some((bed) => bed.current && bed.plateId === plateId) ?? false;
+            const label = document.querySelector('[data-testid="current-plate-label"]')?.textContent;
+            return selected && label !== oldLabel;
+          }, { plateId: target!.plateId, oldLabel: previousLabel }, { timeout: 1_000, polling: 'raf' });
           latencies.push(performance.now() - started);
           switched = true;
           break;
