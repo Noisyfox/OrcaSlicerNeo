@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-26
 
-**Status:** Approved design; implementation pending.
+**Status:** Implemented and verified on `dev/facet-painted-model-rendering-spec`.
 
 **Scope:** Display existing MMU filament facet painting on model shells in
 Prepare and Preview for the shared Web and Electron application.
