@@ -155,8 +155,13 @@ export function canRenderPreparePaint(
   structure: readonly ModelObjectStructure[],
   plateSession?: PlateSessionSnapshot | null,
 ): boolean {
-  const { object } = stableVolume(volume, structure);
-  return Boolean(object?.printable) && !instanceForVolume(volume, plateSession)?.unprintable;
+  const object = structure.find((entry) => entry.id === volume.buffer.objectId)
+    ?? structure.find((entry) => entry.index === volume.buffer.objectIdx);
+  const instance = object?.instances.find((entry) => entry.id === volume.buffer.instanceId)
+    ?? object?.instances.find((entry) => entry.index === volume.buffer.instanceIdx);
+  return Boolean(object?.printable)
+    && instance?.printable !== false
+    && !instanceForVolume(volume, plateSession)?.unprintable;
 }
 
 /** Resolve one Prepare material overlay for each native facet-state group.

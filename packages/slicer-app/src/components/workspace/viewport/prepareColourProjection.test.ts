@@ -26,8 +26,11 @@ const snapshot = {
   }, revisions: { session: 1, project: 1, result: 0, plates: {} }, status: { state: 'ready', error: null },
 } as unknown as FilamentSessionSnapshot;
 
-function volume(volumeIdx: number) {
-  return { buffer: { objectIdx: 0, volumeIdx, instanceIdx: 0 } } as any;
+function volume(volumeIdx: number, instanceId = 30, instanceIdx = 0) {
+  return { buffer: {
+    objectId: 10, volumeId: 20 + volumeIdx, instanceId,
+    objectIdx: 0, volumeIdx, instanceIdx,
+  } } as any;
 }
 
 describe('Prepare colour projection', () => {
@@ -125,5 +128,25 @@ describe('Prepare colour projection', () => {
     expect(canRenderPreparePaint(volume(0), structure, {
       instances: [{ objectIndex: 0, instanceIndex: 0, outOfBounds: false, unprintable: false, member: false }],
     } as any)).toBe(true);
+  });
+
+  it('uses the native instance printable flag when the plate still reports membership', () => {
+    const twoInstances: ModelObjectStructure[] = [{
+      ...structure[0]!,
+      instanceCount: 2,
+      instances: [
+        { id: 31, index: 1, printable: false },
+        { id: 30, index: 0, printable: true },
+      ],
+    }];
+    const plateSession = { instances: [{
+      objectId: 10, instanceId: 31, objectIndex: 0, instanceIndex: 1,
+      outOfBounds: false, unprintable: false, member: true,
+    }] } as any;
+
+    expect(plateSession.instances[0]).toMatchObject({ member: true, unprintable: false });
+    expect(canRenderPreparePaint(volume(0, 31, 1), twoInstances, plateSession)).toBe(false);
+    expect(canRenderPreparePaint(volume(0, 999, 1), twoInstances, plateSession)).toBe(false);
+    expect(canRenderPreparePaint(volume(0, 30, 0), twoInstances, plateSession)).toBe(true);
   });
 });
