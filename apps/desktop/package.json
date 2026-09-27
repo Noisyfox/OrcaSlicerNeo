@@ -19,8 +19,9 @@
     "package:dir": "electron-vite build && electron-builder --dir --publish never",
     "package": "electron-vite build && electron-builder --publish never",
     "postinstall": "install-electron",
-    "test:e2e": "node ../../scripts/stage.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts e2e/project-lifecycle.e2e.ts e2e/multi-filament.e2e.ts e2e/preset-editor.e2e.ts e2e/prime-tower.e2e.ts",
+    "test:e2e": "node ../../scripts/stage.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts e2e/project-lifecycle.e2e.ts e2e/multi-filament.e2e.ts e2e/preset-editor.e2e.ts e2e/prime-tower.e2e.ts e2e/painted-facet.e2e.ts",
     "test:e2e:real": "node ../../scripts/stage.mjs && node ../../scripts/run-desktop-e2e-real.mjs",
+    "test:e2e:painted-facet:real": "node ../../scripts/run-painted-facet-preview-e2e.mjs",
     "test:e2e:real-project-profile": "node ../../scripts/run-real-project-profile.mjs",
     "test:e2e:prime-tower-warnings": "node ../../scripts/stage.mjs --soft && node scripts/run-prime-tower-warning-e2e.mjs"
   },

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
 
 const profiles = resolve(import.meta.dirname, '../../profile-resources/dist');
 const factory = await loadModuleFactory(process.argv[2]);
@@ -11,6 +13,16 @@ function call(name, types = [], args = []) {
   const pointer = Number(module.ccall(name, 'number', types, args));
   try { return JSON.parse(module.UTF8ToString(pointer)); }
   finally { module._free(pointer); }
+}
+function paintFacetDecodeCount() {
+  const result = call('orc_test_get_model_paint_decode_count');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  return result.paint_facet_decode_count;
+}
+function paintResourceHashCount() {
+  const result = call('orc_test_get_model_paint_decode_count');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  return result.paint_resource_hash_count;
 }
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null, gizmo: null, nativeScopedConfig: {} };
@@ -31,14 +43,29 @@ function edit(label, operation) {
   assert.equal(result.ok, true, JSON.stringify(result));
   return { result, ...commit(id) };
 }
-function patch(ids, known = []) {
-  const result = call('orc_get_model_scene_patch', ['string'],
-    [JSON.stringify({ object_ids: ids, known_volume_ids: known })]);
-  assert.equal(result.ok, true, JSON.stringify(result));
-  for (const geometry of result.geometries) {
-    module._free(Number(geometry.vertex_ptr));
-    module._free(Number(geometry.index_ptr));
+function freeGeometryBuffers(result) {
+  const pointers = new Set();
+  for (const list of [result.geometries, result.paint_geometries]) {
+    if (!Array.isArray(list)) continue;
+    for (const geometry of list) {
+      if (!geometry || typeof geometry !== 'object') continue;
+      for (const pointer of [geometry.vertex_ptr, geometry.index_ptr])
+        if (Number.isSafeInteger(Number(pointer)) && Number(pointer) > 0) pointers.add(Number(pointer));
+    }
   }
+  for (const pointer of pointers) module._free(pointer);
+}
+function patch(ids, known = [], knownPaint = []) {
+  const result = call('orc_get_model_scene_patch', ['string'],
+    [JSON.stringify({ object_ids: ids, known_volume_ids: known, known_paint_keys: knownPaint })]);
+  try { assert.equal(result.ok, true, JSON.stringify(result)); }
+  finally { freeGeometryBuffers(result); }
+  return result;
+}
+function fullModel() {
+  const result = call('orc_get_model_mesh');
+  try { assert.equal(result.ok, true, JSON.stringify(result)); }
+  finally { freeGeometryBuffers(result); }
   return result;
 }
 assert.equal(call('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
@@ -46,8 +73,18 @@ call('orc_history_reset', ['string'], [JSON.stringify(context)]);
 const added = edit('Cube', () => call('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']));
 assert.equal(added.scene_delta.object_ids.length, 1);
 const objectId = added.scene_delta.object_ids[0];
+assert.equal(call('orc_get_model_scene_patch', ['string'],
+  [JSON.stringify({ object_ids: [objectId], known_volume_ids: [] })]).ok, false,
+'scene patch requests must explicitly include known_paint_keys');
 const first = patch([objectId]);
 assert.equal(first.geometries.length, 1);
+assert.equal(first.renderables[0].paint_key, null);
+assert.equal(first.paint_geometries.length, 0);
+assert.equal(paintFacetDecodeCount(), 0, 'an unpainted volume must skip native facet reconstruction');
+const unpaintedFull = fullModel();
+assert.equal(unpaintedFull.renderables[0].paint_key, null);
+assert.equal(unpaintedFull.paint_geometries.length, 0);
+assert.equal(paintFacetDecodeCount(), 0, 'full model loading must also skip native facet reconstruction');
 const volumeId = first.geometries[0].volume_id;
 assert.equal(patch([objectId], [volumeId]).geometries.length, 0);
 const second = edit('Second cube', () => call('orc_add_shape', ['string', 'string'], ['Cube', 'Second']));
@@ -91,5 +128,93 @@ const inner = begin('Inner', outer);
 call('orc_rename_object', ['number', 'string'], [objectId, 'Nested']);
 assert.equal(commit(inner).scene_delta, null);
 assert.deepEqual(commit(outer).scene_delta.object_ids, [objectId]);
-console.log('PASS committed deltas, targeted descriptions, 101-instance zero-buffer reuse, native separation IDs, Undo/Redo, nested and no-op');
+
+const paintedFixtureDir = resolve(import.meta.dirname, '../fixtures/painted-facet');
+const paintedFixtureManifest = JSON.parse(await readFile(resolve(paintedFixtureDir, 'manifest.json'), 'utf8'));
+const paintedFixture = new Uint8Array(await readFile(resolve(paintedFixtureDir, paintedFixtureManifest.path)));
+const projectPtr = module._malloc(paintedFixture.length);
+module.HEAPU8.set(paintedFixture, projectPtr);
+let importedPaintFixture;
+try {
+  importedPaintFixture = call('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [projectPtr, paintedFixture.length, 0, 'painted-facet-instances.3mf']);
+} finally {
+  module._free(projectPtr);
+}
+assert.equal(importedPaintFixture.ok, true, JSON.stringify(importedPaintFixture));
+assert.equal(importedPaintFixture.mode, 'project', 'the fixture must take the full project load path');
+const paintedPlateSession = call('orc_get_plate_session_snapshot');
+assert.equal(paintedPlateSession.ok, true, JSON.stringify(paintedPlateSession));
+const paintedPlate = paintedPlateSession.plates.find((plate) => plate.plate_id === paintedPlateSession.current_plate_id);
+assert.ok(paintedPlate, 'painted fixture must restore its current plate');
+assert.equal(paintedPlate.instance_ids.length, 2, 'painted fixture must restore both placed instances');
+assert.deepEqual(paintedPlate.out_of_bounds_instance_ids, [],
+  'both painted fixture instances must start inside the positive-coordinate H2D bed');
+const paintedFull = fullModel();
+const paintedResource = paintedFull.paint_geometries[0];
+assert.ok(paintedResource, `the imported 3MF fixture must expose native MMU paint geometry: ${JSON.stringify({
+  load: { ok: importedPaintFixture.ok, object_count: importedPaintFixture.object_count },
+  renderables: paintedFull.renderables.map(({ object_id, volume_id, paint_key }) => ({ object_id, volume_id, paint_key })),
+  originalVolumes: paintedFull.geometries.map(({ volume_id, index_count }) => ({ volume_id, index_count })),
+  paintCount: paintedFull.paint_geometries.length,
+})}`);
+assert.equal(paintedFull.renderables.length, 2,
+  'the imported project must load both instances of its painted model');
+assert.equal(paintFacetDecodeCount(), 1, 'initial paint load must build native split facets once');
+const initialPaintHashCount = paintResourceHashCount();
+const paintedStates = paintedResource.draw_groups.map((group) => group.state_id);
+assert.deepEqual([...new Set(paintedStates)].sort((a, b) => a - b), paintedFixtureManifest.expected.paintStates,
+  'native imported paint groups must match the fixture manifest');
+assert.ok(paintedStates.includes(0), 'paint geometry must retain the unpainted state 0 group');
+assert.ok(paintedStates.some((state) => state > 0), 'paint geometry must contain a positive filament state');
+const originalResource = paintedFull.geometries.find((geometry) => geometry.volume_id === paintedResource.volume_id);
+assert.ok(originalResource, 'paint geometry must identify the same volume as its original mesh');
+assert.ok(paintedResource.index_count > originalResource.index_count,
+  'native facet restoration must split at least one source triangle');
+const paintedRenderable = paintedFull.renderables.find((entry) => entry.paint_key === paintedResource.paint_key);
+assert.ok(paintedRenderable, 'renderables must reference their paint resource version');
+assert.ok(paintedRenderable.paint_key.includes(':'), 'paint version key must be independent of the original volume key');
+assert.equal(new Set(paintedFull.renderables.map((entry) => entry.instance_id)).size, 2,
+  'two imported instances must retain distinct instance identities');
+
+assert.equal(call('orc_add_instance', ['number'], [paintedRenderable.object_id]).ok, true);
+const paintedInstances = patch([paintedRenderable.object_id]);
+const samePaintInstances = paintedInstances.renderables.filter((entry) =>
+  entry.volume_id === paintedResource.volume_id && entry.paint_key === paintedResource.paint_key);
+assert.ok(samePaintInstances.length >= 2, 'multiple instances of one painted volume must share its paint key');
+assert.equal(paintedInstances.paint_geometries.filter((entry) => entry.volume_id === paintedResource.volume_id).length, 1,
+  'one painted model volume must produce one paint geometry allocation');
+
+const originalKnown = patch([paintedRenderable.object_id], [paintedResource.volume_id]);
+assert.equal(originalKnown.geometries.some((geometry) => geometry.volume_id === paintedResource.volume_id), false);
+assert.equal(originalKnown.paint_geometries.filter((geometry) => geometry.volume_id === paintedResource.volume_id).length, 1,
+  'a retained original mesh must not suppress a missing paint resource');
+const paintKnown = patch([paintedRenderable.object_id], [], [paintedResource.paint_key]);
+assert.equal(paintKnown.geometries.filter((geometry) => geometry.volume_id === paintedResource.volume_id).length, 1,
+  'a retained paint resource must not suppress a missing original mesh');
+assert.equal(paintKnown.paint_geometries.some((geometry) => geometry.volume_id === paintedResource.volume_id), false);
+assert.equal(paintFacetDecodeCount(), 3,
+  'a retained paint key must skip native facet reconstruction while the original mesh is requested');
+assert.equal(paintResourceHashCount(), initialPaintHashCount,
+  'unchanged scene reads must reuse the paint key without hashing source mesh or facet bits');
+
+const filamentBeforeRemap = call('orc_get_filament_session_snapshot');
+const deletedPaintSlot = call('orc_delete_filament_slot', ['string'],
+  [JSON.stringify({ version: 1, revision: filamentBeforeRemap.revisions.session, slot: 2 })]);
+assert.equal(deletedPaintSlot.ok, true, JSON.stringify(deletedPaintSlot));
+const deletedPaint = patch([paintedRenderable.object_id], [paintedResource.volume_id], [paintedResource.paint_key]);
+const deletedPaintKey = deletedPaint.renderables.find((entry) => entry.volume_id === paintedResource.volume_id).paint_key;
+assert.notEqual(deletedPaintKey, paintedResource.paint_key, 'slot deletion must publish a new paint key');
+assert.equal(deletedPaint.geometries.length, 0, 'slot remap must retain the original source mesh');
+const deletedUndo = call('orc_history_undo');
+assert.equal(deletedUndo.ok, true, JSON.stringify(deletedUndo));
+assert.ok(deletedUndo.scene_delta.object_ids.includes(paintedRenderable.object_id));
+assert.equal(patch([paintedRenderable.object_id], [paintedResource.volume_id]).renderables[0].paint_key,
+  paintedResource.paint_key, 'Undo must restore the original paint version');
+const deletedRedo = call('orc_history_redo');
+assert.equal(deletedRedo.ok, true, JSON.stringify(deletedRedo));
+assert.equal(patch([paintedRenderable.object_id], [paintedResource.volume_id]).renderables[0].paint_key,
+  deletedPaintKey, 'Redo must restore the deleted-slot paint version');
+
+console.log('PASS no-paint/cached-key decode fast paths, split MMU paint groups, imported multi-instance dedup, independent resource reuse, slot deletion, Undo/Redo');
 process.exit(0);

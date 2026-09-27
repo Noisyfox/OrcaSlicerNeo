@@ -1,5 +1,11 @@
 import * as THREE from 'three';
-import type { ModelObjectBuffer, ModelTransform, ModelGeometry } from '@slicer/client';
+import type {
+  ModelObjectBuffer,
+  ModelPaintDrawGroup,
+  ModelPaintGeometry,
+  ModelTransform,
+  ModelGeometry,
+} from '@slicer/client';
 import { matrixFromTransform, normalizeTransform } from './transformDeltaMath';
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 
@@ -28,6 +34,8 @@ export function disposeBVHGeometry(geometry: BVHBufferGeometry): void {
 export type GeometryOwnership = { kind: 'shared'; key: string } | { kind: 'exclusive' };
 type GeometryResource = { geometry: THREE.BufferGeometry; buffer: ModelGeometry; refs: number };
 const geometryResources = new Map<string, GeometryResource>();
+type PaintGeometryResource = { geometry: THREE.BufferGeometry; buffer: ModelPaintGeometry; refs: number };
+const paintGeometryResources = new Map<string, PaintGeometryResource>();
 
 function buildGeometry(buffer: Pick<ModelObjectBuffer, 'positions' | 'indices'>): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
@@ -48,8 +56,48 @@ function releaseGeometry(key: string): void {
     disposeBVHGeometry(resource.geometry as BVHBufferGeometry);
   }
 }
+function buildPaintGeometry(buffer: ModelPaintGeometry): THREE.BufferGeometry {
+  if (buffer.vertexCount * 3 !== buffer.positions.length || buffer.indexCount !== buffer.indices.length)
+    throw new Error(`invalid model paint geometry ${buffer.paintGeometryKey}`);
+  let nextIndex = 0;
+  for (const group of buffer.drawGroups) {
+    if (group.startIndex !== nextIndex || group.indexCount <= 0 || group.stateId < 0)
+      throw new Error(`invalid model paint draw groups ${buffer.paintGeometryKey}`);
+    nextIndex += group.indexCount;
+  }
+  if (nextIndex !== buffer.indexCount)
+    throw new Error(`incomplete model paint draw groups ${buffer.paintGeometryKey}`);
+
+  const geometry = new THREE.BufferGeometry();
+  try {
+    geometry.setAttribute('position', new THREE.BufferAttribute(buffer.positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(buffer.indices.slice(), 1));
+    geometry.computeVertexNormals();
+    buffer.drawGroups.forEach((group, materialIndex) => {
+      geometry.addGroup(group.startIndex, group.indexCount, materialIndex);
+    });
+    // Keep native state IDs beside compact Three material indices. Step 3
+    // resolves these states into materials without rebuilding the geometry.
+    geometry.userData.modelPaintDrawGroups = buffer.drawGroups.map((group) => ({ ...group }));
+    return geometry;
+  } catch (error) {
+    geometry.dispose();
+    throw error;
+  }
+}
+function releasePaintGeometry(key: string): void {
+  const resource = paintGeometryResources.get(key);
+  if (!resource) throw new Error(`missing owned paint geometry ${key}`);
+  if (--resource.refs === 0) {
+    paintGeometryResources.delete(key);
+    resource.geometry.dispose();
+  }
+}
 export function retainedGeometry(key: string): ModelGeometry | undefined {
   return geometryResources.get(key)?.buffer;
+}
+export function retainedPaintGeometry(key: string): ModelPaintGeometry | undefined {
+  return paintGeometryResources.get(key)?.buffer;
 }
 /** Pin exactly the advertised resources across the asynchronous Worker read. */
 export function leaseGeometry(keys: readonly string[]): () => void {
@@ -61,6 +109,18 @@ export function leaseGeometry(keys: readonly string[]): () => void {
     if (released) return;
     released = true;
     for (const key of pinned) releaseGeometry(key);
+  };
+}
+/** Pin paint resources independently while an asynchronous scene patch resolves them. */
+export function leasePaintGeometry(keys: readonly string[]): () => void {
+  const pinned = [...new Set(keys)];
+  for (const key of pinned) if (!paintGeometryResources.has(key)) throw new Error(`missing paint geometry ${key}`);
+  for (const key of pinned) paintGeometryResources.get(key)!.refs++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const key of pinned) releasePaintGeometry(key);
   };
 }
 
@@ -118,6 +178,9 @@ export class GLVolume {
   selectable = true;
   readonly buffer: ModelObjectBuffer;
   readonly geometry: THREE.BufferGeometry;
+  readonly paintGeometry: THREE.BufferGeometry | null;
+  readonly paintGeometryKey: string | null;
+  readonly paintDrawGroups: readonly ModelPaintDrawGroup[];
   readonly id: string;
   instanceTransform: ModelTransform;
   volumeTransform: ModelTransform;
@@ -129,15 +192,22 @@ export class GLVolume {
 
   private disposed = false;
 
-  constructor(buffer: ModelObjectBuffer, readonly ownership: GeometryOwnership) {
-    this.buffer = buffer;
+  constructor(
+    buffer: ModelObjectBuffer,
+    readonly ownership: GeometryOwnership,
+    paint?: { key: string; buffer: ModelPaintGeometry },
+  ) {
     this.id = `${buffer.objectId}:${buffer.volumeId}:${buffer.instanceId}`;
     // Drop a redundant matrix from the bridge on clean transforms so the TRS
     // gizmo path stays cheap; sheared transforms keep the authoritative matrix.
     this.instanceTransform = normalizeTransform(structuredClone(buffer.instanceTransform));
     this.volumeTransform = normalizeTransform(structuredClone(buffer.volumeTransform));
+    let originalGeometry: THREE.BufferGeometry;
+    let originalBuffer = buffer;
     if (ownership.kind === 'shared') {
       let resource = geometryResources.get(ownership.key);
+      if (resource && resource.buffer.volumeId !== buffer.volumeId)
+        throw new Error(`model geometry ${ownership.key} belongs to another volume`);
       if (!resource) {
         resource = { geometry: buildGeometry(buffer), refs: 0,
           buffer: { geometryKey: ownership.key, volumeId: buffer.volumeId,
@@ -146,10 +216,36 @@ export class GLVolume {
         geometryResources.set(ownership.key, resource);
       }
       resource.refs++;
-      this.buffer = { ...buffer, positions: resource.buffer.positions, indices: resource.buffer.indices,
+      originalBuffer = { ...buffer, positions: resource.buffer.positions, indices: resource.buffer.indices,
         vertexCount: resource.buffer.vertexCount, indexCount: resource.buffer.indexCount };
-      this.geometry = resource.geometry;
-    } else this.geometry = buildGeometry(buffer);
+      originalGeometry = resource.geometry;
+    } else originalGeometry = buildGeometry(buffer);
+
+    let paintResource: PaintGeometryResource | undefined;
+    try {
+      if (paint) {
+        if (paint.buffer.paintGeometryKey !== paint.key || paint.buffer.volumeId !== buffer.volumeId)
+          throw new Error(`model paint geometry ${paint.key} belongs to another volume`);
+        paintResource = paintGeometryResources.get(paint.key);
+        if (paintResource && paintResource.buffer.volumeId !== paint.buffer.volumeId)
+          throw new Error(`model paint geometry ${paint.key} belongs to another volume`);
+        if (!paintResource) {
+          paintResource = { geometry: buildPaintGeometry(paint.buffer), buffer: paint.buffer, refs: 0 };
+          paintGeometryResources.set(paint.key, paintResource);
+        }
+        paintResource.refs++;
+      }
+    } catch (error) {
+      if (ownership.kind === 'shared') releaseGeometry(ownership.key);
+      else disposeBVHGeometry(originalGeometry as BVHBufferGeometry);
+      throw error;
+    }
+
+    this.buffer = originalBuffer;
+    this.geometry = originalGeometry;
+    this.paintGeometry = paintResource?.geometry ?? null;
+    this.paintGeometryKey = paint?.key ?? null;
+    this.paintDrawGroups = paintResource?.buffer.drawGroups ?? [];
   }
 
   dispose(): void {
@@ -157,6 +253,7 @@ export class GLVolume {
     this.disposed = true;
     if (this.ownership.kind === 'shared') releaseGeometry(this.ownership.key);
     else disposeBVHGeometry(this.geometry as BVHBufferGeometry);
+    if (this.paintGeometryKey !== null) releasePaintGeometry(this.paintGeometryKey);
   }
 
   /**

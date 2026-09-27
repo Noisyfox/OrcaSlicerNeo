@@ -3,6 +3,10 @@ import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection, rejectGLVolumeRevision } from './GLVolume';
+import { projectFullModelMesh } from './modelMeshProjection';
+import { recordModelMeshResponse, registerModelLoadingProbeOwner } from '../../../e2e/modelLoadingProbe';
+
+declare const __ORCA_E2E__: boolean;
 
 export type LoadedObject = GLVolume;
 
@@ -11,6 +15,11 @@ export function useModelLoader(): LoadedObject[] {
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const modelRevision = useSettingsStore((s) => s.modelRevision);
   const [objects, setObjects] = useState<LoadedObject[]>([]);
+
+  useEffect(() => {
+    if (!__ORCA_E2E__) return;
+    return registerModelLoadingProbeOwner();
+  }, []);
 
   useEffect(() => glVolumeCollection.subscribe((volumes) => setObjects([...volumes])), []);
 
@@ -26,9 +35,7 @@ export function useModelLoader(): LoadedObject[] {
       const loaded: LoadedObject[] = [];
       try {
         const res = await platform.runtime.getModelMesh();
-        if (!res.ok) throw new Error(res.error ?? 'getModelMesh failed');
-        for (const buffer of res.objects)
-          loaded.push(new GLVolume(buffer, { kind: 'shared', key: buffer.geometryKey }));
+        loaded.push(...projectFullModelMesh(res));
         if (disposed || useSettingsStore.getState().modelRevision !== requestedRevision) {
           // The load finished after unmount/change — nothing consumes these
           // geometries; dispose them instead of leaking (review Minor 1).
@@ -38,6 +45,7 @@ export function useModelLoader(): LoadedObject[] {
           // render — the previous scene stays visible while the fetch is in
           // flight, instead of flashing empty on every revision bump.
           glVolumeCollection.replace(loaded, requestedRevision);
+          if (__ORCA_E2E__) recordModelMeshResponse(res);
         }
       } catch (err) {
         loaded.forEach((volume) => volume.dispose());

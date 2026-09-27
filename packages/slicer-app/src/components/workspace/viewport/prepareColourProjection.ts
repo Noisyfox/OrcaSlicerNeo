@@ -1,4 +1,4 @@
-import type { FilamentSessionSnapshot, ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
+import type { FilamentSessionSnapshot, ModelObjectStructure, ModelPaintDrawGroup, PlateSessionSnapshot } from '@slicer/client';
 import type { LoadedObject } from './useModelLoader';
 import { adjustRgbForRendering } from './renderColor';
 
@@ -10,6 +10,21 @@ export interface PrepareMaterialOverlay {
   opacity: number;
   transparent: boolean;
   depthWrite: boolean;
+}
+
+export interface PreparePaintMaterialOverlay extends PrepareMaterialOverlay {
+  stateId: number;
+}
+
+/** Orca's default GLVolume::UNPRINTABLE_COLOR is black at 50% opacity.
+ * Selection raises its HSL lightness to 0.25 while preserving alpha. */
+export function resolveUnprintableMaterial(selected = false): PrepareMaterialOverlay {
+  return {
+    colour: selected ? brightenForSelection('#000000') : '#000000',
+    opacity: 0.5,
+    transparent: true,
+    depthWrite: false,
+  };
 }
 
 /** Compose Prepare's slot colour with renderer overlays. Selection brightens
@@ -132,6 +147,79 @@ function instanceIsOutOfBounds(
     instance.instanceIndex === volume.buffer.instanceIdx &&
     (instance.outOfBounds || instance.unprintable || !instance.member),
   ) ?? false;
+}
+
+function instanceForVolume(
+  volume: LoadedObject,
+  plateSession: PlateSessionSnapshot | null | undefined,
+) {
+  return plateSession?.instances?.find((instance) =>
+    instance.objectIndex === volume.buffer.objectIdx &&
+    instance.instanceIndex === volume.buffer.instanceIdx,
+  );
+}
+
+function nativePrintability(
+  volume: LoadedObject,
+  structure: readonly ModelObjectStructure[],
+) {
+  const object = structure.find((entry) => entry.id === volume.buffer.objectId)
+    ?? structure.find((entry) => entry.index === volume.buffer.objectIdx);
+  const instance = object?.instances.find((entry) => entry.id === volume.buffer.instanceId)
+    ?? object?.instances.find((entry) => entry.index === volume.buffer.instanceIdx);
+  return { object, instance };
+}
+
+/** Plate membership does not change the model's own printable flag. */
+export function canRenderPreparePaint(
+  volume: LoadedObject,
+  structure: readonly ModelObjectStructure[],
+): boolean {
+  const { object, instance } = nativePrintability(volume, structure);
+  return Boolean(object?.printable) && instance?.printable !== false;
+}
+
+export function isModelInstanceMarkedUnprintable(
+  volume: LoadedObject,
+  structure: readonly ModelObjectStructure[],
+): boolean {
+  const { object, instance } = nativePrintability(volume, structure);
+  return object?.printable === false || instance?.printable === false;
+}
+
+/** Resolve one Prepare material overlay for each native facet-state group.
+ * State 0 inherits the current part assignment; positive states address their
+ * numbered filament slot and missing slots display slot 1's colour. */
+export function preparePaintMaterialOverlays(
+  volume: LoadedObject,
+  drawGroups: readonly ModelPaintDrawGroup[],
+  structure: readonly ModelObjectStructure[],
+  snapshot: FilamentSessionSnapshot | null | undefined,
+  plateSession?: PlateSessionSnapshot | null,
+  selected = false,
+  transparent = false,
+): PreparePaintMaterialOverlay[] {
+  const { object, part } = stableVolume(volume, structure);
+  const assignment = object && part
+    ? snapshot?.assignments.parts.find((entry) => entry.id === part.id)
+      ?? snapshot?.assignments.objects.find((entry) => entry.id === object.id)
+    : undefined;
+  const effectiveSlot = assignment?.effectiveSlot ?? 0;
+  const instance = instanceForVolume(volume, plateSession);
+  const dimmed = !object?.printable || Boolean(instance?.outOfBounds || instance?.unprintable || (instance && !instance.member));
+  const slotColour = (slot: number): string | undefined =>
+    snapshot?.slots.find((entry) => entry.slot === slot)?.colour.effective;
+  const fallbackColour = slotColour(1) ?? PREPARE_DEFAULT_COLOUR;
+
+  return drawGroups.map(({ stateId }) => {
+    const configuredColour = stateId === 0
+      ? slotColour(effectiveSlot) ?? PREPARE_DEFAULT_COLOUR
+      : slotColour(stateId) ?? fallbackColour;
+    // Match prepareColourForVolume's existing out-of-bounds shading order so
+    // selected volumes brighten the same already-dimmed colour as before.
+    const baseColour = dimmed ? shade(configuredColour, 0.52) : configuredColour;
+    return { stateId, ...resolvePrepareMaterial({ baseColour, selected, transparent }) };
+  });
 }
 
 /**

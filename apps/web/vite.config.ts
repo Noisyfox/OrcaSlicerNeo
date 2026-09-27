@@ -38,6 +38,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
+    define: {
+      __ORCA_E2E__: JSON.stringify(mode === 'e2e' || env.VITE_E2E === '1'),
+    },
     // Tailwind must be compiled in every host — without a plugin the shared
     // index.css' @theme/@apply/@utility directives pass through unprocessed
     // and no utility classes are generated (2026-08-20). The desktop host

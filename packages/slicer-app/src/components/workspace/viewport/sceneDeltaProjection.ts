@@ -2,11 +2,18 @@ import type {
   ModelObjectBuffer,
   ModelRenderable,
   ModelObjectStructure,
+  ModelPaintGeometry,
   ModelScenePatchResult,
   SceneDelta,
   SlicerClient,
 } from '@slicer/client';
-import { GLVolume, leaseGeometry, retainedGeometry } from './GLVolume';
+import {
+  GLVolume,
+  leaseGeometry,
+  leasePaintGeometry,
+  retainedGeometry,
+  retainedPaintGeometry,
+} from './GLVolume';
 import { normalizeTransform } from './transformDeltaMath';
 
 export type SceneDeltaProjection = {
@@ -89,6 +96,11 @@ export function composeSceneDeltaProjection(
 
   const resources = new Map(patch.geometries.map((geometry) => [geometry.geometryKey, geometry]));
   if (resources.size !== patch.geometries.length) throw new Error('duplicate model geometry');
+  const responsePaintGeometries = patch.paintGeometries;
+  const paintResources = new Map<string, ModelPaintGeometry>(
+    responsePaintGeometries.map((geometry) => [geometry.paintGeometryKey, geometry]),
+  );
+  if (paintResources.size !== responsePaintGeometries.length) throw new Error('duplicate model paint geometry');
   const created: GLVolume[] = [];
   const updates: Array<() => void> = [];
   try {
@@ -100,8 +112,15 @@ export function composeSceneDeltaProjection(
       const resource = resources.get(candidate.geometryKey) ?? retainedGeometry(candidate.geometryKey);
       if (!resource || resource.volumeId !== candidate.volumeId)
         throw new Error(`missing model geometry ${candidate.geometryKey}`);
+      let paint: ModelPaintGeometry | undefined;
+      if (candidate.paintGeometryKey !== null) {
+        paint = paintResources.get(candidate.paintGeometryKey) ?? retainedPaintGeometry(candidate.paintGeometryKey);
+        if (!paint || paint.volumeId !== candidate.volumeId)
+          throw new Error(`missing model paint geometry ${candidate.paintGeometryKey}`);
+      }
       const buffer: ModelObjectBuffer = { ...candidate, ...resource, objectIdx, volumeIdx, instanceIdx };
-      const volume = new GLVolume(buffer, { kind: 'shared', key: candidate.geometryKey });
+      const volume = new GLVolume(buffer, { kind: 'shared', key: candidate.geometryKey },
+        paint ? { key: candidate.paintGeometryKey!, buffer: paint } : undefined);
       created.push(volume);
       return volume;
     });
@@ -123,9 +142,13 @@ export async function readSceneDeltaProjection(
   const touched = new Set(projectionDelta.objectIds);
   const keys = [...new Set(currentVolumes.filter((volume) => touched.has(volume.buffer.objectId))
     .flatMap((volume) => volume.ownership.kind === 'shared' ? [volume.ownership.key] : []))];
-  const release = leaseGeometry(keys);
+  const paintKeys = [...new Set(currentVolumes.filter((volume) => touched.has(volume.buffer.objectId))
+    .flatMap((volume) => volume.paintGeometryKey === null ? [] : [volume.paintGeometryKey]))];
+  const releaseGeometry = leaseGeometry(keys);
+  let releasePaintGeometry = () => {};
   try {
-    const patch = await runtime.getModelScenePatch(projectionDelta.objectIds, keys);
+    releasePaintGeometry = leasePaintGeometry(paintKeys);
+    const patch = await runtime.getModelScenePatch(projectionDelta.objectIds, keys, paintKeys);
     const projection = composeSceneDeltaProjection(projectionDelta, patch, currentStructure, currentVolumes);
     const transforms = new Map((delta.retainedVolumeTransforms ?? []).map((item) =>
       [item.volumeId, normalizeTransform(structuredClone(item.transform))]));
@@ -138,5 +161,8 @@ export async function readSceneDeltaProjection(
       }
     };
     return projection;
-  } finally { release(); }
+  } finally {
+    releasePaintGeometry();
+    releaseGeometry();
+  }
 }

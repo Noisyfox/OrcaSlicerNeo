@@ -2184,20 +2184,25 @@ export function createClient(
       const m = await module();
       const decoded = decodeModelGeometry(m, callJson(m, 'orc_get_model_mesh', [], []), geometrySession);
       const resources = new Map(decoded.geometries.map((geometry) => [geometry.geometryKey, geometry]));
-      return { ok: true, objects: decoded.meshes.map((mesh) => {
+      return { ok: true, paintGeometries: decoded.paintGeometries, objects: decoded.meshes.map((mesh) => {
         const geometry = resources.get(mesh.geometryKey);
         if (!geometry) throw new Error(`missing model geometry ${mesh.geometryKey}`);
         return { ...mesh, ...geometry };
       }) };
     },
 
-    async getModelScenePatch(objectIds, knownGeometryKeys): Promise<ModelScenePatchResult> {
+    async getModelScenePatch(objectIds, knownGeometryKeys, knownPaintGeometryKeys = []): Promise<ModelScenePatchResult> {
       const m = await module();
       const prefix = `${geometrySession}:`;
       const knownVolumeIds = knownGeometryKeys.filter((key) => key.startsWith(prefix)).map((key) => Number(key.slice(prefix.length)));
+      const paintPrefix = `${geometrySession}:paint:`;
+      const nativeKnownPaintKeys = knownPaintGeometryKeys
+        .filter((key) => key.startsWith(paintPrefix))
+        .map((key) => key.slice(paintPrefix.length));
       const raw = callJson(m, 'orc_get_model_scene_patch', ['string'],
-        [JSON.stringify({ object_ids: objectIds, known_volume_ids: knownVolumeIds })]);
-      const decoded = decodeModelGeometry(m, raw, geometrySession);
+        [JSON.stringify({ object_ids: objectIds, known_volume_ids: knownVolumeIds,
+          known_paint_keys: nativeKnownPaintKeys })]);
+      const decoded = decodeModelGeometry(m, raw, geometrySession, knownGeometryKeys, knownPaintGeometryKeys);
       const patch = raw as { object_order: number[]; objects: ModelStructureResult['objects'] };
       if (!Array.isArray(patch.object_order) || !Array.isArray(patch.objects))
         throw new Error('invalid model scene patch');

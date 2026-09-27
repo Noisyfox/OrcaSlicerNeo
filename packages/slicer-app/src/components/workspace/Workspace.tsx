@@ -11,6 +11,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { usePlatform } from '@orca/platform-contract';
+import { WorkspaceHistoryProbe } from '../../e2e/WorkspaceHistoryProbe';
+import { ScopedConfigurationGateProbe } from '../../e2e/ScopedConfigurationGateProbe';
 import { ObjectList } from './objectList/ObjectList';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Viewport } from './viewport/Viewport';
@@ -50,8 +52,10 @@ import { publishRememberedFilamentRack } from '../../preferences';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
 import type { PrimeTowerMoveResultOrError } from '@slicer/client';
-import { captureHistoryTransportDiagnostics, historyDiagnosticNow, type HistoryObservabilitySnapshot, useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
+import { historyDiagnosticNow, useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
 import { isSerialSliceBusy } from '../../runtimeExecution';
+
+declare const __ORCA_E2E__: boolean;
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -523,43 +527,6 @@ export function Workspace({
     });
   }
   const historyRestore = historyRestoreRef.current;
-  useEffect(() => {
-    if (import.meta.env.VITE_SCOPED_CONFIGURATION_GATE !== '1') return;
-    let disposed = false;
-    let cleanup: (() => void) | undefined;
-    void import('../../history/scopedConfigurationGate').then(({ installScopedConfigurationGate }) => {
-      if (!disposed) cleanup = installScopedConfigurationGate(platform, historyRestore);
-    });
-    return () => { disposed = true; cleanup?.(); };
-  }, [platform, historyRestore]);
-  useEffect(() => {
-    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
-    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
-    const w = window as unknown as {
-      __orcaE2e?: { historyDiagnostics?: () => HistoryObservabilitySnapshot };
-    };
-    w.__orcaE2e = {
-      ...w.__orcaE2e,
-      historyDiagnostics: () => {
-        captureHistoryTransportDiagnostics(platform.runtime);
-        const { recordMutation: _mutation, recordQueue: _queue, recordRestore: _restore,
-          recordFilamentRefresh: _filament, recordFilamentSnapshot: _filamentSnapshot,
-          recordFilamentPreferencePersistence: _filamentPreferences,
-          recordProjection: _projection, recordPrimeTowerProjectionRead: _projectionRead,
-          recordPrimeTowerSetProjection: _setProjection, recordPrimeTowerReconcile: _reconcile,
-          recordPrimeTowerEmit: _emit, recordPlateSessionSnapshot: _plateSession,
-          recordPlateSessionTransforms: _plateTransforms,
-          recordSelectionRestore: _selectionRestore,
-          setTransport: _transport, reset: _reset, ...snapshot } = useHistoryDiagnosticsStore.getState();
-        return snapshot;
-      },
-    };
-    return () => {
-      if (!w.__orcaE2e) return;
-      const { historyDiagnostics: _historyDiagnostics, ...rest } = w.__orcaE2e;
-      w.__orcaE2e = rest;
-    };
-  }, [platform.runtime]);
   // A transform draft is renderer-local until its atomic Worker command
   // succeeds.  Rebuild every projection on cancellation or rejection so a
   // partial/obsolete draft can never survive an aborted history transaction.
@@ -756,6 +723,10 @@ export function Workspace({
 
   return (
     <>
+    {__ORCA_E2E__ && <WorkspaceHistoryProbe />}
+    {import.meta.env.VITE_SCOPED_CONFIGURATION_GATE === '1' && (
+      <ScopedConfigurationGateProbe platform={platform} coordinator={historyRestore} />
+    )}
     <div className="flex flex-1 min-h-0" inert={serialSliceBusy} aria-busy={serialSliceBusy}>
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"

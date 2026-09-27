@@ -7,6 +7,9 @@ import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { selectionBoundsBoxPositions } from './selectionBoundsBoxGeometry';
+import { SelectionBoundsBoxProbe } from '../../../e2e/SelectionBoundsBoxProbe';
+
+declare const __ORCA_E2E__: boolean;
 
 const SELECTION_BOX_COLOR = 0xffffff;
 const BRACKET_SEGMENT_VERTEX_COUNT = 48;
@@ -42,48 +45,20 @@ export function SelectionBoundsBox() {
     invalidate();
   }, [geometry, invalidate, positions]);
 
-  // Test-only projection hook (mock/e2e builds): lets Playwright assert the
-  // rendered box's aggregate bounds and segment count without touching the
-  // canvas. No-op in production builds (VITE_USE_MOCK is unset).
-  useLayoutEffect(() => {
-    if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
-    const w = window as unknown as {
-      __orcaE2e?: {
-        selectionBoxWorldSegments?: () => {
-          min: [number, number, number];
-          max: [number, number, number];
-          segmentCount: number;
-        } | null;
-      };
-    };
-    w.__orcaE2e = {
-      ...w.__orcaE2e,
-      selectionBoxWorldSegments() {
-        if (!bounds || !positions) return null;
-        return {
-          min: [bounds.min.x, bounds.min.y, bounds.min.z],
-          max: [bounds.max.x, bounds.max.y, bounds.max.z],
-          segmentCount: positions.length / 6,
-        };
-      },
-    };
-    return () => {
-      if (!w.__orcaE2e) return;
-      const { selectionBoxWorldSegments: _dropped, ...rest } = w.__orcaE2e;
-      w.__orcaE2e = rest;
-    };
-  }, [bounds, positions]);
-
-  if (!positions) return null;
   return (
-    <lineSegments
-      geometry={geometry}
-      frustumCulled={false}
-      // The box is a visual overlay, never a pick target (context menu and
-      // Shift+click fallbacks raycast the raw scene children).
-      raycast={() => undefined}
-    >
-      <lineBasicMaterial color={SELECTION_BOX_COLOR} />
-    </lineSegments>
+    <>
+      {positions && (
+        <lineSegments
+          geometry={geometry}
+          frustumCulled={false}
+          // The box is a visual overlay, never a pick target (context menu and
+          // Shift+click fallbacks raycast the raw scene children).
+          raycast={() => undefined}
+        >
+          <lineBasicMaterial color={SELECTION_BOX_COLOR} />
+        </lineSegments>
+      )}
+      {__ORCA_E2E__ && <SelectionBoundsBoxProbe bounds={bounds} positions={positions} />}
+    </>
   );
 }

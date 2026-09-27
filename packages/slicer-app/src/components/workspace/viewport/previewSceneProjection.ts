@@ -1,4 +1,4 @@
-import type { PlateSessionSnapshot } from '@slicer/client';
+import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import type { LoadedObject } from './useModelLoader';
 
 export interface PreviewVolumeIdentity {
@@ -21,13 +21,21 @@ function instanceKey(objectIndex: number, instanceIndex: number): string {
 export function previewVolumesForCurrentPlate(
   volumes: readonly LoadedObject[],
   snapshot: PlateSessionSnapshot | null | undefined,
+  structure: readonly ModelObjectStructure[],
 ): LoadedObject[] {
   if (!snapshot) return [];
   const currentPlateId = snapshot.currentPlateId;
   const members = new Set(
     snapshot.instances
-      .filter((instance) => instance.member && instance.plateId === currentPlateId)
+      .filter((instance) => instance.member && !instance.unprintable && instance.plateId === currentPlateId)
       .map((instance) => instanceKey(instance.objectIndex, instance.instanceIndex)),
   );
-  return volumes.filter((volume) => members.has(instanceKey(volume.buffer.objectIdx, volume.buffer.instanceIdx)));
+  return volumes.filter((volume) => {
+    if (!members.has(instanceKey(volume.buffer.objectIdx, volume.buffer.instanceIdx))) return false;
+    const object = structure.find((entry) => entry.id === volume.buffer.objectId)
+      ?? structure.find((entry) => entry.index === volume.buffer.objectIdx);
+    const instance = object?.instances.find((entry) => entry.id === volume.buffer.instanceId)
+      ?? object?.instances.find((entry) => entry.index === volume.buffer.instanceIdx);
+    return Boolean(object?.printable) && instance?.printable !== false;
+  });
 }
