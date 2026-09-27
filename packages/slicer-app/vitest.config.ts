@@ -10,6 +10,7 @@ const srcRoot = fileURLToPath(new URL('./src', import.meta.url));
 // '@' -> './src' alias it supplied — source files import UI modules as
 // '@/...' — without reintroducing the react/tailwind plugins (host concern).
 export default defineConfig({
+  define: { __ORCA_E2E__: 'true' },
   resolve: {
     alias: { '@': srcRoot },
   },
