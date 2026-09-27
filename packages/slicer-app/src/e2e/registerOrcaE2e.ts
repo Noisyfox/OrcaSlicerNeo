@@ -54,3 +54,23 @@ export function registerOrcaE2eOwner<THooks extends OrcaE2eHooks>(owner: string,
   registrations.set(owner, { unregister });
   return unregister;
 }
+
+/**
+ * Child passive effects may run before a parent scene's reset effect. Queue
+ * publication until the current passive-effect flush has completed.
+ */
+export function registerOrcaE2eOwnerAfterPassiveEffects<THooks extends OrcaE2eHooks>(
+  owner: string,
+  hooks: THooks,
+): () => void {
+  let cancelled = false;
+  let unregister: (() => void) | undefined;
+  queueMicrotask(() => {
+    if (cancelled) return;
+    unregister = registerOrcaE2eOwner(owner, hooks);
+  });
+  return () => {
+    cancelled = true;
+    unregister?.();
+  };
+}

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useHistoryDiagnosticsStore } from '../history/historyDiagnostics';
-import { registerOrcaE2eOwner } from './registerOrcaE2e';
+import { registerOrcaE2eOwner, registerOrcaE2eOwnerAfterPassiveEffects } from './registerOrcaE2e';
 
 describe('registerOrcaE2eOwner', () => {
   let target: Window;
@@ -39,6 +39,41 @@ describe('registerOrcaE2eOwner', () => {
 
     expect(target.__orcaE2e?.historyDiagnostics).toBe(currentHistoryDiagnostics);
     unregisterCurrent();
+    expect(target.__orcaE2e).toBeUndefined();
+  });
+
+  it('publishes after the current passive-effect flush and cleans up the deferred owner', () => {
+    const microtasks: Array<() => void> = [];
+    const events: string[] = [];
+    vi.stubGlobal('queueMicrotask', (callback: VoidFunction) => {
+      microtasks.push(() => {
+        events.push('register');
+        callback();
+      });
+    });
+    const selectionBounds = vi.fn(() => 'selection');
+    // Simulate SceneE2eProbe's child effect queuing before SceneContents reset.
+    const unregister = registerOrcaE2eOwnerAfterPassiveEffects('scene', { selectionBounds });
+
+    expect(target.__orcaE2e).toBeUndefined();
+    events.push('reset');
+    expect(target.__orcaE2e).toBeUndefined();
+    microtasks.splice(0).forEach((run) => run());
+
+    expect(events).toEqual(['reset', 'register']);
+    expect(target.__orcaE2e).toEqual({ selectionBounds });
+    unregister();
+    expect(target.__orcaE2e).toBeUndefined();
+  });
+
+  it('cancels a deferred registration when its effect cleans up before the microtask', () => {
+    const microtasks: Array<() => void> = [];
+    vi.stubGlobal('queueMicrotask', (callback: VoidFunction) => microtasks.push(callback));
+    const unregister = registerOrcaE2eOwnerAfterPassiveEffects('scene', { selectionBounds: () => 'selection' });
+
+    unregister();
+    microtasks.splice(0).forEach((run) => run());
+
     expect(target.__orcaE2e).toBeUndefined();
   });
 });
