@@ -15,9 +15,9 @@ reusing the C++ slicing core (`libslic3r`) by compiling it to WASM with
 Emscripten. It enforces:
 
 1. **Minimal C++ footprint:** the submodule (`packages/slicer-wasm/cpp/`) is
-   modified only through `packages/slicer-wasm/patches/*.patch` or deliberate,
-   documented submodule commits. All WASM-specific build logic lives in the
-   scaffold (`packages/slicer-wasm/`), never in the upstream build system.
+   modified through deliberate, documented commits on a dedicated adaptation
+   branch or narrowly scoped dependency patches. All WASM build logic lives in
+   the scaffold (`packages/slicer-wasm/`), never in the upstream build system.
 2. **One bridge, many hosts:** the same extern "C" bridge ships as two wasm64
    variants — `threaded` (upstream oneTBB + pthreads; selected when the host is
    cross-origin isolated) and `serial` (TBB shim fallback) — on Windows
@@ -55,16 +55,17 @@ orca-slicer-neo/
 │   ├── profile-resources/        # deterministic profile package build
 │   │                             #   (manifest + core/vendor ZIPs)
 │   └── slicer-wasm/              # WASM slicer module (AGPL)
-│       ├── cpp/                  # git submodule → Noisyfox/OrcaSlicer @ pinned SHA
+│       ├── cpp/                  # git submodule → Noisyfox/OrcaSlicer
+│       │                             # adaptation branch; superproject pins commit
 │       ├── CMakeLists.txt        # scaffold: GLOB_RECURSE + DROP_PATTERNS + stubs/
 │       ├── stubs/                # empty stubs for dropped-feature symbols
 │       ├── shim/_serial.hpp      # serial TBB shim (+ parallel_pipeline stand-in)
-│       ├── patches/              # .patch files applied by build.sh
+│       ├── patches/              # external dependency patches (for example, OCCT)
 │       ├── src/                  # bridge.cpp (extern "C") + slice_main.cpp (CLI)
 │       ├── src/client/           # typed JS client + Web Worker glue
 │       ├── harness/              # Node smoke runner + mock-module self-test
 │       ├── fixtures/             # cube.stl generator, starter config.json
-│       ├── build.sh / build.bat  # emsdk env → patches → shim gen → emcmake → artifacts
+│       ├── build.sh / build.bat  # emsdk env → shim gen → emcmake → artifacts
 │       └── build-boost-wasm64.sh # Emscripten Boost 1.84 build
 ├── doc/                          # dated engineering docs (YYYY-MM-DD-topic.md)
 ├── spec/                         # approved specs

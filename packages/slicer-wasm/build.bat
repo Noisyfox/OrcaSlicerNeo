@@ -2,11 +2,11 @@
 REM ================================================================
 REM build.bat - Windows cmd port of build.sh
 REM
-REM Builds the pinned C++ submodule (packages\slicer-wasm\cpp) into a
+REM Builds the C++ submodule commit pinned by the superproject into a
 REM single Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge
-REM + CLI driver. patches\orca\*.patch are git-applied to the submodule
-REM working tree here, at build time - the submodule itself stays
-REM pristine (read-only, pinned SHA). No Git Bash required - pure cmd:
+REM + CLI driver. Orca WASM adaptations are committed on
+REM dev/orcaslicerneo-wasm; no Orca source patches are applied at build time.
+REM No Git Bash required - pure cmd:
 REM emsdk_env.bat activation, emcmake/emmake .exe launchers, Windows
 REM git/cmake/ninja/tar.
 REM
@@ -115,33 +115,6 @@ if errorlevel 1 (
 )
 for /f "delims=" %%i in ('emcc --version 2^>nul') do if not defined EMCC_VER set "EMCC_VER=%%i"
 echo [wasm] %EMCC_VER%
-
-REM ---------------- Patch the submodule (build-time, idempotent) ----------------
-REM The pinned submodule is pristine; every packages\slicer-wasm\patches\orca\*.patch
-REM is git-applied to its working tree here. OCCT source patches live under
-REM patches\occt and are applied by build-occt-wasm64.bat. Already-applied runs are skipped;
-REM a patch that neither applies nor is applied is a hard error.
-for %%p in ("%PKG_DIR%\patches\orca\*.patch") do (
-  if exist "%%p" (
-    git -C "%ORCA_SRC%" apply --check "%%p" >nul 2>nul
-    if not errorlevel 1 (
-      git -C "%ORCA_SRC%" apply "%%p"
-      if errorlevel 1 (
-        echo [wasm] ERROR: git apply failed for %%~nxp.
-        exit /b 1
-      )
-      echo [wasm] Applied %%~nxp
-    ) else (
-      git -C "%ORCA_SRC%" apply --reverse --check "%%p" >nul 2>nul
-      if not errorlevel 1 (
-        echo [wasm] Already applied: %%~nxp
-      ) else (
-        echo [wasm] ERROR: Patch %%~nxp neither applies cleanly nor is already applied - submodule at %ORCA_SRC% needs review.
-        exit /b 1
-      )
-    )
-  )
-)
 
 if not exist "%WORK_DIR%" mkdir "%WORK_DIR%"
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"

@@ -2,12 +2,12 @@
 # ----------------------------------------------------------------
 # ------------ OrcaSlicerNeo: libslic3r -> WASM build ------------
 # ----------------------------------------------------------------
-# Builds the pinned C++ submodule (packages/slicer-wasm/cpp) into a single
+# Builds the C++ submodule commit pinned by the superproject into a single
 # Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge + CLI driver.
 # Inherited from the phase-0 spike's build.sh and adapted: no clone step (the
 # submodule IS the source pin), wasm64-first, full preset bundle embedded.
-# patches/orca/*.patch are applied to the submodule working tree here, at build
-# time — the submodule itself stays pristine (read-only, pinned SHA).
+# Orca WASM adaptations are committed on dev/orcaslicerneo-wasm; no Orca source
+# patches are applied at build time.
 #
 # NOT push-button — the WASM build is an iteration surface. Re-run after each
 # fix; steps are idempotent. See AGENTS.md "WASM Build Workflow" for the
@@ -136,27 +136,6 @@ if ! command -v emcmake >/dev/null 2>&1; then
   die "Emscripten not on PATH. Install emsdk and 'source ./emsdk_env.sh', then re-run."
 fi
 log "emcc: $(emcc --version | head -1)"
-
-# ---------------- Patch the submodule (build-time, idempotent) ----------------
-# The pinned submodule is pristine; every packages/slicer-wasm/patches/orca/*.patch
-# is git-applied to its working tree here. OCCT source patches live under
-# patches/occt and are applied by build-occt-wasm64.sh. Already-applied runs are skipped;
-# a patch that neither applies nor is applied is a hard error.
-apply_patches() {
-  local p
-  for p in "$PKG_DIR"/patches/orca/*.patch; do
-    [[ -e "$p" ]] || continue
-    if git -C "$ORCA_SRC" apply --check "$p" 2>/dev/null; then
-      git -C "$ORCA_SRC" apply "$p"
-      log "Applied $(basename "$p")"
-    elif git -C "$ORCA_SRC" apply --reverse --check "$p" 2>/dev/null; then
-      log "Already applied: $(basename "$p")"
-    else
-      die "Patch $(basename "$p") neither applies cleanly nor is already applied — submodule at $ORCA_SRC needs review."
-    fi
-  done
-}
-apply_patches
 
 # A failed em++/wasm-opt invocation can leave partial target files behind.
 # Remove only generated final link outputs so Ninja cannot treat its stale .js

@@ -4,15 +4,16 @@ Date: 2026-08-13
 Status: Delivered — Milestone 1 (WASM Core) acceptance verified 2026-08-13
 Scope: The record a fresh engineer needs to rebuild the WASM slicing module
 (`packages/slicer-wasm`) from a clean checkout: machine prerequisites, exact
-commands, the patch set, the iterate-loop fixes actually hit, the bridge JSON
-contract, and the known M2 work. Companion to the approved design
+commands, the submodule adaptation commits, the iterate-loop fixes actually
+hit, the bridge JSON contract, and the known M2 work. Companion to the approved design
 (`doc/2026-08-12-electron-gui-rewrite-design.md`), the milestone checklist
 (`spec/Grand Plan.md`), and `doc/high_level_dev_plan.md`.
 
 ## Overview
 
 `packages/slicer-wasm` compiles the pinned C++ submodule
-(`cpp/` → `Noisyfox/OrcaSlicer`, SHA `b97ca3c0ac`) into Emscripten wasm64
+(`cpp/` → `Noisyfox/OrcaSlicer`, branch `dev/orcaslicerneo-wasm`, based on
+upstream SHA `b97ca3c0ac`) into Emscripten wasm64
 modules: threaded and serial TBB variants, scaffold CMake with a denylist of
 dropped features, the OCCT/XCAF STEP closure, the extern "C" bridge API, and
 the CLI driver. The build machinery is inherited from the phase-0 spike and
@@ -20,11 +21,13 @@ adapted (no clone step, wasm64-first, curated preset subset embedded).
 Artifacts land in
 `packages/slicer-wasm/out/` (`orca_slice.js` + `orca_slice.wasm`).
 
-> **Current-state note (2026-09-14):** This dated build record originally
+> **Current-state note (2026-09-27):** This dated build record originally
 > described the pre-STEP WASM scaffold. STEP/OCCT support was delivered on
 > 2026-09-13; the old `Model.hpp`/`SLIC3R_WASM_NO_OCCT` guard patch and its
-> compile define are no longer used. The patch list below is the current
-> `patches/orca` sequence.
+> compile define are not part of the pinned source. The Orca WASM adaptation
+> sequence is now 11 commits on `dev/orcaslicerneo-wasm`, ending at
+> `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The superproject pins that exact
+> commit; build scripts compile it directly and do not apply `patches/orca`.
 
 The build is **not push-button** — it is an iteration surface. When it fails,
 work the loops in AGENTS.md ("WASM Build Workflow") and this note's
@@ -101,37 +104,29 @@ Both must exit 0. Note the fixture is `fixtures/config.json` — the pinned
 libslic3r only loads JSON (the INI parser was dropped upstream; `config.ini`
 is deleted, per ruling 2026-08-13).
 
-## Current patch set and re-apply instructions
+## Orca source adaptation commits
 
-The active patches live in `packages/slicer-wasm/patches/orca/`. The
-submodule's working tree is kept dirty with the applied set (expected; never
-commit inside the submodule). After any `git submodule update` (which resets
-the tree), re-apply the current sequence in order. The pre-STEP
-`Model.hpp`/`SLIC3R_WASM_NO_OCCT` patch is historical and has been deleted; it
-must not be added to this sequence.
+The previous build-time patch files have been replaced by individual commits
+on the submodule branch `dev/orcaslicerneo-wasm`, based on upstream commit
+`b97ca3c0ac`. The table records the same patches in application order. The
+superproject gitlink pins the final commit
+`c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`; build scripts compile the pinned
+source directly. The branch ref is local to this checkout, so publish the
+submodule branch before distributing a superproject commit that depends on it.
 
-```bash
-cd packages/slicer-wasm/cpp
-git apply ../patches/orca/0001-expolygoncollection-contains-b.patch
-git apply ../patches/orca/0002-edgegrid-remove-png-include.patch
-git apply ../patches/orca/0003-localesutils-include-sstream.patch
-git apply ../patches/orca/0004-platform-emscripten-detection.patch
-git apply ../patches/orca/0005-utils-guard-async-frontend-include.patch
-git apply ../patches/orca/0006-disable-bbs-backup-manager-wasm.patch
-git apply ../patches/orca/0007-step-wasm-synchronous.patch
-git apply ../patches/orca/0008-step-wasm-serial-mesh-dispatch.patch
-```
-
-| Patch | Purpose |
-|---|---|
-| `0001-expolygoncollection-contains-b.patch` | `ExPolygonCollection.cpp` — `contains_b()` calls `it->contains(point)`; the `contains_b` member on `ExPolygon` is gone at the pinned SHA (clang strictness). |
-| `0002-edgegrid-remove-png-include.patch` | `EdgeGrid.cpp` — drop `#include <png.h>` (libpng is not built). |
-| `0003-localesutils-include-sstream.patch` | `LocalesUtils.cpp` — add `#include <sstream>` (only transitive on other toolchains). |
-| `0004-platform-emscripten-detection.patch` | `Platform.cpp` — `detect_platform()` reports `Platform::Linux` / `GenericLinux` under `__EMSCRIPTEN__` (no `/etc/os-release` on wasm). |
-| `0005-utils-guard-async-frontend-include.patch` | `utils.cpp` — compile out the `boost::log` async-frontend include, the file/console sink globals, and `set_log_path_and_level` / `flush_logs` / `get_log_file_name` bodies under `__EMSCRIPTEN__` (avoids the boost::thread pull and keeps `get_log_file_name` well-defined). |
-| `0006-disable-bbs-backup-manager-wasm.patch` | `bbs_3mf.cpp` — exclude the native backup manager from WASM; no-op ABI-compatible stubs provide the bridge boundary. |
-| `0007-step-wasm-synchronous.patch` | `STEP.cpp` — run the upstream STEP reader synchronously under Emscripten. |
-| `0008-step-wasm-serial-mesh-dispatch.patch` | `STEP.cpp` — avoid nested OCCT/TBB scheduling under Emscripten while retaining native parallel meshing. |
+| Order | Former patch | Submodule commit | Purpose |
+|---:|---|---|---|
+| 1 | `0001-expolygoncollection-contains-b.patch` | `4a15569444` | `ExPolygonCollection.cpp` — use `it->contains(point)` because `ExPolygon::contains_b` is gone at the pinned SHA. |
+| 2 | `0002-edgegrid-remove-png-include.patch` | `c75732651c` | `EdgeGrid.cpp` — drop `#include <png.h>` (libpng is not built). |
+| 3 | `0003-localesutils-include-sstream.patch` | `593ad91f49` | `LocalesUtils.cpp` — include `<sstream>` directly. |
+| 4 | `0004-platform-emscripten-detection.patch` | `05ee99bc1d` | `Platform.cpp` — report Linux / GenericLinux under `__EMSCRIPTEN__`. |
+| 5 | `0005-utils-guard-async-frontend-include.patch` | `5553bb50fb` | `utils.cpp` — exclude unsupported Boost.Log async frontend code under `__EMSCRIPTEN__`. |
+| 6 | `0006-disable-bbs-backup-manager-wasm.patch` | `37ebf9892e` | `bbs_3mf.cpp` — exclude the native backup manager from WASM. |
+| 7 | `0007-step-wasm-synchronous.patch` | `20e18372f6` | `STEP.cpp` — run the STEP reader synchronously under Emscripten. |
+| 8 | `0008-step-wasm-serial-mesh-dispatch.patch` | `8dd9b40445` | `STEP.cpp` — avoid nested OCCT/TBB scheduling under Emscripten. |
+| 9 | `0009-wipe-tower-single-tool-priming.patch` | `0e9e8f75d8` | `WipeTower2.cpp` — use the existing `old_tool` when priming has only one tool. |
+| 10 | `0010-config-option-vector-resize-stable-default.patch` | `62188ffb4b` | `Config.hpp` — copy the default value before resize may reallocate the vector. |
+| 11 | `0011-extruder-variant-missing-options.patch` | `c7801bdbdb` | `PrintConfig.cpp` — create missing extruder variant options before extending them. |
 
 The old `Model.hpp` STEP include guard patch was removed after OCCT/XCAF STEP
 support was restored. The numbering is now continuous; no patch is needed for
@@ -221,9 +216,9 @@ node packages/slicer-wasm/harness/wasm-memory-contract.mjs \
 ## Iterate-loop fixes actually hit (M0/M1)
 
 The WASM build is an iteration surface; these are the fixes that were
-actually needed to go green. All of them live in the scaffold (build.sh /
-CMakeLists.txt / stubs / patches / bridge) — the submodule was never edited
-ad-hoc.
+actually needed to go green. Build-system fixes live in the scaffold (build.sh /
+CMakeLists.txt / stubs / bridge); upstream source adaptations are documented
+commits on the dedicated submodule branch.
 
 1. **Shim/header adds:** `TBB_HEADERS` grew to the final set above as compile
    errors surfaced new includes (`parallel_pipeline` was the notable new
