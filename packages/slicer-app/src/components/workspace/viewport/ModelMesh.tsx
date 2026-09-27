@@ -20,6 +20,12 @@ import {
   resolveUnprintableMaterial,
 } from './prepareColourProjection';
 import { WipeTowerVolume } from './WipeTowerVolume';
+import {
+  capturePreviewFirstCommitPaintMaterials,
+  releasePreviewFirstCommitPaintMaterials,
+} from '../../../e2e/modelLoadingProbe';
+
+declare const __ORCA_E2E__: boolean;
 
 const BAND_Z_FUDGE = 0.0005;
 export const BVH_RAYCAST = acceleratedRaycast;
@@ -92,47 +98,18 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
     return sceneInteraction.subscribe(applySceneTransforms);
   }, [applySceneTransforms, data.instanceTransform, data.volumeTransform, dataRevision, sceneInteraction]);
 
-  // Snapshot the first committed Preview materials for integration tests. This
-  // runs after React Three Fiber has attached the materials to the paint mesh,
-  // so the assertion observes the same commit the renderer can first draw.
+  // Keep first-frame sampling synchronous with the Preview layout commit.
   useLayoutEffect(() => {
-    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
-    if (!preview || (env.MODE !== 'e2e' && env.VITE_E2E !== '1') || !paintMaterials.length) return;
-    const volumeGroup = volumeGroupRef.current;
-    if (!volumeGroup) return;
-    const paintMesh = volumeGroup.getObjectByName('orca-painted-model-display') as THREE.Mesh | undefined;
-    if (!paintMesh) return;
-    const materials = Array.isArray(paintMesh.material) ? paintMesh.material : [paintMesh.material];
-    const snapshot = materials.flatMap((material, materialIndex) => {
-      if (!(material instanceof THREE.MeshStandardMaterial)) return [];
-      return [{
-        id: data.id,
-        objectIndex: data.buffer.objectIdx,
-        volumeIndex: data.buffer.volumeIdx,
-        instanceIndex: data.buffer.instanceIdx,
-        stateId: data.paintDrawGroups[materialIndex]?.stateId ?? 0,
-        colour: `#${material.color.getHexString()}`,
-        opacity: material.opacity,
-        transparent: material.transparent,
-        depthWrite: material.depthWrite,
-      }];
-    });
-    if (snapshot.length !== paintMaterials.length) return;
-    const w = window as unknown as {
-      __orcaE2e?: {
-        previewFirstCommitPaintMaterialsByVolume?: Record<string, typeof snapshot>;
-      };
-    };
-    const current = w.__orcaE2e?.previewFirstCommitPaintMaterialsByVolume ?? {};
-    if (current[data.id]) return;
-    w.__orcaE2e = {
-      ...w.__orcaE2e,
-      previewFirstCommitPaintMaterialsByVolume: {
-        ...current,
-        [data.id]: snapshot,
-      },
-    };
+    if (__ORCA_E2E__ && preview && paintMaterials.length > 0) {
+      capturePreviewFirstCommitPaintMaterials(data, volumeGroupRef.current, paintMaterials.length, volumeGroupRef);
+    }
   }, [data, paintMaterials, preview]);
+
+  useLayoutEffect(() => {
+    if (!__ORCA_E2E__) return;
+    const volumeId = data.id;
+    return () => releasePreviewFirstCommitPaintMaterials(volumeId, volumeGroupRef);
+  }, [data.id]);
 
   const modelMesh = (
     <group ref={volumeGroupRef}>

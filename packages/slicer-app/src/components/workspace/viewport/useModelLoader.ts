@@ -4,6 +4,9 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection, rejectGLVolumeRevision } from './GLVolume';
 import { projectFullModelMesh } from './modelMeshProjection';
+import { recordModelMeshResponse, registerModelLoadingProbeOwner } from '../../../e2e/modelLoadingProbe';
+
+declare const __ORCA_E2E__: boolean;
 
 export type LoadedObject = GLVolume;
 
@@ -12,6 +15,11 @@ export function useModelLoader(): LoadedObject[] {
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const modelRevision = useSettingsStore((s) => s.modelRevision);
   const [objects, setObjects] = useState<LoadedObject[]>([]);
+
+  useEffect(() => {
+    if (!__ORCA_E2E__) return;
+    return registerModelLoadingProbeOwner();
+  }, []);
 
   useEffect(() => glVolumeCollection.subscribe((volumes) => setObjects([...volumes])), []);
 
@@ -37,24 +45,7 @@ export function useModelLoader(): LoadedObject[] {
           // render — the previous scene stays visible while the fetch is in
           // flight, instead of flashing empty on every revision bump.
           glVolumeCollection.replace(loaded, requestedRevision);
-          const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
-          if (env.MODE === 'e2e' || env.VITE_E2E === '1') {
-            const w = window as unknown as { __orcaE2e?: Record<string, unknown> };
-            w.__orcaE2e = {
-              ...w.__orcaE2e,
-              modelMeshResponse: () => ({
-                objects: res.objects.map((object) => ({
-                  volumeId: object.volumeId, objectId: object.objectId, instanceId: object.instanceId,
-                  geometryKey: object.geometryKey, paintGeometryKey: object.paintGeometryKey,
-                })),
-                paintGeometries: res.paintGeometries.map((paint) => ({
-                  volumeId: paint.volumeId, paintGeometryKey: paint.paintGeometryKey,
-                  indexCount: paint.indexCount, drawGroups: paint.drawGroups,
-                })),
-              }),
-              previewFirstCommitPaintMaterialsByVolume: {},
-            };
-          }
+          if (__ORCA_E2E__) recordModelMeshResponse(res);
         }
       } catch (err) {
         loaded.forEach((volume) => volume.dispose());

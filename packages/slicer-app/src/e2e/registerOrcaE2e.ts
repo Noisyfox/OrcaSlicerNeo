@@ -4,6 +4,8 @@ declare const __ORCA_E2E__: boolean;
 
 export interface OrcaE2eHooks extends Record<string, unknown> {
   historyDiagnostics?: () => HistoryObservabilitySnapshot;
+  modelMeshResponse?: () => unknown;
+  previewFirstCommitPaintMaterialsByVolume?: Record<string, unknown[]>;
 }
 
 declare global {
