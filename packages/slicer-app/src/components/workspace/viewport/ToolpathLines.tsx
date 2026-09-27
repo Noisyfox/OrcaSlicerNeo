@@ -14,17 +14,13 @@ import {
   type GpuStreamingRendererHost,
   type GpuStreamingUnavailableDiagnostics,
 } from './gpuStreamingRenderer';
+import { ToolpathLinesProbe } from '../../../e2e/ToolpathLinesProbe';
+
+declare const __ORCA_E2E__: boolean;
 
 interface GpuStreamingDiagnostic {
   readonly reason: string;
   readonly message: string;
-}
-
-interface PreviewE2eEvidence {
-  readonly extrusionTools: readonly number[];
-  readonly toolChanges: readonly number[];
-  readonly palette: readonly { tool: number; color: readonly number[] }[];
-  readonly renderedColors: readonly (readonly [number, number, number])[];
 }
 
 function reportGpuStreamingDiagnostic(diagnostic: GpuStreamingDiagnostic): void {
@@ -221,52 +217,10 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
     }
   }, [invalidate, plan, preview.colorScheme]);
 
-  // Diagnostic-only test seam; it never selects another renderer.
-  useEffect(() => {
-    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
-    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
-    const testWindow = globalThis as typeof globalThis & {
-      __orcaE2e?: {
-        gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'unavailable';
-        gpuStreamingDiagnostic?: () => GpuStreamingDiagnostic | null;
-        gpuStreamingColorSamples?: () => readonly (readonly [number, number, number])[];
-        previewEvidence?: () => PreviewE2eEvidence | null;
-      };
-    };
-    testWindow.__orcaE2e = {
-      ...testWindow.__orcaE2e,
-      gpuStreamingStatus: () => activeRef.current?.backend.status ?? 'unavailable',
-      gpuStreamingDiagnostic: () => diagnosticRef.current,
-      gpuStreamingColorSamples: () => activeRef.current?.backend.debugColorSamples() ?? [],
-      previewEvidence: () => {
-        const current = activeRef.current;
-        const latest = dataRef.current;
-        const extrusionTools = [...new Set(Array.from(latest.extruderIds)
-          .filter((_, index) => latest.moveTypes[index] === 10))].sort((a, b) => a - b);
-        const gcode = latest.sourceTextBytes ? new TextDecoder().decode(latest.sourceTextBytes) : '';
-        const toolChanges = [...gcode.matchAll(/^T(\d+)\s*$/gm)].map((match) => Number(match[1]));
-        return {
-          extrusionTools,
-          toolChanges,
-          palette: (latest.extruderPalette ?? [])
-            .filter((entry): entry is typeof entry & { tool: number } => entry.tool !== undefined)
-            .map((entry) => ({ tool: entry.tool, color: [...entry.color] })),
-          renderedColors: current?.backend.debugColorSamples() ?? [],
-        };
-      },
-    };
-    return () => {
-      if (!testWindow.__orcaE2e) return;
-      const {
-        gpuStreamingStatus: _status,
-        gpuStreamingDiagnostic: _diagnostic,
-        gpuStreamingColorSamples: _colors,
-        previewEvidence: _evidence,
-        ...rest
-      } = testWindow.__orcaE2e;
-      testWindow.__orcaE2e = rest;
-    };
-  }, []);
-
-  return <group ref={renderGroupRef} renderOrder={1000} />;
+  return (
+    <>
+      <group ref={renderGroupRef} renderOrder={1000} />
+      {__ORCA_E2E__ && <ToolpathLinesProbe activeRef={activeRef} diagnosticRef={diagnosticRef} dataRef={dataRef} />}
+    </>
+  );
 }

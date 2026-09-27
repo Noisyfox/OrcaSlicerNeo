@@ -4,6 +4,27 @@ import type { ProjectLoadReceipt } from '../projectActions';
 declare const __ORCA_E2E__: boolean;
 
 export interface OrcaE2eHooks extends Record<string, unknown> {
+  gizmoAxis?: () => string | null;
+  gizmoAxisLineWorldPosition?: () => [number, number, number] | null;
+  selectionBoxWorldSegments?: () => {
+    min: [number, number, number];
+    max: [number, number, number];
+    segmentCount: number;
+  } | null;
+  gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'unavailable';
+  gpuStreamingDiagnostic?: () => { reason: string; message: string } | null;
+  gpuStreamingColorSamples?: () => readonly (readonly [number, number, number])[];
+  previewEvidence?: () => {
+    extrusionTools: readonly number[];
+    toolChanges: readonly number[];
+    palette: readonly { tool: number; color: readonly number[] }[];
+    renderedColors: readonly (readonly [number, number, number])[];
+  } | null;
+  primeTowerStates?: () => unknown[];
+  primeTowerSelection?: () => string | null;
+  primeTowerMoveCommands?: () => number;
+  primeTowerCommitBusy?: () => boolean;
+  primeTowerProxyIds?: () => string[];
   historyDiagnostics?: () => HistoryObservabilitySnapshot;
   modelMeshResponse?: () => unknown;
   previewFirstCommitPaintMaterialsByVolume?: Record<string, unknown[]>;
