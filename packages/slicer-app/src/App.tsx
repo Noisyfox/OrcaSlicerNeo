@@ -40,6 +40,9 @@ import { historyNavigationIntentAllowed, historyShortcutAction, isEditableHistor
 import { isSerialSliceBusy } from './runtimeExecution';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AppE2eProbe } from './e2e/AppE2eProbe';
+
+declare const __ORCA_E2E__: boolean;
 
 export function handleMenuKeyDown(
   event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key' | 'shiftKey' | 'preventDefault'>,
@@ -337,66 +340,6 @@ function AppContent() {
   useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);
-  useEffect(() => {
-    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
-    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
-    const w = window as unknown as {
-      __orcaE2e?: {
-        projectLoadEvidence?: () => {
-          receipt: ProjectLoadReceipt | null;
-          session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
-        };
-        takeNativePerformanceProfile?: () => Promise<unknown>;
-        takeRealProjectProfileSnapshot?: () => Promise<unknown>;
-        realProjectProfileActiveSliceCount?: () => Promise<unknown>;
-        realProjectProfileLastRestoreSliceActive?: () => boolean | null;
-        realProjectProfileMutationPendingCount?: () => number;
-      };
-    };
-    w.__orcaE2e = {
-      ...w.__orcaE2e,
-      projectLoadEvidence: () => ({
-        receipt: projectLoadReceiptRef.current,
-        session: {
-          projectName: projectState.projectName,
-          hasContent: projectState.hasContent,
-          scope: projectState.scope,
-          hasLocation: projectState.location !== undefined,
-        },
-      }),
-      takeNativePerformanceProfile: () => platform.runtime.takeNativePerformanceProfile?.() ??
-        Promise.resolve({ version: 1, samples: [] }),
-      ...(import.meta.env.VITE_REAL_PROJECT_PROFILE === '1' ? {
-        realProjectProfileMutationPendingCount: () => useProjectStore.getState().projectMutationPendingCount,
-        realProjectProfileActiveSliceCount: () =>
-          (platform.runtime as unknown as { realProjectProfileActiveSliceCount(): Promise<unknown> })
-            .realProjectProfileActiveSliceCount(),
-        realProjectProfileLastRestoreSliceActive: () =>
-          (platform.runtime as unknown as { realProjectProfileLastRestoreSliceActive(): boolean | null })
-            .realProjectProfileLastRestoreSliceActive(),
-        takeRealProjectProfileSnapshot: () =>
-          (platform.runtime as unknown as { takeRealProjectProfileSnapshot(): Promise<unknown> })
-            .takeRealProjectProfileSnapshot(),
-      } : {}),
-    };
-    return () => {
-      if (!w.__orcaE2e) return;
-      if (import.meta.env.VITE_REAL_PROJECT_PROFILE === '1') {
-        const { projectLoadEvidence: _projectLoadEvidence,
-          takeNativePerformanceProfile: _takeNativePerformanceProfile,
-          takeRealProjectProfileSnapshot: _takeRealProjectProfileSnapshot,
-          realProjectProfileMutationPendingCount: _realProjectProfileMutationPendingCount,
-          realProjectProfileActiveSliceCount: _realProjectProfileActiveSliceCount,
-          realProjectProfileLastRestoreSliceActive: _realProjectProfileLastRestoreSliceActive,
-          ...rest } = w.__orcaE2e;
-        w.__orcaE2e = rest;
-      } else {
-        const { projectLoadEvidence: _projectLoadEvidence,
-          takeNativePerformanceProfile: _takeNativePerformanceProfile, ...rest } = w.__orcaE2e;
-        w.__orcaE2e = rest;
-      }
-    };
-  }, [projectState.hasContent, projectState.location, projectState.projectName, projectState.scope]);
   const titleBar = (
     <TitleBar
       chrome={platform.chrome}
@@ -554,6 +497,10 @@ function AppContent() {
     });
   }, [boot, handleDroppedModelFiles, handleDroppedProjectFiles]);
 
+  const appE2eProbe = __ORCA_E2E__
+    ? <AppE2eProbe platform={platform} projectLoadReceiptRef={projectLoadReceiptRef} />
+    : null;
+
   // Keep the shared application inert until the worker has initialized the
   // core and every profile package has been installed. This is intentionally
   // host-neutral: Electron and Web must expose the same startup contract and
@@ -563,22 +510,25 @@ function AppContent() {
     // the title bar too — otherwise there is no drag region to move the
     // window while the runtime loads (see doc/2026-08-15-frameless-window.md).
     return (
-      <div className="flex h-full flex-col bg-background" data-testid="startup-screen">
-        {titleBar}
-        <main className="flex flex-1 items-center justify-center">
-          <section className="w-full max-w-lg space-y-3 rounded-md border bg-card p-8 shadow-sm">
-            <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
-            {boot === 'failed' ? (
-              <>
-                <h2 className="text-destructive">Startup failed</h2>
-                <p className="break-words text-sm text-muted-foreground" data-testid="startup-error">{bootError}</p>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground" data-testid="startup-progress" role="status" aria-live="polite">{bootProgress}</p>
-            )}
-          </section>
-        </main>
-      </div>
+      <>
+        {appE2eProbe}
+        <div className="flex h-full flex-col bg-background" data-testid="startup-screen">
+          {titleBar}
+          <main className="flex flex-1 items-center justify-center">
+            <section className="w-full max-w-lg space-y-3 rounded-md border bg-card p-8 shadow-sm">
+              <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
+              {boot === 'failed' ? (
+                <>
+                  <h2 className="text-destructive">Startup failed</h2>
+                  <p className="break-words text-sm text-muted-foreground" data-testid="startup-error">{bootError}</p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground" data-testid="startup-progress" role="status" aria-live="polite">{bootProgress}</p>
+              )}
+            </section>
+          </main>
+        </div>
+      </>
     );
   }
 
@@ -587,6 +537,7 @@ function AppContent() {
     : projectState.notices;
   return (
     <>
+      {appE2eProbe}
       <AppShell
         titleBar={titleBar}
         toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} historyRestoreCoordinator={historyRestoreCoordinator} />}

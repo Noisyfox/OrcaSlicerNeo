@@ -1,4 +1,5 @@
 import type { HistoryObservabilitySnapshot } from '../history/historyDiagnostics';
+import type { ProjectLoadReceipt } from '../projectActions';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -6,6 +7,15 @@ export interface OrcaE2eHooks extends Record<string, unknown> {
   historyDiagnostics?: () => HistoryObservabilitySnapshot;
   modelMeshResponse?: () => unknown;
   previewFirstCommitPaintMaterialsByVolume?: Record<string, unknown[]>;
+  projectLoadEvidence?: () => {
+    receipt: ProjectLoadReceipt | null;
+    session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
+  };
+  takeNativePerformanceProfile?: () => Promise<unknown>;
+  takeRealProjectProfileSnapshot?: () => Promise<unknown>;
+  realProjectProfileActiveSliceCount?: () => Promise<unknown>;
+  realProjectProfileLastRestoreSliceActive?: () => boolean | null;
+  realProjectProfileMutationPendingCount?: () => number;
 }
 
 declare global {
