@@ -54,7 +54,6 @@ try {
       ...process.env,
       ORCA_PROFILES_DIR: fixtureSource,
       ORCA_PROFILE_OUTPUT: packageRoot,
-      ORCA_PROFILE_VERSION: 'compatibility-fixture-1',
     },
   });
 
