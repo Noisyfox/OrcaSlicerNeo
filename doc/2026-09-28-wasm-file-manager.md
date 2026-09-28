@@ -29,5 +29,5 @@
 
 - The focused File Manager unit tests cover root navigation, directory and file rows, exact download name/bytes, failed listing/download state, keyboard and pointer move/resize, and viewport containment.
 - Shared menu, command, and host-adapter suites pass for the Help command and download boundary. Affected package suites pass: slicer-app 86 files/676 tests, desktop 11 files/71 tests, and platform-contract 2 files/15 tests. Typechecks pass for slicer-app, desktop, platform-contract, and web.
-- The Web Playwright test passes against the real Worker runtime, covering menu open, navigation, reopening/focus while already open, drag, resize, containment, and close/reopen at `/`. Open menubar popovers remain interactive above the floating window.
+- The Web Playwright test passes against the real Worker runtime, covering menu open, navigation, reopening/focus while already open, drag, resize, containment, and close/reopen at `/`. It also downloads the bundled `/info/nozzle_info.json` through the browser host and checks the exact filename, downloaded byte count against the listed size, and JSON contents. Open menubar popovers remain interactive above the floating window.
 - The focused Electron Playwright test passes for Help open, navigation, drag, resize, containment, and close/reopen at `/`. The Electron e2e build and renderer CSS smoke check pass.

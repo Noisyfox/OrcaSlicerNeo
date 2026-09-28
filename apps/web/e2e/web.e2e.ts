@@ -1,5 +1,6 @@
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
+import { readFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,6 +23,28 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
   await expect(path).toHaveText('/');
   await expect(page.getByTestId('file-manager-parent')).toHaveAttribute('aria-disabled', 'true');
   await expect(manager.locator('thead th')).toHaveText(['Name', 'Size']);
+
+  const infoDirectory = manager.locator('[data-testid^="file-manager-entry-"][data-entry-name="info"][data-entry-type="directory"]');
+  await expect(infoDirectory).toBeVisible();
+  await infoDirectory.dblclick();
+  await expect(path).toHaveText('/info');
+  const nozzleInfo = manager.locator('[data-testid^="file-manager-entry-"][data-entry-name="nozzle_info.json"][data-entry-type="file"]');
+  await expect(nozzleInfo).toBeVisible();
+  const fileSize = Number((await nozzleInfo.locator('td').nth(1).textContent())?.replace(/ B$/, ''));
+  expect(fileSize).toBeGreaterThan(0);
+  expect(fileSize).toBeLessThan(1024 * 1024);
+  const downloadPromise = page.waitForEvent('download');
+  await nozzleInfo.dblclick();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('nozzle_info.json');
+  const downloadedPath = await download.path();
+  expect(downloadedPath).not.toBeNull();
+  const downloadedBytes = await readFile(downloadedPath!);
+  expect(downloadedBytes.byteLength).toBe(fileSize);
+  expect(JSON.parse(downloadedBytes.toString('utf8'))).toEqual(expect.any(Object));
+  await expect(nozzleInfo).toHaveAttribute('aria-disabled', 'false');
+  await manager.getByTestId('file-manager-parent').dblclick();
+  await expect(path).toHaveText('/');
 
   const directory = page.locator('[data-testid^="file-manager-entry-"][data-entry-type="directory"]').first();
   await expect(directory).toBeVisible();
