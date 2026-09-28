@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
+import { cn } from 'cn';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { assignmentForRow, assignmentSlotOptions } from './filamentAssignment';
 import type { FilamentSessionSnapshot, FilamentAssignmentTargetRequest } from '@slicer/client';

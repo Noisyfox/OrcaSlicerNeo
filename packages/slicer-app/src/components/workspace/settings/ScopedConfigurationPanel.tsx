@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn } from 'cn';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';

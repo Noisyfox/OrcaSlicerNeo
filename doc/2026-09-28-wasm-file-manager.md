@@ -11,6 +11,8 @@
 - Help contains **File Manager…**. It becomes available after the WASM runtime is ready and opens one non-modal floating window. Reopening the command raises the existing window.
 - The window stays above the application's other panels, supports dragging by its title bar and resizing from a visible handle, and remains usable within the viewport. It does not block interaction with the application behind it.
 - The title area shows the current absolute Emscripten path. The directory listing has exactly two columns: **Name** and **Size**. Its first row is `../`; at `/` that row is disabled. Directory names end in `/`.
+- The listing uses the shared shadcn `Table` primitives while preserving the existing scroll viewport, sticky header, row navigation, keyboard activation, and download behavior.
+- Components import `cn()` directly from the standalone shadcn `cn` package, matching the generated shadcn UI components.
 - Double-clicking `../` navigates to the parent; double-clicking a directory
   enters it; double-clicking a regular file asks the host to download it under
   its exact file name and bytes, without inferring a file type or adding an
@@ -32,3 +34,4 @@
 - The Web Playwright test passes against the real Worker runtime, covering menu open, navigation, reopening/focus while already open, drag, resize, containment, and close/reopen at `/`. It also downloads the bundled `/info/nozzle_info.json` through the browser host and checks the exact filename, downloaded byte count against the listed size, and JSON contents. Open menubar popovers remain interactive above the floating window.
 - The focused Electron Playwright test passes for Help open, navigation, drag, resize, containment, and close/reopen at `/`. The Electron e2e build and renderer CSS smoke check pass.
 - Independent acceptance reran repository tests and typechecks, the real-Worker Web download E2E, the focused Electron E2E, renderer CSS smoke, and the complete branch diff check; all passed.
+- After adopting shadcn `Table` and the standalone `cn` package, the slicer-app suite passes (87 files/678 tests), slicer-app/desktop/web typechecks pass, and the focused real-Worker Web File Manager E2E passes. The File Manager unit test checks the Table markup, sticky header, scroll ownership, and existing navigation/download behavior.

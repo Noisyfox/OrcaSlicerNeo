@@ -4,6 +4,7 @@ import { XIcon } from 'lucide-react';
 import type { FilesystemEntry } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface WindowGeometry {
   left: number;
@@ -313,20 +314,20 @@ export function FileManagerWindow({ focusRequest, onClose }: { focusRequest: num
         Double-click a directory or file to open it. Focus a row and press Enter to open it. Press Escape to close this window.
       </p>
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-xs" aria-label="Filesystem entries" aria-describedby={`${titleId}-instructions`}>
-          <thead className="sticky top-0 bg-muted text-muted-foreground">
-            <tr>
-              <th scope="col" className="px-3 py-2 text-left font-medium">Name</th>
-              <th scope="col" className="w-28 px-3 py-2 text-right font-medium">Size</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
+        <Table containerClassName="overflow-visible" className="border-collapse text-xs" aria-label="Filesystem entries" aria-describedby={`${titleId}-instructions`}>
+          <TableHeader className="sticky top-0 bg-muted text-muted-foreground">
+            <TableRow className="transition-none hover:bg-muted">
+              <TableHead scope="col" className="h-auto px-3 py-2 text-left font-medium text-muted-foreground">Name</TableHead>
+              <TableHead scope="col" className="h-auto w-28 px-3 py-2 text-right font-medium text-muted-foreground">Size</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
               data-testid="file-manager-parent"
               data-entry-name="../"
               aria-disabled={parentDisabled}
               tabIndex={parentDisabled ? -1 : 0}
-              className={`border-t ${parentDisabled ? 'text-muted-foreground/60' : 'cursor-pointer hover:bg-muted/60'}`}
+              className={`border-t transition-none ${parentDisabled ? 'text-muted-foreground/60' : 'cursor-pointer hover:bg-muted/60'}`}
               onDoubleClick={() => { if (!parentDisabled) void activateEntry(null); }}
               onKeyDown={(event) => {
                 if (!parentDisabled && (event.key === 'Enter' || event.key === ' ')) {
@@ -335,18 +336,18 @@ export function FileManagerWindow({ focusRequest, onClose }: { focusRequest: num
                 }
               }}
             >
-              <td className="px-3 py-1.5 font-mono">../</td>
-              <td className="px-3 py-1.5 text-right" />
-            </tr>
+              <TableCell className="px-3 py-1.5 font-mono whitespace-normal">../</TableCell>
+              <TableCell className="px-3 py-1.5 text-right" />
+            </TableRow>
             {entries.map((entry, index) => (
-              <tr
+              <TableRow
                 key={`${entry.name}:${index}`}
                 data-testid={`file-manager-entry-${index}`}
                 data-entry-name={entry.name}
                 data-entry-type={entry.isDirectory ? 'directory' : 'file'}
                 aria-disabled={busy}
                 tabIndex={busy ? -1 : 0}
-                className={`border-t ${busy ? 'text-muted-foreground/60' : 'cursor-pointer hover:bg-muted/60'}`}
+                className={`border-t transition-none ${busy ? 'text-muted-foreground/60' : 'cursor-pointer hover:bg-muted/60'}`}
                 onDoubleClick={() => { if (!busy) void activateEntry(entry); }}
                 onKeyDown={(event) => {
                   if (!busy && (event.key === 'Enter' || event.key === ' ')) {
@@ -355,12 +356,12 @@ export function FileManagerWindow({ focusRequest, onClose }: { focusRequest: num
                   }
                 }}
               >
-                <td className="px-3 py-1.5 font-mono">{entry.isDirectory ? `${entry.name}/` : entry.name}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{entry.isDirectory || entry.sizeBytes === null ? '' : `${entry.sizeBytes} B`}</td>
-              </tr>
+                <TableCell className="px-3 py-1.5 font-mono whitespace-normal">{entry.isDirectory ? `${entry.name}/` : entry.name}</TableCell>
+                <TableCell className="px-3 py-1.5 text-right tabular-nums">{entry.isDirectory || entry.sizeBytes === null ? '' : `${entry.sizeBytes} B`}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
         {error && <p role="alert" data-testid="file-manager-error" className="m-3 rounded-sm bg-destructive/10 px-2 py-1 text-xs text-destructive">{error}</p>}
       </div>
       <footer className="flex h-7 shrink-0 items-center justify-between gap-3 border-t px-3 text-[10px] text-muted-foreground">

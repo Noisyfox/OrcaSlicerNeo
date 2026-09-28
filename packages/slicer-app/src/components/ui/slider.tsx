@@ -1,6 +1,6 @@
 import { Slider as SliderPrimitive } from "@base-ui/react/slider"
 
-import { cn } from "@/lib/utils"
+import { cn } from "cn"
 
 // Base UI anatomy: Root > Control > (Track > Indicator, Thumb). The Thumb
 // stays a sibling of Track (as in the official base-mira anatomy): nesting it

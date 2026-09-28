@@ -77,6 +77,12 @@ describe('FileManagerWindow', () => {
     const mounted = await mount(platform);
     root = mounted.root;
     const rows = [...document.querySelectorAll('[data-testid^="file-manager-entry-"]')];
+    expect(document.querySelector('table[data-slot="table"]')).not.toBeNull();
+    const tableContainer = document.querySelector('[data-slot="table-container"]');
+    expect(tableContainer?.classList.contains('overflow-visible')).toBe(true);
+    expect(tableContainer?.classList.contains('overflow-x-auto')).toBe(false);
+    expect(document.querySelector('thead[data-slot="table-header"]')).not.toBeNull();
+    expect(document.querySelector('thead[data-slot="table-header"]')?.classList.contains('sticky')).toBe(true);
     expect(document.querySelector('tbody tr:first-child')?.getAttribute('data-testid')).toBe('file-manager-parent');
     expect(document.querySelector('[data-testid="file-manager-parent"]')?.getAttribute('aria-disabled')).toBe('true');
     expect([...document.querySelectorAll('thead th')].map((cell) => cell.textContent)).toEqual(['Name', 'Size']);
