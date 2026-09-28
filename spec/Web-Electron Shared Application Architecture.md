@@ -278,10 +278,10 @@ profiles/
     ...
 ```
 
-`core` contains common, non-vendor resources. Each vendor package contains its
-profile directory and the matching root `<Vendor>.json` metadata file; the
-installer restores both to their upstream paths. A small browser-compatible
-archive dependency runs in the Worker and unpacks packages into MEMFS.
+`core` contains common, non-vendor resources. Each vendor ZIP mirrors the
+upstream profile tree with `<Vendor>.json` and `<Vendor>/` at its root. The
+installer unpacks each vendor archive directly under `/system`. A small
+browser-compatible archive dependency runs in the Worker.
 
 Package membership is generated deterministically from the upstream
 OrcaSlicer profile organization. The build must not carry a manually curated

@@ -39,7 +39,7 @@ describe('profile package layout', () => {
         { id: 'Creality', kind: 'vendor', path: 'vendors/Creality.fixture-1.zip' },
       ]);
       expect(archiveEntries(await readFile(join(output, 'core.fixture-1.zip')))).toEqual(['machine.json']);
-      expect(archiveEntries(await readFile(join(output, 'vendors/Creality.fixture-1.zip')))).toEqual(['machine/ender.json', 'printer/ender.json', 'Creality.json']);
+      expect(archiveEntries(await readFile(join(output, 'vendors/Creality.fixture-1.zip')))).toEqual(['Creality/machine/ender.json', 'Creality/printer/ender.json', 'Creality.json']);
     } finally { await rm(output, { recursive: true, force: true }); }
   });
 

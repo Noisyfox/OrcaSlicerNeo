@@ -18,9 +18,9 @@ async function files(dir) {
   for (const entry of entries) { const p = join(dir, entry.name); if (entry.isDirectory()) result.push(...await files(p)); else result.push(p); }
   return result;
 }
-async function zip(dir, target, extraEntries = {}) {
+async function zip(dir, target, prefix = '', extraEntries = {}) {
   const entries = {};
-  for (const file of await files(dir)) entries[relative(dir, file).split(sep).join('/')] = new Uint8Array(await readFile(file));
+  for (const file of await files(dir)) entries[prefix + relative(dir, file).split(sep).join('/')] = new Uint8Array(await readFile(file));
   Object.assign(entries, extraEntries);
   // Max-level deflate (fflate accepts level 0-9) with the earliest
   // DOS-encodable mtime keeps archives deterministic; the runtime reader
@@ -44,7 +44,7 @@ for (const vendor of vendors) {
   const path = `vendors/${vendor.name}.${version}.zip`;
   const metadata = `${vendor.name}.json`;
   const extraEntries = rootFiles.has(metadata) ? { [metadata]: new Uint8Array(await readFile(join(source, metadata))) } : {};
-  await zip(join(source, vendor.name), join(output, path), extraEntries);
+  await zip(join(source, vendor.name), join(output, path), `${vendor.name}/`, extraEntries);
   packages.push({ id: vendor.name, kind: 'vendor', path });
 }
 await writeFile(join(output, 'manifest.json'), JSON.stringify({ version: 1, packages }, null, 2) + '\n');

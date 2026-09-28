@@ -22,9 +22,9 @@ describe('profile installer', () => {
       ]),
       'core.zip': zip([['hotend.stl', 'core-hotend'], ['unused.stl', 'not-loaded']]),
       'vendors/Vendor.zip': zip([
-        ['machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: 'vendor-hotend.stl' })],
-        ['vendor-hotend.stl', 'vendor-hotend'],
-        ['unused.stl', 'not-loaded'],
+        ['Vendor/machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: 'vendor-hotend.stl' })],
+        ['Vendor/vendor-hotend.stl', 'vendor-hotend'],
+        ['Vendor/unused.stl', 'not-loaded'],
       ]),
     };
     const requested: string[] = [];
@@ -44,7 +44,7 @@ describe('profile installer', () => {
         { id: 'Vendor', kind: 'vendor', path: 'vendors/Vendor.zip' },
       ]),
       'core.zip': zip([['hotend.stl', 'core-hotend']]),
-      'vendors/Vendor.zip': zip([['machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: '' })]]),
+      'vendors/Vendor.zip': zip([['Vendor/machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: '' })]]),
     };
     await expect(readHotendProfileAsset(source(files), { vendor_id: 'Vendor', model: 'Printer' }))
       .resolves.toEqual(new TextEncoder().encode('core-hotend'));
@@ -80,7 +80,7 @@ describe('profile installer', () => {
         { id: 'Vendor', kind: 'vendor', path: 'vendors/Vendor.zip' },
       ]),
       'core.zip': zip([['common.json', '{}']]),
-      'vendors/Vendor.zip': zip([['machine/Printer.json', '{}'], ['Vendor.json', '{"name":"Vendor"}']]),
+      'vendors/Vendor.zip': zip([['Vendor/machine/Printer.json', '{}'], ['Vendor.json', '{"name":"Vendor"}']]),
     };
     const mounted = new Map<string, Uint8Array>(); const dirs = new Set(['/']);
     await installProfiles({ FS: {
