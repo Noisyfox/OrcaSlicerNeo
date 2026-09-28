@@ -117,6 +117,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
   return {
     models: { pick: pickModel },
     exports: { save: downloadGcode },
+    downloads: { download: downloadFile },
     projects,
     preferences: {
       async load() {
@@ -237,5 +238,11 @@ export async function downloadProject(input: ProjectInput): Promise<void> {
 export async function downloadGcode(defaultName: string, bytes: Uint8Array): Promise<void> {
   const href = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'text/plain;charset=utf-8' }));
   const link = document.createElement('a'); link.href = href; link.download = defaultName.endsWith('.gcode') ? defaultName : `${defaultName}.gcode`; link.click();
+  setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
+async function downloadFile(fileName: string, bytes: Uint8Array): Promise<void> {
+  const href = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/octet-stream' }));
+  const link = document.createElement('a'); link.href = href; link.download = fileName; link.click();
   setTimeout(() => URL.revokeObjectURL(href), 0);
 }

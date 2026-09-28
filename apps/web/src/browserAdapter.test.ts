@@ -38,6 +38,31 @@ describe('browser adapter', () => {
     expect(click).toHaveBeenCalled();
   });
 
+  it('downloads arbitrary bytes under the exact caller-supplied file name', async () => {
+    const anchor = document.createElement('a');
+    const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
+    vi.spyOn(document, 'createElement').mockReturnValue(anchor);
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:file');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const bytes = Uint8Array.from([99, 0, 255, 88]).subarray(1, 3);
+
+    await createBrowserAdapter({} as never).downloads.download('slice-output.data', bytes);
+
+    expect(anchor.download).toBe('slice-output.data');
+    expect(click).toHaveBeenCalledOnce();
+    const blob = createObjectURL.mock.calls[0]?.[0];
+    expect(blob).toBeInstanceOf(Blob);
+    if (!(blob instanceof Blob)) throw new Error('expected download Blob');
+    expect(blob.type).toBe('application/octet-stream');
+    const savedBytes = await new Promise<Uint8Array>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+      reader.readAsArrayBuffer(blob);
+    });
+    expect([...savedBytes]).toEqual([0, 255]);
+  });
+
   it('uses a dedicated .3mf picker for projects without changing the model picker', async () => {
     const input = document.createElement('input');
     Object.defineProperty(input, 'files', { value: [{ name: 'scene.3mf', arrayBuffer: async () => Uint8Array.from([7, 8]).buffer }] });

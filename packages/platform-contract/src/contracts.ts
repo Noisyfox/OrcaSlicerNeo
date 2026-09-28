@@ -92,6 +92,11 @@ export interface GcodeExporter {
   save(defaultName: string, bytes: Uint8Array): Promise<void>;
 }
 
+/** Downloads caller-provided bytes under an exact file name, without format inference. */
+export interface FileDownloader {
+  download(fileName: string, bytes: Uint8Array): Promise<void>;
+}
+
 export interface GcodeTextWindowGeometry {
   left: number;
   top: number;
@@ -319,6 +324,7 @@ export interface PlatformMemory {
 export interface PlatformCapabilities {
   models: ModelImporter;
   exports: GcodeExporter;
+  downloads: FileDownloader;
   projects: ProjectFileCapability;
   preferences: UserPreferencesRepository;
   printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };

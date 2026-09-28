@@ -11,7 +11,10 @@
 - Help contains **File Manager…**. It becomes available after the WASM runtime is ready and opens one non-modal floating window. Reopening the command raises the existing window.
 - The window stays above the application's other panels, supports dragging by its title bar and resizing from a visible handle, and remains usable within the viewport. It does not block interaction with the application behind it.
 - The title area shows the current absolute Emscripten path. The directory listing has exactly two columns: **Name** and **Size**. Its first row is `../`; at `/` that row is disabled. Directory names end in `/`.
-- Double-clicking `../` navigates to the parent; double-clicking a directory enters it; double-clicking a regular file asks the host to download it under its file name. File sizes are shown in bytes. Directory sizes are left blank.
+- Double-clicking `../` navigates to the parent; double-clicking a directory
+  enters it; double-clicking a regular file asks the host to download it under
+  its exact file name and bytes, without inferring a file type or adding an
+  extension. File sizes are shown in bytes. Directory sizes are left blank.
 - Filesystem operations run through the typed Worker client. The shared UI does not access the Emscripten module directly. Web uses a browser download; Electron uses a native save dialog.
 - A failed listing or download shows an error in the window without losing the current path. Closing and reopening the window starts at `/`.
 

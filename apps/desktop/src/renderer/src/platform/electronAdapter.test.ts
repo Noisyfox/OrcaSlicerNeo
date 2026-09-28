@@ -72,6 +72,33 @@ describe('Electron adapter', () => {
     expect(writeFile).not.toHaveBeenCalled();
   });
 
+  it('saves arbitrary bytes under the caller name without a G-code filter', async () => {
+    const saveFileDialog = vi.fn(async () => ({ canceled: false, path: 'C:\\out\\slice-output.data' }));
+    const writeFile = vi.fn(async (_path: string, _bytes: ArrayBuffer) => {});
+    const { adapter } = setup({ saveFileDialog, writeFile });
+    const bytes = Uint8Array.from([99, 0, 255, 88]).subarray(1, 3);
+
+    await adapter.downloads.download('slice-output.data', bytes);
+
+    expect(saveFileDialog).toHaveBeenCalledWith('slice-output.data', [
+      { name: 'All files', extensions: ['*'] },
+    ]);
+    expect(writeFile).toHaveBeenCalledWith('C:\\out\\slice-output.data', expect.any(ArrayBuffer));
+    const savedBytes = writeFile.mock.calls[0]?.[1];
+    expect(savedBytes).toBeInstanceOf(ArrayBuffer);
+    if (!(savedBytes instanceof ArrayBuffer)) throw new Error('expected saved ArrayBuffer');
+    expect([...new Uint8Array(savedBytes)]).toEqual([0, 255]);
+  });
+
+  it('does not write arbitrary bytes when the save dialog is cancelled', async () => {
+    const writeFile = vi.fn();
+    const { adapter } = setup({ saveFileDialog: vi.fn(async () => ({ canceled: true, path: null })), writeFile });
+
+    await adapter.downloads.download('slice-output.data', Uint8Array.from([3]));
+
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
   it('opens projects through the dedicated native 3MF capability and keeps only an opaque location', async () => {
     const open = vi.fn(async () => ({ canceled: false, locationToken: 'private-token', displayName: 'cube.3mf', bytes: Uint8Array.from([1, 2]).buffer }));
     const { adapter } = setup({ projects: { open, save: vi.fn(), saveAs: vi.fn() } });
