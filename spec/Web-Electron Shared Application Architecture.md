@@ -182,6 +182,9 @@ The state projection is authoritative for both rendered and native surfaces:
 File business actions are disabled until boot is ready, Clear Scene and Slice
 also require a model, Export G-code requires a completed slice result, and Add
 Model, Clear Scene, Slice, and Export G-code are all disabled while slicing.
+Help → File Manager remains enabled during startup and after startup failure as
+a diagnostic view of the currently mounted Emscripten filesystem; Refresh
+re-reads the current path after files are mounted or a transient listing error.
 Help → source remains enabled once the menu surface exists. The command
 dispatcher re-checks the complete snapshot immediately before execution, so a
 stale pointer or native-menu selection cannot bypass these guards.
@@ -291,7 +294,9 @@ selection. A shared startup screen remains visible until the WASM runtime and
 all attempted package installs complete, and shows a text label for the current
 startup step. Profile downloads include their current package count, such as
 `Downloading profiles (N/Total)...`. The main application is not interactive
-before that point.
+before that point, except that Help → File Manager can inspect whichever files
+are already mounted while startup continues. Its Refresh action re-reads the
+current directory as installation progresses.
 
 Profile packaging is an independent build/CI target. A profile-content change
 generates only the manifest and profile packages; it must not trigger a WASM
@@ -301,8 +306,9 @@ or bridge/runtime interpretation of its fields changes.
 - A failed vendor package is skipped; startup continues and writes an error to
   the console. Only successfully installed packages contribute profiles.
 - A failed `core` package or WASM initialization fails startup and logs the
-  error; the host does not enter the main application. A dedicated recovery
-  screen/retry action is deferred.
+  error; the host does not enter the main application. Help → File Manager
+  remains available to inspect the mounted filesystem. A dedicated recovery
+  screen and startup retry action are deferred.
 - Versioned immutable file names and a small manifest pointer are used so
   future independent package updates have a cache-friendly distribution path.
 - The first release does **not** implement profile-package hashes, signatures,
@@ -460,8 +466,9 @@ high-risk task gate.
 - In-progress slicing cancellation. The existing bridge capability is not
   exposed through the first-release UI; a future design must define reliable
   behavior for both threaded and serial WASM artifacts.
-- Rich startup error page, retry behavior, and user-visible profile fallback
-  notification.
+- A rich startup error page, startup retry behavior, and user-visible profile
+  fallback notification. The diagnostic File Manager remains available during
+  startup and after failure.
 - Complete About page and expanded legal information.
 
 ## 12. Migration Sequence

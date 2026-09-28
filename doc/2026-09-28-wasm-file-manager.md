@@ -8,9 +8,10 @@
 
 ## Accepted behavior
 
-- Help contains **File Manager…**. It becomes available after the WASM runtime is ready and opens one non-modal floating window. Reopening the command raises the existing window.
+- Help contains **File Manager…**. It is available during startup, after startup failure, and after the WASM runtime is ready. It opens one non-modal floating window; reopening the command raises the existing window.
 - The window stays above the application's other panels, supports dragging by its title bar and resizing from a visible handle, and remains usable within the viewport. It does not block interaction with the application behind it.
 - The title area shows the current absolute Emscripten path. The directory listing has exactly two columns: **Name** and **Size**. Its first row is `../`; at `/` that row is disabled. Directory names end in `/`.
+- A visible **Refresh** title-bar action re-reads the current directory. It lets users inspect files mounted during startup and retry after a transient listing error without closing the window.
 - Disabled rows do not show hover styling or a pointer cursor.
 - The listing uses the shared shadcn `Table` primitives while preserving the existing scroll viewport, sticky header, row navigation, keyboard activation, and download behavior.
 - Components import `cn()` directly from the standalone shadcn `cn` package, matching the generated shadcn UI components.

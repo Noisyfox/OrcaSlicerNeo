@@ -6,27 +6,83 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
 test('Web Help opens one nonmodal Worker File Manager and reopening it resets to root', async ({ page }) => {
-  await page.goto('/');
+  let releaseManifest!: () => void;
+  const manifestGate = new Promise<void>((resolve) => { releaseManifest = resolve; });
+  let manifestRequestStarted!: () => void;
+  const manifestStarted = new Promise<void>((resolve) => { manifestRequestStarted = resolve; });
+  await page.context().route('**/profiles/manifest.json', async (route) => {
+    manifestRequestStarted();
+    await manifestGate;
+    await route.continue();
+  });
+  const manager = page.getByTestId('file-manager-window');
+  const path = page.getByTestId('file-manager-path');
+  const openCommand = page.getByTestId('help-file-manager');
+  let earlyPath: string | null = null;
+  try {
+    await page.goto('/');
+    await manifestStarted;
+    await expect(page.getByTestId('startup-screen')).toBeVisible();
+    await page.getByTestId('menu-file-trigger').click();
+    await expect(page.getByTestId('file-add-model')).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('file-add-model')).toHaveCount(0);
+    await page.getByTestId('menu-help-trigger').click();
+    await expect(openCommand).toBeEnabled();
+    await expect.poll(() => openCommand.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe('auto');
+    const hitTestId = await openCommand.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      return document.elementFromPoint(x, y)?.getAttribute('data-testid');
+    });
+    expect(hitTestId).toBe('help-file-manager');
+    await openCommand.click();
+    await expect(manager).toBeVisible();
+    await expect(manager.locator('thead th')).toHaveText(['Name', 'Size']);
+    const earlyDirectory = manager.locator('[data-testid^="file-manager-entry-"][data-entry-type="directory"]').first();
+    await expect(earlyDirectory).toBeVisible({ timeout: 30_000 });
+    await earlyDirectory.dblclick();
+    earlyPath = await path.textContent();
+    expect(earlyPath).not.toBe('/');
+  } finally {
+    releaseManifest();
+  }
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await expect(path).toHaveText(earlyPath ?? '');
+  await page.getByTestId('menu-help-trigger').click();
+  await page.getByTestId('help-file-manager').click();
+  await expect(page.getByTestId('file-manager-window')).toHaveCount(1);
+  await expect(manager).toBeFocused();
+  await expect(path).toHaveText(earlyPath ?? '');
+  await manager.getByTestId('file-manager-parent').dblclick();
+  await expect(path).toHaveText('/');
   await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
 
   await page.getByTestId('menu-help-trigger').click();
-  const openCommand = page.getByTestId('help-file-manager');
   await expect(openCommand).toBeEnabled();
   await openCommand.click();
 
-  const manager = page.getByTestId('file-manager-window');
-  const path = page.getByTestId('file-manager-path');
   await expect(manager).toBeVisible();
   await expect(manager).toHaveAttribute('aria-modal', 'false');
   await expect(path).toHaveText('/');
   await expect(page.getByTestId('file-manager-parent')).toHaveAttribute('aria-disabled', 'true');
   await expect(manager.locator('thead th')).toHaveText(['Name', 'Size']);
+  const headerColors = await manager.locator('thead').evaluate((header) => {
+    const cell = header.querySelector('th');
+    return {
+      background: getComputedStyle(header).backgroundColor,
+      foreground: cell ? getComputedStyle(cell).color : '',
+    };
+  });
+  expect(headerColors).toEqual({ background: 'rgb(61, 63, 70)', foreground: 'rgb(239, 239, 240)' });
 
   const infoDirectory = manager.locator('[data-testid^="file-manager-entry-"][data-entry-name="info"][data-entry-type="directory"]');
   await expect(infoDirectory).toBeVisible();
   await infoDirectory.dblclick();
+  await expect(path).toHaveText('/info');
+  await manager.getByTestId('file-manager-refresh').click();
   await expect(path).toHaveText('/info');
   const nozzleInfo = manager.locator('[data-testid^="file-manager-entry-"][data-entry-name="nozzle_info.json"][data-entry-type="file"]');
   await expect(nozzleInfo).toBeVisible();
@@ -86,6 +142,50 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
   await page.getByTestId('menu-help-trigger').click();
   await page.getByTestId('help-file-manager').click();
   await expect(page.getByTestId('file-manager-path')).toHaveText('/');
+});
+
+test('Web Help keeps File Manager available after profile startup fails', async ({ page }) => {
+  let failManifest!: () => void;
+  const manifestGate = new Promise<void>((resolve) => { failManifest = resolve; });
+  let manifestRequestStarted!: () => void;
+  const manifestStarted = new Promise<void>((resolve) => { manifestRequestStarted = resolve; });
+  await page.context().route('**/profiles/manifest.json', async (route) => {
+    manifestRequestStarted();
+    await manifestGate;
+    await route.abort();
+  });
+
+  const manager = page.getByTestId('file-manager-window');
+  const openCommand = page.getByTestId('help-file-manager');
+  try {
+    await page.goto('/');
+    await manifestStarted;
+    await expect(page.getByTestId('startup-screen')).toBeVisible();
+    await page.getByTestId('menu-file-trigger').click();
+    await expect(page.getByTestId('file-add-model')).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('file-add-model')).toHaveCount(0);
+    await page.getByTestId('menu-help-trigger').click();
+    await expect(openCommand).toBeEnabled();
+    await expect.poll(() => openCommand.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe('auto');
+    await openCommand.click();
+    await expect(manager).toBeVisible();
+    await expect(manager.locator('thead th')).toHaveText(['Name', 'Size']);
+    await expect(manager.locator('[data-testid^="file-manager-entry-"][data-entry-type="directory"]').first()).toBeVisible({ timeout: 30_000 });
+  } finally {
+    failManifest();
+  }
+
+  await expect(page.getByTestId('startup-error')).toBeVisible({ timeout: 30_000 });
+  await expect(manager).toBeVisible();
+  await page.getByTestId('file-manager-close').click();
+  await page.getByTestId('menu-help-trigger').click();
+  await expect(openCommand).toBeEnabled();
+  await openCommand.click();
+  await expect(manager).toBeVisible();
+  await expect(page.getByTestId('startup-error')).toBeVisible();
+  await manager.getByTestId('file-manager-refresh').click();
+  await expect(manager.getByTestId('file-manager-error')).toHaveCount(0);
 });
 
 test('Web memory indicator shows a JS-heap plus WASM estimate with shared details', async ({ page }) => {

@@ -130,6 +130,31 @@ describe('FileManagerWindow', () => {
     expect(downloads.download).toHaveBeenCalledWith('broken.bin', Uint8Array.of(5));
   });
 
+  it('refreshes the current directory and retries a failed startup listing', async () => {
+    const { platform, runtime } = testPlatform();
+    runtime.listFilesystemDirectory
+      .mockRejectedValueOnce(new Error('filesystem is not ready'))
+      .mockResolvedValueOnce([{ name: 'system', isDirectory: true, sizeBytes: null }])
+      .mockResolvedValueOnce([{ name: 'profile.json', isDirectory: false, sizeBytes: 7 }])
+      .mockResolvedValueOnce([{ name: 'profile.json', isDirectory: false, sizeBytes: 7 }]);
+
+    const mounted = await mount(platform);
+    root = mounted.root;
+    expect(document.querySelector('[data-testid="file-manager-error"]')?.textContent).toBe('filesystem is not ready');
+    const refresh = document.querySelector<HTMLButtonElement>('[data-testid="file-manager-refresh"]')!;
+    expect(refresh.disabled).toBe(false);
+
+    await act(async () => { refresh.click(); await Promise.resolve(); await Promise.resolve(); });
+    expect(runtime.listFilesystemDirectory).toHaveBeenNthCalledWith(2, '/');
+    expect(document.querySelector('[data-testid="file-manager-error"]')).toBeNull();
+
+    await doubleClick(document.querySelector('[data-testid="file-manager-entry-0"]')!);
+    expect(document.querySelector('[data-testid="file-manager-path"]')?.textContent).toBe('/system');
+    await act(async () => { refresh.click(); await Promise.resolve(); await Promise.resolve(); });
+    expect(runtime.listFilesystemDirectory).toHaveBeenLastCalledWith('/system');
+    expect(document.querySelector('[data-testid="file-manager-entry-0"]')?.textContent).toBe('profile.json7 B');
+  });
+
   it('removes default Table hover styling from entry rows while an operation is busy', async () => {
     const { platform, runtime } = testPlatform();
     runtime.listFilesystemDirectory.mockResolvedValue([

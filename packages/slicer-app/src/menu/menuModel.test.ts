@@ -55,13 +55,19 @@ describe('buildMenuModel', () => {
     expect(JSON.stringify(model)).not.toMatch(/gizmo|view|cube|shortcut/i);
   });
 
-  it('publishes startup state with disabled File actions and enabled Source', () => {
+  it('keeps project actions disabled and File Manager available for startup diagnostics', () => {
     const state = buildMenuStateSnapshot(input({ boot: { phase: 'starting', error: null } }), web);
     expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(state, id as MenuCommandId).enabled)).toEqual([
       false, false, false, false,
     ]);
     expect(stateFor(state, 'open-source')).toEqual({ enabled: true, checked: false });
-    expect(stateFor(state, 'open-file-manager')).toEqual({ enabled: false, checked: false });
+    expect(stateFor(state, 'open-file-manager')).toEqual({ enabled: true, checked: false });
+
+    const failed = buildMenuStateSnapshot(input({ boot: { phase: 'failed', error: 'profile load failed' } }), web);
+    expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(failed, id as MenuCommandId).enabled)).toEqual([
+      false, false, false, false,
+    ]);
+    expect(stateFor(failed, 'open-file-manager')).toEqual({ enabled: true, checked: false });
   });
 
   it('keeps ready scene prerequisites in the state table', () => {

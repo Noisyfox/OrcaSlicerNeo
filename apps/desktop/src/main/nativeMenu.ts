@@ -101,7 +101,7 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
     'export-gcode': { enabled: false, checked: false },
     quit: { enabled: true, checked: false },
     'open-source': { enabled: true, checked: false },
-    'open-file-manager': { enabled: false, checked: false },
+    'open-file-manager': { enabled: true, checked: false },
   },
 };
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { XIcon } from 'lucide-react';
+import { RefreshCwIcon, XIcon } from 'lucide-react';
 import type { FilesystemEntry } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -306,6 +306,16 @@ export function FileManagerWindow({ focusRequest, onClose }: { focusRequest: num
         <h2 id={titleId} className="min-w-0 flex-1 truncate" title={path}>
           File Manager <span aria-live="polite" data-testid="file-manager-path">{path}</span>
         </h2>
+        <Button
+          variant="ghost"
+          size="xs"
+          aria-label="Refresh File Manager"
+          data-testid="file-manager-refresh"
+          disabled={busy}
+          onClick={() => { void navigateTo(currentPathRef.current); }}
+        >
+          <RefreshCwIcon aria-hidden="true" className="pointer-events-none" />
+        </Button>
         <Button variant="ghost" size="xs" aria-label="Close File Manager" data-testid="file-manager-close" onClick={onClose}>
           <XIcon aria-hidden="true" className="pointer-events-none" />
         </Button>
@@ -315,10 +325,10 @@ export function FileManagerWindow({ focusRequest, onClose }: { focusRequest: num
       </p>
       <div className="min-h-0 flex-1 overflow-auto">
         <Table containerClassName="overflow-visible" className="border-collapse text-xs" aria-label="Filesystem entries" aria-describedby={`${titleId}-instructions`}>
-          <TableHeader className="sticky top-0 bg-muted text-muted-foreground">
-            <TableRow className="transition-none hover:bg-muted">
-              <TableHead scope="col" className="h-auto px-3 py-2 text-left font-medium text-muted-foreground">Name</TableHead>
-              <TableHead scope="col" className="h-auto w-28 px-3 py-2 text-right font-medium text-muted-foreground">Size</TableHead>
+          <TableHeader className="sticky top-0 bg-secondary text-secondary-foreground">
+            <TableRow className="transition-none hover:bg-secondary">
+              <TableHead scope="col" className="h-auto px-3 py-2 text-left font-medium text-secondary-foreground">Name</TableHead>
+              <TableHead scope="col" className="h-auto w-28 px-3 py-2 text-right font-medium text-secondary-foreground">Size</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

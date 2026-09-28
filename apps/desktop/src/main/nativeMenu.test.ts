@@ -69,7 +69,7 @@ describe('Electron native menu boundary', () => {
     ]);
     expect(template[0].submenu?.[0]).toMatchObject({ label: 'Add Model', enabled: false, checked: false });
     expect(template[0].submenu?.[5]).toMatchObject({ label: 'Quit', enabled: true });
-    expect(template[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: false });
+    expect(template[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: true });
     expect(template[1].submenu?.[2]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
     expect(STARTUP_DISABLED_MENU_STATE.items.quit.enabled).toBe(true);
   });
@@ -154,12 +154,12 @@ describe('Electron native menu boundary', () => {
     expect(fake.setApplicationMenu).toHaveBeenCalledTimes(setCount);
     const latest = fake.templates.at(-1)!;
     expect(latest[0].submenu?.[0]).toMatchObject({ enabled: false });
-    expect(latest[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: false });
+    expect(latest[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: true });
     expect(latest[1].submenu?.[2]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
     const installed = fake.installed.at(-1) as { getMenuItemById(id: string): { enabled: boolean; checked: boolean } | null };
     expect(installed.getMenuItemById('file-add-model')).toEqual({ enabled: false, checked: false });
     expect(installed.getMenuItemById('file-quit')).toMatchObject({ enabled: true });
-    expect(installed.getMenuItemById('help-file-manager')).toMatchObject({ enabled: false });
+    expect(installed.getMenuItemById('help-file-manager')).toMatchObject({ enabled: true });
   });
 
   it('sends only known enabled commands from native item clicks', () => {

@@ -114,7 +114,9 @@ export function deriveMenuItemStates(
     'export-gcode': state(ready && !slicing && hasCompletedResult),
     'quit': state(electron),
     'open-source': state(true),
-    'open-file-manager': state(ready),
+    // Filesystem inspection is the recovery surface for startup diagnostics;
+    // unlike project and model operations it remains available before init.
+    'open-file-manager': state(true),
   };
   return states;
 }

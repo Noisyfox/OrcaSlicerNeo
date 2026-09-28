@@ -508,6 +508,9 @@ function AppContent() {
   const appE2eProbe = __ORCA_E2E__
     ? <AppE2eProbe platform={platform} projectLoadReceiptRef={projectLoadReceiptRef} />
     : null;
+  const fileManagerWindow = fileManagerOpen
+    ? <FileManagerWindow focusRequest={fileManagerFocusRequest} onClose={() => setFileManagerOpen(false)} />
+    : null;
 
   // Keep the shared application inert until the worker has initialized the
   // core and every profile package has been installed. This is intentionally
@@ -536,6 +539,7 @@ function AppContent() {
             </section>
           </main>
         </div>
+        {fileManagerWindow}
       </>
     );
   }
@@ -556,7 +560,7 @@ function AppContent() {
         device={<DevicePanel />}
         status={<StatusBar />}
       />
-      {fileManagerOpen && <FileManagerWindow focusRequest={fileManagerFocusRequest} onClose={() => setFileManagerOpen(false)} />}
+      {fileManagerWindow}
       <ProjectLoadChoiceDialog
         open={dialog === 'load-choice'}
         input={loadInput}
