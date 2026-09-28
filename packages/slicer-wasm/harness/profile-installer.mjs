@@ -42,8 +42,7 @@ export async function installProfilePackages(Module, source, manifestPath = 'man
       const entries = await unzip(await source.fetch(safe(pkg.path)));
       for (const entry of entries) {
         const relative = entry.path;
-        const mounted = pkg.kind === 'vendor' ? `${safe(pkg.id)}/${relative}` : relative;
-        const full = mounted.startsWith('info/') ? `/${mounted}` : `/system/${mounted}`;
+        const full = `/system/${relative}`;
         const parts = full.split('/').slice(0, -1); let current = '';
         for (const part of parts) { if (!part) continue; current += `/${part}`; try { Module.FS.mkdir?.(current); } catch {} }
         Module.FS.writeFile(full, entry.data);

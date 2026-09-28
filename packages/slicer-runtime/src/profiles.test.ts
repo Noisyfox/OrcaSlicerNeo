@@ -22,9 +22,9 @@ describe('profile installer', () => {
       ]),
       'core.zip': zip([['hotend.stl', 'core-hotend'], ['unused.stl', 'not-loaded']]),
       'vendors/Vendor.zip': zip([
-        ['machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: 'vendor-hotend.stl' })],
-        ['vendor-hotend.stl', 'vendor-hotend'],
-        ['unused.stl', 'not-loaded'],
+        ['Vendor/machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: 'vendor-hotend.stl' })],
+        ['Vendor/vendor-hotend.stl', 'vendor-hotend'],
+        ['Vendor/unused.stl', 'not-loaded'],
       ]),
     };
     const requested: string[] = [];
@@ -44,7 +44,7 @@ describe('profile installer', () => {
         { id: 'Vendor', kind: 'vendor', path: 'vendors/Vendor.zip' },
       ]),
       'core.zip': zip([['hotend.stl', 'core-hotend']]),
-      'vendors/Vendor.zip': zip([['machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: '' })]]),
+      'vendors/Vendor.zip': zip([['Vendor/machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: '' })]]),
     };
     await expect(readHotendProfileAsset(source(files), { vendor_id: 'Vendor', model: 'Printer' }))
       .resolves.toEqual(new TextEncoder().encode('core-hotend'));
@@ -77,10 +77,10 @@ describe('profile installer', () => {
     const files = {
       'manifest.json': manifest([
         { id: 'core', kind: 'core', path: 'core.zip' },
-        { id: 'vendor', kind: 'vendor', path: 'vendors/vendor.zip' },
+        { id: 'Vendor', kind: 'vendor', path: 'vendors/Vendor.zip' },
       ]),
       'core.zip': zip([['common.json', '{}']]),
-      'vendors/vendor.zip': zip([['Vendor/machine.json', '{}']]),
+      'vendors/Vendor.zip': zip([['Vendor/machine/Printer.json', '{}'], ['Vendor.json', '{"name":"Vendor"}']]),
     };
     const mounted = new Map<string, Uint8Array>(); const dirs = new Set(['/']);
     await installProfiles({ FS: {
@@ -88,14 +88,14 @@ describe('profile installer', () => {
       writeFile: (path, bytes) => { const parent = path.slice(0, path.lastIndexOf('/')) || '/'; if (!dirs.has(parent)) throw new Error(`missing parent ${parent}`); mounted.set(path, bytes); },
       readFile: () => new Uint8Array(),
     } }, source(files));
-    expect([...mounted.keys()]).toEqual(['/system/common.json', '/system/vendor/Vendor/machine.json']);
-    expect(dirs.has('/system/vendor/Vendor')).toBe(true);
+    expect([...mounted.keys()]).toEqual(['/system/common.json', '/system/Vendor/machine/Printer.json', '/system/Vendor.json']);
+    expect(dirs.has('/system/Vendor/machine')).toBe(true);
   });
 
-  it('reports package progress and keeps core info files at /info', async () => {
+  it('reports package progress and mounts core entries under /system', async () => {
     const files = {
       'manifest.json': manifest([{ id: 'core', kind: 'core', path: 'core.zip' }]),
-      'core.zip': zip([['machine.json', '{}'], ['info/nozzle_info.json', '{}']]),
+      'core.zip': zip([['blacklist.json', '{}'], ['hotend.stl', 'core-hotend']]),
     };
     const mounted = new Set<string>(); const progress: string[] = []; const dirs = new Set(['/']);
     await installProfiles({ FS: {
@@ -103,7 +103,7 @@ describe('profile installer', () => {
       writeFile: (path) => { mounted.add(path); }, readFile: () => new Uint8Array(),
     } }, source(files), 'manifest.json', ({ package: pkg, index, total }) => progress.push(`${index}/${total}:${pkg.id}`));
     expect(progress).toEqual(['0/1:core']);
-    expect([...mounted]).toEqual(['/system/machine.json', '/info/nozzle_info.json']);
+    expect([...mounted]).toEqual(['/system/blacklist.json', '/system/hotend.stl']);
   });
 
   it('blocks on core failure but skips a failed vendor', async () => {

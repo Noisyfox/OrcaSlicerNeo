@@ -21,7 +21,7 @@ async function bytes(response: Response): Promise<Uint8Array> {
 }
 
 // fflate handles both stored and deflated entries; the packaging build
-// (packages/profile-resources) writes store-only archives.
+// (packages/profile-resources) writes deflated archives.
 function unzip(data: Uint8Array): Array<{ path: string; data: Uint8Array }> {
   const files = unzipSync(data);
   return Object.entries(files)
@@ -66,14 +66,14 @@ export async function readHotendProfileAsset(
     if (vendor) {
       try {
         const archive = await readBytes(await source.fetch(vendor.path));
-        const machineEntries = archiveEntries(archive, (path) => path.startsWith('machine/') && path.toLowerCase().endsWith('.json'));
+        const machineEntries = archiveEntries(archive, (path) => path.startsWith(`${vendor.id}/machine/`) && path.toLowerCase().endsWith('.json'));
         for (const machine of machineEntries) {
           try {
             const value = JSON.parse(new TextDecoder().decode(machine.data)) as { name?: unknown; hotend_model?: unknown };
             if (value.name !== printer.model || typeof value.hotend_model !== 'string' || !value.hotend_model) continue;
             const entry = value.hotend_model.replaceAll('\\', '/');
             if (!entry || entry.startsWith('/') || entry.split('/').some((part) => !part || part === '.' || part === '..')) continue;
-            const selected = archiveEntry(archive, entry);
+            const selected = archiveEntry(archive, `${vendor.id}/${entry}`);
             if (selected) return selected;
           } catch {
             // An optional malformed machine profile does not prevent fallback.
@@ -114,8 +114,7 @@ export async function installProfiles(
     if (!pkg || (pkg.kind !== 'core' && pkg.kind !== 'vendor') || typeof pkg.id !== 'string' || typeof pkg.path !== 'string') {
       throw new Error('invalid profile package manifest entry');
     }
-    // Package paths are deployment-relative and IDs become MEMFS directory
-    // names. Reject traversal before either is fetched or mounted.
+    // Reject unsafe manifest paths and IDs before fetching any archive.
     safeEntryPath(pkg.path);
     safeEntryPath(pkg.id);
     onProgress?.({ package: pkg, index, total });
@@ -125,15 +124,8 @@ export async function installProfiles(
       // Preserve the virtual tree expected by libslic3r's PresetBundle.
       for (const entry of entries) {
         const relative = safeEntryPath(entry.path);
-        // Vendor archives contain paths relative to their upstream vendor
-        // directory; restore that directory in MEMFS. Core files remain at
-        // `/system`, while OrcaFilamentLibrary and printer vendors land at
-        // the exact tree consumed by PresetBundle.
-        const mounted = pkg.kind === 'vendor' ? `${safeEntryPath(pkg.id)}/${relative}` : relative;
-        // Non-profile runtime data is occasionally carried in the core pack.
-        // Keep it at the path consumed by libslic3r instead of nesting it
-        // below /system (the packaged profile tree remains under /system).
-        const fullPath = mounted.startsWith('info/') ? `/${mounted}` : `/system/${mounted}`;
+        // Every archive entry already has its path in the upstream profile tree.
+        const fullPath = `/system/${relative}`;
         mkdirParents(module.FS, fullPath.slice(0, fullPath.lastIndexOf('/')));
         module.FS.writeFile(fullPath, entry.data);
       }

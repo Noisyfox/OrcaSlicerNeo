@@ -248,9 +248,8 @@ removed from the shared contract. Profile selection is restored only through
 ## 6. Profile Resource Architecture
 
 System profiles are runtime resources, not Emscripten `--preload-file` inputs.
-The C++ bridge and `libslic3r` keep seeing their existing virtual filesystem
-layout (for example `/system` and `/info`); a JS-side installer populates that
-layout before `orc_init()`.
+A JS-side installer populates `/system` before `orc_init()`. The separate
+`resources/info` directory is preloaded into `/info` when WASM is built.
 
 ```text
 ProfileSource -> ProfileInstaller -> WASM MEMFS -> orc_init()
@@ -271,16 +270,19 @@ packages:
 ```text
 profiles/
   manifest.json
-  core.<version>.zip
+  core.upstream.zip
   vendors/
-    bambu-lab.<version>.zip
-    creality.<version>.zip
+    BBL.<BBL.json version>.zip
+    Creality.<Creality.json version>.zip
     ...
 ```
 
-`core` contains common, non-vendor resources. Each vendor package retains its
-profile file tree. A small browser-compatible archive dependency runs in the
-Worker and unpacks packages into MEMFS.
+`core` contains common, non-vendor resources. Each vendor ZIP mirrors the
+upstream profile tree with `<Vendor>.json` and `<Vendor>/` at its root. The
+vendor ZIP filename uses the `version` field in its matching `<Vendor>.json`;
+the core filename remains `core.upstream.zip` for now. The installer unpacks
+each vendor archive directly under `/system`. A small
+browser-compatible archive dependency runs in the Worker.
 
 Package membership is generated deterministically from the upstream
 OrcaSlicer profile organization. The build must not carry a manually curated

@@ -117,6 +117,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
   const platform = usePlatform();
   const [printers, setPrinters] = useState<PrinterConfiguration[]>([]);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
+  const [configurationLoaded, setConfigurationLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [draft, setDraft] = useState<PrinterDraft>(EMPTY_DRAFT);
@@ -239,10 +240,12 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
         setPrinters([]);
         setLoadFailed(true);
       }
+      setConfigurationLoaded(true);
     }).catch(() => {
       if (!active) return;
       setPrinters([]);
       setLoadFailed(true);
+      setConfigurationLoaded(true);
     });
     return () => { active = false; };
   }, [platform.printers.configuration]);
@@ -351,13 +354,17 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               <p className="text-xs text-muted-foreground">Printer consoles</p>
             </div>
             <TooltipFor content="Add printer">
-              <Button size="icon-xs" variant="secondary" onClick={beginAdd} aria-label="Add printer" data-testid="device-add-printer">
+              <Button size="icon-xs" variant="secondary" onClick={beginAdd} disabled={!configurationLoaded} aria-label="Add printer" data-testid="device-add-printer">
                 <Plus />
               </Button>
             </TooltipFor>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {printers.length === 0 ? (
+            {!configurationLoaded ? (
+              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" data-testid="device-loading-list">
+                Loading printers…
+              </p>
+            ) : printers.length === 0 ? (
               <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground" data-testid="device-empty-list">
                 {loadFailed ? 'No saved printers are available.' : 'No printers configured.'}
               </p>
