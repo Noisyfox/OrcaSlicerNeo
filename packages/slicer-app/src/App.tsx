@@ -512,10 +512,10 @@ function AppContent() {
     ? <FileManagerWindow focusRequest={fileManagerFocusRequest} onClose={() => setFileManagerOpen(false)} />
     : null;
 
-  // Keep the shared application inert until the worker has initialized the
-  // core and every profile package has been installed. This is intentionally
-  // host-neutral: Electron and Web must expose the same startup contract and
-  // must never allow a user action against a partially populated MEMFS.
+  // Keep normal application and project actions inert until the worker has
+  // initialized the core and installed every profile package. This is
+  // host-neutral: Electron and Web share startup behavior; File Manager is the
+  // explicit read-only diagnostic exception for inspecting a partial MEMFS.
   if (boot !== 'ready') {
     // The window is frameless on desktop, so the startup screen must carry
     // the title bar too — otherwise there is no drag region to move the
