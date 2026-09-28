@@ -41,6 +41,7 @@ import { isSerialSliceBusy } from './runtimeExecution';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppE2eProbe } from './e2e/AppE2eProbe';
+import { FileManagerWindow } from './components/fileManager/FileManagerWindow';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -98,6 +99,8 @@ function AppContent() {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [extraNotice, setExtraNotice] = useState<string | null>(null);
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectLoadResult | null>(null);
+  const [fileManagerOpen, setFileManagerOpen] = useState(false);
+  const [fileManagerFocusRequest, setFileManagerFocusRequest] = useState(0);
   const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
   const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
   const projectConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
@@ -222,6 +225,10 @@ function AppContent() {
     try { setPreferences(await platform.preferences.load()); } catch { setPreferences(null); }
     setDialog('preferences');
   }, [platform.preferences]);
+  const openFileManager = useCallback(async () => {
+    setFileManagerOpen(true);
+    setFileManagerFocusRequest((request) => request + 1);
+  }, []);
   const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour) => {
     const current = preferences ?? await platform.preferences.load();
     const next = { ...current, projectLoadBehaviour: behaviour };
@@ -284,9 +291,10 @@ function AppContent() {
       slice: requestPreviewSlice,
       exportGcode: () => exportGcode(platform),
       openSource: async () => { await platform.externalLinks.openSource(); },
+      openFileManager,
       quit: async () => { await platform.menu.execute('quit'); },
     },
-  }), [handleModelAdded, openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
+  }), [handleModelAdded, openFileManager, openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
 
   // Strict Mode replays layout effects during development. Keep activation
   // and disposal next to the native subscription so replay cannot leave the
@@ -548,6 +556,7 @@ function AppContent() {
         device={<DevicePanel />}
         status={<StatusBar />}
       />
+      {fileManagerOpen && <FileManagerWindow focusRequest={fileManagerFocusRequest} onClose={() => setFileManagerOpen(false)} />}
       <ProjectLoadChoiceDialog
         open={dialog === 'load-choice'}
         input={loadInput}

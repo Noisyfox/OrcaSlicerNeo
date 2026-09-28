@@ -49,6 +49,7 @@ export const MENU_COMMAND_IDS = [
   'export-gcode',
   'quit',
   'open-source',
+  'open-file-manager',
 ] as const satisfies readonly MenuCommandId[];
 
 export function isMenuCommandId(value: unknown): value is MenuCommandId {

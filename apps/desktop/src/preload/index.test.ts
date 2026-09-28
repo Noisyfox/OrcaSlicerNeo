@@ -43,7 +43,7 @@ describe('Electron preload bridge', () => {
         'save-project-as': { enabled: false }, preferences: { enabled: false },
         'add-model': { enabled: false }, 'clear-scene': { enabled: false },
         slice: { enabled: false }, 'export-gcode': { enabled: false },
-        quit: { enabled: false }, 'open-source': { enabled: true },
+        quit: { enabled: false }, 'open-source': { enabled: true }, 'open-file-manager': { enabled: false },
       },
     };
 

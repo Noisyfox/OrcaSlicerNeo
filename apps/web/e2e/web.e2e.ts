@@ -4,6 +4,67 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('Web Help opens one nonmodal Worker File Manager and reopening it resets to root', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
+
+  await page.getByTestId('menu-help-trigger').click();
+  const openCommand = page.getByTestId('help-file-manager');
+  await expect(openCommand).toBeEnabled();
+  await openCommand.click();
+
+  const manager = page.getByTestId('file-manager-window');
+  const path = page.getByTestId('file-manager-path');
+  await expect(manager).toBeVisible();
+  await expect(manager).toHaveAttribute('aria-modal', 'false');
+  await expect(path).toHaveText('/');
+  await expect(page.getByTestId('file-manager-parent')).toHaveAttribute('aria-disabled', 'true');
+  await expect(manager.locator('thead th')).toHaveText(['Name', 'Size']);
+
+  const directory = page.locator('[data-testid^="file-manager-entry-"][data-entry-type="directory"]').first();
+  await expect(directory).toBeVisible();
+  await directory.dblclick();
+  await expect(path).not.toHaveText('/');
+  const visitedPath = await path.textContent();
+
+  await page.getByTestId('menu-help-trigger').click();
+  await page.getByTestId('help-file-manager').click();
+  await expect(page.getByTestId('file-manager-window')).toHaveCount(1);
+  await expect(manager).toBeFocused();
+  await expect(path).toHaveText(visitedPath ?? '');
+
+  const beforeMove = await manager.boundingBox();
+  const titlebarBox = await page.getByTestId('file-manager-titlebar').boundingBox();
+  expect(beforeMove).not.toBeNull();
+  expect(titlebarBox).not.toBeNull();
+  await page.mouse.move(titlebarBox!.x + 100, titlebarBox!.y + 18);
+  await page.mouse.down();
+  await page.mouse.move(titlebarBox!.x + 140, titlebarBox!.y + 48);
+  await page.mouse.up();
+  const afterMove = await manager.boundingBox();
+  expect(afterMove!.x).toBeGreaterThan(beforeMove!.x);
+
+  const beforeResize = await manager.boundingBox();
+  await page.getByTestId('file-manager-resize').hover();
+  await page.mouse.move(beforeResize!.x + beforeResize!.width - 8, beforeResize!.y + beforeResize!.height - 8);
+  await page.mouse.down();
+  await page.mouse.move(beforeResize!.x + beforeResize!.width + 60, beforeResize!.y + beforeResize!.height + 60);
+  await page.mouse.up();
+  const afterResize = await manager.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(afterResize!.width).toBeGreaterThan(beforeResize!.width);
+  expect(afterResize!.x + afterResize!.width).toBeLessThanOrEqual(viewport.width + 1);
+  expect(afterResize!.y + afterResize!.height).toBeLessThanOrEqual(viewport.height + 1);
+
+  await page.getByTestId('file-manager-close').click();
+  await expect(manager).toHaveCount(0);
+  await page.getByTestId('menu-help-trigger').click();
+  await page.getByTestId('help-file-manager').click();
+  await expect(page.getByTestId('file-manager-path')).toHaveText('/');
+});
+
 test('Web memory indicator shows a JS-heap plus WASM estimate with shared details', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });

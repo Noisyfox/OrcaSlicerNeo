@@ -50,7 +50,7 @@ describe('buildMenuModel', () => {
       'Add Model', 'Clear Scene', 'Slice', 'Export G-code', '', 'New Project', 'Open Project…',
       'Save Project', 'Save Project As…', 'Preferences…', '', 'Exit',
     ]);
-    expect(menuItems(model, 'Help').map((item) => item.label)).toEqual(['AGPL-3.0 source']);
+    expect(menuItems(model, 'Help').map((item) => item.label)).toEqual(['File Manager…', '', 'AGPL-3.0 source']);
     expect(model.menus.flatMap((menu) => menu.items).every((item) => !('enabled' in item))).toBe(true);
     expect(JSON.stringify(model)).not.toMatch(/gizmo|view|cube|shortcut/i);
   });
@@ -61,10 +61,12 @@ describe('buildMenuModel', () => {
       false, false, false, false,
     ]);
     expect(stateFor(state, 'open-source')).toEqual({ enabled: true, checked: false });
+    expect(stateFor(state, 'open-file-manager')).toEqual({ enabled: false, checked: false });
   });
 
   it('keeps ready scene prerequisites in the state table', () => {
     const empty = buildMenuStateSnapshot(input(), web);
+    expect(stateFor(empty, 'open-file-manager').enabled).toBe(true);
     expect(stateFor(empty, 'add-model').enabled).toBe(true);
     expect(stateFor(empty, 'clear-scene').enabled).toBe(false);
     expect(stateFor(empty, 'slice').enabled).toBe(false);
@@ -171,7 +173,7 @@ describe('buildMenuModel', () => {
     const raw = input({ scene: { hasModel: true } });
     const states = deriveMenuItemStates(raw, web);
     expect(Object.keys(states).sort()).toEqual([
-      'add-model', 'clear-scene', 'export-gcode', 'new-project', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
+      'add-model', 'clear-scene', 'export-gcode', 'new-project', 'open-file-manager', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
     ]);
     expect(states['open-source'].checked).toBe(false);
     expect(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus).toEqual(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus);
