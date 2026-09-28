@@ -92,10 +92,10 @@ describe('profile installer', () => {
     expect(dirs.has('/system/Vendor/machine')).toBe(true);
   });
 
-  it('reports package progress and keeps core info files at /info', async () => {
+  it('reports package progress and mounts core entries under /system', async () => {
     const files = {
       'manifest.json': manifest([{ id: 'core', kind: 'core', path: 'core.zip' }]),
-      'core.zip': zip([['machine.json', '{}'], ['info/nozzle_info.json', '{}']]),
+      'core.zip': zip([['blacklist.json', '{}'], ['hotend.stl', 'core-hotend']]),
     };
     const mounted = new Set<string>(); const progress: string[] = []; const dirs = new Set(['/']);
     await installProfiles({ FS: {
@@ -103,7 +103,7 @@ describe('profile installer', () => {
       writeFile: (path) => { mounted.add(path); }, readFile: () => new Uint8Array(),
     } }, source(files), 'manifest.json', ({ package: pkg, index, total }) => progress.push(`${index}/${total}:${pkg.id}`));
     expect(progress).toEqual(['0/1:core']);
-    expect([...mounted]).toEqual(['/system/machine.json', '/info/nozzle_info.json']);
+    expect([...mounted]).toEqual(['/system/blacklist.json', '/system/hotend.stl']);
   });
 
   it('blocks on core failure but skips a failed vendor', async () => {

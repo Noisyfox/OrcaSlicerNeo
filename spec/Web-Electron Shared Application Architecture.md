@@ -248,9 +248,8 @@ removed from the shared contract. Profile selection is restored only through
 ## 6. Profile Resource Architecture
 
 System profiles are runtime resources, not Emscripten `--preload-file` inputs.
-The C++ bridge and `libslic3r` keep seeing their existing virtual filesystem
-layout (for example `/system` and `/info`); a JS-side installer populates that
-layout before `orc_init()`.
+A JS-side installer populates `/system` before `orc_init()`. The separate
+`resources/info` directory is preloaded into `/info` when WASM is built.
 
 ```text
 ProfileSource -> ProfileInstaller -> WASM MEMFS -> orc_init()

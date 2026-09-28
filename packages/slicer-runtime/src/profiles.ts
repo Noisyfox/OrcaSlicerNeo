@@ -125,10 +125,7 @@ export async function installProfiles(
       for (const entry of entries) {
         const relative = safeEntryPath(entry.path);
         // Every archive entry already has its path in the upstream profile tree.
-        // Non-profile runtime data is occasionally carried in the core pack.
-        // Keep it at the path consumed by libslic3r instead of nesting it
-        // below /system (the packaged profile tree remains under /system).
-        const fullPath = pkg.kind === 'core' && relative.startsWith('info/') ? `/${relative}` : `/system/${relative}`;
+        const fullPath = `/system/${relative}`;
         mkdirParents(module.FS, fullPath.slice(0, fullPath.lastIndexOf('/')));
         module.FS.writeFile(fullPath, entry.data);
       }
