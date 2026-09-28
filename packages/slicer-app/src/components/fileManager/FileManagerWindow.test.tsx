@@ -83,8 +83,11 @@ describe('FileManagerWindow', () => {
     expect(tableContainer?.classList.contains('overflow-x-auto')).toBe(false);
     expect(document.querySelector('thead[data-slot="table-header"]')).not.toBeNull();
     expect(document.querySelector('thead[data-slot="table-header"]')?.classList.contains('sticky')).toBe(true);
-    expect(document.querySelector('tbody tr:first-child')?.getAttribute('data-testid')).toBe('file-manager-parent');
-    expect(document.querySelector('[data-testid="file-manager-parent"]')?.getAttribute('aria-disabled')).toBe('true');
+    const parentRow = document.querySelector<HTMLElement>('tbody tr:first-child');
+    expect(parentRow?.getAttribute('data-testid')).toBe('file-manager-parent');
+    expect(parentRow?.getAttribute('aria-disabled')).toBe('true');
+    expect(parentRow?.classList.contains('hover:bg-transparent')).toBe(true);
+    expect(parentRow?.classList.contains('hover:bg-muted/50')).toBe(false);
     expect([...document.querySelectorAll('thead th')].map((cell) => cell.textContent)).toEqual(['Name', 'Size']);
     expect(rows.map((row) => row.textContent)).toEqual(['tmp/', 'no-extension3 B']);
     expect(rows[0]?.getAttribute('data-entry-type')).toBe('directory');
@@ -125,6 +128,32 @@ describe('FileManagerWindow', () => {
     expect(document.querySelector('[data-testid="file-manager-path"]')?.textContent).toBe('/');
     expect(document.querySelector('[data-testid="file-manager-error"]')?.textContent).toBe('save failed');
     expect(downloads.download).toHaveBeenCalledWith('broken.bin', Uint8Array.of(5));
+  });
+
+  it('removes default Table hover styling from entry rows while an operation is busy', async () => {
+    const { platform, runtime } = testPlatform();
+    runtime.listFilesystemDirectory.mockResolvedValue([
+      { name: 'busy.bin', isDirectory: false, sizeBytes: 1 },
+    ]);
+    let resolveRead!: (bytes: Uint8Array) => void;
+    runtime.readFilesystemFile.mockImplementation(() => new Promise<Uint8Array>((resolve) => {
+      resolveRead = resolve;
+    }));
+
+    const mounted = await mount(platform);
+    root = mounted.root;
+    const fileRow = document.querySelector<HTMLElement>('[data-testid="file-manager-entry-0"]')!;
+    await doubleClick(fileRow);
+
+    expect(fileRow.getAttribute('aria-disabled')).toBe('true');
+    expect(fileRow.classList.contains('hover:bg-transparent')).toBe(true);
+    expect(fileRow.classList.contains('hover:bg-muted/50')).toBe(false);
+
+    await act(async () => {
+      resolveRead(Uint8Array.of(1));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   });
 
   it('ignores a stale Worker listing reply after an effect replay', async () => {

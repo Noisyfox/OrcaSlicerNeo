@@ -327,7 +327,7 @@ export function FileManagerWindow({ focusRequest, onClose }: { focusRequest: num
               data-entry-name="../"
               aria-disabled={parentDisabled}
               tabIndex={parentDisabled ? -1 : 0}
-              className={`border-t transition-none ${parentDisabled ? 'text-muted-foreground/60' : 'cursor-pointer hover:bg-muted/60'}`}
+              className={`border-t transition-none ${parentDisabled ? 'text-muted-foreground/60 hover:bg-transparent' : 'cursor-pointer hover:bg-muted/60'}`}
               onDoubleClick={() => { if (!parentDisabled) void activateEntry(null); }}
               onKeyDown={(event) => {
                 if (!parentDisabled && (event.key === 'Enter' || event.key === ' ')) {
@@ -347,7 +347,7 @@ export function FileManagerWindow({ focusRequest, onClose }: { focusRequest: num
                 data-entry-type={entry.isDirectory ? 'directory' : 'file'}
                 aria-disabled={busy}
                 tabIndex={busy ? -1 : 0}
-                className={`border-t transition-none ${busy ? 'text-muted-foreground/60' : 'cursor-pointer hover:bg-muted/60'}`}
+                className={`border-t transition-none ${busy ? 'text-muted-foreground/60 hover:bg-transparent' : 'cursor-pointer hover:bg-muted/60'}`}
                 onDoubleClick={() => { if (!busy) void activateEntry(entry); }}
                 onKeyDown={(event) => {
                   if (!busy && (event.key === 'Enter' || event.key === ' ')) {
