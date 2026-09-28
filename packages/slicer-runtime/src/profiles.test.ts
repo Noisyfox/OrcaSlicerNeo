@@ -77,10 +77,10 @@ describe('profile installer', () => {
     const files = {
       'manifest.json': manifest([
         { id: 'core', kind: 'core', path: 'core.zip' },
-        { id: 'vendor', kind: 'vendor', path: 'vendors/vendor.zip' },
+        { id: 'Vendor', kind: 'vendor', path: 'vendors/Vendor.zip' },
       ]),
       'core.zip': zip([['common.json', '{}']]),
-      'vendors/vendor.zip': zip([['Vendor/machine.json', '{}']]),
+      'vendors/Vendor.zip': zip([['machine/Printer.json', '{}'], ['Vendor.json', '{"name":"Vendor"}']]),
     };
     const mounted = new Map<string, Uint8Array>(); const dirs = new Set(['/']);
     await installProfiles({ FS: {
@@ -88,8 +88,8 @@ describe('profile installer', () => {
       writeFile: (path, bytes) => { const parent = path.slice(0, path.lastIndexOf('/')) || '/'; if (!dirs.has(parent)) throw new Error(`missing parent ${parent}`); mounted.set(path, bytes); },
       readFile: () => new Uint8Array(),
     } }, source(files));
-    expect([...mounted.keys()]).toEqual(['/system/common.json', '/system/vendor/Vendor/machine.json']);
-    expect(dirs.has('/system/vendor/Vendor')).toBe(true);
+    expect([...mounted.keys()]).toEqual(['/system/common.json', '/system/Vendor/machine/Printer.json', '/system/Vendor.json']);
+    expect(dirs.has('/system/Vendor/machine')).toBe(true);
   });
 
   it('reports package progress and keeps core info files at /info', async () => {

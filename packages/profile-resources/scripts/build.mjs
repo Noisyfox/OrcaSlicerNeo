@@ -1,5 +1,5 @@
 // Deterministic profile packaging. Upstream's top-level vendor directories
-// become vendor archives; files directly under resources/profiles are core.
+// and matching root JSON files become vendor archives; other root files are core.
 // No vendor file list is checked in or maintained by hand.
 import { copyFile, mkdir, readdir, readFile, rm, writeFile, mkdtemp } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
@@ -18,9 +18,10 @@ async function files(dir) {
   for (const entry of entries) { const p = join(dir, entry.name); if (entry.isDirectory()) result.push(...await files(p)); else result.push(p); }
   return result;
 }
-async function zip(dir, target) {
+async function zip(dir, target, extraEntries = {}) {
   const entries = {};
   for (const file of await files(dir)) entries[relative(dir, file).split(sep).join('/')] = new Uint8Array(await readFile(file));
+  Object.assign(entries, extraEntries);
   // Max-level deflate (fflate accepts level 0-9) with the earliest
   // DOS-encodable mtime keeps archives deterministic; the runtime reader
   // (fflate) inflates deflated entries.
@@ -31,14 +32,19 @@ await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 const entries = (await readdir(source, { withFileTypes: true })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 const packages = [];
-const core = entries.filter((e) => e.isFile()).map((e) => e.name);
+const vendors = entries.filter((e) => e.isDirectory());
+const rootFiles = new Set(entries.filter((e) => e.isFile()).map((e) => e.name));
+const vendorNames = new Set(vendors.map((e) => e.name));
+const core = [...rootFiles].filter((name) => !name.endsWith('.json') || !vendorNames.has(name.slice(0, -5)));
 if (!core.length && !entries.some((e) => e.isDirectory())) throw new Error(`profile source is empty: ${source}`);
 if (core.length) { const staging = await mkdtemp(join(output, '.staging-core-')); for (const f of core) await copyFile(join(source, f), join(staging, f)); const path = `core.${version}.zip`; await zip(staging, join(output, path)); await rm(staging, { recursive: true, force: true }); packages.push({ id: 'core', kind: 'core', path }); }
-for (const vendor of entries.filter((e) => e.isDirectory())) {
+for (const vendor of vendors) {
   const vendorFiles = await files(join(source, vendor.name));
   if (!vendorFiles.length) throw new Error(`vendor profile directory is empty: ${vendor.name}`);
   const path = `vendors/${vendor.name}.${version}.zip`;
-  await zip(join(source, vendor.name), join(output, path));
+  const metadata = `${vendor.name}.json`;
+  const extraEntries = rootFiles.has(metadata) ? { [metadata]: new Uint8Array(await readFile(join(source, metadata))) } : {};
+  await zip(join(source, vendor.name), join(output, path), extraEntries);
   packages.push({ id: vendor.name, kind: 'vendor', path });
 }
 await writeFile(join(output, 'manifest.json'), JSON.stringify({ version: 1, packages }, null, 2) + '\n');

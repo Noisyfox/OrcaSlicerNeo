@@ -39,7 +39,7 @@ describe('profile package layout', () => {
         { id: 'Creality', kind: 'vendor', path: 'vendors/Creality.fixture-1.zip' },
       ]);
       expect(archiveEntries(await readFile(join(output, 'core.fixture-1.zip')))).toEqual(['machine.json']);
-      expect(archiveEntries(await readFile(join(output, 'vendors/Creality.fixture-1.zip')))).toEqual(['machine/ender.json', 'printer/ender.json']);
+      expect(archiveEntries(await readFile(join(output, 'vendors/Creality.fixture-1.zip')))).toEqual(['machine/ender.json', 'printer/ender.json', 'Creality.json']);
     } finally { await rm(output, { recursive: true, force: true }); }
   });
 
@@ -47,16 +47,29 @@ describe('profile package layout', () => {
     const source = await mkdtemp(join(tmpdir(), 'orca-profile-input-'));
     await mkdir(join(source, 'Vendor'), { recursive: true });
     await writeFile(join(source, 'core.json'), 'one');
+    await writeFile(join(source, 'Vendor.json'), 'metadata');
     await writeFile(join(source, 'Vendor', 'v.json'), 'vendor');
     const first = await build(source, 'same');
     const second = await build(source, 'same');
     try {
       expect(await readFile(join(first, 'manifest.json'), 'utf8')).toBe(await readFile(join(second, 'manifest.json'), 'utf8'));
       expect(await readFile(join(first, 'core.same.zip'))).toEqual(await readFile(join(second, 'core.same.zip')));
+      expect(await readFile(join(first, 'vendors/Vendor.same.zip'))).toEqual(await readFile(join(second, 'vendors/Vendor.same.zip')));
       await writeFile(join(source, 'core.json'), 'changed');
       const changed = await build(source, 'same');
-      try { expect(await readFile(join(first, 'core.same.zip'))).not.toEqual(await readFile(join(changed, 'core.same.zip'))); }
+      try {
+        expect(await readFile(join(first, 'core.same.zip'))).not.toEqual(await readFile(join(changed, 'core.same.zip')));
+        expect(await readFile(join(first, 'vendors/Vendor.same.zip'))).toEqual(await readFile(join(changed, 'vendors/Vendor.same.zip')));
+      }
       finally { await rm(changed, { recursive: true, force: true }); }
+      await writeFile(join(source, 'core.json'), 'one');
+      await writeFile(join(source, 'Vendor.json'), 'changed');
+      const changedMetadata = await build(source, 'same');
+      try {
+        expect(await readFile(join(first, 'core.same.zip'))).toEqual(await readFile(join(changedMetadata, 'core.same.zip')));
+        expect(await readFile(join(first, 'vendors/Vendor.same.zip'))).not.toEqual(await readFile(join(changedMetadata, 'vendors/Vendor.same.zip')));
+      }
+      finally { await rm(changedMetadata, { recursive: true, force: true }); }
     } finally {
       await rm(first, { recursive: true, force: true }); await rm(second, { recursive: true, force: true }); await rm(source, { recursive: true, force: true });
     }
