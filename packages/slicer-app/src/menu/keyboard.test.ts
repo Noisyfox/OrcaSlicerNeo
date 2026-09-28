@@ -6,7 +6,7 @@ import type { MenuStateSnapshot } from '@orca/platform-contract';
 function snapshot(command: keyof MenuStateSnapshot['items'], enabled: boolean): MenuStateSnapshot {
   const items = Object.fromEntries([
     'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
-    'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source',
+    'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source', 'open-file-manager',
   ].map((id) => [id, { enabled: id === command ? enabled : false, checked: false }])) as MenuStateSnapshot['items'];
   return {
     version: 1,
@@ -33,6 +33,7 @@ function actions(): CommandActions {
     slice: vi.fn(async () => {}),
     exportGcode: vi.fn(async () => {}),
     openSource: vi.fn(async () => {}),
+    openFileManager: vi.fn(async () => {}),
     quit: vi.fn(async () => {}),
   };
 }

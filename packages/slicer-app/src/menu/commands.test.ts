@@ -14,6 +14,7 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     'export-gcode': state('export-gcode'),
     quit: state('quit'),
     'open-source': state('open-source'),
+    'open-file-manager': state('open-file-manager'),
     'new-project': state('new-project'),
     'open-project': state('open-project'),
     'save-project': state('save-project'),
@@ -40,6 +41,7 @@ function actions(): CommandActions {
     slice: vi.fn(async () => {}),
     exportGcode: vi.fn(async () => {}),
     openSource: vi.fn(async () => {}),
+    openFileManager: vi.fn(async () => {}),
     quit: vi.fn(async () => {}),
   };
 }
@@ -98,6 +100,20 @@ describe('shared menu command dispatcher', () => {
 
     await expect(dispatcher.dispatch('open-source')).resolves.toBe(false);
     expect(calls.openSource).not.toHaveBeenCalled();
+  });
+
+  it('dispatches the File Manager only when the current snapshot enables it', async () => {
+    const calls = actions();
+    const disabled = createCommandDispatcher({ getSnapshot: () => snapshot(), actions: calls });
+    await expect(disabled.dispatch('open-file-manager')).resolves.toBe(false);
+    expect(calls.openFileManager).not.toHaveBeenCalled();
+
+    const enabled = createCommandDispatcher({
+      getSnapshot: () => snapshot({ 'open-file-manager': true }),
+      actions: calls,
+    });
+    await expect(enabled.dispatch('open-file-manager')).resolves.toBe(true);
+    expect(calls.openFileManager).toHaveBeenCalledOnce();
   });
 
   it('routes native callbacks through the same guarded dispatcher', async () => {

@@ -15,7 +15,7 @@ const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
 const MENU_STATE_COMMANDS = [
   'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
-  'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source',
+  'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source', 'open-file-manager',
 ] as const;
 
 export interface NativeMenuTemplateItem {
@@ -67,7 +67,11 @@ export const STARTUP_DISABLED_MENU_MODEL: MenuModel = {
     {
       testId: 'menu-help',
       label: 'Help',
-      items: [{ testId: 'help-source', label: 'AGPL-3.0 source', command: 'open-source' }],
+      items: [
+        { testId: 'help-file-manager', label: 'File Manager…', command: 'open-file-manager' },
+        { testId: 'help-separator-before-source', label: '', separator: true },
+        { testId: 'help-source', label: 'AGPL-3.0 source', command: 'open-source' },
+      ],
     },
   ],
 };
@@ -97,6 +101,7 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
     'export-gcode': { enabled: false, checked: false },
     quit: { enabled: true, checked: false },
     'open-source': { enabled: true, checked: false },
+    'open-file-manager': { enabled: true, checked: false },
   },
 };
 

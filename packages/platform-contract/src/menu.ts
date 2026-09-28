@@ -18,7 +18,8 @@ export type MenuCommandId =
   | 'slice'
   | 'export-gcode'
   | 'quit'
-  | 'open-source';
+  | 'open-source'
+  | 'open-file-manager';
 
 export interface MenuItem {
   /** Stable identifier for rendering and automated tests. */

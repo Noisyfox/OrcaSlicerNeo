@@ -62,6 +62,11 @@ export interface MockModule {
   FS: {
     writeFile: (path: string, data: Uint8Array) => void;
     readFile: (path: string) => Uint8Array;
+    mkdir: (path: string) => void;
+    readdir: (path: string) => string[];
+    stat: (path: string) => { mode: number; size: number };
+    isDir: (mode: number) => boolean;
+    isFile: (mode: number) => boolean;
   };
   _freedPointers: number[];
   _functionRegistrations: number;
@@ -108,7 +113,69 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const HEAPF32 = new Float32Array(heap);
   const files = new Map<string, Uint8Array>();
   let previewSourceBytes: Uint8Array | undefined;
+  const directories = new Set(['/', '/tmp']);
   const freedPointers: number[] = [];
+
+  function normalizeFilesystemPath(path: string): string {
+    const absolute = path.startsWith('/') ? path : `/${path}`;
+    const normalized = absolute.replace(/\/{2,}/g, '/').replace(/\/$/, '');
+    return normalized || '/';
+  }
+  function parentFilesystemPath(path: string): string {
+    const slash = path.lastIndexOf('/');
+    return slash <= 0 ? '/' : path.slice(0, slash);
+  }
+  function filesystemNode(path: string): { mode: number; size: number } {
+    const normalized = normalizeFilesystemPath(path);
+    if (directories.has(normalized)) return { mode: 0x4000, size: 0 };
+    const file = files.get(normalized);
+    if (file) return { mode: 0x8000, size: file.byteLength };
+    throw new Error(`ENOENT: no such file or directory: ${normalized}`);
+  }
+  function makeDirectory(path: string): void {
+    const normalized = normalizeFilesystemPath(path);
+    if (directories.has(normalized) || files.has(normalized))
+      throw new Error(`EEXIST: file already exists: ${normalized}`);
+    const parent = parentFilesystemPath(normalized);
+    if (!directories.has(parent)) {
+      if (files.has(parent)) throw new Error(`ENOTDIR: not a directory: ${parent}`);
+      throw new Error(`ENOENT: no such file or directory: ${parent}`);
+    }
+    directories.add(normalized);
+  }
+  function writeFilesystemFile(path: string, data: Uint8Array): void {
+    const normalized = normalizeFilesystemPath(path);
+    const parent = parentFilesystemPath(normalized);
+    if (!directories.has(parent)) {
+      if (files.has(parent)) throw new Error(`ENOTDIR: not a directory: ${parent}`);
+      throw new Error(`ENOENT: no such file or directory: ${parent}`);
+    }
+    if (directories.has(normalized)) throw new Error(`EISDIR: is a directory: ${normalized}`);
+    files.set(normalized, new Uint8Array(data));
+  }
+  function readFilesystemFile(path: string): Uint8Array {
+    const normalized = normalizeFilesystemPath(path);
+    if (directories.has(normalized)) throw new Error(`EISDIR: is a directory: ${normalized}`);
+    const file = files.get(normalized);
+    if (!file) throw new Error(`ENOENT: no such file or directory: ${normalized}`);
+    return file.slice();
+  }
+  function readFilesystemDirectory(path: string): string[] {
+    const normalized = normalizeFilesystemPath(path);
+    const node = filesystemNode(normalized);
+    if ((node.mode & 0xf000) !== 0x4000) throw new Error(`ENOTDIR: not a directory: ${normalized}`);
+    const names = new Set(['.', '..']);
+    for (const directory of directories) {
+      if (directory === '/') continue;
+      if (parentFilesystemPath(directory) === normalized)
+        names.add(directory.slice(directory.lastIndexOf('/') + 1));
+    }
+    for (const file of files.keys()) {
+      if (parentFilesystemPath(file) === normalized)
+        names.add(file.slice(file.lastIndexOf('/') + 1));
+    }
+    return [...names];
+  }
 
   // ---- heap allocator (bump; free records for leak checks) ----
   let bump = 1024;
@@ -3029,16 +3096,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     FS: {
       writeFile(path: string, data: Uint8Array) {
-        files.set(path, data);
+        writeFilesystemFile(path, data);
       },
       readFile(path: string) {
-        const f = files.get(path);
-        if (!f) throw new Error(`ENOENT: ${path}`);
         // Match Emscripten FS.readFile: callers receive an owned snapshot.
         // Returning the stored view lets a host transfer detach the mock's
         // canonical file, making a second export fail unlike real MEMFS.
-        return f.slice();
+        return readFilesystemFile(path);
       },
+      mkdir: makeDirectory,
+      readdir: readFilesystemDirectory,
+      stat: filesystemNode,
+      isDir: (mode) => (mode & 0xf000) === 0x4000,
+      isFile: (mode) => (mode & 0xf000) === 0x8000,
     },
     _freedPointers: freedPointers,
     get _functionRegistrations() { return functionRegistrations; },

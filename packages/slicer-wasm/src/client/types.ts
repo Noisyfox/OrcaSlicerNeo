@@ -20,6 +20,11 @@ export interface OrcaModule {
     writeFile: (path: string, data: Uint8Array) => void;
     readFile: (path: string) => Uint8Array;
     mkdir?: (path: string) => void;
+    /** Emscripten FS metadata APIs used by the Worker file manager. */
+    readdir?: (path: string) => string[];
+    stat?: (path: string) => { mode: number; size: number };
+    isDir?: (mode: number) => boolean;
+    isFile?: (mode: number) => boolean;
   };
 }
 
@@ -1370,6 +1375,14 @@ export interface RuntimeMemorySnapshot {
   readonly wasmLinearMemoryBytes: number;
 }
 
+/** One immediate child returned from an Emscripten filesystem directory. */
+export interface FilesystemEntry {
+  readonly name: string;
+  readonly isDirectory: boolean;
+  /** Byte size for files; directories have no displayed size. */
+  readonly sizeBytes: number | null;
+}
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
@@ -1535,4 +1548,8 @@ export interface SlicerClient {
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */
   readLog(): Promise<ReadLogResult>;
+  /** List immediate children of an absolute MEMFS directory in stable name order. */
+  listFilesystemDirectory(path: string): Promise<FilesystemEntry[]>;
+  /** Read an absolute regular MEMFS file into an owned byte buffer. */
+  readFilesystemFile(path: string): Promise<Uint8Array>;
 }

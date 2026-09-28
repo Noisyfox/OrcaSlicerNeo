@@ -1,5 +1,5 @@
 import type {
-  ExternalLinks, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
+  ExternalLinks, FileDownloader, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
   SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
   WebViewHost, ProjectFileCapability, PlatformMemory,
 } from './contracts';
@@ -10,6 +10,7 @@ import type { MenuCommandId, PlatformMenu } from './menu';
 export const fakeCapabilities: PlatformCapabilities = {
   models: { async pick() { return null; } } satisfies ModelImporter,
   exports: { async save() {} } satisfies GcodeExporter,
+  downloads: { async download() {} } satisfies FileDownloader,
   projects: {
     async open() { return { status: 'cancelled' as const }; },
     async save() { return { status: 'cancelled' as const }; },

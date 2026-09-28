@@ -18,7 +18,7 @@ import {
   MenubarSubTrigger,
   MenubarTrigger,
 } from '@/components/ui/menubar';
-import { cn } from '@/lib/utils';
+import { cn } from 'cn';
 
 export interface TitleBarProps {
   chrome: PlatformChrome;

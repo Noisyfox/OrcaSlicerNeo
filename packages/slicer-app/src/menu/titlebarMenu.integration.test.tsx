@@ -47,7 +47,7 @@ describe('shared titlebar menu integration projection', () => {
     expect(model.menus[0].items.slice(0, 4).map((item) => item.label)).toEqual([
       'Add Model', 'Clear Scene', 'Slice', 'Export G-code',
     ]);
-    expect(model.menus[1].items.map((item) => item.label)).toEqual(['AGPL-3.0 source']);
+    expect(model.menus[1].items.map((item) => item.label)).toEqual(['File Manager…', '', 'AGPL-3.0 source']);
     expect(model.menus.flatMap((menu) => menu.items).some((item) => item.command === 'quit')).toBe(electron);
     if (electron) expect(model.menus[0].items.at(-1)?.label).toBe(mode === 'native' ? 'Quit' : 'Exit');
   });

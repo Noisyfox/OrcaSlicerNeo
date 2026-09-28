@@ -69,7 +69,8 @@ describe('Electron native menu boundary', () => {
     ]);
     expect(template[0].submenu?.[0]).toMatchObject({ label: 'Add Model', enabled: false, checked: false });
     expect(template[0].submenu?.[5]).toMatchObject({ label: 'Quit', enabled: true });
-    expect(template[1].submenu?.[0]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
+    expect(template[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: true });
+    expect(template[1].submenu?.[2]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
     expect(STARTUP_DISABLED_MENU_STATE.items.quit.enabled).toBe(true);
   });
 
@@ -130,6 +131,7 @@ describe('Electron native menu boundary', () => {
         'export-gcode': { enabled: true, checked: false },
         quit: { enabled: true, checked: false },
         'open-source': { enabled: true, checked: false },
+        'open-file-manager': { enabled: true, checked: false },
       },
     };
     expect(controller.syncState(completed)).toBe(true);
@@ -152,22 +154,27 @@ describe('Electron native menu boundary', () => {
     expect(fake.setApplicationMenu).toHaveBeenCalledTimes(setCount);
     const latest = fake.templates.at(-1)!;
     expect(latest[0].submenu?.[0]).toMatchObject({ enabled: false });
-    expect(latest[1].submenu?.[0]).toMatchObject({ enabled: true });
+    expect(latest[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: true });
+    expect(latest[1].submenu?.[2]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
     const installed = fake.installed.at(-1) as { getMenuItemById(id: string): { enabled: boolean; checked: boolean } | null };
     expect(installed.getMenuItemById('file-add-model')).toEqual({ enabled: false, checked: false });
     expect(installed.getMenuItemById('file-quit')).toMatchObject({ enabled: true });
+    expect(installed.getMenuItemById('help-file-manager')).toMatchObject({ enabled: true });
   });
 
   it('sends only known enabled commands from native item clicks', () => {
     const onCommand = vi.fn();
     const template = buildNativeMenuTemplate(
       STARTUP_DISABLED_MENU_MODEL,
-      state({ 'add-model': { enabled: true }, quit: { enabled: false } }),
+      state({ 'add-model': { enabled: true }, 'open-file-manager': { enabled: true }, quit: { enabled: false } }),
       onCommand,
     );
     template[0].submenu?.[0].click?.();
     expect(onCommand).toHaveBeenCalledOnce();
     expect(onCommand).toHaveBeenCalledWith('add-model');
+    template[1].submenu?.[0].click?.();
+    expect(onCommand).toHaveBeenCalledTimes(2);
+    expect(onCommand).toHaveBeenLastCalledWith('open-file-manager');
   });
 
   it('clears the application menu on Windows/Linux', () => {

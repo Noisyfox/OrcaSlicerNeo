@@ -9,7 +9,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn } from 'cn';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';

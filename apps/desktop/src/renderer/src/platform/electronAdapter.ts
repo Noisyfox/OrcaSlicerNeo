@@ -31,6 +31,10 @@ const GCODE_FILTERS: FileDialogFilter[] = [
   { name: 'G-code', extensions: ['gcode'] },
 ];
 
+const DOWNLOAD_FILTERS: FileDialogFilter[] = [
+  { name: 'All files', extensions: ['*'] },
+];
+
 function projectBytes(input: ProjectInput): ArrayBuffer {
   return input.bytes.buffer.slice(
     input.bytes.byteOffset,
@@ -191,6 +195,16 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     exports: {
       async save(defaultName, bytes) {
         const { path } = await host.saveFileDialog(defaultName, GCODE_FILTERS);
+        if (!path) return;
+        await host.writeFile(path, bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer);
+      },
+    },
+    downloads: {
+      async download(fileName, bytes) {
+        const { path } = await host.saveFileDialog(fileName, DOWNLOAD_FILTERS);
         if (!path) return;
         await host.writeFile(path, bytes.buffer.slice(
           bytes.byteOffset,

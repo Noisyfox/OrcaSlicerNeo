@@ -61,7 +61,15 @@ export function buildMenuModel(
     menuMode,
     menus: [
       { testId: 'menu-file', label: 'File', items: fileItems },
-      { testId: 'menu-help', label: 'Help', items: [item('help-source', 'AGPL-3.0 source', 'open-source')] },
+      {
+        testId: 'menu-help',
+        label: 'Help',
+        items: [
+          item('help-file-manager', 'File Manager…', 'open-file-manager'),
+          separator('help-separator-before-source'),
+          item('help-source', 'AGPL-3.0 source', 'open-source'),
+        ],
+      },
     ],
   };
 }
@@ -106,6 +114,9 @@ export function deriveMenuItemStates(
     'export-gcode': state(ready && !slicing && hasCompletedResult),
     'quit': state(electron),
     'open-source': state(true),
+    // Filesystem inspection is the recovery surface for startup diagnostics;
+    // unlike project and model operations it remains available before init.
+    'open-file-manager': state(true),
   };
   return states;
 }

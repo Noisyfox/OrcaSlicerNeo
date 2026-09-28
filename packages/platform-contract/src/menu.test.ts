@@ -29,6 +29,7 @@ const snapshot: MenuStateSnapshot = {
     'export-gcode': { enabled: false },
     'quit': { enabled: false },
     'open-source': { enabled: true, checked: true },
+    'open-file-manager': { enabled: false },
   },
 };
 

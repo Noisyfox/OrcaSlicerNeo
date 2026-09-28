@@ -41,6 +41,7 @@ import { isSerialSliceBusy } from './runtimeExecution';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppE2eProbe } from './e2e/AppE2eProbe';
+import { FileManagerWindow } from './components/fileManager/FileManagerWindow';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -98,6 +99,8 @@ function AppContent() {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [extraNotice, setExtraNotice] = useState<string | null>(null);
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectLoadResult | null>(null);
+  const [fileManagerOpen, setFileManagerOpen] = useState(false);
+  const [fileManagerFocusRequest, setFileManagerFocusRequest] = useState(0);
   const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
   const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
   const projectConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
@@ -222,6 +225,10 @@ function AppContent() {
     try { setPreferences(await platform.preferences.load()); } catch { setPreferences(null); }
     setDialog('preferences');
   }, [platform.preferences]);
+  const openFileManager = useCallback(async () => {
+    setFileManagerOpen(true);
+    setFileManagerFocusRequest((request) => request + 1);
+  }, []);
   const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour) => {
     const current = preferences ?? await platform.preferences.load();
     const next = { ...current, projectLoadBehaviour: behaviour };
@@ -284,9 +291,10 @@ function AppContent() {
       slice: requestPreviewSlice,
       exportGcode: () => exportGcode(platform),
       openSource: async () => { await platform.externalLinks.openSource(); },
+      openFileManager,
       quit: async () => { await platform.menu.execute('quit'); },
     },
-  }), [handleModelAdded, openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
+  }), [handleModelAdded, openFileManager, openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
 
   // Strict Mode replays layout effects during development. Keep activation
   // and disposal next to the native subscription so replay cannot leave the
@@ -500,11 +508,14 @@ function AppContent() {
   const appE2eProbe = __ORCA_E2E__
     ? <AppE2eProbe platform={platform} projectLoadReceiptRef={projectLoadReceiptRef} />
     : null;
+  const fileManagerWindow = fileManagerOpen
+    ? <FileManagerWindow focusRequest={fileManagerFocusRequest} onClose={() => setFileManagerOpen(false)} />
+    : null;
 
-  // Keep the shared application inert until the worker has initialized the
-  // core and every profile package has been installed. This is intentionally
-  // host-neutral: Electron and Web must expose the same startup contract and
-  // must never allow a user action against a partially populated MEMFS.
+  // Keep normal application and project actions inert until the worker has
+  // initialized the core and installed every profile package. This is
+  // host-neutral: Electron and Web share startup behavior; File Manager is the
+  // explicit read-only diagnostic exception for inspecting a partial MEMFS.
   if (boot !== 'ready') {
     // The window is frameless on desktop, so the startup screen must carry
     // the title bar too — otherwise there is no drag region to move the
@@ -528,6 +539,7 @@ function AppContent() {
             </section>
           </main>
         </div>
+        {fileManagerWindow}
       </>
     );
   }
@@ -548,6 +560,7 @@ function AppContent() {
         device={<DevicePanel />}
         status={<StatusBar />}
       />
+      {fileManagerWindow}
       <ProjectLoadChoiceDialog
         open={dialog === 'load-choice'}
         input={loadInput}

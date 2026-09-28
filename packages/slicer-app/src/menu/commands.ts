@@ -15,6 +15,7 @@ export interface CommandActions {
   slice: () => Promise<void>;
   exportGcode: () => Promise<void>;
   openSource: () => Promise<void>;
+  openFileManager: () => Promise<void>;
   quit: () => Promise<void>;
 }
 
@@ -91,6 +92,7 @@ function commandToAction(command: MenuCommandId): keyof CommandActions {
     case 'slice': return 'slice';
     case 'export-gcode': return 'exportGcode';
     case 'open-source': return 'openSource';
+    case 'open-file-manager': return 'openFileManager';
     case 'quit': return 'quit';
   }
 }
