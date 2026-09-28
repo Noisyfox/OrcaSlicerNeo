@@ -50,6 +50,7 @@ export type {
   PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewAnalysis,
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewTextLinesRequest, PreviewTextLines, PreviewSource,
   ExportGcodeResult, ExportProjectResult, CancelResult,
+  FilesystemEntry,
 } from './types';
 export type {
   StableObjectId, StablePartId, StableInstanceId, StablePlateId,

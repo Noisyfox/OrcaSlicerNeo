@@ -1400,6 +1400,17 @@ const clientAdmissionChecks = new WeakMap<SlicerClient,
   (observedEpoch: string) => Promise<Record<string, unknown>>>();
 
 /** Worker-only dispatcher which applies the authoritative serial bridge gate. */
+function requireAbsoluteFilesystemPath(path: string): string {
+  if (typeof path !== 'string' || !path.startsWith('/'))
+    throw new Error('filesystem path must be absolute');
+  const normalized = path.replace(/\/{2,}/g, '/');
+  return normalized.length > 1 ? normalized.replace(/\/$/, '') : '/';
+}
+
+function filesystemChildPath(directory: string, name: string): string {
+  return directory === '/' ? `/${name}` : `${directory}/${name}`;
+}
+
 export async function dispatchClientRequest(
   client: SlicerClient, operation: string, args: unknown[],
   observedSerialEpoch: string, restricted: boolean,
@@ -2739,6 +2750,44 @@ export function createClient(
         text: new TextDecoder('utf-8', { fatal: false }).decode(bytes),
         eof: r.eof === true,
       };
+    },
+
+    async listFilesystemDirectory(path: string) {
+      const directory = requireAbsoluteFilesystemPath(path);
+      const m = await module();
+      if (!m.FS.readdir || !m.FS.stat || !m.FS.isDir)
+        throw new Error('Emscripten filesystem metadata APIs are unavailable');
+
+      const directoryStat = m.FS.stat(directory);
+      if (!m.FS.isDir(directoryStat.mode))
+        throw new Error(`ENOTDIR: not a directory: ${directory}`);
+
+      return m.FS.readdir(directory)
+        .filter((name) => name !== '.' && name !== '..')
+        .map((name) => {
+          const entryStat = m.FS.stat!(filesystemChildPath(directory, name));
+          const isDirectory = m.FS.isDir!(entryStat.mode);
+          return {
+            name,
+            isDirectory,
+            sizeBytes: isDirectory ? null : entryStat.size,
+          };
+        })
+        .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    },
+
+    async readFilesystemFile(path: string) {
+      const filePath = requireAbsoluteFilesystemPath(path);
+      const m = await module();
+      if (!m.FS.stat || !m.FS.isDir || !m.FS.isFile)
+        throw new Error('Emscripten filesystem metadata APIs are unavailable');
+
+      const fileStat = m.FS.stat(filePath);
+      if (m.FS.isDir(fileStat.mode)) throw new Error(`EISDIR: is a directory: ${filePath}`);
+      if (!m.FS.isFile(fileStat.mode)) throw new Error(`EINVAL: not a regular file: ${filePath}`);
+      // FS.readFile returns a snapshot, but make ownership explicit: the Worker
+      // transfers this buffer to the caller, which must not detach MEMFS data.
+      return new Uint8Array(m.FS.readFile(filePath));
     },
 
     async readLog(): Promise<ReadLogResult> {
