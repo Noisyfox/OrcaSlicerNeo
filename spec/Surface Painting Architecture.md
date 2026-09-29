@@ -953,5 +953,9 @@ product semantics or claiming measurements that have not been made. If further
 important product choices arise, clarify them interactively with pinned Orca
 behavior and source evidence, then update this specification in coherent batches.
 
-No code implementation is authorized by this design/clarification workflow.
-No implementation, runtime validation, or delivered roadmap milestone is claimed.
+Implementation was authorized on 2026-09-29 on the current development branch.
+The [living implementation plan](../doc/2026-09-29-surface-painting-implementation.md)
+defines bounded sequential steps, each implemented and self-verified by a fresh
+subagent and independently accepted by the parent before the next step starts.
+This specification does not itself claim implementation, runtime validation, or
+a delivered roadmap milestone.
