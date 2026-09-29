@@ -1,5 +1,5 @@
-// Lifecycle-only painting ABI. Tool samples, geometry publication and commits
-// are deliberately absent until their native implementations are complete.
+// Native painting drafts. Model/history publication belongs to the separate
+// commit boundary; finished drafts remain pending until consumed or discarded.
 #include <emscripten/emscripten.h>
 #include <cstdlib>
 #include <cstring>
@@ -10,6 +10,7 @@
 namespace {
 using namespace Slic3r::Neo::Bridge;
 using nlohmann::json;
+using namespace Slic3r::Neo::Painting;
 using Response = std::unique_ptr<char, decltype(&std::free)>;
 Response response(const json& value) {
     const auto text = value.dump();
@@ -64,11 +65,119 @@ json metadata(const Slic3r::Neo::Painting::Session& session) {
             {"facetCounts", part.facet_counts()},
             {"draftResourceId", "pd-" + std::to_string(session.id) + "-" + std::to_string(session.revision) + "-" + std::to_string(part.volume_id)}});
     }
-    return {{"ok", true}, {"version", 1}, {"session", {
+    json out = {{"ok", true}, {"version", 1}, {"session", {
         {"id", "ps-" + std::to_string(session.id)},
         {"historySessionId", HistoryMetadata::history_editing_session_id(session.history_session_id)},
         {"revision", session.revision}, {"objectId", session.object_id}, {"instanceId", session.instance_id},
-        {"annotation", "mmu"}, {"phase", "idle"}, {"strokeId", nullptr}, {"parts", std::move(parts)} }}};
+        {"annotation", "mmu"}, {"phase", session.phase == Phase::Idle ? "idle" : session.phase == Phase::Drawing ? "drawing" : "finished"},
+        {"strokeId", session.active_stroke_id ? json("pst-" + std::to_string(session.id) + "-" + std::to_string(session.active_stroke_id)) : json(nullptr)},
+        {"parts", std::move(parts)} }}};
+    if (session.preview) {
+        json preview_parts = json::array();
+        for (std::size_t i = 0; i < session.parts.size(); ++i) {
+            std::array<std::size_t, 17> counts{};
+            for (int state = 0; state <= 16; ++state)
+                counts[state] = session.preview->selectors[i]->num_facets(static_cast<Slic3r::EnforcerBlockerType>(state));
+            preview_parts.push_back({{"volumeId", session.parts[i].volume_id}, {"facetCounts", counts}});
+        }
+        std::size_t gap_regions = 0;
+        for (const auto& regions : session.preview->gap_regions) gap_regions += regions.size();
+        out["session"]["candidate"] = {{"revision", session.revision}, {"parts", std::move(preview_parts)},
+            {"selectedFacetCount", session.preview->region_selection ? session.preview->region_selection->selected_facet_count() : 0},
+            {"gapRegionCount", gap_regions}};
+    }
+    return out;
+}
+void fields(const json& value, std::initializer_list<const char*> allowed) {
+    if (!value.is_object()) throw std::invalid_argument("painting value must be an object");
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        bool found = false;
+        for (const auto* key : allowed) if (it.key() == key) found = true;
+        if (!found) throw std::invalid_argument("unsupported painting field: " + it.key());
+    }
+}
+double number(const json& value) {
+    if (!value.is_number()) throw std::invalid_argument("painting value must be numeric");
+    const double out = value.get<double>();
+    if (!std::isfinite(out)) throw std::invalid_argument("painting value must be finite");
+    return out;
+}
+Settings settings(const json& value) {
+    fields(value, {"state", "erase", "radius", "height", "angle", "gapArea"});
+    Settings out;
+    if (value.contains("state")) {
+        const double state = number(value["state"]);
+        if (state < 0 || state > 16 || std::floor(state) != state) throw std::invalid_argument("invalid painting state");
+        out.state = int(state);
+    }
+    if (value.contains("erase")) {
+        if (!value["erase"].is_boolean()) throw std::invalid_argument("invalid painting erase setting");
+        out.erase = value["erase"].get<bool>();
+    }
+    if (value.contains("radius")) out.radius = number(value["radius"]);
+    if (value.contains("height")) out.height = number(value["height"]);
+    if (value.contains("angle")) out.angle = value["angle"].is_null() ? std::optional<double>{} : number(value["angle"]);
+    if (value.contains("gapArea")) out.gap_area = number(value["gapArea"]);
+    out.validate();
+    return out;
+}
+Tool tool(const json& value) {
+    if (!value.is_string()) throw std::invalid_argument("invalid painting tool");
+    const auto name = value.get<std::string>();
+    if (name == "circle") return Tool::Circle;
+    if (name == "sphere") return Tool::Sphere;
+    if (name == "triangle") return Tool::Triangle;
+    if (name == "height") return Tool::Height;
+    if (name == "region") return Tool::Region;
+    if (name == "gap") return Tool::Gap;
+    if (name == "eraseAll") return Tool::EraseAll;
+    throw std::invalid_argument("invalid painting tool");
+}
+void array(const json& value, std::size_t size, double* output) {
+    if (!value.is_array() || value.size() != size) throw std::invalid_argument("invalid painting vector/matrix");
+    for (std::size_t i = 0; i < size; ++i) output[i] = number(value[i]);
+}
+std::optional<PointerEvent> event(const json& value) {
+    if (!value.contains("event")) return {};
+    const auto& input = value["event"];
+    fields(input, {"pointer", "viewport", "projection", "view"});
+    PointerEvent out;
+    array(input.at("pointer"), 2, out.pointer.data());
+    array(input.at("viewport"), 4, out.viewport.data());
+    array(input.at("projection"), 16, out.projection.data());
+    array(input.at("view"), 16, out.view.data());
+    return out;
+}
+std::uint64_t stroke(const json& value, std::uint64_t session) {
+    if (!value.contains("strokeId") || !value["strokeId"].is_string()) throw std::invalid_argument("missing painting stroke");
+    const auto text = value["strokeId"].get<std::string>();
+    const auto prefix = "pst-" + std::to_string(session) + "-";
+    if (text.compare(0, prefix.size(), prefix) != 0) throw std::invalid_argument("painting stroke belongs to another session");
+    std::uint64_t out;
+    if (!HistoryMetadata::parse_history_editing_session_id("hs-" + text.substr(prefix.size()), out)) throw std::invalid_argument("invalid painting stroke");
+    return out;
+}
+json receipt(const Session& session) {
+    json hit = nullptr;
+    const auto& selected = session.preview ? session.preview->hit : session.last_hit;
+    if (selected) hit = {{"volumeId", session.parts[selected->part].volume_id}, {"originalFacet", selected->original_facet},
+        {"world", {selected->world.x(), selected->world.y(), selected->world.z()}}};
+    return {{"ok", true}, {"version", 1}, {"sessionId", "ps-" + std::to_string(session.id)},
+        {"revision", session.revision}, {"strokeId", session.active_stroke_id ? json("pst-" + std::to_string(session.id) + "-" + std::to_string(session.active_stroke_id)) : json(nullptr)},
+        {"phase", session.phase == Phase::Idle ? "idle" : session.phase == Phase::Drawing ? "drawing" : "finished"},
+        {"effective", session.effective}, {"changedPartIds", session.changed_parts}, {"hit", std::move(hit)},
+        {"candidateRevision", session.preview ? json(session.revision) : json(nullptr)}};
+}
+const Session& engine_session(const json& value) {
+    const auto& session = state().painting.require(handle(value, "sessionId", "ps-"), integer(value, "revision"), false);
+    require_history(session.history_session_id);
+    state().painting.validate_target(state().model, session);
+    return session;
+}
+const char* publish(std::unique_ptr<Session> candidate) {
+    auto out = response(receipt(*candidate));
+    state().painting.publish(std::move(candidate));
+    return out.release();
 }
 template<class Fn> const char* invoke(Fn&& fn) {
     try { admit(); return fn(); }
@@ -104,7 +213,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_target(const char* text) {
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_read(const char* text) {
     return invoke([&]() -> const char* {
         const auto value = request(text, {"version", "sessionId", "revision"});
-        const auto& session = state().painting.require(handle(value, "sessionId", "ps-"), integer(value, "revision"));
+        const auto& session = state().painting.require(handle(value, "sessionId", "ps-"), integer(value, "revision"), false);
         require_history(session.history_session_id);
         state().painting.validate_target(state().model, session);
         return response(metadata(session)).release();
@@ -118,6 +227,45 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_close(const char* text) {
         auto out = response({{"ok", true}, {"version", 1}});
         state().painting.reset();
         return out.release();
+    });
+}
+EMSCRIPTEN_KEEPALIVE const char* orc_painting_preview(const char* text) {
+    return invoke([&]() -> const char* {
+        const auto value = request(text, {"version", "sessionId", "revision", "tool", "settings", "event"});
+        const auto& session = engine_session(value);
+        return publish(state().painting.prepare_preview(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings")), event(value)));
+    });
+}
+EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_begin(const char* text) {
+    return invoke([&]() -> const char* {
+        const auto value = request(text, {"version", "sessionId", "revision", "tool", "settings", "event", "candidateRevision"});
+        const auto& session = engine_session(value);
+        std::optional<std::uint64_t> candidate;
+        if (value.contains("candidateRevision")) candidate = integer(value, "candidateRevision");
+        return publish(state().painting.prepare_begin(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings")), event(value), candidate));
+    });
+}
+EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_sample(const char* text) {
+    return invoke([&]() -> const char* {
+        const auto value = request(text, {"version", "sessionId", "revision", "strokeId", "settings", "event"});
+        const auto& session = engine_session(value);
+        const auto input = event(value);
+        if (!input) throw std::invalid_argument("painting sample requires an event");
+        return publish(state().painting.prepare_sample(session.id, session.revision, stroke(value, session.id), settings(value.at("settings")), *input));
+    });
+}
+EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_finish(const char* text) {
+    return invoke([&]() -> const char* {
+        const auto value = request(text, {"version", "sessionId", "revision", "strokeId"});
+        const auto& session = engine_session(value);
+        return publish(state().painting.prepare_finish(session.id, session.revision, stroke(value, session.id)));
+    });
+}
+EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_cancel(const char* text) {
+    return invoke([&]() -> const char* {
+        const auto value = request(text, {"version", "sessionId", "revision", "strokeId"});
+        const auto& session = engine_session(value);
+        return publish(state().painting.prepare_cancel(session.id, session.revision, stroke(value, session.id)));
     });
 }
 }

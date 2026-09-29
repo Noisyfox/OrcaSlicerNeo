@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-05 accepted; later stages remain gated.
+**Status:** Sequential implementation in progress. Steps 01-06 accepted; later stages remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -26,6 +26,7 @@
 - Reuse one Worker and WASM module. No wx GUI compilation, extra native worker, session-long exclusive transaction, movement queue, pending-latest move, or new history authority.
 - One painting event in flight; busy moves discarded; reliable terminal state; normal release paints its retained endpoint once before commit; Escape restores after the in-flight call and does not paint an endpoint.
 - Preserve all six tools and every accepted lifecycle/history/slot policy. Support/seam/fuzzy remain adapter extension points, not extra delivered tools.
+- Follow the user's implementation reference: pinned Orca `TriangleSelectorGUI` and `TriangleSelectorPatch` in `GLGizmoPainterBase.{hpp,cpp}`, alongside base `TriangleSelector`. Reuse their selection/neighbor/update semantics through non-GUI adapters; separate candidate selection, paint-state change and render invalidation. Native owns candidate membership/contours even for same-color hover. OpenGL/wx resources stay outside WASM; NEO transports geometry to the dedicated React renderer.
 
 ## Verification profiles
 
@@ -125,7 +126,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 06. Native picking and six-tool engine
 
-**Status:** Pending. **Depends on:** 05 accepted. **Model:** gpt-6-astra / low. **Verification:** N+W.
+**Status:** Accepted by parent. **Depends on:** 05 accepted. **Model:** gpt-6-astra / low. **Verification:** N+W.
 
 **Allowed scope:** native painting geometry/input/tool adapters, focused bridge command wiring and native/WASM tests. Adapt pinned Orca code outside the read-only submodule; no wx GUI build or renderer authority.
 
@@ -401,3 +402,52 @@ Stage 05 accepted. Automatic selector reconciliation after restore/remap remains
 stage 07/09 scope; current native reads reject stale targets and explicit target
 rebind reconstructs selectors. Tool sampling and geometry/per-stroke publication
 remain stages 06/07, with no unfinished UI exposed.
+
+Accepted stage 05 code commit: `ca8fdf82`.
+
+### Stage 06 acceptance — native picking and six tools
+
+Child: `/root/painting_stage_06` (`gpt-6-astra`, low). Native AABBMesh picking
+reconstructs rays from camera input and resolves original faces through native
+instance/volume transforms. Circle/sphere, triangle, region, world-Z height, gap
+fill and erase operate on isolated selector drafts. Stroke finish enters an
+explicit pending state; cancel/discard restores its predecessor. No Model/history
+publication or UI is claimed in this stage.
+
+Parent source review compared the adapter with pinned TriangleSelector cursor,
+bucket-fill, height and serialization implementations and TriangleSelectorGUI/
+TriangleSelectorPatch in GLGizmoPainterBase.hpp/.cpp. Mapped render invalidation,
+seed-fill membership/contours and patch analysis independently from GPU ownership.
+The non-GUI gap port preserves the source's strict threshold, area arithmetic,
+neighbor propagation and lowest-state choice, including zero.
+
+Parent review required these changes before acceptance:
+
+- Replaced partial internal-vector cloning, which omitted private selector free
+  lists, with supported canonical serialization/deserialization reconstruction.
+- Made per-event isolation lazy by touched part and cached pre-stroke comparison
+  data. Misses and untouched parts retain selector identity; routine command
+  receipts do not scan full facet counts.
+- Preserved region candidate membership/contours even for same-state/NONE hover;
+  gap fragments are separate from prospective assigned colors.
+- Rejected direct history-session closure while a painting draft is drawing or
+  finished, before any history mutation. Validated off-viewport misses before
+  unbounded interpolation and synchronized TypeScript lifecycle schemas.
+- Added acceptance cases for perspective depth/original-face picking, combined
+  rotated/nonuniform/mirrored world-Z bands, competing nonzero gap neighbors,
+  selector subdivision/undivision/repaint, and untouched-part identity.
+
+Child passed root tests/typecheck, full slicer-wasm suite (221/9 files), native
+painting and history runners, final serial quick build, both painting smokes and
+both history smokes. Parent independently reviewed the final implementation/test
+diff, passed the native painting/history runners, final serial quick build,
+painting-engine smoke, painting-session smoke, history-editing-session smoke,
+full slicer-wasm tests/typecheck and diff check. Existing history smoke and root
+checks were child-verified for this stage; earlier parent root checks remain
+recorded at stage 05. Fixture import profile-parent diagnostics are unchanged.
+
+Stage 06 accepted. Allocation failure was not injected; abandoned-candidate
+tests and staged response-before-publication ownership establish its isolation.
+Geometry export, per-stroke publication, native remap reconciliation and full
+typed painting transport remain stage 07. GPU rendering, both-host journeys and
+threaded qualification retain their later gates; no performance threshold claim.

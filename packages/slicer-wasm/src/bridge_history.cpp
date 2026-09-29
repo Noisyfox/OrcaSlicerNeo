@@ -2078,6 +2078,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_session_close(const char* request_j
         const auto session = state().history.editing_session_status();
         if (!session || session->id != session_id)
             return error_json("history editing session is stale or belongs to another writer");
+        if (const auto* painting = state().painting.current(); painting &&
+            painting->history_session_id == session_id && painting->phase != Neo::Painting::Phase::Idle)
+            return error_json("painting stroke is busy or awaiting publication/discard");
         OwnedJsonResponse response(nullptr, &std::free);
         const std::uint64_t next_revision = state().history_revision + 1;
         if (!state().history.close_editing_session(session_id, std::move(label),
