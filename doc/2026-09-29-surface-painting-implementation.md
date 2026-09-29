@@ -10,12 +10,13 @@
 
 ## Execution contract
 
+- Subsequent implementation children use **gpt-6-astra / low**, explicitly requested by the user; this overrides the skill default.
 - Execute numbered steps strictly in order. Start a fresh implementation subagent for every new step. Do not start the next step until the parent has independently accepted the previous one.
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
 - Required unavailable or failing checks block that step. Diagnose and repair within authorization; never silently replace real-WASM evidence with mocks. Do not broaden unrelated configuration/build scope.
 - Keep incomplete feature entrypoints inaccessible until their required dependencies are accepted. No temporary user-visible controls pretending to work, alternate painting authorities, or permanently skipped tests.
-- The parent owns architecture/ABI decisions. Escalate a genuine conflict with the accepted spec, not routine implementation choices. If a step proves too large, split its remaining work into separately numbered bounded steps before executing it; preserve the same sequential gate.
+- The parent owns architecture/ABI decisions. Escalate a genuine conflict with the accepted spec, not routine implementation choices. Prefer complete functional stages over microsteps; use internal checklists within the assigned stage. Only create an extra stage for a material independently verifiable boundary.
 
 ## Fixed integration decisions
 
@@ -91,275 +92,135 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 **Acceptance boundary:** Real-WASM history harness covers opening, floor navigation, no-effect Redo preservation, committed non-paint effect followed by Undo/close, project reset, stale IDs, and failed close without partial effects. Native core tests retain responsibility for paint-run details until painting commands exist.
 
-### 05. Typed history-session transport
+## Remaining stages — consolidated 2026-09-29
 
-**Status:** Pending. **Depends on:** 04b accepted by parent. **Verification:** T.
+The user requested larger functional stages and explicitly selected **gpt-6-astra / low** for every subsequent implementation child. Completed steps 01-04b remain accepted. The former 27 pending microsteps are replaced by the eight stages below; their functional requirements and verification gates are retained. Internal checklists are implementation order within one stage, not separate child handoffs. Use one fresh child per stage and accept the complete stage before starting the next.
 
-**Allowed scope:** src/client/history.ts, client types/module/protocol and slicer-runtime Worker/runtime; platform contract where owned.
+| New stage | Former coverage |
+| --- | --- |
+| 05 | 05-06: history transport and native painting-session foundation |
+| 06 | 07-12: native picking and all six tools |
+| 07 | 13-16: draft transport, per-stroke publication, remapping and Worker API |
+| 08 | 17-22: interactive painting gizmo |
+| 09 | 23-26: project-command and lifecycle integration |
+| 10 | 27-29: functional interoperability and both hosts/variants |
+| 11 | 30: measured performance baseline |
+| 12 | 31: final regression and handoff |
 
-**Functional boundary:** Expose only the native history-session operations needed by painting. Validate responses and preserve native ownership; add Worker proxy/mock behavior using existing conventions. Filter history navigation targets according to the native floor rather than introducing a parallel stack.
+### 05. History transport and native painting-session foundation
 
-**Acceptance boundary:** Malformed/stale/session-reset replies, Worker dispatch, status projection and ordinary-history regression tests; affected package suites and typechecks. No painting UI.
+**Status:** Pending. **Depends on:** 04b accepted. **Model:** gpt-6-astra / low. **Verification:** N+W+T.
 
-### 06. Native painting-session and annotation adapter
+**Allowed scope:** slicer-wasm client/history/protocol/mock modules; slicer-runtime Worker/proxy and platform contracts; new native painting core/bridge files, native state and export/build wiring; focused tests/harnesses. No application UI.
 
-**Status:** Pending. **Depends on:** 05 accepted by parent. **Verification:** W.
+**Functional boundary:**
 
-**Allowed scope:** new src/painting/ core files and bridge_painting files; bridge state, CMake exports.
+1. Carry the accepted native editing-session open/close/status through typed client and existing Worker/runtime. Validate malformed responses, stale handles and reset metadata; project native floor-filtered history without a second stack.
+2. Create native painting-session ownership for one object/instance and all eligible solid volumes, with TriangleSelector/FacetsAnnotation adapter boundaries reusable for future annotation kinds.
+3. Initialize selectors from committed MMU facets; enforce state 0..16 and activation gates. Define session/stroke/revision identities, draft lifecycle and command/result schemas consumed by later stages. Opening and draft reads must not mutate model/history.
+4. Support eligible target switching, >=2-slot activation, one-slot continuation, close/reset cleanup, and explicit stale/invalid/busy failures. Reserve tool sampling and committing for subsequent stages; do not expose unfinished UI.
 
-**Functional boundary:** Create session ownership for one object/instance, eligible solid-volume selectors, current tool settings and mmu annotation adapter. Initialize from committed facets; state 0..16 validation. Define explicit begin/sample/end/cancel/read-draft/close commands with session, stroke and revision IDs. Separate temporary selectors from committed model resources; other painting kinds get extension boundaries, not implementations.
+**Acceptance boundary:** Full affected client/runtime/platform suites and typechecks, native lifecycle tests and real serial-WASM harness prove activation, loaded annotations, multipart scope, modifier exclusion, malformed/stale requests, floor/status transport, reset and resource release. History smoke still passes. Session open/close must neither retain an exclusive history transaction nor publish painting/model mutations. Typed schemas and native commands are ready for the tool engine.
 
-**Acceptance boundary:** Real-WASM harness proves activation gates, multi-part scope, load existing painting, single-slot continuation, >16 palette restriction, stale identity rejection, reset/close resource release, and no model/history mutation from opening or draft reads.
+### 06. Native picking and six-tool engine
 
-### 07. Authoritative native picking
+**Status:** Pending. **Depends on:** 05 accepted. **Model:** gpt-6-astra / low. **Verification:** N+W.
 
-**Status:** Pending. **Depends on:** 06 accepted by parent. **Verification:** W.
+**Allowed scope:** native painting geometry/input/tool adapters, focused bridge command wiring and native/WASM tests. Adapt pinned Orca code outside the read-only submodule; no wx GUI build or renderer authority.
 
-**Allowed scope:** src/painting/ native geometry/input adapter.
+**Functional boundary:**
 
-**Functional boundary:** Reconstruct rays in native from pointer coordinates, viewport and captured camera matrices; resolve closest eligible original volume/facet using current native transforms. Do not consume frontend hit points, face IDs or target-volume hints. Handle misses, mirrored and nonuniform transforms; keep wx/GUI sources out of WASM.
+1. Reconstruct rays from per-event pointer/viewport/camera matrices; identify the closest eligible original part/facet using native transforms. Reject invalid/singular inputs without changing drafts. Never consume frontend hit points, face IDs or target-volume hints.
+2. Implement circle/sphere with world-mm radius, native interpolation between admitted samples, triangle painting and state-zero erase/erase-all. Keep live per-event color/erase/size semantics.
+3. Implement region fill and native hover candidate using the same region algorithm; default edge angle 30 degrees, adjustable 0..90 or disabled. Hover never mutates model/history.
+4. Implement height painting from hit world Z through Z+h across intersecting solid parts, under arbitrary supported transforms; click and drag both work.
+5. Implement native gap analysis/preview and Apply using threshold and lowest adjacent state, including zero. Apply covers the object's solid parts as one logical painting operation.
 
-**Acceptance boundary:** Deterministic native/WASM rays hit expected original faces across multiple parts, transforms and misses; reordered frontend indices have no input authority. Invalid/singular input fails without mutating drafts.
+**Acceptance boundary:** Native and real-WASM deterministic cases cover all six tools, region preview/apply agreement, gap boundaries/state-zero choice, default-state erase, original-face picking, mirrors/nonuniform transforms, multiple parts, misses, live sample settings, no-effect updates and whole-stroke cancellation. Draft changes remain isolated from committed facets and history. No host event queue or frontend selection fallback.
 
-### 08. Circle and sphere brush application
+### 07. Complete painting backend, publication and transport
 
-**Status:** Pending. **Depends on:** 07 accepted by parent. **Verification:** W.
+**Status:** Pending. **Depends on:** 06 accepted. **Model:** gpt-6-astra / low. **Verification:** N+W+T.
 
-**Allowed scope:** src/painting/ brush adapter.
+**Allowed scope:** native painting bridge, history/invalidation and filament-remap integration; typed client geometry/protocol, runtime Worker/proxy, platform contract and mocks; relevant native/client tests.
 
-**Functional boundary:** Apply pinned TriangleSelector cursor algorithms with mm radius and native interpolation between admitted positions. Snapshot live state/radius per admitted event. Preserve native handling of surface transitions/misses. Implement draft checkpoint cancellation.
+**Functional boundary:**
 
-**Acceptance boundary:** Tests cover circle versus sphere coverage, radius invariance under zoom, small-brush subdivision, color/erase changes within one stroke, transformed models, and exact restoration after cancellation.
+1. Publish full replacement draft geometry for changed parts only, with facet-state groups and session/revision identities. Reuse unchanged parts; keep draft and committed resource IDs distinct. Copy/free WASM buffers on success, malformed reply and stale response.
+2. Atomically commit each effective stroke as one Paint child, including final release sample; cancel restores pre-stroke draft. No-effect produces no entry; recoverable commit failure rolls back the whole stroke. Closing never recommits prior strokes.
+3. Invalidate affected plate results immediately; defer expensive material/Prime Tower projections until close or dependency demand. Version settlement so repeated requests do not recompute unchanged state.
+4. Apply existing filament Delete/Merge/remap semantics atomically to all actual annotation references. Reject explicit final state >16 before any mutation; default unpainted material above 16 remains legal. Synchronize selectors after successful remaps/history restores.
+5. Complete every typed painting command/result/error/transfer through the existing Worker and sole Emscripten client. Mocks support UI tests without replacing native evidence.
 
-### 09. Triangle brush and whole-object erase
+**Acceptance boundary:** Real-WASM draft/commit/undo/redo/save resource checks, multi-plate invalidation, mixed-history close, final endpoint, failed commit, slot remap/undo and one-slot continuation all pass. Binary malformed-reply tests prove cleanup; client/runtime/platform full suites and boundary guards pass. Model and native annotation state agree after every restore, cancellation and close.
 
-**Status:** Pending. **Depends on:** 08 accepted by parent. **Verification:** W.
+### 08. Interactive multi-material painting gizmo
 
-**Allowed scope:** src/painting/ tool adapter.
+**Status:** Pending. **Depends on:** 07 accepted. **Model:** gpt-6-astra / low. **Verification:** A+E.
 
-**Functional boundary:** Add native triangle painting and state-zero erase, plus Erase all over current object's solid parts. Erase all is an effective painting operation rather than session rollback; other objects/modifiers remain untouched.
+**Allowed scope:** shared app painting controller/store, dedicated viewport layer and resources, cursor/camera routing, gizmo toolbar/panel, history controls; focused component/controller and Electron tests. Follow existing gizmo styling and the accepted spec.
 
-**Acceptance boundary:** Native tests validate original/subdivided triangle behavior, inherited material after erase, all-solid-parts scope, no-effect detection, and one operation result.
+**Functional boundary:**
 
-### 10. Region fill and native hover candidates
+1. Implement a pure single-event-in-flight input controller: discard busy moves without a queue/latest cache; preserve reliable terminal actions. Normal release retains endpoint/settings; Escape waits for the active call then restores; unexpected focus/capture loss commits once. Reject presses while ending/cancelling until a fresh press.
+2. Own painting session above viewport lifetime, with idle/drawing/ending/cancelling/closing/error states and short per-command transactions. Eligible target switches preserve session; hidden pages can retain ownership.
+3. Render only the active editing instance's solid parts in dedicated painting mode, suppressing ordinary rendering/body dragging. Use separate draft geometry/materials, changed-part replacement, stale-response guards and disposal. Refresh opportunistically with one display request in flight and no fixed 30-Hz cap.
+4. Frontend BVH draws cursor only. Route idle left-on-model to paint, empty/modifier-left to rotate, middle/right to pan, wheel to zoom; lock camera during a stroke and preserve gesture ownership.
+5. Provide all six tools, first-16 palette, radius/height/edge-angle/gap controls, Erase/Erase all, Shift erase and modifier-wheel. No letter/digit tool shortcuts. Numeric settings persist for the run; selected filament follows project identity.
+6. Enforce one gizmo at a time, including numeric panels; close painting before another activates. History buttons/menu use native floor and retained entries. Failed close keeps painting active.
 
-**Status:** Pending. **Depends on:** 09 accepted by parent. **Verification:** W.
+**Acceptance boundary:** Deferred-promise controller tests prove dropped-move/terminal order, deduplication, fresh-press behavior and failure recovery. App full suite/typecheck plus focused real-WASM Electron journey prove all tool controls, isolated input/render mode, native annotation changes, undo/redo/close, cursor size, camera mapping and resource cleanup. Stroke-time tool switching is rejected; live color/erase/radius remains supported. Other project command/lifecycle seams are the next stage.
 
-**Allowed scope:** src/painting/ fill adapter and draft response.
+### 09. Project commands, lifecycle, slicing and palette coherence
 
-**Functional boundary:** Add native region candidate and continuous-drag application, edge-angle controls enabled at 30 degrees, 0..90 range and disabled constraint. Candidate revisions are non-mutating; off-model/part changes clear candidates.
+**Status:** Pending. **Depends on:** 08 accepted. **Model:** gpt-6-astra / low. **Verification:** A+W+T+E.
 
-**Acceptance boundary:** Tests compare hover candidate with applied set for same inputs/settings, multiple regions in one stroke, disabled edge constraint, stale revision rejection and no history/model mutation from hover.
+**Allowed scope:** project mutation/navigation entrypoints, selection, save/export/new/open/exit, slice admission/runtime, filament UI/session reconciliation and affected host seams.
 
-### 11. World-Z height-range painting
+**Functional boundary:**
 
-**Status:** Pending. **Depends on:** 10 accepted by parent. **Verification:** W.
+1. Reject unrelated mutations during unfinished/pending strokes before dialogs or queues: config, slots, import, duplicate, arrange, plate operations, undo/redo, close, save/export, slice and normal lifecycle commands. Never replay ignored requests later.
+2. While idle, valid object switches retain session; invalid selection/Preview closes, Home/Device hides without losing ownership. Target deletion/topology/split closes first. Ordinary config/slot edits stay chronological non-paint separators.
+3. Idle Save/Export preserve expanded history and include committed data only; save does not split paint runs. Export settles dependencies and requires valid results without implicit slicing. New/Open/exit ask existing dialogs first; cancellation/save failure retains session, successful continuation closes before replacement.
+4. User Slice closes and settles first. Threaded ongoing slice survives entry and cancels only when effective edits invalidate affected plates; no automatic replacement. Serial busy entry/edit fails immediately without queuing or killing Worker.
+5. Reconcile selectors and palette after history/slot changes. Track logical selected filament through remaps, fallback to slot1 when unavailable/outside first16; New/Open resets. Verify active and inactive object references.
 
-**Allowed scope:** src/painting/ height tool adapter.
+**Acceptance boundary:** Shared command-path tests plus focused Electron/Web seams prove the gate is not button-only, no queued work/dialogs during strokes, lifecycle cancellation/failure, hidden viewport ownership, valid export, slice invalidation by plate/runtime variant, slot/history coherence, mixed-operation compaction and saved-marker rules. No concurrent gizmos, draft persistence or extra history authorities.
 
-**Functional boundary:** Use hit world Z through Z+h mm, including intersecting eligible parts of the current object, click and drag. Keep world-axis semantics under object transforms; no numeric Zmin/Zmax workflow.
+### 10. Functional fixtures, interoperability and host/variant acceptance
 
-**Acceptance boundary:** Native tests cover rotated/mirrored/nonuniform objects, multiple solid parts intersecting the band, modifiers excluded, erase and live state changes, misses and cancellation.
+**Status:** Pending. **Depends on:** 09 accepted. **Model:** gpt-6-astra / low. **Verification:** W+E.
 
-### 12. Gap-fill candidate and Apply
+**Allowed scope:** repository-owned deterministic/generated/real painting fixtures and harnesses, desktop/Web E2E, test-gated probes, and necessary bounded defect fixes against accepted contracts.
 
-**Status:** Pending. **Depends on:** 11 accepted by parent. **Verification:** W.
+**Functional boundary:**
 
-**Allowed scope:** src/painting/ gap tool adapter.
+1. Own reproducible multipart/transformed/segmented fixtures and fixed real-project acquisition/manifest. Cover all six tools and independent future annotation channels.
+2. Verify saved 3MF round trips and actual multi-material slicing of committed facets. Test instrumentation must compile out of production.
+3. Run real Electron and desktop-Web painting journeys asserting authoritative annotations/history, event dropping, final endpoint, cancellation, mixed close and lifecycle outcomes.
+4. Build both WASM variants; run comprehensive primary harness and alternate startup/painting/save/slice smoke, plus deployment/download/serial admission and production/non-root guards where affected.
 
-**Functional boundary:** Port only required patch analysis from pinned Orca into non-GUI adapter code. Preview threshold changes and lowest adjacent state (including zero); Apply covers current object's solid parts as one painting operation.
+**Acceptance boundary:** Current artifact identity is proven for real host tests; fixture regeneration, all named journeys, both native builds and interoperability checks pass. Failures are repaired without weakening assertions or substituting mocks. Record exact host/variant scope; do not yet invent performance thresholds or claim the final release matrix passed.
 
-**Acceptance boundary:** Native tests cover multiple neighboring states, state-zero winner, threshold boundaries, preview/apply agreement, no-op apply, current-object scope and no writes during preview.
+### 11. Measured performance baseline
 
-### 13. Draft geometry buffers and ownership
+**Status:** Pending. **Depends on:** 10 accepted. **Model:** gpt-6-astra / low. **Verification:** P.
 
-**Status:** Pending. **Depends on:** 12 accepted by parent. **Verification:** W+T.
+**Allowed scope:** painting benchmark corpus/runner and compile-time gated instrumentation; benchmark results and methodology for parent documentation.
 
-**Allowed scope:** bridge_painting; src/client painting geometry decoder; native buffer helpers.
+**Functional boundary:** Measure generated size/part/subdivision tiers and fixed real projects on the current Windows reference machine for Electron and desktop Web. Record environment/artifact/fixture identity, admitted and dropped moves, native/transfer/GPU/terminal/history/close costs and peak memory. Compare same-machine pinned Orca when executable is available. Distinguish equivalent admitted-input comparisons from end-to-end move dropping.
 
-**Functional boundary:** Publish complete replacement geometry only for changed parts, with facet-state groups and session/revision identities. Keep draft and committed resource IDs separate. Copy/free WASM buffers on success and malformed replies; reuse unchanged parts and dispose replaced renderer-neutral buffers.
+**Acceptance boundary:** Repeated reproducible trials and machine-readable evidence. No fabricated Orca measurements or silently selected release thresholds. Report missing external baseline or required threshold decision explicitly; complete independent measurements before seeking that decision.
 
-**Acceptance boundary:** Real-WASM and client tests prove split geometry/group validity, default-state semantics, unchanged-part reuse, stale responses, malformed buffer cleanup and no original-mesh mutation.
+### 12. Final regression and specification handoff
 
-### 14. Per-stroke commit and native derived-state policy
+**Status:** Pending. **Depends on:** 11 accepted. **Model:** gpt-6-astra / low. **Verification:** R.
 
-**Status:** Pending. **Depends on:** 13 accepted by parent. **Verification:** W.
+**Allowed scope:** affected packages/hosts/variants, required regression fixes and test evidence. Parent owns final living-doc/spec/roadmap updates.
 
-**Allowed scope:** bridge_painting, bridge_history and affected native invalidation helpers.
+**Functional boundary:** Reconcile delivered behavior with every accepted spec requirement, resolve remaining defects, and run repository/release gates appropriate to claiming all six tools delivered. Record precise remaining limitations and update roadmap only for actual delivery.
 
-**Functional boundary:** Commit completed selector results atomically as one paint child; final release sample belongs to that child. Cancel restores draft only. Immediate affected-plate invalidation and deferred material/Prime Tower recomputation; close/demand settle once. Recoverable commit failure restores pre-stroke state.
-
-**Acceptance boundary:** Harness proves draft isolation, commit/undo/redo, final endpoint, no-effect strokes, rollback, slice result invalidation, other-plate isolation, no repeated commit at close and derived-state settlement by version.
-
-### 15. Native filament-remap safety
-
-**Status:** Pending. **Depends on:** 14 accepted by parent. **Verification:** W.
-
-**Allowed scope:** bridge_filament and painting-session synchronization.
-
-**Functional boundary:** Validate actual explicit facet states after existing Delete/Merge remap and renumbering, across active and inactive objects. Reject >16 atomically before slot/model changes. Synchronize active selectors on success and history restore; default unpainted material above 16 remains legal.
-
-**Acceptance boundary:** Real-WASM slot/history tests cover invalid final targets with zero partial mutation, legal renumbering, deleted-slot erase, merge, 2-to-1 open-session continuation and undo/redo coherence.
-
-### 16. Complete typed painting client and Worker API
-
-**Status:** Pending. **Depends on:** 15 accepted by parent. **Verification:** W+T.
-
-**Allowed scope:** src/client painting module/types; slicer-runtime and platform contract; mock runtime.
-
-**Functional boundary:** Wire native painting commands through the sole allowed Emscripten client and existing Worker. Typed terminal results, structured errors, transfer ownership and invalidation receipts; no native globals in app. Extend mocks for later UI tests, not as authoritative verification.
-
-**Acceptance boundary:** Affected package suites/typechecks cover every dispatch/result kind, stale/error paths, buffer transfers, native failure propagation and import-direction guards; focused real-WASM command smoke.
-
-### 17. Single-event input controller
-
-**Status:** Pending. **Depends on:** 16 accepted by parent. **Verification:** A.
-
-**Allowed scope:** new slicer-app painting input controller and tests.
-
-**Functional boundary:** Pure controller with at most one painting event in flight. Drop busy moves without queue/latest cache; retain terminal state and release-time endpoint/settings. Escape stops admission and restores after current call. Unexpected focus/capture loss commits once. Pending commit/cancel rejects new presses until fresh press.
-
-**Acceptance boundary:** Deferred-promise tests cover event storms, no replay, terminal ordering/dedup, final sample, live settings snapshots, late responses, stale sessions, failure and fresh-press behavior.
-
-### 18. Application painting session owner
-
-**Status:** Pending. **Depends on:** 17 accepted by parent. **Verification:** A.
-
-**Allowed scope:** new slicer-app painting session store/controller; history projections.
-
-**Functional boundary:** Own session outside viewport lifetime; connect native open/close, history session and input controller. Explicit idle/drawing/ending/cancelling/closing/error states. Cross-object eligible switches preserve session; hidden pages retain it. Per-command project transactions, not a session-long lease.
-
-**Acceptance boundary:** Store/controller tests prove lifecycle, native/renderer failure recovery, same-session target changes, close compaction receipts, history refresh and lack of exclusive transaction while idle.
-
-### 19. Dedicated painting renderer
-
-**Status:** Pending. **Depends on:** 18 accepted by parent. **Verification:** A+E.
-
-**Allowed scope:** viewport painting layer and GLVolume resource integration.
-
-**Functional boundary:** Render only active editing instance and its solid parts using separate draft geometry/materials; suppress ordinary object rendering/input for that mode. Reuse Canvas/camera/original immutable mesh. Refresh at display opportunities with one request in flight, no fixed 30 Hz cap.
-
-**Acceptance boundary:** Resource and viewport tests prove only changed parts replaced, stale replies discarded, state-zero color inheritance, palette refresh without unnecessary geometry work, hidden instances and cleanup on close/reset.
-
-### 20. Cursor and camera routing
-
-**Status:** Pending. **Depends on:** 19 accepted by parent. **Verification:** A+E.
-
-**Allowed scope:** viewport painting cursor/pointer wiring and camera controls.
-
-**Functional boundary:** Frontend BVH serves cursor only. Render mm brush radius; native-only region hover. Idle left-over-model paints, empty-left or modifier-left rotates, middle/right pans, wheel zooms. Lock camera during strokes; camera-owned gesture never switches to paint.
-
-**Acceptance boundary:** Interaction tests and focused Electron E2E prove pointer ownership, camera mappings, no ordinary body drag, scaled cursor, native hover candidates and reliable capture/release/cancel.
-
-### 21. Multi-material painting panel
-
-**Status:** Pending. **Depends on:** 20 accepted by parent. **Verification:** A+E.
-
-**Allowed scope:** GizmoToolbar and dedicated shared painting panel.
-
-**Functional boundary:** Follow existing gizmo panel styling/layout. Six named tool controls, first-16 palette, Radius mm, Height mm, edge detection/angle and gap threshold/Apply, explicit Erase, Erase all. Shift erase and modifier-wheel only; no letter/digit tool shortcuts. Persist numerical settings per app run and selected filament per project.
-
-**Acceptance boundary:** Component tests exercise each control and command, ranges/defaults, active-stroke tool switch rejection, live color/erase/radius, text-input shortcut isolation and no project/history writes for UI settings.
-
-### 22. Single-gizmo activation and history navigation
-
-**Status:** Pending. **Depends on:** 21 accepted by parent. **Verification:** A+E.
-
-**Allowed scope:** SceneInteractionController/GizmoToolbar integration; history UI/navigation.
-
-**Functional boundary:** Activate painting only through native/runtime admission; normal close before another gizmo, refusal prevents activation. Enforce open-session floor and retained history in buttons and menu jumps. Keep transforms in their own gizmos.
-
-**Acceptance boundary:** Shared tests plus focused E2E prove no concurrent gizmos, switch during stroke ignored, failed close retains painting, undo at floor remains open, eviction boundary, close/reopen no child-history resurrection.
-
-### 23. Unified command admission and navigation
-
-**Status:** Pending. **Depends on:** 22 accepted by parent. **Verification:** A+E.
-
-**Allowed scope:** project mutation entrypoints, ObjectList and page navigation.
-
-**Functional boundary:** Before any dialog/queue, reject all unrelated project mutation commands during unfinished/pending strokes. Idle eligible selection switches preserve session; invalid selection/Preview closes; Home/Device hides. Target topology/delete commands close first; general config edits remain chronological separators.
-
-**Acceptance boundary:** Tests cover import/duplicate/arrange/plate/config/slot entrypoints, no queued execution, selection clear/switch, page lifetime and close failure. Focused host command path proves gate is not button-only.
-
-### 24. Save/export/project lifecycle integration
-
-**Status:** Pending. **Depends on:** 23 accepted by parent. **Verification:** A+E.
-
-**Allowed scope:** project save/export/open/new and normal host exit entrypoints.
-
-**Functional boundary:** Idle Save/Export preserve expanded history and committed-only data; do not split paint runs. New/Open/normal-exit dialogs precede close; cancellation preserves session. During strokes ignore these commands before dialogs. Preserve existing saved-marker policy.
-
-**Acceptance boundary:** Shared tests plus affected Electron/Web seams prove cancel/save failure, successful continuation, normal exit, export validity, save-at-mid-run compaction and absence of draft persistence.
-
-### 25. Slicing and derived-state integration
-
-**Status:** Pending. **Depends on:** 24 accepted by parent. **Verification:** W+T+E.
-
-**Allowed scope:** slice command/runtime admission and native/app projection synchronization.
-
-**Functional boundary:** User Slice closes/settles first. Threaded ongoing slice survives entry and is cancelled only by effective edits to affected plates; no automatic replacement. Serial busy admission rejects immediately without killing Worker or queueing.
-
-**Acceptance boundary:** Real-WASM/runtime tests plus one host journey prove affected/unaffected plate behavior, obsolete-result rejection, serial busy denial, deferred projections on demand/close and failure preventing slice.
-
-### 26. Filament UI and external history reconciliation
-
-**Status:** Pending. **Depends on:** 25 accepted by parent. **Verification:** A+W.
-
-**Allowed scope:** filament session projection and painting session/palette integration.
-
-**Functional boundary:** Follow logical selected filament through remap; fallback to slot 1 when unavailable or outside palette; New/Open resets. Reconcile selectors/draft after non-paint history restores and slot operations; cross-object paint history remains ordered.
-
-**Acceptance boundary:** Shared and real-WASM integration tests cover slot deletion/merge/undo while open, one-slot continuation, >16 project rack, interleaving, current-project palette lifetime and ordinary rendering after close.
-
-### 27. Reproducible functional fixtures and native interoperability
-
-**Status:** Pending. **Depends on:** 26 accepted by parent. **Verification:** W.
-
-**Allowed scope:** painting fixture builders/smoke harness in slicer-wasm; existing fixture conventions.
-
-**Functional boundary:** Add deterministic multi-part/transformed/segmented cases and fixed real-project acquisition. Validate all six tools, independent future-annotation channels, saved 3MF round trips and actual multi-material slicing with committed facets. New instrumentation must compile out of production.
-
-**Acceptance boundary:** Fixture regeneration/manifest checks; comprehensive serial painting harness and actual import-paint-save-reload-slice checks. Verify production instrumentation absence and no changes to pinned submodule.
-
-### 28. Primary desktop painting acceptance journey
-
-**Status:** Pending. **Depends on:** 27 accepted by parent. **Verification:** E.
-
-**Allowed scope:** apps/desktop/e2e and test-gated probes only where necessary.
-
-**Functional boundary:** Real native painting journey plus focused desktop menu/dialog seams. Assert authoritative model/facet/history outcomes rather than generic pixel change. Include event dropping, final endpoint, mixed-history closure and cancellation.
-
-**Acceptance boundary:** Run focused current-artifact Electron E2E, verify artifact/load identity and all named cases; fix within earlier accepted contracts, not weaken assertions.
-
-### 29. Web and WASM-variant seams
-
-**Status:** Pending. **Depends on:** 28 accepted by parent. **Verification:** W+E.
-
-**Allowed scope:** apps/web/e2e and real runtime harness selection.
-
-**Functional boundary:** Prove real desktop Web painting in primary variant and focused alternate-variant session/paint/save/slice path; test resource deployment, downloads, runtime admission and serial behavior. Keep common exhaustive logic in lower layers.
-
-**Acceptance boundary:** Web real tests, both native quick builds, comprehensive primary harness and alternate startup/painting smoke; production build guard and non-root seam where affected.
-
-### 30. Benchmark corpus and measured baseline
-
-**Status:** Pending. **Depends on:** 29 accepted by parent. **Verification:** P.
-
-**Allowed scope:** repository-owned painting benchmark runner and compile-time gated diagnostics.
-
-**Functional boundary:** Implement generated-size/part/subdivision tiers plus fixed real projects on current Windows reference machine. Record environment, admitted/dropped events, native/transfer/GPU/terminal/history/close costs and peak memory; compare same-machine pinned Orca where executable available.
-
-**Acceptance boundary:** Run repeatable trials and save results/method in this living task doc or machine-readable test artifacts. Do not fabricate missing Orca numbers or choose release thresholds silently; report measured limitations and obtain user decision if required.
-
-### 31. Final regression and specification handoff
-
-**Status:** Pending. **Depends on:** 30 accepted by parent. **Verification:** R.
-
-**Allowed scope:** affected packages, hosts, build variants; this task doc and authoritative roadmap only for delivered scope.
-
-**Functional boundary:** Resolve remaining defects through the responsible step's agent or a new narrowly scoped repair step. Run repository and release/milestone gates appropriate to claiming all six tools delivered. Reconcile spec with actual implementation and document all evidence.
-
-**Acceptance boundary:** Root test/typecheck, both WASM quick/smoke, required real desktop/Web journeys and compatibility/performance evidence per testing guide. No feature-complete claim with a required gate failing/unrun; update roadmap only for actually accepted delivery.
+**Acceptance boundary:** Root tests/typechecks, both WASM quick/smoke, required real desktop/Web and compatibility/performance evidence, and applicable milestone matrix from testing guidelines. No feature-complete claim with required gates failing/unrun. Parent independent acceptance remains mandatory.
 
 ## Execution ledger
 
