@@ -114,10 +114,19 @@ resume it or cause an implicit close.
 Other lifecycle actions and camera bindings remain subject to section 10
 clarification.
 
+While a stroke is unfinished, ignore Save, Undo, Redo, explicit gizmo-close,
+Prepare-to-Preview, and user-initiated Slice commands. Do not queue them, open
+their dialogs, commit or cancel the stroke, navigate history, or begin closure.
+The user must issue the command again after the stroke finishes. Apply this
+rule across shortcuts and other command entry points. Escape retains its
+stroke-cancellation behavior above. Passive interruptions and project mutations
+are separate policies and are not implicitly covered by this ignore rule.
+
 ### 3.3 Navigation and editing-target changes
 
-Switching from Prepare to Preview closes the painting gizmo and compacts its
-history, even when the user did not explicitly request slicing. Returning to
+When no stroke is active, switching from Prepare to Preview closes the painting
+gizmo and compacts its history, even when the user did not explicitly request
+slicing. Returning to
 Prepare does not automatically reopen the gizmo. This decision does not yet
 define behavior for Home, Device, or other top-level pages.
 
@@ -135,8 +144,8 @@ context must remain valid during cross-object history restoration.
 If selection is cleared or otherwise ceases to satisfy the painting activation
 conditions, close the gizmo normally, retain committed strokes, compact history,
 and complete deferred updates. Do not keep an inactive painting session waiting
-for a later valid selection. These navigation decisions do not yet settle how
-external commands interrupt an unfinished stroke.
+for a later valid selection. The active-stroke Preview command is covered by
+section 3.2; target changes during an unfinished stroke remain to be clarified.
 
 ## 4. Cursor preview and authoritative native picking
 
@@ -300,17 +309,19 @@ next successful save. Do not split a painting run or retain a child node solely
 to preserve the saved marker. This policy does not require content-based state
 equality and may conservatively report unsaved changes even when project content
 matches the saved file. A retained or equivalently remapped marker continues to
-participate in normal dirty-state tracking. Save during an active stroke has
-not yet been specified.
+participate in normal dirty-state tracking. Save during an active stroke is
+ignored under section 3.2, without a dialog or deferred save request.
 
 ### 7.2 User-initiated slicing
 
-A user-initiated Slice action first closes the painting gizmo, compacts history,
-applies the conditional all-Redo removal rule, and completes required deferred
+With no active stroke, a user-initiated Slice action first closes the painting
+gizmo, compacts history, applies the conditional all-Redo removal rule, and
+completes required deferred
 derived calculations. Only then may slicing start. Failure to close or prepare
 the required state must not start the requested slice. This policy applies to
 all user-facing Slice entry points, including shortcuts, not only a toolbar
-button. Already-running background slice work is a separate runtime topic.
+button. During an active stroke the Slice command is ignored under section 3.2.
+Already-running background slice work is a separate runtime topic.
 
 ### 7.3 Closure publication
 
@@ -321,9 +332,10 @@ annotations. Ordinary Prepare resources become visible only when they match
 the committed state. Do not repeat invalidations or calculations already settled
 for the same input version.
 
-Active-stroke Escape cancellation is defined in section 3.2. Other pending-input
-cases, any whole-session discard action, source-mesh replacement, target deletion,
-export, page changes, and application shutdown are deliberately not settled here.
+Active-stroke Escape cancellation and ignored commands are defined in section
+3.2. Other pending-input cases, any whole-session discard action, source-mesh
+replacement, target deletion, export, other page changes, and application
+shutdown are deliberately not settled here.
 
 ## 8. Native Orca reference and Neo differences
 
@@ -360,6 +372,9 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Escape cancels an active stroke without closing or recording that stroke;
   idle Escape closes with completed strokes retained. Late events cannot revive
   a cancelled stroke.
+- Save, Undo, Redo, explicit close, Preview, and Slice commands issued during an
+  unfinished stroke have no effect and are not replayed after release or Escape.
+  Verify both shortcut and other command entry points, including no save dialog.
 - Each stroke commit and painting Undo/Redo updates native state and immediately
   invalidates obsolete results without eagerly recomputing heavy projections.
   Non-paint separators retain order and corresponding configuration/material state.
@@ -393,7 +408,7 @@ or create separate phase documents.
 
 | Group | Important unresolved decisions |
 | --- | --- |
-| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes. Remaining: other activation gates, other pages, any whole-session discard, active-stroke external commands, export and destructive actions |
+| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands and passive interruptions, export and destructive actions |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction. Remaining: slot-remapping atomicity; mutations during unfinished strokes |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
