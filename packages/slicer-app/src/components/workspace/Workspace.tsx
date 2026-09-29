@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useMemo,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -54,6 +55,7 @@ import { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
 import type { PrimeTowerMoveResultOrError } from '@slicer/client';
 import { historyDiagnosticNow, useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
 import { isSerialSliceBusy } from '../../runtimeExecution';
+import { paintingTarget, usePaintingController, usePaintingPhase } from './viewport/gizmo/painting/PaintingProvider';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -144,6 +146,8 @@ export function Workspace({
   onPreviewTransitionChange?: (transition: PreviewRenderTransition | null) => void;
 }) {
   const platform = usePlatform();
+  const painting = usePaintingController();
+  const paintingPhase = usePaintingPhase();
   const [presetEditorTarget, setPresetEditorTarget] = useState<PresetDraftTarget | null>(null);
   const [presetEditorSnapshot, setPresetEditorSnapshot] = useState<PresetDraftSnapshot | null>(null);
   const [presetEditorLoading, setPresetEditorLoading] = useState(false);
@@ -319,7 +323,20 @@ export function Workspace({
     sceneInteractionRef.current.setSceneEntityCommitPort({ commit: (volume) => wipeTowerVolumes.commit(volume), busy: () => wipeTowerVolumes.busy });
   }
   const sceneInteraction = sceneInteractionRef.current;
+  useEffect(() => {
+    if (!painting) return;
+    sceneInteraction.selection.setAdmissionGuard(() => painting.selectionAllowed(useHistoryRestoreStore.getState().phase === 'restoring'));
+    const syncTarget = () => {
+      if (painting.getSnapshot().phase !== 'idle') return;
+      const target = paintingTarget(sceneInteraction);
+      if (target) void painting.target(target.objectId, target.instanceId);
+      else void painting.close();
+    };
+    const unsubscribe = sceneInteraction.selection.subscribe(syncTarget);
+    return () => { unsubscribe(); sceneInteraction.selection.setAdmissionGuard(null); };
+  }, [painting, sceneInteraction]);
   const refreshPrimeTowerProjection = useCallback((forceDuringRestore = false, forceRead = false): Promise<void> => {
+    if (painting?.active) return Promise.resolve();
     // A projection read started before a history restore may complete after
     // native Undo/Redo and otherwise re-publish the pre-restore coordinates.
     // The restore callback explicitly opts in once the native operation has
@@ -372,7 +389,7 @@ export function Workspace({
       },
     );
     return read;
-  }, [platform.runtime, wipeTowerVolumes]);
+  }, [platform.runtime, wipeTowerVolumes, painting]);
   primeTowerRefreshRef.current = refreshPrimeTowerProjection;
   useEffect(() => {
     // Effects queued by a render during restore may execute after a later
@@ -382,7 +399,7 @@ export function Workspace({
     if (historyRestorePhase !== 'idle' || projectMutationPendingCount !== 0) return;
     void refreshPrimeTowerProjection();
   }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision,
-    plateSession, projectMutationPendingCount, refreshPrimeTowerProjection, settingsNativeScopedConfig, structure]);
+    plateSession, projectMutationPendingCount, refreshPrimeTowerProjection, settingsNativeScopedConfig, structure, paintingPhase]);
   useEffect(() => {
     if (plateSession) wipeTowerVolumes.setCurrentPlate(plateSession.currentPlateId, plateSession);
   }, [plateSession?.currentPlateId, wipeTowerVolumes]);
@@ -490,12 +507,13 @@ export function Workspace({
           const contextSelectionEmpty = context.selection.objectIds.length === 0 &&
             context.selection.partIds.length === 0 && context.selection.instanceIds.length === 0;
           sceneInteraction.restoreHistoryContext(context, structure,
-            contextSelectionEmpty ? [] : undefined);
+            painting?.active && contextSelectionEmpty ? [...sceneInteraction.selection.ids] : contextSelectionEmpty ? [] : undefined);
+          if (painting?.active) sceneInteraction.closeGizmo();
           useHistoryDiagnosticsStore.getState().recordSelectionRestore(
             historyDiagnosticNow() - selectionStartedAt,
           );
         }
-        if (impact.primeTower) await refreshPrimeTowerProjection(true);
+        if (impact.primeTower && !painting?.active) await refreshPrimeTowerProjection(true);
         return 'direct';
       },
       publishRestoredFilamentRack: async (revision) => {
@@ -526,7 +544,20 @@ export function Workspace({
       },
     });
   }
-  const historyRestore = historyRestoreRef.current;
+  const baseHistoryRestore = historyRestoreRef.current;
+  const historyRestore = useMemo<HistoryRestoreCoordinator>(() => ({
+    currentRevision: () => baseHistoryRestore.currentRevision(),
+    restore: async (action) => {
+      if (!painting) return baseHistoryRestore.restore(action);
+      const restored = await painting.betweenStrokes(() => baseHistoryRestore.restore(action));
+      if (restored && painting.getSnapshot().phase === 'idle') {
+        const target = paintingTarget(sceneInteraction);
+        if (target) await painting.target(target.objectId, target.instanceId);
+        else await painting.close();
+      }
+      return restored;
+    },
+  }), [baseHistoryRestore, painting, sceneInteraction]);
   // A transform draft is renderer-local until its atomic Worker command
   // succeeds.  Rebuild every projection on cancellation or rejection so a
   // partial/obsolete draft can never survive an aborted history transaction.

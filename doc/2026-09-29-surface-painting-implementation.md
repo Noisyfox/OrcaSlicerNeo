@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-07 accepted; later stages remain gated.
+**Status:** Sequential implementation in progress. Steps 01-08 accepted; later stages remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -158,7 +158,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 08. Interactive multi-material painting gizmo
 
-**Status:** Pending. **Depends on:** 07 accepted. **Model:** gpt-6-astra / medium. **Verification:** A+E.
+**Status:** Accepted by parent. **Depends on:** 07 accepted. **Model:** gpt-6-astra / medium. **Verification:** A+E.
 
 **Allowed scope:** shared app painting controller/store, dedicated viewport layer and resources, cursor/camera routing, gizmo toolbar/panel, history controls; focused component/controller and Electron tests. Follow existing gizmo styling and the accepted spec.
 
@@ -506,3 +506,57 @@ their assertions. Fault injection is compiled only with `NEO_PROJECT_HISTORY_TES
 
 Stage 07 accepted. Interactive rendering, global application command admission,
 both-host/both-variant qualification and measured performance retain stages 08-12.
+
+### Stage 08 acceptance — interactive MMU gizmo
+
+Stage 07 code commit: `ae6df0da`. Child: `/root/painting_stage_08`
+(`gpt-6-astra`, medium). Parent accepted after source review, independent tests
+and actual rendered screenshot inspection.
+
+The user's directory and naming decisions are implemented in
+`packages/slicer-app/src/components/workspace/viewport/gizmo/painting/`:
+`PaintingGizmoBase` owns shared input/cursor/resource drawing and accepts a colour
+adapter; `MmuPaintingGizmo` owns MMU filament mapping; `MmuPaintingPanel` supplies
+the six-tool UI. `PaintingProvider` remains mounted at the application root.
+
+The controller serializes native input, display and history transitions in one
+RPC lane. Busy moves are discarded; normal release retains its endpoint/settings;
+Escape and capture/focus interruption follow their separate terminal semantics.
+Dedicated painting uses the existing Canvas and camera, draws only eligible
+active-instance parts, borrows original geometry for cursor-only BVH, and never
+builds a BVH on subdivided geometry. Idle native hit results select painting or
+empty-space rotation. Changed geometry and candidate resources are reused/disposed
+by explicit manifests. Other gizmos close painting first, including numeric panels.
+
+Parent review required and verified these fixes:
+
+- Reject selection changes during target/open/close transitions, allowing explicit
+  history restoration, to prevent the object list and native target diverging.
+- Explicitly dispose contour materials as well as externally owned geometries.
+- Disable residual camera damping while painting and synchronize on exit; camera
+  pose/target remains unchanged across closure within floating-point tolerance.
+- Preserve selection through the committed-geometry handoff between the DOM and
+  Canvas React roots until Canvas observes the authoritative replacement collection.
+- Correct native gap display to use each candidate's prospective destination colour
+  while retaining original facet membership. Prospective selector topology can
+  renumber leaves, so membership indices cannot simply address that selector.
+- Exercise actual same-colour region contours and red-to-default gap preview/Apply
+  in rendered frames; remove diagnostic-only console logging from the journey.
+
+Parent independently passed the full slicer-app suite (702 tests/90 files), root
+`pnpm typecheck`, serial quick build, extended `painting-backend-smoke`, and
+`pnpm exec node scripts/run-painting-e2e.mjs` (one real Electron journey, 19.2 s
+total). The runner verifies exact fixture import and hashes staged JS/WASM/data
+against the current serial artifacts. It covers all six tools, native annotation
+changes, Undo/Redo, prospective gap colour and Apply, camera gesture mapping and
+stroke lock, radius wheel, Escape cancellation, close/reopen and switching to
+Move's numeric panel. Camera position/quaternion/target are checked after close,
+screenshot and two settled frames with `1e-10` tolerance.
+
+Parent inspected the generated region, red patch, gap preview and ordinary
+Prepare screenshots under the ignored desktop test-results directory. Child
+additionally passed root `pnpm test` (1,112 tests/126 files), both import guards
+and final diff check. Existing fixture profile-parent and build tool warnings
+remain visible; all required assertions and commands passed. No pinned-submodule
+edits. Broad global command/project lifecycle admission and palette remap wiring
+remain stage 09; Web/threaded qualification and performance remain later gates.

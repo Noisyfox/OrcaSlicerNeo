@@ -31,6 +31,8 @@ export class Selection {
   private selectedIds = new Set<VolumeId>();
   private readonly listeners = new Set<() => void>();
   private selectionRevision = 0;
+  private admissionGuard: (() => boolean) | null = null;
+  setAdmissionGuard(guard: (() => boolean) | null): void { this.admissionGuard = guard; }
 
   get revision(): number {
     return this.selectionRevision;
@@ -70,6 +72,7 @@ export class Selection {
 
   /** Replace the selection with exactly these volume IDs (box-select result). */
   replaceIds(ids: readonly string[]): boolean {
+    if (this.admissionGuard?.() === false) return false;
     const next = new Set(ids);
     if (next.size === this.selectedIds.size && [...next].every((id) => this.selectedIds.has(id))) {
       return false;
@@ -81,6 +84,7 @@ export class Selection {
 
   /** Union volume IDs into the selection (additive box select). */
   addIds(ids: readonly string[]): boolean {
+    if (this.admissionGuard?.() === false) return false;
     let changed = false;
     for (const id of ids) {
       if (!this.selectedIds.has(id)) {
@@ -97,6 +101,7 @@ export class Selection {
    * selection is treated as unselected and restored as a complete group.
    */
   toggleFromHit(hit: SelectableVolume, collection: readonly SelectableVolume[], mode: SelectionMode = 'instance'): boolean {
+    if (this.admissionGuard?.() === false) return false;
     const group = this.volumesForMode(hit, collection, mode);
     const allSelected = group.length > 0 && group.every((volume) => this.selectedIds.has(volume.id));
     if (allSelected) {
@@ -129,6 +134,7 @@ export class Selection {
 
   /** Toggle the volumes matching a composite target (Ctrl/Cmd additive in lists). */
   toggleComposite(collection: readonly SelectableVolume[], target: { objectIdx: number; volumeIdx?: number; instanceIdx?: number }): boolean {
+    if (this.admissionGuard?.() === false) return false;
     const group = this.volumesForTarget(collection, target);
     const allSelected = group.length > 0 && group.every((volume) => this.selectedIds.has(volume.id));
     if (allSelected) {
@@ -149,6 +155,7 @@ export class Selection {
   }
 
   clear(): boolean {
+    if (this.admissionGuard?.() === false) return false;
     if (this.selectedIds.size === 0) return false;
     this.selectedIds.clear();
     this.publish();

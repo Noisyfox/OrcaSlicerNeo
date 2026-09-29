@@ -4,7 +4,7 @@
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
-import { FolderPlus, Move, Rotate3d, Scaling } from 'lucide-react';
+import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush } from 'lucide-react';
 import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,8 @@ import { cn } from 'cn';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
+import { paintingTarget, usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
   mode: Exclude<OpenGizmo, null>;
@@ -44,6 +46,10 @@ export function GizmoToolbar({
   useSyncExternalStore(subscribeSelection, () => selection?.revision ?? 0);
   useSyncExternalStore(subscribeGizmo, () => sceneInteraction?.gizmo ?? null);
   const platform = usePlatform();
+  const painting = usePaintingController();
+  const paintState = usePaintingState();
+  const slotCount = useFilamentSessionStore((s) => s.snapshot?.slots.length ?? 0);
+  const paintActive = paintState != null && paintState.phase !== 'closed';
   // Boot loads the printer/process lists and the rack's filament catalogue
   // atomically; until they
   // arrive (or if boot fails) Add Model stays disabled — a model without
@@ -66,7 +72,7 @@ export function GizmoToolbar({
           size="icon"
           variant="ghost"
           onClick={() => { void addModel(platform, sceneInteraction, onModelAdded); }}
-          disabled={!presetsLoaded}
+          disabled={!presetsLoaded || !!painting?.unfinished}
           aria-label="Add Model"
           data-testid="btn-add-model"
         >
@@ -77,7 +83,7 @@ export function GizmoToolbar({
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
-        const disabled = towerSelected ? !towerMode : sceneInteraction.selection.empty;
+        const disabled = (towerSelected ? !towerMode : sceneInteraction.selection.empty) || (paintActive && paintState?.phase !== 'idle');
         return (
           <TooltipFor key={mode} content={label} disabled={disabled}>
             <Button
@@ -88,13 +94,26 @@ export function GizmoToolbar({
               disabled={disabled}
               data-testid={testId}
               className={cn(armed && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
-              onClick={() => sceneInteraction.toggleGizmo(mode)}
+              onClick={() => {
+                if (painting?.active) void painting.close().then((closed) => { if (closed) sceneInteraction.toggleGizmo(mode); });
+                else sceneInteraction.toggleGizmo(mode);
+              }}
             >
               <Icon />
             </Button>
           </TooltipFor>
         );
       })}
+      <TooltipFor content="Surface painting">
+        <Button size="icon" variant="ghost" aria-label="Surface painting" aria-pressed={paintActive} data-testid="gizmo-btn-paint"
+          disabled={paintActive ? paintState?.phase !== 'idle' : slotCount < 2 || !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
+          onClick={() => {
+            if (!painting) return;
+            if (painting.active) { void painting.close(); return; }
+            const target = paintingTarget(sceneInteraction);
+            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId); }
+          }}><Paintbrush /></Button>
+      </TooltipFor>
     </div>
   );
 }

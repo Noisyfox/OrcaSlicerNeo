@@ -372,7 +372,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
                     candidates.push_back({{"volumeId", part.volume_id}, {"resourceId", patch_key}, {"kind", "gap"}});
                     if (known.count(patch_key)) continue;
                     const std::set<int> membership(patch.facets.begin(), patch.facets.end());
-                    resources.push_back(geometry(buffers, part.selector->display(&membership), {}, part.volume_id,
+                    auto display = part.selector->display(&membership);
+                    // Membership IDs belong to the original selector; the
+                    // prospective clone can renumber its leaves. Paint this
+                    // native patch with the same destination used by Apply.
+                    for (auto& group : display.groups) group[0] = std::size_t(*patch.neighbors.begin());
+                    resources.push_back(geometry(buffers, std::move(display), {}, part.volume_id,
                         patch_key, "gap"));
                 }
             }

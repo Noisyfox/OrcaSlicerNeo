@@ -42,6 +42,7 @@ import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppE2eProbe } from './e2e/AppE2eProbe';
 import { FileManagerWindow } from './components/fileManager/FileManagerWindow';
+import { PaintingProvider } from './components/workspace/viewport/gizmo/painting/PaintingProvider';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -62,7 +63,7 @@ export function handleMenuKeyDown(
 }
 
 export default function App() {
-  return <TooltipProvider><AppContent /></TooltipProvider>;
+  return <TooltipProvider><PaintingProvider><AppContent /></PaintingProvider></TooltipProvider>;
 }
 
 function AppContent() {

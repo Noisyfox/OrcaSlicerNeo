@@ -14,6 +14,7 @@ import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import { useHistoryNavigationStore } from '../../stores/useHistoryNavigationStore';
 import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { historyNavigationDisabled, historyNextOperationLabel, projectHistoryEntries } from '../../history/historyNavigation';
+import { usePaintingState } from '../workspace/viewport/gizmo/painting/PaintingProvider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,8 +50,10 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
 
   const undoEntries = projectHistoryEntries(historyStatus, 'undo');
   const redoEntries = projectHistoryEntries(historyStatus, 'redo');
-  const undoDisabled = serialSliceBusy || !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'undo', restoring, !!historyRestoreCoordinator);
-  const redoDisabled = serialSliceBusy || !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'redo', restoring, !!historyRestoreCoordinator);
+  const painting = usePaintingState();
+  const paintingPending = painting != null && painting.phase !== 'closed' && painting.phase !== 'idle';
+  const undoDisabled = paintingPending || serialSliceBusy || !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'undo', restoring, !!historyRestoreCoordinator);
+  const redoDisabled = paintingPending || serialSliceBusy || !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'redo', restoring, !!historyRestoreCoordinator);
   const undoLabel = historyNextOperationLabel(historyStatus, 'undo');
   const redoLabel = historyNextOperationLabel(historyStatus, 'redo');
 

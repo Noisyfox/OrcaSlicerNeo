@@ -31,6 +31,8 @@ import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './camer
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
+import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
+import { MmuPaintingPanel } from './gizmo/painting/MmuPaintingPanel';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -86,6 +88,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
   const platform = usePlatform();
+  const painting = usePaintingController();
+  const paintState = usePaintingState();
+  const paintingActive = activeTab === 'prepare' && paintState != null && paintState.phase !== 'closed';
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const printableArea = useSettingsStore((s) => s.printableArea);
   const bedBounds = useMemo(
@@ -180,6 +185,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   useEffect(() => {
     if (!sceneInteraction || previewTab) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (painting?.active) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -202,7 +208,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [platform.runtime, previewTab, sceneInteraction, slicing]);
+  }, [platform.runtime, previewTab, sceneInteraction, slicing, painting]);
 
   // Preview inspection shortcuts are scoped to the viewport focus and are
   // separate from Prepare's object-editing bindings above.
@@ -403,9 +409,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         // mode. Prepare's SceneContextMenu still handles its own custom menu;
         // Preview stops propagation so no model/scene menu can open.
         event.preventDefault();
-        if (previewTab) event.stopPropagation();
+        if (previewTab || paintingActive) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
+        if (paintingActive) return;
         if (previewTab) {
           if ((event.target as HTMLElement | null)?.closest('canvas')) viewportRef.current.focus();
           return;
@@ -456,7 +463,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
               updateRaycastingEnabled();
             }}
             onPointerMissed={(event) => {
-              if (!previewTab) {
+              if (!previewTab && !paintingActive) {
                 const rect = viewportRef.current.getBoundingClientRect();
                 const plateId = pickBuildPlateId(sceneStateRef.current, {
                   x: event.clientX - rect.left,
@@ -489,6 +496,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />
             <OrbitControls
               makeDefault
+              enabled={!paintingActive}
               enableDamping
               // LEFT = orbit, MIDDLE = pan, RIGHT = pan, wheel = zoom — the
               // upstream OrcaSlicer drag defaults (see AppConfig.cpp
@@ -524,13 +532,15 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
                 Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
                 viewcube's Y-up face names). See
                 doc/2026-08-17-viewcube-gizmo.md. */}
-            <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
+            {!paintingActive && <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
               <GizmoViewport />
-            </GizmoHelper>
+            </GizmoHelper>}
           </Canvas>
         </SceneContextMenu>
       </ViewportErrorBoundary>
-      {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
+      {prepareTab && !paintingActive && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
+      {paintingActive && <MmuPaintingPanel />}
+      {!paintingActive && paintState?.error && <p role="alert" className="absolute top-14 right-3 rounded-md border bg-card p-3 text-sm text-destructive">{paintState.error}</p>}
       {previewTab && !toolpath && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" aria-live="polite">
           <p className="rounded-md bg-background/80 px-3 py-2 text-sm text-muted-foreground shadow-sm backdrop-blur-sm">

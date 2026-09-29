@@ -186,4 +186,18 @@ ok(command('orc_history_session_close', { sessionId: hs }));
 // Ownership is request-scoped, independent of a now-closed painting session.
 for (const leaseId of [outstandingLease, outstandingLease, 'pg-18446744073709551615'])
   Module.ccall('orc_painting_geometry_release', null, ['string'], [JSON.stringify({ version: 1, leaseId })]);
+// Gap preview draws the resulting state, including NONE, without touching the
+// base draft or committed annotations. Its native membership survives cloning.
+load(fixture(true)); open();
+const gapBefore = exportedPaint();
+const gapPreview = preview('gap', { gapArea: 3 });
+const gapGeometry = geometry();
+const gaps = gapGeometry.resources.filter(r => r.kind === 'gap');
+assert.ok(gaps.length > 0);
+assert.ok(gaps.every(r => r.groups.every(g => g[0] === 0)), 'lowest neighboring NONE is the displayed destination');
+assert.equal(exportedPaint(), gapBefore);
+begin('gap', { gapArea: 3 }, null, { candidateRevision: gapPreview.candidateRevision });
+assert.equal(commit().committed, true);
+assert.ok(refresh().parts.every(p => p.facetCounts.slice(1).every(n => n === 0)), 'Apply matches NONE preview');
+ok(command('orc_history_session_close', { sessionId: hs }));
 console.log('Painting backend real-WASM publication/geometry/history/remap smoke passed');

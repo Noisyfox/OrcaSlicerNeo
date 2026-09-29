@@ -43,6 +43,14 @@ React/Three.js owns interaction presentation and drawing. Application access
 continues through `slicer-runtime`; only `slicer-wasm/src/client/` may directly
 access the Emscripten module. Both Electron and Web use the same feature.
 
+Application painting components and their tests live under
+`packages/slicer-app/src/components/workspace/viewport/gizmo/painting/`.
+`PaintingGizmoBase` owns shared interaction, cursor and display behavior;
+`MmuPaintingGizmo` supplies the multi-material adapter, including filament colour
+mapping. Directory ownership does not restrict the session owner's lifetime:
+it remains mounted above the viewport so hiding or removing the viewport does
+not close the session.
+
 First-release input acceptance covers desktop mouse and trackpad click, drag,
 and scroll interaction, with consistent behavior in Electron and desktop Web.
 Dedicated touchscreen and stylus interaction, including pressure sensitivity,
