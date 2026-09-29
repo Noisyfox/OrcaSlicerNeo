@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
-type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean }[]; rendered: { revision: number; candidates: string[] }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
+type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
@@ -36,6 +36,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled(); await page.getByTestId('gizmo-btn-paint').click();
     const read = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingEvidence as (() => Evidence) | undefined)?.() ?? null);
     const committed = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingCommittedEvidence as () => Promise<Committed>)());
+    const history = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.historyNativeStatus());
     const idle = async () => { await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle'); await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0); };
     await idle();
     const initialPoint = (await read())!.center;
@@ -47,6 +48,39 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle();
     expect((await committed()).paint).toHaveLength(0); await idle();
     await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
+    // Burst moves in one browser turn while a real Worker RPC occupies the
+    // lane. The final pointerup is a reliable sample on a different top face.
+    await page.getByTestId('painting-tool-triangle').click();
+    const topFaces = await page.evaluate(() => {
+      const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e;
+      return [[105, 95, 20], [95, 105, 20]].map((world) => hooks.paintingWorldToScreen(world));
+    });
+    const inputBefore = (await read())!.input;
+    await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y); await page.mouse.down();
+    await expect.poll(async () => (await read())?.phase).toBe('drawing');
+    await page.evaluate(({ start, end }) => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="viewport"] canvas')!;
+      for (let i = 0; i < 24; i++) canvas.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true, pointerId: 1, pointerType: 'mouse', buttons: 1,
+        clientX: start.x + i / 100, clientY: start.y + i / 100,
+      }));
+      canvas.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0, buttons: 0,
+        clientX: end.x, clientY: end.y,
+      }));
+    }, { start: topFaces[0], end: topFaces[1] });
+    await page.mouse.up(); await idle();
+    expect((await read())!.input.droppedMoves - inputBefore.droppedMoves).toBeGreaterThan(0);
+    const nativePaint = await committed();
+    expect(nativePaint.paint).toHaveLength(1);
+    const firstAndFinal = nativePaint.paint.flatMap((part) => part.groups)
+      .filter((group) => group.stateId === 2).reduce((sum, group) => sum + group.indexCount, 0);
+    expect(firstAndFinal).toBe(6);
+    await page.getByTestId('history-undo').click(); await idle();
+    expect((await committed()).paint).toHaveLength(0); await idle();
+    await page.getByTestId('history-redo').click(); await idle();
+    expect((await committed()).paint.some((part) => part.groups.some((group) => group.stateId === 2))).toBe(true);
+    await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle();
     for (const tool of ['circle', 'sphere', 'triangle', 'height', 'region']) {
       await page.getByTestId(`painting-tool-${tool}`).click();
       if (tool === 'circle' || tool === 'sphere') await page.getByRole('spinbutton', { name: 'Radius (mm)', exact: true }).fill('4');
@@ -107,11 +141,22 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       if (button === 'left') await page.keyboard.up('Control');
       expect((await read())!.camera).not.toEqual(camera);
     }
+    await page.getByTestId('painting-tool-triangle').click();
+    await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
+    point = (await read())!.center;
+    await page.mouse.click(point.x, point.y); await idle();
+    expect((await committed()).paint.some((part) => part.groups.some((group) => group.stateId === 2 && group.indexCount > 0))).toBe(true);
     expect((await read())!.error).toBeNull();
     const cameraPose = () => page.evaluate(() => { const state = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.cameraState(); return { position: state.position, quaternion: state.quaternion, target: state.target }; });
     const beforeClose = (await read())!;
     const beforeCloseCamera = { position: beforeClose.camera.slice(0, 3), quaternion: beforeClose.camera.slice(3), target: beforeClose.target };
+    const expandedHistory = await history();
+    expect(expandedHistory.editingSession).not.toBeNull();
+    expect(expandedHistory.undoEntries.filter((entry: { label: string }) => entry.label === 'Paint').length).toBeGreaterThan(1);
     await page.getByRole('button', { name: 'Close painting', exact: true }).click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    const compactedHistory = await history();
+    expect(compactedHistory.editingSession).toBeNull();
+    expect(compactedHistory.undoEntries.filter((entry: { label: string }) => entry.label === 'Paint')).toHaveLength(1);
     const cameraUnchanged = async () => {
       const after = await cameraPose();
       return (['position', 'quaternion', 'target'] as const).every((key) => after[key].every((value: number, i: number) => Math.abs(value - beforeCloseCamera[key][i]) < 1e-10));

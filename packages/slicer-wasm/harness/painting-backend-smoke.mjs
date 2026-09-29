@@ -5,10 +5,18 @@ import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { buildPaintedFacetProject } from './painted-facet-fixture-builder.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 
 const modulePath = process.argv[2];
 if (!modulePath) throw new Error('usage: painting-engine-smoke.mjs <orca_slice.js>');
 const Module = await (await loadModuleFactory(modulePath))({ noInitialRun: true, printErr: console.error });
+const testHook = typeof Module._orc_painting_test_fail_next_commit === 'function';
+assert.ok(!(process.argv.includes('--expect-test-hooks') && process.argv.includes('--expect-production')),
+  'choose one expected build mode');
+if (process.argv.includes('--expect-production'))
+  assert.equal(testHook, false, 'a production artifact must not export the test failure hook');
+else if (process.argv.includes('--expect-test-hooks') || !process.argv.includes('--interop-only'))
+  assert.equal(testHook, true, 'the comprehensive test artifact must export the failure hook');
 await installProfilePackages(Module, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));
 function call(name, types = [], args = []) {
   const pointer = Number(Module.ccall(name, 'number', types, args));
@@ -27,10 +35,16 @@ function top(x = 98, y = 103) {
   return { pointer: [(x - 60) * 2.5, (140 - y) * 2.5], viewport: [0,0,200,200], projection, view };
 }
 const source = await buildPaintedFacetProject();
-function fixture(gap = false) {
+function fixture(gap = false, otherChannels = false) {
   return writeStoredZip(readZipEntries(source).map(entry => {
     if (entry.name !== '3D/3dmodel.model') return entry;
     let xml = new TextDecoder().decode(entry.content).replace(/ paint_color="[^"]*"/g, '');
+    if (otherChannels) {
+      // Facet strings are hex bitstreams. Nibble 4 is an unsplit triangle in
+      // state 1; nibble 1 would claim child triangles without encoding them.
+      xml = xml.replace(/<triangle\b([^>]*?)\/>/,
+        '<triangle$1 paint_supports="4" paint_seam="4" paint_fuzzy_skin="4"/>');
+    }
     if (gap) {
       // Replace all three coordinates deterministically, retaining the known
       // 20-mm cube's topology but reducing each triangle area to 2 mm².
@@ -85,11 +99,16 @@ function mesh() {
   return result;
 }
 function exportedPaint() {
-  const result = ok(call('orc_export_project'));
-  const bytes = Module.HEAPU8.slice(result.bytes_ptr, result.bytes_ptr + result.bytes_length); Module._free(result.bytes_ptr);
+  const bytes = exportedBytes();
   return new TextDecoder().decode(readZipEntries(bytes).find(e => e.name === '3D/3dmodel.model').content);
 }
+function exportedBytes() {
+  const result = ok(call('orc_export_project'));
+  const bytes = Module.HEAPU8.slice(result.bytes_ptr, result.bytes_ptr + result.bytes_length); Module._free(result.bytes_ptr);
+  return bytes;
+}
 ok(command('orc_init', { log_level: 'error' }));
+if (!process.argv.includes('--interop-only')) {
 load(fixture());
 // Keep a third empty plate as an unaffected input-generation witness.
 const twoPlates = ok(call('orc_add_plate')); ok(call('orc_add_plate'));
@@ -137,15 +156,18 @@ begin('triangle', { state: 1 }); const changed = geometry();
 sample({ state: 2 }, top()); const clean = geometry(changed.parts.map(p => p.resourceId));
 assert.equal(clean.resources.length, 1); assert.notEqual(clean.parts[0].resourceId, changed.parts[0].resourceId);
 assert.equal(commit().committed, false);
-// Failure is injected only in the test build, through a non-production ABI.
-const stableHistory = history(); const stablePlates = call('orc_get_plate_session_snapshot');
-begin('sphere', { state: 1, radius: 50 });
-Module.ccall('orc_painting_test_fail_next_commit', null, [], []);
-const failure = error(command('orc_painting_stroke_commit', { ...handle(), strokeId: session.strokeId }));
-assert.equal(failure.recovered, true); session.revision = failure.revision; refresh();
-assert.equal(session.phase, 'idle'); assert.deepEqual(session.parts.map(p => p.facetCounts), committedCounts);
-assert.deepEqual(history(), stableHistory); assert.deepEqual(call('orc_get_plate_session_snapshot'), stablePlates);
-assert.equal(exportedPaint(), committedExport);
+// The failure probe is compiled into the test build only. Production artifacts
+// run the same interoperability assertions without exposing that ABI.
+if (testHook) {
+  const stableHistory = history(); const stablePlates = call('orc_get_plate_session_snapshot');
+  begin('sphere', { state: 1, radius: 50 });
+  Module.ccall('orc_painting_test_fail_next_commit', null, [], []);
+  const failure = error(command('orc_painting_stroke_commit', { ...handle(), strokeId: session.strokeId }));
+  assert.equal(failure.recovered, true); session.revision = failure.revision; refresh();
+  assert.equal(session.phase, 'idle'); assert.deepEqual(session.parts.map(p => p.facetCounts), committedCounts);
+  assert.deepEqual(history(), stableHistory); assert.deepEqual(call('orc_get_plate_session_snapshot'), stablePlates);
+  assert.equal(exportedPaint(), committedExport);
+}
 begin('triangle', { state: 1 }); assert.equal(commit().committed, true);
 begin('triangle', { state: 2 }); assert.equal(commit().committed, true);
 assert.deepEqual(refresh().parts.map(p => p.facetCounts), committedCounts);
@@ -270,4 +292,62 @@ assert.equal(exportedPaint(), firstPaint);
 ok(call('orc_history_redo')); ok(call('orc_history_redo'));
 assert.equal(ok(call('orc_get_preset_snapshot')).print.name, nextProcess.name);
 assert.equal(exportedPaint(), secondPaint);
-console.log('Painting backend real-WASM publication/geometry/history/remap smoke passed');
+}
+
+// Persist a newly committed two-material edit, reload it through the public
+// 3MF bridge, and prove the slicer consumes both material assignments. Keep
+// the other three facet annotation channels as an independent round-trip
+// witness: painting must neither clear nor rewrite them.
+async function sliceExtrusionTools() {
+  const sliced = await callAsyncTask(call, 'orc_slice', ['string'], ['{}'], 240_000);
+  ok(sliced);
+  const result = ok(getSliceResult(call, sliced.receipt));
+  const segmentCount = Number(result.toolpath?.segment_count ?? 0);
+  assert.ok(segmentCount > 0, 'project produced no toolpath');
+  const toolIds = Module.HEAPU8.slice(result.toolpath.extruder_id_ptr,
+    result.toolpath.extruder_id_ptr + segmentCount);
+  const moveTypes = Module.HEAPU8.slice(result.toolpath.move_type_ptr,
+    result.toolpath.move_type_ptr + segmentCount);
+  for (const [key, pointer] of Object.entries(result.toolpath))
+    if (key.endsWith('_ptr') && pointer) Module._free(pointer);
+  for (const metric of Object.values(result.toolpath.metrics ?? {}))
+    if (metric.ptr) Module._free(metric.ptr);
+  return { segmentCount, tools: [...new Set(toolIds.filter((_, index) => moveTypes[index] === 10))].sort() };
+}
+// Exercise the same Worker instance across consecutive project replacements
+// before its first slice, including the imported annotation parser.
+if (process.argv.includes('--interop-only')) {
+  load(fixture());
+  assert.equal(structure().length, 1);
+}
+load(fixture(false, true));
+const independentAttrs = ['paint_supports', 'paint_seam', 'paint_fuzzy_skin'];
+const channelValues = xml => Object.fromEntries(independentAttrs.map(attr =>
+  [attr, [...xml.matchAll(new RegExp(`${attr}="([^"]+)"`, 'g'))].map(match => match[1])]
+));
+const independentBefore = channelValues(exportedPaint());
+for (const attr of independentAttrs) assert.deepEqual(independentBefore[attr], ['4'], `${attr} fixture did not import a valid unsplit state`);
+const unpaintedSlice = await sliceExtrusionTools();
+assert.deepEqual(unpaintedSlice.tools, [1], 'the unpainted fixture should extrude only inherited slot 2');
+open();
+const unpainted = refresh().parts.map(part => part.facetCounts);
+begin('triangle', { state: 1 }, top(92, 105));
+const paintedReceipt = commit({ settings: { state: 1 }, event: top(108, 95) });
+assert.equal(paintedReceipt.committed, true);
+const paintedCounts = refresh().parts.map(part => part.facetCounts);
+assert.ok(paintedCounts[0][1] > 0 && paintedCounts[0][0] < unpainted[0][0]);
+const saved = exportedBytes();
+const savedXml = new TextDecoder().decode(readZipEntries(saved).find(entry => entry.name === '3D/3dmodel.model').content);
+assert.deepEqual(channelValues(savedXml), independentBefore, 'painting changed independent facet annotation channels');
+assert.match(savedXml, /paint_color=/);
+ok(command('orc_history_session_close', { sessionId: hs }));
+ok(call('orc_clear_model'));
+load(saved);
+assert.deepEqual(channelValues(exportedPaint()), independentBefore, 'reload changed independent facet annotation channels');
+open();
+assert.deepEqual(refresh().parts.map(part => part.facetCounts), paintedCounts, 'saved 3MF lost committed paint facets');
+assert.equal(structure()[0].instances.length, 2, 'saved 3MF lost the shared second instance');
+ok(command('orc_history_session_close', { sessionId: hs }));
+const paintedSlice = await sliceExtrusionTools();
+assert.deepEqual(paintedSlice.tools, [0, 1], 'actual extrusion did not consume both painted and inherited material');
+console.log(`Painting backend real-WASM ${process.argv.includes('--interop-only') ? 'unpainted/painted interoperability' : 'publication/geometry/history/remap/3MF/slice'} smoke passed (unpainted tool ${unpaintedSlice.tools}, painted tools ${paintedSlice.tools}; ${paintedSlice.segmentCount} segments)`);

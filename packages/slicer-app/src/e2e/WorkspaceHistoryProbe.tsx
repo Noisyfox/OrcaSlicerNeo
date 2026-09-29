@@ -7,6 +7,7 @@ export function WorkspaceHistoryProbe() {
   const { runtime } = usePlatform();
 
   useEffect(() => registerOrcaE2eOwner('workspace-history-diagnostics', {
+    historyNativeStatus: () => runtime.getHistoryStatus(),
     historyDiagnostics: (): HistoryObservabilitySnapshot => {
       captureHistoryTransportDiagnostics(runtime);
       const { recordMutation: _mutation, recordQueue: _queue, recordRestore: _restore,

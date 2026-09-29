@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-09 accepted; later stages remain gated.
+**Status:** Sequential implementation in progress. Steps 01-10 accepted; later stages remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -191,7 +191,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 10. Functional fixtures, interoperability and host/variant acceptance
 
-**Status:** Pending. **Depends on:** 09 accepted. **Model:** gpt-6-sol / high. **Verification:** W+E.
+**Status:** Accepted by parent. **Depends on:** 09 accepted. **Model:** gpt-6-sol / high. **Verification:** W+E.
 
 **Allowed scope:** repository-owned deterministic/generated/real painting fixtures and harnesses, desktop/Web E2E, test-gated probes, and necessary bounded defect fixes against accepted contracts.
 
@@ -609,3 +609,72 @@ child logs are ignored root `stage09-*.log`. Fixture imports still emit known
 profile-parent diagnostics; assertions pass. Pinned submodule unchanged. Both
 variant/host interoperability qualification remains stage 10 and measured
 performance remains stage 11; these results do not claim the release matrix.
+
+### Stage 10 acceptance — interoperability and both runtime variants
+
+Child: `/root/painting_stage_10` (`gpt-6-sol`, high). Six test/harness/probe files
+changed; no production bridge or pinned-submodule changes were required. Existing
+engine/session harnesses retain all six tools, multipart solids/modifiers,
+transforms, subdivision and lifecycle coverage. The backend now proves newly
+committed paint survives 3MF save/reload without changing support/seam/fuzzy
+annotation channels or losing shared instances. Actual extrusion uses only tool 1
+before painting and tools 0/1 afterward, establishing the paint's material effect.
+
+Parent review strengthened causal assertions: busy Electron moves stay on the
+first face and only pointerup reaches the second; exactly six painted indices in
+one native part prove retained terminal input. Native history is observed directly
+after closure, before a new session hides older entries below its floor. Web keeps
+the original five-state imported Preview phase and separately verifies new paint,
+downloaded 3MF content and resulting Preview. The observer is compiled out of
+production, with a Web bundle sentinel guard. Slice-preview heap buffers are
+released by the harness after copying their data.
+
+An initially failing combined harness was not accepted by splitting its scenarios.
+Investigation found malformed test annotations: hex `1` denotes an incomplete
+split tree; valid unsplit state 1 is hex `4`. With all three independent channels
+corrected to `4`, the complete same-instance scenario passes, including the
+unpainted baseline and painted reload/slice. Alternate interoperability also
+includes consecutive project replacements before the first slice. No native
+memory leak or project-lifecycle fix was established by this fixture failure.
+
+Child verification: both quick builds and `scripts\build-windows.bat smoke
+--variant both`; six-tool engine and multipart session smokes; root `pnpm test`
+before the final read-only E2E probe addition and final `pnpm typecheck`; real
+Electron 1/1; real Web serial 1/1 (33.8 seconds) and threaded 1/1 (33.6 seconds);
+production non-root guard and diff check. The final serial build has
+`NEO_PROJECT_HISTORY_TEST=ON`; threaded was explicitly rebuilt with it `OFF`.
+Backend expected-mode flags assert fault-hook presence/absence rather than
+inferring production status from a directory name.
+
+Parent independently ran:
+
+- `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --expect-test-hooks` — full combined scenario passed, 47,029 segments, baseline tool 1 and painted tools 0/1.
+- `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js --interop-only --expect-production` — final corrected fixture passed, same material assertions, production hook absent.
+- `pnpm exec node scripts/run-painting-e2e.mjs` — 1/1 passed, 20.6 seconds, current serial artifact identity verified.
+- `pnpm --filter @orca/web test:non-root` — production build, deployment base and painting instrumentation sentinel passed.
+- `pnpm typecheck` and `git diff --check` — passed.
+
+Web reproduction: set `ORCA_E2E_PAINTED_FACET_PROJECT` to the absolute generated
+`packages/slicer-wasm/fixtures/painted-facet/painted-facet-instances.3mf`, then run
+`pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts painted-facet-preview.e2e.ts`.
+Set `ORCA_WEB_NO_ISOLATION=1` for serial; unset it for threaded. The runner config
+builds with its E2E gate. Fixture: 5,791 bytes, SHA-256
+`10471af07fd7a7c4090d2c56a89874c9fa37a492df2f17f2b78d492e76b3e503`.
+
+Existing fixed real archives use
+`packages/slicer-wasm/fixtures/project-compatibility/manifest.json` and
+`pnpm exec node packages/slicer-wasm/harness/acquire-project-fixtures.mjs --download`.
+Child verified all three pinned hashes and ran
+`pnpm exec node packages/slicer-wasm/harness/project-compatibility.mjs --module packages/slicer-wasm/out/serial/orca_slice.js`.
+Orca/Bambu/Prusa generic geometry-only compatibility passed; this does not claim
+those archives imported their original project settings.
+
+Final serial JS/WASM hashes remain `27e99e1977a02bde42017966b55cfe6eee01041250fb48e68bfebe507478b174` /
+`f7353ca74e55897feddfb5be487f1ee3caab8c32073f74853944be9543d29288`.
+Threaded production JS/WASM: `11ca5e89cfb00cd5efbdca84128aaf2259d1f44af033edec1179a35c30ecaaea` /
+`6ac768a886d9801b04ec798dc350a6169efdbb271c01dd524dccd12841cff8e9`.
+Both DATA: `31105d0d32a3f7ba60c46851c0e6ef2138892037ec620d67d0688e593cb99169`.
+Parent logs: `.work/serial/parent-stage10-*.log`; final child native logs:
+`.work/stage10-final-serial-backend.log` and
+`.work/stage10-final-threaded-production-interop.log`, all under slicer-wasm.
+Performance and final release qualification remain stages 11 and 12.

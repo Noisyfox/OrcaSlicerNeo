@@ -28,12 +28,21 @@ try {
   // assets at the root path, not under the /orca/ base) — without the plugin,
   // @theme/@apply pass through unprocessed and every Tailwind class in the UI
   // is dead (2026-08-20 layout regression).
-  const cssFiles = await readdir(distAssets);
-  const stylesheet = cssFiles.find((f) => f.startsWith('index-') && f.endsWith('.css'));
+  const assetFiles = await readdir(distAssets);
+  const stylesheet = assetFiles.find((f) => f.startsWith('index-') && f.endsWith('.css'));
   if (!stylesheet) throw new Error('build produced no index-*.css in dist/assets');
   const css = await readFile(new URL(stylesheet, distAssets), 'utf8');
   if (!css.includes('.flex{')) {
     throw new Error('built CSS lacks compiled Tailwind utilities (missing @tailwindcss/vite?)');
+  }
+  // Painting's E2E observer wraps real input only in qualification builds.
+  // Keep its probe API and move counters out of the production bundle.
+  for (const asset of assetFiles.filter((name) => name.endsWith('.js'))) {
+    const source = await readFile(new URL(asset, distAssets), 'utf8');
+    if (['paintingWorldToScreen', 'paintingCommittedEvidence', 'historyNativeStatus', 'admittedMoves', 'droppedMoves']
+      .some((sentinel) => source.includes(sentinel))) {
+      throw new Error(`production bundle retained painting E2E instrumentation in ${asset}`);
+    }
   }
   console.log('[web] non-root base smoke passed');
 } finally {

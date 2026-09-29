@@ -14,7 +14,20 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
   const { runtime } = usePlatform();
   const interaction = useSceneInteraction();
   const rendered = useRef<{ revision: number; candidates: string[] }>({ revision: -1, candidates: [] });
+  const input = useRef({ admittedMoves: 0, droppedMoves: 0 });
   useFrame(() => { rendered.current = { revision: owner.getSnapshot().display?.revision ?? -1, candidates: owner.getSnapshot().display?.candidates.map((c) => c.resourceId).filter((id) => resources.resources.has(id)) ?? [] }; });
+  useEffect(() => {
+    // This probe is mounted only in E2E builds. Observe real pointer routing
+    // without changing the controller's admission decision or native calls.
+    const originalMove = owner.move;
+    owner.move = (...args) => {
+      const admitted = originalMove.call(owner, ...args);
+      if (admitted) input.current.admittedMoves++;
+      else input.current.droppedMoves++;
+      return admitted;
+    };
+    return () => { owner.move = originalMove; };
+  }, [owner]);
   useEffect(() => registerOrcaE2eOwner('painting', {
     paintingEvidence: () => {
       const state = owner.getSnapshot(), rect = gl.domElement.getBoundingClientRect();
@@ -25,7 +38,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
         camera: [...camera.position.toArray(), ...camera.quaternion.toArray()], target: (controls as unknown as { target?: THREE.Vector3 } | null)?.target?.toArray() ?? [0, 0, 0], cursor: cursor?.toArray() ?? null,
         center: center ? { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 } : null,
         resources: [...resources.resources.values()].map((r) => ({ id: r.source.resourceId, volumeId: r.source.volumeId, kind: r.source.kind, groups: r.source.groups, hasBvh: !!(r.geometry as THREE.BufferGeometry & { boundsTree?: unknown }).boundsTree })), ordinaryModels,
-        rendered: rendered.current, runtime: runtime.getRuntimeExecutionState?.(), error: state.error };
+        rendered: rendered.current, input: { ...input.current }, runtime: runtime.getRuntimeExecutionState?.(), error: state.error };
     },
     paintingCommittedEvidence: async () => {
       let evidence: unknown = null;
@@ -35,6 +48,12 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
         return true;
       });
       return evidence;
+    },
+    paintingWorldToScreen: (point: [number, number, number]) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      const projected = new THREE.Vector3(...point).project(camera);
+      return { x: rect.left + (projected.x + 1) * rect.width / 2,
+        y: rect.top + (1 - projected.y) * rect.height / 2 };
     },
   }), [camera, controls, cursor, gl, owner, resources, runtime, scene, volumes, interaction]);
   return null;
