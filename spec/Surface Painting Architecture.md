@@ -42,6 +42,11 @@ React/Three.js owns interaction presentation and drawing. Application access
 continues through `slicer-runtime`; only `slicer-wasm/src/client/` may directly
 access the Emscripten module. Both Electron and Web use the same feature.
 
+First-release input acceptance covers desktop mouse and trackpad click, drag,
+and scroll interaction, with consistent behavior in Electron and desktop Web.
+Dedicated touchscreen and stylus interaction, including pressure sensitivity,
+are outside first-release acceptance requirements.
+
 The reusable architecture separates:
 
 1. Painting mode: scene rendering, camera navigation, cursor, and input routing.
@@ -326,9 +331,33 @@ Input and output carry session/order identity so late responses cannot overwrite
 a newer session. Releasing a stroke waits for all accepted samples belonging to
 that stroke. Preserve the ordering of live tool-setting changes relative to
 samples, so delayed Worker processing uses the colour, erase state, and size
-applicable to each sample rather than the latest UI values. Precise batching,
+applicable to each sample rather than the latest UI values. Precise input batching,
 backpressure, camera-snapshot transport, and
 cancellation behavior are to be finalized before implementation.
+
+### 4.1 Draft geometry publication and refresh scheduling
+
+The first release publishes complete replacement display geometry for each
+changed solid part/volume. Unchanged parts retain their existing display
+resources. Triangle or patch deltas, stable display-triangle identities, and
+incremental topology synchronization are not required for the first release;
+consider them later if measured generation, transfer, or upload costs justify
+the additional protocol and resource-lifetime complexity.
+
+During continuous painting, request geometry refreshes in step with display
+frames when there are pending changes and the preceding refresh has completed.
+There is no fixed 30 Hz cap. Do not accumulate a queue of complete geometry
+refreshes: coalesce pending display requests and publish the latest eligible
+state. This is a scheduling policy, not a guarantee of achieving the display's
+refresh rate on every model or device. Cursor and camera rendering remain
+independent of the geometry-publication cadence.
+
+Coalescing applies only to intermediate display states; preserve all accepted
+painting input and the order of settings and stroke boundaries. Stroke completion,
+cancellation, and history navigation must converge to their resulting native
+state even if intermediate previews were skipped. Session and revision checks
+reject obsolete output so a delayed replacement cannot overwrite that state.
+This display policy does not change per-stroke commits or their history semantics.
 
 ## 5. Per-stroke commits and deferred derived updates
 
@@ -650,6 +679,14 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   remains correct with reordered renderer indices, mirrors, and
   nonuniform transforms.
 - Dedicated mode does not invoke ordinary model drag/selection handlers.
+- Desktop mouse and trackpad click/drag/scroll behavior is consistent across
+  Electron and desktop Web; dedicated touch, stylus, and pressure acceptance is
+  deferred.
+- Draft geometry replaces only changed parts in full. Refreshes follow display
+  opportunities with one refresh in flight, without a fixed 30 Hz cap or a queue
+  of obsolete refreshes. Coalescing display states preserves all accepted input;
+  completion, cancellation, and Undo/Redo display the correct final state and
+  reject late output. No measured frame-rate guarantee is implied.
 - Part-based entry permits painting all solid parts of the owning object;
   entry requires at least two filament slots and hides all other instances.
 - Reducing the slot count to one keeps an existing session open and paintable;
@@ -723,7 +760,7 @@ or create separate phase documents.
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Home/Device navigation preserves a hidden session; active strokes ignore selection changes and page navigation. New/Open/normal-exit confirmation cancellation retains the session; these commands are ignored during strokes. Remaining: other activation gates, any whole-session discard, export |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. Remaining: other mutations during unfinished strokes |
 | C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. The selected filament is retained within the project, follows remapping, and falls back to slot 1 when unavailable; new/opened projects start at slot 1. |
-| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. Remaining: large-model budgets; input batching and display update policy; fixtures and measurable acceptance gates |
+| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. First release covers desktop mouse/trackpad input on both hosts. Changed parts publish full replacement geometry; display-driven refreshes have one request in flight and no fixed 30 Hz cap, coalescing only display states while preserving painting input. Remaining: large-model budgets; input batching and backpressure; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
 batches are integrated into the relevant sections. Continue resolving lifecycle
