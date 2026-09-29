@@ -237,6 +237,18 @@ When no stroke is active, Escape behaves like the toolbar close action:
 retain the committed strokes, compact history, complete deferred updates, and
 return to Prepare. It does not discard painting or ask whether to apply it.
 
+Do not provide a whole-session discard action. Completed painting and interleaved
+project edits are undone through history; Erase all is a new painting edit, not
+a restoration of the state at session entry.
+
+Only one gizmo may be open at a time. Numeric transform panels belong to their
+respective gizmos and are not independent editing panels available alongside
+painting. An idle switch to another gizmo first closes painting normally,
+including history compaction and deferred updates, then opens the requested
+gizmo. If painting closure fails, do not activate the other gizmo. During an
+unfinished stroke, ignore gizmo-switch commands without queuing or opening the
+other gizmo or its panel.
+
 During an active stroke, Escape cancels only that stroke and keeps the gizmo
 open. Restore the draft to its pre-stroke state and do not create a history
 entry for the cancelled stroke. Earlier completed strokes and interleaved
@@ -247,7 +259,7 @@ resume it or cause an implicit close.
 Other lifecycle actions and camera bindings remain subject to section 10
 clarification.
 
-While a stroke is unfinished, ignore Save, Undo, Redo, explicit gizmo-close,
+While a stroke is unfinished, ignore Save, Export, Undo, Redo, explicit gizmo-close,
 Prepare-to-Preview, user-initiated Slice, parameter-edit, and filament-slot
 adjustment commands. Do not queue them, apply their project changes, open their
 dialogs, commit or cancel the stroke, navigate history, or begin closure.
@@ -553,9 +565,9 @@ the committed state. Do not repeat invalidations or calculations already settled
 for the same input version.
 
 Active-stroke Escape cancellation and ignored commands are defined in section
-3.2. Other pending-input cases, any whole-session discard action, and export
-remain to be clarified. Project replacement and normal application shutdown
-follow section 7.6.
+3.2, including single-gizmo switching and the absence of a whole-session discard
+action. Project replacement and normal application shutdown follow section 7.6.
+Export follows section 7.7.
 
 ### 7.4 Target deletion and mesh-changing commands
 
@@ -604,6 +616,20 @@ their file/confirmation dialogs. The user must repeat the command after the
 stroke ends. This concerns normal user commands the application can intercept;
 forced process termination is governed by the fatal-error/persistence boundary,
 not this navigation protocol.
+
+### 7.7 Export
+
+With no unfinished stroke, exporting keeps the painting session open and its
+child history expanded. Export reads committed state and settles only the
+deferred calculations required by that export. It does not compact history or
+separate consecutive painting edits merely because an export occurred.
+Existing export/save semantics continue to determine saved-state markers.
+
+G-code export remains subject to the selected plate's valid slice-result stamp
+under Per-Plate Print Architecture. Keeping the gizmo open does not authorize
+exporting an invalidated result or implicitly starting a new slice. During an
+unfinished stroke, ignore Export without queuing, opening a dialog, or ending
+the stroke. This policy adds no export formats or command entry points.
 
 ## 8. Native Orca reference and Neo differences
 
@@ -731,6 +757,14 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   after any requested save succeeds. These commands during a stroke are ignored
   without queuing or opening dialogs.
 - Failed stroke commit or closure does not partially publish its state/history.
+- Only one gizmo and its associated numeric panel are active. Idle switching
+  closes painting normally before activating another gizmo; closure failure
+  prevents activation. During a stroke, switching is ignored without queuing.
+  No whole-session discard action is exposed.
+- Idle Export retains the session and expanded history and reads committed
+  state, settling only required derived data. It does not separate painting
+  runs. Active-stroke Export has no effect or dialog and is not queued; G-code
+  export cannot bypass selected-plate result validity or implicitly slice.
 - Pending stroke processing/commit displays a processing state and rejects new
   strokes without queuing. Success requires a fresh press for the next stroke.
   Recoverable failure automatically discards the failed draft, restores its
@@ -757,7 +791,7 @@ or create separate phase documents.
 
 | Group | Important unresolved decisions |
 | --- | --- |
-| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Home/Device navigation preserves a hidden session; active strokes ignore selection changes and page navigation. New/Open/normal-exit confirmation cancellation retains the session; these commands are ignored during strokes. Remaining: other activation gates, any whole-session discard, export |
+| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Home/Device navigation preserves a hidden session; active strokes ignore selection changes and page navigation. New/Open/normal-exit confirmation cancellation retains the session; these commands are ignored during strokes. Only one gizmo and its numeric panel may be active; idle switching closes painting first and active strokes ignore switching. No whole-session discard is provided. Idle Export retains the session and committed state; active strokes ignore Export, and G-code result-validity gates remain authoritative. Remaining: other activation gates |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. Remaining: other mutations during unfinished strokes |
 | C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. The selected filament is retained within the project, follows remapping, and falls back to slot 1 when unavailable; new/opened projects start at slot 1. |
 | D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. First release covers desktop mouse/trackpad input on both hosts. Changed parts publish full replacement geometry; display-driven refreshes have one request in flight and no fixed 30 Hz cap, coalescing only display states while preserving painting input. Remaining: large-model budgets; input batching and backpressure; fixtures and measurable acceptance gates |
