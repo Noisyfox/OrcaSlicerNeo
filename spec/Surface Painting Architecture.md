@@ -2,8 +2,9 @@
 
 **Date:** 2026-09-29
 
-**Status:** Accepted architectural direction; grouped product and lifecycle
-clarification in progress. Implementation has not started.
+**Status:** Accepted architectural direction and clarified first-release behavior.
+Implementation has not started. Quantitative performance thresholds remain to be
+confirmed after initial reference measurements.
 
 **Scope:** A shared surface-painting architecture for OrcaSlicerNeo, with
 multi-material painting as its first gizmo and reusable foundations for support,
@@ -11,9 +12,9 @@ seam, and fuzzy-skin painting.
 
 This is a major architecture specification alongside [Grand Plan](Grand%20Plan.md).
 It is the single living record for this work, created directly in `spec/` at the
-user's request. Accepted decisions below are binding; unresolved topics in
-section 10 are not implicit implementation defaults. Clarifications are folded
-into this document after a related group of questions has been resolved, rather
+user's request. Accepted decisions below are binding; remaining measurement work
+in section 10 does not imply an unmeasured performance guarantee. Clarifications
+are folded into this document after a related group of questions has been resolved, rather
 than after every individual answer. Each question must include the corresponding
 behavior of the pinned Orca source as a reference.
 
@@ -899,20 +900,58 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   hard cap; history retains its separate byte budget. Verify cleanup of replaced
   geometry and temporary buffers across repeated edits and session closure.
 
-## 10. Grouped clarification agenda
+### 9.1 Reference environment and benchmark corpus
 
-Resolve questions interactively, one important decision at a time, with pinned
-Orca behavior and focused source evidence alongside each question. Update the
-accepted sections after a coherent group is resolved; do not append a transcript
-or create separate phase documents.
+Use the current Windows development machine for the first performance baseline.
+Record its CPU, memory, GPU, operating system, browser/Electron versions, source
+revisions, and build/runtime configuration when measuring. Measure Electron and
+desktop Web separately and compare with pinned native Orca on the same machine
+and fixed models/operations. A result on this reference machine is not a minimum
+supported hardware specification or a guarantee for other devices.
 
-| Group | Important unresolved decisions |
+Combine reproducibly generated models with a small fixed set of real projects.
+Generated cases vary original triangle count, solid-part count, and painting
+subdivision density independently where practical. Reuse existing painted-facet
+fixture coverage, then add the cases needed for editing. Real projects complement
+these controlled cases with representative production geometry. Keep fixture
+generation/acquisition, versions, and operation scripts reproducible through the
+repository; select and record exact cases during implementation.
+
+Cover all six tools, continuous painting, normal release and Escape completion
+latency, Undo/Redo, and session-close compaction. Record hit-testing and selector
+time, draft geometry generation/transfer/upload costs, visible refresh cadence,
+peak working memory, retained history size, and resource cleanup. Because busy
+movement events are intentionally dropped, also record admitted/dropped movement
+counts and completion of reliable terminal events. Distinguish comparisons of
+equivalent admitted input sequences from end-to-end interaction runs; reduced
+work from dropping input must not be reported as an equivalent-work speedup.
+
+First establish the measured baseline, then review and confirm numeric latency
+and other performance acceptance thresholds from those results. Do not invent
+fixed frame-rate, latency, or working-memory guarantees before measurement. This
+does not waive functional correctness, reliable stroke termination, atomic
+history/model behavior, or resource-lifetime verification in section 9. No fixture
+generation, benchmark execution, or implementation is claimed by this document.
+
+## 10. Decision status and remaining validation
+
+The grouped clarification of first-release product behavior and architectural
+boundaries is complete. Accepted decisions are maintained in their relevant
+sections rather than as a discussion transcript.
+
+| Group | Status |
 | --- | --- |
-| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Home/Device navigation preserves a hidden session; active strokes ignore selection changes and page navigation. New/Open/normal-exit confirmation cancellation retains the session; these commands are ignored during strokes. Only one gizmo and its numeric panel may be active; idle switching closes painting first and active strokes ignore switching. No whole-session discard is provided. Idle Export retains the session and committed state; active strokes ignore Export, and G-code result-validity gates remain authoritative. Non-printable flags and out-of-bounds placement do not restrict otherwise eligible painting. |
-| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo cannot cross session entry and may stop at a later retained boundary after eviction; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. All other user-issued project mutations are ignored during unfinished strokes without execution, queuing, or dialogs; explicitly supported live paint settings and Escape remain available. |
-| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. The selected filament is retained within the project, follows remapping, and falls back to slot 1 when unavailable; new/opened projects start at slot 1. |
-| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. First release covers desktop mouse/trackpad input on both hosts. Changed parts publish full replacement geometry; display-driven refreshes have one request in flight and no fixed 30 Hz cap, coalescing intermediate display states without discarding admitted input. Painting processes one event at a time and discards moves received while busy without queuing or retaining a latest move; terminal signals remain reliable. Escape cancellation completes between native calls and blocks new strokes until restoration. Expanded painting children share the existing 256 MiB project-history budget and oldest-first eviction, retaining the oversized-entry exception; closure compacts retained history only. There is no fixed source-triangle-count admission limit. Normal release is a reliable final native painting sample before commit; cancellation does not add that sample. No painting-specific working-memory hard cap is added. Remaining: fixtures, reference performance environment, and measurable acceptance gates |
+| A. Editing target and lifecycle | Accepted; sections 3 and 7 define eligibility, single-gizmo ownership, navigation, closure, and external commands. |
+| B. History and external edits | Accepted; sections 5-7 define per-stroke commits, nested navigation/compaction, eviction, Redo cleanup, and interleaved project changes. |
+| C. Multi-material tools | Accepted; sections 2-4 define all six tools, their parameters and lifetime, desktop input, native authority, and reliable event completion. |
+| D. Runtime and acceptance | Runtime policies and the measurement plan are accepted; sections 4-6 and 9 define event admission, cancellation, memory policy, reference environment, and fixtures. Numeric performance thresholds await the first measured baseline and subsequent review. |
 
-No code implementation is authorized by this clarification workflow. Accepted
-batches are integrated into the relevant sections. Continue resolving lifecycle
-questions and fold each coherent batch into this same specification.
+Implementation must still specify concrete protocol schemas, camera-snapshot
+transport, module changes, and reproducible fixture/benchmark commands within
+these accepted boundaries. These engineering details do not authorize changing
+product semantics or claiming measurements that have not been made. If further
+important product choices arise, clarify them interactively with pinned Orca
+behavior and source evidence, then update this specification in coherent batches.
+
+No code implementation is authorized by this design/clarification workflow.
+No implementation, runtime validation, or delivered roadmap milestone is claimed.
