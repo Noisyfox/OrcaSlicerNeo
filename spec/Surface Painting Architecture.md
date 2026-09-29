@@ -201,6 +201,12 @@ Individual strokes are undoable only during that open session. Non-paint
 project mutations participate in the same chronological order rather than in
 an unrelated paint-only undo stack.
 
+While the gizmo is open, Undo stops at the project state at session entry. It
+cannot navigate into earlier project history, including through a history-jump
+UI. Reaching this boundary keeps the gizmo open and permits Redo of session
+edits. The user must close the session before undoing earlier project operations;
+normal closure compaction and conditional Redo removal still apply.
+
 The session is a history container, not a long-held instance of the current
 exclusive native transaction. Individual commands still require atomic,
 serialized execution through the project mutation coordinator. The existing
@@ -265,7 +271,7 @@ must restore correct annotation/configuration combinations without retaining a
 closed editing session or its stroke-level nodes. The checkpoint for cancelling
 an unfinished stroke remains local to that stroke.
 
-Compaction, save-checkpoint preservation, and child navigation must be proved
+Compaction, saved-marker handling, and child navigation must be proved
 independently of viewport rendering.
 
 ## 7. External operations and session closure
@@ -286,11 +292,16 @@ compact painting history or separate continuous painting runs. For example,
 entry on closure, provided no effective non-paint edit intervened. The saved
 `AB` state is no longer individually reachable through Undo after compaction.
 
-Track the saved checkpoint independently of navigable history nodes; do not
-retain a stroke node or split the run just to keep the saved state reachable.
-The checkpoint must remain correct after later edits, navigation, and closure
-compaction. Its precise representation and dirty-state comparison policy remain
-to be clarified. Save during an active stroke has not yet been specified.
+Use Orca's conservative saved-marker policy. If compaction removes the saved
+history node, transfer the marker to a retained node only when history semantics
+establish that it represents the same project state. If no such node exists,
+mark the saved checkpoint unknown and report the project as modified until the
+next successful save. Do not split a painting run or retain a child node solely
+to preserve the saved marker. This policy does not require content-based state
+equality and may conservatively report unsaved changes even when project content
+matches the saved file. A retained or equivalently remapped marker continues to
+participate in normal dirty-state tracking. Save during an active stroke has
+not yet been specified.
 
 ### 7.2 User-initiated slicing
 
@@ -357,9 +368,12 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - A session with an effective commit clears Redo even after all its edits are
   undone; closure creates no empty painting entry. A session without effective
   commits preserves Redo, including when unfinished strokes were cancelled.
-- Save retains the open gizmo and child history; its checkpoint remains correct
-  after compaction without separating a paint run or preserving a navigable saved
-  child node. Slice closes and settles required derived work before starting.
+- Open-session Undo stops at session entry and leaves the gizmo open with Redo
+  available. Earlier project operations become undoable only after closure.
+- Save retains the open gizmo and child history without separating a paint run.
+  Removing its saved node remaps the marker only to a known equivalent retained
+  state; otherwise the project remains modified until saved again. Slice closes
+  and settles required derived work before starting.
 - Prepare-to-Preview closes the session; switching eligible objects preserves
   cross-object child history and does not split a paint run. Losing eligible
   selection closes normally. All touched targets remain covered at closure.
@@ -380,7 +394,7 @@ or create separate phase documents.
 | Group | Important unresolved decisions |
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes. Remaining: other activation gates, other pages, any whole-session discard, active-stroke external commands, export and destructive actions |
-| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs. Remaining: navigation across the session boundary; dirty/save checkpoint representation and comparison through compaction; slot-remapping atomicity; mutations during unfinished strokes |
+| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction. Remaining: slot-remapping atomicity; mutations during unfinished strokes |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
