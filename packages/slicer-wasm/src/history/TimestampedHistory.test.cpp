@@ -85,6 +85,36 @@ static bool entries_are_equal(const std::vector<TimestampedEntryInfo>& lhs,
     return true;
 }
 
+static bool intervals_are_equal(const std::vector<TimestampedObjectVersionInterval>& lhs,
+                                const std::vector<TimestampedObjectVersionInterval>& rhs)
+{
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t index = 0; index < lhs.size(); ++index) {
+        const auto& left = lhs[index];
+        const auto& right = rhs[index];
+        if (left.id != right.id || left.object_timestamp != right.object_timestamp ||
+            left.begin != right.begin || left.end != right.end || left.archive != right.archive)
+            return false;
+    }
+    return true;
+}
+
+static bool resource_diagnostics_are_equal(const TimestampedResourceDiagnostics& lhs,
+                                           const TimestampedResourceDiagnostics& rhs)
+{
+    return lhs.bytes_used == rhs.bytes_used && lhs.byte_budget == rhs.byte_budget &&
+           lhs.evicted_timestamp_count == rhs.evicted_timestamp_count &&
+           lhs.last_evicted_timestamp == rhs.last_evicted_timestamp &&
+           lhs.oversized_nearest_history_retained == rhs.oversized_nearest_history_retained;
+}
+
+static bool commit_history(TimestampedHistory& history, std::string label,
+                           const TimestampedRoots& before, const TimestampedRoots& after,
+                           TimestampedOperationKind kind = TimestampedOperationKind::NonPaint)
+{
+    return history.begin_operation(std::move(label), before, kind) && history.commit_operation(after);
+}
+
 int main()
 {
     // Transform roots share a potentially large archive but remain distinct
@@ -935,6 +965,318 @@ int main()
     CHECK(compacted_many.entries().size() == 1);
     CHECK(compacted_many.entries().capacity() * 2 < many_entry_capacity_before);
     CHECK(many_bytes_before >= compacted_many.bytes_used() + (kManyStrokes - 1) * std::size_t(192));
+
+    // Closing a session compacts each applied paint run around non-paint
+    // separators, preserves the current roots and save point, and removes child
+    // identities and intermediate timestamps.
+    TimestampedHistory top_close;
+    const auto close_before_session = roots(100, {object(10, 1, 10), object(20, 1, 20)}, 1, 1, 1);
+    const auto close_session_entry = roots(101, {object(10, 2, 11), object(20, 1, 20)}, 1, 1, 2);
+    CHECK(commit_history(top_close, "before painting", close_before_session, close_session_entry));
+    const auto top_session = top_close.begin_editing_session();
+    CHECK(top_session && top_session->entry_timestamp == 1);
+    const auto close_a = roots(102, {object(10, 3, 12), object(20, 1, 20)}, 1, 2, 2);
+    const auto close_b = roots(103, {object(10, 3, 12), object(20, 2, 21)}, 1, 2, 2);
+    const auto close_config = roots(104, {object(10, 3, 12), object(20, 2, 21)}, 1, 2, 3);
+    const auto close_c = roots(105, {object(10, 4, 13), object(20, 2, 21)}, 1, 2, 3);
+    const auto close_d = roots(106, {object(10, 4, 13), object(20, 3, 22)}, 1, 2, 3);
+    CHECK(commit_history(top_close, "stroke A", close_session_entry, close_a, TimestampedOperationKind::Paint));
+    CHECK(commit_history(top_close, "stroke B", close_a, close_b, TimestampedOperationKind::Paint));
+    CHECK(commit_history(top_close, "configuration", close_b, close_config));
+    CHECK(commit_history(top_close, "stroke C", close_config, close_c, TimestampedOperationKind::Paint));
+    CHECK(commit_history(top_close, "stroke D", close_c, close_d, TimestampedOperationKind::Paint));
+    const auto top_entries_before_close = top_close.entries();
+    const auto top_removed_b_id = top_entries_before_close[2].id;
+    const auto removed_d_id = top_entries_before_close[5].id;
+    CHECK(top_entries_before_close[1].after_timestamp == 2 && top_entries_before_close[4].after_timestamp == 5);
+    top_close.mark_current_as_saved();
+    CHECK(top_close.close_editing_session(top_session->id));
+    CHECK(!top_close.editing_session_status());
+    CHECK(!top_close.navigation_floor());
+    CHECK(top_close.current_timestamp() == 6);
+    CHECK(top_close.entries().size() == 4);
+    CHECK(entry_is_equal(top_close.entries()[0], top_entries_before_close[0]));
+    CHECK(top_close.entries()[1].id == top_entries_before_close[1].id);
+    CHECK(top_close.entries()[1].label == "Paint");
+    CHECK(top_close.entries()[1].before_timestamp == 1 && top_close.entries()[1].after_timestamp == 3);
+    CHECK(top_close.entries()[1].operation_kind == TimestampedOperationKind::Paint);
+    CHECK(top_close.entries()[1].editing_session_id == top_session->id);
+    CHECK(top_close.entries()[1].scene_delta.object_ids == std::vector<ObjectID>({10, 20}));
+    CHECK(entry_is_equal(top_close.entries()[2], top_entries_before_close[3]));
+    CHECK(top_close.entries()[3].id == top_entries_before_close[4].id);
+    CHECK(top_close.entries()[3].label == "Paint");
+    CHECK(top_close.entries()[3].before_timestamp == 4 && top_close.entries()[3].after_timestamp == 6);
+    CHECK(top_close.entries()[3].operation_kind == TimestampedOperationKind::Paint);
+    CHECK(top_close.entries()[3].editing_session_id == top_session->id);
+    CHECK(top_close.entries()[3].scene_delta.object_ids == std::vector<ObjectID>({10, 20}));
+    CHECK(!top_close.can_redo() && top_close.can_undo());
+    CHECK(top_close.saved_timestamp() == std::optional<LogicalTimestamp>(6));
+    CHECK(!top_close.saved_checkpoint_evicted() && !top_close.project_modified());
+    TimestampedRestore close_restore;
+    CHECK(top_close.restore_before(top_close.entries()[1].id, &close_d, close_restore));
+    CHECK(close_restore.timestamp == 1);
+    CHECK(close_restore.roots.model.serialized == close_session_entry.model.serialized);
+    CHECK(object_is(close_restore, 0, 10, 2, 11) && object_is(close_restore, 1, 20, 1, 20));
+    CHECK(close_restore.roots.project_config == close_session_entry.project_config);
+    CHECK(top_close.restore_after(top_close.entries()[1].id, nullptr, close_restore));
+    CHECK(close_restore.timestamp == 3);
+    CHECK(close_restore.roots.model.serialized == close_b.model.serialized);
+    CHECK(object_is(close_restore, 0, 10, 3, 12) && object_is(close_restore, 1, 20, 2, 21));
+    CHECK(top_close.restore_after(top_close.entries()[2].id, nullptr, close_restore));
+    CHECK(close_restore.timestamp == 4);
+    CHECK(close_restore.roots.project_config == close_config.project_config);
+    CHECK(top_close.restore_after(top_close.entries()[3].id, nullptr, close_restore));
+    CHECK(close_restore.timestamp == 6);
+    CHECK(close_restore.roots.model.serialized == close_d.model.serialized);
+    CHECK(object_is(close_restore, 0, 10, 4, 13) && object_is(close_restore, 1, 20, 3, 22));
+    CHECK(top_close.current_timestamp() == 6);
+    CHECK(!top_close.restore_before(top_removed_b_id, &close_d, close_restore));
+    CHECK(!top_close.restore_after(top_removed_b_id, &close_d, close_restore));
+    CHECK(!top_close.restore_before(removed_d_id, &close_d, close_restore));
+    CHECK(!top_close.restore_after(removed_d_id, &close_d, close_restore));
+    CHECK(!top_close.restore(2, nullptr, close_restore));
+    CHECK(!top_close.restore(5, nullptr, close_restore));
+    CHECK(top_close.current_timestamp() == 6 && !top_close.can_redo());
+    const auto fresh_session = top_close.begin_editing_session();
+    CHECK(fresh_session && fresh_session->id != top_session->id);
+    const auto fresh_floor = top_close.navigation_floor();
+    CHECK(!top_close.close_editing_session(top_session->id));
+    CHECK(top_close.editing_session_status()->id == fresh_session->id);
+    CHECK(top_close.navigation_floor() == fresh_floor);
+    CHECK(top_close.close_editing_session(fresh_session->id));
+
+    // A committed session that has been fully undone still discards its Redo
+    // branch and invalidates a saved checkpoint stored on that branch. Clearing
+    // the floor makes the pre-session operation undoable again.
+    TimestampedHistory undo_close;
+    const auto undo_before = roots(110, {object(30, 1, 30)});
+    const auto undo_entry_root = roots(111, {object(30, 2, 31)});
+    const auto undo_a = roots(112, {object(30, 3, 32)});
+    const auto undo_b = roots(113, {object(30, 4, 33)});
+    CHECK(commit_history(undo_close, "before paint", undo_before, undo_entry_root));
+    const auto undo_session = undo_close.begin_editing_session();
+    CHECK(undo_session);
+    CHECK(commit_history(undo_close, "undo-close A", undo_entry_root, undo_a, TimestampedOperationKind::Paint));
+    CHECK(commit_history(undo_close, "undo-close B", undo_a, undo_b, TimestampedOperationKind::Paint));
+    const auto undo_a_id = undo_close.entries()[1].id;
+    const auto undo_b_id = undo_close.entries()[2].id;
+    undo_close.mark_current_as_saved();
+    CHECK(undo_close.undo(undo_b, close_restore) && close_restore.timestamp == 2);
+    CHECK(undo_close.undo(undo_a, close_restore) && close_restore.timestamp == 1);
+    CHECK(undo_close.editing_session_status()->has_effective_commit);
+    CHECK(undo_close.can_redo() && undo_close.saved_timestamp() == std::optional<LogicalTimestamp>(3));
+    const auto undo_close_bytes_before_close = undo_close.bytes_used();
+    const auto undo_close_capacity_before_close = undo_close.entries().capacity();
+    CHECK(undo_close.close_editing_session(undo_session->id));
+    CHECK(undo_close.current_timestamp() == 1);
+    CHECK(!undo_close.navigation_floor() && !undo_close.editing_session_status());
+    CHECK(undo_close.entries().size() == 1 && undo_close.entries()[0].id == 1);
+    CHECK(!undo_close.can_redo() && undo_close.can_undo());
+    CHECK(undo_close.entries().capacity() * 2 < undo_close_capacity_before_close);
+    CHECK(undo_close_bytes_before_close >= undo_close.bytes_used() + 2 * std::size_t(192));
+    CHECK(!undo_close.saved_timestamp() && undo_close.saved_checkpoint_evicted() && undo_close.project_modified());
+    CHECK(!undo_close.restore_before(undo_a_id, &undo_entry_root, close_restore));
+    CHECK(!undo_close.restore_after(undo_b_id, &undo_entry_root, close_restore));
+    CHECK(!undo_close.restore(2, nullptr, close_restore));
+    CHECK(!undo_close.restore(3, nullptr, close_restore));
+    CHECK(undo_close.undo(undo_entry_root, close_restore));
+    CHECK(close_restore.timestamp == 0 && close_restore.roots.model.serialized == undo_before.model.serialized);
+    CHECK(!undo_close.can_undo() && undo_close.can_redo());
+    CHECK(undo_close.redo(close_restore));
+    CHECK(close_restore.timestamp == 1 && close_restore.roots.model.serialized == undo_entry_root.model.serialized);
+
+    // At a mixed-history cursor, close compacts only the applied prefix,
+    // preserves its non-paint separator, and drops all Redo children.
+    TimestampedHistory midcursor_close;
+    const auto mid_0 = roots(120, {object(40, 1, 40), object(50, 1, 50)});
+    const auto mid_a = roots(121, {object(40, 2, 41), object(50, 1, 50)});
+    const auto mid_b = roots(122, {object(40, 2, 41), object(50, 2, 51)});
+    const auto mid_config = roots(123, {object(40, 2, 41), object(50, 2, 51)}, 0, 0, 1);
+    const auto mid_c = roots(124, {object(40, 3, 42), object(50, 2, 51)}, 0, 0, 1);
+    const auto mid_d = roots(125, {object(40, 3, 42), object(50, 3, 52)}, 0, 0, 1);
+    const auto mid_session = midcursor_close.begin_editing_session();
+    CHECK(mid_session);
+    CHECK(commit_history(midcursor_close, "mid A", mid_0, mid_a, TimestampedOperationKind::Paint));
+    CHECK(commit_history(midcursor_close, "mid B", mid_a, mid_b, TimestampedOperationKind::Paint));
+    CHECK(commit_history(midcursor_close, "mid configuration", mid_b, mid_config));
+    CHECK(commit_history(midcursor_close, "mid C", mid_config, mid_c, TimestampedOperationKind::Paint));
+    CHECK(commit_history(midcursor_close, "mid D", mid_c, mid_d, TimestampedOperationKind::Paint));
+    const auto mid_entries_before_close = midcursor_close.entries();
+    CHECK(midcursor_close.undo(mid_d, close_restore) && close_restore.timestamp == 4);
+    CHECK(midcursor_close.undo(mid_c, close_restore) && close_restore.timestamp == 3);
+    CHECK(midcursor_close.can_redo() && midcursor_close.navigation_floor() == std::optional<LogicalTimestamp>(0));
+    CHECK(midcursor_close.close_editing_session(mid_session->id));
+    CHECK(midcursor_close.current_timestamp() == 3);
+    CHECK(midcursor_close.entries().size() == 2);
+    CHECK(midcursor_close.entries()[0].id == mid_entries_before_close[0].id);
+    CHECK(midcursor_close.entries()[0].before_timestamp == 0 && midcursor_close.entries()[0].after_timestamp == 2);
+    CHECK(midcursor_close.entries()[0].label == "Paint");
+    CHECK(midcursor_close.entries()[0].scene_delta.object_ids == std::vector<ObjectID>({40, 50}));
+    CHECK(entry_is_equal(midcursor_close.entries()[1], mid_entries_before_close[2]));
+    CHECK(!midcursor_close.navigation_floor() && !midcursor_close.editing_session_status());
+    CHECK(!midcursor_close.can_redo() && midcursor_close.can_undo());
+    CHECK(midcursor_close.restore_after(midcursor_close.entries()[1].id, nullptr, close_restore));
+    CHECK(close_restore.timestamp == 3 && close_restore.roots.model.serialized == mid_config.model.serialized);
+    CHECK(close_restore.roots.project_config == mid_config.project_config);
+    CHECK(!midcursor_close.restore_before(mid_entries_before_close[3].id, &mid_config, close_restore));
+    CHECK(!midcursor_close.restore_after(mid_entries_before_close[4].id, &mid_config, close_restore));
+    CHECK(!midcursor_close.restore(4, nullptr, close_restore));
+    CHECK(!midcursor_close.restore(5, nullptr, close_restore));
+
+    // A non-paint commit sets the same lifetime latch and clears Redo even
+    // after Undo returns to the session entry.
+    TimestampedHistory nonpaint_close;
+    const auto nonpaint_close_before = roots(130, {object(60, 1, 60)});
+    const auto nonpaint_close_after = roots(131, {object(60, 2, 61)}, 0, 0, 1);
+    const auto nonpaint_close_session = nonpaint_close.begin_editing_session();
+    CHECK(nonpaint_close_session);
+    CHECK(commit_history(nonpaint_close, "project configuration", nonpaint_close_before, nonpaint_close_after));
+    CHECK(nonpaint_close.entries().size() == 1);
+    CHECK(nonpaint_close.entries()[0].operation_kind == TimestampedOperationKind::NonPaint);
+    CHECK(nonpaint_close.undo(nonpaint_close_after, close_restore) && close_restore.timestamp == 0);
+    CHECK(nonpaint_close.editing_session_status()->has_effective_commit && nonpaint_close.can_redo());
+    CHECK(nonpaint_close.close_editing_session(nonpaint_close_session->id));
+    CHECK(nonpaint_close.entries().empty());
+    CHECK(nonpaint_close.current_timestamp() == 0 && !nonpaint_close.can_redo());
+    CHECK(!nonpaint_close.navigation_floor() && !nonpaint_close.editing_session_status());
+    CHECK(!nonpaint_close.restore(1, nullptr, close_restore));
+
+    // A session with no effective commit leaves an existing Redo branch and its
+    // saved checkpoint intact, including after an aborted no-effect operation.
+    TimestampedHistory no_effect_close;
+    const auto no_effect_0 = roots(140, {object(70, 1, 70)});
+    const auto no_effect_1 = roots(141, {object(70, 2, 71)});
+    const auto no_effect_2 = roots(142, {object(70, 3, 72)});
+    CHECK(commit_history(no_effect_close, "no-effect base", no_effect_0, no_effect_1));
+    CHECK(commit_history(no_effect_close, "existing redo", no_effect_1, no_effect_2));
+    const auto no_effect_redo_entry = no_effect_close.entries().back();
+    no_effect_close.mark_current_as_saved();
+    CHECK(no_effect_close.undo(no_effect_2, close_restore) && close_restore.timestamp == 1);
+    const auto no_effect_session = no_effect_close.begin_editing_session();
+    CHECK(no_effect_session && !no_effect_session->has_effective_commit);
+    CHECK(no_effect_close.begin_operation("aborted no-effect edit", no_effect_1));
+    CHECK(no_effect_close.abort_operation());
+    CHECK(!no_effect_close.editing_session_status()->has_effective_commit);
+    const auto no_effect_entries = no_effect_close.entries();
+    const auto no_effect_snapshots = no_effect_close.snapshot_count();
+    CHECK(no_effect_close.can_redo());
+    CHECK(no_effect_close.close_editing_session(no_effect_session->id));
+    CHECK(entries_are_equal(no_effect_close.entries(), no_effect_entries));
+    CHECK(entry_is_equal(no_effect_close.entries().back(), no_effect_redo_entry));
+    CHECK(no_effect_close.current_timestamp() == 1 && no_effect_close.snapshot_count() == no_effect_snapshots);
+    CHECK(!no_effect_close.navigation_floor() && !no_effect_close.editing_session_status());
+    CHECK(no_effect_close.can_redo());
+    CHECK(no_effect_close.saved_timestamp() == std::optional<LogicalTimestamp>(2));
+    CHECK(!no_effect_close.saved_checkpoint_evicted() && no_effect_close.project_modified());
+    CHECK(no_effect_close.redo(close_restore));
+    CHECK(close_restore.timestamp == 2 && close_restore.roots.model.serialized == no_effect_2.model.serialized);
+    CHECK(!no_effect_close.project_modified());
+
+    // Closing after oldest-first eviction compacts only what remains and never
+    // recreates the evicted stroke's entry or timestamp.
+    TimestampedHistory evicted_close;
+    const auto evicted_close_session = evicted_close.begin_editing_session();
+    const auto evicted_close_0 = roots(150, {object(80, 1, 80)});
+    const auto evicted_close_1 = roots(151, {object(80, 2, 81)});
+    const auto evicted_close_2 = roots(152, {object(80, 3, 82)});
+    const auto evicted_close_3 = roots(153, {object(80, 4, 83)});
+    const auto evicted_close_4 = roots(154, {object(80, 5, 84)});
+    CHECK(evicted_close_session);
+    CHECK(commit_history(evicted_close, "evicted A", evicted_close_0, evicted_close_1,
+                         TimestampedOperationKind::Paint));
+    const auto evicted_close_a_id = evicted_close.entries().back().id;
+    CHECK(commit_history(evicted_close, "retained B", evicted_close_1, evicted_close_2,
+                         TimestampedOperationKind::Paint));
+    const auto evicted_close_b_id = evicted_close.entries().back().id;
+    CHECK(commit_history(evicted_close, "retained C", evicted_close_2, evicted_close_3,
+                         TimestampedOperationKind::Paint));
+    CHECK(commit_history(evicted_close, "retained D", evicted_close_3, evicted_close_4,
+                         TimestampedOperationKind::Paint));
+    evicted_close.set_byte_budget(evicted_close.bytes_used() - 1);
+    CHECK(evicted_close.resource_diagnostics().evicted_timestamp_count > 0);
+    CHECK(evicted_close.entries().front().id == evicted_close_b_id);
+    const auto eviction_count_before_close = evicted_close.resource_diagnostics().evicted_timestamp_count;
+    CHECK(evicted_close.close_editing_session(evicted_close_session->id));
+    CHECK(evicted_close.entries().size() == 1);
+    CHECK(evicted_close.entries()[0].id == evicted_close_b_id);
+    CHECK(evicted_close.entries()[0].before_timestamp == 1 && evicted_close.entries()[0].after_timestamp == 4);
+    CHECK(evicted_close.current_timestamp() == 4 && !evicted_close.navigation_floor());
+    CHECK(evicted_close.resource_diagnostics().evicted_timestamp_count >= eviction_count_before_close);
+    CHECK(!evicted_close.restore_before(evicted_close_a_id, &evicted_close_4, close_restore));
+    CHECK(!evicted_close.restore(0, nullptr, close_restore));
+    CHECK(evicted_close.current_timestamp() == 4 && !evicted_close.can_redo());
+
+    // Invalid identities and active operations fail before changing any part of
+    // the history, saved checkpoint, session floor or retained resources.
+    TimestampedHistory rejected_close;
+    const auto reject_before = roots(160, {object(90, 1, 90)});
+    const auto reject_entry = roots(161, {object(90, 2, 91)});
+    const auto reject_paint = roots(162, {object(90, 3, 92)});
+    CHECK(commit_history(rejected_close, "reject base", reject_before, reject_entry));
+    const auto reject_session = rejected_close.begin_editing_session();
+    CHECK(reject_session);
+    CHECK(commit_history(rejected_close, "reject paint", reject_entry, reject_paint,
+                         TimestampedOperationKind::Paint));
+    rejected_close.mark_current_as_saved();
+    const auto assert_rejected_unchanged = [&](const std::vector<TimestampedEntryInfo>& entries_before,
+                                               const std::vector<TimestampedObjectVersionInterval>& intervals_before,
+                                               const TimestampedResourceDiagnostics& resources_before,
+                                               std::size_t snapshots_before, std::size_t archives_before,
+                                               std::size_t bytes_before, LogicalTimestamp current_before,
+                                               std::optional<LogicalTimestamp> floor_before,
+                                               std::optional<LogicalTimestamp> saved_before,
+                                               bool checkpoint_evicted_before, bool modified_before,
+                                               bool operation_before) {
+        const auto status = rejected_close.editing_session_status();
+        return entries_are_equal(rejected_close.entries(), entries_before) &&
+               intervals_are_equal(rejected_close.object_intervals(), intervals_before) &&
+               resource_diagnostics_are_equal(rejected_close.resource_diagnostics(), resources_before) &&
+               rejected_close.snapshot_count() == snapshots_before &&
+               rejected_close.object_archive_count() == archives_before && rejected_close.bytes_used() == bytes_before &&
+               rejected_close.current_timestamp() == current_before && rejected_close.navigation_floor() == floor_before &&
+               rejected_close.saved_timestamp() == saved_before &&
+               rejected_close.saved_checkpoint_evicted() == checkpoint_evicted_before &&
+               rejected_close.project_modified() == modified_before &&
+               rejected_close.operation_active() == operation_before && status && status->id == reject_session->id &&
+               status->has_effective_commit;
+    };
+    const auto reject_entries = rejected_close.entries();
+    const auto reject_intervals = rejected_close.object_intervals();
+    const auto reject_resources = rejected_close.resource_diagnostics();
+    const auto reject_snapshots = rejected_close.snapshot_count();
+    const auto reject_archives = rejected_close.object_archive_count();
+    const auto reject_bytes = rejected_close.bytes_used();
+    const auto reject_current = rejected_close.current_timestamp();
+    const auto reject_floor = rejected_close.navigation_floor();
+    const auto reject_saved = rejected_close.saved_timestamp();
+    const bool reject_checkpoint_evicted = rejected_close.saved_checkpoint_evicted();
+    const bool reject_modified = rejected_close.project_modified();
+    const bool reject_operation = rejected_close.operation_active();
+    CHECK(!rejected_close.close_editing_session(reject_session->id + 1));
+    CHECK(assert_rejected_unchanged(reject_entries, reject_intervals, reject_resources, reject_snapshots,
+                                    reject_archives, reject_bytes, reject_current, reject_floor, reject_saved,
+                                    reject_checkpoint_evicted, reject_modified, reject_operation));
+    CHECK(rejected_close.begin_operation("active close refusal", reject_paint, TimestampedOperationKind::Paint));
+    const auto active_reject_entries = rejected_close.entries();
+    const auto active_reject_intervals = rejected_close.object_intervals();
+    const auto active_reject_resources = rejected_close.resource_diagnostics();
+    const auto active_reject_snapshots = rejected_close.snapshot_count();
+    const auto active_reject_archives = rejected_close.object_archive_count();
+    const auto active_reject_bytes = rejected_close.bytes_used();
+    const auto active_reject_current = rejected_close.current_timestamp();
+    const auto active_reject_floor = rejected_close.navigation_floor();
+    const auto active_reject_saved = rejected_close.saved_timestamp();
+    const bool active_reject_checkpoint_evicted = rejected_close.saved_checkpoint_evicted();
+    const bool active_reject_modified = rejected_close.project_modified();
+    const bool active_reject_operation = rejected_close.operation_active();
+    CHECK(!rejected_close.close_editing_session(reject_session->id));
+    CHECK(assert_rejected_unchanged(active_reject_entries, active_reject_intervals, active_reject_resources,
+                                    active_reject_snapshots, active_reject_archives, active_reject_bytes,
+                                    active_reject_current, active_reject_floor, active_reject_saved,
+                                    active_reject_checkpoint_evicted, active_reject_modified,
+                                    active_reject_operation));
+    CHECK(rejected_close.abort_operation(&close_restore));
+    CHECK(close_restore.timestamp == 2 && close_restore.roots.model.serialized == reject_paint.model.serialized);
 
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;

@@ -116,6 +116,9 @@ public:
     // without crossing the current cursor. A valid session with no multi-entry
     // paint run succeeds without changing history.
     bool compact_editing_session(EditingSessionId session_id, std::string label = "Paint");
+    // Atomically compact applied session paint runs and close the session. Any
+    // effective session commit discards the complete Redo branch.
+    bool close_editing_session(EditingSessionId session_id, std::string label = "Paint");
 
     // The outer operation captures its predecessor before the first write.
     // Nested calls join that operation. Only the outer commit creates one
@@ -166,6 +169,9 @@ public:
 
 private:
     struct Impl;
+    static bool compact_editing_session_staged(Impl& staged, EditingSessionId session_id,
+                                               const std::string& label, bool apply, bool enforce_budget,
+                                               bool& compacted);
     std::unique_ptr<Impl> m_impl;
 };
 

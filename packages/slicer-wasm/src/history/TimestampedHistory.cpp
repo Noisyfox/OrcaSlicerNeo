@@ -603,12 +603,52 @@ std::optional<TimestampedEditingSessionInfo> TimestampedHistory::editing_session
 
 bool TimestampedHistory::compact_editing_session(EditingSessionId session_id, std::string label)
 {
+    bool compacted = false;
+    if (!compact_editing_session_staged(*m_impl, session_id, label, false, false, compacted)) return false;
+    if (!compacted) return true;
+
+    auto staged = std::make_unique<Impl>(*m_impl);
+    compacted = false;
+    if (!compact_editing_session_staged(*staged, session_id, label, true, true, compacted) || !compacted)
+        return false;
+    m_impl.swap(staged);
+    return true;
+}
+
+bool TimestampedHistory::close_editing_session(EditingSessionId session_id, std::string label)
+{
     if (m_impl->operation || !m_impl->editing_session || m_impl->editing_session->id != session_id)
         return false;
 
-    const auto& entries = m_impl->entries;
+    auto staged = std::make_unique<Impl>(*m_impl);
+    bool compacted = false;
+    if (!compact_editing_session_staged(*staged, session_id, label, true, false, compacted)) return false;
+
+    const bool has_effective_commit = staged->editing_session->has_effective_commit;
+    if (has_effective_commit) staged->truncate_redo_branch();
+
+    staged->navigation_floor.reset();
+    staged->editing_session.reset();
+    // Keep the pre-existing Redo branch byte-for-byte reachable for a
+    // no-effect session while the usual budget policy evicts older applied
+    // history when needed.
+    staged->enforce_budget(!has_effective_commit);
+    m_impl.swap(staged);
+    return true;
+}
+
+bool TimestampedHistory::compact_editing_session_staged(Impl& staged, EditingSessionId session_id,
+                                                         const std::string& label, bool apply,
+                                                         bool enforce_budget,
+                                                         bool& compacted)
+{
+    compacted = false;
+    if (staged.operation || !staged.editing_session || staged.editing_session->id != session_id)
+        return false;
+
+    const auto& entries = staged.entries;
     std::size_t applied_count = 0;
-    while (applied_count < entries.size() && entries[applied_count].after_timestamp <= m_impl->current_timestamp)
+    while (applied_count < entries.size() && entries[applied_count].after_timestamp <= staged.current_timestamp)
         ++applied_count;
 
     const auto is_session_paint = [session_id](const TimestampedEntryInfo& entry) {
@@ -633,11 +673,11 @@ bool TimestampedHistory::compact_editing_session(EditingSessionId session_id, st
         first = last + 1;
     }
     if (!has_run) return true;
+    if (!apply) {
+        compacted = true;
+        return true;
+    }
 
-    // Stage every mutation so allocation failures cannot publish a partial
-    // compaction. Snapshot objects are shared immutable roots; this copy only
-    // changes the staged maps and never edits a Snapshot in place.
-    auto staged = std::make_unique<Impl>(*m_impl);
     std::vector<TimestampedEntryInfo> compacted_entries;
     compacted_entries.reserve(compacted_size);
     std::vector<LogicalTimestamp> intermediate_timestamps;
@@ -670,24 +710,24 @@ bool TimestampedHistory::compact_editing_session(EditingSessionId session_id, st
     }
 
     compacted_entries.shrink_to_fit();
-    staged->entries.swap(compacted_entries);
-    std::set<LogicalTimestamp> referenced_timestamps { staged->current_timestamp };
-    if (staged->navigation_floor) referenced_timestamps.insert(*staged->navigation_floor);
-    if (staged->operation) referenced_timestamps.insert(staged->operation->before_timestamp);
-    for (const auto& entry : staged->entries) {
+    staged.entries.swap(compacted_entries);
+    std::set<LogicalTimestamp> referenced_timestamps { staged.current_timestamp };
+    if (staged.navigation_floor) referenced_timestamps.insert(*staged.navigation_floor);
+    if (staged.operation) referenced_timestamps.insert(staged.operation->before_timestamp);
+    for (const auto& entry : staged.entries) {
         referenced_timestamps.insert(entry.before_timestamp);
         referenced_timestamps.insert(entry.after_timestamp);
     }
     for (LogicalTimestamp timestamp : intermediate_timestamps)
         if (referenced_timestamps.find(timestamp) == referenced_timestamps.end())
-            staged->erase_snapshot(timestamp, false);
+            staged.erase_snapshot(timestamp, false);
 
-    staged->rebuild_intervals();
-    // Compaction itself leaves the Redo side intact. If its reduced metadata
-    // still exceeds budget, apply the existing oldest-first policy to applied
-    // snapshots while keeping every future checkpoint available for closure.
-    staged->enforce_budget(true);
-    m_impl.swap(staged);
+    staged.rebuild_intervals();
+    // Standalone compaction applies the existing policy while keeping Redo
+    // checkpoints available. Session closure postpones budget work until after
+    // its conditional Redo cleanup.
+    if (enforce_budget) staged.enforce_budget(true);
+    compacted = true;
     return true;
 }
 

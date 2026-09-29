@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-03 accepted; later steps remain gated.
+**Status:** Sequential implementation in progress. Steps 01-03 and 04a accepted; later steps remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -73,7 +73,7 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 ### 04a. Atomic native history-session closure
 
-**Status:** Pending. **Depends on:** 03 accepted by parent. **Verification:** N.
+**Status:** Accepted by parent. **Depends on:** 03 accepted by parent. **Verification:** N.
 
 **Allowed scope:** src/history/TimestampedHistory.{hpp,cpp,test.cpp}.
 
@@ -439,3 +439,22 @@ accepted. No bridge/UI change; host/alternate-variant gates remain deferred.
 
 The next work package was split into 04a (atomic core closure) and 04b (bridge and
 real-WASM integration), with a separate fresh child and acceptance gate for each.
+
+Accepted step 03 code commit: `2444e37e`.
+
+### Step 04a acceptance — atomic native session closure
+
+Child: `/root/painting_step_04a` (`gpt-6-luna`, max). Parent inspected staged
+compaction reuse, lifetime-latch Redo cleanup, navigation-floor release and saved
+marker handling. Tests cover mixed history, full Undo, non-paint-only commits,
+no-effect Redo preservation, eviction, stale IDs, operation conflicts and fresh
+session identities. A requested regression directly verifies metadata capacity
+and bytes released by Redo-only cleanup. Allocation failure was not fault-injected;
+exception safety was reviewed from the staged ownership and final swap boundary.
+
+Child rebuilt and passed the native history-core target/runner, serial quick build,
+full slicer-wasm tests (193/8 files), typecheck and diff check. Parent independently
+reran the native runner, serial quick build, full package tests, typecheck and diff
+check, all passing, and reviewed the actual diff after graph change detection.
+Only the three native history files changed. Step 04a accepted; bridge coverage is
+the separate next gate, with host and alternate-WASM validation still deferred.
