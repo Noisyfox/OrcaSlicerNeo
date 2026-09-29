@@ -115,12 +115,22 @@ Other lifecycle actions and camera bindings remain subject to section 10
 clarification.
 
 While a stroke is unfinished, ignore Save, Undo, Redo, explicit gizmo-close,
-Prepare-to-Preview, and user-initiated Slice commands. Do not queue them, open
-their dialogs, commit or cancel the stroke, navigate history, or begin closure.
+Prepare-to-Preview, user-initiated Slice, parameter-edit, and filament-slot
+adjustment commands. Do not queue them, apply their project changes, open their
+dialogs, commit or cancel the stroke, navigate history, or begin closure.
 The user must issue the command again after the stroke finishes. Apply this
 rule across shortcuts and other command entry points. Escape retains its
-stroke-cancellation behavior above. Passive interruptions and project mutations
-are separate policies and are not implicitly covered by this ignore rule.
+stroke-cancellation behavior above. If focus loss has already ended the stroke
+before a parameter or slot command arrives, process it as an ordinary between-
+stroke edit. Other project mutations are not implicitly covered by this rule.
+
+Window focus loss, system pointer cancellation, or unexpected loss of pointer
+capture ends the current stroke by committing its effective painted portion,
+using the same atomic commit/history and invalidation rules as pointer release.
+Keep the gizmo open; an empty stroke creates no history entry. Ignore late samples
+and release events belonging to the ended stroke. Merely moving outside the
+canvas while pointer capture remains valid is not an interruption. Normal
+capture release after an already completed stroke must not commit it twice.
 
 ### 3.3 Navigation and editing-target changes
 
@@ -198,8 +208,9 @@ committed model before they become visible again.
 
 Non-paint project operations retain their normal semantics and history order.
 They operate on the latest committed model, including all completed painting
-strokes. The policy for a non-paint operation arriving during an unfinished
-stroke remains to be clarified.
+strokes. Parameter and filament-slot commands received during an unfinished
+stroke are ignored under section 3.2. Other project mutations during a stroke
+remain to be clarified.
 
 ## 6. Nested history and compaction
 
@@ -289,8 +300,9 @@ Global/scoped configuration and filament-slot operations can separate paint
 runs without closing the session. Slot operations apply to committed annotations
 and synchronize the active selectors. Palette changes affect display; deletion,
 merging, or reordering requires coordinated native state mapping. Historical
-nodes remain paired with their historical material definitions. Exact mapping,
-active-stroke, and failure policies remain to be clarified.
+nodes remain paired with their historical material definitions. During an active
+stroke, parameter and slot commands are ignored under section 3.2. Exact mapping
+and failure policies remain to be clarified.
 
 ### 7.1 Save while painting
 
@@ -372,9 +384,14 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Escape cancels an active stroke without closing or recording that stroke;
   idle Escape closes with completed strokes retained. Late events cannot revive
   a cancelled stroke.
-- Save, Undo, Redo, explicit close, Preview, and Slice commands issued during an
-  unfinished stroke have no effect and are not replayed after release or Escape.
+- Save, Undo, Redo, explicit close, Preview, Slice, parameter-edit, and filament-
+  slot commands issued during an unfinished stroke have no effect and are not
+  replayed after release or Escape.
   Verify both shortcut and other command entry points, including no save dialog.
+- Focus loss, pointer cancellation, and unexpected capture loss commit an
+  effective unfinished stroke once and keep the gizmo open. Empty strokes do not
+  create history; late input and ordinary capture release cannot duplicate the
+  commit. Leaving the canvas with capture intact does not end the stroke.
 - Each stroke commit and painting Undo/Redo updates native state and immediately
   invalidates obsolete results without eagerly recomputing heavy projections.
   Non-paint separators retain order and corresponding configuration/material state.
@@ -408,8 +425,8 @@ or create separate phase documents.
 
 | Group | Important unresolved decisions |
 | --- | --- |
-| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands and passive interruptions, export and destructive actions |
-| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction. Remaining: slot-remapping atomicity; mutations during unfinished strokes |
+| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
+| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing. Remaining: slot-remapping atomicity; other mutations during unfinished strokes |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
