@@ -48,9 +48,9 @@ The reusable architecture separates:
 2. Native editing session: authoritative hit testing, stroke processing,
    selector lifetime, selection/fill algorithms, and draft display output.
 3. Session history: ordered child edits, navigation, non-paint separators,
-   compaction, and final publication.
+   per-stroke commits, and closure compaction.
 4. Annotation adapters: native field, legal states, display semantics, response
-   to external edits, and effects of final publication.
+   to external edits, immediate invalidation, and deferred derived updates.
 
 | Feature | Native annotation | State semantics |
 | --- | --- | --- |
@@ -101,8 +101,8 @@ belong to the shared volumes and therefore affect the other instances too.
 ### 3.2 Explicit closure and Escape
 
 When no stroke is active, Escape behaves like the toolbar close action:
-commit the draft, compact history, and return to Prepare. It does not discard
-the session's painting or ask whether to apply it.
+retain the committed strokes, compact history, complete deferred updates, and
+return to Prepare. It does not discard painting or ask whether to apply it.
 
 During an active stroke, Escape cancels only that stroke and keeps the gizmo
 open. Restore the draft to its pre-stroke state and do not create a history
@@ -138,26 +138,35 @@ a newer session. Releasing a stroke waits for all accepted samples belonging to
 that stroke. Precise batching, backpressure, camera-snapshot transport, and
 cancellation behavior are to be finalized before implementation.
 
-## 5. Session drafts and deferred effects
+## 5. Per-stroke commits and deferred derived updates
 
-Every painting operation remains a draft for the entire time the gizmo is open.
-Ending a stroke records a child history state; it does not publish painting to
-the live model. Undo/Redo of painting changes the draft and painting display.
+Only the active, unfinished stroke is a draft. At pointer release, drain its
+accepted samples, atomically write the changed native annotations to the live
+model, and record one navigable child history operation. A failed commit retains
+the stroke state for recovery without partially changing the model or history.
+An empty stroke creates no history entry. Closing the gizmo does not write the
+completed strokes again.
 
-Painting must not cause the following before final gizmo closure:
+Immediately after each effective commit, advance the affected slice-input
+versions and make obsolete slice results unusable. Heavy derived work,
+including material-use summaries and Prime Tower projections, is deferred until
+gizmo closure or an operation actually requires it. Deferred work must not make
+an obsolete cache or slice result appear current. The active-job cancellation
+and admission policy for each WASM variant remains a runtime clarification.
 
-- Replacing the ordinary committed paint display resources.
-- Recomputing committed material-use summaries or Prime Tower projections.
-- Advancing plate slice-input stamps or invalidating/cancelling slice work.
+Undo/Redo of painting restores the committed native annotations and synchronizes
+the active selectors/display. It follows the same immediate-invalidation and
+deferred-recomputation policy as a new stroke. Active-stroke Escape cancellation
+does not change committed state or trigger its invalidation.
 
-Computing draft geometry, candidate regions, and the cursor remains necessary
-for the editing display and is outside that deferred-effects restriction.
+The dedicated painting display continues to update during strokes. Ordinary
+Prepare paint resources may be refreshed when needed, and must match the
+committed model before they become visible again.
 
-Non-paint project operations may occur while the gizmo is open. They retain
-their own semantics and effects; they must not implicitly commit preceding
-painting drafts or include those drafts in committed derived-state calculation.
-Their exact interaction with live jobs and read/export operations is an open
-lifecycle topic.
+Non-paint project operations retain their normal semantics and history order.
+They operate on the latest committed model, including all completed painting
+strokes. The policy for a non-paint operation arriving during an unfinished
+stroke remains to be clarified.
 
 ## 6. Nested history and compaction
 
@@ -206,43 +215,63 @@ If this gizmo operation has produced an effect, successful closure discards
 previously retained redo branch. No redo branch is compacted and retained in
 that case.
 
-Final model publication, history compaction, and redo removal must be atomic.
-Failure retains the draft and navigable history so the user can continue or
-retry. The exact effect/no-effect predicate, including fully undone edits,
-requires clarification; it must not be silently inferred from pointer activity.
+History compaction and redo removal must be atomic. Failed closure retains the
+open session and navigable history; completed strokes remain committed. The
+exact effect/no-effect predicate, including fully undone edits, requires
+clarification; it must not be silently inferred from pointer activity.
 
 ### 6.4 State ownership
 
-History must preserve the pairing of project state and paint draft at each
-interleaved edit. Use native, stable-identity state ownership and shared immutable
-mesh resources; display geometry is not the history authority. Final compacted
-entries must restore correct annotation/configuration combinations without
-retaining a closed editing session or its stroke-level nodes.
+Each completed stroke and non-paint edit records an actual committed native
+project state. No parallel session-wide draft history or conversion from draft
+roots to committed roots is needed. Use stable identities and shared immutable
+mesh resources; display geometry is not the history authority. Compacted entries
+must restore correct annotation/configuration combinations without retaining a
+closed editing session or its stroke-level nodes. The checkpoint for cancelling
+an unfinished stroke remains local to that stroke.
 
-The concrete draft checkpoint representation and conversion to committed
-history roots remain an implementation design topic. The behavior above must
-be proved independently of viewport rendering.
+Compaction, save-checkpoint preservation, and child navigation must be proved
+independently of viewport rendering.
 
-## 7. External edits and final publication
+## 7. External operations and session closure
 
 Global/scoped configuration and filament-slot operations can separate paint
-runs without closing the session. Slot operations must keep current draft
-references meaningful; palette changes affect display, while deletion, merging,
-or reordering requires coordinated native state mapping. Historical nodes must
-remain paired with their historical material definitions. Exact slot-remapping
-and failure policies remain to be clarified.
+runs without closing the session. Slot operations apply to committed annotations
+and synchronize the active selectors. Palette changes affect display; deletion,
+merging, or reordering requires coordinated native state mapping. Historical
+nodes remain paired with their historical material definitions. Exact mapping,
+active-stroke, and failure policies remain to be clarified.
 
-Closing drains the accepted stroke input, validates the session, prepares the
-final annotations and compacted history, and publishes them atomically. Only
-the final current state is applied to the live model. Painting-related derived
-state is then updated for the affected objects and every affected plate,
-including other instances sharing the edited annotations. Ordinary Prepare
-resources become visible only when they match that committed state.
+### 7.1 Save while painting
 
-The session draft is retained on failure. Active-stroke Escape cancellation is
-defined in section 3.2. Other pending-input cases, any whole-session discard
-action, source-mesh replacement, target deletion, Save, Slice, export, page
-changes, and application shutdown are deliberately not settled here.
+With no unfinished stroke, Save writes the current committed project while
+keeping the gizmo open and preserving stroke-level Undo/Redo. Saving does not
+compact painting history. The saved checkpoint must remain correct after later
+stroke edits, navigation, and closure compaction; its precise representation
+and compaction policy are part of the history clarification group. Save during
+an active stroke has not yet been specified.
+
+### 7.2 User-initiated slicing
+
+A user-initiated Slice action first closes the painting gizmo, compacts history,
+applies the conditional all-Redo removal rule, and completes required deferred
+derived calculations. Only then may slicing start. Failure to close or prepare
+the required state must not start the requested slice. This policy applies to
+all user-facing Slice entry points, including shortcuts, not only a toolbar
+button. Already-running background slice work is a separate runtime topic.
+
+### 7.3 Closure publication
+
+Closing validates the session and compacts the already-committed history without
+replaying model mutations. Complete deferred painting-related calculations for
+the affected objects and plates, including other instances sharing the edited
+annotations. Ordinary Prepare resources become visible only when they match
+the committed state. Do not repeat invalidations or calculations already settled
+for the same input version.
+
+Active-stroke Escape cancellation is defined in section 3.2. Other pending-input
+cases, any whole-session discard action, source-mesh replacement, target deletion,
+export, page changes, and application shutdown are deliberately not settled here.
 
 ## 8. Native Orca reference and Neo differences
 
@@ -261,10 +290,12 @@ Reference behavior is source-derived, not an assertion about a newer release.
   calls `reduce_noisy_snapshots` when leaving a gizmo with an action; its comment
   explicitly describes reducing consecutive gizmo-action runs.
 
-Orca writes selector results back at stroke release. Neo intentionally differs:
-all painting remains draft until gizmo closure, while preserving the requested
-session history and compaction semantics. wx/ImGui/OpenGL classes are references,
-not components to compile into the WASM application.
+Orca writes selector results back at stroke release; Neo follows that commit
+boundary. Neo explicitly separates immediate invalidation from heavy derived
+recomputation and defines its session-history behavior above. Orca's Save path
+can retain an open multi-material gizmo, while its Slice button exits the gizmo
+before updating and slicing; the corresponding Neo policies are in section 7.
+wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 
 ## 9. Required validation themes
 
@@ -275,12 +306,16 @@ not components to compile into the WASM application.
 - Part-based entry permits painting all solid parts of the owning object;
   entry requires at least two filament slots and hides all other instances.
 - Escape cancels an active stroke without closing or recording that stroke;
-  idle Escape commits and closes. Late events cannot revive a cancelled stroke.
-- Stroke Undo/Redo changes draft only; non-paint separators retain order and
-  corresponding configuration/material state.
+  idle Escape closes with completed strokes retained. Late events cannot revive
+  a cancelled stroke.
+- Each stroke commit and painting Undo/Redo updates native state and immediately
+  invalidates obsolete results without eagerly recomputing heavy projections.
+  Non-paint separators retain order and corresponding configuration/material state.
 - Close compacts continuous runs, removes all redo when the effect condition
-  holds, and publishes painting-related effects only once per affected target.
-- Failed finalization preserves the open draft/history and committed state.
+  holds, and completes deferred work without replaying committed strokes.
+- Save retains the open gizmo and child history; its checkpoint remains correct
+  after compaction. Slice closes and settles required derived work before starting.
+- Failed stroke commit or closure does not partially publish its state/history.
 - 3MF round trips and actual multi-material slicing consume final native
   annotations; shared instances and affected plates remain consistent.
 - Performance validation separates hit testing, selector work, draft geometry
@@ -296,12 +331,11 @@ or create separate phase documents.
 
 | Group | Important unresolved decisions |
 | --- | --- |
-| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape commits/closes, active-stroke Escape cancels that stroke and stays open. Remaining: other activation gates, target switches, any whole-session discard, Save/Slice/export and destructive actions |
-| B. History and external edits | Effect/no-effect and fully undone sessions; no-effect redo behavior; navigation across the session boundary; dirty/save semantics; slot-remapping atomicity; other mutations interleaved with drafts |
+| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice closes first. Remaining: other activation gates, target switches, any whole-session discard, active-stroke external commands, export and destructive actions |
+| B. History and external edits | Per-stroke native commits accepted. Remaining: effect/no-effect and fully undone sessions; no-effect redo behavior; navigation across the session boundary; dirty/save checkpoint semantics through compaction; slot-remapping atomicity; mutations during unfinished strokes |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
-| D. Runtime and acceptance | Active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
+| D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
-No code implementation is authorized by this clarification workflow. The first
-related batch of group A decisions is recorded in section 3; continue resolving
-the remaining lifecycle questions and fold each coherent batch into this same
-specification.
+No code implementation is authorized by this clarification workflow. Accepted
+batches are integrated into the relevant sections. Continue resolving lifecycle
+questions and fold each coherent batch into this same specification.
