@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Step 01 accepted; later steps remain gated.
+**Status:** Sequential implementation in progress. Steps 01-02 accepted; later steps remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -53,7 +53,7 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 ### 02. Native editing-session history metadata
 
-**Status:** Pending. **Depends on:** 01 accepted by parent. **Verification:** N.
+**Status:** Accepted by parent. **Depends on:** 01 accepted by parent. **Verification:** N.
 
 **Allowed scope:** src/history/TimestampedHistory.*.
 
@@ -387,3 +387,24 @@ as 280 bytes versus the old 256-byte slot; child corrected the slot and added a
 compile-time assertion, then rebuilt/retested native targets. Parent reran the
 final native test and quick build. No UI/ABI changed; host E2E and the second WASM
 variant are intentionally reserved for their integration gates. Step 01 accepted.
+
+### Step 02 acceptance — native session metadata
+
+Child: `/root/painting_step_02` (`gpt-6-luna`, max). Added native session identity,
+entry boundary, effective-commit latch, and paint/non-paint operation classification;
+existing callers stay non-paint and nested operations retain outer metadata. The
+parent reviewed compatibility and side effects and required a non-paint-only
+commit/Undo regression as well as a retained-entry allocation-size guard. Both
+were added and self-verified. Core no-effect operations continue through the
+existing caller-controlled abort path; this step did not change that contract.
+
+Child and parent independently passed the serial history-core CJS runner,
+`scripts\build-windows.bat quick --variant serial`, the full slicer-wasm suite
+(193 tests/8 files), slicer-wasm typecheck, and `git diff --check`. Child rebuilt
+the native test target using the same configured command recorded for step 01.
+Parent inspected the final native diff and graph-reported impacts; direct C++
+test evidence covers graph-unrecognized standalone tests. No UI/bridge ABI changed.
+Native canonical slots are compile-guarded at 336 bytes for Impl and 192 bytes
+for retained entries (also bounding active Operation). Step 02 accepted.
+
+Accepted step 01 code commit: `3d85d465`.

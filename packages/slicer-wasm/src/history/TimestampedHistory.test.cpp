@@ -87,6 +87,8 @@ int main()
     CHECK(overlays.begin_operation("paint", overlay_after));
     CHECK(overlays.commit_operation(metadata_after));
     CHECK(overlays.entries().back().scene_delta.object_ids == std::vector<ObjectID>({1}));
+    CHECK(overlays.entries().back().operation_kind == TimestampedOperationKind::NonPaint);
+    CHECK(overlays.entries().back().editing_session_id == 0);
 
     // One semantic operation may add, move, and delete multiple stable-ID
     // objects. A non-adjacent menu target restores its explicit timestamp.
@@ -331,6 +333,8 @@ int main()
             if (after_entry.id != before_entry.id || after_entry.label != before_entry.label ||
                 after_entry.before_timestamp != before_entry.before_timestamp ||
                 after_entry.after_timestamp != before_entry.after_timestamp ||
+                after_entry.operation_kind != before_entry.operation_kind ||
+                after_entry.editing_session_id != before_entry.editing_session_id ||
                 after_entry.scene_delta.object_ids != before_entry.scene_delta.object_ids ||
                 after_entry.scene_delta.volume_ids != before_entry.scene_delta.volume_ids ||
                 after_entry.scene_delta.instance_ids != before_entry.scene_delta.instance_ids ||
@@ -409,6 +413,199 @@ int main()
     CHECK(active_floor.snapshot_count() == active_floor_snapshots);
     CHECK(active_floor.bytes_used() == active_floor_bytes);
     CHECK(active_floor.abort_operation());
+
+    // Opening an editing session sets the current timestamp as its reversible
+    // floor without capturing state, changing the save marker, or pruning Redo.
+    TimestampedHistory editing_session_history;
+    const auto session_before = roots(31, {object(31, 1, 31)}, 1, 11, 21);
+    const auto session_first = roots(32, {object(31, 2, 32)}, 2, 12, 22);
+    const auto session_redo = roots(33, {object(31, 3, 33)}, 3, 13, 23);
+    CHECK(editing_session_history.begin_operation("before session", session_before));
+    CHECK(editing_session_history.commit_operation(session_first));
+    CHECK(editing_session_history.begin_operation("preexisting redo", session_first));
+    CHECK(editing_session_history.commit_operation(session_redo));
+    CHECK(editing_session_history.undo(session_redo, restored));
+    CHECK(restored.timestamp == 1);
+    editing_session_history.mark_current_as_saved();
+    const auto session_entries_before = editing_session_history.entries();
+    const auto session_snapshots_before = editing_session_history.snapshot_count();
+    const auto session_saved_before = editing_session_history.saved_timestamp();
+    const bool session_modified_before = editing_session_history.project_modified();
+    CHECK(editing_session_history.can_redo());
+    const auto editing_session = editing_session_history.begin_editing_session();
+    CHECK(editing_session && editing_session->id != 0 && editing_session->entry_timestamp == 1 &&
+          !editing_session->has_effective_commit);
+    const auto session_status = editing_session_history.editing_session_status();
+    CHECK(session_status && session_status->id == editing_session->id &&
+          session_status->entry_timestamp == 1 && !session_status->has_effective_commit);
+    CHECK(!editing_session_history.operation_active());
+    CHECK(editing_session_history.navigation_floor() == std::optional<LogicalTimestamp>(1));
+    CHECK(editing_session_history.current_timestamp() == 1);
+    CHECK(editing_session_history.entries().size() == session_entries_before.size());
+    CHECK(editing_session_history.snapshot_count() == session_snapshots_before);
+    CHECK(editing_session_history.saved_timestamp() == session_saved_before);
+    CHECK(editing_session_history.project_modified() == session_modified_before);
+    CHECK(editing_session_history.can_redo());
+    CHECK(!editing_session_history.can_undo());
+
+    // An empty/no-effect command follows the existing abort path. It adds no
+    // history entry, leaves Redo intact, and does not set the lifetime latch.
+    CHECK(editing_session_history.begin_operation("empty project operation", session_first));
+    CHECK(editing_session_history.abort_operation());
+    CHECK(editing_session_history.entries().size() == session_entries_before.size());
+    CHECK(editing_session_history.can_redo());
+    auto session_status_after_abort = editing_session_history.editing_session_status();
+    CHECK(session_status_after_abort && !session_status_after_abort->has_effective_commit);
+
+    // Overlap and public floor changes are rejected without changing the
+    // active record or opening timestamp boundary.
+    const auto floor_before_overlap = editing_session_history.navigation_floor();
+    const auto bytes_before_overlap = editing_session_history.bytes_used();
+    CHECK(!editing_session_history.begin_editing_session());
+    CHECK(!editing_session_history.set_navigation_floor(std::nullopt));
+    CHECK(!editing_session_history.set_navigation_floor(0));
+    CHECK(!editing_session_history.set_navigation_floor(1));
+    session_status_after_abort = editing_session_history.editing_session_status();
+    CHECK(session_status_after_abort && session_status_after_abort->id == editing_session->id &&
+          !session_status_after_abort->has_effective_commit);
+    CHECK(editing_session_history.navigation_floor() == floor_before_overlap);
+    CHECK(editing_session_history.bytes_used() == bytes_before_overlap);
+    CHECK(editing_session_history.can_redo());
+
+    // Conflicting manual floors and active operations prevent session entry
+    // without taking snapshots, consuming an ID, or otherwise changing state.
+    TimestampedHistory conflicting_floor;
+    CHECK(conflicting_floor.begin_operation("floor setup", session_before));
+    CHECK(conflicting_floor.commit_operation(session_first));
+    CHECK(conflicting_floor.set_navigation_floor(0));
+    const auto conflict_bytes_before = conflicting_floor.bytes_used();
+    const auto conflict_snapshots_before = conflicting_floor.snapshot_count();
+    CHECK(!conflicting_floor.begin_editing_session());
+    CHECK(!conflicting_floor.editing_session_status());
+    CHECK(conflicting_floor.navigation_floor() == std::optional<LogicalTimestamp>(0));
+    CHECK(conflicting_floor.bytes_used() == conflict_bytes_before);
+    CHECK(conflicting_floor.snapshot_count() == conflict_snapshots_before);
+    CHECK(conflicting_floor.set_navigation_floor(1));
+    const auto matching_floor_session = conflicting_floor.begin_editing_session();
+    CHECK(matching_floor_session && matching_floor_session->id == 1 &&
+          matching_floor_session->entry_timestamp == 1);
+
+    TimestampedHistory active_operation_session;
+    CHECK(active_operation_session.begin_operation("already active", session_before));
+    const auto active_operation_bytes_before = active_operation_session.bytes_used();
+    const auto active_operation_snapshots_before = active_operation_session.snapshot_count();
+    CHECK(!active_operation_session.begin_editing_session());
+    CHECK(!active_operation_session.editing_session_status());
+    CHECK(!active_operation_session.navigation_floor());
+    CHECK(active_operation_session.operation_active());
+    CHECK(active_operation_session.bytes_used() == active_operation_bytes_before);
+    CHECK(active_operation_session.snapshot_count() == active_operation_snapshots_before);
+    CHECK(active_operation_session.abort_operation());
+    const auto after_active_operation_session = active_operation_session.begin_editing_session();
+    CHECK(after_active_operation_session && after_active_operation_session->id == 1);
+    active_operation_session.clear();
+
+    // Classifications and session identity follow the outer transaction even
+    // when nested callers request the opposite kind. Each completed command
+    // remains independently navigable above the session floor.
+    const auto session_paint_one = roots(34, {object(31, 3, 34)}, 4, 14, 24);
+    CHECK(editing_session_history.begin_operation("surface A", session_first, TimestampedOperationKind::Paint));
+    CHECK(editing_session_history.begin_operation("nested non-paint", session_first,
+                                                  TimestampedOperationKind::NonPaint));
+    CHECK(editing_session_history.commit_operation(session_paint_one));
+    CHECK(editing_session_history.entries().size() == session_entries_before.size());
+    session_status_after_abort = editing_session_history.editing_session_status();
+    CHECK(session_status_after_abort && !session_status_after_abort->has_effective_commit);
+    CHECK(editing_session_history.commit_operation(session_paint_one));
+    CHECK(editing_session_history.entries().back().operation_kind == TimestampedOperationKind::Paint);
+    CHECK(editing_session_history.entries().back().editing_session_id == editing_session->id);
+    session_status_after_abort = editing_session_history.editing_session_status();
+    CHECK(session_status_after_abort && session_status_after_abort->has_effective_commit);
+
+    const auto session_config = roots(35, {object(31, 4, 35)}, 5, 15, 25);
+    CHECK(editing_session_history.begin_operation("layer height", session_paint_one,
+                                                  TimestampedOperationKind::NonPaint));
+    CHECK(editing_session_history.begin_operation("nested paint", session_paint_one,
+                                                  TimestampedOperationKind::Paint));
+    CHECK(editing_session_history.commit_operation(session_config));
+    const auto entries_during_nested_nonpaint = editing_session_history.entries().size();
+    CHECK(editing_session_history.commit_operation(session_config));
+    CHECK(editing_session_history.entries().size() == entries_during_nested_nonpaint + 1);
+    CHECK(editing_session_history.entries().back().operation_kind == TimestampedOperationKind::NonPaint);
+    CHECK(editing_session_history.entries().back().editing_session_id == editing_session->id);
+
+    const auto session_paint_two = roots(36, {object(31, 5, 36)}, 6, 16, 26);
+    CHECK(editing_session_history.begin_operation("surface B", session_config, TimestampedOperationKind::Paint));
+    CHECK(editing_session_history.commit_operation(session_paint_two));
+    CHECK(editing_session_history.entries().size() == 4);
+    CHECK(editing_session_history.entries()[0].operation_kind == TimestampedOperationKind::NonPaint);
+    CHECK(editing_session_history.entries()[0].editing_session_id == 0);
+    CHECK(editing_session_history.entries()[1].operation_kind == TimestampedOperationKind::Paint);
+    CHECK(editing_session_history.entries()[2].operation_kind == TimestampedOperationKind::NonPaint);
+    CHECK(editing_session_history.entries()[3].operation_kind == TimestampedOperationKind::Paint);
+    for (std::size_t i = 1; i < editing_session_history.entries().size(); ++i)
+        CHECK(editing_session_history.entries()[i].editing_session_id == editing_session->id);
+
+    editing_session_history.mark_current_as_saved();
+    CHECK(editing_session_history.saved_timestamp() == std::optional<LogicalTimestamp>(5));
+    session_status_after_abort = editing_session_history.editing_session_status();
+    CHECK(session_status_after_abort && session_status_after_abort->has_effective_commit);
+    CHECK(editing_session_history.undo(session_paint_two, restored));
+    CHECK(restored.timestamp == 4);
+    CHECK(editing_session_history.undo(session_config, restored));
+    CHECK(restored.timestamp == 3);
+    CHECK(editing_session_history.undo(session_paint_one, restored));
+    CHECK(restored.timestamp == editing_session->entry_timestamp);
+    CHECK(!editing_session_history.can_undo());
+    CHECK(!editing_session_history.restore(0, &session_paint_one, rejected_restore));
+    CHECK(editing_session_history.can_redo());
+    session_status_after_abort = editing_session_history.editing_session_status();
+    CHECK(session_status_after_abort && session_status_after_abort->has_effective_commit);
+    CHECK(editing_session_history.redo(restored));
+    CHECK(restored.timestamp == 3);
+    CHECK(editing_session_history.redo(restored));
+    CHECK(restored.timestamp == 4);
+    CHECK(editing_session_history.redo(restored));
+    CHECK(restored.timestamp == 5);
+
+    // A session containing only a non-paint project commit also sets the
+    // lifetime latch, including after Undo returns to the session entry.
+    TimestampedHistory nonpaint_only_session;
+    const auto nonpaint_before = roots(37, {object(41, 1, 37)});
+    const auto nonpaint_after = roots(38, {object(41, 2, 38)}, 0, 0, 38);
+    const auto nonpaint_session = nonpaint_only_session.begin_editing_session();
+    CHECK(nonpaint_session && !nonpaint_session->has_effective_commit);
+    CHECK(nonpaint_only_session.begin_operation("configuration only", nonpaint_before,
+                                                TimestampedOperationKind::NonPaint));
+    CHECK(nonpaint_only_session.commit_operation(nonpaint_after));
+    auto nonpaint_status = nonpaint_only_session.editing_session_status();
+    CHECK(nonpaint_status && nonpaint_status->has_effective_commit);
+    nonpaint_only_session.mark_current_as_saved();
+    CHECK(nonpaint_only_session.undo(nonpaint_after, restored));
+    CHECK(restored.timestamp == nonpaint_session->entry_timestamp);
+    nonpaint_status = nonpaint_only_session.editing_session_status();
+    CHECK(nonpaint_status && nonpaint_status->has_effective_commit);
+
+    editing_session_history.set_byte_budget(1);
+    CHECK(editing_session_history.resource_diagnostics().evicted_timestamp_count > 0);
+    session_status_after_abort = editing_session_history.editing_session_status();
+    CHECK(session_status_after_abort && session_status_after_abort->id == editing_session->id &&
+          session_status_after_abort->entry_timestamp == editing_session->entry_timestamp &&
+          session_status_after_abort->has_effective_commit);
+
+    // clear() drops the open session and its floor, while retaining the ID
+    // sequence so stale identities cannot match a later session on this object.
+    const EditingSessionId stale_session_id = editing_session->id;
+    editing_session_history.clear();
+    CHECK(!editing_session_history.editing_session_status());
+    CHECK(!editing_session_history.navigation_floor());
+    CHECK(editing_session_history.current_timestamp() == 0);
+    CHECK(editing_session_history.entries().empty());
+    CHECK(!editing_session_history.saved_timestamp());
+    const auto after_clear_session = editing_session_history.begin_editing_session();
+    CHECK(after_clear_session && after_clear_session->id == stale_session_id + 1 &&
+          !after_clear_session->has_effective_commit);
+    editing_session_history.clear();
 
     CHECK(floor_history.set_navigation_floor(1));
     TimestampedHistory moved_floor(std::move(floor_history));

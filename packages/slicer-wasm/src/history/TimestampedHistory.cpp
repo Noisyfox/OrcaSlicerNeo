@@ -154,21 +154,35 @@ struct TimestampedHistory::Impl {
         std::size_t depth { 1 };
         std::shared_ptr<Snapshot> prior_snapshot;
         SceneState before_scene;
+        TimestampedOperationKind kind { TimestampedOperationKind::NonPaint };
+        EditingSessionId editing_session_id { 0 };
     };
 
-    static constexpr std::size_t kImplBytes = 280;
+    static constexpr std::size_t kImplBytes = 336;
     static constexpr std::size_t kSnapshotBytes = 320;
-    static constexpr std::size_t kEntryBytes = 128;
+    static constexpr std::size_t kEntryBytes = 192;
     static constexpr std::size_t kObjectArchiveBytes = 128;
     static constexpr std::size_t kMeshArchiveBytes = 160;
     static constexpr std::size_t kSharedBlobBytes = 64;
     static constexpr std::size_t kIntervalBytes = 64;
 
-    explicit Impl(std::size_t budget) : byte_budget(budget) {}
+    static_assert(sizeof(TimestampedEditingSessionInfo) <= 24,
+                  "editing-session metadata exceeds its canonical byte slot");
+    static_assert(sizeof(TimestampedEntryInfo) <= kEntryBytes,
+                  "timestamped entry exceeds its canonical byte-budget slot");
+    static_assert(sizeof(Operation) <= kEntryBytes,
+                  "active operation metadata exceeds its canonical entry slot");
+
+    explicit Impl(std::size_t budget, EditingSessionId next_session_id = 1)
+        : byte_budget(budget), next_editing_session_id(next_session_id) {}
 
     std::size_t byte_budget;
     LogicalTimestamp current_timestamp { 0 };
     std::optional<LogicalTimestamp> navigation_floor;
+    std::optional<TimestampedEditingSessionInfo> editing_session;
+    // Zero means the per-history identity space is exhausted. Keep this
+    // sequence across clear() so a stale token is never reused by this object.
+    EditingSessionId next_editing_session_id { 1 };
     LogicalTimestamp next_timestamp { 1 };
     std::uint64_t next_entry_id { 1 };
     std::map<LogicalTimestamp, std::shared_ptr<Snapshot>> snapshots;
@@ -560,10 +574,33 @@ TimestampedHistory& TimestampedHistory::operator=(TimestampedHistory&&) noexcept
 void TimestampedHistory::clear()
 {
     const std::size_t budget = m_impl->byte_budget;
-    m_impl = std::make_unique<Impl>(budget);
+    const EditingSessionId next_session_id = m_impl->next_editing_session_id;
+    m_impl = std::make_unique<Impl>(budget, next_session_id);
 }
 
-bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoots& predecessor)
+std::optional<TimestampedEditingSessionInfo> TimestampedHistory::begin_editing_session()
+{
+    if (m_impl->operation || m_impl->editing_session || m_impl->next_editing_session_id == 0)
+        return std::nullopt;
+    if (m_impl->navigation_floor && *m_impl->navigation_floor != m_impl->current_timestamp)
+        return std::nullopt;
+
+    const EditingSessionId id = m_impl->next_editing_session_id;
+    const TimestampedEditingSessionInfo session { id, m_impl->current_timestamp, false };
+    m_impl->editing_session = session;
+    m_impl->navigation_floor = session.entry_timestamp;
+    m_impl->next_editing_session_id =
+        id == std::numeric_limits<EditingSessionId>::max() ? 0 : id + 1;
+    return session;
+}
+
+std::optional<TimestampedEditingSessionInfo> TimestampedHistory::editing_session_status() const
+{
+    return m_impl->editing_session;
+}
+
+bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoots& predecessor,
+                                         TimestampedOperationKind kind)
 {
     if (m_impl->operation) {
         ++m_impl->operation->depth;
@@ -579,8 +616,11 @@ bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoo
     } else if (!m_impl->refresh_restored_context(m_impl->current_timestamp, predecessor)) {
         return false;
     }
+    const EditingSessionId editing_session_id =
+        m_impl->editing_session ? m_impl->editing_session->id : EditingSessionId(0);
     m_impl->operation = Impl::Operation {
-        std::move(label), m_impl->current_timestamp, 1, prior_snapshot, scene_state(predecessor)};
+        std::move(label), m_impl->current_timestamp, 1, prior_snapshot, scene_state(predecessor), kind,
+        editing_session_id};
     return true;
 }
 
@@ -596,13 +636,17 @@ bool TimestampedHistory::commit_operation(const TimestampedRoots& successor, Sce
     m_impl->truncate_redo_branch();
     const LogicalTimestamp after = m_impl->next_timestamp++;
     m_impl->entries.push_back({m_impl->next_entry_id++, operation.label, operation.before_timestamp, after,
-                               scene_delta(operation.before_scene, scene_state(successor))});
+                               scene_delta(operation.before_scene, scene_state(successor)), operation.kind,
+                               operation.editing_session_id});
     if (committed_delta) {
         *committed_delta = m_impl->entries.back().scene_delta;
         for (const auto& object : successor.model.mutable_objects)
             committed_delta->object_order.push_back(object.id);
     }
     m_impl->current_timestamp = after;
+    if (m_impl->editing_session &&
+        m_impl->editing_session->id == operation.editing_session_id)
+        m_impl->editing_session->has_effective_commit = true;
     m_impl->rebuild_intervals();
     m_impl->enforce_budget();
     return true;
@@ -703,7 +747,7 @@ bool TimestampedHistory::can_redo() const
 LogicalTimestamp TimestampedHistory::current_timestamp() const { return m_impl->current_timestamp; }
 bool TimestampedHistory::set_navigation_floor(std::optional<LogicalTimestamp> timestamp)
 {
-    if (m_impl->operation) return false;
+    if (m_impl->operation || m_impl->editing_session) return false;
     if (timestamp && (*timestamp > m_impl->current_timestamp || !m_impl->timestamp_available(*timestamp)))
         return false;
     m_impl->navigation_floor = timestamp;
