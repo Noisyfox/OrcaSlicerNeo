@@ -106,8 +106,14 @@ Brush radius, height-range size, fill-angle settings, and gap-area threshold
 are retained in memory for the current application run. Closing/reopening the
 gizmo or switching objects preserves these tool parameters; restarting the
 application restores defaults. They are neither persisted user preferences nor
-project data and do not participate in project history. This decision does not
-define the lifetime of the selected filament-slot identity.
+project data and do not participate in project history.
+
+Retain the selected painting filament within the current project across gizmo
+closure/reopening and object changes. Follow its logical material through slot
+remapping rather than retaining a stale numeric index. If the resulting choice
+no longer exists or lies outside the explicit painting palette, fall back to
+slot 1. New projects and opening another project start with slot 1. This UI
+selection is not saved in project files or recorded in project history.
 
 ### 2.2 Region fill and height-range interaction
 
@@ -207,9 +213,14 @@ matching Orca's supported facet-state range. Projects with more than 16 slots
 may still open the gizmo; show an explanation and expose only the first 16 as
 explicit paint choices. Do not extend the native painting format to 64 states
 as part of this release. Unpainted state zero continues to resolve through the
-part's effective project material assignment. Slot operations that would map
-explicit painting beyond the supported range require a separate boundary policy;
-the palette restriction alone is not validation for such operations.
+part's effective project material assignment. Enforce the 16-state upper limit
+at native write and remapping boundaries, not only in the palette. A slot
+operation that would produce an explicit facet state greater than 16 after
+remapping and renumbering is rejected atomically before applying any slot,
+annotation, or history changes. Report the blocking painting reference; do not
+clear painting or partially apply the operation to fit the limit. Check actual
+affected explicit facet references: a project with more than 16 slots or an
+unpainted part assigned to a higher slot is not itself an invalid paint state.
 
 Painting mode displays only the active editing instance. Other objects and
 other instances of the same object are hidden. The final annotations still
@@ -550,6 +561,13 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   the application run, reset on restart, and never enter project persistence or
   history. Projects above 16 slots can open painting, with explicit paint choices
   restricted to slots 1-16 and an explanation of that restriction.
+- The selected painting filament survives same-project closure/reopening and
+  object changes, follows slot remapping, and falls back to slot 1 when no longer
+  selectable. New/opened projects start at slot 1 without a history mutation.
+- Native writes reject explicit paint states above 16. Slot remapping validates
+  the final renumbered references and rejects an unsupported result atomically,
+  preserving all annotations, slots, and history. State-zero inheritance from a
+  higher project slot remains valid.
 - Circle and sphere brush radii use mm and preserve physical coverage under
   camera zoom; cursor display and native selection agree on transformed objects.
   Deferred auxiliary features are not first-release acceptance requirements.
@@ -643,8 +661,8 @@ or create separate phase documents.
 | Group | Important unresolved decisions |
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and project replacement/shutdown |
-| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: slot remapping beyond supported explicit paint states; other mutations during unfinished strokes |
-| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. Remaining: selected filament-slot lifetime |
+| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. Remaining: other mutations during unfinished strokes |
+| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. The selected filament is retained within the project, follows remapping, and falls back to slot 1 when unavailable; new/opened projects start at slot 1. |
 | D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Remaining: large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
