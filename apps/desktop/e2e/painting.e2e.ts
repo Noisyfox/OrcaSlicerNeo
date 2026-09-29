@@ -183,4 +183,3 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect(page.getByTestId('painting-panel')).toHaveCount(0);
   } finally { await app.close(); }
 });
-

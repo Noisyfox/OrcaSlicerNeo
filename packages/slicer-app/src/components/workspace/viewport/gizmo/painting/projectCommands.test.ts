@@ -166,4 +166,3 @@ describe('shared painting command admission', () => {
     expect(useSlicerStore.getState().error).toContain('stale or unavailable');
   });
 });
-
