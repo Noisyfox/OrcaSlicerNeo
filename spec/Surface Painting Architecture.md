@@ -112,10 +112,10 @@ candidate-region highlighting, and any enabled contours, wireframe, or clipping
 presentation. Ordinary object selection, body dragging, box selection, and
 transform gizmo handlers do not compete for its painting gestures. Camera
 navigation remains a separate interaction. During an unfinished stroke, ignore
-camera rotation and pan gestures without queuing, committing, cancelling, or
-pausing that stroke. Rotation and pan become available again after it ends.
-These gestures must not be confused with live brush-size adjustments. Camera
-zoom during strokes and the concrete navigation bindings remain to be clarified.
+camera rotation, pan, and zoom gestures without queuing, committing, cancelling,
+or pausing that stroke. Keep the camera unchanged for the stroke; navigation
+becomes available again after it ends. These gestures must not be confused with
+live brush-size adjustments. Concrete navigation bindings remain to be clarified.
 
 The Canvas, camera, and immutable source resources may be shared with Prepare;
 dedicated mode does not require a second WebGL context. Draft display resources
@@ -214,8 +214,12 @@ local hit coordinates, clipping, and transformation semantics, then invokes
 The frontend must not discard a painting sample because its cursor-only BVH
 reported a miss. Native code also owns trajectory interpolation and continuous
 brush coverage, including transitions between parts and off-surface intervals.
-Any fill-candidate hover query is native as well; cursor hits are not an input
-authority for fill selection.
+Region fill includes a hover preview that highlights the candidate area before
+clicking. Native code performs the candidate hit test and region calculation;
+cursor hits are not an input authority for fill selection. Preview changes do
+not modify committed annotations, mark the project dirty, or create history.
+Moving off the model or onto another part clears or replaces the old candidate.
+Outdated asynchronous candidates must not overwrite the current preview.
 
 Input and output carry session/order identity so late responses cannot overwrite
 a newer session. Releasing a stroke waits for all accepted samples belonging to
@@ -442,7 +446,10 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Colour, erase state, and brush size changes affect subsequent samples in the
   same stroke. Delayed or batched input preserves their ordering, and Undo/Redo
   treats the resulting mixed-setting stroke as one child entry.
-- During an unfinished stroke, tool-type switches and camera rotation/pan have
+- Region-fill hover highlights the native candidate region without project or
+  history mutation. Misses, part changes, and stale responses cannot leave an
+  obsolete region highlighted.
+- During an unfinished stroke, tool-type switches and camera rotation/pan/zoom have
   no effect and are not replayed after it ends. Live colour/erase/size changes
   remain available and must not inadvertently trigger a camera gesture.
 - Cursor preview cannot affect native stroke targeting; native face selection
@@ -502,7 +509,7 @@ or create separate phase documents.
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
-| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and camera rotation/pan. Remaining: detailed fill, height-range and gap-fill behavior; shortcuts, camera bindings, and zoom during strokes |
+| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview without project/history mutation. Remaining: detailed fill, height-range and gap-fill behavior; shortcuts and camera bindings |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
