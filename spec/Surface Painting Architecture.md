@@ -97,8 +97,10 @@ a stroke. Changes affect subsequent samples without retroactively changing
 earlier painted regions. The complete press-to-release sequence remains one
 child history operation even when these settings change. These tool settings
 are distinct from project parameter edits and filament-slot mutations, whose
-commands are ignored during an unfinished stroke under section 3.2. Switching
-tool types during a stroke is not decided by this live-setting rule.
+commands are ignored during an unfinished stroke under section 3.2. Tool-type
+switch commands are also ignored while a stroke is unfinished, without queuing
+or changing the active algorithm. The user must switch tools again after the
+stroke ends. This applies to both panel and shortcut commands.
 
 ## 3. Dedicated painting mode
 
@@ -109,7 +111,11 @@ The painting mode owns selector-derived draft surfaces, cursor rendering,
 candidate-region highlighting, and any enabled contours, wireframe, or clipping
 presentation. Ordinary object selection, body dragging, box selection, and
 transform gizmo handlers do not compete for its painting gestures. Camera
-navigation remains a separate interaction.
+navigation remains a separate interaction. During an unfinished stroke, ignore
+camera rotation and pan gestures without queuing, committing, cancelling, or
+pausing that stroke. Rotation and pan become available again after it ends.
+These gestures must not be confused with live brush-size adjustments. Camera
+zoom during strokes and the concrete navigation bindings remain to be clarified.
 
 The Canvas, camera, and immutable source resources may be shared with Prepare;
 dedicated mode does not require a second WebGL context. Draft display resources
@@ -436,6 +442,9 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Colour, erase state, and brush size changes affect subsequent samples in the
   same stroke. Delayed or batched input preserves their ordering, and Undo/Redo
   treats the resulting mixed-setting stroke as one child entry.
+- During an unfinished stroke, tool-type switches and camera rotation/pan have
+  no effect and are not replayed after it ends. Live colour/erase/size changes
+  remain available and must not inadvertently trigger a camera gesture.
 - Cursor preview cannot affect native stroke targeting; native face selection
   remains correct with reordered renderer indices, mirrors, and
   nonuniform transforms.
@@ -493,7 +502,7 @@ or create separate phase documents.
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
-| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred. Remaining: detailed fill, height-range and gap-fill behavior; shortcuts, camera, and switching tool types during strokes |
+| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and camera rotation/pan. Remaining: detailed fill, height-range and gap-fill behavior; shortcuts, camera bindings, and zoom during strokes |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
