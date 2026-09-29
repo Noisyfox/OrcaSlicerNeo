@@ -340,7 +340,7 @@ model. Its hit point, `faceIndex`, and selected hit volume do not determine a
 painting operation. No BVH is built over the subdivided paint display geometry.
 
 Once the pointer is pressed, native code performs all painting hit tests and
-face identification. The frontend sends the ordered pointer input and the
+face identification. The frontend sends the admitted pointer events in order and the
 camera/viewport information needed to reconstruct the corresponding rays. The
 native session determines the eligible target, nearest hit, original face,
 local hit coordinates, clipping, and transformation semantics, then invokes
@@ -357,12 +357,11 @@ Moving off the model or onto another part clears or replaces the old candidate.
 Outdated asynchronous candidates must not overwrite the current preview.
 
 Input and output carry session/order identity so late responses cannot overwrite
-a newer session. Releasing a stroke waits for all accepted samples belonging to
-that stroke. Preserve the ordering of live tool-setting changes relative to
-samples, so delayed Worker processing uses the colour, erase state, and size
-applicable to each sample rather than the latest UI values. Precise input batching,
-backpressure, camera-snapshot transport, and
-cancellation behavior are to be finalized before implementation.
+a newer session. Each admitted painting event carries the colour, erase state,
+and size applicable when admitted; later UI changes cannot retroactively alter
+an in-flight event. Live settings affect subsequent admitted events within the
+same stroke. Event admission and termination follow section 4.2; the exact
+camera-snapshot transport remains an implementation-design detail to finalize.
 
 ### 4.1 Draft geometry publication and refresh scheduling
 
@@ -381,19 +380,54 @@ state. This is a scheduling policy, not a guarantee of achieving the display's
 refresh rate on every model or device. Cursor and camera rendering remain
 independent of the geometry-publication cadence.
 
-Coalescing applies only to intermediate display states; preserve all accepted
-painting input and the order of settings and stroke boundaries. Stroke completion,
+Geometry-refresh coalescing applies only to intermediate display states; it must
+not discard admitted painting events or stroke boundaries. Separately, movement
+events arriving during an in-flight painting event are discarded under section
+4.2. Stroke completion,
 cancellation, and history navigation must converge to their resulting native
 state even if intermediate previews were skipped. Session and revision checks
 reject obsolete output so a delayed replacement cannot overwrite that state.
 This display policy does not change per-stroke commits or their history semantics.
 
+### 4.2 One-event processing and reliable stroke termination
+
+Process only one painting input event at a time. While that event is in flight,
+discard subsequent pointer-move events at admission. Do not buffer, queue, batch,
+retain the latest pending move, or replay these discarded events when processing
+finishes. Once idle, admit the next eligible event that actually arrives. Native
+trajectory interpolation remains authoritative between admitted positions; it
+cannot reconstruct a discarded intermediate path. This policy supersedes the
+earlier requirement to preserve every movement event.
+
+Only intermediate movement events may be dropped by this busy-event policy.
+Pointer release and other stroke-ending signals must be retained and take effect
+even while native processing is busy. Record the stroke's pending terminal state,
+stop accepting further movement for it, then perform the corresponding end action
+after the in-flight native call returns. This is a bounded lifecycle state, not a
+queue of drawing events. Preserve the established distinction: normal release and
+unexpected focus/capture loss or pointer cancellation commit the effective portion;
+Escape cancels and restores the pre-stroke state. Deduplicate terminal signals
+and reject late results/events so finalization occurs once. Existing ignored-command
+and fresh-press rules still apply; this does not authorize queuing new strokes.
+
+For Escape during an unfinished stroke, immediately stop accepting its input and
+show cancellation in progress. First-release cancellation takes effect between
+native calls; do not require interruption inside a synchronous selector algorithm.
+After the current call returns, restore the pre-stroke selectors/display without
+creating history, then permit a new stroke. Until restoration completes, do not
+admit a new stroke. Do not terminate the Worker to interrupt this call. A slow
+native call can therefore delay completion of cancellation.
+
+Whether normal release coordinates should also be applied as a final painting
+sample, rather than only ending the stroke, remains to be clarified.
+
 ## 5. Per-stroke commits and deferred derived updates
 
-Only the active, unfinished stroke is a draft. At pointer release, drain its
-accepted samples, atomically write the changed native annotations to the live
-model, and record one navigable child history operation. While accepted samples
-are draining and the commit is pending, show a processing state and do not admit
+Only the active, unfinished stroke is a draft. At pointer release, wait for its
+in-flight event and native stroke finalization, atomically write the changed native
+annotations to the live model, and record one navigable child history operation.
+While native event processing/finalization or the commit is pending, show a
+processing state and do not admit
 another stroke. Ignore new presses rather than queuing them; after successful
 completion the user must press again to start a new stroke. Do not implicitly
 begin painting from a button held during this waiting period.
@@ -711,8 +745,8 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Circle and sphere brush radii use mm and preserve physical coverage under
   camera zoom; cursor display and native selection agree on transformed objects.
   Deferred auxiliary features are not first-release acceptance requirements.
-- Colour, erase state, and brush size changes affect subsequent samples in the
-  same stroke. Delayed or batched input preserves their ordering, and Undo/Redo
+- Colour, erase state, and brush size changes affect subsequent admitted events in
+  the same stroke. In-flight events retain their admitted settings, and Undo/Redo
   treats the resulting mixed-setting stroke as one child entry.
 - Region-fill hover highlights the native candidate region without project or
   history mutation. Misses, part changes, and stale responses cannot leave an
@@ -742,13 +776,19 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Cursor preview cannot affect native stroke targeting; native face selection
   remains correct with reordered renderer indices, mirrors, and
   nonuniform transforms.
+- At most one painting event is in flight. Move events received while busy are
+  discarded with no pending-latest move or replay. Stroke-ending signals survive
+  that busy period and finalize once with their specified commit/cancel semantics.
+  Escape stops admission immediately, restores state after the current native call,
+  and admits no new stroke until cancellation completes; late output cannot revive
+  the cancelled draft.
 - Dedicated mode does not invoke ordinary model drag/selection handlers.
 - Desktop mouse and trackpad click/drag/scroll behavior is consistent across
   Electron and desktop Web; dedicated touch, stylus, and pressure acceptance is
   deferred.
 - Draft geometry replaces only changed parts in full. Refreshes follow display
   opportunities with one refresh in flight, without a fixed 30 Hz cap or a queue
-  of obsolete refreshes. Coalescing display states preserves all accepted input;
+  of obsolete refreshes. Coalescing display states preserves admitted painting events;
   completion, cancellation, and Undo/Redo display the correct final state and
   reject late output. No measured frame-rate guarantee is implied.
 - Part-based entry permits painting all solid parts of the owning object;
@@ -846,7 +886,7 @@ or create separate phase documents.
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Home/Device navigation preserves a hidden session; active strokes ignore selection changes and page navigation. New/Open/normal-exit confirmation cancellation retains the session; these commands are ignored during strokes. Only one gizmo and its numeric panel may be active; idle switching closes painting first and active strokes ignore switching. No whole-session discard is provided. Idle Export retains the session and committed state; active strokes ignore Export, and G-code result-validity gates remain authoritative. Non-printable flags and out-of-bounds placement do not restrict otherwise eligible painting. |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo cannot cross session entry and may stop at a later retained boundary after eviction; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. All other user-issued project mutations are ignored during unfinished strokes without execution, queuing, or dialogs; explicitly supported live paint settings and Escape remain available. |
 | C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. The selected filament is retained within the project, follows remapping, and falls back to slot 1 when unavailable; new/opened projects start at slot 1. |
-| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. First release covers desktop mouse/trackpad input on both hosts. Changed parts publish full replacement geometry; display-driven refreshes have one request in flight and no fixed 30 Hz cap, coalescing only display states while preserving painting input. Expanded painting children share the existing 256 MiB project-history budget and oldest-first eviction, retaining the oversized-entry exception; closure compacts retained history only. There is no fixed source-triangle-count admission limit. Remaining: runtime working-memory budgets; input batching, cancellation responsiveness, and backpressure; fixtures and measurable acceptance gates |
+| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. First release covers desktop mouse/trackpad input on both hosts. Changed parts publish full replacement geometry; display-driven refreshes have one request in flight and no fixed 30 Hz cap, coalescing intermediate display states without discarding admitted input. Painting processes one event at a time and discards moves received while busy without queuing or retaining a latest move; terminal signals remain reliable. Escape cancellation completes between native calls and blocks new strokes until restoration. Expanded painting children share the existing 256 MiB project-history budget and oldest-first eviction, retaining the oversized-entry exception; closure compacts retained history only. There is no fixed source-triangle-count admission limit. Remaining: runtime working-memory budgets; release-position sampling; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
 batches are integrated into the relevant sections. Continue resolving lifecycle
