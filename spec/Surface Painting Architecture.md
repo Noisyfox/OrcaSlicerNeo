@@ -109,6 +109,14 @@ regions. Native selection and fill are applied along the input trajectory; the
 complete press-to-release sequence remains one child history entry, rather than
 one entry per filled region. The native hover preview is specified in section 4.
 
+Expose Orca's geometry-edge detection toggle and angle threshold for region
+fill. Initially enable detection with a 30-degree threshold; the supported
+angle-control range is 0 through 90 degrees. Disabling detection removes this
+angle constraint from native region selection. Parameter changes refresh the
+candidate preview, and preview and actual fill use the same settings. This is
+part of the first-release fill tool, not the deferred vertical/horizontal
+painting restriction feature.
+
 Height-range painting follows Orca's pointer-driven interaction. The user sets
 a height h in millimetres; native raycasting determines the hit point's world Z,
 which is the lower bound of the band [Z, Z + h]. Clicking or dragging applies
@@ -133,7 +141,10 @@ the affected parts; an ineffective Apply creates no entry. The operation follows
 the same immediate invalidation, deferred derived updates, and painting-run
 compaction rules as other painting edits. Preview and Apply must use matching
 input state and threshold; obsolete asynchronous previews cannot replace newer
-ones. The neighbour-choice rule remains to be clarified.
+ones. Follow Orca's neighbour-choice rule: choose the numerically smallest
+adjacent facet state from the ordered set of neighbouring states. State zero
+(unpainted) takes precedence when present. Do not substitute a largest-area or
+longest-shared-boundary heuristic. Preview and Apply use this same rule.
 
 ## 3. Dedicated painting mode
 
@@ -482,6 +493,9 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Region-fill hover highlights the native candidate region without project or
   history mutation. Misses, part changes, and stale responses cannot leave an
   obsolete region highlighted.
+- Region fill initially enables edge detection at 30 degrees, accepts 0 through
+  90 degrees, and can disable the angle constraint. Preview and fill use the
+  same parameters after changes.
 - Dragging region fill across multiple regions produces one child history entry
   for the entire stroke; Undo/Redo restores all regions affected by that stroke.
 - Height-range painting uses the native hit's world Z and configured height h,
@@ -491,6 +505,8 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   history changes. Apply commits all affected solid parts of the current object
   as one painting child entry; other session targets are unaffected. Preview and
   Apply agree for identical inputs, and empty results do not create history.
+- Gap-fill multi-neighbour cases choose the lowest adjacent state, including
+  state zero when present, consistently in preview and application.
 - During an unfinished stroke, tool-type switches and camera rotation/pan/zoom have
   no effect and are not replayed after it ends. Live colour/erase/size changes
   remain available and must not inadvertently trigger a camera gesture.
@@ -551,7 +567,7 @@ or create separate phase documents.
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
-| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview and continuous drag within one stroke; height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes and applies to the current object's solid parts as one painting child entry. Remaining: detailed fill and gap-fill neighbour-choice behavior; shortcuts and camera bindings |
+| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry. Remaining: shortcuts and camera bindings |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
