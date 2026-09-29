@@ -207,7 +207,10 @@ The user must issue the command again after the stroke finishes. Apply this
 rule across shortcuts and other command entry points. Escape retains its
 stroke-cancellation behavior above. If focus loss has already ended the stroke
 before a parameter or slot command arrives, process it as an ordinary between-
-stroke edit. Other project mutations are not implicitly covered by this rule.
+stroke edit. Commands to delete the editing target or its parts, replace/reload
+its mesh, or split it are also ignored during an unfinished stroke without
+queuing. Their between-stroke policy is defined in section 7.4. Other project
+mutations are not implicitly covered by this rule.
 
 Window focus loss, system pointer cancellation, or unexpected loss of pointer
 capture ends the current stroke by committing its effective painted portion,
@@ -286,8 +289,8 @@ Immediately after each effective commit, advance the affected slice-input
 versions and make obsolete slice results unusable. Heavy derived work,
 including material-use summaries and Prime Tower projections, is deferred until
 gizmo closure or an operation actually requires it. Deferred work must not make
-an obsolete cache or slice result appear current. The active-job cancellation
-and admission policy for each WASM variant remains a runtime clarification.
+an obsolete cache or slice result appear current. Existing slice jobs and
+runtime admission follow section 7.5.
 
 Undo/Redo of painting restores the committed native annotations and synchronizes
 the active selectors/display. It follows the same immediate-invalidation and
@@ -301,8 +304,8 @@ committed model before they become visible again.
 Non-paint project operations retain their normal semantics and history order.
 They operate on the latest committed model, including all completed painting
 strokes. Parameter and filament-slot commands received during an unfinished
-stroke are ignored under section 3.2. Other project mutations during a stroke
-remain to be clarified.
+stroke are ignored under section 3.2, as are the target-changing commands listed
+there. Other project mutations during a stroke remain to be clarified.
 
 ## 6. Nested history and compaction
 
@@ -440,7 +443,7 @@ derived calculations. Only then may slicing start. Failure to close or prepare
 the required state must not start the requested slice. This policy applies to
 all user-facing Slice entry points, including shortcuts, not only a toolbar
 button. During an active stroke the Slice command is ignored under section 3.2.
-Already-running background slice work is a separate runtime topic.
+Already-running slice work follows section 7.5.
 
 ### 7.3 Closure publication
 
@@ -452,9 +455,36 @@ the committed state. Do not repeat invalidations or calculations already settled
 for the same input version.
 
 Active-stroke Escape cancellation and ignored commands are defined in section
-3.2. Other pending-input cases, any whole-session discard action, source-mesh
-replacement, target deletion, export, other page changes, and application
-shutdown are deliberately not settled here.
+3.2. Other pending-input cases, any whole-session discard action, export, other
+page changes, and application shutdown are deliberately not settled here.
+
+### 7.4 Target deletion and mesh-changing commands
+
+With no unfinished stroke, commands that delete the editing object or its parts,
+replace/reload its mesh, or split it first close the painting gizmo normally.
+Retain completed edits, compact history, apply the conditional Redo cleanup,
+and release native editing resources before executing the model operation.
+The model operation retains its own history entry rather than being merged into
+a painting run. If closure fails, do not execute it against the open session.
+During an unfinished stroke, ignore these commands without queuing as specified
+in section 3.2.
+
+### 7.5 Existing slice jobs and runtime admission
+
+In threaded WASM, opening the painting gizmo does not cancel an existing slice
+job. Hover and tool-setting changes do not invalidate it. An effective painting
+commit invalidates results for the affected plates and requests cancellation of
+an in-flight job if its plate is affected; jobs for unaffected plates continue.
+Use the existing plate input-version and task-identity checks so obsolete job
+completion cannot publish a current result. Painting edits do not automatically
+start replacement slicing jobs, consistent with Per-Plate Print Architecture.
+
+Serial WASM retains that specification's editing admission gate: while a slice
+occupies the sole Worker, painting cannot open or issue native editing commands.
+Wait for the slice's normal terminal state before admitting painting; there is
+no serial Cancel operation and no Worker termination workaround that would
+discard the live project and history. Rejected editing requests do not form a
+queue to execute automatically after slicing.
 
 ## 8. Native Orca reference and Neo differences
 
@@ -550,6 +580,12 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   cross-object child history and does not split a paint run. Losing eligible
   selection closes normally. All touched targets remain covered at closure.
 - Failed stroke commit or closure does not partially publish its state/history.
+- Idle target deletion, replacement/reload, and splitting close and compact the
+  painting session before model mutation, retaining a separate model-operation
+  history entry. During a stroke these commands are ignored without queuing.
+- Threaded gizmo entry preserves active slicing; effective commits cancel only
+  affected-plate jobs and reject their stale results. Serial slicing rejects
+  painting admission without queuing or terminating the Worker.
 - 3MF round trips and actual multi-material slicing consume final native
   annotations; shared instances and affected plates remain consistent.
 - Performance validation separates hit testing, selector work, draft geometry
@@ -565,10 +601,10 @@ or create separate phase documents.
 
 | Group | Important unresolved decisions |
 | --- | --- |
-| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
+| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and project replacement/shutdown |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
 | C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry. Remaining: shortcuts and camera bindings |
-| D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
+| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Remaining: large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
 batches are integrated into the relevant sections. Continue resolving lifecycle
