@@ -62,6 +62,29 @@ static bool is_navigation_sentinel(const TimestampedRestore& restored)
            restored.scene_delta.object_order == std::vector<ObjectID>({77});
 }
 
+static bool scene_delta_is_equal(const SceneDelta& lhs, const SceneDelta& rhs)
+{
+    return lhs.object_ids == rhs.object_ids && lhs.volume_ids == rhs.volume_ids &&
+           lhs.instance_ids == rhs.instance_ids && lhs.plate_ids == rhs.plate_ids &&
+           lhs.object_order == rhs.object_order;
+}
+
+static bool entry_is_equal(const TimestampedEntryInfo& lhs, const TimestampedEntryInfo& rhs)
+{
+    return lhs.id == rhs.id && lhs.label == rhs.label && lhs.before_timestamp == rhs.before_timestamp &&
+           lhs.after_timestamp == rhs.after_timestamp && scene_delta_is_equal(lhs.scene_delta, rhs.scene_delta) &&
+           lhs.operation_kind == rhs.operation_kind && lhs.editing_session_id == rhs.editing_session_id;
+}
+
+static bool entries_are_equal(const std::vector<TimestampedEntryInfo>& lhs,
+                              const std::vector<TimestampedEntryInfo>& rhs)
+{
+    if (lhs.size() != rhs.size()) return false;
+    for (std::size_t index = 0; index < lhs.size(); ++index)
+        if (!entry_is_equal(lhs[index], rhs[index])) return false;
+    return true;
+}
+
 int main()
 {
     // Transform roots share a potentially large archive but remain distinct
@@ -615,6 +638,303 @@ int main()
     CHECK(assigned_floor.navigation_floor() == std::optional<LogicalTimestamp>(1));
     assigned_floor.clear();
     CHECK(!assigned_floor.navigation_floor());
+
+    // Continuous paint runs compact around a retained non-paint separator.
+    // The unrelated project entry predates the session and keeps its identity.
+    TimestampedHistory compacted_runs;
+    const auto run_initial = roots(1, {object(10, 1, 10), object(20, 1, 20)}, 10, 20, 30);
+    const auto run_before_session = roots(2, {object(10, 2, 11), object(20, 1, 20)}, 11, 21, 31);
+    CHECK(compacted_runs.begin_operation("older project edit", run_initial));
+    CHECK(compacted_runs.commit_operation(run_before_session));
+    const auto older_entry = compacted_runs.entries().back();
+    const auto compact_session = compacted_runs.begin_editing_session();
+    CHECK(compact_session && compact_session->entry_timestamp == older_entry.after_timestamp);
+
+    const auto paint_a = roots(3, {object(10, 3, 12), object(20, 1, 20)}, 12, 22, 32);
+    const auto paint_b = roots(4, {object(10, 3, 12), object(20, 2, 22)}, 13, 23, 33);
+    const auto config_edit = roots(5, {object(10, 3, 12), object(20, 2, 22)}, 13, 24, 34);
+    const auto paint_c = roots(6, {object(10, 4, 14), object(20, 2, 22)}, 14, 25, 35);
+    const auto paint_d = roots(7, {object(10, 4, 14), object(20, 3, 25)}, 15, 26, 36);
+    CHECK(compacted_runs.begin_operation("stroke A", run_before_session, TimestampedOperationKind::Paint));
+    CHECK(compacted_runs.commit_operation(paint_a));
+    CHECK(compacted_runs.begin_operation("stroke B", paint_a, TimestampedOperationKind::Paint));
+    CHECK(compacted_runs.commit_operation(paint_b));
+    CHECK(compacted_runs.begin_operation("layer height", paint_b, TimestampedOperationKind::NonPaint));
+    CHECK(compacted_runs.commit_operation(config_edit));
+    CHECK(compacted_runs.begin_operation("stroke C", config_edit, TimestampedOperationKind::Paint));
+    CHECK(compacted_runs.commit_operation(paint_c));
+    CHECK(compacted_runs.begin_operation("stroke D", paint_c, TimestampedOperationKind::Paint));
+    CHECK(compacted_runs.commit_operation(paint_d));
+    const auto ungrouped_entries = compacted_runs.entries();
+    const auto ungrouped_snapshots = compacted_runs.snapshot_count();
+    const auto ungrouped_bytes = compacted_runs.bytes_used();
+    CHECK(ungrouped_entries.size() == 6);
+    CHECK(compacted_runs.compact_editing_session(compact_session->id, "Grouped surface paint"));
+    CHECK(compacted_runs.entries().size() == 4);
+    CHECK(compacted_runs.snapshot_count() + 2 == ungrouped_snapshots);
+    CHECK(compacted_runs.bytes_used() < ungrouped_bytes);
+    CHECK(entry_is_equal(compacted_runs.entries()[0], older_entry));
+    CHECK(compacted_runs.entries()[1].id == ungrouped_entries[1].id);
+    CHECK(compacted_runs.entries()[1].label == "Grouped surface paint");
+    CHECK(compacted_runs.entries()[1].before_timestamp == ungrouped_entries[1].before_timestamp);
+    CHECK(compacted_runs.entries()[1].after_timestamp == ungrouped_entries[2].after_timestamp);
+    CHECK(compacted_runs.entries()[1].operation_kind == TimestampedOperationKind::Paint);
+    CHECK(compacted_runs.entries()[1].editing_session_id == compact_session->id);
+    CHECK(compacted_runs.entries()[1].scene_delta.object_ids == std::vector<ObjectID>({10, 20}));
+    CHECK(compacted_runs.entries()[1].scene_delta.volume_ids == std::vector<ObjectID>({1010, 1020}));
+    CHECK(compacted_runs.entries()[1].scene_delta.instance_ids == std::vector<ObjectID>({2010, 2020}));
+    CHECK(compacted_runs.entries()[1].scene_delta.plate_ids ==
+          std::vector<std::string>({"plate-11", "plate-12", "plate-13"}));
+    CHECK(entry_is_equal(compacted_runs.entries()[2], ungrouped_entries[3]));
+    CHECK(compacted_runs.entries()[3].id == ungrouped_entries[4].id);
+    CHECK(compacted_runs.entries()[3].label == "Grouped surface paint");
+    CHECK(compacted_runs.entries()[3].before_timestamp == ungrouped_entries[4].before_timestamp);
+    CHECK(compacted_runs.entries()[3].after_timestamp == ungrouped_entries[5].after_timestamp);
+    CHECK(compacted_runs.entries()[3].scene_delta.object_ids == std::vector<ObjectID>({10, 20}));
+    CHECK(compacted_runs.entries()[3].scene_delta.volume_ids == std::vector<ObjectID>({1010, 1020}));
+    CHECK(compacted_runs.entries()[3].scene_delta.instance_ids == std::vector<ObjectID>({2010, 2020}));
+    CHECK(compacted_runs.entries()[3].scene_delta.plate_ids ==
+          std::vector<std::string>({"plate-13", "plate-14", "plate-15"}));
+    auto compact_status = compacted_runs.editing_session_status();
+    CHECK(compact_status && compact_status->id == compact_session->id && compact_status->has_effective_commit);
+    CHECK(compacted_runs.navigation_floor() == std::optional<LogicalTimestamp>(compact_session->entry_timestamp));
+    CHECK(compacted_runs.current_timestamp() == ungrouped_entries.back().after_timestamp);
+
+    TimestampedRestore compact_restore;
+    CHECK(compacted_runs.restore_before(compacted_runs.entries()[1].id, &paint_d, compact_restore));
+    CHECK(compact_restore.timestamp == compact_session->entry_timestamp);
+    CHECK(compact_restore.roots.model.serialized == bytes(2));
+    CHECK(object_is(compact_restore, 0, 10, 2, 11));
+    CHECK(object_is(compact_restore, 1, 20, 1, 20));
+    CHECK(compact_restore.roots.session.plate_session == bytes(11));
+    CHECK(compact_restore.roots.project_config == bytes(31));
+    CHECK(compacted_runs.restore_after(compacted_runs.entries()[1].id, &run_before_session, compact_restore));
+    CHECK(compact_restore.timestamp == ungrouped_entries[2].after_timestamp);
+    CHECK(compact_restore.roots.model.serialized == bytes(4));
+    CHECK(object_is(compact_restore, 0, 10, 3, 12));
+    CHECK(object_is(compact_restore, 1, 20, 2, 22));
+    CHECK(compacted_runs.restore_after(compacted_runs.entries()[2].id, &paint_b, compact_restore));
+    CHECK(compact_restore.roots.model.serialized == bytes(5));
+    CHECK(compact_restore.roots.project_config == bytes(34));
+    CHECK(compacted_runs.restore_after(compacted_runs.entries()[3].id, &config_edit, compact_restore));
+    CHECK(compact_restore.timestamp == ungrouped_entries.back().after_timestamp);
+    CHECK(compact_restore.roots.model.serialized == bytes(7));
+    CHECK(object_is(compact_restore, 0, 10, 4, 14));
+    CHECK(object_is(compact_restore, 1, 20, 3, 25));
+    CHECK(compacted_runs.navigation_floor() == std::optional<LogicalTimestamp>(compact_session->entry_timestamp));
+    compacted_runs.clear();
+
+    // The cursor caps compaction at the applied prefix. Redo-side entry C and
+    // its endpoint remain available, while B's removed ID and timestamp do not.
+    TimestampedHistory cursor_compaction;
+    const auto cursor_0 = roots(20, {object(30, 1, 20)});
+    const auto cursor_a = roots(21, {object(30, 2, 21)});
+    const auto cursor_b = roots(22, {object(30, 3, 22)});
+    const auto cursor_c = roots(23, {object(30, 4, 23)});
+    const auto cursor_session = cursor_compaction.begin_editing_session();
+    CHECK(cursor_session);
+    CHECK(cursor_compaction.begin_operation("stroke A", cursor_0, TimestampedOperationKind::Paint));
+    CHECK(cursor_compaction.commit_operation(cursor_a));
+    CHECK(cursor_compaction.begin_operation("stroke B", cursor_a, TimestampedOperationKind::Paint));
+    CHECK(cursor_compaction.commit_operation(cursor_b));
+    CHECK(cursor_compaction.begin_operation("stroke C", cursor_b, TimestampedOperationKind::Paint));
+    CHECK(cursor_compaction.commit_operation(cursor_c));
+    const auto removed_b_id = cursor_compaction.entries()[1].id;
+    const auto redo_c = cursor_compaction.entries()[2];
+    CHECK(cursor_compaction.undo(cursor_c, compact_restore));
+    CHECK(compact_restore.timestamp == 2);
+    const auto cursor_before = cursor_compaction.current_timestamp();
+    const auto cursor_floor = cursor_compaction.navigation_floor();
+    auto cursor_status = cursor_compaction.editing_session_status();
+    CHECK(cursor_status && cursor_status->has_effective_commit);
+    CHECK(cursor_compaction.compact_editing_session(cursor_session->id));
+    CHECK(cursor_compaction.entries().size() == 2);
+    CHECK(cursor_compaction.entries()[0].id == 1);
+    CHECK(cursor_compaction.entries()[0].label == "Paint");
+    CHECK(cursor_compaction.entries()[0].before_timestamp == 0);
+    CHECK(cursor_compaction.entries()[0].after_timestamp == cursor_before);
+    CHECK(entry_is_equal(cursor_compaction.entries()[1], redo_c));
+    CHECK(cursor_compaction.current_timestamp() == cursor_before);
+    CHECK(cursor_compaction.navigation_floor() == cursor_floor);
+    cursor_status = cursor_compaction.editing_session_status();
+    CHECK(cursor_status && cursor_status->id == cursor_session->id && cursor_status->has_effective_commit);
+    CHECK(cursor_compaction.can_redo());
+    TimestampedRestore rejected_compact_restore {
+        77, roots(77, {object(77, 77, 77)}, 77, 77, 77), SceneDelta{{77}, {}, {}, {}, {77}}};
+    CHECK(!cursor_compaction.restore_before(removed_b_id, &cursor_b, rejected_compact_restore));
+    CHECK(is_navigation_sentinel(rejected_compact_restore));
+    CHECK(!cursor_compaction.restore_after(removed_b_id, &cursor_b, rejected_compact_restore));
+    CHECK(is_navigation_sentinel(rejected_compact_restore));
+    CHECK(!cursor_compaction.restore(1, &cursor_b, rejected_compact_restore));
+    CHECK(is_navigation_sentinel(rejected_compact_restore));
+    CHECK(cursor_compaction.current_timestamp() == cursor_before);
+    CHECK(cursor_compaction.redo(compact_restore));
+    CHECK(compact_restore.timestamp == 3);
+    CHECK(compact_restore.roots.model.serialized == bytes(23));
+    CHECK(object_is(compact_restore, 0, 30, 4, 23));
+    cursor_compaction.clear();
+
+    // A removed interior saved checkpoint becomes conservatively unknown;
+    // a saved endpoint keeps its original timestamp and clean state.
+    TimestampedHistory saved_inside_history;
+    const auto saved_session = saved_inside_history.begin_editing_session();
+    const auto saved_0 = roots(30, {object(40, 1, 30)});
+    const auto saved_1 = roots(31, {object(40, 2, 31)});
+    const auto saved_2 = roots(32, {object(40, 3, 32)});
+    CHECK(saved_session);
+    CHECK(saved_inside_history.begin_operation("stroke A", saved_0, TimestampedOperationKind::Paint));
+    CHECK(saved_inside_history.commit_operation(saved_1));
+    saved_inside_history.mark_current_as_saved();
+    CHECK(saved_inside_history.begin_operation("stroke B", saved_1, TimestampedOperationKind::Paint));
+    CHECK(saved_inside_history.commit_operation(saved_2));
+    CHECK(saved_inside_history.compact_editing_session(saved_session->id));
+    CHECK(!saved_inside_history.saved_timestamp());
+    CHECK(saved_inside_history.saved_checkpoint_evicted());
+    CHECK(saved_inside_history.project_modified());
+
+    TimestampedHistory saved_endpoint_history;
+    const auto saved_endpoint_session = saved_endpoint_history.begin_editing_session();
+    CHECK(saved_endpoint_session);
+    CHECK(saved_endpoint_history.begin_operation("stroke A", saved_0, TimestampedOperationKind::Paint));
+    CHECK(saved_endpoint_history.commit_operation(saved_1));
+    CHECK(saved_endpoint_history.begin_operation("stroke B", saved_1, TimestampedOperationKind::Paint));
+    CHECK(saved_endpoint_history.commit_operation(saved_2));
+    saved_endpoint_history.mark_current_as_saved();
+    const auto saved_endpoint = saved_endpoint_history.saved_timestamp();
+    CHECK(saved_endpoint == std::optional<LogicalTimestamp>(2));
+    CHECK(saved_endpoint_history.compact_editing_session(saved_endpoint_session->id));
+    CHECK(saved_endpoint_history.saved_timestamp() == saved_endpoint);
+    CHECK(!saved_endpoint_history.saved_checkpoint_evicted());
+    CHECK(!saved_endpoint_history.project_modified());
+
+    // A session with no paint and a singleton paint are successful no-ops.
+    TimestampedHistory no_paint_compaction;
+    const auto no_paint_session = no_paint_compaction.begin_editing_session();
+    CHECK(no_paint_session);
+    const auto no_paint_bytes = no_paint_compaction.bytes_used();
+    const auto no_paint_snapshots = no_paint_compaction.snapshot_count();
+    CHECK(no_paint_compaction.compact_editing_session(no_paint_session->id));
+    CHECK(no_paint_compaction.entries().empty());
+    CHECK(no_paint_compaction.bytes_used() == no_paint_bytes);
+    CHECK(no_paint_compaction.snapshot_count() == no_paint_snapshots);
+
+    TimestampedHistory singleton_compaction;
+    const auto singleton_session = singleton_compaction.begin_editing_session();
+    const auto singleton_0 = roots(40, {object(50, 1, 40)});
+    const auto singleton_1 = roots(41, {object(50, 2, 41)});
+    CHECK(singleton_session);
+    CHECK(singleton_compaction.begin_operation("only stroke", singleton_0, TimestampedOperationKind::Paint));
+    CHECK(singleton_compaction.commit_operation(singleton_1));
+    const auto singleton_entry = singleton_compaction.entries().front();
+    const auto singleton_bytes = singleton_compaction.bytes_used();
+    const auto singleton_snapshots = singleton_compaction.snapshot_count();
+    CHECK(singleton_compaction.compact_editing_session(singleton_session->id));
+    CHECK(singleton_compaction.entries().size() == 1);
+    CHECK(entry_is_equal(singleton_compaction.entries().front(), singleton_entry));
+    CHECK(singleton_compaction.bytes_used() == singleton_bytes);
+    CHECK(singleton_compaction.snapshot_count() == singleton_snapshots);
+
+    // Invalid IDs and an active operation reject compaction without side effects.
+    TimestampedHistory rejected_compaction;
+    const auto rejected_session = rejected_compaction.begin_editing_session();
+    CHECK(rejected_session);
+    TimestampedHistory no_session_compaction;
+    const auto no_session_bytes = no_session_compaction.bytes_used();
+    CHECK(!no_session_compaction.compact_editing_session(1));
+    CHECK(no_session_compaction.bytes_used() == no_session_bytes);
+    const auto stale_entries = rejected_compaction.entries();
+    const auto stale_bytes = rejected_compaction.bytes_used();
+    const auto stale_snapshots = rejected_compaction.snapshot_count();
+    const auto stale_current = rejected_compaction.current_timestamp();
+    const auto stale_floor = rejected_compaction.navigation_floor();
+    CHECK(!rejected_compaction.compact_editing_session(rejected_session->id + 1));
+    CHECK(entries_are_equal(rejected_compaction.entries(), stale_entries));
+    CHECK(rejected_compaction.bytes_used() == stale_bytes);
+    CHECK(rejected_compaction.snapshot_count() == stale_snapshots);
+    CHECK(rejected_compaction.current_timestamp() == stale_current);
+    CHECK(rejected_compaction.navigation_floor() == stale_floor);
+    const auto active_predecessor = roots(50, {object(60, 1, 50)});
+    CHECK(rejected_compaction.begin_operation("pending stroke", active_predecessor, TimestampedOperationKind::Paint));
+    const auto active_entries = rejected_compaction.entries();
+    const auto active_bytes = rejected_compaction.bytes_used();
+    const auto active_snapshots = rejected_compaction.snapshot_count();
+    const auto active_current = rejected_compaction.current_timestamp();
+    const auto active_session_floor = rejected_compaction.navigation_floor();
+    CHECK(!rejected_compaction.compact_editing_session(rejected_session->id));
+    CHECK(rejected_compaction.operation_active());
+    CHECK(entries_are_equal(rejected_compaction.entries(), active_entries));
+    CHECK(rejected_compaction.bytes_used() == active_bytes);
+    CHECK(rejected_compaction.snapshot_count() == active_snapshots);
+    CHECK(rejected_compaction.current_timestamp() == active_current);
+    CHECK(rejected_compaction.navigation_floor() == active_session_floor);
+    CHECK(rejected_compaction.editing_session_status()->id == rejected_session->id);
+    CHECK(rejected_compaction.abort_operation());
+
+    // After budget eviction only the retained adjacent suffix may compact;
+    // the evicted first stroke and its floor snapshot never return.
+    TimestampedHistory evicted_compaction;
+    const auto evicted_session = evicted_compaction.begin_editing_session();
+    const auto evicted_0 = roots(60, {object(70, 1, 60)});
+    const auto evicted_1 = roots(61, {object(70, 2, 61)});
+    const auto evicted_2 = roots(62, {object(70, 3, 62)});
+    const auto evicted_3 = roots(63, {object(70, 4, 63)});
+    const auto evicted_4 = roots(64, {object(70, 5, 64)});
+    CHECK(evicted_session);
+    CHECK(evicted_compaction.begin_operation("evicted A", evicted_0, TimestampedOperationKind::Paint));
+    CHECK(evicted_compaction.commit_operation(evicted_1));
+    const auto evicted_a_id = evicted_compaction.entries().back().id;
+    CHECK(evicted_compaction.begin_operation("retained B", evicted_1, TimestampedOperationKind::Paint));
+    CHECK(evicted_compaction.commit_operation(evicted_2));
+    CHECK(evicted_compaction.begin_operation("retained C", evicted_2, TimestampedOperationKind::Paint));
+    CHECK(evicted_compaction.commit_operation(evicted_3));
+    CHECK(evicted_compaction.begin_operation("retained D", evicted_3, TimestampedOperationKind::Paint));
+    CHECK(evicted_compaction.commit_operation(evicted_4));
+    const auto evicted_b_id = evicted_compaction.entries()[1].id;
+    evicted_compaction.set_byte_budget(evicted_compaction.bytes_used() - 1);
+    CHECK(evicted_compaction.resource_diagnostics().evicted_timestamp_count > 0);
+    CHECK(evicted_compaction.entries().size() == 3);
+    CHECK(evicted_compaction.entries().front().id == evicted_b_id);
+    const auto floor_before_eviction_compact = evicted_compaction.navigation_floor();
+    const auto evicted_status_before = evicted_compaction.editing_session_status();
+    CHECK(evicted_status_before && evicted_status_before->has_effective_commit);
+    CHECK(evicted_compaction.compact_editing_session(evicted_session->id));
+    CHECK(evicted_compaction.entries().size() == 1);
+    CHECK(evicted_compaction.entries().front().id == evicted_b_id);
+    CHECK(evicted_compaction.entries().front().before_timestamp == 1);
+    CHECK(evicted_compaction.entries().front().after_timestamp == 4);
+    CHECK(evicted_compaction.navigation_floor() == floor_before_eviction_compact);
+    CHECK(evicted_compaction.current_timestamp() == 4);
+    const auto evicted_status_after = evicted_compaction.editing_session_status();
+    CHECK(evicted_status_after && evicted_status_after->id == evicted_session->id &&
+          evicted_status_after->has_effective_commit);
+    CHECK(!evicted_compaction.restore_before(evicted_a_id, &evicted_4, rejected_compact_restore));
+    CHECK(is_navigation_sentinel(rejected_compact_restore));
+    CHECK(!evicted_compaction.restore(0, &evicted_4, rejected_compact_restore));
+    CHECK(is_navigation_sentinel(rejected_compact_restore));
+    CHECK(evicted_compaction.current_timestamp() == 4);
+    evicted_compaction.clear();
+
+    // Entry metadata and capacity are budgeted. A large run of tiny strokes
+    // releases the removed canonical entry slots after compaction.
+    TimestampedHistory compacted_many;
+    const auto many_session = compacted_many.begin_editing_session();
+    CHECK(many_session);
+    auto many_previous = roots(80, {object(80, 1, 80)});
+    constexpr std::size_t kManyStrokes = 40;
+    for (std::size_t index = 0; index < kManyStrokes; ++index) {
+        const auto next = roots(static_cast<std::uint8_t>(81 + index),
+                                {object(80, index + 2, static_cast<std::uint8_t>(81 + index))});
+        CHECK(compacted_many.begin_operation("tiny stroke", many_previous, TimestampedOperationKind::Paint));
+        CHECK(compacted_many.commit_operation(next));
+        many_previous = next;
+    }
+    const auto many_bytes_before = compacted_many.bytes_used();
+    const auto many_entry_capacity_before = compacted_many.entries().capacity();
+    CHECK(compacted_many.entries().size() == kManyStrokes);
+    CHECK(compacted_many.compact_editing_session(many_session->id));
+    CHECK(compacted_many.entries().size() == 1);
+    CHECK(compacted_many.entries().capacity() * 2 < many_entry_capacity_before);
+    CHECK(many_bytes_before >= compacted_many.bytes_used() + (kManyStrokes - 1) * std::size_t(192));
 
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;

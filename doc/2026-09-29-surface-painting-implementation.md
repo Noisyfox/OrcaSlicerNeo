@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-02 accepted; later steps remain gated.
+**Status:** Sequential implementation in progress. Steps 01-03 accepted; later steps remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -63,7 +63,7 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 ### 03. Native continuous-run compaction
 
-**Status:** Pending. **Depends on:** 02 accepted by parent. **Verification:** N.
+**Status:** Accepted by parent. **Depends on:** 02 accepted by parent. **Verification:** N.
 
 **Allowed scope:** src/history/TimestampedHistory.*.
 
@@ -71,19 +71,29 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 **Acceptance boundary:** A/B/config/C/D becomes AB/config/CD with correct before/after roots and deltas; test cross-object runs, mid-history cursor, saved checkpoint removal, no-op runs, and existing byte-budget eviction.
 
-### 04. Atomic history-session closure and native bridge
+### 04a. Atomic native history-session closure
 
-**Status:** Pending. **Depends on:** 03 accepted by parent. **Verification:** W.
+**Status:** Pending. **Depends on:** 03 accepted by parent. **Verification:** N.
 
-**Allowed scope:** src/history/TimestampedHistory.*; bridge_history.{hpp,cpp}; bridge state and CMake export list.
+**Allowed scope:** src/history/TimestampedHistory.{hpp,cpp,test.cpp}.
 
-**Functional boundary:** Wire session open/status/close into the native bridge. Close atomically applies compaction, navigation-floor removal and all-Redo cleanup when the lifetime effect latch is set. No-effect sessions preserve Redo. Expose structured session identity and effective floor; reset on project replacement. Failures must keep the original open session/history usable.
+**Functional boundary:** Close the identified session atomically: compact applied paint runs, discard every Redo entry/checkpoint if the lifetime effect latch is set, and remove the navigation floor/session. A no-effect session preserves Redo. Keep the current model timestamp and roots unchanged. Reject stale IDs or active operations without side effects; allocation failure retains the entire original open session/history. Reuse staged compaction rather than duplicating its run rules.
 
-**Acceptance boundary:** Core tests and real-WASM history harness cover close after undo-to-entry, interleaved edits, no-effect opening with preexisting Redo, eviction, stale IDs, and failed close without partial effects.
+**Acceptance boundary:** Core tests cover close at top, after Undo to entry, at a mixed-history cursor, non-paint-only effects, no-effect sessions with preexisting Redo, saved Redo checkpoint removal, eviction, fresh session IDs and rejection. Verify removed children/Redo cannot be restored and prior history becomes accessible after floor removal. No bridge ABI in this step.
+
+### 04b. Native history-session bridge
+
+**Status:** Pending. **Depends on:** 04a accepted by parent. **Verification:** W.
+
+**Allowed scope:** bridge_history.{hpp,cpp}; bridge state and CMake export list; focused real-WASM history harness.
+
+**Functional boundary:** Wire accepted core session open/status/close into the native bridge. Expose structured session identity and effective floor; reset on project replacement. Validate requests and transaction conflicts before mutation. Do not add painting entrypoints or renderer state.
+
+**Acceptance boundary:** Real-WASM history harness covers opening, floor navigation, no-effect Redo preservation, committed non-paint effect followed by Undo/close, project reset, stale IDs, and failed close without partial effects. Native core tests retain responsibility for paint-run details until painting commands exist.
 
 ### 05. Typed history-session transport
 
-**Status:** Pending. **Depends on:** 04 accepted by parent. **Verification:** T.
+**Status:** Pending. **Depends on:** 04b accepted by parent. **Verification:** T.
 
 **Allowed scope:** src/client/history.ts, client types/module/protocol and slicer-runtime Worker/runtime; platform contract where owned.
 
@@ -408,3 +418,24 @@ Native canonical slots are compile-guarded at 336 bytes for Impl and 192 bytes
 for retained entries (also bounding active Operation). Step 02 accepted.
 
 Accepted step 01 code commit: `3d85d465`.
+
+Accepted step 02 code commit: `4e7046a7`.
+
+### Step 03 acceptance — continuous paint-run compaction
+
+Child: `/root/painting_step_03` (`gpt-6-luna`, max). Parent reviewed the staged
+copy-and-swap implementation, mixed-operation boundaries, retained snapshot roots,
+saved-checkpoint invalidation and the unchanged Redo side. Review required actual
+entry-vector capacity release, covered by a 40-stroke regression. Native tests also
+exposed and fixed restore traversal across a removed interior timestamp: availability
+and monotonic-path checks now reject before lazy capture, without looping.
+
+Child and parent independently passed the configured native history target build
+and CJS runner, serial quick WASM build, slicer-wasm full suite (193 tests/8 files),
+typecheck and diff check. Graph review reported no associated flows/tests; direct
+native cases verify AB/config/CD, cross-object deltas, cursor/Redo boundaries,
+invalid requests, saved markers, eviction and retained-memory reduction. Step 03
+accepted. No bridge/UI change; host/alternate-variant gates remain deferred.
+
+The next work package was split into 04a (atomic core closure) and 04b (bridge and
+real-WASM integration), with a separate fresh child and acceptance gate for each.

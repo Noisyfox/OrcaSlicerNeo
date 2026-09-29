@@ -112,6 +112,11 @@ public:
     std::optional<TimestampedEditingSessionInfo> begin_editing_session();
     std::optional<TimestampedEditingSessionInfo> editing_session_status() const;
 
+    // Merge adjacent retained Paint entries belonging to the active session,
+    // without crossing the current cursor. A valid session with no multi-entry
+    // paint run succeeds without changing history.
+    bool compact_editing_session(EditingSessionId session_id, std::string label = "Paint");
+
     // The outer operation captures its predecessor before the first write.
     // Nested calls join that operation. Only the outer commit creates one
     // named before/after timestamp pair; its resulting topmost state remains

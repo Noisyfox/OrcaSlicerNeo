@@ -384,14 +384,14 @@ struct TimestampedHistory::Impl {
                 const auto found = std::find_if(entries.rbegin(), entries.rend(), [cursor](const auto& entry) {
                     return entry.after_timestamp == cursor;
                 });
-                if (found == entries.rend()) return false;
+                if (found == entries.rend() || found->before_timestamp < target) return false;
                 merge_scene_delta(result, found->scene_delta);
                 cursor = found->before_timestamp;
             } else {
                 const auto found = std::find_if(entries.begin(), entries.end(), [cursor](const auto& entry) {
                     return entry.before_timestamp == cursor;
                 });
-                if (found == entries.end()) return false;
+                if (found == entries.end() || found->after_timestamp > target) return false;
                 merge_scene_delta(result, found->scene_delta);
                 cursor = found->after_timestamp;
             }
@@ -505,12 +505,14 @@ struct TimestampedHistory::Impl {
         return result;
     }
 
-    void enforce_budget()
+    void enforce_budget(bool preserve_redo = false)
     {
         while (bytes_used() > byte_budget) {
             const auto protected_set = protected_timestamps();
-            const auto candidate = std::find_if(snapshots.begin(), snapshots.end(), [&protected_set](const auto& item) {
-                return protected_set.find(item.first) == protected_set.end();
+            const auto candidate = std::find_if(snapshots.begin(), snapshots.end(),
+                                                [&protected_set, this, preserve_redo](const auto& item) {
+                return protected_set.find(item.first) == protected_set.end() &&
+                       (!preserve_redo || item.first <= current_timestamp);
             });
             if (candidate == snapshots.end()) break;
             erase_snapshot(candidate->first, true);
@@ -597,6 +599,96 @@ std::optional<TimestampedEditingSessionInfo> TimestampedHistory::begin_editing_s
 std::optional<TimestampedEditingSessionInfo> TimestampedHistory::editing_session_status() const
 {
     return m_impl->editing_session;
+}
+
+bool TimestampedHistory::compact_editing_session(EditingSessionId session_id, std::string label)
+{
+    if (m_impl->operation || !m_impl->editing_session || m_impl->editing_session->id != session_id)
+        return false;
+
+    const auto& entries = m_impl->entries;
+    std::size_t applied_count = 0;
+    while (applied_count < entries.size() && entries[applied_count].after_timestamp <= m_impl->current_timestamp)
+        ++applied_count;
+
+    const auto is_session_paint = [session_id](const TimestampedEntryInfo& entry) {
+        return entry.operation_kind == TimestampedOperationKind::Paint &&
+               entry.editing_session_id == session_id;
+    };
+    bool has_run = false;
+    std::size_t compacted_size = entries.size();
+    for (std::size_t first = 0; first < applied_count;) {
+        if (!is_session_paint(entries[first])) {
+            ++first;
+            continue;
+        }
+        std::size_t last = first;
+        while (last + 1 < applied_count && entries[last].after_timestamp == entries[last + 1].before_timestamp &&
+               is_session_paint(entries[last + 1]))
+            ++last;
+        if (last != first) {
+            has_run = true;
+            compacted_size -= last - first;
+        }
+        first = last + 1;
+    }
+    if (!has_run) return true;
+
+    // Stage every mutation so allocation failures cannot publish a partial
+    // compaction. Snapshot objects are shared immutable roots; this copy only
+    // changes the staged maps and never edits a Snapshot in place.
+    auto staged = std::make_unique<Impl>(*m_impl);
+    std::vector<TimestampedEntryInfo> compacted_entries;
+    compacted_entries.reserve(compacted_size);
+    std::vector<LogicalTimestamp> intermediate_timestamps;
+    intermediate_timestamps.reserve(entries.size());
+
+    for (std::size_t first = 0; first < entries.size();) {
+        if (first >= applied_count || !is_session_paint(entries[first])) {
+            compacted_entries.push_back(entries[first++]);
+            continue;
+        }
+
+        std::size_t last = first;
+        while (last + 1 < applied_count && entries[last].after_timestamp == entries[last + 1].before_timestamp &&
+               is_session_paint(entries[last + 1]))
+            ++last;
+        if (last == first) {
+            compacted_entries.push_back(entries[first++]);
+            continue;
+        }
+
+        TimestampedEntryInfo combined = entries[first];
+        combined.label = label;
+        combined.after_timestamp = entries[last].after_timestamp;
+        for (std::size_t index = first + 1; index <= last; ++index) {
+            merge_scene_delta(combined.scene_delta, entries[index].scene_delta);
+            intermediate_timestamps.push_back(entries[index - 1].after_timestamp);
+        }
+        compacted_entries.push_back(std::move(combined));
+        first = last + 1;
+    }
+
+    compacted_entries.shrink_to_fit();
+    staged->entries.swap(compacted_entries);
+    std::set<LogicalTimestamp> referenced_timestamps { staged->current_timestamp };
+    if (staged->navigation_floor) referenced_timestamps.insert(*staged->navigation_floor);
+    if (staged->operation) referenced_timestamps.insert(staged->operation->before_timestamp);
+    for (const auto& entry : staged->entries) {
+        referenced_timestamps.insert(entry.before_timestamp);
+        referenced_timestamps.insert(entry.after_timestamp);
+    }
+    for (LogicalTimestamp timestamp : intermediate_timestamps)
+        if (referenced_timestamps.find(timestamp) == referenced_timestamps.end())
+            staged->erase_snapshot(timestamp, false);
+
+    staged->rebuild_intervals();
+    // Compaction itself leaves the Redo side intact. If its reduced metadata
+    // still exceeds budget, apply the existing oldest-first policy to applied
+    // snapshots while keeping every future checkpoint available for closure.
+    staged->enforce_budget(true);
+    m_impl.swap(staged);
+    return true;
 }
 
 bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoots& predecessor,
@@ -699,12 +791,13 @@ bool TimestampedHistory::restore(LogicalTimestamp target, const TimestampedRoots
                                  TimestampedRestore& result)
 {
     if (m_impl->operation) return false;
-    if (m_impl->below_navigation_floor(target)) return false;
+    if (m_impl->below_navigation_floor(target) || !m_impl->timestamp_available(target)) return false;
+    SceneDelta delta;
+    if (!m_impl->collect_scene_delta(target, delta)) return false;
     if (m_impl->snapshots.find(m_impl->current_timestamp) == m_impl->snapshots.end()) {
         if (!live_current || !m_impl->capture(m_impl->current_timestamp, *live_current)) return false;
     }
-    SceneDelta delta;
-    if (!m_impl->collect_scene_delta(target, delta) || !m_impl->load(target, result)) return false;
+    if (!m_impl->load(target, result)) return false;
     delta.object_order.reserve(result.roots.model.mutable_objects.size());
     for (const MutableObject& object : result.roots.model.mutable_objects) delta.object_order.push_back(object.id);
     result.scene_delta = std::move(delta);
