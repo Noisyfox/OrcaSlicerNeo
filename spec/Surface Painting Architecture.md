@@ -83,8 +83,36 @@ dedicated mode does not require a second WebGL context. Draft display resources
 remain separate from committed `GLVolume` paint resources. Closing returns to
 ordinary Prepare rendering after the committed resources are ready.
 
-Exact editable target scope, isolation of other objects/instances, camera
-bindings, and mode-entry/exit actions remain subject to section 10 clarification.
+### 3.1 Editing scope and entry condition
+
+Selecting a part before opening the gizmo identifies its owning object; it does
+not restrict painting to that part. All solid model parts of the target object
+are eligible for painting. Modifiers and other non-model-part volumes are not
+paint targets.
+
+Multi-material painting requires at least two filament slots to open. Handling
+a slot deletion that reduces this count during an already-open session remains
+part of the external-edit clarification group.
+
+Painting mode displays only the active editing instance. Other objects and
+other instances of the same object are hidden. The final annotations still
+belong to the shared volumes and therefore affect the other instances too.
+
+### 3.2 Explicit closure and Escape
+
+When no stroke is active, Escape behaves like the toolbar close action:
+commit the draft, compact history, and return to Prepare. It does not discard
+the session's painting or ask whether to apply it.
+
+During an active stroke, Escape cancels only that stroke and keeps the gizmo
+open. Restore the draft to its pre-stroke state and do not create a history
+entry for the cancelled stroke. Earlier completed strokes and interleaved
+non-paint edits remain intact. A subsequent Escape while idle performs normal
+closure. Late samples or release events from the cancelled stroke must not
+resume it or cause an implicit close.
+
+Other lifecycle actions and camera bindings remain subject to section 10
+clarification.
 
 ## 4. Cursor preview and authoritative native picking
 
@@ -211,9 +239,10 @@ state is then updated for the affected objects and every affected plate,
 including other instances sharing the edited annotations. Ordinary Prepare
 resources become visible only when they match that committed state.
 
-The session draft is retained on failure. The treatment of pending input,
-explicit cancel, source-mesh replacement, target deletion, Save, Slice, export,
-page changes, and application shutdown is deliberately not settled here.
+The session draft is retained on failure. Active-stroke Escape cancellation is
+defined in section 3.2. Other pending-input cases, any whole-session discard
+action, source-mesh replacement, target deletion, Save, Slice, export, page
+changes, and application shutdown are deliberately not settled here.
 
 ## 8. Native Orca reference and Neo differences
 
@@ -243,6 +272,10 @@ not components to compile into the WASM application.
   remains correct with reordered renderer indices, clipping, mirrors, and
   nonuniform transforms.
 - Dedicated mode does not invoke ordinary model drag/selection handlers.
+- Part-based entry permits painting all solid parts of the owning object;
+  entry requires at least two filament slots and hides all other instances.
+- Escape cancels an active stroke without closing or recording that stroke;
+  idle Escape commits and closes. Late events cannot revive a cancelled stroke.
 - Stroke Undo/Redo changes draft only; non-paint separators retain order and
   corresponding configuration/material state.
 - Close compacts continuous runs, removes all redo when the effect condition
@@ -263,10 +296,12 @@ or create separate phase documents.
 
 | Group | Important unresolved decisions |
 | --- | --- |
-| A. Editing target and lifecycle | Whole-object versus selected-part scope; activation gates; isolation; target switches; close, Escape, and cancel; Save/Slice/export and destructive actions |
+| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape commits/closes, active-stroke Escape cancels that stroke and stays open. Remaining: other activation gates, target switches, any whole-session discard, Save/Slice/export and destructive actions |
 | B. History and external edits | Effect/no-effect and fully undone sessions; no-effect redo behavior; navigation across the session boundary; dirty/save semantics; slot-remapping atomicity; other mutations interleaved with drafts |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
 | D. Runtime and acceptance | Active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
-No code implementation is authorized by this clarification workflow. The next
-step is to settle group A, then fold its decisions into this same specification.
+No code implementation is authorized by this clarification workflow. The first
+related batch of group A decisions is recorded in section 3; continue resolving
+the remaining lifecycle questions and fold each coherent batch into this same
+specification.
