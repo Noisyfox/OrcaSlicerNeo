@@ -2,9 +2,9 @@
 
 **Date:** 2026-09-29
 
-**Status:** Accepted architectural direction and clarified first-release behavior.
-Implementation is in progress under the living plan. Quantitative performance thresholds remain to be
-confirmed after initial reference measurements.
+**Status:** Implemented and functionally qualified on 2026-09-30. All six MMU
+tools and the reusable painting foundation are delivered. Quantitative performance
+thresholds remain to be confirmed from the recorded reference measurements.
 
 **Scope:** A shared surface-painting architecture for OrcaSlicerNeo, with
 multi-material painting as its first gizmo and reusable foundations for support,
@@ -925,8 +925,8 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - 3MF round trips and actual multi-material slicing consume final native
   annotations; shared instances and affected plates remain consistent.
 - Performance validation separates hit testing, selector work, draft geometry
-  transfer, GPU updates, history memory, and final publication. No measured latency
-  or peak-memory result is claimed yet. Painting adds no dedicated working-memory
+  transfer, GPU updates, history memory, and final publication. The reference
+  measurements and their limits are recorded below. Painting adds no dedicated working-memory
   hard cap; history retains its separate byte budget. Verify cleanup of replaced
   geometry and temporary buffers across repeated edits and session closure.
 
@@ -960,8 +960,22 @@ First establish the measured baseline, then review and confirm numeric latency
 and other performance acceptance thresholds from those results. Do not invent
 fixed frame-rate, latency, or working-memory guarantees before measurement. This
 does not waive functional correctness, reliable stroke termination, atomic
-history/model behavior, or resource-lifetime verification in section 9. No fixture
-generation, benchmark execution, or implementation is claimed by this document.
+history/model behavior, or resource-lifetime verification in section 9.
+
+The [reference archive](../packages/slicer-wasm/benchmarks/painting/reference-2026-09-29/summary.json)
+contains 36 repeated measurements across Electron/Web, generated size/part/
+subdivision cases and a fixed real project. The
+[implementation record](../doc/2026-09-29-surface-painting-implementation.md)
+defines exact commands, artifact flags, hardware, hashes and verification scope.
+On its 5900X/RTX 3080 machine, the 143,912-triangle editing object measured
+216/263 ms p95 from release to a logical revision frame and 444/480 ms p95
+from close input to disposal (Electron/Web). These are instrumented serial-wasm64
+baselines, not production performance guarantees. Dropped movement counts must
+accompany those measurements. Frame observation is not verified display/GPU
+presentation; WebGL measurements cover CPU submission, and sampled process
+working-set sums are not exclusive peak memory. A comparable pinned native Orca
+measurement and GPU execution timing remain unavailable. Numeric acceptance
+thresholds are still awaiting user review.
 
 ## 10. Decision status and remaining validation
 
@@ -974,12 +988,15 @@ sections rather than as a discussion transcript.
 | A. Editing target and lifecycle | Accepted; sections 3 and 7 define eligibility, single-gizmo ownership, navigation, closure, and external commands. |
 | B. History and external edits | Accepted; sections 5-7 define per-stroke commits, nested navigation/compaction, eviction, Redo cleanup, and interleaved project changes. |
 | C. Multi-material tools | Accepted; sections 2-4 define all six tools, their parameters and lifetime, desktop input, native authority, and reliable event completion. |
-| D. Runtime and acceptance | Runtime policies and the measurement plan are accepted; sections 4-6 and 9 define event admission, cancellation, memory policy, reference environment, and fixtures. Numeric performance thresholds await the first measured baseline and subsequent review. |
+| D. Runtime and acceptance | Runtime policies and functional verification are accepted; sections 4-6 and 9 define event admission, cancellation, memory policy, reference environment, and fixtures. The measured baseline is recorded; numeric performance thresholds await user review. |
 
-Implementation must still specify concrete protocol schemas, camera-snapshot
-transport, module changes, and reproducible fixture/benchmark commands within
-these accepted boundaries. These engineering details do not authorize changing
-product semantics or claiming measurements that have not been made. If further
+The [typed painting contract](../packages/slicer-wasm/src/client/painting.ts)
+implements the session/stroke/revision and camera-snapshot transport. Native
+selectors and picking remain authoritative; the shared application renders
+through `viewport/gizmo/painting/PaintingGizmoBase` and `MmuPaintingGizmo`.
+The implementation record supplies reproducible fixture/benchmark commands.
+These engineering details do not authorize changing product semantics or claiming
+measurements that have not been made. If further
 important product choices arise, clarify them interactively with pinned Orca
 behavior and source evidence, then update this specification in coherent batches.
 
@@ -987,5 +1004,9 @@ Implementation was authorized on 2026-09-29 on the current development branch.
 The [living implementation plan](../doc/2026-09-29-surface-painting-implementation.md)
 defines bounded sequential steps, each implemented and self-verified by a fresh
 subagent and independently accepted by the parent before the next step starts.
-This specification does not itself claim implementation, runtime validation, or
-a delivered roadmap milestone.
+All implementation stages passed parent code review and independent verification.
+The final record includes root tests/typechecks, both production WASM variants,
+Electron/Web real journeys, packaged-app checks, 3MF/profile compatibility and
+the measured performance baseline. Support, seam and fuzzy-skin painting remain
+future adapters; this delivery contains only MMU painting. Functional delivery
+does not close the remaining quantitative performance decision.

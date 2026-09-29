@@ -441,8 +441,9 @@ Release-gate commands (all passed on 2026-09-04):
 
 Add project-scoped, incremental Undo/Redo across the shared Electron/Web app.
 The history restores model/project changes and editing context (selection,
-active plate, and gizmo) without recording global preset selection or system
-preferences. Complete 3MF archives and derived slice/preview output are not
+active plate, and gizmo). Effective Process selection now records the resulting
+project configuration as an ordinary history operation; persistent catalogue
+preferences and system preferences remain outside history. Complete 3MF archives and derived slice/preview output are not
 history entries.
 
 - [x] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
@@ -457,6 +458,27 @@ history entries.
       bindings, and cross-host verification
 - [x] Add unit, Worker/WASM, large-model budget/eviction, and three-host
       end-to-end coverage; keep timing and peak memory as diagnostics initially
+
+## Milestone 20: Surface and Multi-Material Painting
+
+> **Functionally delivered 2026-09-30.** Major specification:
+> [Surface Painting Architecture](Surface%20Painting%20Architecture.md).
+> [Implementation and acceptance record](../doc/2026-09-29-surface-painting-implementation.md).
+> Quantitative performance thresholds remain awaiting user review; reference
+> measurements are recorded without a general latency or memory guarantee.
+
+- [x] Reusable native selector/session/geometry foundation and shared
+      `PaintingGizmoBase`, with `MmuPaintingGizmo` as the first adapter.
+- [x] Circle, sphere, triangle, region, height and gap tools; native picking,
+      first-16 explicit material states, dedicated rendering and reliable
+      terminal input with busy movement dropping.
+- [x] Per-stroke native commits, session-local history navigation, continuous
+      paint-run compaction separated by ordinary edits, and close-time Redo rules.
+- [x] Project/slot/lifecycle integration, standard 3MF persistence, actual MMU
+      slicing, both WASM variants, real Electron/Web and packaged verification.
+- [x] Reproducible dual-host performance baseline with raw evidence and resource
+      cleanup checks; pinned native comparison remains unavailable.
+- [ ] Support, seam and fuzzy-skin painting adapters (future work).
 
 ## G-code preview GPU streaming renderer
 

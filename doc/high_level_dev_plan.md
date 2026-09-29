@@ -478,8 +478,9 @@ execution record.
 
 Implement project-scoped, incremental Undo/Redo for the shared application.
 History restores model/project changes plus selection, active plate, and gizmo
-context. It excludes global preset selection, global/system preferences, full
-3MF archives, and derived slice/preview output.
+context. Effective Process selection now records the resulting project
+configuration as an ordinary history operation. Persistent catalogue/system
+preferences, full 3MF archives, and derived slice/preview output remain excluded.
 
 - [x] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
       approved 256 MiB cross-host budget and eviction policy.
@@ -556,6 +557,25 @@ context. It excludes global preset selection, global/system preferences, full
 - [x] Deliver Project / Scoped editing for project, plate, object, part, and
       modifier settings, with selection-aware inheritance, mixed-value editing,
       reset, standard 3MF persistence, and Undo/Redo.
+
+### Milestone 20 — Surface and Multi-Material Painting
+
+> **Status: functionally delivered 2026-09-30.** The normative contract is
+> [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md);
+> [the implementation record](2026-09-29-surface-painting-implementation.md)
+> contains sequential parent acceptance and exact verification scope.
+> Quantitative performance thresholds still await user review.
+
+- [x] Reusable native selector/session/geometry foundation, `PaintingGizmoBase`
+      and `MmuPaintingGizmo`, dedicated viewport rendering and native picking.
+- [x] All six MMU tools, first-16 explicit material states, busy-move dropping
+      with reliable release/cancel, and per-stroke native commits.
+- [x] Session-local history with continuous paint-run compaction around ordinary
+      edits; coherent slots, project commands, lifecycle, 3MF and real MMU slices.
+- [x] Both production WASM variants, real Electron/Web and packaged-app gates,
+      plus a reproducible 36-sample performance baseline and resource cleanup.
+- [ ] Support, seam and fuzzy-skin adapters. Pinned native performance comparison
+      remains unavailable; measured timings are not universal guarantees.
 
 ## G-code preview GPU streaming renderer (2026-09-02)
 

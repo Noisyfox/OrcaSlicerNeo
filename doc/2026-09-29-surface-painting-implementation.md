@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-11 accepted; final regression remains gated.
+**Status:** Steps 01-12 implemented and independently accepted; functional delivery qualified 2026-09-30. Quantitative performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -216,7 +216,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 12. Final regression and specification handoff
 
-**Status:** Pending. **Depends on:** 11 accepted. **Model:** gpt-6-sol / high. **Verification:** R.
+**Status:** Accepted by parent on 2026-09-30 for functional delivery; performance limitations remain explicit. **Depends on:** 11 accepted. **Model:** gpt-6-sol / high. **Verification:** R.
 
 **Allowed scope:** affected packages/hosts/variants, required regression fixes and test evidence. Parent owns final living-doc/spec/roadmap updates.
 
@@ -760,3 +760,97 @@ Parent independently audited all 36 decompressed raw hashes, effective tool
 outcomes, terminal coverage, balanced resources and analysis-script identity.
 Logs: `packages/slicer-wasm/.work/parent-stage11-*.log`. Diff/link checks pass;
 the pinned submodule is unchanged. Final milestone regression remains stage 12.
+
+### Stage 12 acceptance — final functional qualification
+
+Child: `/root/painting_stage_12` (`gpt-6-sol`, high). Parent accepted after
+reviewing actual coverage and source changes, not only the reported test counts.
+The only final code changes are in the E2E Preview probe and its two type
+declarations. The original probe read an optional source-text field that the
+lazy Preview no longer populates, falsely reporting no G-code tool changes.
+It now reads committed G-code only when explicitly requested, retains parsed
+tool numbers for the complete receipt/geometry identity, discards results after
+renderer changes or disposal, and clears its cache on cleanup. The original
+`T1`, extrusion-tool, palette and rendered-colour assertions remain intact.
+Ordinary product builds contain no such probe.
+
+Parent review also rejected a proposed backend-harness condition change: the
+existing `if`/`else if` already handled `--expect-production` correctly. The first
+two child attempts were interrupted on that misreading, not harness failures;
+the unchanged full contracts subsequently passed. An initial elision check ran
+against an E2E bundle and correctly detected its instrumentation; final checks
+use restored ordinary builds. Neither episode establishes a product defect.
+
+The full mock Electron command reports 42 passes and 11 skips. Parent inspection
+found that five rack tests were suppressed by a file-level real-mode condition,
+while the real-project runner covered only one. This was not accepted as complete
+rack verification: the child ran all five on real threaded WASM, exposed and
+fixed the stale probe, then passed them. Parent independently passed all five
+again on the final source, including stale-result consistency refinements.
+The Prime Tower warning fixture was also exercised by its dedicated runner.
+
+Requirement reconciliation:
+
+| Accepted boundary | Evidence retained across the stages and final gate |
+| --- | --- |
+| Native target/picking, transforms, subdivision and all six tools | Both production `painting-engine-smoke` and `painting-session-smoke`; native/controller tests; real six-tool Electron journey. |
+| Single event in flight, dropped moves, retained endpoint/Escape, isolated rendering/camera and one gizmo | Deferred controller tests; causal endpoint/annotation assertions; real Electron camera, close/reopen and numeric-gizmo transition. |
+| Per-stroke commits, mixed history, floor/compaction/Redo, failure atomicity | Native history core/fault-build evidence from earlier stages; both final production editing-session/backend contracts; real Undo/Redo and close. Production hook absence asserted separately. |
+| Slots/identity/remaps, commands, saves, lifecycle and affected-plate slicing | Shared command tests, native remap/history contracts, real rack five-test suite, painting lifecycle/download journeys and isolated Prime Tower warning. |
+| Standard persistence, other annotation channels, shared instances and actual material use | Full production backend contracts on both variants; unpainted tool 1 versus painted tools 0/1 with 47,029 segments; imported painted-facet Preview and fixed project compatibility. |
+| Host/build/resource boundaries | Root suites/types, dual native builds/smokes, real Web serial/threaded, packaged probes, production elision and the stage 11 raw resource/measurement archive. |
+
+Child final matrix (commands run from the repository root unless noted):
+
+| Command / scope | Result |
+| --- | --- |
+| `pnpm test`; `pnpm typecheck` | 1,122 tests and all types passed. After the final E2E repair, affected app 712 tests and app/desktop types passed again. |
+| `scripts\build-windows.bat quick --variant both`; `scripts\build-windows.bat smoke --variant both` | Both production variants passed. |
+| `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs <module> --expect-production` | Full contract passed for each `out/serial/orca_slice.js` and `out/threaded/orca_slice.js`; no fault hook. |
+| `painting-engine-smoke.mjs`, `painting-session-smoke.mjs`, `history-editing-session-smoke.mjs`, each invoked with `pnpm exec node` and each module path | All six tools, multipart/session and editing history passed on both variants. |
+| `pnpm --filter @orca/desktop test:e2e` | 42 passed, 11 documented skips. |
+| `pnpm exec node scripts/run-painting-e2e.mjs` | Real six-tool journey 1/1 passed. |
+| `pnpm --filter @orca/desktop test:e2e:real` | Real project/current-artifact suite 10/10 passed. |
+| `pnpm --filter @orca/web test:e2e:threaded`; `pnpm --filter @orca/web test:e2e:serial` | Each 11 passed; dedicated benchmark skipped once per host run. |
+| `pnpm --filter @orca/web test:non-root` | Deployment/build guard passed. |
+| `pnpm --filter @orca/desktop test:e2e:painted-facet:real` | Fixture self-test and real Electron/Web imported Preview passed. |
+| `pnpm --filter @orca/profile-resources build` | 66 packages built. |
+| `pnpm exec node packages/slicer-wasm/harness/acquire-project-fixtures.mjs --download` | Three fixed hashes verified. |
+| `project-compatibility.mjs --module <module>`, `profile-compatibility-smoke.mjs <module>`, `profile-smoke.mjs <module>`, via `pnpm exec node packages/slicer-wasm/harness/…` | Passed on both variants; external archives retain their established geometry-only compatibility scope. |
+| `pnpm --filter @orca/desktop package:dir` | Ordinary package built. |
+| Set `ORCA_E2E_PACKAGED_ROOT=release/win-unpacked`; `pnpm --filter @orca/desktop exec playwright test e2e/packaged-real.e2e.ts` | Real threaded package slice/export 1/1 passed. |
+| Same packaged root; `pnpm --filter @orca/desktop exec playwright test e2e/packaged.e2e.ts` | Startup/missing/corrupt profile probes 3/3 passed; restored core ZIP hash identical. |
+| Real threaded build; `pnpm --filter @orca/desktop exec playwright test e2e/multi-filament.e2e.ts` | Full 5/5 after probe repair; focused final Preview 1/1 after consistency refinement. Parent final full5 result below. |
+| `pnpm exec node packages/slicer-wasm/harness/multi-filament-slice-preview-smoke.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` | 107,862 segments; actual exported G-code contains `T1`. |
+| `pnpm --filter @orca/desktop test:e2e:prime-tower-warnings` | Isolated warning fixture 1/1 passed. |
+
+Parent independent final acceptance:
+
+- Root `pnpm test` (1,122) and `pnpm typecheck` passed on the final probe source.
+- Full production backend command above passed independently on serial and
+  threaded; each proves baseline/painted slicing and absent test hooks.
+- `pnpm exec node scripts/run-painting-e2e.mjs` passed 1/1 in 19.8 seconds.
+- Final real threaded `multi-filament.e2e.ts` passed all 5 in 1.1 minutes. Parent
+  staged current artifacts, built with `ORCA_E2E_REAL=1`, `VITE_USE_MOCK=0`,
+  `VITE_E2E=1`, no scoped-configuration variant override, copied the fresh public
+  assets into `out/renderer`, and verified all six JS/WASM/data source/served
+  SHA-256 pairs before launching Playwright. Thus this was not a launch-time-only
+  mock override or stale renderer result.
+- Ordinary host builds and the 21-artifact profiling-elision check were restored
+  and passed after E2E. Both CMake caches have `NEO_PAINTING_PROFILE=0` and
+  `NEO_PROJECT_HISTORY_TEST=0`. Diff/link checks pass; the pinned submodule is
+  still `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`.
+
+Child logs are ignored root `stage12-*.log`; parent logs are
+`packages/slicer-wasm/.work/parent-stage12-*.log`. Remaining mock skips are real
+DRC/STEP (covered by real runner), the rack file (full real5 above), macOS native
+menu (not applicable on Windows), the mock painted-facet fixture (real fixture
+runner passed), Prime Tower warning (dedicated runner passed), and the separate
+real-only rejecting-slice fixture (not rerun in this painting qualification).
+The general Web suite skips the dedicated benchmark; stage 11 supplies its
+36-sample evidence. Surface Painting names no additional licensed fixture or
+generic native G-code cross-check; `crosscheck-slice.mjs` was not run or replaced
+by the material-consumption assertion. A comparable pinned native performance
+baseline and GPU execution timing remain unavailable. Numeric performance
+thresholds remain awaiting user review. These limits do not prevent functional
+delivery, but no universal latency/memory or native-equivalence claim is made.
