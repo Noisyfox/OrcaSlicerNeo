@@ -57,6 +57,10 @@ struct BridgeState {
     std::uint64_t preset_draft_revision = 0;
     Model       model;
     Painting::Sessions painting;
+    std::uint64_t painting_derived_version = 0;
+    std::uint64_t painting_settled_version = 0;
+    nlohmann::json painting_settlement;
+    nlohmann::json painting_settlement_key;
     // FFF per-plate native ownership. Selected-plate slice/result/export/
     // cancel operations resolve this registry; no singleton Print or result
     // owner remains in BridgeState.

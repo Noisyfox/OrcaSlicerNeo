@@ -299,6 +299,57 @@ void engine_tests() {
     multiple_neighbors.apply_gaps(patches);
     CHECK(multiple_neighbors.num_facets(EnforcerBlockerType::Extruder16) == 0);
     CHECK(multiple_neighbors.num_facets(EnforcerBlockerType::Extruder3) == large_state3_count);
+    Fixture publication;
+    publication.open();
+    publication.preview(Tool::Region, Settings{}, top(3, 4));
+    const auto& selected = *publication.s().preview->region_selection;
+    const auto overlay = selected.display(nullptr, true);
+    CHECK(!overlay.vertices.empty() && !selected.contour().empty());
+    CHECK(overlay.groups.front()[0] == 0); // Unpainted candidate is still visible.
+    CHECK(overlay.vertices.size() / 6 == selected.selected_facet_count() * 3);
+    const auto old_geometry = publication.s().parts[0].geometry_revision;
+    auto stroke_candidate = publication.sessions.prepare_begin(publication.s().id, publication.s().revision,
+        Tool::Triangle, Settings{}, top(3, 4));
+    publication.sessions.update_geometry_revisions(*stroke_candidate);
+    CHECK(stroke_candidate->parts[0].geometry_revision == stroke_candidate->revision);
+    publication.sessions.publish(std::move(stroke_candidate));
+    Settings erase; erase.erase = true;
+    auto clean_candidate = publication.sessions.prepare_sample(publication.s().id, publication.s().revision,
+        publication.s().active_stroke_id, erase, top(3, 4));
+    publication.sessions.update_geometry_revisions(*clean_candidate);
+    CHECK(!clean_candidate->effective && clean_candidate->parts[0].geometry_revision == clean_candidate->revision);
+    publication.sessions.publish(std::move(clean_candidate));
+    auto no_effect = publication.sessions.prepare_commit(publication.s().id, publication.s().revision,
+        publication.s().active_stroke_id, {}, {});
+    CHECK(!no_effect->effective);
+    Sessions::complete(*no_effect);
+    CHECK(no_effect->phase == Phase::Idle && no_effect->before_stroke.empty());
+    publication.sessions.publish(std::move(no_effect));
+    publication.part->mmu_segmentation_facets.reset();
+    auto synchronized = publication.sessions.prepare_reconcile(publication.model);
+    CHECK(synchronized && synchronized->phase == Phase::Idle);
+    publication.sessions.publish(std::move(synchronized));
+    publication.sessions.validate_target(publication.model, publication.s());
+
+    Fixture identities;
+    identities.open();
+    auto* object_b = identities.model.add_object();
+    object_b->add_volume(TriangleMesh(its_make_cube(2., 2., 2.)));
+    auto* instance_b = object_b->add_instance();
+    TriangleSelector paint(identities.part->mesh()); paint.set_facet(0, EnforcerBlockerType(2));
+    identities.part->mmu_segmentation_facets.set(paint);
+    identities.sessions.publish(identities.sessions.prepare_reconcile(identities.model));
+    const auto painted_generation = identities.s().parts[0].geometry_revision;
+    identities.sessions.publish(identities.sessions.prepare_target(identities.model, identities.s().id, identities.s().revision,
+        object_b->id().id, instance_b->id().id));
+    identities.sessions.publish(identities.sessions.prepare_target(identities.model, identities.s().id, identities.s().revision,
+        identities.object->id().id, identities.instance->id().id));
+    CHECK(identities.s().parts[0].geometry_revision > painted_generation);
+    const auto rebound_generation = identities.s().parts[0].geometry_revision;
+    identities.part->set_mesh(TriangleMesh(its_make_cube(11., 11., 11.)));
+    identities.sessions.publish(identities.sessions.prepare_reconcile(identities.model));
+    CHECK(identities.s().parts[0].geometry_revision > rebound_generation);
+
     std::cout << "Painting six-tool engine tests passed\n";
 }
 }

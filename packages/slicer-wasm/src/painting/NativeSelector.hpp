@@ -75,6 +75,45 @@ public:
         for (const auto& patch : patches)
             for (int facet : patch.facets) m_triangles[facet].set_state(*patch.neighbors.begin());
     }
+    // Display uses the native leaf topology and selection flags, independently
+    // from the prospective state. Contours use the pinned selector's T-joints.
+    struct Display {
+        std::vector<float> vertices; // nonindexed xyz + normal triangles
+        std::vector<std::array<std::size_t, 3>> groups; // state, first vertex, count
+    };
+    Display display(const std::set<int>* membership = nullptr, bool selected_only = false) const {
+        Display out;
+        std::array<std::vector<float>, 17> buckets;
+        const auto append = [&](int i) {
+            const auto& triangle = m_triangles[i];
+            if (!triangle.valid() || triangle.is_split() || (selected_only && !triangle.is_selected_by_seed_fill())) return;
+            auto& bucket = buckets[std::size_t(triangle.get_state())];
+            const auto& a = m_vertices[triangle.verts_idxs[0]].v;
+            const auto& b = m_vertices[triangle.verts_idxs[1]].v;
+            const auto& c = m_vertices[triangle.verts_idxs[2]].v;
+            const Vec3f cross = (b - a).cross(c - a);
+            const Vec3f normal = cross.squaredNorm() > 0 ? cross.normalized().eval() : Vec3f::Zero();
+            for (int vertex : triangle.verts_idxs) {
+                for (int j = 0; j < 3; ++j) bucket.push_back(m_vertices[vertex].v[j]);
+                for (int j = 0; j < 3; ++j) bucket.push_back(normal[j]);
+            }
+        };
+        if (membership) for (int i : *membership) append(i);
+        else for (int i = 0; i < int(m_triangles.size()); ++i) append(i);
+        for (std::size_t state = 0; state < buckets.size(); ++state) {
+            const auto& bucket = buckets[state];
+            if (bucket.empty()) continue;
+            out.groups.push_back({state, out.vertices.size() / 6, bucket.size() / 6});
+            out.vertices.insert(out.vertices.end(), bucket.begin(), bucket.end());
+        }
+        return out;
+    }
+    std::vector<float> contour() const {
+        std::vector<float> result;
+        for (const auto& edge : get_seed_fill_contour())
+            for (int vertex : edge) for (float value : m_vertices[vertex].v) result.push_back(value);
+        return result;
+    }
     std::size_t selected_facet_count() const {
         std::size_t count = 0;
         for (const auto& triangle : m_triangles)

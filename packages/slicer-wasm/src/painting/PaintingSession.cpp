@@ -48,7 +48,7 @@ void Sessions::bind(Session& session, const Model& model, std::size_t object_id,
         MmuAnnotationAdapter::load(*volume, *selector);
         auto acceleration = std::make_shared<AABBMesh>(*mesh);
         session.parts.push_back({volume->id().id, std::move(mesh), std::move(selector),
-            volume->get_matrix(), volume->mmu_segmentation_facets.timestamp(), std::move(acceleration)});
+            volume->get_matrix(), volume->mmu_segmentation_facets.timestamp(), std::move(acceleration), session.revision});
     }
     if (session.parts.empty()) throw std::invalid_argument("painting object has no solid mesh parts");
 }
@@ -415,6 +415,59 @@ void Sessions::validate_target(const Model& model, const Session& session) const
             throw std::invalid_argument("painting part is stale");
     }
     if (index != session.parts.size()) throw std::invalid_argument("painting parts are stale");
+}
+
+void Sessions::update_geometry_revisions(Session& candidate) const
+{
+    if (!m_session || m_session->id != candidate.id) return;
+    for (auto& part : candidate.parts) {
+        const auto found = std::find_if(m_session->parts.begin(), m_session->parts.end(),
+            [&](const auto& old) { return old.volume_id == part.volume_id; });
+        if (found == m_session->parts.end()) continue;
+        part.geometry_revision = found->geometry_revision;
+        if (part.mesh != found->mesh || (part.selector != found->selector && !(part.selector->serialize() == found->selector->serialize())))
+            part.geometry_revision = candidate.revision;
+    }
+}
+void Sessions::discard_pending() noexcept
+{
+    if (!m_session || m_session->phase == Phase::Idle) return;
+    ++m_session->revision;
+    for (std::size_t i = 0; i < m_session->parts.size(); ++i) {
+        if (m_session->parts[i].selector != m_session->before_stroke[i])
+            m_session->parts[i].geometry_revision = m_session->revision;
+        m_session->parts[i].selector = m_session->before_stroke[i];
+    }
+    complete(*m_session);
+}
+void Sessions::complete(Session& session) noexcept
+{
+    session.before_stroke.clear(); session.before_data.reset(); session.changed_parts.clear();
+    session.preview.reset(); session.last_event.reset(); session.last_hit.reset();
+    session.phase = Phase::Idle; session.active_stroke_id = 0; session.effective = false;
+}
+std::unique_ptr<Session> Sessions::prepare_commit(std::uint64_t id, std::uint64_t revision,
+    std::uint64_t stroke, const std::optional<Settings>& settings, const std::optional<PointerEvent>& event)
+{
+    const auto& current = require(id, revision, false);
+    require_stroke(current, stroke, true);
+    if (bool(settings) != bool(event)) throw std::invalid_argument("final sample requires settings and event");
+    if (event && current.phase != Phase::Drawing) throw std::invalid_argument("finished stroke has no final sample");
+    auto candidate = stage(current);
+    if (event) sample(*candidate, *settings, *event);
+    candidate->phase = Phase::Finished;
+    update_geometry_revisions(*candidate);
+    return candidate;
+}
+std::unique_ptr<Session> Sessions::prepare_reconcile(const Model& model)
+{
+    if (!m_session) return {};
+    require(m_session->id, m_session->revision);
+    try { validate_target(model, *m_session); return {}; }
+    catch (const std::invalid_argument&) {}
+    auto candidate = prepare_target(model, m_session->id, m_session->revision, m_session->object_id, m_session->instance_id);
+    update_geometry_revisions(*candidate);
+    return candidate;
 }
 
 } // namespace Slic3r::Neo::Painting

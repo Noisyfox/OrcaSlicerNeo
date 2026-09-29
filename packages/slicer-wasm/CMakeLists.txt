@@ -381,6 +381,7 @@ if(NEO_REAL_PROJECT_PROFILE)
   message(STATUS "Real-project profile: dedicated profiling ABI enabled")
 endif()
 if(NEO_PROJECT_HISTORY_TEST)
+  target_compile_definitions(orca_slice PRIVATE NEO_PROJECT_HISTORY_TEST=1)
   add_executable(plate_runtime_registry_test
     "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.test.cpp")

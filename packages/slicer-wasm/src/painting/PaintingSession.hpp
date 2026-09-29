@@ -29,6 +29,7 @@ struct PartDraft {
     Transform3d volume_transform;
     std::uint64_t annotation_timestamp;
     std::shared_ptr<const AABBMesh> acceleration;
+    std::uint64_t geometry_revision = 1;
     std::array<std::size_t, 17> facet_counts() const;
 };
 
@@ -113,6 +114,12 @@ public:
     // pointers into a replaced Model. Later restore/remap integration rebuilds.
     void validate_target(const Model& model, const Session& session) const;
     void publish(std::unique_ptr<Session> candidate) noexcept { m_session.swap(candidate); }
+    void update_geometry_revisions(Session& candidate) const;
+    std::unique_ptr<Session> prepare_commit(std::uint64_t id, std::uint64_t revision, std::uint64_t stroke,
+        const std::optional<Settings>& settings, const std::optional<PointerEvent>& event);
+    std::unique_ptr<Session> prepare_reconcile(const Model& model);
+    static void complete(Session& session) noexcept;
+    void discard_pending() noexcept;
     void reset() noexcept { m_session.reset(); }
     const Session* current() const noexcept { return m_session.get(); }
 private:

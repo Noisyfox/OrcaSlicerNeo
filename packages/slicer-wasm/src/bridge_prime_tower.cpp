@@ -1,4 +1,5 @@
 #include "bridge_prime_tower.hpp"
+#include "bridge_painting.hpp"
 #include "bridge_preset_drafts.hpp"
 
 #include <algorithm>
@@ -1201,7 +1202,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
     try {
         const double started_at = Slic3r::Neo::Bridge::Performance::now_ms();
         Slic3r::Neo::Bridge::PrimeTower::ProjectionTimings timings;
-        const auto result = Slic3r::Neo::Bridge::PrimeTower::projection_json(&timings);
+        const auto result = Slic3r::Neo::Bridge::PaintingBridge::use_deferred_projection()
+            ? Slic3r::Neo::Bridge::PaintingBridge::tower_projection()
+            : Slic3r::Neo::Bridge::PrimeTower::projection_json(&timings);
         const double serialization_started_at = Slic3r::Neo::Bridge::Performance::now_ms();
         const std::string text = result.dump();
         const double copy_started_at = Slic3r::Neo::Bridge::Performance::now_ms();

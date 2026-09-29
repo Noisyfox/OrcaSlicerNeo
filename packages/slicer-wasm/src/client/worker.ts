@@ -54,7 +54,9 @@ const historyMutationOperations = new Set([
 // Serial Print::process() occupies the sole stateful Worker. These commands
 // must fail before postMessage so no edit, history frame, Slice, or Export can
 // wait behind the running task and execute against a later epoch.
+const paintingOperations = new Set(['openPaintingSession', 'targetPaintingSession', 'readPaintingSession', 'closePaintingSession', 'previewPainting', 'beginPaintingStroke', 'samplePaintingStroke', 'finishPaintingStroke', 'cancelPaintingStroke', 'commitPaintingStroke', 'getPaintingGeometry', 'settlePainting']);
 const restrictedWhileSerialSlicing = new Set([
+  ...paintingOperations,
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
   'assignFilament', 'setFilamentRouting', 'beginHistory', 'commitHistory',
@@ -188,7 +190,7 @@ export function startWorker(
     const startedAt = historyNow();
     const isRestore = op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory';
     const isSessionTransition = op === 'openHistorySession' || op === 'closeHistorySession';
-    const isHistoryTransition = isRestore || isSessionTransition || op === 'resetHistory';
+    const isHistoryTransition = isRestore || isSessionTransition || op === 'resetHistory' || paintingOperations.has(op);
     let ownsTransition = false;
     let ownsTransactionStart = false;
     try {

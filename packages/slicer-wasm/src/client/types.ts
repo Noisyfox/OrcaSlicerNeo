@@ -1,3 +1,4 @@
+import type { PaintingApi } from './painting';
 // packages/slicer-wasm/src/client/types.ts
 // ----------------------------------------------------------------
 // Shared types: the OrcaModule shape (structural Emscripten factory
@@ -1383,7 +1384,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient {
+export interface SlicerClient extends PaintingApi {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */

@@ -4,13 +4,13 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-06 accepted; later stages remain gated.
+**Status:** Sequential implementation in progress. Steps 01-07 accepted; later stages remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
 ## Execution contract
 
-- Subsequent implementation children use **gpt-6-astra / low**, explicitly requested by the user; this overrides the skill default.
+- New implementation children from stage 08 onward use **gpt-6-astra / medium**, explicitly requested by the user; this overrides the skill default. The already-running stage 07 child continues with **gpt-6-astra / low**.
 - Execute numbered steps strictly in order. Start a fresh implementation subagent for every new step. Do not start the next step until the parent has independently accepted the previous one.
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
@@ -96,7 +96,7 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 ## Remaining stages — consolidated 2026-09-29
 
-The user requested larger functional stages and explicitly selected **gpt-6-astra / low** for every subsequent implementation child. Completed steps 01-04b remain accepted. The former 27 pending microsteps are replaced by the eight stages below; their functional requirements and verification gates are retained. Internal checklists are implementation order within one stage, not separate child handoffs. Use one fresh child per stage and accept the complete stage before starting the next.
+The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / low**; the subsequent model update selects **gpt-6-astra / medium** for new children starting at stage 08. Completed steps 01-04b remain accepted. The former 27 pending microsteps are replaced by the eight stages below; their functional requirements and verification gates are retained. Internal checklists are implementation order within one stage, not separate child handoffs. Use one fresh child per stage and accept the complete stage before starting the next.
 
 | New stage | Former coverage |
 | --- | --- |
@@ -142,7 +142,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 07. Complete painting backend, publication and transport
 
-**Status:** Pending. **Depends on:** 06 accepted. **Model:** gpt-6-astra / low. **Verification:** N+W+T.
+**Status:** Accepted by parent. **Depends on:** 06 accepted. **Model:** gpt-6-astra / low. **Verification:** N+W+T.
 
 **Allowed scope:** native painting bridge, history/invalidation and filament-remap integration; typed client geometry/protocol, runtime Worker/proxy, platform contract and mocks; relevant native/client tests.
 
@@ -158,7 +158,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 08. Interactive multi-material painting gizmo
 
-**Status:** Pending. **Depends on:** 07 accepted. **Model:** gpt-6-astra / low. **Verification:** A+E.
+**Status:** Pending. **Depends on:** 07 accepted. **Model:** gpt-6-astra / medium. **Verification:** A+E.
 
 **Allowed scope:** shared app painting controller/store, dedicated viewport layer and resources, cursor/camera routing, gizmo toolbar/panel, history controls; focused component/controller and Electron tests. Follow existing gizmo styling and the accepted spec.
 
@@ -175,7 +175,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 09. Project commands, lifecycle, slicing and palette coherence
 
-**Status:** Pending. **Depends on:** 08 accepted. **Model:** gpt-6-astra / low. **Verification:** A+W+T+E.
+**Status:** Pending. **Depends on:** 08 accepted. **Model:** gpt-6-astra / medium. **Verification:** A+W+T+E.
 
 **Allowed scope:** project mutation/navigation entrypoints, selection, save/export/new/open/exit, slice admission/runtime, filament UI/session reconciliation and affected host seams.
 
@@ -191,7 +191,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 10. Functional fixtures, interoperability and host/variant acceptance
 
-**Status:** Pending. **Depends on:** 09 accepted. **Model:** gpt-6-astra / low. **Verification:** W+E.
+**Status:** Pending. **Depends on:** 09 accepted. **Model:** gpt-6-astra / medium. **Verification:** W+E.
 
 **Allowed scope:** repository-owned deterministic/generated/real painting fixtures and harnesses, desktop/Web E2E, test-gated probes, and necessary bounded defect fixes against accepted contracts.
 
@@ -206,7 +206,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 11. Measured performance baseline
 
-**Status:** Pending. **Depends on:** 10 accepted. **Model:** gpt-6-astra / low. **Verification:** P.
+**Status:** Pending. **Depends on:** 10 accepted. **Model:** gpt-6-astra / medium. **Verification:** P.
 
 **Allowed scope:** painting benchmark corpus/runner and compile-time gated instrumentation; benchmark results and methodology for parent documentation.
 
@@ -216,7 +216,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 12. Final regression and specification handoff
 
-**Status:** Pending. **Depends on:** 11 accepted. **Model:** gpt-6-astra / low. **Verification:** R.
+**Status:** Pending. **Depends on:** 11 accepted. **Model:** gpt-6-astra / medium. **Verification:** R.
 
 **Allowed scope:** affected packages/hosts/variants, required regression fixes and test evidence. Parent owns final living-doc/spec/roadmap updates.
 
@@ -451,3 +451,58 @@ tests and staged response-before-publication ownership establish its isolation.
 Geometry export, per-stroke publication, native remap reconciliation and full
 typed painting transport remain stage 07. GPU rendering, both-host journeys and
 threaded qualification retain their later gates; no performance threshold claim.
+
+### Stage 07 acceptance — publication and transport
+
+Child: `/root/painting_stage_07` (`gpt-6-astra`, low). Parent accepted the complete
+backend after substantive source review and independent execution. Following the
+user's latest model selection, new stages 08-12 use `gpt-6-astra / medium`.
+
+Native commands now export per-part P3N3 geometry, state groups and independent
+region/gap candidate manifests; publish each effective stroke as one Paint entry;
+restore idle selectors after Undo/Redo and slot remaps; and invalidate affected
+plate stamps immediately. Material-use and Prime Tower settlement is read-only,
+versioned and demand/closure driven. Ordinary readers outside the painting session
+and inside external transactions retain their existing authoritative behavior.
+Complete typed client/Worker methods and protocol mocks are available for stage 08.
+
+Parent review required and verified these corrections:
+
+- Stage history begin/commit before publication, including success-response
+  allocation, so failure preserves Redo, timestamps, save markers and memory
+  accounting. Immutable archives remain shared; changed volumes alone are backed
+  up for model rollback. No fallible work follows successful history publication.
+- Replace unsafe payload-address frees with native request-owned geometry leases.
+  Stale or malformed geometry with an intact lease releases actual allocation
+  bases. Duplicate release and release after session closure are safe. A corrupted
+  lease token cannot identify ownership and is rejected without speculative frees;
+  such unidentified allocations remain native-owned until module teardown.
+- Generate state buckets in one leaf traversal and visit gap membership directly;
+  reuse unchanged draft/candidate resources. Session-monotonic generations prevent
+  stale geometry after target A/B/A switching or mesh replacement. Explicit active
+  candidate manifests distinguish retained overlays from cleared hover.
+- Validate request/response identities, phase/stroke consistency, geometry ranges,
+  group coverage and recovery receipts. Preserve same-color candidate membership.
+- Include annotation-only history restores in affected-plate invalidation; enforce
+  the 16-state limit against actual remapped annotation references before mutation.
+  Keep unpainted high-slot defaults and one-slot continuation legal.
+- Keep settlement separate from persisted Prime Tower coordinate normalization;
+  closure adds no new project edit. Metadata-only history open/close does not cause
+  repeat settlement. Mock region/gap preview-to-commit paths match native lifecycle.
+
+Parent independently passed `scripts\build-windows.bat quick --variant serial`,
+both `painting_session_test.cjs` and `timestamped_history_core_test.cjs` through
+`pnpm exec node`, `pnpm --filter @orca/slicer-wasm painting-backend-smoke`,
+`pnpm --filter @orca/slicer-wasm history-editing-session-smoke`, full slicer-wasm
+tests (245 tests/10 files), slicer-runtime tests (35), platform-contract tests (15),
+root `pnpm typecheck`, and `git diff --check`. Backend smoke proves draft isolation,
+final endpoint, commit/Undo/Redo/exported annotations, affected/unaffected plates,
+injected failure rollback, mixed-history close, remap/Undo, 18-slot reference
+rejection, legal unused-source remap, one-slot continuation and lease lifetime.
+Child additionally passed root `pnpm test`, platform import guard, engine/session
+smokes and existing full history smoke; all five real-WASM smokes exited zero.
+Existing fixture profile-parent diagnostics remain visible and do not invalidate
+their assertions. Fault injection is compiled only with `NEO_PROJECT_HISTORY_TEST`.
+
+Stage 07 accepted. Interactive rendering, global application command admission,
+both-host/both-variant qualification and measured performance retain stages 08-12.

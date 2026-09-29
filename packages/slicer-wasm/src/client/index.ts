@@ -69,3 +69,5 @@ export const CLIENT_VERSION = '0.1.0-m2';
 export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSessionOpenRequest,
   PaintingSessionRequest, PaintingTargetRequest, PaintingPartMetadata, PaintingSessionMetadata,
   PaintingSessionResult, PaintingSessionCloseResult } from './painting';
+
+export type * from './painting';

@@ -1385,6 +1385,22 @@ int main()
           publish_close.saved_checkpoint_evicted() == publish_close_checkpoint_evicted &&
           publish_close.project_modified() == publish_close_modified && publish_close.can_redo());
 
+    CHECK(publish_close.begin_operation("failed paint", publish_close_1, TimestampedOperationKind::Paint));
+    const auto commit_bytes = publish_close.bytes_used();
+    bool commit_threw = false;
+    try {
+        publish_close.commit_operation(publish_close_2, nullptr, [](const TimestampedHistory& candidate) {
+            if (candidate.operation_active() || candidate.can_redo()) throw std::logic_error("bad candidate");
+            throw std::runtime_error("injected commit publication failure");
+        });
+    } catch (const std::runtime_error&) { commit_threw = true; }
+    CHECK(commit_threw && publish_close.operation_active());
+    CHECK(publish_close.current_timestamp() == publish_close_cursor && publish_close.bytes_used() == commit_bytes);
+    CHECK(entries_are_equal(publish_close.entries(), publish_close_entries));
+    CHECK(publish_close.saved_timestamp() == publish_close_saved && publish_close.saved_checkpoint_evicted() == publish_close_checkpoint_evicted);
+    CHECK(publish_close.abort_operation());
+    CHECK(publish_close.can_redo() && publish_close.current_timestamp() == publish_close_cursor);
+
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;
 }

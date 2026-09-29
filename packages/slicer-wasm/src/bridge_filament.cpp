@@ -1,4 +1,5 @@
 #include "bridge_filament.hpp"
+#include "bridge_painting.hpp"
 #include "bridge_history.hpp"
 #include "bridge_preset_drafts.hpp"
 
@@ -461,10 +462,29 @@ void add_plate_filament_references(std::vector<BridgeState::PlateSessionPlate>& 
     }
 }
 
+void validate_paint_remap(const Model& model, std::size_t removed, const std::optional<std::size_t>& replacement)
+{
+    for (const auto* object : model.objects) for (const auto* volume : object->volumes)
+        for (const auto value : TriangleSelector::extract_used_facet_states(volume->mmu_segmentation_facets.get_data())) {
+            const auto i = std::size_t(value);
+            const auto final = i == removed + 1 && replacement ? *replacement + 1 : i > removed + 1 ? i - 1 : i;
+            if (i > 16 || final > 16) throw std::invalid_argument("explicit painting remap exceeds state 16");
+        }
+}
+
 void remap_model_filament_references(Model& model, const std::size_t removed,
                                      const std::optional<std::size_t>& replacement,
                                      const std::size_t new_count)
 {
+    // Validate final *actual* annotation references before changing any owner.
+    // A default material >16 is legal; only explicit facet states are bounded.
+    EnforcerBlockerStateMap mapping;
+    for (std::size_t i = 0; i < mapping.size(); ++i) {
+        const int result = i == 0 ? 0 : i == removed + 1 ? (replacement ? int(*replacement + 1) : 0)
+            : int(i > removed + 1 ? i - 1 : i);
+        mapping[i] = static_cast<EnforcerBlockerType>(result <= 16 ? result : 0);
+    }
+    validate_paint_remap(model, removed, replacement);
     for (ModelObject* object : model.objects) {
         remap_config_filament_references(object->config, removed, replacement);
         for (ModelVolume* volume : object->volumes) {
@@ -472,9 +492,12 @@ void remap_model_filament_references(Model& model, const std::size_t removed,
             // The native MM painting selector stores 1-based enforcer IDs and
             // has its own deletion/remap operation.  Keep it in the staged
             // model so imported painting cannot retain a dangling reference.
-            volume->update_extruder_count_when_delete_filament(
-                new_count, removed + 1,
-                replacement.has_value() ? static_cast<int>(*replacement + 1) : 0);
+            if (!volume->mmu_segmentation_facets.empty()) {
+                TriangleSelector selector(volume->mesh());
+                selector.deserialize(volume->mmu_segmentation_facets.get_data());
+                selector.remap_triangle_state(mapping);
+                volume->mmu_segmentation_facets.set(selector);
+            }
         }
     }
     for (auto& [plate, info] : model.plates_custom_gcodes) {
@@ -1546,6 +1569,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
             std::string error;
             const auto source = filament_command_slot(request, "slot", count, error);
             if (!source) throw FilamentCommandFailure("unsupported_reference", error);
+            validate_paint_remap(model, *source, std::nullopt);
             bundle.update_num_filaments(*source);
             remap_config_filament_references(bundle.project_config, *source, std::nullopt);
             remap_model_filament_references(model, *source, std::nullopt, count - 1);
@@ -1568,6 +1592,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
             if (!destination || *destination == *source) throw FilamentCommandFailure("unsupported_reference", "unsupported filament reference");
             replacement = *destination > *source ? *destination - 1 : *destination;
         }
+        validate_paint_remap(model, *source, replacement);
         bundle.update_num_filaments(*source);
         // Project-scoped support/feature routing lives in the native project
         // config rather than a separate renderer state.  Remap it before the
@@ -2076,7 +2101,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_flush_fixture(const char*
 EMSCRIPTEN_KEEPALIVE const char* orc_get_filament_session_snapshot()
 {
     try {
-        return duplicate_json(Slic3r::Neo::Bridge::Filament::Session::filament_session_snapshot_json().dump());
+        return duplicate_json(Slic3r::Neo::Bridge::PaintingBridge::material_projection().dump());
     } catch (const std::exception& e) {
         return duplicate_json(Slic3r::Neo::Bridge::Filament::Session::filament_session_error_json("native_exception", e.what()).dump());
     } catch (...) {

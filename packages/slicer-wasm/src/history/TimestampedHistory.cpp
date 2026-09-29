@@ -755,49 +755,73 @@ bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoo
         ++m_impl->operation->depth;
         return true;
     }
-    const auto existing = m_impl->snapshots.find(m_impl->current_timestamp);
-    const auto prior_snapshot = existing == m_impl->snapshots.end() ? std::shared_ptr<Impl::Snapshot>() : existing->second;
+    auto staged = std::make_unique<Impl>(*m_impl);
+    staged->entries.reserve(m_impl->entries.capacity());
+    staged->intervals.reserve(m_impl->intervals.capacity());
+    // A failed operation must retain even capacity-based accounting of the
+    // existing timeline, not just its semantic entries and shared archives.
+    for (std::size_t i = 0; i < staged->entries.size(); ++i) {
+        auto& target = staged->entries[i];
+        const auto& source = m_impl->entries[i];
+        target.label.reserve(source.label.capacity());
+        target.scene_delta.object_ids.reserve(source.scene_delta.object_ids.capacity());
+        target.scene_delta.volume_ids.reserve(source.scene_delta.volume_ids.capacity());
+        target.scene_delta.instance_ids.reserve(source.scene_delta.instance_ids.capacity());
+        target.scene_delta.plate_ids.reserve(source.scene_delta.plate_ids.capacity());
+        for (std::size_t p = 0; p < target.scene_delta.plate_ids.size(); ++p)
+            target.scene_delta.plate_ids[p].reserve(source.scene_delta.plate_ids[p].capacity());
+    }
+    const auto existing = staged->snapshots.find(staged->current_timestamp);
+    const auto prior_snapshot = existing == staged->snapshots.end() ? std::shared_ptr<Impl::Snapshot>() : existing->second;
     // A restored timestamp already owns its immutable model archive. Refresh
     // only the live session/editing roots so the next real mutation samples
     // UI-only context without re-archiving or rewriting that model version.
-    if (existing == m_impl->snapshots.end()) {
-        if (!m_impl->capture(m_impl->current_timestamp, predecessor, true)) return false;
-    } else if (!m_impl->refresh_restored_context(m_impl->current_timestamp, predecessor)) {
+    if (existing == staged->snapshots.end()) {
+        if (!staged->capture(staged->current_timestamp, predecessor, true)) return false;
+    } else if (!staged->refresh_restored_context(staged->current_timestamp, predecessor)) {
         return false;
     }
     const EditingSessionId editing_session_id =
-        m_impl->editing_session ? m_impl->editing_session->id : EditingSessionId(0);
-    m_impl->operation = Impl::Operation {
-        std::move(label), m_impl->current_timestamp, 1, prior_snapshot, scene_state(predecessor), kind,
+        staged->editing_session ? staged->editing_session->id : EditingSessionId(0);
+    staged->operation = Impl::Operation {
+        std::move(label), staged->current_timestamp, 1, prior_snapshot, scene_state(predecessor), kind,
         editing_session_id};
+    m_impl.swap(staged);
     return true;
 }
 
-bool TimestampedHistory::commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta)
+bool TimestampedHistory::commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta,
+                                            BeforeEditingSessionPublish before_publish)
 {
     if (!m_impl->operation) return false;
     if (m_impl->operation->depth > 1) {
         --m_impl->operation->depth;
         return true;
     }
-    const auto operation = std::move(*m_impl->operation);
-    m_impl->operation.reset();
-    m_impl->truncate_redo_branch();
-    const LogicalTimestamp after = m_impl->next_timestamp++;
-    m_impl->entries.push_back({m_impl->next_entry_id++, operation.label, operation.before_timestamp, after,
+    auto staged = std::make_unique<Impl>(*m_impl);
+    const auto operation = std::move(*staged->operation);
+    staged->operation.reset();
+    staged->truncate_redo_branch();
+    const LogicalTimestamp after = staged->next_timestamp++;
+    staged->entries.push_back({staged->next_entry_id++, operation.label, operation.before_timestamp, after,
                                scene_delta(operation.before_scene, scene_state(successor)), operation.kind,
                                operation.editing_session_id});
+    SceneDelta delta;
     if (committed_delta) {
-        *committed_delta = m_impl->entries.back().scene_delta;
+        delta = staged->entries.back().scene_delta;
         for (const auto& object : successor.model.mutable_objects)
-            committed_delta->object_order.push_back(object.id);
+            delta.object_order.push_back(object.id);
     }
-    m_impl->current_timestamp = after;
-    if (m_impl->editing_session &&
-        m_impl->editing_session->id == operation.editing_session_id)
-        m_impl->editing_session->has_effective_commit = true;
-    m_impl->rebuild_intervals();
-    m_impl->enforce_budget();
+    staged->current_timestamp = after;
+    if (staged->editing_session &&
+        staged->editing_session->id == operation.editing_session_id)
+        staged->editing_session->has_effective_commit = true;
+    staged->rebuild_intervals();
+    staged->enforce_budget();
+    TimestampedHistory candidate(std::move(staged));
+    if (before_publish) before_publish(candidate);
+    m_impl.swap(candidate.m_impl);
+    if (committed_delta) *committed_delta = std::move(delta);
     return true;
 }
 

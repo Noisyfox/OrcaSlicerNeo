@@ -1,3 +1,4 @@
+import { paintingMock } from './painting-mock';
 // packages/slicer-wasm/src/client/testing/mock-module.ts
 // ----------------------------------------------------------------
 // Bridge-shaped mock Emscripten module for unit tests (no emsdk).
@@ -419,7 +420,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextVolumeId = 2000;
   let nextInstanceId = 3000;
   let objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }> = [];
-  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>> = [];
+  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }>> = [];
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
@@ -457,7 +458,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }>;
-    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>>;
+    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }>>;
     instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
     objectPlateIds: string[];
     currentPlateId: string;
@@ -2504,7 +2505,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           const source = volumeMeta[oi][vi];
           const sourceValues = nativeScopedConfig.parts[String(source.id)];
           if (!source.isSplittable) return { error: 'volume is not splittable' };
-          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }> = [];
           for (let p = 0; p < splitParts; p++) {
             parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
             if (sourceValues) nativeScopedConfig.parts[String(parts[p].id)] = clone(sourceValues);
@@ -2579,7 +2580,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const affectedBefore = srcIdxs.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       const newObjectId = nextObjectId++;
       const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
-      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }> = [];
       const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
       for (const oi of srcIdxs) {
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
@@ -3017,6 +3018,32 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
   };
 
+  let paintingBusy = false;
+  const painting = paintingMock({
+    free,
+    pending: value => { paintingBusy = value; },
+    historySession: () => editingSession?.id,
+    objects: () => objectMeta.map((object, i) => ({ id: object.id, instanceIds: instanceMeta[i].map(instance => instance.id), volumes: volumeMeta[i] })),
+    history: historyStatus,
+    allocate: values => { const ptr = malloc(values.length * 4); HEAPF32.set(values, ptr / 4); return ptr; },
+    commit: mutate => {
+      const context = historyEntries[historyCursor]?.context ?? { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+      paintingBusy = false;
+      try {
+        const begin = bridge.orc_history_begin('Paint', 'project', JSON.stringify(context)) as any;
+        if (begin.error) throw new Error(begin.error);
+        mutate();
+        return bridge.orc_history_commit(begin.transactionId, JSON.stringify(context));
+      } finally { paintingBusy = true; }
+    },
+  });
+  Object.assign(bridge, painting);
+  for (const name of ['orc_history_begin', 'orc_history_session_open', 'orc_history_session_close', 'orc_history_undo', 'orc_history_redo', 'orc_history_jump',
+    'orc_delete_filament_slot', 'orc_merge_filament_slots', 'orc_add_filament_slot', 'orc_set_filament_slot_colour']) {
+    const operation = bridge[name];
+    bridge[name] = (...args) => paintingBusy ? { error: 'painting stroke is busy' } : operation(...args);
+  }
+
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_init: { ret: 'number', args: ['string'] },
@@ -3104,6 +3131,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_cancel: { ret: 'number', args: [] },
   };
 
+  for (const name of Object.keys(painting)) SIGNATURES[name] = { ret: name === 'orc_painting_geometry_release' ? 'void' : 'number', args: ['string'] };
   return {
     ccall(name: string, _ret: string, _argTypes: string[], args: unknown[]): unknown {
       const sig = SIGNATURES[name];

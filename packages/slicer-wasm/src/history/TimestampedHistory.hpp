@@ -138,7 +138,8 @@ public:
                          TimestampedOperationKind kind = TimestampedOperationKind::NonPaint);
     // Every successful outer commit creates an entry. Callers that determine
     // an operation had no effect must use abort_operation instead.
-    bool commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta = nullptr);
+    bool commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta = nullptr,
+                          BeforeEditingSessionPublish before_publish = {});
     bool abort_operation(TimestampedRestore* predecessor = nullptr);
     bool operation_active() const;
 

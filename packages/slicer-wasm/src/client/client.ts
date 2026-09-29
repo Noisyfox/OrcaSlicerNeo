@@ -1,3 +1,4 @@
+import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
 // packages/slicer-wasm/src/client/client.ts
 // ----------------------------------------------------------------
@@ -1764,6 +1765,7 @@ export function createClient(
   }
 
   const client: SlicerClient = {
+    ...createPaintingApi(module, normalizeHistoryStatus),
     async init(): Promise<InitResult> {
       const m = await module();
       if (!beforeInitPromise) {
