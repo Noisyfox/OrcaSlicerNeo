@@ -52,6 +52,13 @@ export type PaintingSessionResult = { readonly ok: true; readonly version: 1; re
 export type PaintingSessionCloseResult = { readonly ok: true; readonly version: 1 } | { readonly error: string };
 
 export type PaintingTool = 'circle' | 'sphere' | 'triangle' | 'height' | 'region' | 'gap' | 'eraseAll';
+/** Present only in a dedicated NEO_PAINTING_PROFILE WASM build. Cumulative Worker-thread counters. */
+export interface PaintingProfileCounters {
+  readonly nativeHitUs: number; readonly nativeHitCalls: number;
+  readonly nativeSelectorUs: number; readonly nativeSelectorCalls: number;
+  readonly nativeGeometryUs: number; readonly nativeGeometryCalls: number;
+  readonly previousGeometryLeases?: number; readonly currentGeometryLeases?: number;
+}
 export interface PaintingSettings {
   readonly state?: number;
   readonly erase?: boolean;
@@ -107,6 +114,7 @@ export type PaintingDraftResult = {
   readonly changedPartIds: readonly StablePartId[];
   readonly hit: { readonly volumeId: StablePartId; readonly originalFacet: number; readonly world: readonly [number, number, number] } | null;
   readonly candidateRevision: PaintingRevision | null;
+  readonly paintingProfile?: PaintingProfileCounters;
 } | { readonly error: string };
 
 export interface PaintingCommitRequest extends PaintingStrokeRequest {
@@ -134,7 +142,7 @@ export interface PaintingGeometry {
 export type PaintingGeometryResult = { readonly ok: true; readonly version: 1; readonly sessionId: string;
   readonly revision: number; readonly parts: readonly { volumeId: number; resourceId: string }[];
   readonly candidates: readonly { volumeId: number; resourceId: string; kind: 'region' | 'gap' }[];
-  readonly resources: readonly PaintingGeometry[] } | { readonly error: string };
+  readonly resources: readonly PaintingGeometry[]; readonly paintingProfile?: PaintingProfileCounters } | { readonly error: string };
 export type PaintingSettlementResult = { readonly ok: true; readonly version: 1; readonly settledVersion: number;
   readonly projections: unknown } | { readonly error: string };
 export interface PaintingApi {

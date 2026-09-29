@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-10 accepted; later stages remain gated.
+**Status:** Sequential implementation in progress. Steps 01-11 accepted; final regression remains gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -206,7 +206,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 11. Measured performance baseline
 
-**Status:** Pending. **Depends on:** 10 accepted. **Model:** gpt-6-sol / high. **Verification:** P.
+**Status:** Accepted by parent as a measured baseline; numeric release thresholds await user review. **Depends on:** 10 accepted. **Model:** gpt-6-sol / high. **Verification:** P.
 
 **Allowed scope:** painting benchmark corpus/runner and compile-time gated instrumentation; benchmark results and methodology for parent documentation.
 
@@ -678,3 +678,85 @@ Parent logs: `.work/serial/parent-stage10-*.log`; final child native logs:
 `.work/stage10-final-serial-backend.log` and
 `.work/stage10-final-threaded-production-interop.log`, all under slicer-wasm.
 Performance and final release qualification remain stages 11 and 12.
+
+### Stage 11 acceptance — reproducible measured baseline
+
+Child: `/root/painting_stage_11` (`gpt-6-sol`, high). Parent accepted the
+measurement implementation, evidence and stated limitations. This does not approve
+numeric release thresholds. The [reference summary](../packages/slicer-wasm/benchmarks/painting/reference-2026-09-29/summary.json)
+and [index](../packages/slicer-wasm/benchmarks/painting/reference-2026-09-29/index.json)
+retain 36 compressed raw reports: Electron and Web, six cases, three trials each.
+Generated cases contain 12, 192, 3,072 and 12,288 original triangles, including a
+four-part 3,072-triangle case. Brush size varies subdivision density. The existing
+fixed real project contributes a selected three-part, 143,912-triangle object.
+The archive records fixture, source-diff, artifact and analysis-script hashes.
+
+Reference hardware: Windows 10.0.26200, Ryzen 9 5900X, 64 GiB RAM, RTX 3080;
+both hosts actually used hardware D3D11 rendering. Measurements use serial wasm64,
+E2E instrumentation and native painting profiling. The archived native artifact
+also had history fault-test support enabled: the old build driver did not forward
+that environment gate and retained its cached value. The driver now forwards
+both gates with default zero. The archived measurements record the actual old
+configuration; they are not silently relabeled as production measurements.
+
+All six tools committed effective edits. All 288 intended releases and 36 Escape
+events correlate with their terminal receipt and geometry revision. Another 72
+pointerups (after synthetic release or Escape) are explicitly reported without a
+terminal receipt, not hidden or included in latency statistics. Logical revision
+frame p95 after release was 37.65–49.00 ms for generated Electron cases and
+45.90–66.60 ms for generated Web cases. The real case measured 215.84 / 263.20 ms
+(Electron / Web); close-to-disposal p95 was 444.20 / 480.30 ms. A revision observed
+by `useFrame` is not verified GPU presentation or display-pixel latency.
+
+The real-case sampled process working-set sums peaked at 2,598,539,264 /
+2,759,450,624 bytes. These nominal one-second samples can miss short peaks and
+can count shared pages in multiple processes. Native retained history was about
+105.20 MB before compaction and 103.51 MB after. Renderer resources balance after
+close and reopen/reclose; native geometry observations always transition from
+zero previous leases to one current lease. Large cases dropped most or all of
+the 40-event move burst; this demonstrates saturation and reliable termination,
+not an equivalent-work speedup. No fixed triangle admission cutoff was added.
+
+Parent source review corrected measurement defects before acceptance: distinguish
+automation wall time from browser events; count `bufferSubData` payloads correctly;
+retain all frame intervals and explicit unmatched inputs; correlate terminal
+events by receipt revision without arbitrary timing ceilings; aggregate matched
+samples only; compile instrumentation out of ordinary bundles; read the existing
+native history projection without triggering another project operation. The last
+change also fixes the history-boundary violation introduced by stage 10's final
+E2E probe. Native selector scopes include cloning/comparison and related selector
+serialization; project-history commits and bridge response serialization are
+outside those counters. WebGL timings measure CPU submission, not GPU execution.
+
+The nearby native Orca executable has unverified binary provenance and its
+associated checkout differs from the pinned source. No comparable pinned native
+measurement is claimed. Numeric latency/memory gates remain a user decision;
+functional and resource-lifetime assertions still apply independently.
+
+Reproduce the instrumented run in PowerShell:
+
+```powershell
+$env:NEO_PAINTING_PROFILE='1'
+$env:NEO_PROJECT_HISTORY_TEST='0'
+.\scripts\build-windows.bat build --variant serial
+pnpm exec node scripts/run-painting-benchmark.mjs --host both --trials 3
+pnpm exec node scripts/summarize-painting-benchmark.mjs
+```
+
+Changing CMake gates requires `build`, not `quick`. The archive script is the
+explicit command for replacing the dated reference archive, not a routine rerun
+step. Restore both environment gates to zero and run `build` before production
+validation. The new benchmark runner records actual cache flags.
+
+Child passed root tests (1,122), root typecheck, real Electron painting, fresh
+native builds, production interoperability and normal host builds. Final serial
+and threaded caches both have painting profiling and history test support OFF.
+Parent independently passed `pnpm test` (including app 712 tests/92 files),
+`pnpm typecheck`, `scripts\build-windows.bat quick --variant serial`,
+`pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production`
+(47,029 segments), and
+`pnpm exec node scripts/check-painting-profile-elision.mjs` (21 artifacts).
+Parent independently audited all 36 decompressed raw hashes, effective tool
+outcomes, terminal coverage, balanced resources and analysis-script identity.
+Logs: `packages/slicer-wasm/.work/parent-stage11-*.log`. Diff/link checks pass;
+the pinned submodule is unchanged. Final milestone regression remains stage 12.

@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <cmath>
 #include <Eigen/LU>
+#include "PaintingProfile.hpp"
 
 namespace Slic3r::Neo::Painting {
 
@@ -118,6 +119,9 @@ void require_stroke(const Session& session, std::uint64_t stroke, bool finished_
 
 std::optional<Hit> Sessions::pick(const Session& session, const PointerEvent& event) const
 {
+#ifdef NEO_PAINTING_PROFILE
+    Profile::Scope profile_hit(Profile::hit);
+#endif
     if (!event.pointer.allFinite() || !event.viewport.allFinite() || event.viewport.z() <= 0 || event.viewport.w() <= 0)
         throw std::invalid_argument("invalid painting pointer/viewport");
     // Validate both matrices independently, including a malformed view whose
@@ -176,6 +180,9 @@ std::unique_ptr<Session> Sessions::stage(const Session& session)
 
 void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& hit, const std::optional<Hit>& previous, std::vector<bool>& touched)
 {
+#ifdef NEO_PAINTING_PROFILE
+    Profile::Scope profile_selector(Profile::selector);
+#endif
     const auto state = static_cast<EnforcerBlockerType>(settings.erase ? 0 : settings.state);
     const TriangleSelector::ClippingPlane clipping;
     const std::size_t begin = session.tool == Tool::Height ? 0 : hit.part;
@@ -301,6 +308,9 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
         next->phase = Phase::Finished;
         compare(*next, std::vector<bool>(next->parts.size(), true));
     } else if (tool == Tool::EraseAll) {
+#ifdef NEO_PAINTING_PROFILE
+        Profile::Scope profile_selector(Profile::selector);
+#endif
         for (auto& part : next->parts) part.selector = std::make_shared<NativeSelector>(*part.mesh);
         next->phase = Phase::Finished;
         compare(*next, std::vector<bool>(next->parts.size(), true));
@@ -357,6 +367,9 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     work.tool = tool;
     Preview preview{tool, settings, hit, {}, {}, {}};
     if (tool == Tool::Gap) for (auto& part : work.parts) {
+#ifdef NEO_PAINTING_PROFILE
+        Profile::Scope profile_selector(Profile::selector);
+#endif
         // Reconstruct before collecting leaf IDs; deserialization may renumber
         // leaves after prior garbage collection.
         part.selector = part.selector->clone();
@@ -368,8 +381,13 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     }
     else if (hit) {
         auto selected = current.parts[hit->part].selector->clone();
+        {
+#ifdef NEO_PAINTING_PROFILE
+        Profile::Scope profile_region(Profile::selector);
+#endif
         selected->bucket_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, {},
             settings.angle ? float(*settings.angle) : -1.f, true, true);
+        }
         preview.region_selection = std::move(selected);
         std::vector<bool> touched(work.parts.size(), false);
         apply_hit(work, settings, *hit, {}, touched);

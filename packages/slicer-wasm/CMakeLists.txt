@@ -29,6 +29,7 @@ endif()
 set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_OCCT_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
 option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
+option(NEO_PAINTING_PROFILE "Build painting-only native timing counters" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
 # libslic3r part (slic3r_core + bridge/CLI TUs) is rebuilt with -g -O0 so the
 # final module embeds DWARF for interactive source-level debugging in Chrome
@@ -379,6 +380,10 @@ add_executable(orca_slice ${ORCA_SLICE_SRC})
 if(NEO_REAL_PROJECT_PROFILE)
   target_compile_definitions(orca_slice PRIVATE NEO_REAL_PROJECT_PROFILE=1)
   message(STATUS "Real-project profile: dedicated profiling ABI enabled")
+endif()
+if(NEO_PAINTING_PROFILE)
+  target_compile_definitions(orca_slice PRIVATE NEO_PAINTING_PROFILE=1)
+  message(STATUS "Painting profile: native timing counters enabled")
 endif()
 if(NEO_PROJECT_HISTORY_TEST)
   target_compile_definitions(orca_slice PRIVATE NEO_PROJECT_HISTORY_TEST=1)

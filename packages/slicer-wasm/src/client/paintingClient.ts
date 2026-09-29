@@ -66,7 +66,9 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
     if (new Set(resources.map(resource => resource.resourceId)).size !== resources.length) throw new Error('duplicate painting resource');
     for (const part of [...parts, ...candidates]) if (!resources.some(resource => resource.resourceId === part.resourceId) && !request.knownResourceIds?.includes(part.resourceId))
       throw new Error('missing painting resource');
-    return { ok: true, version: 1, sessionId: raw.sessionId, revision: raw.revision, parts, candidates, resources };
+    return { ok: true, version: 1, sessionId: raw.sessionId, revision: raw.revision, parts, candidates, resources,
+      ...(import.meta.env.VITE_PAINTING_PROFILE === '1' && record(raw.paintingProfile)
+        ? { paintingProfile: raw.paintingProfile as unknown as import('./painting').PaintingProfileCounters } : {}) };
   } finally {
     // Even malformed resource addresses release only native-owned allocation bases.
     // A corrupt lease cannot safely identify ownership; never guess a pointer.

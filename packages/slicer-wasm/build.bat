@@ -40,6 +40,8 @@ REM the tree. Each variant gets its own work/build/out dirs so a serial build
 REM can never reuse pthread objects (or vice versa).
 if not defined WASM_THREADING set "WASM_THREADING=1"
 if not defined NEO_REAL_PROJECT_PROFILE set "NEO_REAL_PROJECT_PROFILE=0"
+if not defined NEO_PAINTING_PROFILE set "NEO_PAINTING_PROFILE=0"
+if not defined NEO_PROJECT_HISTORY_TEST set "NEO_PROJECT_HISTORY_TEST=0"
 if defined WASM_ARTIFACT_VARIANT (
   set "ARTIFACT_VARIANT=%WASM_ARTIFACT_VARIANT%"
 ) else (
@@ -248,6 +250,8 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DWASM_DEBUG=%DBG% ^
   -DNEO_REAL_PROJECT_PROFILE=%NEO_REAL_PROJECT_PROFILE% ^
+  -DNEO_PAINTING_PROFILE=%NEO_PAINTING_PROFILE% ^
+  -DNEO_PROJECT_HISTORY_TEST=%NEO_PROJECT_HISTORY_TEST% ^
   -DORCA_SRC="%ORCA_SRC_CM%" ^
   -DSHIM_INCLUDE="%SHIM_CM%" ^
   -DGEN_INCLUDE="%GEN_CM%" ^

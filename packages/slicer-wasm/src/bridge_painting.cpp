@@ -7,6 +7,7 @@
 #include "bridge_state.hpp"
 #include "bridge_history.hpp"
 #include "bridge_painting.hpp"
+#include "painting/PaintingProfile.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_filament.hpp"
 #include "bridge_prime_tower.hpp"
@@ -171,11 +172,17 @@ json receipt(const Session& session) {
     const auto& selected = session.preview ? session.preview->hit : session.last_hit;
     if (selected) hit = {{"volumeId", session.parts[selected->part].volume_id}, {"originalFacet", selected->original_facet},
         {"world", {selected->world.x(), selected->world.y(), selected->world.z()}}};
-    return {{"ok", true}, {"version", 1}, {"sessionId", "ps-" + std::to_string(session.id)},
+    json out = {{"ok", true}, {"version", 1}, {"sessionId", "ps-" + std::to_string(session.id)},
         {"revision", session.revision}, {"strokeId", session.active_stroke_id ? json("pst-" + std::to_string(session.id) + "-" + std::to_string(session.active_stroke_id)) : json(nullptr)},
         {"phase", session.phase == Phase::Idle ? "idle" : session.phase == Phase::Drawing ? "drawing" : "finished"},
         {"effective", session.effective}, {"changedPartIds", session.changed_parts}, {"hit", std::move(hit)},
         {"candidateRevision", session.preview ? json(session.revision) : json(nullptr)}};
+#ifdef NEO_PAINTING_PROFILE
+    out["paintingProfile"] = {{"nativeHitUs", Profile::hit.microseconds}, {"nativeHitCalls", Profile::hit.calls},
+        {"nativeSelectorUs", Profile::selector.microseconds}, {"nativeSelectorCalls", Profile::selector.calls},
+        {"nativeGeometryUs", Profile::geometry.microseconds}, {"nativeGeometryCalls", Profile::geometry.calls}};
+#endif
+    return out;
 }
 const Session& engine_session(const json& value) {
     const auto& session = state().painting.require(handle(value, "sessionId", "ps-"), integer(value, "revision"), false);
@@ -353,6 +360,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
         }
         Buffers buffers;
         json resources = json::array(), parts = json::array(), candidates = json::array();
+        {
+#ifdef NEO_PAINTING_PROFILE
+        Profile::Scope profile_geometry(Profile::geometry);
+#endif
         for (std::size_t i = 0; i < session.parts.size(); ++i) {
             const auto& part = session.parts[i];
             const auto key = resource_id(session, part);
@@ -382,12 +393,23 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
                 }
             }
         }
+        }
         if (!next_geometry_lease) throw std::overflow_error("painting geometry lease exhausted");
         const auto lease = next_geometry_lease++;
+#ifdef NEO_PAINTING_PROFILE
+        const auto previous_geometry_leases = geometry_leases.size();
+#endif
         geometry_leases.emplace(lease, std::move(buffers));
         try {
-            auto out = response({{"ok", true}, {"version", 1}, {"leaseId", "pg-" + std::to_string(lease)}, {"sessionId", "ps-" + std::to_string(session.id)},
-                {"revision", session.revision}, {"parts", std::move(parts)}, {"candidates", std::move(candidates)}, {"resources", std::move(resources)}});
+            json result = {{"ok", true}, {"version", 1}, {"leaseId", "pg-" + std::to_string(lease)}, {"sessionId", "ps-" + std::to_string(session.id)},
+                {"revision", session.revision}, {"parts", std::move(parts)}, {"candidates", std::move(candidates)}, {"resources", std::move(resources)}};
+#ifdef NEO_PAINTING_PROFILE
+            result["paintingProfile"] = {{"nativeHitUs", Profile::hit.microseconds}, {"nativeHitCalls", Profile::hit.calls},
+                {"nativeSelectorUs", Profile::selector.microseconds}, {"nativeSelectorCalls", Profile::selector.calls},
+                {"nativeGeometryUs", Profile::geometry.microseconds}, {"nativeGeometryCalls", Profile::geometry.calls},
+                {"previousGeometryLeases", previous_geometry_leases}, {"currentGeometryLeases", geometry_leases.size()}};
+#endif
+            auto out = response(result);
             return out.release();
         } catch (...) { geometry_leases.erase(lease); throw; }
     });
