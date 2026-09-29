@@ -333,7 +333,8 @@ describe('SlicerClient bridge contract', () => {
     });
     const validSnapshot = { ...base, revisions: { ...base.revisions, session: 1 } };
     const receipt = (revision = 1, dirty = true) => ({
-      canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+      editingSession: null, navigationFloor: null,
+      canUndo: true, canRedo: false, undoLabel: 'Edit', undoEntries: [{ id: 'entry-1', label: 'Edit', category: 'project' }], redoEntries: [], cursor: revision,
       savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
       byteBudget: 10, evictedEntryCount: 0,
       lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,

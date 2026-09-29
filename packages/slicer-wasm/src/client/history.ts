@@ -65,6 +65,17 @@ export type HistoryKind = HistoryCategory;
 export type HistoryLabel = string;
 export type HistoryTransactionId = string;
 export type HistoryEntryId = string;
+/** Opaque canonical native uint64 handle; never convert it to a JS number. */
+export type HistoryEditingSessionId = string;
+export interface HistoryEditingSession {
+  readonly id: HistoryEditingSessionId;
+  readonly entryTimestamp: number;
+  readonly hasEffectiveCommit: boolean;
+}
+export interface HistorySessionOpenResult {
+  readonly sessionId: HistoryEditingSessionId;
+  readonly status: HistoryStatus;
+}
 export type HistoryJumpDirection = 'undo' | 'redo';
 
 export interface HistoryEntrySummary {
@@ -75,6 +86,8 @@ export interface HistoryEntrySummary {
 
 /** JSON-safe status returned by the future Worker history API. */
 export interface HistoryStatus {
+  readonly editingSession: HistoryEditingSession | null;
+  readonly navigationFloor: number | null;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly undoLabel?: HistoryLabel;
@@ -257,6 +270,8 @@ export interface HistoryRuntimeMethods {
   abortHistory: (transactionId: HistoryTransactionId) => Promise<RestoreResult>;
   undoHistory: () => Promise<RestoreResult>;
   redoHistory: () => Promise<RestoreResult>;
+  openHistorySession: () => Promise<HistorySessionOpenResult>;
+  closeHistorySession: (sessionId: HistoryEditingSessionId, label?: string) => Promise<HistoryStatus>;
   getHistoryStatus: () => Promise<HistoryStatus>;
   jumpHistory: (entryId: HistoryEntryId, direction: HistoryJumpDirection) => Promise<RestoreResult>;
   /** Advance the saved checkpoint without releasing history frames. */

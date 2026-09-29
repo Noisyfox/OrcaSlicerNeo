@@ -65,6 +65,7 @@ function printerTransition(profileSnapshot = resolvedSnapshot, filamentSession =
       affectedPlateIds, dirtyReasons: ['shared-configuration'],
     },
     historyStatus: {
+      editingSession: null, navigationFloor: null,
       canUndo: true, canRedo: false, undoLabel: 'Select Printer',
       undoEntries: [{ id: 'entry-1', label: 'Select Printer', category: 'project' }], redoEntries: [],
       cursor: 1, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,

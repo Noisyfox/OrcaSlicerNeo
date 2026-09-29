@@ -59,7 +59,7 @@ const restrictedWhileSerialSlicing = new Set([
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
   'assignFilament', 'setFilamentRouting', 'beginHistory', 'commitHistory',
   'abortHistory', 'undoHistory', 'redoHistory', 'jumpHistory', 'markHistorySaved',
-  'resetHistory', 'movePrimeTower', 'resetPlateSession',
+  'openHistorySession', 'closeHistorySession', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
   'markSharedConfigurationMutation', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
   'mutatePresetDraft', 'revalidateNativeScopedConfig', 'selectProfile', 'selectPrinterWithRememberedRack', 'addModel', 'closeProject',
@@ -177,7 +177,9 @@ export function startWorker(
   // the active writer and is popped only after its commit/abort.
   const activeTransactionIds: string[] = [];
   let transactionStarting = false;
-  let restoreInFlight = false;
+  // Short command gate, acquired before any async hook/module initialization.
+  // It rejects overlap; it never queues work or spans an editing session.
+  let historyTransitionInFlight = false;
   const historyTransactionStartedAts: number[] = [];
 
   onMessage(async (msg) => {
@@ -185,13 +187,20 @@ export function startWorker(
     const { id, op, args } = msg;
     const startedAt = historyNow();
     const isRestore = op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory';
-    if (isRestore && restoreInFlight) {
-      post({ type: 'response', id, ok: false, result: undefined, error: 'history restore is already in progress' });
-      return;
-    }
-    if (isRestore) restoreInFlight = true;
+    const isSessionTransition = op === 'openHistorySession' || op === 'closeHistorySession';
+    const isHistoryTransition = isRestore || isSessionTransition || op === 'resetHistory';
+    let ownsTransition = false;
+    let ownsTransactionStart = false;
     try {
       const callArgs = args ?? [];
+      if ((isHistoryTransition || op === 'beginHistory') && historyTransitionInFlight)
+        throw new Error(isRestore ? 'history restore is already in progress' : 'history transition is already in progress');
+      if (isHistoryTransition) {
+        if (activeTransactionIds.length > 0 || transactionStarting)
+          throw new Error('history transaction is active');
+        historyTransitionInFlight = true;
+        ownsTransition = true;
+      }
       if (op === 'beginHistory') {
         const nested = activeTransactionIds.length > 0;
         if (transactionStarting || (!nested && activeTransactionIds.length > 0))
@@ -205,6 +214,7 @@ export function startWorker(
             (callArgs[3] as Record<string, unknown>).parentTransactionId !== activeTransactionIds[activeTransactionIds.length - 1]))
           throw new Error('history transaction is already active');
         transactionStarting = true;
+        ownsTransactionStart = true;
       } else if (op === 'commitHistory' || op === 'abortHistory') {
         if (callArgs.length < 1 || typeof callArgs[0] !== 'string' ||
             activeTransactionIds.length === 0 || callArgs[0] !== activeTransactionIds[activeTransactionIds.length - 1])
@@ -255,10 +265,10 @@ export function startWorker(
       }
       post({ type: 'response', id, ok: true, result }, collectTransferables(result));
     } catch (err) {
-      if (op === 'beginHistory') transactionStarting = false;
+      if (ownsTransactionStart) transactionStarting = false;
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
     } finally {
-      if (isRestore) restoreInFlight = false;
+      if (ownsTransition) historyTransitionInFlight = false;
     }
   });
 }
@@ -341,8 +351,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
 
   function call(op: string, args: unknown[]): Promise<unknown> {
     const id = nextId++;
-    if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op))
+    if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
+      if (op === 'openHistorySession' || op === 'closeHistorySession') return Promise.reject(new Error('slice_busy'));
       return Promise.resolve({ error: 'slice_busy' });
+    }
     if (op === 'slice' || op === 'slicePlate') {
       activeSliceRequests += 1;
       if (runtimeThreaded !== true) serialSliceActive = true;

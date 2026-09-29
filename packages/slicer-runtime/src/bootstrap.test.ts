@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest';
+import { startWorker, type WorkerMessage } from '../../slicer-wasm/src/client';
+import { createMockModule } from '../../slicer-wasm/src/client/testing/mock-module';
 import { createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
 
 describe('portable runtime bootstrap', () => {
+  it('carries native history session identity, floor and reset through the shared runtime', async () => {
+    const listeners: Array<(message: WorkerMessage) => void> = [];
+    const transport: WorkerTransport = {
+      post: message => { for (const listener of listeners) listener(structuredClone(message)); },
+      onMessage: listener => { listeners.push(listener); },
+    };
+    startWorker(async () => createMockModule(), message => transport.post(message), listener => transport.onMessage(listener));
+    const runtime = createRuntimeBootstrap({ transport,
+      capabilities: { webgl2: true, wasm64: true, threadedWasm: false } });
+    const session = await runtime.openHistorySession();
+    expect(session.status).toMatchObject({ editingSession: { id: session.sessionId }, navigationFloor: 0, activeTransactionId: null });
+    expect(await runtime.getHistoryStatus()).toEqual(session.status);
+    const closed = await runtime.closeHistorySession(session.sessionId);
+    expect(closed).toMatchObject({ editingSession: null, navigationFloor: null, cursor: 0 });
+    await expect(runtime.closeHistorySession(session.sessionId)).rejects.toThrow('stale');
+  });
+
   it('requires both isolation and thread primitives for threaded wasm', () => {
     expect(detectRuntimeCapabilities({ webgl2: true, wasm64: true, crossOriginIsolated: true, SharedArrayBuffer: ArrayBuffer, Atomics: {} }).threadedWasm).toBe(false);
     expect(detectRuntimeCapabilities({ webgl2: true, wasm64: true, crossOriginIsolated: true, SharedArrayBuffer: SharedArrayBuffer, Atomics: {} }).threadedWasm).toBe(true);

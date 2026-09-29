@@ -292,7 +292,8 @@ describe('WipeTowerVolume shared scene integration', () => {
           position: authoritativePosition, footprint: authoritativeFootprint,
         },
         historyStatus: {
-          canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: 1,
+          editingSession: null, navigationFloor: null,
+          canUndo: true, canRedo: false, undoLabel: 'Move Prime Tower', undoEntries: [{ id: 'entry-1', label: 'Move Prime Tower', category: 'project' as const }], redoEntries: [], cursor: 1,
           savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true, bytesUsed: 0,
           byteBudget: 1, evictedEntryCount: 0,
           lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false,

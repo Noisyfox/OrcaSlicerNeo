@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-04b accepted; later steps remain gated.
+**Status:** Sequential implementation in progress. Steps 01-05 accepted; later stages remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -14,6 +14,7 @@
 - Execute numbered steps strictly in order. Start a fresh implementation subagent for every new step. Do not start the next step until the parent has independently accepted the previous one.
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
+- Parent acceptance requires a substantive code review as well as test execution: check design/ownership boundaries, control and data flow, state transitions and concurrency, failure atomicity, resource lifetime, protocol validation, maintainability and avoidable performance costs. Record concrete findings, their resolution and material remaining limits. Passing tests or a graph reporting no affected flows never substitutes for reading the implementation.
 - Required unavailable or failing checks block that step. Diagnose and repair within authorization; never silently replace real-WASM evidence with mocks. Do not broaden unrelated configuration/build scope.
 - Keep incomplete feature entrypoints inaccessible until their required dependencies are accepted. No temporary user-visible controls pretending to work, alternate painting authorities, or permanently skipped tests.
 - The parent owns architecture/ABI decisions. Escalate a genuine conflict with the accepted spec, not routine implementation choices. Prefer complete functional stages over microsteps; use internal checklists within the assigned stage. Only create an extra stage for a material independently verifiable boundary.
@@ -109,7 +110,7 @@ The user requested larger functional stages and explicitly selected **gpt-6-astr
 
 ### 05. History transport and native painting-session foundation
 
-**Status:** Pending. **Depends on:** 04b accepted. **Model:** gpt-6-astra / low. **Verification:** N+W+T.
+**Status:** Accepted by parent. **Depends on:** 04b accepted. **Model:** gpt-6-astra / low. **Verification:** N+W+T.
 
 **Allowed scope:** slicer-wasm client/history/protocol/mock modules; slicer-runtime Worker/proxy and platform contracts; new native painting core/bridge files, native state and export/build wiring; focused tests/harnesses. No application UI.
 
@@ -352,3 +353,51 @@ The existing history smoke had a stale scene-patch request missing the required
 native and client contracts, without weakening production validation. Parent
 reviewed actual changes after graph analysis. Step 04b accepted; no app UI or
 typed transport is claimed yet.
+
+Accepted step 04b code commit: `55efbe0a`. Consolidated stage/model policy commit: `570886c6`.
+
+### Stage 05 acceptance — transport and native session foundation
+
+Child: `/root/painting_stage_05` (`gpt-6-astra`, low). Delivered strict typed history
+session transport through the existing Worker/runtime, a native MMU selector owner
+with stable object/instance/volume identities, staged target switching, lifecycle
+ABIs and schemas. Native lifecycle commands use version 1, opaque `ps-` session
+handles and numeric revisions; metadata includes per-part draft resource identity.
+No painting samples, commits, complete painting transport or application UI yet.
+
+Parent code review traced Worker dispatch/admission and native open/target/read/
+close/reset paths. Reviewed shared immutable mesh ownership and selector destruction
+order, absence of raw model pointers, original annotation preservation, stale target
+checks, prepared-response publication, strict handles and floor projections. App
+changes are required status-fixture updates only; no app implementation boundary
+was bypassed. Graph reports no indexed flows, so actual source review and executable
+evidence supplied the missing coverage.
+
+Review required repairs before acceptance:
+
+- Saved Redo checkpoint removal in the mock now clears its saved cursor as native does.
+- Session transitions previously bypassed a pending Worker Undo/begin. A short
+  pre-await transition guard now rejects overlaps without queuing or holding a lock
+  for the editing session. Only its owning request releases the guard, also repairing
+  duplicate-begin rejection that cleared another request's start flag.
+- Deferred hook/module initialization tests prove rejected requests do not reach
+  native, Undo retains its floor, guards release on errors, and idle sessions still
+  allow ordinary project edits. Native admission also checks core operation activity.
+
+Child full verification passed: root tests/typecheck; final slicer-wasm suite
+(221 tests/9 files), runtime suite (35/5), native painting-session and history-core
+builds/runners; serial quick build; painting-session, history-editing-session and
+existing history smokes; diff check.
+
+Parent independently passed root tests and typecheck (including app 679 tests,
+runtime 35, platform 15), both native runners, serial quick build and all three
+real-WASM smokes. After the concurrency repair, parent reran affected wasm/runtime
+suites, the final 28-case history-session protocol test file, root typecheck and
+final serial build/painting lifecycle smoke. The existing generated painted fixture
+emits missing-parent profile diagnostics on import; authoritative lifecycle and
+annotation assertions pass. No threaded/host E2E claim is made at this stage.
+
+Stage 05 accepted. Automatic selector reconciliation after restore/remap remains
+stage 07/09 scope; current native reads reject stale targets and explicit target
+rebind reconstructs selectors. Tool sampling and geometry/per-stroke publication
+remain stages 06/07, with no unfinished UI exposed.

@@ -479,6 +479,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextHistoryTransactionId = 1;
   let nextHistoryEntryId = 1;
   let historyRevision = 0;
+  let nextEditingSessionId = 1n;
+  let editingSession: { id: string; entryTimestamp: number; hasEffectiveCommit: boolean } | null = null;
   let historyDisabled = false;
   let savedHistoryCursor: number | null = null;
   let savedHistoryCheckpointEvicted = false;
@@ -730,6 +732,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
       label: `Edit ${canonicalName}`, category: 'project', context: clone(context) });
     historyCursor = historyEntries.length - 1;
+    if (editingSession) editingSession.hasEffectiveCommit = true;
 
     const result = presetDraftSnapshot(kind, canonicalName) as Record<string, unknown>;
     const plateSession = plateSessionSnapshot() as Record<string, unknown>;
@@ -848,12 +851,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function historyStatus() {
     const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0';
-    const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse()
+    const undoEntries = historyEntries.slice((editingSession?.entryTimestamp ?? 0) + 1, historyCursor + 1).reverse()
       .filter(project).map(({ id, label, category }) => ({ id, label, category }));
     const redoEntries = historyEntries.slice(historyCursor + 1)
       .filter(project).map(({ id, label, category }) => ({ id, label, category }));
     let undoIndex = -1;
-    for (let index = historyCursor; index > 0; index--)
+    for (let index = historyCursor; index > (editingSession?.entryTimestamp ?? 0); index--)
       if (project(historyEntries[index])) { undoIndex = index; break; }
     const redoIndex = historyEntries.findIndex((entry, index) => index > historyCursor && project(entry));
     const undo = undoIndex >= 0 ? historyEntries[undoIndex] : undefined;
@@ -867,6 +870,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       dirty = historyEntries.slice(lo + 1, hi + 1).some(project);
     }
     return {
+      editingSession: editingSession ? { ...editingSession } : null, navigationFloor: editingSession?.entryTimestamp ?? null,
       canUndo: undoIndex >= 0, canRedo: redoIndex >= 0,
       ...(undo ? { undoLabel: undo.label } : {}),
       ...(redo ? { redoLabel: redo.label } : {}), undoEntries, redoEntries,
@@ -886,6 +890,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       throw new Error('invalid history context');
   }
   function resetHistory(): void {
+    editingSession = null;
     historyEntries = []; historyCursor = 0; historyTransaction = null; historyNestedTransactions.length = 0;
     savedHistoryCursor = null; savedHistoryCheckpointEvicted = false;
     historyEvictedEntryCount = 0;
@@ -1142,6 +1147,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.splice(historyCursor + 1);
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: 'Move Prime Tower', category: 'project', context: clone(context) });
     historyCursor = historyEntries.length - 1;
+    if (editingSession) editingSession.hasEffectiveCommit = true;
     return { ok: true, version: 1, result: { history_status: historyStatus(), mutation: {
       kind: 'move', plate_id: request.plate_id, history_entry_delta: 1, revision_before: request.revision,
       revision_after: historyRevision, dirty: true, affected_plate_ids: [request.plate_id],
@@ -1718,6 +1724,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         historyEntries.push({ ...current, id: `entry-${nextHistoryEntryId++}`, label: historyTransaction.label,
           category: historyTransaction.category, context: clone(afterContext) });
         historyCursor = historyEntries.length - 1;
+        if (editingSession) editingSession.hasEffectiveCommit = true;
         historyRevision++;
       }
       const sceneDelta = changed ? mockSceneDelta(historyTransaction.before, current) : null;
@@ -1774,6 +1781,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // The baseline is the valid restore target for the first project edit.
       if (!historyEntries[target] || (target > 0 && !project(historyEntries[target])))
         target = 0;
+      if (editingSession && target < editingSession.entryTimestamp) return { error: 'history navigation floor' };
       historyCursor = target;
       return historyRestore(historyEntries[target]);
     },
@@ -1783,6 +1791,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       let target = historyCursor + 1;
       while (target < historyEntries.length && !project(historyEntries[target])) target++;
       if (target >= historyEntries.length) return { error: 'no redo history' };
+      if (editingSession && target < editingSession.entryTimestamp) return { error: 'history navigation floor' };
       historyCursor = target;
       return historyRestore(historyEntries[target]);
     },
@@ -1802,6 +1811,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           if (!historyEntries[target] || historyEntries[target].category !== 'project')
             return { error: 'history entry has no prior project state' };
         }
+        if (editingSession && target < editingSession.entryTimestamp) return { error: 'history navigation floor' };
         historyCursor = target;
       } else {
         if (index <= historyCursor && historyEntries[index].id !== 'entry-0')
@@ -1810,6 +1820,29 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       const current = historyEntries[historyCursor];
       return historyRestore(current);
+    },
+    orc_history_session_open(optionsJson: string) {
+      const options = JSON.parse(optionsJson);
+      if (!options || Array.isArray(options) || Object.keys(options).length) return { error: 'invalid history session options' };
+      if (historyDisabled || historyTransaction || editingSession) return { error: 'history session is busy' };
+      editingSession = { id: `hs-${nextEditingSessionId++}`, entryTimestamp: historyCursor, hasEffectiveCommit: false };
+      historyRevision++;
+      return { ok: true, sessionId: editingSession.id, status: historyStatus() };
+    },
+    orc_history_session_close(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (historyDisabled || historyTransaction) return { error: 'history session is busy' };
+      if (!editingSession || request.sessionId !== editingSession.id) return { error: 'history editing session is stale' };
+      if (editingSession.hasEffectiveCommit) {
+        if (savedHistoryCursor !== null && savedHistoryCursor > historyCursor) {
+          savedHistoryCheckpointEvicted = true;
+          savedHistoryCursor = null;
+        }
+        historyEntries.splice(historyCursor + 1);
+      }
+      editingSession = null;
+      historyRevision++;
+      return { ok: true, status: historyStatus() };
     },
     orc_history_status() {
       return historyStatus();
@@ -2209,6 +2242,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
         label: 'Select Printer', category: 'project', context: clone(context) });
       historyCursor = historyEntries.length - 1;
+      if (editingSession) editingSession.hasEffectiveCommit = true;
       const plateSession = plateMutation('shared-configuration', [...plateIds], [...plateIds]);
       const status = historyStatus();
       const affectedPlateIds = plateSession.affected_plate_ids as string[];
@@ -2992,6 +3026,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_undo: { ret: 'number', args: [] },
     orc_history_redo: { ret: 'number', args: [] },
     orc_history_jump: { ret: 'number', args: ['string', 'string'] },
+    orc_history_session_open: { ret: 'number', args: ['string'] },
+    orc_history_session_close: { ret: 'number', args: ['string'] },
     orc_history_status: { ret: 'number', args: [] },
     orc_history_mark_saved: { ret: 'number', args: ['string'] },
     orc_history_reset: { ret: 'number', args: ['string'] },

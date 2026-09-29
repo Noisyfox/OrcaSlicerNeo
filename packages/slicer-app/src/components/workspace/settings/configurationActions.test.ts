@@ -58,7 +58,8 @@ const historyProjectionRuntime = {
 
 function presetHistoryStatus(revision: number): HistoryStatus {
   return {
-    canUndo: true, canRedo: false, undoLabel: 'Edit Preset', undoEntries: [], redoEntries: [],
+    editingSession: null, navigationFloor: null,
+    canUndo: true, canRedo: false, undoLabel: 'Edit Preset', undoEntries: [{ id: 'entry-1', label: 'Edit Preset', category: 'project' as const }], redoEntries: [],
     cursor: revision, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
     bytesUsed: 10, byteBudget: 1024, evictedEntryCount: 0, lastEvictedEntryId: null,
     oldestRetainedEntryId: null, oversizedEntryRetained: false, disabled: false,

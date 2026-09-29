@@ -349,6 +349,8 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/painting/PaintingSession.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_painting.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_preset_drafts.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
@@ -416,6 +418,15 @@ if(NEO_PROJECT_HISTORY_TEST)
     -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(history_instance_identity_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
   set_target_properties(history_instance_identity_test PROPERTIES SUFFIX ".cjs")
+  add_executable(painting_session_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/painting/PaintingSession.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/painting/PaintingSession.test.cpp")
+  target_compile_definitions(painting_session_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(painting_session_test PRIVATE -fexceptions)
+  target_link_options(painting_session_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  target_link_libraries(painting_session_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+  set_target_properties(painting_session_test PROPERTIES SUFFIX ".cjs")
 endif()
 # The bridge's error contract leans on C++ exceptions (nlohmann type_error,
 # std::runtime_error from the slice path) being caught inside the bridge —
@@ -461,6 +472,10 @@ if(NEO_PROJECT_HISTORY_TEST)
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
     "${OCCT_ROOT}/lib/libfreetype.a"
   )
+  target_link_libraries(painting_session_test PRIVATE
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
+    "${OCCT_ROOT}/lib/libfreetype.a"
+  )
   target_link_libraries(plate_runtime_registry_test PRIVATE
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
     "${OCCT_ROOT}/lib/libfreetype.a"
@@ -471,6 +486,7 @@ if(WASM_THREADING)
   if(NEO_PROJECT_HISTORY_TEST)
     target_link_libraries(history_mesh_capture_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
     target_link_libraries(history_instance_identity_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+    target_link_libraries(painting_session_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
     target_link_libraries(plate_runtime_registry_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
   endif()
 endif()
@@ -484,6 +500,7 @@ if(BOOST_ARCHIVES)
   if(NEO_PROJECT_HISTORY_TEST)
     target_link_libraries(history_mesh_capture_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
     target_link_libraries(history_instance_identity_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+    target_link_libraries(painting_session_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
     target_link_libraries(plate_runtime_registry_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
   endif()
 endif()

@@ -14,6 +14,7 @@ const context: HistoryContext = {
 };
 const status: HistoryStatus = {
   bytesUsed: 0, byteBudget: 256 * 1024 * 1024,
+  editingSession: null, navigationFloor: null,
   canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
   savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false,
   evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0',

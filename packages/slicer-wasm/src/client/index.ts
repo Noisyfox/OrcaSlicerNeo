@@ -57,7 +57,7 @@ export type {
   HistorySelectionMode, HistorySelection, HistoryJsonValue, HistoryJsonObject,
   HistoryGizmoContext, HistoryContext, HistoryCategory, HistoryEntryCategory, HistoryKind,
   HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryJumpDirection, HistoryEntrySummary,
-  HistoryStatus, HistoryCommitResult, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
+  HistoryEditingSessionId, HistoryEditingSession, HistorySessionOpenResult, HistoryStatus, HistoryCommitResult, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
   RestoreResult, RestoreImpact, SceneDelta, HistoryTimingDiagnostic, HistoryDiagnosticLayer, HistoryReadDiagnosticLayer,
   HistoryTransportDiagnostics, HistoryRuntimeMethods, MockHistoryRuntime, HistoryMutation,
 } from './history';
@@ -65,3 +65,7 @@ export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, P
 export { createMockModule } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
 export const CLIENT_VERSION = '0.1.0-m2';
+
+export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSessionOpenRequest,
+  PaintingSessionRequest, PaintingTargetRequest, PaintingPartMetadata, PaintingSessionMetadata,
+  PaintingSessionResult, PaintingSessionCloseResult } from './painting';

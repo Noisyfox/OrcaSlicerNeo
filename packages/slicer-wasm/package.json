@@ -13,6 +13,7 @@
     "step-import-smoke": "node harness/step-import-smoke.mjs",
     "scoped-config-interoperability": "node harness/scoped-config-interoperability.mjs --module out/serial/orca_slice.js",
     "scoped-config-interoperability:threaded": "node harness/scoped-config-interoperability.mjs --module out/threaded/orca_slice.js",
+    "painting-session-smoke": "node harness/painting-session-smoke.mjs out/serial/orca_slice.js",
     "history-editing-session-smoke": "node harness/history-editing-session-smoke.mjs out/serial/orca_slice.js",
     "native-project-preset-history-smoke": "node harness/native-project-preset-history-smoke.mjs out/serial/orca_slice.js",
     "native-project-preset-history-smoke:threaded": "node harness/native-project-preset-history-smoke.mjs out/threaded/orca_slice.js",

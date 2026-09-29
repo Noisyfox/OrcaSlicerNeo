@@ -22,7 +22,9 @@ function snapshot(revision: number): FilamentSessionSnapshot {
 
 function historyStatus(revision: number, dirty = true): HistoryStatus {
   return {
-    canUndo: dirty, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+    editingSession: null, navigationFloor: null,
+    canUndo: dirty, canRedo: false, ...(dirty ? { undoLabel: 'Edit Filament' } : {}),
+    undoEntries: dirty ? [{ id: 'entry-1', label: 'Edit Filament', category: 'project' }] : [], redoEntries: [], cursor: revision,
     savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
     byteBudget: 10, evictedEntryCount: 0,
     lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,

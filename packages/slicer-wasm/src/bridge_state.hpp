@@ -24,6 +24,7 @@
 #include "libslic3r/Print.hpp"
 #include "bridge_preset_drafts.hpp"
 #include "history/TimestampedHistory.hpp"
+#include "painting/PaintingSession.hpp"
 #include "history/MeshCaptureCache.hpp"
 #include "history/MutableObjectCaptureCache.hpp"
 #include "plate_runtime_registry.hpp"
@@ -55,6 +56,7 @@ struct BridgeState {
     // including a reset that leaves an already-empty overlay unchanged.
     std::uint64_t preset_draft_revision = 0;
     Model       model;
+    Painting::Sessions painting;
     // FFF per-plate native ownership. Selected-plate slice/result/export/
     // cancel operations resolve this registry; no singleton Print or result
     // owner remains in BridgeState.

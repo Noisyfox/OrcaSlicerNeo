@@ -30,7 +30,8 @@ function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): Filamen
 
 function historyStatus(revision: number): HistoryStatus {
   return {
-    canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+    editingSession: null, navigationFloor: null,
+    canUndo: true, canRedo: false, undoLabel: 'Edit Filament', undoEntries: [{ id: 'entry-1', label: 'Edit Filament', category: 'project' as const }], redoEntries: [], cursor: revision,
     savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true, bytesUsed: 1,
     byteBudget: 10, evictedEntryCount: 0,
     lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,

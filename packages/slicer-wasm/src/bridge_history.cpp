@@ -2087,6 +2087,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_session_close(const char* request_j
             }))
             return error_json("history editing session could not be closed");
 
+        state().painting.reset();
         HistoryMetadata::advance_history_epoch(state());
         return response.release();
     } catch (const std::exception& e) { return error_json(e.what()); }
@@ -2103,6 +2104,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
     try {
         const Runtime runtime = HistoryRuntime::runtime();
         const json context = canonical_history_context(runtime, parse_history_context(context_cstr));
+        state().painting.reset();
         state().history.clear();
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();

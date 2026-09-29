@@ -18,6 +18,7 @@ const context: HistoryContext = {
 };
 
 const status: HistoryStatus = {
+  editingSession: null, navigationFloor: null,
   canUndo: true,
   canRedo: false,
   undoLabel: 'Move',
