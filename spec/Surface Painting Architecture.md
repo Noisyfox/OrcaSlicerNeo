@@ -114,6 +114,30 @@ resume it or cause an implicit close.
 Other lifecycle actions and camera bindings remain subject to section 10
 clarification.
 
+### 3.3 Navigation and editing-target changes
+
+Switching from Prepare to Preview closes the painting gizmo and compacts its
+history, even when the user did not explicitly request slicing. Returning to
+Prepare does not automatically reopen the gizmo. This decision does not yet
+define behavior for Home, Device, or other top-level pages.
+
+Selecting another eligible object through the Object List keeps the same
+painting session open. Rebind native picking, selectors, and isolated display
+to the newly active target, while retaining the earlier targets' child history.
+Undo/Redo remains available across objects until the session closes. Selecting
+another part of the same object does not narrow the whole-object painting scope.
+
+A pure selection change does not mutate the project, create an independent
+history entry, or separate a continuous paint run. Consequently a compacted
+paint run can contain changes to several objects. Target identities and editing
+context must remain valid during cross-object history restoration.
+
+If selection is cleared or otherwise ceases to satisfy the painting activation
+conditions, close the gizmo normally, retain committed strokes, compact history,
+and complete deferred updates. Do not keep an inactive painting session waiting
+for a later valid selection. These navigation decisions do not yet settle how
+external commands interrupt an unfinished stroke.
+
 ## 4. Cursor preview and authoritative native picking
 
 The React-side BVH is used only to locate the cursor visually on the original
@@ -315,6 +339,9 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   holds, and completes deferred work without replaying committed strokes.
 - Save retains the open gizmo and child history; its checkpoint remains correct
   after compaction. Slice closes and settles required derived work before starting.
+- Prepare-to-Preview closes the session; switching eligible objects preserves
+  cross-object child history and does not split a paint run. Losing eligible
+  selection closes normally. All touched targets remain covered at closure.
 - Failed stroke commit or closure does not partially publish its state/history.
 - 3MF round trips and actual multi-material slicing consume final native
   annotations; shared instances and affected plates remain consistent.
@@ -331,7 +358,7 @@ or create separate phase documents.
 
 | Group | Important unresolved decisions |
 | --- | --- |
-| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice closes first. Remaining: other activation gates, target switches, any whole-session discard, active-stroke external commands, export and destructive actions |
+| A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes. Remaining: other activation gates, other pages, any whole-session discard, active-stroke external commands, export and destructive actions |
 | B. History and external edits | Per-stroke native commits accepted. Remaining: effect/no-effect and fully undone sessions; no-effect redo behavior; navigation across the session boundary; dirty/save checkpoint semantics through compaction; slot-remapping atomicity; mutations during unfinished strokes |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
