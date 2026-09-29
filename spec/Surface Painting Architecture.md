@@ -159,7 +159,22 @@ navigation remains a separate interaction. During an unfinished stroke, ignore
 camera rotation, pan, and zoom gestures without queuing, committing, cancelling,
 or pausing that stroke. Keep the camera unchanged for the stroke; navigation
 becomes available again after it ends. These gestures must not be confused with
-live brush-size adjustments. Concrete navigation bindings remain to be clarified.
+live brush-size adjustments.
+
+When no stroke is active, use Orca-style mouse navigation: left-drag on the
+model paints, left-drag starting on empty space rotates, and Ctrl/Cmd plus
+left-drag permits rotation even over the model. Middle/right drag pans, and
+the unmodified wheel zooms. A gesture owned by camera navigation must not turn
+into painting merely because the pointer subsequently crosses the model.
+
+The first-release painting shortcuts are limited to Shift plus left button for
+erasing and Ctrl/Cmd plus wheel to adjust the current tool's size or threshold.
+Choose tools and filament colours through the panel; do not enable Orca's
+C/S/T/H/F/G tool shortcuts or numeric filament-selection shortcuts. Deferred
+auxiliary features have no active shortcuts. This limit concerns painting-tool
+shortcuts, not already-defined Escape, Save, Undo/Redo, or camera modifiers.
+Tool shortcuts must not take over text-input editing. Size/threshold wheel
+adjustments must not also rotate or zoom the camera.
 
 The Canvas, camera, and immutable source resources may be shared with Prepare;
 dedicated mode does not require a second WebGL context. Draft display resources
@@ -540,6 +555,11 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - During an unfinished stroke, tool-type switches and camera rotation/pan/zoom have
   no effect and are not replayed after it ends. Live colour/erase/size changes
   remain available and must not inadvertently trigger a camera gesture.
+- Idle camera gestures follow the specified left/modified-left rotation and
+  middle/right pan mapping. A camera-owned gesture cannot start painting on
+  entering a model. Tool and filament letter/number shortcuts remain disabled;
+  supported erasing/parameter shortcuts do not interfere with text entry or
+  simultaneously operate the camera.
 - Cursor preview cannot affect native stroke targeting; native face selection
   remains correct with reordered renderer indices, mirrors, and
   nonuniform transforms.
@@ -603,7 +623,7 @@ or create separate phase documents.
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and project replacement/shutdown |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
-| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry. Remaining: shortcuts and camera bindings |
+| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Remaining: tool-setting lifetime and persistence |
 | D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Remaining: large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
