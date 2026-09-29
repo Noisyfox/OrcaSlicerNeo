@@ -67,6 +67,29 @@ Retain native 3MF and slicing compatibility. Erasing multi-material painting
 restores state zero, not an explicit assignment to the currently displayed base
 material. Annotations belong to a volume and are shared by its instances.
 
+### 2.1 First-release multi-material tools
+
+The first release includes all six tools exposed by the pinned Orca multi-
+material painter: circle brush, sphere brush, triangle painting, height-range
+painting, region fill, and gap fill. Implementation may proceed in independently
+testable pieces, but the first release is not complete until all six are
+delivered. Detailed tool parameters and auxiliary controls remain subject to
+the clarification agenda.
+
+Retain Shift plus left button for local erasing and the Erase all action for
+the active object's solid model parts. Also provide an explicit erasing-mode
+switch in the panel so local erasing does not require a modifier key. Both
+local and whole-object erasing restore the unpainted state, which resolves
+through each part's effective material assignment.
+
+Selected painting colour, erase state, and brush size are live settings during
+a stroke. Changes affect subsequent samples without retroactively changing
+earlier painted regions. The complete press-to-release sequence remains one
+child history operation even when these settings change. These tool settings
+are distinct from project parameter edits and filament-slot mutations, whose
+commands are ignored during an unfinished stroke under section 3.2. Switching
+tool types during a stroke is not decided by this live-setting rule.
+
 ## 3. Dedicated painting mode
 
 Opening a painting gizmo changes the viewport to a dedicated drawing and input
@@ -180,7 +203,10 @@ authority for fill selection.
 
 Input and output carry session/order identity so late responses cannot overwrite
 a newer session. Releasing a stroke waits for all accepted samples belonging to
-that stroke. Precise batching, backpressure, camera-snapshot transport, and
+that stroke. Preserve the ordering of live tool-setting changes relative to
+samples, so delayed Worker processing uses the colour, erase state, and size
+applicable to each sample rather than the latest UI values. Precise batching,
+backpressure, camera-snapshot transport, and
 cancellation behavior are to be finalized before implementation.
 
 ## 5. Per-stroke commits and deferred derived updates
@@ -392,6 +418,11 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 
 ## 9. Required validation themes
 
+- First-release coverage includes all six multi-material tools, modifier-based
+  and explicit-mode local erasing, and whole-object Erase all.
+- Colour, erase state, and brush size changes affect subsequent samples in the
+  same stroke. Delayed or batched input preserves their ordering, and Undo/Redo
+  treats the resulting mixed-setting stroke as one child entry.
 - Cursor preview cannot affect native stroke targeting; native face selection
   remains correct with reordered renderer indices, clipping, mirrors, and
   nonuniform transforms.
@@ -449,7 +480,7 @@ or create separate phase documents.
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
-| C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
+| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry. Remaining: auxiliary-feature scope; brush shapes and units; detailed fill, height-range and gap-fill behavior; clipping, remapping, shortcuts, camera, and switching tool types during strokes |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
