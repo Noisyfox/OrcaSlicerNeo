@@ -90,9 +90,11 @@ not restrict painting to that part. All solid model parts of the target object
 are eligible for painting. Modifiers and other non-model-part volumes are not
 paint targets.
 
-Multi-material painting requires at least two filament slots to open. Handling
-a slot deletion that reduces this count during an already-open session remains
-part of the external-edit clarification group.
+Multi-material painting requires at least two filament slots to open. This is
+an entry-only gate: reducing the count to one during an open session keeps the
+gizmo open and permits continued painting with the remaining slot. Do not reuse
+the entry gate as an ongoing-session closure condition. Reopening after closure
+still requires at least two slots.
 
 Painting mode displays only the active editing instance. Other objects and
 other instances of the same object are hidden. The final annotations still
@@ -151,8 +153,8 @@ history entry, or separate a continuous paint run. Consequently a compacted
 paint run can contain changes to several objects. Target identities and editing
 context must remain valid during cross-object history restoration.
 
-If selection is cleared or otherwise ceases to satisfy the painting activation
-conditions, close the gizmo normally, retain committed strokes, compact history,
+If selection is cleared or otherwise ceases to satisfy the painting target
+eligibility conditions, close the gizmo normally, retain committed strokes, compact history,
 and complete deferred updates. Do not keep an inactive painting session waiting
 for a later valid selection. The active-stroke Preview command is covered by
 section 3.2; target changes during an unfinished stroke remain to be clarified.
@@ -301,8 +303,23 @@ runs without closing the session. Slot operations apply to committed annotations
 and synchronize the active selectors. Palette changes affect display; deletion,
 merging, or reordering requires coordinated native state mapping. Historical
 nodes remain paired with their historical material definitions. During an active
-stroke, parameter and slot commands are ignored under section 3.2. Exact mapping
-and failure policies remain to be clarified.
+stroke, parameter and slot commands are ignored under section 3.2.
+
+Painting uses the project's existing slot Delete and Merge with semantics from
+the Multi-Filament Support specification; the gizmo does not define an alternate
+mapping policy. Delete removes painting marks for the deleted slot, while Merge
+with remaps them to the chosen surviving slot. Higher slot references shift to
+preserve their logical material. Slot changes and all affected annotation
+remapping form one atomic project history operation, including annotations on
+objects outside the current editing target. Undo/Redo restores both the material
+definitions and their corresponding painting state together. An effective slot
+operation remains a non-paint separator during session compaction, even though
+it also changes painted facets.
+
+Synchronize the active painting colour, selectors, and display with the resulting
+project mapping. A failed operation must not partially apply slot changes or
+annotation remapping. A successful reduction to one slot retains the open gizmo
+under section 3.1.
 
 ### 7.1 Save while painting
 
@@ -381,6 +398,11 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Dedicated mode does not invoke ordinary model drag/selection handlers.
 - Part-based entry permits painting all solid parts of the owning object;
   entry requires at least two filament slots and hides all other instances.
+- Reducing the slot count to one keeps an existing session open and paintable;
+  closing it does not waive the two-slot requirement for reopening.
+- Slot Delete/Merge with uses the project mapping for all affected annotations,
+  including non-active objects, as one atomic history operation. Undo/Redo
+  restores slots and painting together; compaction keeps this non-paint separator.
 - Escape cancels an active stroke without closing or recording that stroke;
   idle Escape closes with completed strokes retained. Late events cannot revive
   a cancelled stroke.
@@ -426,7 +448,7 @@ or create separate phase documents.
 | Group | Important unresolved decisions |
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
-| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing. Remaining: slot-remapping atomicity; other mutations during unfinished strokes |
+| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
