@@ -156,7 +156,7 @@ struct TimestampedHistory::Impl {
         SceneState before_scene;
     };
 
-    static constexpr std::size_t kImplBytes = 256;
+    static constexpr std::size_t kImplBytes = 280;
     static constexpr std::size_t kSnapshotBytes = 320;
     static constexpr std::size_t kEntryBytes = 128;
     static constexpr std::size_t kObjectArchiveBytes = 128;
@@ -168,6 +168,7 @@ struct TimestampedHistory::Impl {
 
     std::size_t byte_budget;
     LogicalTimestamp current_timestamp { 0 };
+    std::optional<LogicalTimestamp> navigation_floor;
     LogicalTimestamp next_timestamp { 1 };
     std::uint64_t next_entry_id { 1 };
     std::map<LogicalTimestamp, std::shared_ptr<Snapshot>> snapshots;
@@ -354,6 +355,11 @@ struct TimestampedHistory::Impl {
     {
         return snapshots.find(timestamp) != snapshots.end() ||
                (timestamp == current_timestamp && snapshots.find(timestamp) == snapshots.end());
+    }
+
+    bool below_navigation_floor(LogicalTimestamp timestamp) const
+    {
+        return navigation_floor && timestamp < *navigation_floor;
     }
 
     bool collect_scene_delta(LogicalTimestamp target, SceneDelta& result) const
@@ -543,7 +549,10 @@ struct TimestampedHistory::Impl {
     }
 };
 
-TimestampedHistory::TimestampedHistory(std::size_t byte_budget) : m_impl(std::make_unique<Impl>(byte_budget)) {}
+TimestampedHistory::TimestampedHistory(std::size_t byte_budget) : m_impl(std::make_unique<Impl>(byte_budget))
+{
+    static_assert(sizeof(Impl) <= Impl::kImplBytes, "TimestampedHistory::Impl exceeds its fixed byte-budget slot");
+}
 TimestampedHistory::~TimestampedHistory() = default;
 TimestampedHistory::TimestampedHistory(TimestampedHistory&&) noexcept = default;
 TimestampedHistory& TimestampedHistory::operator=(TimestampedHistory&&) noexcept = default;
@@ -625,6 +634,7 @@ bool TimestampedHistory::undo(const TimestampedRoots& live_current, TimestampedR
     const auto* entry = m_impl->undo_entry();
     if (!entry) return false;
     const LogicalTimestamp target = entry->before_timestamp;
+    if (m_impl->below_navigation_floor(target)) return false;
     // Only the uncaptured logical top needs a lazy archive. A timestamp that
     // was already materialized (for example after Redo) remains immutable;
     // UI-only selection/current-plate changes must not rewrite or stale it.
@@ -645,6 +655,7 @@ bool TimestampedHistory::restore(LogicalTimestamp target, const TimestampedRoots
                                  TimestampedRestore& result)
 {
     if (m_impl->operation) return false;
+    if (m_impl->below_navigation_floor(target)) return false;
     if (m_impl->snapshots.find(m_impl->current_timestamp) == m_impl->snapshots.end()) {
         if (!live_current || !m_impl->capture(m_impl->current_timestamp, *live_current)) return false;
     }
@@ -679,7 +690,8 @@ bool TimestampedHistory::restore_after(std::uint64_t entry_id, const Timestamped
 bool TimestampedHistory::can_undo() const
 {
     const auto* entry = m_impl->undo_entry();
-    return entry && m_impl->snapshots.find(entry->before_timestamp) != m_impl->snapshots.end();
+    return entry && !m_impl->below_navigation_floor(entry->before_timestamp) &&
+           m_impl->snapshots.find(entry->before_timestamp) != m_impl->snapshots.end();
 }
 
 bool TimestampedHistory::can_redo() const
@@ -689,6 +701,17 @@ bool TimestampedHistory::can_redo() const
 }
 
 LogicalTimestamp TimestampedHistory::current_timestamp() const { return m_impl->current_timestamp; }
+bool TimestampedHistory::set_navigation_floor(std::optional<LogicalTimestamp> timestamp)
+{
+    if (m_impl->operation) return false;
+    if (timestamp && (*timestamp > m_impl->current_timestamp || !m_impl->timestamp_available(*timestamp)))
+        return false;
+    m_impl->navigation_floor = timestamp;
+    return true;
+}
+
+std::optional<LogicalTimestamp> TimestampedHistory::navigation_floor() const { return m_impl->navigation_floor; }
+
 const std::vector<TimestampedEntryInfo>& TimestampedHistory::entries() const { return m_impl->entries; }
 
 void TimestampedHistory::mark_current_as_saved()

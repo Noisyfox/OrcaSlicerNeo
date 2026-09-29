@@ -52,6 +52,16 @@ static bool object_is(const TimestampedRestore& restored, std::size_t index, Obj
     return object.id == id && object.timestamp == timestamp && object.data && *object.data == bytes(value);
 }
 
+static bool is_navigation_sentinel(const TimestampedRestore& restored)
+{
+    return restored.timestamp == 77 && restored.roots.model.serialized == bytes(77) &&
+           restored.roots.model.mutable_objects.size() == 1 && object_is(restored, 0, 77, 77, 77) &&
+           restored.roots.session.plate_session == bytes(77) &&
+           restored.roots.session.history_context == bytes(77) && restored.roots.project_config == bytes(77) &&
+           restored.scene_delta.object_ids == std::vector<ObjectID>({77}) &&
+           restored.scene_delta.object_order == std::vector<ObjectID>({77});
+}
+
 int main()
 {
     // Transform roots share a potentially large archive but remain distinct
@@ -268,13 +278,146 @@ int main()
     CHECK(budget.commit_operation(budget_2));
     CHECK(budget.begin_operation("three", budget_2));
     CHECK(budget.commit_operation(budget_2));
+    CHECK(budget.set_navigation_floor(0));
     budget.set_byte_budget(1);
     CHECK(budget.snapshot_count() == 1);
     CHECK(budget.object_archive(2, 1));
+    CHECK(!budget.object_archive(0, 1));
+    CHECK(budget.navigation_floor() == std::optional<LogicalTimestamp>(0));
+    CHECK(!budget.set_navigation_floor(0)); // An evicted timestamp is no longer a valid new floor.
+    CHECK(budget.navigation_floor() == std::optional<LogicalTimestamp>(0));
     CHECK(budget.can_undo());
     CHECK(budget.saved_checkpoint_evicted());
     CHECK(budget.project_modified());
     CHECK(budget.resource_diagnostics().oversized_nearest_history_retained);
+
+    // A floor may be the uncaptured current timestamp. Attempts to cross it
+    // reject before Undo's lazy top capture or any result/save/resource change.
+    TimestampedHistory floor_history;
+    const auto floor_0 = roots(1, {object(1, 1, 1)});
+    const auto floor_1 = roots(2, {object(1, 2, 2)});
+    const auto floor_2 = roots(3, {object(1, 3, 3)});
+    CHECK(floor_history.begin_operation("floor first", floor_0));
+    CHECK(floor_history.commit_operation(floor_1));
+    CHECK(floor_history.begin_operation("floor second", floor_1));
+    CHECK(floor_history.commit_operation(floor_2));
+    CHECK(floor_history.current_timestamp() == 2);
+    CHECK(floor_history.snapshot_count() == 2);
+    floor_history.mark_current_as_saved();
+    CHECK(floor_history.set_navigation_floor(2));
+    CHECK(floor_history.navigation_floor() == std::optional<LogicalTimestamp>(2));
+    CHECK(!floor_history.can_undo());
+
+    TimestampedRestore sentinel;
+    sentinel.timestamp = 77;
+    sentinel.roots = roots(77, {object(77, 77, 77)}, 77, 77, 77);
+    sentinel.scene_delta.object_ids = {77};
+    sentinel.scene_delta.object_order = {77};
+    TimestampedRestore rejected_restore = sentinel;
+    const auto before_rejected_current = floor_history.current_timestamp();
+    const auto before_rejected_entries = floor_history.entries();
+    const auto before_rejected_snapshot_count = floor_history.snapshot_count();
+    const auto before_rejected_archive_count = floor_history.object_archive_count();
+    const auto before_rejected_bytes = floor_history.bytes_used();
+    const auto before_rejected_resources = floor_history.resource_diagnostics();
+    const auto before_rejected_saved = floor_history.saved_timestamp();
+    const auto before_rejected_evicted = floor_history.saved_checkpoint_evicted();
+    const auto rejected_entries_unchanged = [&]() {
+        const auto& after = floor_history.entries();
+        if (after.size() != before_rejected_entries.size()) return false;
+        for (std::size_t i = 0; i < after.size(); ++i) {
+            const auto& before_entry = before_rejected_entries[i];
+            const auto& after_entry = after[i];
+            if (after_entry.id != before_entry.id || after_entry.label != before_entry.label ||
+                after_entry.before_timestamp != before_entry.before_timestamp ||
+                after_entry.after_timestamp != before_entry.after_timestamp ||
+                after_entry.scene_delta.object_ids != before_entry.scene_delta.object_ids ||
+                after_entry.scene_delta.volume_ids != before_entry.scene_delta.volume_ids ||
+                after_entry.scene_delta.instance_ids != before_entry.scene_delta.instance_ids ||
+                after_entry.scene_delta.plate_ids != before_entry.scene_delta.plate_ids ||
+                after_entry.scene_delta.object_order != before_entry.scene_delta.object_order)
+                return false;
+        }
+        return true;
+    };
+    const auto rejected_navigation_unchanged = [&]() {
+        const auto after = floor_history.resource_diagnostics();
+        return floor_history.current_timestamp() == before_rejected_current &&
+               rejected_entries_unchanged() &&
+               floor_history.snapshot_count() == before_rejected_snapshot_count &&
+               floor_history.object_archive_count() == before_rejected_archive_count &&
+               floor_history.bytes_used() == before_rejected_bytes &&
+               after.bytes_used == before_rejected_resources.bytes_used &&
+               after.byte_budget == before_rejected_resources.byte_budget &&
+               after.evicted_timestamp_count == before_rejected_resources.evicted_timestamp_count &&
+               after.last_evicted_timestamp == before_rejected_resources.last_evicted_timestamp &&
+               after.oversized_nearest_history_retained ==
+                   before_rejected_resources.oversized_nearest_history_retained &&
+               floor_history.saved_timestamp() == before_rejected_saved &&
+               floor_history.saved_checkpoint_evicted() == before_rejected_evicted &&
+               !floor_history.project_modified() && is_navigation_sentinel(rejected_restore);
+    };
+
+    CHECK(!floor_history.undo(floor_2, rejected_restore));
+    CHECK(rejected_navigation_unchanged());
+    CHECK(!floor_history.restore(1, &floor_2, rejected_restore));
+    CHECK(rejected_navigation_unchanged());
+    CHECK(!floor_history.restore_before(floor_history.entries()[0].id, &floor_2, rejected_restore));
+    CHECK(rejected_navigation_unchanged());
+    CHECK(!floor_history.restore_after(floor_history.entries()[0].id, &floor_2, rejected_restore));
+    CHECK(rejected_navigation_unchanged());
+
+    // The floor is reversible, an existing retained timestamp is valid, and
+    // Redo remains usable when it returns to a timestamp at or above the floor.
+    CHECK(floor_history.set_navigation_floor(1));
+    CHECK(floor_history.navigation_floor() == std::optional<LogicalTimestamp>(1));
+    CHECK(floor_history.can_undo());
+    CHECK(floor_history.undo(floor_2, restored));
+    CHECK(restored.timestamp == 1);
+    CHECK(!floor_history.can_undo());
+    CHECK(floor_history.can_redo());
+    CHECK(floor_history.redo(restored));
+    CHECK(restored.timestamp == 2);
+    CHECK(floor_history.can_undo());
+    CHECK(floor_history.set_navigation_floor(std::nullopt));
+    CHECK(!floor_history.navigation_floor());
+    CHECK(floor_history.can_undo());
+
+    // Future and unavailable retained timestamps are rejected. The current
+    // uncaptured timestamp remains a valid floor.
+    TimestampedHistory invalid_floor;
+    CHECK(invalid_floor.set_navigation_floor(0));
+    CHECK(!invalid_floor.set_navigation_floor(1));
+    CHECK(invalid_floor.navigation_floor() == std::optional<LogicalTimestamp>(0));
+    CHECK(invalid_floor.current_timestamp() == 0);
+    CHECK(invalid_floor.snapshot_count() == 0);
+    CHECK(invalid_floor.object_archive_count() == 0);
+
+    // Floor changes are rejected throughout an active native operation,
+    // including attempts to clear it; the operation itself remains intact.
+    TimestampedHistory active_floor;
+    CHECK(active_floor.set_navigation_floor(0));
+    CHECK(active_floor.begin_operation("active floor", floor_0));
+    const auto active_floor_bytes = active_floor.bytes_used();
+    const auto active_floor_snapshots = active_floor.snapshot_count();
+    CHECK(!active_floor.set_navigation_floor(0));
+    CHECK(!active_floor.set_navigation_floor(std::nullopt));
+    CHECK(active_floor.operation_active());
+    CHECK(active_floor.navigation_floor() == std::optional<LogicalTimestamp>(0));
+    CHECK(active_floor.current_timestamp() == 0);
+    CHECK(active_floor.entries().empty());
+    CHECK(active_floor.snapshot_count() == active_floor_snapshots);
+    CHECK(active_floor.bytes_used() == active_floor_bytes);
+    CHECK(active_floor.abort_operation());
+
+    CHECK(floor_history.set_navigation_floor(1));
+    TimestampedHistory moved_floor(std::move(floor_history));
+    CHECK(moved_floor.navigation_floor() == std::optional<LogicalTimestamp>(1));
+    TimestampedHistory assigned_floor;
+    assigned_floor = std::move(moved_floor);
+    CHECK(assigned_floor.navigation_floor() == std::optional<LogicalTimestamp>(1));
+    assigned_floor.clear();
+    CHECK(!assigned_floor.navigation_floor());
 
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;

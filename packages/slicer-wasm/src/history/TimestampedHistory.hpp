@@ -110,6 +110,10 @@ public:
     bool can_undo() const;
     bool can_redo() const;
     LogicalTimestamp current_timestamp() const;
+    // Restrict navigation to this timestamp and later; nullopt clears the floor.
+    // Changes fail during an active operation or when the timestamp is unavailable.
+    bool set_navigation_floor(std::optional<LogicalTimestamp> timestamp);
+    std::optional<LogicalTimestamp> navigation_floor() const;
     const std::vector<TimestampedEntryInfo>& entries() const;
 
     void mark_current_as_saved();

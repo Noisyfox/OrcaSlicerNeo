@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Implementation authorized; sequential execution begins after plan review.
+**Status:** Sequential implementation in progress. Step 01 accepted; later steps remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -43,7 +43,7 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 ### 01. Native history navigation floor
 
-**Status:** Pending. **Depends on:** plan recorded. **Verification:** N.
+**Status:** Accepted by parent. **Depends on:** plan recorded. **Verification:** N.
 
 **Allowed scope:** src/history/TimestampedHistory.{hpp,cpp,test.cpp}.
 
@@ -358,3 +358,32 @@ Record each step's child identity, self-verification, parent verification/review
 | Step | Child | Self-verification | Parent acceptance | Commit |
 | --- | --- | --- | --- | --- |
 | Plan | Parent planning | Documentation only | Links/commands checked; diff check passed | Initial plan commit |
+
+### Step 01 acceptance — native history navigation floor
+
+Child: `/root/painting_step_01` (`gpt-6-luna`, max). Scope remained the three
+TimestampedHistory source/header/test files. Parent reviewed early guards across
+Undo and direct/menu restore paths and confirmed eviction does not pin the floor.
+Graph coverage misses the standalone C++ main test, so acceptance used the actual
+native test executable and source assertions rather than graph test counts.
+
+Child verification: existing serial CMake target rebuilt with
+`cmd.exe /d /c "call D:\emsdk\emsdk_env.bat >nul && D:\ninja\ninja.exe -C packages\slicer-wasm\.work\serial\build timestamped_history_core_test -j 8"`;
+`node packages/slicer-wasm/.work/serial/build/timestamped_history_core_test.cjs`
+passed. Serial quick build, full slicer-wasm suite (193 tests/8 files), typecheck,
+and diff check passed. These local toolchain paths are recorded execution evidence,
+not a new repository setup requirement.
+
+Parent independently ran:
+
+- `pnpm exec node packages/slicer-wasm/.work/serial/build/timestamped_history_core_test.cjs` — passed.
+- `scripts\build-windows.bat quick --variant serial` — passed/current target verified.
+- `pnpm --filter @orca/slicer-wasm test` — 193 tests/8 files passed.
+- `pnpm --filter @orca/slicer-wasm typecheck` — passed.
+- `git diff --check` — passed.
+
+Parent requested a fixed-allocation accounting guard. It exposed `sizeof(Impl)`
+as 280 bytes versus the old 256-byte slot; child corrected the slot and added a
+compile-time assertion, then rebuilt/retested native targets. Parent reran the
+final native test and quick build. No UI/ABI changed; host E2E and the second WASM
+variant are intentionally reserved for their integration gates. Step 01 accepted.

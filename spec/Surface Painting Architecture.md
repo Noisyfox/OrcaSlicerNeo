@@ -3,7 +3,7 @@
 **Date:** 2026-09-29
 
 **Status:** Accepted architectural direction and clarified first-release behavior.
-Implementation has not started. Quantitative performance thresholds remain to be
+Implementation is in progress under the living plan. Quantitative performance thresholds remain to be
 confirmed after initial reference measurements.
 
 **Scope:** A shared surface-painting architecture for OrcaSlicerNeo, with
