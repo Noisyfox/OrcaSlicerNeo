@@ -224,7 +224,8 @@ After close:
 ```
 
 Hover, camera movement, and brush UI adjustments do not create project history
-or split a paint run. Empty strokes do not create entries. Closing removes the
+or split a paint run. Save does not split a paint run either. Empty strokes do
+not create entries. Closing removes the
 stroke-level granularity; reopening must not resurrect those child nodes.
 
 Recording or compacting history is distinct from publishing model state.
@@ -234,15 +235,25 @@ trigger repeated derived-state updates.
 ### 6.3 Redo on closure
 
 Closure uses the current history cursor, never an automatically redone state.
-If this gizmo operation has produced an effect, successful closure discards
+If any effective project mutation was successfully committed during this session,
+successful closure discards
 **all Redo**, including paint children, non-paint redo operations, and any
 previously retained redo branch. No redo branch is compacted and retained in
 that case.
 
+This is a session-lifetime condition, not a comparison of the closing state with
+the opening state. Both effective painting commits and effective non-paint
+project edits count. Undoing every edit back to the opening state does not reset
+the condition; closure still removes all Redo and does not create an empty
+painting entry. Saving does not reset the condition either.
+
+If no effective project mutation was committed during the session, closing
+preserves the existing Redo branch. Hover, camera/brush UI changes, empty strokes,
+and cancelled unfinished strokes do not set the condition. Preservation does not
+reconstruct any branch already discarded by an actual project mutation.
+
 History compaction and redo removal must be atomic. Failed closure retains the
-open session and navigable history; completed strokes remain committed. The
-exact effect/no-effect predicate, including fully undone edits, requires
-clarification; it must not be silently inferred from pointer activity.
+open session and navigable history; completed strokes remain committed.
 
 ### 6.4 State ownership
 
@@ -270,10 +281,16 @@ active-stroke, and failure policies remain to be clarified.
 
 With no unfinished stroke, Save writes the current committed project while
 keeping the gizmo open and preserving stroke-level Undo/Redo. Saving does not
-compact painting history. The saved checkpoint must remain correct after later
-stroke edits, navigation, and closure compaction; its precise representation
-and compaction policy are part of the history clarification group. Save during
-an active stroke has not yet been specified.
+compact painting history or separate continuous painting runs. For example,
+`stroke A -> stroke B -> Save -> stroke C -> stroke D` becomes one `paint ABCD`
+entry on closure, provided no effective non-paint edit intervened. The saved
+`AB` state is no longer individually reachable through Undo after compaction.
+
+Track the saved checkpoint independently of navigable history nodes; do not
+retain a stroke node or split the run just to keep the saved state reachable.
+The checkpoint must remain correct after later edits, navigation, and closure
+compaction. Its precise representation and dirty-state comparison policy remain
+to be clarified. Save during an active stroke has not yet been specified.
 
 ### 7.2 User-initiated slicing
 
@@ -337,8 +354,12 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   Non-paint separators retain order and corresponding configuration/material state.
 - Close compacts continuous runs, removes all redo when the effect condition
   holds, and completes deferred work without replaying committed strokes.
+- A session with an effective commit clears Redo even after all its edits are
+  undone; closure creates no empty painting entry. A session without effective
+  commits preserves Redo, including when unfinished strokes were cancelled.
 - Save retains the open gizmo and child history; its checkpoint remains correct
-  after compaction. Slice closes and settles required derived work before starting.
+  after compaction without separating a paint run or preserving a navigable saved
+  child node. Slice closes and settles required derived work before starting.
 - Prepare-to-Preview closes the session; switching eligible objects preserves
   cross-object child history and does not split a paint run. Losing eligible
   selection closes normally. All touched targets remain covered at closure.
@@ -359,7 +380,7 @@ or create separate phase documents.
 | Group | Important unresolved decisions |
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes. Remaining: other activation gates, other pages, any whole-session discard, active-stroke external commands, export and destructive actions |
-| B. History and external edits | Per-stroke native commits accepted. Remaining: effect/no-effect and fully undone sessions; no-effect redo behavior; navigation across the session boundary; dirty/save checkpoint semantics through compaction; slot-remapping atomicity; mutations during unfinished strokes |
+| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs. Remaining: navigation across the session boundary; dirty/save checkpoint representation and comparison through compaction; slot-remapping atomicity; mutations during unfinished strokes |
 | C. Multi-material tool behavior | Initial delivery scope; brush shapes and units; fill and erase semantics; clipping, height range, gap fill, remapping, shortcuts, camera and pointer cancellation |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
