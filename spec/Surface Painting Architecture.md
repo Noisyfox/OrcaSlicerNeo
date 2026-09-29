@@ -117,6 +117,24 @@ object intersecting the same band. The band follows world Z rather than a
 rotated part's local axis. The first release does not add a separate numeric
 lower/upper-Z Apply workflow.
 
+### 2.3 Gap-fill interaction
+
+Gap fill operates on all solid model parts of the current editing object, not
+only a pointer-selected area and not all objects touched earlier in the session.
+The user sets a small-region area threshold and invokes Apply to merge eligible
+painting regions into neighbouring regions. This cleans up facet painting; it
+does not repair holes in the source mesh.
+
+Changing the threshold previews the resulting colours in real time. Native code
+owns candidate-region and destination-state calculation. Preview changes do not
+write committed annotations, change project dirty state, or create history.
+Only Apply commits the result, as one painting child history operation covering
+the affected parts; an ineffective Apply creates no entry. The operation follows
+the same immediate invalidation, deferred derived updates, and painting-run
+compaction rules as other painting edits. Preview and Apply must use matching
+input state and threshold; obsolete asynchronous previews cannot replace newer
+ones. The neighbour-choice rule remains to be clarified.
+
 ## 3. Dedicated painting mode
 
 Opening a painting gizmo changes the viewport to a dedicated drawing and input
@@ -469,6 +487,10 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
 - Height-range painting uses the native hit's world Z and configured height h,
   including applicable parts of the active object. Rotated parts do not rotate
   the band away from world Z.
+- Gap-fill threshold changes preview destination colours without project or
+  history changes. Apply commits all affected solid parts of the current object
+  as one painting child entry; other session targets are unaffected. Preview and
+  Apply agree for identical inputs, and empty results do not create history.
 - During an unfinished stroke, tool-type switches and camera rotation/pan/zoom have
   no effect and are not replayed after it ends. Live colour/erase/size changes
   remain available and must not inadvertently trigger a camera gesture.
@@ -529,7 +551,7 @@ or create separate phase documents.
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open. Remaining: other activation gates, other pages, any whole-session discard, other active-stroke commands, export and destructive actions |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Remaining: other mutations during unfinished strokes |
-| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview and continuous drag within one stroke; height range follows Orca's hit-world-Z plus h interaction. Remaining: detailed fill and gap-fill behavior; shortcuts and camera bindings |
+| C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview and continuous drag within one stroke; height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes and applies to the current object's solid parts as one painting child entry. Remaining: detailed fill and gap-fill neighbour-choice behavior; shortcuts and camera bindings |
 | D. Runtime and acceptance | Immediate invalidation with heavy derived work deferred until close or demand is accepted. Remaining: active slicing in serial/threaded mode; large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
