@@ -4,7 +4,7 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-03 and 04a accepted; later steps remain gated.
+**Status:** Sequential implementation in progress. Steps 01-04b accepted; later steps remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
@@ -83,11 +83,11 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 ### 04b. Native history-session bridge
 
-**Status:** Pending. **Depends on:** 04a accepted by parent. **Verification:** W.
+**Status:** Accepted by parent. **Depends on:** 04a accepted by parent. **Verification:** W.
 
-**Allowed scope:** bridge_history.{hpp,cpp}; bridge state and CMake export list; focused real-WASM history harness.
+**Allowed scope:** bridge_history.{hpp,cpp}; bridge state and CMake export list; focused real-WASM history harness; TimestampedHistory source/header/tests for staged response publication.
 
-**Functional boundary:** Wire accepted core session open/status/close into the native bridge. Expose structured session identity and effective floor; reset on project replacement. Validate requests and transaction conflicts before mutation. Do not add painting entrypoints or renderer state.
+**Functional boundary:** Wire accepted core session open/status/close into the native bridge. Expose structured session identity and effective floor; reset on project replacement. Validate requests and transaction conflicts before mutation. Prepare the complete success response, including its output allocation, against staged history before publishing open/close. A throwing pre-publication callback must preserve original history/session; publishing and returning the prepared response require no allocations. Do not add painting entrypoints or renderer state.
 
 **Acceptance boundary:** Real-WASM history harness covers opening, floor navigation, no-effect Redo preservation, committed non-paint effect followed by Undo/close, project reset, stale IDs, and failed close without partial effects. Native core tests retain responsibility for paint-run details until painting commands exist.
 
@@ -458,3 +458,36 @@ reran the native runner, serial quick build, full package tests, typecheck and d
 check, all passing, and reviewed the actual diff after graph change detection.
 Only the three native history files changed. Step 04a accepted; bridge coverage is
 the separate next gate, with host and alternate-WASM validation still deferred.
+
+Accepted step 04a code commit: `f774b555`.
+
+### Step 04b acceptance — native session bridge and publication
+
+Child: `/root/painting_step_04b` (`gpt-6-luna`, max). Native ABI is
+`orc_history_session_open("{}")` and
+`orc_history_session_close({sessionId, label?})` (JSON-encoded argument).
+Opaque IDs are canonical `hs-<positive uint64 decimal>` strings. Status adds
+`editingSession: {id, entryTimestamp, hasEffectiveCommit} | null` and
+`navigationFloor: number | null`; Undo entries and labels respect the reachable
+session floor. Open/close advance the history metadata revision, without model or
+plate mutation. Existing clear/reset paths invalidate sessions without reusing IDs.
+
+Parent review found and required two repairs: rejecting embedded-NUL ID suffixes,
+and preparing success JSON plus its output allocation before publishing history.
+Core pre-publication callbacks now provide the staged read-only candidate; a thrown
+callback preserves live history. Native fault tests cover failed open/close, and
+the real bridge harness verifies prepared status matches the published state.
+No extra CMake exports were needed: real calls verify EMSCRIPTEN_KEEPALIVE retention.
+
+Child and parent independently passed:
+
+- `scripts\build-windows.bat quick --variant serial`.
+- `pnpm --filter @orca/slicer-wasm history-editing-session-smoke`.
+- `pnpm exec node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+- Native history-core CJS runner, full slicer-wasm tests (193/8 files), typecheck and diff check.
+
+The existing history smoke had a stale scene-patch request missing the required
+`known_paint_keys: []`; that one fixture field was repaired to match both current
+native and client contracts, without weakening production validation. Parent
+reviewed actual changes after graph analysis. Step 04b accepted; no app UI or
+typed transport is claimed yet.

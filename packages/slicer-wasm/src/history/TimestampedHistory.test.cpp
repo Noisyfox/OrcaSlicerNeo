@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <utility>
 
 using namespace Slic3r::Neo::History;
@@ -1277,6 +1278,112 @@ int main()
                                     active_reject_operation));
     CHECK(rejected_close.abort_operation(&close_restore));
     CHECK(close_restore.timestamp == 2 && close_restore.roots.model.serialized == reject_paint.model.serialized);
+
+    // Bridge response preparation can fail before session publication. The
+    // callback sees the complete candidate while the live history remains
+    // untouched, including its Redo branch and saved checkpoint.
+    TimestampedHistory publish_open;
+    const auto publish_open_0 = roots(170, {object(100, 1, 170)});
+    const auto publish_open_1 = roots(171, {object(100, 2, 171)});
+    const auto publish_open_2 = roots(172, {object(100, 3, 172)});
+    CHECK(commit_history(publish_open, "publish open A", publish_open_0, publish_open_1));
+    CHECK(commit_history(publish_open, "publish open B", publish_open_1, publish_open_2));
+    publish_open.mark_current_as_saved();
+    CHECK(publish_open.undo(publish_open_2, close_restore));
+    const auto publish_open_entries = publish_open.entries();
+    const auto publish_open_intervals = publish_open.object_intervals();
+    const auto publish_open_resources = publish_open.resource_diagnostics();
+    const auto publish_open_snapshots = publish_open.snapshot_count();
+    const auto publish_open_archives = publish_open.object_archive_count();
+    const auto publish_open_bytes = publish_open.bytes_used();
+    const auto publish_open_cursor = publish_open.current_timestamp();
+    const auto publish_open_saved = publish_open.saved_timestamp();
+    const bool publish_open_checkpoint_evicted = publish_open.saved_checkpoint_evicted();
+    const bool publish_open_modified = publish_open.project_modified();
+    bool publish_open_candidate_seen = false;
+    bool publish_open_callback_threw = false;
+    try {
+        (void) publish_open.begin_editing_session([&](const TimestampedHistory& candidate) {
+            const auto status = candidate.editing_session_status();
+            publish_open_candidate_seen = status && status->id != 0 &&
+                status->entry_timestamp == publish_open_cursor && !status->has_effective_commit &&
+                candidate.navigation_floor() == std::optional<LogicalTimestamp>(publish_open_cursor) &&
+                entries_are_equal(candidate.entries(), publish_open_entries) && candidate.can_redo() &&
+                candidate.saved_timestamp() == publish_open_saved;
+            throw std::runtime_error("injected pre-publication open failure");
+        });
+    } catch (const std::runtime_error&) {
+        publish_open_callback_threw = true;
+    }
+    CHECK(publish_open_candidate_seen && publish_open_callback_threw);
+    CHECK(entries_are_equal(publish_open.entries(), publish_open_entries));
+    CHECK(intervals_are_equal(publish_open.object_intervals(), publish_open_intervals));
+    CHECK(resource_diagnostics_are_equal(publish_open.resource_diagnostics(), publish_open_resources));
+    CHECK(publish_open.snapshot_count() == publish_open_snapshots &&
+          publish_open.object_archive_count() == publish_open_archives && publish_open.bytes_used() == publish_open_bytes);
+    CHECK(publish_open.current_timestamp() == publish_open_cursor && !publish_open.editing_session_status() &&
+          !publish_open.navigation_floor() && publish_open.saved_timestamp() == publish_open_saved &&
+          publish_open.saved_checkpoint_evicted() == publish_open_checkpoint_evicted &&
+          publish_open.project_modified() == publish_open_modified && publish_open.can_redo());
+
+    // Close response preparation sees the post-cleanup candidate. If it throws,
+    // the original open session, child entries, saved marker and Redo remain
+    // reachable because the candidate has not been swapped into place.
+    TimestampedHistory publish_close;
+    const auto publish_close_0 = roots(180, {object(110, 1, 180)});
+    const auto publish_close_1 = roots(181, {object(110, 2, 181)});
+    const auto publish_close_2 = roots(182, {object(110, 3, 182)});
+    const auto publish_close_3 = roots(183, {object(110, 4, 183)});
+    CHECK(commit_history(publish_close, "publish close base", publish_close_0, publish_close_1));
+    const auto publish_close_session = publish_close.begin_editing_session();
+    CHECK(publish_close_session);
+    CHECK(commit_history(publish_close, "publish close stroke A", publish_close_1, publish_close_2,
+                         TimestampedOperationKind::Paint));
+    CHECK(commit_history(publish_close, "publish close stroke B", publish_close_2, publish_close_3,
+                         TimestampedOperationKind::Paint));
+    publish_close.mark_current_as_saved();
+    CHECK(publish_close.undo(publish_close_3, close_restore) && close_restore.timestamp == 2);
+    CHECK(publish_close.undo(publish_close_2, close_restore) && close_restore.timestamp == 1);
+    const auto publish_close_entries = publish_close.entries();
+    const auto publish_close_intervals = publish_close.object_intervals();
+    const auto publish_close_resources = publish_close.resource_diagnostics();
+    const auto publish_close_snapshots = publish_close.snapshot_count();
+    const auto publish_close_archives = publish_close.object_archive_count();
+    const auto publish_close_bytes = publish_close.bytes_used();
+    const auto publish_close_cursor = publish_close.current_timestamp();
+    const auto publish_close_floor = publish_close.navigation_floor();
+    const auto publish_close_saved = publish_close.saved_timestamp();
+    const bool publish_close_checkpoint_evicted = publish_close.saved_checkpoint_evicted();
+    const bool publish_close_modified = publish_close.project_modified();
+    bool publish_close_candidate_seen = false;
+    bool publish_close_callback_threw = false;
+    try {
+        (void) publish_close.close_editing_session(publish_close_session->id, "Paint",
+            [&](const TimestampedHistory& candidate) {
+                publish_close_candidate_seen = !candidate.editing_session_status() &&
+                    !candidate.navigation_floor() && candidate.current_timestamp() == publish_close_cursor &&
+                    candidate.entries().size() == 1 && !candidate.can_redo() &&
+                    !candidate.saved_timestamp() && candidate.saved_checkpoint_evicted() &&
+                    candidate.project_modified() && candidate.bytes_used() < publish_close_bytes;
+                throw std::runtime_error("injected pre-publication close failure");
+            });
+    } catch (const std::runtime_error&) {
+        publish_close_callback_threw = true;
+    }
+    CHECK(publish_close_candidate_seen && publish_close_callback_threw);
+    CHECK(entries_are_equal(publish_close.entries(), publish_close_entries));
+    CHECK(intervals_are_equal(publish_close.object_intervals(), publish_close_intervals));
+    CHECK(resource_diagnostics_are_equal(publish_close.resource_diagnostics(), publish_close_resources));
+    CHECK(publish_close.snapshot_count() == publish_close_snapshots &&
+          publish_close.object_archive_count() == publish_close_archives &&
+          publish_close.bytes_used() == publish_close_bytes);
+    const auto publish_close_status = publish_close.editing_session_status();
+    CHECK(publish_close.current_timestamp() == publish_close_cursor &&
+          publish_close.navigation_floor() == publish_close_floor && publish_close_status &&
+          publish_close_status->id == publish_close_session->id && publish_close_status->has_effective_commit &&
+          publish_close.saved_timestamp() == publish_close_saved &&
+          publish_close.saved_checkpoint_evicted() == publish_close_checkpoint_evicted &&
+          publish_close.project_modified() == publish_close_modified && publish_close.can_redo());
 
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;

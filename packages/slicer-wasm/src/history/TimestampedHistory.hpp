@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -93,6 +94,11 @@ struct TimestampedResourceDiagnostics {
 
 class TimestampedHistory {
 public:
+    // Publication hooks inspect a fully staged, read-only candidate before it
+    // replaces the live history. If the callback throws, live history is
+    // preserved; callbacks must not re-enter or mutate the source history.
+    using BeforeEditingSessionPublish = std::function<void(const TimestampedHistory&)>;
+
     static constexpr std::size_t kDefaultByteBudget = std::size_t(256) * 1024 * 1024;
     static constexpr LogicalTimestamp kOpenEnded = std::numeric_limits<LogicalTimestamp>::max();
 
@@ -109,7 +115,8 @@ public:
     // timestamp without capturing a snapshot, changing the saved marker, or
     // opening an operation. Returns no value when a session, operation, or
     // conflicting manual floor is already active.
-    std::optional<TimestampedEditingSessionInfo> begin_editing_session();
+    std::optional<TimestampedEditingSessionInfo> begin_editing_session(
+        BeforeEditingSessionPublish before_publish = {});
     std::optional<TimestampedEditingSessionInfo> editing_session_status() const;
 
     // Merge adjacent retained Paint entries belonging to the active session,
@@ -118,7 +125,8 @@ public:
     bool compact_editing_session(EditingSessionId session_id, std::string label = "Paint");
     // Atomically compact applied session paint runs and close the session. Any
     // effective session commit discards the complete Redo branch.
-    bool close_editing_session(EditingSessionId session_id, std::string label = "Paint");
+    bool close_editing_session(EditingSessionId session_id, std::string label = "Paint",
+                               BeforeEditingSessionPublish before_publish = {});
 
     // The outer operation captures its predecessor before the first write.
     // Nested calls join that operation. Only the outer commit creates one
@@ -169,6 +177,7 @@ public:
 
 private:
     struct Impl;
+    explicit TimestampedHistory(std::unique_ptr<Impl> impl) noexcept;
     static bool compact_editing_session_staged(Impl& staged, EditingSessionId session_id,
                                                const std::string& label, bool apply, bool enforce_budget,
                                                bool& compacted);

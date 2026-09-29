@@ -569,6 +569,7 @@ TimestampedHistory::TimestampedHistory(std::size_t byte_budget) : m_impl(std::ma
 {
     static_assert(sizeof(Impl) <= Impl::kImplBytes, "TimestampedHistory::Impl exceeds its fixed byte-budget slot");
 }
+TimestampedHistory::TimestampedHistory(std::unique_ptr<Impl> impl) noexcept : m_impl(std::move(impl)) {}
 TimestampedHistory::~TimestampedHistory() = default;
 TimestampedHistory::TimestampedHistory(TimestampedHistory&&) noexcept = default;
 TimestampedHistory& TimestampedHistory::operator=(TimestampedHistory&&) noexcept = default;
@@ -580,7 +581,8 @@ void TimestampedHistory::clear()
     m_impl = std::make_unique<Impl>(budget, next_session_id);
 }
 
-std::optional<TimestampedEditingSessionInfo> TimestampedHistory::begin_editing_session()
+std::optional<TimestampedEditingSessionInfo> TimestampedHistory::begin_editing_session(
+    BeforeEditingSessionPublish before_publish)
 {
     if (m_impl->operation || m_impl->editing_session || m_impl->next_editing_session_id == 0)
         return std::nullopt;
@@ -589,6 +591,18 @@ std::optional<TimestampedEditingSessionInfo> TimestampedHistory::begin_editing_s
 
     const EditingSessionId id = m_impl->next_editing_session_id;
     const TimestampedEditingSessionInfo session { id, m_impl->current_timestamp, false };
+    if (before_publish) {
+        auto staged = std::make_unique<Impl>(*m_impl);
+        staged->editing_session = session;
+        staged->navigation_floor = session.entry_timestamp;
+        staged->next_editing_session_id =
+            id == std::numeric_limits<EditingSessionId>::max() ? 0 : id + 1;
+        TimestampedHistory candidate(std::move(staged));
+        before_publish(candidate);
+        m_impl.swap(candidate.m_impl);
+        return session;
+    }
+
     m_impl->editing_session = session;
     m_impl->navigation_floor = session.entry_timestamp;
     m_impl->next_editing_session_id =
@@ -615,7 +629,8 @@ bool TimestampedHistory::compact_editing_session(EditingSessionId session_id, st
     return true;
 }
 
-bool TimestampedHistory::close_editing_session(EditingSessionId session_id, std::string label)
+bool TimestampedHistory::close_editing_session(EditingSessionId session_id, std::string label,
+                                               BeforeEditingSessionPublish before_publish)
 {
     if (m_impl->operation || !m_impl->editing_session || m_impl->editing_session->id != session_id)
         return false;
@@ -633,7 +648,9 @@ bool TimestampedHistory::close_editing_session(EditingSessionId session_id, std:
     // no-effect session while the usual budget policy evicts older applied
     // history when needed.
     staged->enforce_budget(!has_effective_commit);
-    m_impl.swap(staged);
+    TimestampedHistory candidate(std::move(staged));
+    if (before_publish) before_publish(candidate);
+    m_impl.swap(candidate.m_impl);
     return true;
 }
 
