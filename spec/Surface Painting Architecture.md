@@ -212,6 +212,12 @@ or requires an existing session to close. Participation in printing and placemen
 validity remain slicing concerns; the selection, filament, and runtime admission
 conditions still apply.
 
+Do not impose a fixed source-triangle-count threshold for first-release painting
+admission. Measure representative models and document the verified performance
+and memory range instead. Original face count alone does not bound selector
+subdivision cost. This is not a guarantee of handling arbitrary model sizes;
+the existing recoverable-failure and fatal-runtime policies still apply.
+
 Multi-material painting requires at least two filament slots to open. This is
 an entry-only gate: reducing the count to one during an open session keeps the
 gizmo open and permits continued painting with the remaining slot. Do not reuse
@@ -437,11 +443,13 @@ Individual strokes are undoable only during that open session. Non-paint
 project mutations participate in the same chronological order rather than in
 an unrelated paint-only undo stack.
 
-While the gizmo is open, Undo stops at the project state at session entry. It
-cannot navigate into earlier project history, including through a history-jump
-UI. Reaching this boundary keeps the gizmo open and permits Redo of session
-edits. The user must close the session before undoing earlier project operations;
-normal closure compaction and conditional Redo removal still apply.
+While the gizmo is open, Undo cannot navigate before session entry, including
+through a history-jump UI. History eviction may move the oldest reachable state
+forward within the session; opening the gizmo does not guarantee that every stroke
+remains available until closure. Reaching the retained boundary keeps the gizmo
+open and permits retained Redo navigation. The user must close the session before
+undoing any still-retained earlier project operations; normal closure compaction
+and conditional Redo removal still apply.
 
 The session is a history container, not a long-held instance of the current
 exclusive native transaction. Individual commands still require atomic,
@@ -452,9 +460,11 @@ as independent boundaries.
 
 ### 6.2 Collapse continuous paint runs on close
 
-On closure, each continuous run of painting edits collapses to one semantic
+On closure, each retained continuous run of painting edits collapses to one semantic
 history operation. Every intervening effective non-paint project operation
-separates runs and retains its own history identity.
+separates runs and retains its own history identity while retained. Compaction
+does not resurrect evicted operations or their earlier states, or merge across
+non-paint operations.
 
 ```text
 While open:
@@ -509,6 +519,23 @@ an unfinished stroke remains local to that stroke.
 
 Compaction, saved-marker handling, and child navigation must be proved
 independently of viewport rendering.
+
+### 6.5 Shared history budget and eviction
+
+Expanded painting children and interleaved non-paint operations share the existing
+per-project history budget from Undo and Redo: 256 MiB by default. An open painting
+session is not exempt from oldest-first eviction and has no separate unlimited
+history store. The current state and most recent usable Undo/Redo path remain
+protected under that specification, including its exception for a single atomic
+entry larger than the normal budget.
+
+Eviction can remove early strokes before the gizmo closes. The oldest reachable
+state then advances, and closure compacts only the retained portion of each paint
+run. Do not retain hidden copies of evicted children to reconstruct the original
+session on closure. Non-paint boundaries must remain respected, and eviction must
+not reset the session-lifetime effective-commit condition used for Redo cleanup.
+Apply the existing saved-marker and resource-diagnostic rules; eviction does not
+create a new disruptive notification or automatically close the gizmo.
 
 ## 7. External operations and session closure
 
@@ -728,6 +755,9 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   entry requires at least two filament slots and hides all other instances.
 - Non-printable flags and out-of-bounds placement do not prevent otherwise
   eligible painting or force session closure; slicing validation remains intact.
+- Painting admission has no fixed source-triangle-count cutoff. Performance
+  reports state the model/device range actually verified rather than promising
+  arbitrary-size support.
 - Reducing the slot count to one keeps an existing session open and paintable;
   closing it does not waive the two-slot requirement for reopening.
 - Slot Delete/Merge with uses the project mapping for all affected annotations,
@@ -757,7 +787,12 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   undone; closure creates no empty painting entry. A session without effective
   commits preserves Redo, including when unfinished strokes were cancelled.
 - Open-session Undo stops at session entry and leaves the gizmo open with Redo
-  available. Earlier project operations become undoable only after closure.
+  available, or stops at a later retained boundary after budget eviction. Earlier
+  retained project operations become undoable only after closure.
+- Expanded painting children share the project history byte budget and can be
+  evicted oldest-first. Preserve the existing oversized-single-entry exception.
+  Closing compacts only retained history, never revives evicted records, and
+  preserves non-paint separators and the session's effective-commit condition.
 - Save retains the open gizmo and child history without separating a paint run.
   Removing its saved node remaps the marker only to a known equivalent retained
   state; otherwise the project remains modified until saved again. Slice closes
@@ -809,9 +844,9 @@ or create separate phase documents.
 | Group | Important unresolved decisions |
 | --- | --- |
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Home/Device navigation preserves a hidden session; active strokes ignore selection changes and page navigation. New/Open/normal-exit confirmation cancellation retains the session; these commands are ignored during strokes. Only one gizmo and its numeric panel may be active; idle switching closes painting first and active strokes ignore switching. No whole-session discard is provided. Idle Export retains the session and committed state; active strokes ignore Export, and G-code result-validity gates remain authoritative. Non-printable flags and out-of-bounds placement do not restrict otherwise eligible painting. |
-| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. All other user-issued project mutations are ignored during unfinished strokes without execution, queuing, or dialogs; explicitly supported live paint settings and Escape remain available. |
+| B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo cannot cross session entry and may stop at a later retained boundary after eviction; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. All other user-issued project mutations are ignored during unfinished strokes without execution, queuing, or dialogs; explicitly supported live paint settings and Escape remain available. |
 | C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. The selected filament is retained within the project, follows remapping, and falls back to slot 1 when unavailable; new/opened projects start at slot 1. |
-| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. First release covers desktop mouse/trackpad input on both hosts. Changed parts publish full replacement geometry; display-driven refreshes have one request in flight and no fixed 30 Hz cap, coalescing only display states while preserving painting input. Remaining: large-model budgets; input batching and backpressure; fixtures and measurable acceptance gates |
+| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. First release covers desktop mouse/trackpad input on both hosts. Changed parts publish full replacement geometry; display-driven refreshes have one request in flight and no fixed 30 Hz cap, coalescing only display states while preserving painting input. Expanded painting children share the existing 256 MiB project-history budget and oldest-first eviction, retaining the oversized-entry exception; closure compacts retained history only. There is no fixed source-triangle-count admission limit. Remaining: runtime working-memory budgets; input batching, cancellation responsiveness, and backpressure; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
 batches are integrated into the relevant sections. Continue resolving lifecycle
