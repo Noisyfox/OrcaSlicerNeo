@@ -334,10 +334,25 @@ cancellation behavior are to be finalized before implementation.
 
 Only the active, unfinished stroke is a draft. At pointer release, drain its
 accepted samples, atomically write the changed native annotations to the live
-model, and record one navigable child history operation. A failed commit retains
-the stroke state for recovery without partially changing the model or history.
+model, and record one navigable child history operation. While accepted samples
+are draining and the commit is pending, show a processing state and do not admit
+another stroke. Ignore new presses rather than queuing them; after successful
+completion the user must press again to start a new stroke. Do not implicitly
+begin painting from a button held during this waiting period.
+
+For a recoverable commit failure with a healthy Worker and intact authoritative
+project state, roll back any partial transaction, automatically discard this
+stroke's draft, restore selectors/display to the pre-stroke state, and report
+the failure. Earlier committed edits and history remain intact. Once recovery
+is complete, allow a new stroke; do not retain a failed-draft Retry workflow.
 An empty stroke creates no history entry. Closing the gizmo does not write the
 completed strokes again.
+
+A fatal Worker OOM or WASM trap follows the existing shared runtime fatal-error
+flow, as required by the project persistence and multi-filament specifications.
+Painting does not introduce a separate Worker-recovery protocol or autosave,
+and cannot promise reconstruction of unsaved native state. Nested painting
+history remains in-memory only, consistent with Undo and Redo.
 
 Immediately after each effective commit, advance the affected slice-input
 versions and make obsolete slice results unusable. Heavy derived work,
@@ -654,6 +669,11 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   selection changes/clearing and page-navigation commands are ignored without
   queuing; they cannot implicitly switch the target or hide an unfinished stroke.
 - Failed stroke commit or closure does not partially publish its state/history.
+- Pending stroke processing/commit displays a processing state and rejects new
+  strokes without queuing. Success requires a fresh press for the next stroke.
+  Recoverable failure automatically discards the failed draft, restores its
+  pre-stroke display/model/history state, reports the error, and permits new
+  strokes after recovery. Fatal Worker failure uses the shared runtime flow.
 - Idle target deletion, replacement/reload, and splitting close and compact the
   painting session before model mutation, retaining a separate model-operation
   history entry. During a stroke these commands are ignored without queuing.
@@ -678,7 +698,7 @@ or create separate phase documents.
 | A. Editing target and lifecycle | Accepted: whole-object solid-part scope, two-slot entry gate, active-instance isolation, idle Escape closes, active-stroke Escape cancels that stroke and stays open, Save stays open, Slice and Preview close, eligible-object switches preserve the session, ineligible selection closes; active strokes ignore Save/Undo/Redo/explicit close/Preview/Slice without queuing; focus loss, pointer cancellation, and unexpected capture loss commit the current stroke and keep the gizmo open; target deletion and mesh-changing commands close first when idle and are ignored during strokes. Home/Device navigation preserves a hidden session; active strokes ignore selection changes and page navigation. Remaining: other activation gates, any whole-session discard, export and project replacement/shutdown |
 | B. History and external edits | Accepted: per-stroke native commits; any effective commit during the session requires all-Redo removal on close even if fully undone; no-effect sessions preserve Redo; Save does not separate painting runs; open-session Undo stops at session entry; conservative saved-marker remapping or unknown/modified fallback on compaction; active strokes ignore parameter and slot commands without queuing; single-slot sessions stay open; slot changes and painting remapping share the project policy and one atomic history operation. Explicit paint states above 16 are rejected atomically at native write/remapping boundaries. Remaining: other mutations during unfinished strokes |
 | C. Multi-material tool behavior | Accepted: all six Orca tools required for the first release; Shift-left erasing plus an explicit panel mode and Erase all; colour/erase/size changes affect subsequent samples within one stroke/history entry; circle/sphere radii in mm; clipping, wireframe, vertical/horizontal restrictions, and gizmo remapping deferred; active strokes ignore tool-type switches and all camera navigation; region fill has native hover preview, continuous drag, and geometry-edge controls (initially enabled at 30 degrees, range 0-90); height range follows Orca's hit-world-Z plus h interaction; gap fill previews threshold changes, uses the lowest adjacent state, and applies to the current object's solid parts as one painting child entry; idle camera mapping follows Orca; tool shortcuts are limited to Shift erasing and Ctrl/Cmd-wheel parameters. Tool parameters are retained for the application run only. The selected filament is retained within the project, follows remapping, and falls back to slot 1 when unavailable; new/opened projects start at slot 1. |
-| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Remaining: large-model budgets; input batching and display update policy; failures/recovery; fixtures and measurable acceptance gates |
+| D. Runtime and acceptance | Accepted: immediate invalidation with heavy derived work deferred until close or demand; threaded entry preserves slicing until an affected edit cancels the relevant job; serial painting admission follows the existing slice-busy gate. Pending commits reject subsequent strokes; recoverable commit failures discard the current draft; fatal Worker errors follow the shared runtime flow. Remaining: large-model budgets; input batching and display update policy; fixtures and measurable acceptance gates |
 
 No code implementation is authorized by this clarification workflow. Accepted
 batches are integrated into the relevant sections. Continue resolving lifecycle
