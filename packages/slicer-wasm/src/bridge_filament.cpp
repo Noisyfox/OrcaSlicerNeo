@@ -4,6 +4,8 @@
 #include "bridge_preset_drafts.hpp"
 
 #include <stdexcept>
+#include <limits>
+#include <charconv>
 
 #include "libslic3r/PrintConfig.hpp"
 
@@ -19,14 +21,33 @@ json config_metadata_json(const DynamicPrintConfig& config)
     return out;
 }
 
+std::vector<std::string> project_slot_identities(std::size_t count)
+{
+    auto& bridge = state();
+    auto ids = bridge.filament_slot_ids;
+    if (ids.size() > count) ids.resize(count);
+    while (ids.size() < count) {
+        if (bridge.next_filament_slot_id == std::numeric_limits<std::uint64_t>::max())
+            throw std::runtime_error("filament identity space exhausted");
+        ids.push_back("filament-" + std::to_string(bridge.next_filament_slot_id++));
+    }
+    return ids;
+}
+
 json history_state_json(const PresetBundle& bundle)
 {
-    return json{
+    if (&bundle != &state().presets)
+        throw std::runtime_error("filament history requires the live project rack");
+    auto ids = project_slot_identities(bundle.filament_presets.size());
+    json result{
         {"version", 1},
         {"filament_presets", bundle.filament_presets},
+        {"slot_ids", ids},
         {"edited_filament_config", config_metadata_json(bundle.filaments.get_edited_preset().config)},
         {"ams_multi_colour_filment", bundle.ams_multi_color_filment},
     };
+    state().filament_slot_ids.swap(ids);
+    return result;
 }
 
 static void apply_serialized_config_values(DynamicPrintConfig& config, const json& values)
@@ -47,7 +68,25 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
         encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64)
         throw std::runtime_error("invalid history filament state");
     StagedMutableState staged {
-        {}, catalog.ams_multi_color_filment, catalog.filaments.get_edited_preset() };
+        {}, {}, catalog.ams_multi_color_filment, catalog.filaments.get_edited_preset() };
+    if (!encoded.contains("slot_ids") || !encoded["slot_ids"].is_array() ||
+        encoded["slot_ids"].size() != encoded["filament_presets"].size())
+        throw std::runtime_error("invalid history filament identities");
+    std::set<std::string> identities;
+    for (const auto& id : encoded["slot_ids"]) {
+        if (!id.is_string())
+            throw std::runtime_error("invalid history filament identity");
+        const auto value = id.get<std::string>();
+        constexpr std::string_view prefix = "filament-";
+        std::uint64_t number = 0;
+        if (value.size() <= prefix.size() || value.compare(0, prefix.size(), prefix) != 0 || value[prefix.size()] == '0')
+            throw std::runtime_error("invalid history filament identity");
+        const auto parsed = std::from_chars(value.data() + prefix.size(), value.data() + value.size(), number);
+        if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
+            number == 0 || number >= state().next_filament_slot_id || !identities.insert(value).second)
+            throw std::runtime_error("invalid history filament identity");
+        staged.slot_ids.push_back(value);
+    }
     staged.names.reserve(encoded["filament_presets"].size());
     for (const auto& value : encoded["filament_presets"]) {
         if (!value.is_string() || value.get<std::string>().empty())
@@ -73,6 +112,7 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
 {
     bundle.set_num_filaments(static_cast<unsigned int>(staged.names.size()));
     bundle.filament_presets = std::move(staged.names);
+    bridge.filament_slot_ids = std::move(staged.slot_ids);
     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index)
         bundle.set_filament_preset(index, bundle.filament_presets[index]);
     bundle.ams_multi_color_filment = std::move(staged.ams_multi_colour_filment);
@@ -95,7 +135,6 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
 #include <cstdlib>
 #include <cstring>
 #include <functional>
-#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -808,6 +847,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         // copy PresetBundle in a history-producing mutation: retain only the
         // exact mutable filament fields which may need atomic rollback.
         const auto before_filament_presets = state().presets.filament_presets;
+        const auto before_slot_ids = state().filament_slot_ids;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
@@ -834,6 +874,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             }
             if (!mutated) return;
             state().presets.filament_presets = before_filament_presets;
+            state().filament_slot_ids = before_slot_ids;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
             state().presets.filaments.get_edited_preset() = before_edited_filament;
@@ -952,6 +993,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         if (expected != before_snapshot["revisions"]["session"].get<std::uint64_t>())
             return command_error("stale_revision", "filament session revision is stale");
         const auto before_filament_presets = state().presets.filament_presets;
+        const auto before_slot_ids = state().filament_slot_ids;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
@@ -978,6 +1020,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             }
             if (!mutated) return;
             state().presets.filament_presets = before_filament_presets;
+            state().filament_slot_ids = before_slot_ids;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
             state().presets.filaments.get_edited_preset() = before_edited_filament;
@@ -1075,6 +1118,7 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
 
         auto& bundle = state().presets;
         const auto before_names = bundle.filament_presets;
+        const auto before_slot_ids = state().filament_slot_ids;
         const auto before_project = bundle.project_config;
         const auto before_ams = bundle.ams_multi_color_filment;
         const auto before_edited = bundle.filaments.get_edited_preset();
@@ -1106,6 +1150,7 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
             return duplicate_json(result.dump());
         } catch (...) {
             bundle.filament_presets = before_names;
+            state().filament_slot_ids = before_slot_ids;
             bundle.project_config = before_project;
             bundle.ams_multi_color_filment = before_ams;
             bundle.filaments.get_edited_preset() = before_edited;
@@ -1207,11 +1252,13 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         // catalogue.  Support routing changes only project_config; preserve
         // that narrow mutable surface rather than cloning PresetBundle.
         const auto before_filament_presets = state().presets.filament_presets;
+        const auto before_slot_ids = state().filament_slot_ids;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
         const auto restore_mutable_bundle = [&]() {
             state().presets.filament_presets = before_filament_presets;
+            state().filament_slot_ids = before_slot_ids;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
             state().presets.filaments.get_edited_preset() = before_edited_filament;
@@ -1571,6 +1618,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
             if (!source) throw FilamentCommandFailure("unsupported_reference", error);
             validate_paint_remap(model, *source, std::nullopt);
             bundle.update_num_filaments(*source);
+            state().filament_slot_ids.erase(state().filament_slot_ids.begin() + *source);
             remap_config_filament_references(bundle.project_config, *source, std::nullopt);
             remap_model_filament_references(model, *source, std::nullopt, count - 1);
             remap_plate_filament_references(plates, *source, std::nullopt, count);
@@ -1594,6 +1642,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
         }
         validate_paint_remap(model, *source, replacement);
         bundle.update_num_filaments(*source);
+        state().filament_slot_ids.erase(state().filament_slot_ids.begin() + *source);
         // Project-scoped support/feature routing lives in the native project
         // config rather than a separate renderer state.  Remap it before the
         // projection is rebuilt so Delete yields Default for zero-backed
@@ -1623,7 +1672,6 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -1736,12 +1784,14 @@ json filament_session_snapshot_json()
                               (i < defaults.size() ? defaults[i] : std::string("#000000")));
     }
 
+    auto slot_ids = State::project_slot_identities(slot_count);
     json slots = json::array();
     for (size_t i = 0; i < slot_count; ++i) {
         const std::string& name = preset_names[i];
         const bool preset_equivalent = !preset_colours[i].empty() && colours[i] == preset_colours[i];
         slots.push_back({
             {"slot", i + 1},
+            {"logical_id", slot_ids[i]},
             {"preset", {{"id", name}, {"name", name}}},
             {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"}}},
         });
@@ -1902,11 +1952,13 @@ json filament_session_snapshot_json()
                            routing_values(object->config), assignment_slot, false, true);
         }
     }
-    return {{"ok", true}, {"version", 1}, {"slots", slots}, {"mappings", mappings},
+    json result = {{"ok", true}, {"version", 1}, {"slots", slots}, {"mappings", mappings},
             {"flushing", flushing}, {"capabilities", capabilities}, {"routing", routing},
             {"assignments", {{"objects", assignment_json(objects)}, {"parts", assignment_json(parts)},
                              {"modifiers", assignment_json(modifiers)}}},
             {"revisions", revisions}, {"status", {{"state", "ready"}, {"error", nullptr}}}};
+    state().filament_slot_ids.swap(slot_ids);
+    return result;
 }
 
 Filament::Commands::Runtime filament_command_runtime()

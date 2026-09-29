@@ -1,9 +1,12 @@
-import { createContext, useContext, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useContext, useRef, useLayoutEffect, useSyncExternalStore, type ReactNode } from 'react';
+import { coordinatePaintingRpc } from '../../../actions/historyMutation';
+import { registerPaintingCommands } from './projectCommands';
 import { usePlatform } from '@orca/platform-contract';
 import { PaintingController } from './PaintingController';
 import { projectHistoryStatus } from '../../../../../history/projectHistoryStatus';
 import { invalidateAffectedPlateResults } from '../../../../../stores/plateResultLifecycle';
 import { useSettingsStore } from '../../../../../stores/useSettingsStore';
+import { useFilamentSessionStore } from '../../../../../stores/useFilamentSessionStore';
 import { glVolumeCollection } from '../../GLVolume';
 import { projectFullModelMesh } from '../../modelMeshProjection';
 import type { SceneInteractionController } from '../../SceneInteractionController';
@@ -15,6 +18,10 @@ export function PaintingProvider({ children }: { children: ReactNode }) {
   const { runtime } = usePlatform();
   const owner = useRef<PaintingController | null>(null);
   if (!owner.current) owner.current = new PaintingController({
+    coordinate: coordinatePaintingRpc,
+    palette: () => useFilamentSessionStore.getState().snapshot,
+    targetAvailable: (objectId, instanceId) => useObjectListStore.getState().structure
+      .some((object) => object.id === objectId && object.instances.some((instance) => instance.id === instanceId)),
     api: runtime,
     history: projectHistoryStatus,
     committed: (plates) => invalidateAffectedPlateResults(runtime, plates),
@@ -25,6 +32,7 @@ export function PaintingProvider({ children }: { children: ReactNode }) {
     },
     schedule: (callback) => { const id = requestAnimationFrame(callback); return () => cancelAnimationFrame(id); },
   });
+  useLayoutEffect(() => registerPaintingCommands(owner.current!), []);
   return <Context.Provider value={owner.current}>{children}</Context.Provider>;
 }
 export function usePaintingController(): PaintingController | null { return useContext(Context); }

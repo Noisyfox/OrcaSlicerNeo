@@ -135,6 +135,14 @@ describe('worker protocol', () => {
     await expect(workerClient.exportGcodePlate({ plateId: 'plate-1', inputStamp: 0,
       resultGeneration: '1', sliceTaskId: '1' })).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cancel()).resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.openHistorySession()).rejects.toThrow('slice_busy');
+    await expect(workerClient.openPaintingSession({ version: 1, historySessionId: 'h1', objectId: 1, instanceId: 2 }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.beginPaintingStroke({ version: 1, sessionId: 'p1', revision: 0, tool: 'eraseAll', settings: {} }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.commitPaintingStroke({ version: 1, sessionId: 'p1', revision: 0, strokeId: 's1' }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.settlePainting()).resolves.toMatchObject({ error: 'slice_busy' });
 
     const requests = transport.posted.filter((message) => message.type === 'request');
     expect(requests).toHaveLength(1);

@@ -1,3 +1,4 @@
+import { beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import {
   refreshAfterModelMutation,
@@ -26,6 +27,7 @@ async function runStructuralHistory(
 /** Structural commands publish the same committed SceneDelta as other edits.
  * The viewport continues reconciling selection with native entity IDs. */
 export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: number[]): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runStructuralHistory(runtime, 'Delete Objects', () => runtime.deleteObjects(objectIds), 'model-delete');
@@ -34,6 +36,7 @@ export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: num
 }
 
 export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runStructuralHistory(runtime, 'Delete Part', () => runtime.deleteVolumes([volumeId]), 'model-delete');
@@ -50,6 +53,7 @@ export async function cloneObjectsInList(runtime: SlicerRuntime, objectIds: numb
 }
 
 export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runStructuralHistory(runtime, 'Split to Parts', () => runtime.splitVolumeToParts(volumeId));
@@ -58,6 +62,7 @@ export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId:
 }
 
 export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ objects: [objectId] })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runStructuralHistory(runtime, 'Split to Objects', () => runtime.splitObjectToObjects(objectId));
@@ -66,6 +71,7 @@ export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectI
 }
 
 export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: number[], name = 'Assembly'): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ objects: objectIds })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runStructuralHistory(runtime, 'Assemble Objects', () => runtime.mergeObjectsToMultipart(objectIds, name));
@@ -74,6 +80,7 @@ export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: n
 }
 
 export async function separateInstancesInList(runtime: SlicerRuntime, objectId: number, instanceIds: number[]): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ objects: [objectId] })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runStructuralHistory(runtime, 'Separate Instances', () => runtime.separateInstances(objectId, instanceIds));
@@ -110,6 +117,7 @@ export async function addInstanceInList(runtime: SlicerRuntime, objectId: number
 }
 
 export async function removeInstanceInList(runtime: SlicerRuntime, objectId: number, instanceId: number): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ instances: [instanceId] })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runStructuralHistory(runtime, 'Remove Instance', () => runtime.removeInstance(objectId, instanceId));

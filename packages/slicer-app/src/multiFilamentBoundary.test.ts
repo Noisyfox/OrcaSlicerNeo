@@ -20,7 +20,8 @@ describe('multi-filament application boundary', () => {
       expect(productionSource).not.toContain('selectPreset');
       expect(productionSource).not.toContain('getPresetSnapshot');
     }
-    expect(settingsPanel).toContain('selectProfile');
+    expect(settingsPanel).toContain('selectProcessPreset');
+    expect(source('./components/workspace/settings/configurationActions.ts')).toContain("selectProfile('print'");
     expect(source('./components/workspace/FilamentRack.tsx')).toContain('filamentCatalog');
   });
 

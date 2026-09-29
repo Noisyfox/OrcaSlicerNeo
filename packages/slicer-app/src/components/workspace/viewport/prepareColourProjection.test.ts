@@ -18,7 +18,7 @@ const structure: ModelObjectStructure[] = [{
 }];
 const snapshot = {
   ok: true, version: 1,
-  slots: [{ slot: 2, preset: { id: 'p', name: 'PETG' }, colour: { effective: '#123456', provenance: 'user' } }],
+  slots: [{ logicalId: 'filament-2', slot: 2, preset: { id: 'p', name: 'PETG' }, colour: { effective: '#123456', provenance: 'user' } }],
   mappings: { filament: [2], volume: [0], nozzle: [2], filament2: [2], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -88,8 +88,8 @@ describe('Prepare colour projection', () => {
     const twoSlots = {
       ...snapshot,
       slots: [
-        { ...snapshot.slots[0], slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
-        { ...snapshot.slots[0], slot: 2, colour: { effective: '#123456', provenance: 'user' } },
+        { ...snapshot.slots[0], logicalId: 'filament-1', slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
+        { ...snapshot.slots[0], logicalId: 'filament-2', slot: 2, colour: { effective: '#123456', provenance: 'user' } },
       ],
       assignments: {
         ...snapshot.assignments,
@@ -116,8 +116,8 @@ describe('Prepare colour projection', () => {
     const twoSlots = {
       ...snapshot,
       slots: [
-        { ...snapshot.slots[0], slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
-        { ...snapshot.slots[0], slot: 2, colour: { effective: '#123456', provenance: 'user' } },
+        { ...snapshot.slots[0], logicalId: 'filament-1', slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
+        { ...snapshot.slots[0], logicalId: 'filament-2', slot: 2, colour: { effective: '#123456', provenance: 'user' } },
       ],
       assignments: {
         ...snapshot.assignments,

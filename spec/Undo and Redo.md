@@ -92,10 +92,18 @@ remains.
 
 The following are explicitly outside history:
 
-- printer, process, and filament preset selection;
+- preset selection except project-owned rack/transition operations and the
+  effective Process-selection command defined below;
 - global/system preferences and their persisted storage;
 - opening or closing a gizmo as an isolated UI action;
 - derived slicing and preview output.
+
+The later [Surface Painting Architecture](Surface%20Painting%20Architecture.md#7-external-operations-and-session-closure)
+requires effective Process selection to be a chronological project edit. Its
+native selection/configuration participates in the existing transaction and
+forms a non-paint separator between painting runs, whether the painter is open
+or closed. This supersedes the original Process-selection exclusion; it does
+not add preference-storage snapshots.
 
 Undo/Redo therefore does not restore historical global-preference snapshots.
 When a restored project requires a compatible printing technology, normal
@@ -404,7 +412,8 @@ entry.
   dirty.
 - Selection and plate-only UI changes preserve the existing dirty state because
   they do not touch history.
-- Preset selection and system preferences remain outside this calculation.
+- System preferences and preset selections outside the project-history scope
+  above remain outside this calculation.
 - If eviction removes the saved checkpoint, Neo conservatively reports dirty.
 - All project mutations must enter through the history transaction boundary;
   the previous accumulated dirty-reasons boolean cannot compete with the
@@ -502,8 +511,8 @@ scope.
   config is its own exact history root. The Worker-to-React scoped snapshot is a
   projection, not a serialized root, so no scope is serialized twice. The Project
   root is intentionally history-tracked even though Orca keeps its
-  `PresetBundle` project configuration outside `UndoRedo`; preset selection
-  remains outside. Restoring that root is exact replacement, so a key absent
+  `PresetBundle` project configuration outside `UndoRedo`; effective Process
+  selection follows the accepted boundary in section 4. Restoring that root is exact replacement, so a key absent
   from the historical map is erased rather than merged from live state. Filament
   and rack history state does not duplicate Project configuration.
 - An outer transaction captures its predecessor before the first model write.

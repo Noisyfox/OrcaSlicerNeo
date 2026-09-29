@@ -335,17 +335,18 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
     const item = entry as Record<string, unknown>;
     const preset = item.preset;
     const colour = item.colour;
-    if (!integer(item.slot, 1) || !preset || typeof preset !== 'object' ||
+    if (typeof item.logical_id !== 'string' || !item.logical_id || !integer(item.slot, 1) || !preset || typeof preset !== 'object' ||
         !colour || typeof colour !== 'object') return null;
     const p = preset as Record<string, unknown>;
     const c = colour as Record<string, unknown>;
     if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
-    return { slot: item.slot as number, preset: { id: p.id, name: p.name },
+    return { logicalId: item.logical_id as string, slot: item.slot as number, preset: { id: p.id, name: p.name },
       colour: { effective: c.effective, provenance: c.provenance } };
   });
   if (slots.some((slot) => slot === null)) return { ok: false, error: 'invalid filament session slots' };
   const orderedSlots = slots as FilamentSessionSlot[];
+  if (new Set(orderedSlots.map((slot) => slot.logicalId)).size !== orderedSlots.length) return { ok: false, error: 'duplicate filament identity' };
   if (orderedSlots.length === 0) return { ok: false, error: 'invalid filament session slots' };
   if (orderedSlots.some((slot, index) => slot.slot !== index + 1))
     return { ok: false, error: 'invalid filament session slot ordering' };

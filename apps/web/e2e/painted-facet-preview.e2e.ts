@@ -138,7 +138,35 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
     [0, '#00ff00'], [1, '#ff0000'], [2, '#00ff00'], [3, '#ff0000'], [4, '#ff0000'],
   ]));
 
+  // Web host shares the app-owned painting lifecycle, including download Save.
+  const point = await page.evaluate(() => {
+    const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e;
+    return hooks.projectWorldToScreen(hooks.modelWorldCenters()[0]);
+  });
+  const viewport = await page.getByTestId('viewport').boundingBox();
+  await page.mouse.click(viewport!.x + point.x, viewport!.y + point.y);
+  await page.getByTestId('gizmo-btn-paint').click();
+  await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+  const painting = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingEvidence());
+  const paintSession = (await painting()).sessionId;
+  const nativePoint = (await painting()).center;
+  await page.mouse.move(nativePoint.x, nativePoint.y); await page.mouse.down();
+  await expect.poll(async () => (await painting()).phase).toBe('drawing');
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('project-dirty-dialog')).toHaveCount(0);
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('Control+Shift+s');
+  expect((await download).suggestedFilename()).toMatch(/\.3mf$/);
+  await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+  expect((await painting()).sessionId).toBe(paintSession);
+  await page.locator('#app-tab-home').click();
+  await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+  expect((await painting()).sessionId).toBe(paintSession);
   await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('painting-panel')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => ({
     status: document.querySelector('[data-testid="slicer-status"]')?.textContent?.trim() ?? null,
     error: document.querySelector('[data-testid="slicer-error"]')?.textContent?.trim() ?? null,

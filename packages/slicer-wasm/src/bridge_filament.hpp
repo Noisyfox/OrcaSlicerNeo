@@ -30,10 +30,12 @@ using json = nlohmann::json;
 namespace State {
 
 json config_metadata_json(const DynamicPrintConfig& config);
+std::vector<std::string> project_slot_identities(std::size_t count);
 json history_state_json(const PresetBundle& bundle);
 
 struct StagedMutableState {
     std::vector<std::string> names;
+    std::vector<std::string> slot_ids;
     std::vector<std::vector<std::string>> ams_multi_colour_filment;
     Preset edited_filament;
 };

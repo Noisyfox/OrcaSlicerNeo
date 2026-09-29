@@ -42,7 +42,7 @@ const loadedHistoryStatus = {
 function filamentSnapshot(revision: number): FilamentSessionSnapshot {
   return {
     ok: true, version: 1,
-    slots: [{ slot: 1, preset: { id: 'pla', name: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset' } }],
+    slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset' } }],
     mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
     capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },

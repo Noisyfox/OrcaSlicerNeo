@@ -1,3 +1,5 @@
+import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from '../viewport/gizmo/painting/projectCommands';
+import { runProjectMutationOperation } from './historyMutation';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import type { PlateOperationTarget } from '@slicer/client';
@@ -14,7 +16,8 @@ import { waitForConfigurationMutations } from '../settings/configurationActions'
  * function so validation, transform persistence, and result state cannot drift.
  */
 export async function sliceModel(platform: PlatformCapabilities): Promise<void> {
-  if (useSlicerStore.getState().status === 'slicing') return;
+  if (!paintingCommandAllowed() || useSlicerStore.getState().status === 'slicing') return;
+  if (!await closePaintingForCommand()) return;
 
   // Numeric/text fields commit on blur. A Slice click can arrive in the same
   // event turn, so wait for that Worker transaction before reading settings
@@ -139,24 +142,30 @@ let exportInFlight = false;
 
 /** Export the current slice through the injected host save operation. */
 export async function exportGcode(platform: PlatformCapabilities): Promise<void> {
-  if (exportInFlight) return;
+  if (exportInFlight || !paintingCommandAllowed()) return;
   exportInFlight = true;
   try {
-    const session = await platform.runtime.getPlateSessionSnapshot();
-    if (!session.ok) throw new Error(session.error);
-    const slicerState = useSlicerStore.getState();
-    const currentTarget = slicerState.sliceTarget;
-    const revision = session.inputRevisions?.[session.currentPlateId];
-    const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: Number(revision) };
-    if (!currentTarget || currentTarget.plateId !== target.plateId || currentTarget.inputRevision !== target.inputRevision)
-      throw new Error('current plate slice result is stale or unavailable');
-    const receipt = slicerState.plateResults[target.plateId]?.receipt;
-    if (!receipt || receipt.inputStamp !== target.inputRevision)
-      throw new Error('current plate slice result is stale or unavailable');
-    const fresh = await platform.runtime.exportGcodePlate(receipt);
-    if (!fresh.ok) throw new Error(fresh.error ?? 'export failed');
-    await platform.exports.save('output.gcode', fresh.bytes);
-    useSlicerStore.getState().setResultExported(true);
+    await runProjectMutationOperation(async () => {
+      if (paintingSessionActive()) {
+        const settled = await platform.runtime.settlePainting();
+        if ('error' in settled) throw new Error(settled.error);
+      }
+      const session = await platform.runtime.getPlateSessionSnapshot();
+      if (!session.ok) throw new Error(session.error);
+      const slicerState = useSlicerStore.getState();
+      const currentTarget = slicerState.sliceTarget;
+      const revision = session.inputRevisions?.[session.currentPlateId];
+      const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: Number(revision) };
+      if (!currentTarget || currentTarget.plateId !== target.plateId || currentTarget.inputRevision !== target.inputRevision)
+        throw new Error('current plate slice result is stale or unavailable');
+      const receipt = slicerState.plateResults[target.plateId]?.receipt;
+      if (!receipt || receipt.inputStamp !== target.inputRevision)
+        throw new Error('current plate slice result is stale or unavailable');
+      const fresh = await platform.runtime.exportGcodePlate(receipt);
+      if (!fresh.ok) throw new Error(fresh.error ?? 'export failed');
+      await platform.exports.save('output.gcode', fresh.bytes);
+      useSlicerStore.getState().setResultExported(true);
+    });
   } catch (err) {
     useSlicerStore.getState().setError(`export: ${errorText(err)}`);
     console.error('export failed:', err);

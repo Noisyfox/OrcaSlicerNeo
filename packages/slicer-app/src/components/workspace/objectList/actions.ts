@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { VolumeType } from '@slicer/client';
 import type { PlateSessionMutation } from '@slicer/client';
@@ -51,6 +52,7 @@ export interface MutationOutcome {
  * arrive after the mutation and overwrite the wrong object or part.
  */
 export async function waitForPendingModelTransforms(): Promise<MutationOutcome> {
+  if (!paintingCommandAllowed()) return { ok: false };
   try {
     const settled = await waitForSettledModelTransforms();
     if (!settled.ok) {
@@ -133,6 +135,7 @@ export async function renamePartInList(runtime: SlicerRuntime, volumeId: number,
 }
 
 export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: number, type: VolumeType): Promise<MutationOutcome> {
+  if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
   const r = await runListHistory(runtime, 'Change Part Type', () => runtime.setVolumeType(volumeId, type));

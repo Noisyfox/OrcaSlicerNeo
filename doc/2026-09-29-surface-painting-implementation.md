@@ -4,13 +4,13 @@
 
 **Branch:** `dev/surface-painting-spec` (continue in the current checkout).
 
-**Status:** Sequential implementation in progress. Steps 01-08 accepted; later stages remain gated.
+**Status:** Sequential implementation in progress. Steps 01-09 accepted; later stages remain gated.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
 ## Execution contract
 
-- New implementation children from stage 08 onward use **gpt-6-astra / medium**, explicitly requested by the user; this overrides the skill default. The already-running stage 07 child continues with **gpt-6-astra / low**.
+- New implementation children from stage 10 onward use **gpt-6-sol / high**, explicitly requested by the user; this overrides the skill default. The already-running stage 09 child continues with **gpt-6-astra / medium**, as used for stage 08.
 - Execute numbered steps strictly in order. Start a fresh implementation subagent for every new step. Do not start the next step until the parent has independently accepted the previous one.
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
@@ -96,7 +96,7 @@ Paths beginning `src/` or `bridge_` below are under `packages/slicer-wasm/`; app
 
 ## Remaining stages — consolidated 2026-09-29
 
-The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / low**; the subsequent model update selects **gpt-6-astra / medium** for new children starting at stage 08. Completed steps 01-04b remain accepted. The former 27 pending microsteps are replaced by the eight stages below; their functional requirements and verification gates are retained. Internal checklists are implementation order within one stage, not separate child handoffs. Use one fresh child per stage and accept the complete stage before starting the next.
+The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / low**, stages 08-09 use **gpt-6-astra / medium**, and the latest model update selects **gpt-6-sol / high** for new children starting at stage 10. Completed steps 01-04b remain accepted. The former 27 pending microsteps are replaced by the eight stages below; their functional requirements and verification gates are retained. Internal checklists are implementation order within one stage, not separate child handoffs. Use one fresh child per stage and accept the complete stage before starting the next.
 
 | New stage | Former coverage |
 | --- | --- |
@@ -175,7 +175,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 09. Project commands, lifecycle, slicing and palette coherence
 
-**Status:** Pending. **Depends on:** 08 accepted. **Model:** gpt-6-astra / medium. **Verification:** A+W+T+E.
+**Status:** Accepted by parent. **Depends on:** 08 accepted. **Model:** gpt-6-astra / medium. **Verification:** A+W+T+E.
 
 **Allowed scope:** project mutation/navigation entrypoints, selection, save/export/new/open/exit, slice admission/runtime, filament UI/session reconciliation and affected host seams.
 
@@ -183,7 +183,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 1. Reject unrelated mutations during unfinished/pending strokes before dialogs or queues: config, slots, import, duplicate, arrange, plate operations, undo/redo, close, save/export, slice and normal lifecycle commands. Never replay ignored requests later.
 2. While idle, valid object switches retain session; invalid selection/Preview closes, Home/Device hides without losing ownership. Target deletion/topology/split closes first. Ordinary config/slot edits stay chronological non-paint separators.
-3. Idle Save/Export preserve expanded history and include committed data only; save does not split paint runs. Export settles dependencies and requires valid results without implicit slicing. New/Open/exit ask existing dialogs first; cancellation/save failure retains session, successful continuation closes before replacement.
+3. Idle Save/Export preserve expanded history and include committed data only; save does not split paint runs. Export settles dependencies and requires valid results without implicit slicing. New/Open/exit ask existing pre-load dialogs first; cancellation/save failure retains session, successful continuation closes before replacement. Open's post-load compatibility-warning cancellation leaves an empty project under the existing Orca/Per-Plate semantics; it does not restore the prior painting session.
 4. User Slice closes and settles first. Threaded ongoing slice survives entry and cancels only when effective edits invalidate affected plates; no automatic replacement. Serial busy entry/edit fails immediately without queuing or killing Worker.
 5. Reconcile selectors and palette after history/slot changes. Track logical selected filament through remaps, fallback to slot1 when unavailable/outside first16; New/Open resets. Verify active and inactive object references.
 
@@ -191,7 +191,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 10. Functional fixtures, interoperability and host/variant acceptance
 
-**Status:** Pending. **Depends on:** 09 accepted. **Model:** gpt-6-astra / medium. **Verification:** W+E.
+**Status:** Pending. **Depends on:** 09 accepted. **Model:** gpt-6-sol / high. **Verification:** W+E.
 
 **Allowed scope:** repository-owned deterministic/generated/real painting fixtures and harnesses, desktop/Web E2E, test-gated probes, and necessary bounded defect fixes against accepted contracts.
 
@@ -206,7 +206,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 11. Measured performance baseline
 
-**Status:** Pending. **Depends on:** 10 accepted. **Model:** gpt-6-astra / medium. **Verification:** P.
+**Status:** Pending. **Depends on:** 10 accepted. **Model:** gpt-6-sol / high. **Verification:** P.
 
 **Allowed scope:** painting benchmark corpus/runner and compile-time gated instrumentation; benchmark results and methodology for parent documentation.
 
@@ -216,7 +216,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 
 ### 12. Final regression and specification handoff
 
-**Status:** Pending. **Depends on:** 11 accepted. **Model:** gpt-6-astra / medium. **Verification:** R.
+**Status:** Pending. **Depends on:** 11 accepted. **Model:** gpt-6-sol / high. **Verification:** R.
 
 **Allowed scope:** affected packages/hosts/variants, required regression fixes and test evidence. Parent owns final living-doc/spec/roadmap updates.
 
@@ -456,7 +456,7 @@ threaded qualification retain their later gates; no performance threshold claim.
 
 Child: `/root/painting_stage_07` (`gpt-6-astra`, low). Parent accepted the complete
 backend after substantive source review and independent execution. Following the
-user's latest model selection, new stages 08-12 use `gpt-6-astra / medium`.
+user's model selection at that acceptance, stages 08-09 use `gpt-6-astra / medium`; the later selection for stages 10-12 is recorded above.
 
 Native commands now export per-part P3N3 geometry, state groups and independent
 region/gap candidate manifests; publish each effective stroke as one Paint entry;
@@ -560,3 +560,52 @@ and final diff check. Existing fixture profile-parent and build tool warnings
 remain visible; all required assertions and commands passed. No pinned-submodule
 edits. Broad global command/project lifecycle admission and palette remap wiring
 remain stage 09; Web/threaded qualification and performance remain later gates.
+
+### Stage 09 acceptance — project commands and palette coherence
+
+Child: `/root/painting_stage_09` (`gpt-6-astra`, medium). Parent accepted after
+reviewing the native identity/rollback paths, shared project FIFO, Save checkpoint
+reservation, lifecycle admission, configuration/slot publication and actual tests.
+Painting owns synchronous admission before entering the existing FIFO; ordinary
+commands retain that FIFO, while painting moves still have no queue. Save holds
+the reservation through host write and saved-marker publication without nesting
+a second queue operation. Generic Process selection belongs to settings actions
+and creates one existing project-history transaction, not another history stack.
+
+Concrete review findings were repaired before acceptance: hidden-owner Preview
+navigation now preserves the normal preview prewarming transition; a failed
+ordinary command cannot expose an idle painter while another command is pending;
+Save's checkpoint no longer recursively enters its own FIFO; logical slot identity
+publication is staged and failed reset/profile/remap paths preserve the rack IDs.
+Runtime identities distinguish duplicate-looking materials, restore through native
+history, and never rewind their allocator. User-confirmed post-load Open warning
+cancellation leaves an empty project; pre-load cancellation retains painting.
+These decisions are recorded in the approved Surface Painting and Undo specs.
+
+Child passed root `pnpm test` (1,120 tests; app 710, WASM/client 245), root
+`pnpm typecheck`, serial quick build, real painting backend, editing-session and
+native Project preset history smokes, Electron painting (23 seconds), real Web
+serial painting/download/lifecycle (17.5 seconds), and diff/import boundary checks.
+Eight shared command tests exercise production coordinators, including deferred
+press rejection without dialogs/replay, concurrent command failure, Save host-write
+reservation, cancellation/failure retention, palette identity and invalid export.
+Existing per-plate cancellation tests and extended Worker tests establish affected
+plate cancellation and immediate serial admission rejection without posting RPCs.
+
+Parent independently ran:
+
+- `pnpm --filter @orca/slicer-app test` — 710 tests/91 files passed.
+- `pnpm typecheck` — all packages passed.
+- `scripts\build-windows.bat quick --variant serial` — passed.
+- `pnpm --filter @orca/slicer-wasm painting-backend-smoke` — passed, including
+  duplicate slot identities, failed operations, Undo/Redo/jump, branch nonreuse,
+  and Paint/Process/Paint compaction with correct annotations and Process restore.
+- `pnpm exec node scripts/run-painting-e2e.mjs` — real serial Electron 1/1 passed
+  in 19.6 seconds, with current artifact hashes checked by the runner.
+- `git diff --check` and local links in all three changed documents — passed.
+
+Parent logs are under `packages/slicer-wasm/.work/serial/parent-stage09-*.log`;
+child logs are ignored root `stage09-*.log`. Fixture imports still emit known
+profile-parent diagnostics; assertions pass. Pinned submodule unchanged. Both
+variant/host interoperability qualification remains stage 10 and measured
+performance remains stage 11; these results do not claim the release matrix.

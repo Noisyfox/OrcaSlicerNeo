@@ -1089,6 +1089,8 @@ export type FilamentColourProvenance = 'preset' | 'user';
 
 /** One ordered, one-based material slot owned by the native session. */
 export interface FilamentSessionSlot {
+  /** Opaque runtime identity restored with native history, never persisted to 3MF. */
+  readonly logicalId: string;
   readonly slot: number;
   readonly preset: { readonly id: string; readonly name: string };
   readonly colour: {

@@ -16,11 +16,23 @@ import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { projectFilamentHistoryRevision, refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
-import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '../../../history/projectMutationGate';
+import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueuePaintingOperation, type ProjectMutationLease } from '../../../history/projectMutationGate';
 import { projectHistoryStatus } from '../../../history/projectHistoryStatus';
 import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '../../../history/historyDiagnostics';
 
 export { projectHistoryStatus } from '../../../history/projectHistoryStatus';
+export const coordinatePaintingRpc = enqueuePaintingOperation;
+
+/** Save owns one revision reservation from export through the host write.
+ * Its checkpoint callback is already inside that reservation, never requeued. */
+export function runProjectSaveOperation<T>(
+  runtime: Pick<SlicerRuntime, 'markHistorySaved'>,
+  context: () => HistoryContext,
+  operation: (markSaved: () => Promise<HistoryStatus>) => Promise<T>,
+): Promise<T> {
+  return runProjectMutationOperation(() => operation(async () =>
+    projectHistoryStatus(await runtime.markHistorySaved(context()))));
+}
 
 export type HistoryMutationResult<T> = {
   result: T;
@@ -156,7 +168,7 @@ export async function readTransformReservationState(runtime: TransformReservatio
  * FIFO and hold the publication fence until their renderer projection is
  * complete.
  */
-export function runProjectMutationOperation<T>(operation: () => Promise<T>): Promise<T> {
+export function runProjectMutationOperation<T>(operation: (lease: ProjectMutationLease) => Promise<T>): Promise<T> {
   const queuedAt = historyDiagnosticNow();
   return enqueueHistoryOperation(async () => {
     const diagnostics = useHistoryDiagnosticsStore.getState();
@@ -164,7 +176,7 @@ export function runProjectMutationOperation<T>(operation: () => Promise<T>): Pro
     const startedAt = historyDiagnosticNow();
     const lease = acquireProjectMutationLease();
     try {
-      return await operation();
+      return await operation(lease);
     } finally {
       lease.release();
       useHistoryDiagnosticsStore.getState().recordMutation(historyDiagnosticNow() - startedAt);

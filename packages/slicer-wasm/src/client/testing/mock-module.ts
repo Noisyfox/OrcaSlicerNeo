@@ -1191,7 +1191,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         explicit_slot: 0, effective_slot: 1, inherited: true })));
     return {
       ok: true, version: 1,
-      slots: [{ slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
+      slots: [{ logical_id: 'filament-1', slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
         colour: { effective: '#F2754E', provenance: 'preset' } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
@@ -1203,6 +1203,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       status: { state: 'ready', error: null },
     };
   }
+  let nextFilamentIdentity = 1000;
   let filamentSessionState: any = opts.filamentSession !== undefined ? clone(opts.filamentSession) : undefined;
   function filamentMutation(requestJson: string, kind: string): unknown {
     if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
@@ -1236,7 +1237,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)
         return fail('filament slot capacity or capability rejected', 'capability_rejected');
       const colour = next.slots.at(-1)?.colour?.effective ?? '#26A69A';
-      next.slots.push({ slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: { effective: colour, provenance: 'preset' } });
+      next.slots.push({ logical_id: `filament-${nextFilamentIdentity++}`, slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: { effective: colour, provenance: 'preset' } });
       for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key].push(key === 'volume' ? 0 : 1);
       const n = next.slots.length;
       const planes = next.flushing.plane_count;
@@ -1912,7 +1913,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!Number.isSafeInteger(request.revision) || request.revision !== current.revisions.session)
         return { ok: false, version: 1, error: 'filament session revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'filament session revision is stale' } };
       const next: any = clone(current);
-      next.slots = request.slots.map((slot: any, index: number) => ({ slot: index + 1,
+      next.slots = request.slots.map((slot: any, index: number) => ({ logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
         preset: { id: slot.preset, name: slot.preset }, colour: { effective: slot.colour, provenance: 'user' } }));
       const slotCount = next.slots.length;
       next.mappings.filament = Array(slotCount).fill(1);
@@ -2213,7 +2214,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ? request.remembered_rack.slots : undefined;
       if (requestedSlots?.length) {
         const slots = requestedSlots.map((item: any, index: number) => ({
-          slot: index + 1,
+          logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
           preset: { id: item.preset, name: item.preset },
           colour: { effective: item.colour, provenance: 'user' },
         }));

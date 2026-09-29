@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, beforePaintingTopologyChange } from './gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/viewport/Viewport.tsx
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
@@ -265,7 +266,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   }, [plateActionPending, platform, plateSession?.currentPlateId, sceneInteraction]);
 
   const addPlate = useCallback(async () => {
-    if (plateActionPending || !canAddPlate(plateSession)) return;
+    if (!paintingCommandAllowed() || plateActionPending || !canAddPlate(plateSession)) return;
     setPlateActionPending(true);
     try {
       await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate(), null, {
@@ -286,7 +287,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   }, [plateActionPending, platform, plateSession]);
 
   const deletePlate = useCallback(async () => {
-    if (plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
+    if (!paintingCommandAllowed() || plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
+    const targetPlate = plateSession.plates.find((plate) => plate.plateId === plateSession.currentPlateId);
+    if (!await beforePaintingTopologyChange({ instances: targetPlate?.instanceIds })) return;
     setPlateActionPending(true);
     try {
       await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId), null, {

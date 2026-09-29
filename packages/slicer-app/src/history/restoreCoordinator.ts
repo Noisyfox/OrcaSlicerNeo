@@ -1,3 +1,4 @@
+import { paintingCommandAllowed } from '../components/workspace/viewport/gizmo/painting/projectCommands';
 import type { HistoryContext, NativeScopedConfigFullTransport, ProfileSnapshot, RestoreImpact, RestoreResult, SceneDelta, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
@@ -53,6 +54,7 @@ export function createHistoryRestoreCoordinator({
   publishRestoredFilamentRack,
 }: HistoryRestoreCoordinatorOptions): HistoryRestoreCoordinator {
   const restore = (action: HistoryRestoreAction): Promise<boolean> => {
+    if (!paintingCommandAllowed()) return Promise.resolve(false);
     if (runtime.getRuntimeExecutionState?.().serialSliceActive) {
       useHistoryRestoreStore.getState().setError('slice_busy');
       return Promise.resolve(false);

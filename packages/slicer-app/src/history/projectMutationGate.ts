@@ -1,4 +1,5 @@
 import { useProjectStore } from '../stores/useProjectStore';
+import { coordinatePaintingProjectOperation } from '../components/workspace/viewport/gizmo/painting/projectCommands';
 
 /**
  * Shared application fence for any operation that can advance the native
@@ -19,6 +20,12 @@ const operationQueue: QueuedOperation[] = [];
 
 /** One FIFO shared by project history and filament mutations. */
 export function enqueueProjectMutationOperation<T>(operation: () => Promise<T>): Promise<T> {
+  return coordinatePaintingProjectOperation(operation, enqueuePaintingOperation);
+}
+
+/** Painting already owns admission and its own lane; it joins the same FIFO
+ * without recursively requesting project-command admission. */
+export function enqueuePaintingOperation<T>(operation: () => Promise<T>): Promise<T> {
   const task = new Promise<T>((resolve, reject) => {
     operationQueue.push({ operation: operation as () => Promise<unknown>, resolve: resolve as (value: unknown) => void, reject });
   });

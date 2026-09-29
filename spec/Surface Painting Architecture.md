@@ -129,6 +129,13 @@ no longer exists or lies outside the explicit painting palette, fall back to
 slot 1. New projects and opening another project start with slot 1. This UI
 selection is not saved in project files or recorded in project history.
 
+Native assigns each live filament slot a runtime-only logical identity. Existing
+history metadata retains the identity vector alongside the rack, while its
+monotonic allocator is never rewound by Undo/Redo. Identical preset/colour pairs
+remain distinct slots. Merge follows the surviving destination identity; removal
+of the selected identity falls back to slot 1. Project replacement starts new
+identities. These identities are not a new 3MF field or another history stack.
+
 ### 2.2 Region fill and height-range interaction
 
 Region fill supports holding the painting button and dragging across successive
@@ -608,6 +615,13 @@ merging, or reordering requires coordinated native state mapping. Historical
 nodes remain paired with their historical material definitions. During an active
 stroke, parameter and slot commands are ignored under section 3.2.
 
+Effective Process preset selection also uses the existing project-history
+transaction and remains a non-paint separator. Restoring that entry restores
+the native Process selection/configuration and the surrounding annotations.
+This extends the original preset-selection exclusion in the Undo and Redo
+specification for this project edit; persisted preference storage is still
+outside history. Use the same command path whether painting is open or closed.
+
 Painting uses the project's existing slot Delete and Merge with semantics from
 the Multi-Filament Support specification; the gizmo does not define an alternate
 mapping policy. Delete removes painting marks for the deleted slot, while Merge
@@ -701,7 +715,7 @@ queue to execute automatically after slicing.
 
 With no unfinished stroke, New/Open project and normal application-exit commands
 run their existing file-selection and unsaved-project confirmation flow before
-ending the painting session. Cancelling a file picker, the project confirmation,
+ending the painting session. Cancelling a file picker, a pre-load confirmation,
 or a requested save keeps the existing painting session and expanded child
 history; do not close or compact merely because the command was invoked. A
 successful save can still advance its normal saved marker without compaction.
@@ -710,6 +724,13 @@ Only once the user elects to continue and any requested save succeeds should
 the session end and the confirmed project-lifecycle operation proceed. Apply
 the existing New/Open/exit project and history lifetime rules, including when
 the painting session is hidden on another page.
+
+Open's compatibility warning shown after loading is a separate boundary. By
+that point the previous project and painting session have already ended. If the
+user cancels that warning, retain Orca's existing reset-before-load semantics:
+leave an empty project, as specified by
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md). Do not restore
+the previous session or introduce native loading preflight for this case.
 
 During an unfinished stroke, ignore these commands without queuing or opening
 their file/confirmation dialogs. The user must repeat the command after the
@@ -876,10 +897,11 @@ wx/ImGui/OpenGL classes are references, not components to compile into WASM.
   compaction, including across viewport unmount/remount. During a stroke,
   selection changes/clearing and page-navigation commands are ignored without
   queuing; they cannot implicitly switch the target or hide an unfinished stroke.
-- Cancelling New/Open/normal-exit file or confirmation dialogs retains the open
+- Cancelling New/Open/normal-exit file or pre-load confirmation dialogs retains the open
   or hidden session and expanded history. Confirmed continuation ends it only
   after any requested save succeeds. These commands during a stroke are ignored
-  without queuing or opening dialogs.
+  without queuing or opening dialogs. Cancelling Open's post-load compatibility
+  warning leaves an empty project; the previous painting session is already closed.
 - Failed stroke commit or closure does not partially publish its state/history.
 - Only one gizmo and its associated numeric panel are active. Idle switching
   closes painting normally before activating another gizmo; closure failure

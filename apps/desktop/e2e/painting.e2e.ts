@@ -1,5 +1,5 @@
 import { _electron, expect, test } from '@playwright/test';
-import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -12,8 +12,9 @@ type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[
 
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-painting-')), 'preferences.json');
+  const savedProject = join(resolve(preferences, '..'), 'painting-saved.3mf');
   writeFileSync(preferences, JSON.stringify({ version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {} }));
-  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_MODEL: project!, ORCA_E2E_PRIME_TOWER_PROJECT: project!, ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_MODEL: project!, ORCA_E2E_PRIME_TOWER_PROJECT: project!, ORCA_E2E_PREFERENCES: preferences, ORCA_E2E_PROJECT_SAVE: savedProject } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
   try {
@@ -90,7 +91,15 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await page.keyboard.down('Control'); await page.mouse.wheel(0, -100); await page.keyboard.up('Control');
     expect((await read())!.settings.radius).toBeGreaterThan(beforeSize.settings.radius); expect((await read())!.camera).toEqual(beforeSize.camera);
     await page.mouse.down(); await expect.poll(async () => (await read())?.phase).toBe('drawing');
+    for (const command of ['Control+s', 'Control+o', 'Control+n']) await page.keyboard.press(command);
+    expect((await read())!.phase).toBe('drawing');
+    await expect(page.getByTestId('project-dirty-dialog')).toHaveCount(0);
+    expect(existsSync(savedProject)).toBe(false);
     await page.keyboard.press('Escape'); await page.mouse.up(); await idle(); expect((await committed()).paint).toHaveLength(0); await idle();
+    expect(existsSync(savedProject)).toBe(false);
+    await page.keyboard.press('Control+Shift+s');
+    await expect.poll(() => existsSync(savedProject)).toBe(true); await idle();
+    expect((await read())!.sessionId).toBe(sessionId);
     for (const button of ['left', 'middle', 'right'] as const) {
       point = (await read())!.center; const camera = (await read())!.camera;
       if (button === 'left') await page.keyboard.down('Control');
@@ -115,6 +124,18 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled(); await page.getByTestId('gizmo-btn-paint').click(); await idle();
     expect((await read())!.sessionId).not.toBe(sessionId);
     await page.getByTestId('gizmo-btn-move').click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0); await expect(page.getByTestId('move-panel')).toBeVisible();
+    await page.getByTestId('gizmo-btn-paint').click(); await idle();
+    const hiddenSession = (await read())!.sessionId;
+    for (const tab of ['home', 'device']) {
+      await page.locator(`#app-tab-${tab}`).click();
+      await page.locator('#app-tab-prepare').click(); await idle();
+      expect((await read())!.sessionId).toBe(hiddenSession);
+    }
+    await page.locator('#app-tab-home').click();
+    await page.locator('#app-tab-preview').click();
+    await expect(page.locator('#app-tab-preview')).toHaveAttribute('aria-selected', 'true', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('painting-panel')).toHaveCount(0);
   } finally { await app.close(); }
 });
 

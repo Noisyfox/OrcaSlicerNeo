@@ -1,3 +1,4 @@
+import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 // The sidebar/scene split: owns the resizable divider between the settings
 // sidebar and the 3D scene, and the scene interaction controller the two
 // halves share. AppShell stacks this between the toolbar and status rows.
@@ -176,6 +177,7 @@ export function Workspace({
     : [];
 
   const openPresetEditor = useCallback(async (target: PresetDraftTarget) => {
+    if (!paintingCommandAllowed()) return;
     if (presetEditorTargetRef.current || presetEditorMutationPendingRef.current) return;
     const requestedTarget = { ...target };
     presetEditorTargetRef.current = requestedTarget;
@@ -549,7 +551,8 @@ export function Workspace({
     currentRevision: () => baseHistoryRestore.currentRevision(),
     restore: async (action) => {
       if (!painting) return baseHistoryRestore.restore(action);
-      const restored = await painting.betweenStrokes(() => baseHistoryRestore.restore(action));
+      if (!painting.selectionAllowed()) return false;
+      const restored = await baseHistoryRestore.restore(action);
       if (restored && painting.getSnapshot().phase === 'idle') {
         const target = paintingTarget(sceneInteraction);
         if (target) await painting.target(target.objectId, target.instanceId);

@@ -173,7 +173,7 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot).toMatchObject({ ok: true, version: 1, status: { state: 'ready', error: null } });
     if (!snapshot.ok) throw new Error(snapshot.error);
     expect(snapshot.slots).toEqual([{
-      slot: 1,
+      logicalId: 'filament-1', slot: 1,
       preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
       colour: { effective: '#F2754E', provenance: 'preset' },
     }]);
@@ -238,8 +238,8 @@ describe('SlicerClient bridge contract', () => {
     const payload = {
       ok: true, version: 1,
       slots: [
-        { slot: 1, preset: { id: 'preset-a', name: 'preset-a' }, colour: { effective: '#26A69A', provenance: 'preset' } },
-        { slot: 2, preset: { id: 'preset-b', name: 'preset-b' }, colour: { effective: '#112233', provenance: 'user' } },
+        { logical_id: 'filament-1', slot: 1, preset: { id: 'preset-a', name: 'preset-a' }, colour: { effective: '#26A69A', provenance: 'preset' } },
+        { logical_id: 'filament-2', slot: 2, preset: { id: 'preset-b', name: 'preset-b' }, colour: { effective: '#112233', provenance: 'user' } },
       ],
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'native' },
@@ -323,6 +323,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const toWire = (snapshot: typeof base) => ({ ...snapshot,
+      slots: snapshot.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId })),
       mappings: { ...snapshot.mappings, physical_extruder: snapshot.mappings.physicalExtruder },
       flushing: { ...snapshot.flushing, matrix_dimension: snapshot.flushing.matrixDimension, plane_count: snapshot.flushing.planeCount },
       capabilities: { min_slots: snapshot.capabilities.minSlots, max_slots: snapshot.capabilities.maxSlots,
@@ -410,7 +411,7 @@ describe('SlicerClient bridge contract', () => {
       .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' });
 
     const twoSlot = { ...base,
-      slots: [base.slots[0], { ...base.slots[0], slot: 2 }],
+      slots: [base.slots[0], { ...base.slots[0], logicalId: 'filament-2', slot: 2 }],
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physicalExtruder: [0] },
       flushing: { matrix: [0, 0, 0, 0], matrixDimension: 2, planeCount: 1, vector: [], source: 'native' as const },
       capabilities: { ...base.capabilities, canDelete: true, canMerge: true },
@@ -451,7 +452,7 @@ describe('SlicerClient bridge contract', () => {
   it('remaps middle merge and preserves destination colour in the atomic client contract', async () => {
     const payload = {
       ok: true, version: 1,
-      slots: [1, 2, 3].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: `#00000${slot}`, provenance: slot === 2 ? 'user' : 'preset' } })),
+      slots: [1, 2, 3].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: `#00000${slot}`, provenance: slot === 2 ? 'user' : 'preset' } })),
       mappings: { filament: [1, 1, 1], volume: [0, 0, 0], nozzle: [1, 1, 1], filament2: [1, 1, 1], physical_extruder: [0] },
       flushing: { matrix: Array(9).fill(0), vector: [], matrix_dimension: 3, plane_count: 1, source: 'native' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -468,7 +469,7 @@ describe('SlicerClient bridge contract', () => {
   it('rejects a flush plane count that does not match native nozzle count', async () => {
     const payload = {
       ok: true, version: 1,
-      slots: [1, 2].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0, 0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 2, source: 'native' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -485,7 +486,7 @@ describe('SlicerClient bridge contract', () => {
     ['gap', [{ slot: 1 }, { slot: 3 }]],
   ])('rejects %s native slot ordering without sorting', async (_label, slots) => {
     const payload = {
-      ok: true, version: 1, slots: slots.map((entry) => ({ ...entry,
+      ok: true, version: 1, slots: slots.map((entry, index) => ({ ...entry, logical_id: `filament-${index}`,
         preset: { id: 'p', name: 'p' }, colour: { effective: '#000000', provenance: 'preset' } })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'default' },
@@ -501,7 +502,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const withSlots = (capabilities: Record<string, unknown>) => ({ ...base,
-      slots: [1, 2].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: (capabilities.nozzle_count === 2 ? [0, 1] : [0]) },
       flushing: { matrix: Array.from({ length: 4 * Number(capabilities.nozzle_count) }, () => 0), vector: [], matrix_dimension: 2,
         plane_count: Number(capabilities.nozzle_count), source: 'default' },
@@ -525,6 +526,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await c.getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const payload = { ...base,
+      slots: base.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId })),
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: false, can_merge: false },

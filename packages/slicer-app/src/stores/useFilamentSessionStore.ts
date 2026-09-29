@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { paintingCommandAllowed, reconcilePaintingPalette } from '../components/workspace/viewport/gizmo/painting/projectCommands';
 import type {
   FilamentAssignmentRequest,
   FilamentCommandRequest,
@@ -73,7 +74,7 @@ async function readFilamentSnapshot(
   try {
     const result = await runtime.getFilamentSessionSnapshot();
     if (!isCurrent()) return result;
-    if (isSnapshot(result)) set({ snapshot: result, rejected: null });
+    if (isSnapshot(result)) { set({ snapshot: result, rejected: null }); reconcilePaintingPalette(result); }
     else set({ rejected: result.error });
     return result;
   } catch (error) {
@@ -118,7 +119,7 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
   snapshot: null,
   pendingKind: null,
   rejected: null,
-  publish: (snapshot) => set({ snapshot, rejected: null }),
+  publish: (snapshot) => { set({ snapshot, rejected: null }); reconcilePaintingPalette(snapshot); },
   load: (runtime): Promise<FilamentSessionSnapshotResult> => enqueueProjectMutationOperation(
     () => readFilamentSnapshot(runtime, set, () => true),
   ),
@@ -127,6 +128,7 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
       () => readFilamentSnapshot(runtime, set, isCurrent),
     ),
   run: async (runtime, command) => {
+    if (!paintingCommandAllowed()) return { ok: false, version: 1, error: 'Painting command is busy', errorCode: 'painting_busy' };
     pendingFilamentOperations += 1;
     set({ pendingKind: 'mutation', rejected: null });
     return enqueueProjectMutationOperation(async () => {
@@ -140,6 +142,7 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
           // competing history-status read from this FIFO operation.
           projectHistoryStatus(result.result.historyStatus);
           set({ snapshot: result.result.snapshot, rejected: null });
+          reconcilePaintingPalette(result.result.snapshot, result.result.mutation);
           projectFilamentPlateRevisions(result.result.snapshot);
           await applyFilamentMutationResult(result.result.mutation, runtime);
         }

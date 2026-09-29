@@ -1,6 +1,7 @@
 import type {
   PaintingApi, PaintingSessionMetadata, PaintingDraftResult, PaintingPointerEvent,
   PaintingSettings, PaintingTool, PaintingGeometryResult, HistoryStatus, SlicerClient,
+  FilamentSessionSnapshot, FilamentMutationSummary,
 } from '@slicer/client';
 
 export type PaintTool = Exclude<PaintingTool, 'eraseAll'>;
@@ -16,6 +17,9 @@ export interface PaintingState {
   epoch: number;
 }
 export interface PaintingPorts {
+  coordinate?<T>(operation: () => Promise<T>): Promise<T>;
+  palette?(): FilamentSessionSnapshot | null;
+  targetAvailable?(objectId: number, instanceId: number): boolean;
   api: PaintingApi & Pick<SlicerClient, 'openHistorySession' | 'closeHistorySession'>;
   history(status: HistoryStatus): void;
   committed(plates: readonly string[]): void;
@@ -42,11 +46,14 @@ export class PaintingController {
   private hover: PaintingPointerEvent | undefined;
   private previewDirty = false;
   private settingsVersion = 0;
+  private selectedFilamentId: string | null = null;
+  private projectOperations = 0;
   constructor(private ports: PaintingPorts) {}
   getSnapshot = (): PaintingState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   get unfinished(): boolean { return ['drawing', 'ending', 'cancelling'].includes(this.state.phase); }
   get active(): boolean { return this.state.phase !== 'closed'; }
+  get commandAllowed(): boolean { return !this.active || this.state.phase === 'idle' || this.projectOperations > 0; }
   selectionAllowed(restoring = false): boolean {
     return !this.active || this.state.phase === 'idle' || (restoring && this.state.phase === 'opening');
   }
@@ -76,7 +83,7 @@ export class PaintingController {
     let release!: () => void;
     const mine = new Promise<void>((resolve) => { release = resolve; });
     this.lane = mine;
-    try { if (previous) await previous; return await operation(); }
+    try { if (previous) await previous; return await (this.ports.coordinate ? this.ports.coordinate(operation) : operation()); }
     finally { if (this.lane === mine) this.lane = null; release(); this.scheduleDisplay(); }
   }
   private fail(error: unknown): void { this.update({ error: error instanceof Error ? error.message : String(error) }); }
@@ -128,6 +135,7 @@ export class PaintingController {
       !Number.isFinite(next.gapArea) || next.gapArea < 0 || next.gapArea > 5 ||
       (next.angle !== null && (!Number.isFinite(next.angle) || next.angle < 0 || next.angle > 90))) return;
     this.settingsVersion++; this.update({ settings: next, display: this.withoutCandidates() });
+    if (value.state !== undefined) this.selectedFilamentId = this.ports.palette?.()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
     this.previewDirty = true; this.scheduleDisplay();
   }
   remapPalette(mapping: Readonly<Record<number, number>>, count: number): void {
@@ -135,6 +143,17 @@ export class PaintingController {
     this.setSettings({ state: state >= 1 && state <= Math.min(16, count) ? state : 1 });
   }
   resetProjectPalette(): void { this.setSettings({ state: 1 }); }
+  reconcilePalette(snapshot: FilamentSessionSnapshot, mutation?: FilamentMutationSummary): void {
+    if (mutation?.kind === 'merge' && mutation.source === this.state.settings.state && mutation.destination) {
+      this.selectedFilamentId = snapshot.slots.find((slot) => slot.slot === mutation.destination)?.logicalId ?? null;
+    }
+    const selected = this.selectedFilamentId
+      ? snapshot.slots.find((slot) => slot.logicalId === this.selectedFilamentId)
+      : snapshot.slots.find((slot) => slot.slot === this.state.settings.state);
+    const slot = selected && selected.slot <= 16 ? selected : snapshot.slots[0];
+    this.setSettings({ state: slot?.slot ?? 1 });
+    this.selectedFilamentId = slot?.logicalId ?? null;
+  }
   private settings(erase: boolean): PaintingSettings { return { ...this.state.settings, erase: erase || this.state.settings.erase }; }
   private withoutCandidates() { return this.state.display ? { ...this.state.display, candidates: [] } : null; }
   hoverAt(event?: PaintingPointerEvent): void {
@@ -208,7 +227,7 @@ export class PaintingController {
       if ('error' in latest) throw new Error(latest.error);
       this.update({ session: latest.session });
       if (latest.session.strokeId) this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
-      this.update({ phase: 'idle', display: null, epoch: this.state.epoch + 1 });
+        this.update({ phase: this.projectOperations > 0 ? 'opening' : 'idle', display: null, epoch: this.state.epoch + 1 });
       this.known.clear(); this.displayDirty = true;
     } catch (recoveryError) { this.fail(recoveryError); this.update({ phase: 'error' }); }
   }
@@ -232,18 +251,34 @@ export class PaintingController {
   /** History uses the same lane as display and input, and refreshes native
    * selector identity only after the authoritative restore is complete. */
   async betweenStrokes(operation: () => Promise<boolean>): Promise<boolean> {
+    try { return await this.projectOperation(operation); } catch { return false; }
+  }
+  /** Ordinary project revisions share the input/display lane and reserve it
+   * before entering the application's FIFO. Rejected commands are not queued. */
+  async projectOperation<T>(operation: () => Promise<T>): Promise<T> {
     if (!this.active) return operation();
-    if (this.state.phase !== 'idle') return false;
+    if (!this.commandAllowed) throw new Error('Painting command is busy');
+    this.projectOperations++;
     this.update({ phase: 'opening' });
-    return this.exclusive(async () => {
+    try { return await this.exclusive(async () => {
       try {
+        if (!this.active) return operation();
         const result = await operation();
+        const target = this.state.session;
+        if (target && this.ports.targetAvailable?.(target.objectId, target.instanceId) === false) {
+          await this.closeOwned();
+          return result;
+        }
         const latest = await this.ports.api.readPaintingSession({ ...this.identity(), latest: true });
         if ('error' in latest) throw new Error(latest.error);
-        this.known.clear(); this.update({ phase: 'idle', session: latest.session, display: null, epoch: this.state.epoch + 1 });
+        this.known.clear(); this.update({ session: latest.session, display: null, epoch: this.state.epoch + 1 });
         this.displayDirty = true; this.previewDirty = this.state.tool === 'gap'; return result;
-      } catch (error) { await this.recover(error); return false; }
-    });
+      } catch (error) { await this.recover(error); throw error; }
+    }); } finally {
+      this.projectOperations--;
+      if (this.state.phase === 'opening' && this.projectOperations === 0) this.update({ phase: 'idle' });
+      this.scheduleDisplay();
+    }
   }
   async close(): Promise<boolean> {
     if (!['idle', 'error'].includes(this.state.phase)) return false;
@@ -251,15 +286,17 @@ export class PaintingController {
     this.update({ phase: 'closing' });
     return this.exclusive(async () => {
       try {
-        // History closure atomically compacts, settles, and resets painting.
-        // Retain a projection-only retry if native closure succeeded first.
-        if (this.historyId) { this.ports.history(await this.ports.api.closeHistorySession(this.historyId, 'Paint')); this.historyId = null; }
-        await this.ports.prepareClosed();
-        this.known.clear(); this.cancelFrame?.(); this.cancelFrame = null;
-        this.displayDirty = false; this.previewDirty = false; this.hover = undefined;
-        this.update({ phase: 'closed', session: null, display: null, error: null, epoch: this.state.epoch + 1 }); return true;
+        await this.closeOwned(); return true;
       } catch (error) { this.fail(error); this.update({ phase: this.historyId ? previousPhase : 'error' }); return false; }
     });
+  }
+  private async closeOwned(): Promise<void> {
+    // Called only while owning the input/display/project lane.
+    if (this.historyId) { this.ports.history(await this.ports.api.closeHistorySession(this.historyId, 'Paint')); this.historyId = null; }
+    await this.ports.prepareClosed();
+    this.known.clear(); this.cancelFrame?.(); this.cancelFrame = null;
+    this.displayDirty = false; this.previewDirty = false; this.hover = undefined;
+    this.update({ phase: 'closed', session: null, display: null, error: null, epoch: this.state.epoch + 1 });
   }
   private scheduleDisplay(): void {
     if (this.lane || this.cancelFrame || !this.state.session || !['idle', 'drawing'].includes(this.state.phase) || (!this.displayDirty && !(this.previewDirty && this.state.phase === 'idle'))) return;

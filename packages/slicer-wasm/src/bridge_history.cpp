@@ -2124,9 +2124,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_restore_diagnostics()
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
 {
+    const auto before_slot_ids = state().filament_slot_ids;
+    bool replaced = false;
     try {
         const Runtime runtime = HistoryRuntime::runtime();
-        const json context = canonical_history_context(runtime, parse_history_context(context_cstr));
+        const auto parsed_context = parse_history_context(context_cstr);
+        state().filament_slot_ids.clear();
+        const json context = canonical_history_context(runtime, parsed_context);
         state().painting.reset();
         state().history.clear();
         state().mesh_capture_cache.clear();
@@ -2135,12 +2139,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
         state().nested_history_transactions.clear();
         state().history_disabled = false;
         state().history_live_context = context;
+        replaced = true;
         (void) HistoryMetadata::capture_history_roots(state(), context);
         state().history.mark_current_as_saved();
         HistoryMetadata::advance_history_epoch(state());
         return duplicate_json(history_status_json().dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
+    } catch (const std::exception& e) { if (!replaced) state().filament_slot_ids = before_slot_ids; return error_json(e.what()); }
+    catch (...) { if (!replaced) state().filament_slot_ids = before_slot_ids; return error_json("unknown C++ exception"); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr)

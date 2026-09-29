@@ -83,6 +83,7 @@ json project_history_context()
 
 void establish_clean_history_baseline()
 {
+    state().filament_slot_ids.clear();
     state().painting.reset();
     state().history.clear();
     state().mesh_capture_cache.clear();

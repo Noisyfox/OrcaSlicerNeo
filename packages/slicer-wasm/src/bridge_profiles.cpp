@@ -39,6 +39,7 @@ struct ProfileTransitionState {
     std::string print;
     std::string filament;
     std::vector<std::string> filament_presets;
+    std::vector<std::string> filament_slot_ids;
     DynamicPrintConfig project_config;
     std::vector<std::vector<std::string>> ams_multi_colour_filment;
     Preset edited_printer;
@@ -54,6 +55,7 @@ ProfileTransitionState capture_profile_transition_state()
             bundle.prints.get_selected_preset_name(),
             bundle.filaments.get_selected_preset_name(),
             bundle.filament_presets,
+            state().filament_slot_ids,
             bundle.project_config,
             bundle.ams_multi_color_filment,
             bundle.printers.get_edited_preset(),
@@ -77,6 +79,7 @@ void restore_profile_transition_state(ProfileTransitionState&& before)
                              PresetSelectCompatibleType::Never);
     if (!before.filament.empty()) bundle.filaments.select_preset_by_name(before.filament, true);
     bundle.filament_presets = std::move(before.filament_presets);
+    state().filament_slot_ids = std::move(before.filament_slot_ids);
     bundle.project_config = std::move(before.project_config);
     bundle.ams_multi_color_filment = std::move(before.ams_multi_colour_filment);
     bundle.filaments.get_edited_preset() = std::move(before.edited_filament);
