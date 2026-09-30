@@ -1,12 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { acceleratedRaycast } from 'three-mesh-bvh';
-import type { PaintingPointerEvent } from '@slicer/client';
+import type { PaintingPointerEvent, PaintingSessionMetadata } from '@slicer/client';
 import type { LoadedObject } from '../../useModelLoader';
 import { usePaintingController, usePaintingState } from './PaintingProvider';
 import { paintingPartMatrix, PaintingResources, type PaintingResource } from './PaintingResources';
 import { PaintingProbe } from '../../../../../e2e/PaintingProbe';
+import type { PaintingDisplay } from './PaintingController';
 declare const __ORCA_E2E__: boolean;
 
 export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>, canvas: HTMLCanvasElement, camera: THREE.Camera): PaintingPointerEvent {
@@ -14,36 +15,49 @@ export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>
   return { pointer: [event.clientX, event.clientY], viewport: [rect.left, rect.top, rect.width, rect.height], projection: camera.projectionMatrix.toArray(), view: camera.matrixWorldInverse.toArray() };
 }
 
+/** Borrowed cursor meshes retain identity across equivalent native metadata
+ * reads. This also preserves their memoized tight bounds and input listeners. */
+export function paintingCursorMeshes(previous: THREE.Mesh[], volumes: readonly LoadedObject[], session: PaintingSessionMetadata | undefined, material: THREE.Material): THREE.Mesh[] {
+  const parts = session ? volumes.filter((v) => v.buffer.objectId === session.objectId && v.buffer.instanceId === session.instanceId && session.parts.some((p) => p.volumeId === v.buffer.volumeId)) : [];
+  const matrices = parts.map((v) => paintingPartMatrix(session!, v.buffer.volumeId));
+  if (previous.length === parts.length && previous.every((mesh, i) => mesh.geometry === parts[i].geometry && mesh.matrix.equals(matrices[i]))) return previous;
+  return parts.map((v, i) => {
+    const existing = previous[i];
+    if (existing?.geometry === v.geometry && existing.matrix.equals(matrices[i])) return existing;
+    const mesh = new THREE.Mesh(v.geometry, material);
+    mesh.raycast = acceleratedRaycast; mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(matrices[i]); mesh.updateMatrixWorld(true);
+    return mesh;
+  });
+}
+
 /** Dedicated painting tree: no ordinary model meshes, selection, drag or BVH on
  * subdivided geometry. Native candidates are separate, explicit manifests. */
-export function PaintingGizmoBase({ volumes, resolveColor }: { volumes: readonly LoadedObject[]; resolveColor(volumeId: number, state: number): string }) {
+export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { volumes: readonly LoadedObject[]; resolveColor(display: PaintingDisplay, volumeId: number, state: number): string; openingVisual: ReactNode }) {
   const owner = usePaintingController()!, state = usePaintingState()!;
   const { camera, gl, invalidate, controls } = useThree();
   const cache = useMemo(() => new PaintingResources(), []);
   const cursorMaterial = useMemo(() => new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }), []);
-  const [resources, setResources] = useState<PaintingResource[]>([]);
+  const borrowedCursorMeshes = useRef<THREE.Mesh[]>([]);
+  const [visual, setVisual] = useState<{ display: PaintingDisplay; resources: PaintingResource[] } | null>(null);
   const [cursor, setCursor] = useState<THREE.Vector3 | null>(null);
-  const stateRef = useRef(state); stateRef.current = state;
-  const session = state.session;
+  const session = visual?.display.session;
   useLayoutEffect(() => {
-    if (!session || !state.display) { cache.dispose(); setResources([]); return; }
-    if (cache.update(state.display, session)) setResources([...cache.resources.values()]);
+    if (!state.display) return;
+    try {
+      if (cache.update(state.display, state.display.session)) setVisual({ display: state.display, resources: [...cache.resources.values()] });
+    } catch (error) { owner.reportDisplayError(error); }
     invalidate();
-  }, [cache, session, state.display, invalidate]);
+  }, [cache, state.display, invalidate, owner]);
   useEffect(() => () => cache.dispose(), [cache]);
   useEffect(() => () => cursorMaterial.dispose(), [cursorMaterial]);
   // Cursor meshes borrow the immutable original geometry/BVH; disposal stays
   // with GLVolume. Its hits never determine sample admission or native target.
   const cursorMeshes = useMemo(() => {
-    if (!session) return [];
-    return volumes.filter((v) => v.buffer.objectId === session.objectId && v.buffer.instanceId === session.instanceId && session.parts.some((p) => p.volumeId === v.buffer.volumeId)).map((v) => {
-      const mesh = new THREE.Mesh(v.geometry, cursorMaterial);
-      mesh.raycast = acceleratedRaycast;
-      mesh.matrixAutoUpdate = false;
-      mesh.matrix.copy(paintingPartMatrix(session, v.buffer.volumeId)); mesh.updateMatrixWorld(true);
-      return mesh;
-    });
-  }, [volumes, session?.objectId, session?.instanceId, state.epoch, cursorMaterial]);
+    borrowedCursorMeshes.current = paintingCursorMeshes(borrowedCursorMeshes.current, volumes, session, cursorMaterial);
+    return borrowedCursorMeshes.current;
+  }, [volumes, session?.objectId, session?.instanceId, session?.instanceTransform, session?.parts, cursorMaterial]);
+  const cursorMeshesRef = useRef(cursorMeshes); cursorMeshesRef.current = cursorMeshes;
   useEffect(() => {
     const canvas = gl.domElement;
     const orbit = controls as unknown as { target?: THREE.Vector3; enabled: boolean; enableDamping: boolean; update(): void } | null;
@@ -57,7 +71,7 @@ export function PaintingGizmoBase({ volumes, resolveColor }: { volumes: readonly
     const cursorAt = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), camera);
-      const hit = raycaster.intersectObjects(cursorMeshes, false)[0]; setCursor(hit?.point.clone() ?? null); invalidate();
+      const hit = raycaster.intersectObjects(cursorMeshesRef.current, false)[0]; setCursor(hit?.point.clone() ?? null); invalidate();
     };
     const stop = (event: Event) => { event.preventDefault(); event.stopImmediatePropagation(); };
     const releaseCapture = () => { const old = gesture; gesture = null; if (old && canvas.hasPointerCapture(old.id)) canvas.releasePointerCapture(old.id); };
@@ -130,18 +144,25 @@ export function PaintingGizmoBase({ volumes, resolveColor }: { volumes: readonly
       canvas.removeEventListener('lostpointercapture', lost, true); canvas.removeEventListener('pointerleave', leave);
       canvas.removeEventListener('wheel', wheel, true); window.removeEventListener('blur', interrupted); window.removeEventListener('keydown', key, true);
     };
-  }, [camera, gl, controls, cursorMeshes, invalidate, owner]);
-  if (!session) return null;
-  const bounds = new THREE.Box3();
-  for (const volume of volumes) if (volume.buffer.objectId === session.objectId && volume.buffer.instanceId === session.instanceId && session.parts.some((p) => p.volumeId === volume.buffer.volumeId)) bounds.union(volume.getWorldBounds());
+  }, [camera, gl, controls, invalidate, owner]);
+  const bounds = useMemo(() => {
+    const box = new THREE.Box3(), vertex = new THREE.Vector3();
+    // The height cursor follows the displayed matrices too. The ordinary
+    // loader's GLVolume transforms may already describe the next project state.
+    for (const mesh of cursorMeshes) {
+      const position = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < position.count; i++) box.expandByPoint(vertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrix));
+    }
+    return box;
+  }, [cursorMeshes]);
   const bandSize = bounds.getSize(new THREE.Vector3()), bandCenter = bounds.getCenter(new THREE.Vector3());
-  const activeCandidates = new Set(state.display?.candidates.map((c) => c.resourceId));
+  const activeCandidates = new Set(visual?.display.candidates.map((c) => c.resourceId));
   return <>
     {__ORCA_E2E__ && <PaintingProbe owner={owner} resources={cache} volumes={volumes} cursor={cursor} />}
     <ambientLight intensity={0.6} /><directionalLight position={[100, 150, 200]} intensity={1.2} />
-    {resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
-      return <PaintResourceMesh key={r.source.resourceId} resource={r} matrix={paintingPartMatrix(session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(r.source.volumeId, state))} />;
-    })}
+    {visual ? visual.resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
+      return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} />;
+    }) : openingVisual}
     {cursor && state.tool !== 'gap' && state.tool !== 'region' && <group position={cursor}>
       {state.tool === 'sphere' ? <mesh><sphereGeometry args={[state.settings.radius, 24, 16]} /><meshBasicMaterial color="white" wireframe transparent opacity={0.5} depthTest={false} /></mesh>
         : state.tool === 'circle' ? <mesh quaternion={camera.quaternion}><ringGeometry args={[state.settings.radius * 0.97, state.settings.radius, 64]} /><meshBasicMaterial color="white" side={THREE.DoubleSide} depthTest={false} /></mesh>
@@ -150,14 +171,14 @@ export function PaintingGizmoBase({ volumes, resolveColor }: { volumes: readonly
     </group>}
   </>;
 }
-function PaintResourceMesh({ resource, matrix, colors }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[] }) {
+function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[]; targetName: string }) {
   const region = resource.source.kind === 'region', overlay = resource.source.kind !== 'draft';
   const materials = useMemo(() => colors.map((color) => new THREE.MeshStandardMaterial({ color: region ? '#ffffff' : color, side: THREE.DoubleSide, transparent: region, opacity: region ? 0.35 : 1, polygonOffset: overlay, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })), [colors.join(','), region, overlay]);
   const contourMaterial = useMemo(() => new THREE.LineBasicMaterial({ color: 'white', depthTest: false }), []);
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
   useEffect(() => () => contourMaterial.dispose(), [contourMaterial]);
   return <group matrix={matrix} matrixAutoUpdate={false} dispose={null}>
-    <mesh geometry={resource.geometry} material={materials} renderOrder={overlay ? 2 : 0} />
+    <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overlay ? 2 : 0} />
     {resource.source.contour.length > 0 && <lineSegments geometry={resource.contour} material={contourMaterial} renderOrder={3} />}
   </group>;
 }

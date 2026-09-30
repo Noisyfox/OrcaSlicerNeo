@@ -19,7 +19,7 @@ const targets = [
   ...await readTree(resolve(root, 'apps/desktop/out')),
   ...await readTree(resolve(root, 'apps/web/dist')),
 ];
-const sentinels = ['nativeHitUs', 'nativeSelectorUs', 'nativeGeometryUs', '__orcaPaintingBenchmarkFinal', 'paintingPerformanceEvidence'];
+const sentinels = ['nativeHitUs', 'nativeSelectorUs', 'nativeGeometryUs', '__orcaPaintingBenchmarkFinal', 'paintingPerformanceEvidence', 'paintingVisualStart', 'paintingVisualStop', 'paintingVisualFrames', 'painting-model-', 'painting-candidate'];
 for (const path of targets) {
   const bytes = await readFile(path);
   for (const sentinel of sentinels) if (bytes.includes(Buffer.from(sentinel)))

@@ -41,13 +41,15 @@ async function setup(preloadFilament = false) {
     if (!rack.ok) throw new Error(rack.error);
   }
   const filamentReads = vi.spyOn(runtime, 'getFilamentSessionSnapshot');
+  const frames: Array<() => void> = [];
   const controller = new PaintingController({ api: runtime, coordinate: coordinatePaintingRpc,
     history: projectHistoryStatus, committed: vi.fn(), prepareClosed: vi.fn(async () => {}),
-    schedule: () => () => {}, palette: () => useFilamentSessionStore.getState().snapshot,
+    schedule: (callback) => { frames.push(callback); return () => { const i = frames.indexOf(callback); if (i >= 0) frames.splice(i, 1); }; }, palette: () => useFilamentSessionStore.getState().snapshot,
     targetAvailable: (objectId, instanceId) => useObjectListStore.getState().structure
       .some((entry) => entry.id === objectId && entry.instances.some((instance) => instance.id === instanceId)) });
   unregister = registerPaintingCommands(controller);
   expect(await controller.open(object.id, object.instances[0].id)).toBe(true);
+  frames.shift()?.(); await vi.waitFor(() => expect(controller.getSnapshot().display).not.toBeNull());
   useProjectStore.getState().setProject({ hasContent: true });
   const platform = { runtime,
     projects: { save: vi.fn(async () => ({ status: 'ok' })), saveAs: vi.fn(async () => ({ status: 'ok' })), open: vi.fn(async () => ({ status: 'cancelled' })) },

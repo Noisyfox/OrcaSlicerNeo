@@ -19,6 +19,62 @@ export function paintingUploadBytes(method: 'bufferData' | 'bufferSubData', args
   return typeof length === 'number' ? length * elementBytes : Math.max(0, payload.byteLength - sourceOffset * elementBytes);
 }
 
+/** Persistent across the Prepare/painting handoff. Count model draw callbacks
+ * from the actual renderer, including every forced frame during async reads.
+ * A manifest/cache count cannot detect an empty React scene between commits. */
+export function PaintingVisualProbe() {
+  const { gl, invalidate, scene: mainScene } = useThree();
+  useEffect(() => {
+    type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[] };
+    let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
+    let raf: number | null = null;
+    const originalRender = gl.render;
+    gl.render = function (scene, camera) {
+      // GizmoHelper renders a separate overlay scene through this renderer.
+      // Only the persistent model scene is a viewport model frame.
+      if (!capture || scene !== mainScene) return originalRender.call(gl, scene, camera);
+      const frame: Frame = { at: performance.now(), ordinary: [], painting: [], colors: [] };
+      const restore: Array<() => void> = [];
+      scene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        let volume: LoadedObject | undefined;
+        for (let ancestor: THREE.Object3D | null = object; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.userData.orcaVolume) { volume = ancestor.userData.orcaVolume; break; }
+        }
+        const kind = object.name === `painting-model-${capture!.objectId}-${capture!.instanceId}` ? 'painting'
+          : volume?.buffer.objectId === capture!.objectId && volume.buffer.instanceId === capture!.instanceId ? 'ordinary' : null;
+        if (!kind) return;
+        const original = object.onBeforeRender;
+        object.onBeforeRender = function (...args) {
+          original.apply(this, args);
+          frame[kind].push(object.geometry.uuid);
+          const material = args[4] as THREE.MeshStandardMaterial;
+          frame.colors.push(material.color?.getHexString() ?? '');
+        };
+        restore.push(() => { object.onBeforeRender = original; });
+      });
+      try { originalRender.call(gl, scene, camera); }
+      finally {
+        restore.forEach((callback) => callback());
+        frame.ordinary = [...new Set(frame.ordinary)]; frame.painting = [...new Set(frame.painting)];
+        capture.frames.push(frame);
+      }
+    };
+    const stop = () => { if (raf !== null) cancelAnimationFrame(raf); raf = null; const frames = capture?.frames ?? []; capture = null; return frames; };
+    const unregister = registerOrcaE2eOwner('painting-visual', {
+      paintingVisualStart: (objectId: number, instanceId: number) => {
+        stop(); capture = { objectId, instanceId, frames: [] };
+        const frame = () => { invalidate(); raf = requestAnimationFrame(frame); };
+        frame();
+      },
+      paintingVisualStop: stop,
+      paintingVisualFrames: () => capture?.frames ?? [],
+    });
+    return () => { stop(); unregister(); gl.render = originalRender; };
+  }, [gl, invalidate, mainScene]);
+  return null;
+}
+
 /** Read-only observability for the real host journey; no alternate painting API. */
 export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: PaintingController; resources: PaintingResources; volumes: readonly LoadedObject[]; cursor: THREE.Vector3 | null }) {
   const { camera, gl, scene, controls } = useThree();
@@ -26,7 +82,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
   const interaction = useSceneInteraction();
   const rendered = useRef<{ revision: number; candidates: string[] }>({ revision: -1, candidates: [] });
   const input = useRef({ admittedMoves: 0, droppedMoves: 0 });
-  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[] }>;
+  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string }>;
     frames: Array<{ at: number; revision: number; candidates: number }>; phases: Array<{ at: number; phase: string; revision: number }>;
     inputs: Array<{ at: number; kind: string }>; glUploads: Array<{ at: number; method: string; ms: number; bytes: number }>;
     resources: Array<{ at: number; ms: number; created: number; released: number; live: number; bytes: number }>;
@@ -71,13 +127,17 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
         const start = performance.now();
         try {
           const result = await original(...args) as { paintingProfile?: unknown; resources?: Array<{ vertices: Float32Array; contour: Float32Array }> };
-          const paint = result as { committed?: boolean; effective?: boolean; changedPartIds?: number[]; revision?: number };
+          const paint = result as { committed?: boolean; effective?: boolean; changedPartIds?: number[]; revision?: number; hit?: unknown };
+          const request = args[0] as { tool?: string; event?: { pointer: readonly number[] } };
           perf.current.calls.push({ name, at: start, ms: performance.now() - start,
             ...(paint.revision !== undefined ? { revision: paint.revision } : {}),
             ...(result.paintingProfile ? { native: result.paintingProfile } : {}),
             ...(result.resources ? { resourceBytes: result.resources.reduce((n, r) => n + r.vertices.byteLength + r.contour.byteLength, 0) } : {}),
             ...(paint.committed !== undefined ? { committed: paint.committed } : {}),
             ...(paint.effective !== undefined ? { effective: paint.effective } : {}),
+            ...('hit' in paint ? { hit: paint.hit } : {}),
+            ...(request?.event ? { pointer: request.event.pointer } : {}),
+            ...(request?.tool ? { tool: request.tool } : {}),
             ...(paint.changedPartIds ? { changedPartIds: paint.changedPartIds } : {}) });
           return result;
         } catch (error) {
@@ -143,6 +203,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
         camera: [...camera.position.toArray(), ...camera.quaternion.toArray()], target: (controls as unknown as { target?: THREE.Vector3 } | null)?.target?.toArray() ?? [0, 0, 0], cursor: cursor?.toArray() ?? null,
         center: center ? { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 } : null,
         resources: [...resources.resources.values()].map((r) => ({ id: r.source.resourceId, volumeId: r.source.volumeId, kind: r.source.kind, groups: r.source.groups, hasBvh: !!(r.geometry as THREE.BufferGeometry & { boundsTree?: unknown }).boundsTree })), ordinaryModels,
+        nativeTarget: state.session, displayTarget: state.display?.session,
         rendered: rendered.current, input: { ...input.current }, runtime: runtime.getRuntimeExecutionState?.(), error: state.error };
     },
     paintingCommittedEvidence: async () => {

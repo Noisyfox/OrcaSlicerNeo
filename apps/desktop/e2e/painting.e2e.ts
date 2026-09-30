@@ -8,6 +8,7 @@ const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
+type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[] };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
@@ -33,12 +34,27 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     });
     const bounds = await page.getByTestId('viewport').boundingBox();
     await page.mouse.click(bounds!.x + center.x, bounds!.y + center.y);
-    await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled(); await page.getByTestId('gizmo-btn-paint').click();
+    await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled();
+    const selectedTarget = await page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.modelSelectionIdentities()[0] as { objectId: number; instanceId: number });
+    const startFrames = () => page.evaluate(({ objectId, instanceId }) => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualStart(objectId, instanceId), selectedTarget);
+    const stopFrames = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualStop() as VisualFrame[]);
+    const settleFrames = () => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const completeFrames = async (name: string, frames: VisualFrame[]) => {
+      const path = test.info().outputPath(`${name}.json`);
+      writeFileSync(path, JSON.stringify(frames, null, 2));
+      await test.info().attach(name, { path, contentType: 'application/json' });
+      expect(frames.length, `${name}: real renderer frames were recorded`).toBeGreaterThan(1);
+      expect(frames.filter((f) => f.ordinary.length + f.painting.length === 0), `${name}: every frame draws the selected target`).toEqual([]);
+      expect(frames.filter((f) => f.ordinary.length > 0 && f.painting.length > 0), `${name}: Prepare and painting never expose the target together`).toEqual([]);
+    };
+    await startFrames(); await settleFrames(); await page.getByTestId('gizmo-btn-paint').click();
     const read = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingEvidence as (() => Evidence) | undefined)?.() ?? null);
     const committed = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingCommittedEvidence as () => Promise<Committed>)());
     const history = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.historyNativeStatus());
     const idle = async () => { await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle'); await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0); };
-    await idle();
+    await idle(); await settleFrames();
+    const entryFrames = await stopFrames(); await completeFrames('painting-entry-render-frames', entryFrames);
+    expect(entryFrames.some((f) => f.ordinary.length > 0)).toBe(true); expect(entryFrames.some((f) => f.painting.length > 0)).toBe(true);
     const initialPoint = (await read())!.center;
     await page.mouse.move(initialPoint.x, initialPoint.y); await page.mouse.wheel(0, -700); await page.mouse.wheel(0, -700);
     expect((await read())!.runtime.threaded).toBe(false);
@@ -87,7 +103,13 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       if (tool === 'height') await page.getByRole('spinbutton', { name: 'Height (mm)', exact: true }).fill('5');
       const point = (await read())!.center;
       await page.mouse.move(point.x, point.y); await page.mouse.down();
-      await expect.poll(async () => (await read())?.phase).toBe('drawing');
+      try { await expect.poll(async () => (await read())?.phase).toBe('drawing'); }
+      catch (error) {
+        const evidence = await page.evaluate(() => { const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e; return { state: hooks.paintingEvidence(), performance: hooks.paintingPerformanceEvidence() }; });
+        const path = test.info().outputPath(`painting-${tool}-press-failure.json`);
+        writeFileSync(path, JSON.stringify(evidence, null, 2)); await test.info().attach(`${tool} press failure`, { path, contentType: 'application/json' });
+        throw error;
+      }
       const camera = (await read())!.camera;
       await page.mouse.wheel(0, 90); expect((await read())!.camera).toEqual(camera);
       await page.mouse.move(point.x + 2, point.y + 2); await page.mouse.up(); await idle();
@@ -181,7 +203,14 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
       expect((await history()).undoEntries[0].label).toBe('Edit Filament Colour');
     };
-    await setSlot2Colour('#445566', 'rgb(68, 85, 102)');
+    await startFrames(); await settleFrames();
+    await setSlot2Colour('#445566', 'rgb(68, 85, 102)'); await idle();
+    await expect.poll(() => page.evaluate(() => ((window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualFrames() as VisualFrame[]).some((f) => f.colors.includes('445566')))).toBe(true);
+    await settleFrames();
+    const rgbFrames = await stopFrames(); await completeFrames('painting-rgb-render-frames', rgbFrames);
+    expect(rgbFrames.every((f) => f.ordinary.length === 0 && f.painting.length > 0)).toBe(true);
+    expect(new Set(rgbFrames.flatMap((f) => f.painting)).size, 'RGB-only edit retains rendered geometry identity').toBe(1);
+    expect(rgbFrames.some((f) => f.colors.includes('445566')), 'new RGB reaches the actual rendered target material').toBe(true);
     await page.getByTestId('history-undo').click(); await idle();
     await expect(slot2Badge).toHaveCSS('background-color', originalSlot2Colour);
     await page.getByTestId('history-redo').click(); await idle();

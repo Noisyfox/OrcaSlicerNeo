@@ -6,14 +6,30 @@ import type {
 
 export type PaintTool = Exclude<PaintingTool, 'eraseAll'>;
 export type PaintingPhase = 'closed' | 'opening' | 'idle' | 'drawing' | 'ending' | 'cancelling' | 'closing' | 'error';
+/** One complete visual receipt. Interaction metadata may advance while this
+ * session, resource manifest and palette remain together on screen. */
+export interface PaintingDisplay extends Extract<PaintingGeometryResult, { ok: true }> {
+  session: PaintingSessionMetadata;
+  palette: FilamentSessionSnapshot | null;
+}
+/** Stroke/preview revisions can advance without changing the displayed target.
+ * A metadata handoff that changes its parts or transforms must finish first. */
+function paintingDisplayMatchesTarget(display: PaintingDisplay | null, session: PaintingSessionMetadata | null): boolean {
+  if (!display || !session) return false;
+  const shown = display.session;
+  const equal = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((n, i) => n === b[i]);
+  return shown.id === session.id && shown.objectId === session.objectId && shown.instanceId === session.instanceId
+    && equal(shown.instanceTransform, session.instanceTransform) && shown.parts.length === session.parts.length
+    && shown.parts.every((part) => session.parts.some((p) => p.volumeId === part.volumeId && p.sourceTriangleCount === part.sourceTriangleCount && equal(p.volumeTransform, part.volumeTransform)));
+}
 export interface PaintingState {
   phase: PaintingPhase;
   session: PaintingSessionMetadata | null;
   tool: PaintTool;
   settings: Required<PaintingSettings>;
   error: string | null;
-  display: Extract<PaintingGeometryResult, { ok: true }> | null;
-  /** Changes whenever cached display resources cease to describe the target. */
+  display: PaintingDisplay | null;
+  /** Native metadata generation for rejecting obsolete geometry receipts. */
   epoch: number;
 }
 export interface PaintingPorts {
@@ -118,7 +134,7 @@ export class PaintingController {
         const result = await this.ports.api.targetPaintingSession({ ...this.identity(), objectId, instanceId });
         if ('error' in result) throw new Error(result.error);
         this.known.clear(); this.hover = undefined;
-        this.update({ session: result.session, display: null, epoch: this.state.epoch + 1, phase: 'idle' });
+        this.update({ session: result.session, epoch: this.state.epoch + 1, phase: 'idle' });
         this.displayDirty = true; this.previewDirty = this.state.tool === 'gap'; return true;
       } catch (error) { this.fail(error); this.update({ phase: 'idle' }); return false; }
     });
@@ -165,10 +181,14 @@ export class PaintingController {
   /** Native hit is the sole authority for the initial paint/camera decision. */
   async press(event: PaintingPointerEvent, erase = false): Promise<'paint' | 'camera' | 'ignored'> {
     if (this.state.phase !== 'idle' || this.state.tool === 'gap') return 'ignored';
+    if (!this.lane && !paintingDisplayMatchesTarget(this.state.display, this.state.session)) return 'ignored';
     const sample = { event, settings: this.settings(erase) }, tool = this.state.tool;
     this.terminal = null; this.update({ phase: 'drawing', error: null, display: this.withoutCandidates() });
     return this.exclusive(async () => {
       try {
+        if (!paintingDisplayMatchesTarget(this.state.display, this.state.session)) {
+          this.terminal = null; this.update({ phase: 'idle' }); return 'ignored';
+        }
         const result = this.receipt(await this.ports.api.beginPaintingStroke({ ...this.identity(), tool, ...sample }));
         if (!result.hit && !this.terminal) {
           this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
@@ -227,16 +247,18 @@ export class PaintingController {
       if ('error' in latest) throw new Error(latest.error);
       this.update({ session: latest.session });
       if (latest.session.strokeId) this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
-        this.update({ phase: this.projectOperations > 0 ? 'opening' : 'idle', display: null, epoch: this.state.epoch + 1 });
-      this.known.clear(); this.displayDirty = true;
+      this.update({ phase: this.projectOperations > 0 ? 'opening' : 'idle', epoch: this.state.epoch + 1 });
+      this.displayDirty = true;
     } catch (recoveryError) { this.fail(recoveryError); this.update({ phase: 'error' }); }
   }
   async apply(tool: 'gap' | 'eraseAll'): Promise<boolean> {
     if (this.state.phase !== 'idle') return false;
+    if (!this.lane && !paintingDisplayMatchesTarget(this.state.display, this.state.session)) return false;
     const settings = this.settings(false);
     this.update({ phase: 'drawing', error: null });
     return this.exclusive(async () => {
       try {
+        if (!paintingDisplayMatchesTarget(this.state.display, this.state.session)) { this.update({ phase: 'idle' }); return false; }
         let candidateRevision: number | undefined;
         if (tool === 'gap') {
           const preview = this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool, settings }));
@@ -271,7 +293,7 @@ export class PaintingController {
         }
         const latest = await this.ports.api.readPaintingSession({ ...this.identity(), latest: true });
         if ('error' in latest) throw new Error(latest.error);
-        this.known.clear(); this.update({ session: latest.session, display: null, epoch: this.state.epoch + 1 });
+        this.update({ session: latest.session, epoch: this.state.epoch + 1 });
         this.displayDirty = true; this.previewDirty = this.state.tool === 'gap'; return result;
       } catch (error) { await this.recover(error); throw error; }
     }); } finally {
@@ -292,6 +314,13 @@ export class PaintingController {
   }
   private async closeOwned(): Promise<void> {
     // Called only while owning the input/display/project lane.
+    // A renderer publication failure reserves error phase while a native draft
+    // can still be open. Cancel it before closing history; a failed cancellation
+    // retains the draft identity so an explicit close can retry safely.
+    if (this.state.session?.strokeId) {
+      this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
+      this.terminal = null; this.terminalExecuting = false;
+    }
     if (this.historyId) { this.ports.history(await this.ports.api.closeHistorySession(this.historyId, 'Paint')); this.historyId = null; }
     await this.ports.prepareClosed();
     this.known.clear(); this.cancelFrame?.(); this.cancelFrame = null;
@@ -319,14 +348,18 @@ export class PaintingController {
             const result = await this.ports.api.getPaintingGeometry({ ...identity, knownResourceIds: [...this.known] });
             if ('error' in result) throw new Error(result.error);
             if (epoch === this.state.epoch && result.sessionId === this.state.session?.id && result.revision === this.state.session.revision) {
-              result.resources.forEach((r) => this.known.add(r.resourceId));
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
               const candidates = previewVersion === this.settingsVersion && (this.state.tool === 'gap' || (this.state.tool === 'region' && this.hover)) ? result.candidates : [];
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
+              for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
+              const session = this.state.session;
+              if (result.parts.length !== session.parts.length || new Set(result.parts.map((p) => p.volumeId)).size !== result.parts.length || session.parts.some((part) => !result.parts.some((r) => r.volumeId === part.volumeId))) throw new Error('Incomplete painting parts');
+              for (const part of result.parts) if (resources.get(part.resourceId)!.volumeId !== part.volumeId || resources.get(part.resourceId)!.kind !== 'draft') throw new Error('Invalid painting part resource');
+              for (const candidate of candidates) if (resources.get(candidate.resourceId)!.volumeId !== candidate.volumeId || resources.get(candidate.resourceId)!.kind !== candidate.kind) throw new Error('Invalid painting candidate resource');
               this.known = active;
-              this.update({ display: { ...result, candidates, resources: [...resources.values()].filter((r) => active.has(r.resourceId)) } });
+              this.update({ display: { ...result, session, palette: this.ports.palette(), candidates, resources: [...resources.values()].filter((r) => active.has(r.resourceId)) } });
             }
           }
           await this.drainTerminal();
@@ -334,4 +367,5 @@ export class PaintingController {
       });
     });
   }
+  reportDisplayError(error: unknown): void { this.fail(error); this.update({ phase: 'error' }); }
 }

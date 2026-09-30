@@ -934,3 +934,69 @@ submodule change or external project-format compatibility change is involved.
 The parent also restored `pnpm --filter @orca/desktop build` and independently
 passed `pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 ordinary
 production artifacts.
+
+## Follow-up: continuous painting model display (2026-09-30)
+
+Accepted after a fresh gpt-6.1-sol/high child implemented and self-verified the
+fix, followed by parent source review and independent checks. Entering painting
+previously removed the Prepare model before the first painting geometry arrived.
+Ordinary project operations, including filament colour edits, cleared the
+painting display and known resources before asynchronously replacing them.
+Both transitions could expose a model-free viewport frame.
+
+The controller now retains one matched visual bundle: complete part/candidate
+manifest, CPU resources, target/part transforms and palette. A replacement is
+validated before publication; missing resources, incomplete parts and stale
+receipts cannot replace the previous bundle. Ordinary operations retain known
+resource IDs, so colour edits reuse their geometry. The dedicated painting
+renderer uses the displayed bundle's metadata and palette; native interaction
+metadata can advance separately. Unseen target/transform changes cannot accept
+paint input. Initial painting uses passive Prepare visuals until its complete
+bundle is installed, while painting already owns input. Failed renderer
+publication preserves the old visual and reserves error phase. Close cancels a
+remaining native draft before closing history, retaining retry state on failure
+and avoiding duplicate cancellation after a successful receipt.
+
+Borrowed cursor meshes retain identity for equal geometry and actual matrix
+values, avoiding repeated tight-bound vertex scans on RGB/config metadata reads.
+Bounds and cursor picking follow the displayed transforms. Input listeners read
+the current borrowed mesh set through a ref and remain stable across geometry
+refreshes. A component test with the former mesh-dependent listener effect
+failed because resource replacement synthesized release while the mouse was
+still held; the corrected effect passes. Pointer up, blur, pointercancel, lost
+capture and actual unmount still terminate the gesture.
+
+The real Electron regression observes actual selected-target draw callbacks for
+each main-scene render across entry and RGB editing. It rejects empty frames,
+Prepare/painting overlap, RGB geometry replacement and failure to draw the new
+material colour. The renderer also serves a separate GizmoHelper overlay scene;
+that scene is deliberately excluded from model-frame counting. Hooks and draw
+markers are compiled out of ordinary production builds. Failure diagnostics
+retain native hit, pointer and target evidence without an alternate paint API.
+
+Child final checks: app 730/730 across 93 files, root typecheck, current serial
+real Electron runner 1/1 (20.5 seconds), both ordinary host builds and 21-artifact
+profiling/probe elision. Earlier root checks passed before the final component
+tests. A single earlier Region press observed idle rather than drawing; its
+trace cannot establish the precise cause. The deterministic listener negative
+control establishes the resource-refresh defect independently; no six-tool
+assertion was weakened to accept that earlier failure.
+
+Parent independently passed `pnpm test` (1,140), `pnpm typecheck`, and
+`pnpm exec node scripts/run-painting-e2e.mjs` (1/1, 20.7 seconds). The runner
+checks the fixture and current served serial JS/WASM/data hashes. Entry captured
+15 main-scene frames (11 Prepare, 4 painting); RGB captured 15 painting frames.
+Both have zero empty/overlapping frames; RGB has one geometry UUID and seven
+frames drawing the new `445566` material. Frame JSON is under ignored desktop
+`test-results`; parent command logs use ignored
+`packages/slicer-wasm/.work/parent-painting-flicker-*.log`.
+
+The parent restored fresh ordinary production output with
+`pnpm --filter @orca/desktop build` and `pnpm --filter @orca/web build`, then
+independently passed `pnpm exec node scripts/check-painting-profile-elision.mjs`
+on 21 artifacts. `git diff --check` passed; the pinned submodule remains
+`c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`.
+
+Native code and the pinned submodule are unchanged. No native rebuild, full
+dual-host/dual-variant release matrix or universal frame-rate/GPU-latency claim
+is involved in this shared rendering fix.

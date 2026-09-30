@@ -388,6 +388,17 @@ incremental topology synchronization are not required for the first release;
 consider them later if measured generation, transfer, or upload costs justify
 the additional protocol and resource-lifetime complexity.
 
+Publish the resource manifest, its target/part transforms and its palette as
+one complete visual bundle. While entering painting, retain passive Prepare
+visuals until the first complete painting bundle is ready. During later
+refreshes, retain the previous complete bundle until its replacement is ready;
+do not clear the model or combine old geometry with new target transforms.
+Palette-only changes reuse unchanged geometry. Reject painting input for a
+target or transform not yet displayed. A failed replacement retains the last
+complete visual, and a renderer publication failure blocks further painting
+until recovery or closure. Cursor geometry refreshes must not synthesize stroke
+termination; real pointer and focus interruptions retain their terminal rules.
+
 During continuous painting, request geometry refreshes in step with display
 frames when there are pending changes and the preceding refresh has completed.
 There is no fixed 30 Hz cap. Do not accumulate a queue of complete geometry

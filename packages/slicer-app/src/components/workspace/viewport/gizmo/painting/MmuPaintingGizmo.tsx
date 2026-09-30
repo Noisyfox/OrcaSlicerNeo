@@ -1,6 +1,5 @@
 import type { LoadedObject } from '../../useModelLoader';
-import { useFilamentSessionStore } from '../../../../../stores/useFilamentSessionStore';
-import { usePaintingState } from './PaintingProvider';
+import type { ReactNode } from 'react';
 import { PaintingGizmoBase } from './PaintingGizmoBase';
 import type { FilamentSessionSnapshot } from '@slicer/client';
 
@@ -12,8 +11,6 @@ export function mmuPaintingColor(rack: FilamentSessionSnapshot | null, objectId:
     ?? rack?.assignments.objects.find((o) => o.id === objectId)?.effectiveSlot ?? 1;
   return rack?.slots.find((s) => s.slot === (state || assignment))?.colour.effective ?? rack?.slots[0]?.colour.effective ?? '#cccccc';
 }
-export function MmuPaintingGizmo({ volumes }: { volumes: readonly LoadedObject[] }) {
-  const rack = useFilamentSessionStore((s) => s.snapshot);
-  const state = usePaintingState();
-  return <PaintingGizmoBase volumes={volumes} resolveColor={(volumeId, facetState) => mmuPaintingColor(rack, state?.session?.objectId ?? -1, volumeId, facetState)} />;
+export function MmuPaintingGizmo({ volumes, openingVisual }: { volumes: readonly LoadedObject[]; openingVisual: ReactNode }) {
+  return <PaintingGizmoBase volumes={volumes} openingVisual={openingVisual} resolveColor={(display, volumeId, facetState) => mmuPaintingColor(display.palette, display.session.objectId, volumeId, facetState)} />;
 }
