@@ -1464,8 +1464,8 @@ accepted by the parent before starting the next step:
 3. Gap fill camera input: allow normal left drag started outside the model to
    rotate around the existing painting pivot, while preserving static Gap
    candidates and preventing a paint stroke/history entry. Respect native
-   collision authority, drop busy intermediate moves and reliable terminal
-   handling. Verify exterior/model press distinctions, camera rotation, static
+   collision authority for pointer painting tools, drop busy intermediate moves
+   and preserve reliable terminal handling. Verify camera ownership, rotation, static
    preview continuity and unchanged history/native annotations.
 
 Keep the current branch, public API and pinned native submodule intact unless
@@ -1540,3 +1540,41 @@ lower plane; the global cap has two retained-model frames and zero Height
 draws. Parent restored ordinary Desktop and passed elision on 21 artifacts
 plus diff checks. Native build/root matrix/second-host real E2E remain omitted
 for this visual-only step; final root checks follow step 3.
+
+Step 3 accepted: static Apply-only Gap presses enter camera ownership when idle,
+the native lane is free and the complete display matches the session. Ordinary
+left drag rotates from both empty space and model surfaces without native
+picking, opening a stroke, invalidating candidates or writing history. Orca's
+`GLGizmoPainterBase::gizmo_event` returns false on a native miss; a Gap hit is
+consumed without brush/fill action. NEO intentionally permits navigation on a
+Gap hit as well because it has no pointer painting operation. Other tools keep
+native hit authority. No public/native API or internal compatibility path was
+added; existing capture, terminal and model-centre orbit code is reused.
+
+Child self-verification passed 121 focused cases, all 853 app tests, app
+typecheck, the real serial journey (1/1, 29.4 seconds total), ordinary Desktop
+build, 21-artifact elision and diff checks. Parent reviewed admission gates,
+static candidate ownership, asynchronous gesture resolution/capture cleanup,
+test fixtures and actual-render assertions. Coverage includes busy preview,
+target handoff, unfinished Apply/commit/cancel, closure, and early pointerup,
+cancel, capture loss, blur and Escape without reviving the abandoned gesture.
+
+Final independent parent gates passed `pnpm test` (1264 tests), `pnpm typecheck`,
+and `pnpm exec node scripts/run-painting-e2e.mjs` (1/1, 29.8 seconds total;
+current serial JS/WASM/DATA hashes verified). Parent inspected camera and frame
+evidence: outside drag 41/41 and surface drag 40/40 frames each retain a single
+stable candidate geometry. Actual camera orientation changes while the model pivot
+retains its camera-space/projected position; reverse ordinary drag restores the
+pose. RPC/resource counts, committed annotations and history remain unchanged,
+and subsequent Gap Apply still succeeds. The same journey also covers the
+accepted toolbar activation and Height section rendering.
+
+Parent rebuilt ordinary `pnpm --filter @orca/desktop build` and
+`pnpm --filter @orca/web build`, then passed
+`pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 production
+artifacts and `git diff --check`. Logs are
+`packages/slicer-wasm/.work/parent-three-fixes-*.log`; real evidence is in
+`apps/desktop/test-results/painting.e2e.ts-real-paint-996d1-ts-history-camera-and-close/`.
+The pinned submodule remains `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`.
+No native build, second-host real E2E or dual-host/dual-WASM release matrix was
+run for these shared application fixes; production builds cover both hosts.

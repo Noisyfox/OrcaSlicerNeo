@@ -206,6 +206,13 @@ left-drag permits rotation even over the model. Middle/right drag pans, and
 the unmodified wheel zooms. A gesture owned by camera navigation must not turn
 into painting merely because the pointer subsequently crosses the model.
 
+Gap fill is Apply-only, so its idle unmodified left drag rotates from either
+empty space or a model surface without starting a stroke or picking natively.
+Admit the press only when the native lane is free and the complete displayed
+target matches the session; busy or unmatched presses are dropped. This
+navigation preserves the static preview and creates no project/history edits.
+Pointer painting tools retain native hit authority for paint/camera ownership.
+
 Painting camera rotation uses the world bounding-box centre of the displayed
 editing instance's solid parts, including its Z coordinate. Keep this pivot
 separate from the navigation target used for pan and zoom. Rotate the camera

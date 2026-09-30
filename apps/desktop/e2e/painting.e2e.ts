@@ -426,6 +426,35 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     // Zoom invokes the same hoverAt(undefined) path as camera gestures.
     await page.mouse.wheel(0, -20); await settleFrames();
     await assertGapFrames('painting-gap-static-move-leave', await stopFrames(), [gapResources]);
+    const gapCameraEvidence: Array<{ start: string; before: Evidence; rotated: Evidence; restored: Evidence }> = [];
+    const gapCommitted = await committed(); await idle(); await settleFrames();
+    const gapPerformance = () => page.evaluate(() => {
+      const value = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingPerformanceEvidence();
+      return { calls: value.calls, created: value.totalCreated, released: value.totalReleased };
+    });
+    for (const start of ['outside', 'surface']) {
+      const before = (await read())!, nativeBefore = await gapPerformance();
+      const origin = start === 'outside' ? { x: bounds!.x + 10, y: before.center.y } : before.center;
+      const end = start === 'outside' ? before.center : { x: origin.x + 25, y: origin.y };
+      await page.mouse.move(origin.x, origin.y); await startFrames(); await settleFrames();
+      await page.mouse.down(); await page.mouse.move(end.x, end.y, { steps: 8 }); await settleFrames();
+      const rotated = (await read())!;
+      expect(rotated.phase).toBe('idle'); expect(rotated.camera.slice(3)).not.toEqual(before.camera.slice(3));
+      near(rotated.pivot, before.pivot); near(rotated.pivotCamera, before.pivotCamera);
+      near([rotated.center.x, rotated.center.y], [before.center.x, before.center.y]);
+      expect(rotated.resources).toEqual(before.resources); expect(rotated.rendered).toEqual(before.rendered);
+      // Reverse the horizontal orbit through normal pointer input, preserving
+      // the view used by later native Gap Apply and the other tool assertions.
+      await page.mouse.move(origin.x, origin.y, { steps: 8 }); await page.mouse.up(); await settleFrames();
+      const restored = (await read())!;
+      near(restored.camera, before.camera); near(restored.target, before.target);
+      expect(restored.resources).toEqual(before.resources); expect(await gapPerformance()).toEqual(nativeBefore);
+      await assertGapFrames(`painting-gap-${start}-camera-frames`, await stopFrames(), [gapResources]);
+      expect(await committed()).toEqual(gapCommitted); await idle(); await settleFrames();
+      gapCameraEvidence.push({ start, before, rotated, restored });
+    }
+    const gapCameraPath = test.info().outputPath('painting-gap-camera.json'); writeFileSync(gapCameraPath, JSON.stringify(gapCameraEvidence, null, 2));
+    await test.info().attach('painting-gap-camera', { path: gapCameraPath, contentType: 'application/json' });
     const gapSelections = [gapResources];
     await startFrames(); await settleFrames();
     const area = page.getByRole('spinbutton', { name: 'Gap area (mm²)', exact: true });

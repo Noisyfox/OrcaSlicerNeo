@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import type { PaintingState } from './PaintingController';
+import { PaintingController, type PaintingPorts, type PaintingState } from './PaintingController';
 import type { LoadedObject } from '../../useModelLoader';
 import { PaintingGizmoBase, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
 
@@ -105,6 +105,59 @@ async function rotate(dx = 30, dy = 20) {
   await act(async () => canvas.dispatchEvent(pointer('pointermove', { ctrlKey: true, clientX: 10 + dx, clientY: 10 + dy })));
   await act(async () => canvas.dispatchEvent(pointer('pointerup')));
 }
+
+it.each(['outside', 'surface'])('routes a real idle Gap controller press from %s to model-pivot rotation without native edits', async (start) => {
+  const session = { ...mocked.state!.session!, instanceTransform: new THREE.Matrix4().makeTranslation(100, 40, 20).toArray() };
+  const draft = mocked.state!.display!.resources[0];
+  const candidate = { ...draft, resourceId: 'gap', kind: 'gap' as const };
+  const api = {
+    openHistorySession: vi.fn(async () => ({ sessionId: 'hs-1', status: {} })),
+    openPaintingSession: vi.fn(async () => ({ ok: true, version: 1, session })),
+    previewPainting: vi.fn(async () => ({ ok: true, version: 1, sessionId: session.id, revision: 1, phase: 'idle', strokeId: null, effective: false, changedPartIds: [], hit: null })),
+    getPaintingGeometry: vi.fn(async () => ({ ...mocked.state!.display!, sessionId: session.id, parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [{ resourceId: 'gap', volumeId: 3, kind: 'gap' }], resources: [draft, candidate] })),
+    beginPaintingStroke: vi.fn(), samplePaintingStroke: vi.fn(), finishPaintingStroke: vi.fn(), cancelPaintingStroke: vi.fn(), commitPaintingStroke: vi.fn(),
+  };
+  const frames: Array<() => void> = [], history = vi.fn(), committed = vi.fn();
+  const owner = new PaintingController({ api: api as unknown as PaintingPorts['api'], coordinate: async (operation) => operation(), palette: () => null, targetAvailable: () => true,
+    history, committed, prepareClosed: async () => {}, schedule: (callback) => { frames.push(callback); return () => {}; } });
+  owner.setTool('gap'); await owner.open(1, 2); frames.shift()?.();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  mocked.owner = owner; mocked.state = owner.getSnapshot();
+  expect(mocked.state.display?.candidates).toHaveLength(1);
+  const snapshot = owner.getSnapshot(), calls = Object.values(api).map((call) => call.mock.calls.length);
+  const raycast = vi.spyOn(THREE.Raycaster.prototype, 'intersectObjects').mockReturnValue(start === 'surface' ? [{ point: new THREE.Vector3(100, 40, 20) } as THREE.Intersection] : []);
+  await render([source]);
+  const camera = mocked.three.camera as THREE.PerspectiveCamera, pivot = new THREE.Vector3(100, 40, 20);
+  const position = camera.position.clone(), orientation = camera.quaternion.clone(), before = cameraPoint(pivot);
+  await act(async () => canvas.dispatchEvent(pointer('pointerdown')));
+  expect(canvas.hasPointerCapture(1)).toBe(true);
+  // Crossing into a model retains camera ownership rather than opening a stroke.
+  raycast.mockReturnValue([{ point: pivot.clone() } as THREE.Intersection]);
+  await act(async () => canvas.dispatchEvent(pointer('pointermove', { clientX: 40, clientY: 30 })));
+  expect(camera.position.equals(position)).toBe(false); expect(camera.quaternion.equals(orientation)).toBe(false);
+  near(cameraPoint(pivot).toArray(), before.toArray());
+  await act(async () => canvas.dispatchEvent(pointer('pointerup')));
+  expect(canvas.hasPointerCapture(1)).toBe(false);
+  expect(owner.getSnapshot()).toBe(snapshot); expect(Object.values(api).map((call) => call.mock.calls.length)).toEqual(calls);
+  expect(history).toHaveBeenCalledTimes(1); expect(committed).not.toHaveBeenCalled();
+  const released = pose(); await act(async () => canvas.dispatchEvent(pointer('pointermove', { clientX: 70, clientY: 50 }))); near(pose(), released);
+});
+
+it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'Escape'])('does not revive Gap camera ownership when %s precedes press resolution', async (terminal) => {
+  mocked.state = { ...mocked.state!, tool: 'gap' };
+  let resolve!: (result: string) => void;
+  mocked.owner.press.mockImplementation(() => new Promise<string>((r) => { resolve = r; }));
+  await render([source]); await act(async () => canvas.dispatchEvent(pointer('pointerdown')));
+  const before = pose();
+  await act(async () => {
+    if (terminal === 'blur') window.dispatchEvent(new Event('blur'));
+    else if (terminal === 'Escape') canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    else canvas.dispatchEvent(pointer(terminal));
+    resolve('camera');
+  });
+  await act(async () => canvas.dispatchEvent(pointer('pointermove', { clientX: 40, clientY: 30 })));
+  near(pose(), before); expect(canvas.hasPointerCapture(1)).toBe(false); expect(mocked.owner.move).not.toHaveBeenCalled();
+});
 
 it('uses tight transformed original solid-part bounds for the displayed instance, including Z and excluding other instances', () => {
   const first = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([-2, 0, 1, 4, 1, 3, 0, 3, -1], 3));

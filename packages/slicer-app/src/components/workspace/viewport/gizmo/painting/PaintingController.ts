@@ -207,9 +207,13 @@ export class PaintingController {
     if (!event || previewInput(this.state.tool) !== 'pointer') this.update({ display: this.withoutCandidates() });
     if (previewInput(this.state.tool) === 'pointer') { this.previewDirty = true; this.advancePreview(); this.scheduleDisplay(); }
   }
-  /** Native hit is the sole authority for the initial paint/camera decision. */
+  /** Pointer tools use the native hit for paint/camera ownership. Static Gap
+   * has no pointer stroke, so an idle press owns camera navigation directly. */
   async press(event: PaintingPointerEvent, erase = false): Promise<'paint' | 'camera' | 'ignored'> {
-    if (this.state.phase !== 'idle' || previewInput(this.state.tool) === 'static') return 'ignored';
+    if (this.state.phase !== 'idle') return 'ignored';
+    if (previewInput(this.state.tool) === 'static') {
+      return !this.lane && paintingDisplayMatchesTarget(this.state.display, this.state.session) ? 'camera' : 'ignored';
+    }
     if (!this.lane && !paintingDisplayMatchesTarget(this.state.display, this.state.session)) return 'ignored';
     const sample = { event, settings: this.settings(erase) }, tool = this.state.tool;
     if (previewInput(tool) === 'pointer') { this.hover = event; this.advancePreview(); }

@@ -429,13 +429,43 @@ describe.each(['triangle', 'region', 'gap'] as const)('%s shared candidate previ
     unsubscribe(); f.cache.dispose();
   });
   if (tool === 'gap') {
-  it('ignores model/empty-space movement, leave and camera hover invalidation without any RPC or history changes', async () => {
+  it('owns model/empty-space camera presses and retains static candidates without any RPC or history changes', async () => {
     const f = await candidatePreview(), c = f.controller, before = c.getSnapshot().display;
-    const previewCalls = vi.mocked(f.ports.api.previewPainting).mock.calls.length, geometryCalls = vi.mocked(f.ports.api.getPaintingGeometry).mock.calls.length;
+    const snapshot = c.getSnapshot(), calls = Object.values(f.ports.api).map((api) => vi.mocked(api).mock.calls.length);
+    const selected = f.cache.resources.get(before!.candidates[0].resourceId), disposed = vi.spyOn(selected!.geometry, 'dispose');
+    for (const point of [event(100), event(1)]) {
+      expect(await c.press(point)).toBe('camera'); expect(c.move(event(2))).toBe(false); c.release(event(3)); c.cancel();
+      expect(c.getSnapshot()).toBe(snapshot);
+    }
     for (const point of [event(1), event(100), undefined, event(2), undefined]) c.hoverAt(point);
     await f.frame(); expect(c.getSnapshot().display).toBe(before);
-    expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(previewCalls); expect(f.ports.api.getPaintingGeometry).toHaveBeenCalledTimes(geometryCalls);
+    expect(Object.values(f.ports.api).map((api) => vi.mocked(api).mock.calls.length)).toEqual(calls);
+    expect(f.cache.resources.get(before!.candidates[0].resourceId)).toBe(selected); expect(disposed).not.toHaveBeenCalled();
     expect(f.ports.history).toHaveBeenCalledTimes(1); expect(f.ports.committed).not.toHaveBeenCalled(); f.cache.dispose();
+  });
+  it('drops busy Gap presses without queuing and waits for a complete idle target before camera admission', async () => {
+    const f = await candidatePreview(), c = f.controller;
+    const pending = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(pending.promise);
+    c.setSettings({ gapArea: 4 }); f.frames.shift()?.(); await tick();
+    expect(await c.press(event(100))).toBe('ignored'); c.release(event(1));
+    pending.resolve(f.receipt('idle')); await tick(); await f.frame();
+    expect(f.ports.api.beginPaintingStroke).not.toHaveBeenCalled(); expect(await c.press(event(1))).toBe('camera');
+    const target = c.target(4, 5); expect(await c.press(event(1))).toBe('ignored');
+    await target; expect(await c.press(event(1))).toBe('ignored');
+    await f.frame(); expect(await c.press(event(1))).toBe('camera');
+    const applyResult = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.beginPaintingStroke).mockReturnValueOnce(applyResult.promise);
+    const commitResult = deferred<Awaited<ReturnType<typeof f.ports.api.commitPaintingStroke>>>(); vi.mocked(f.ports.api.commitPaintingStroke).mockReturnValueOnce(commitResult.promise);
+    const apply = c.apply('gap'); await tick();
+    expect(c.unfinished).toBe(true); expect(await c.press(event(1))).toBe('ignored');
+    applyResult.resolve(f.receipt('finished')); await tick(); expect(c.getSnapshot().phase).toBe('ending'); expect(await c.press(event(1))).toBe('ignored');
+    commitResult.resolve({ ...f.receipt('idle'), committed: true, affectedPlateIds: ['plate1'], history: status }); await apply; await f.frame();
+    expect(await c.press(event(1))).toBe('camera');
+    const cancelled = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.beginPaintingStroke).mockReturnValueOnce(cancelled.promise);
+    const cancelledApply = c.apply('gap'); await tick(); c.cancel();
+    expect(c.getSnapshot().phase).toBe('cancelling'); expect(await c.press(event(1))).toBe('ignored');
+    cancelled.resolve(f.receipt('finished')); await cancelledApply; await f.frame(); expect(await c.press(event(1))).toBe('camera');
+    const close = c.close(); expect(await c.press(event(1))).toBe('ignored'); await close;
+    expect(await c.press(event(1))).toBe('ignored'); f.cache.dispose();
   });
   }
   it.each(['preview', 'geometry'] as const)('discards obsolete %s work across successive settings without corrupting known resources', async (stage) => {
