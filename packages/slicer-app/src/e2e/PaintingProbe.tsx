@@ -26,7 +26,7 @@ export function paintingUploadBytes(method: 'bufferData' | 'bufferSubData', args
 export function PaintingVisualProbe() {
   const { gl, invalidate, scene: mainScene } = useThree();
   useEffect(() => {
-    type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
+    type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
       draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
         candidate?: { positions: number[] };
         contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] };
@@ -37,8 +37,21 @@ export function PaintingVisualProbe() {
     gl.render = function (scene, camera) {
       // GizmoHelper renders a separate overlay scene through this renderer.
       // Only the persistent model scene is a viewport model frame.
-      if (!capture || scene !== mainScene) return originalRender.call(gl, scene, camera);
-      const frame: Frame = { at: performance.now(), ordinary: [], painting: [], colors: [], draws: [] };
+      if (!capture) return originalRender.call(gl, scene, camera);
+      if (scene !== mainScene) {
+        const navigator = scene.getObjectByName('viewport-navigator'), frame = capture.frames.at(-1);
+        if (!navigator || !frame) return originalRender.call(gl, scene, camera);
+        const restore: Array<() => void> = [];
+        navigator.traverse((object) => {
+          if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Sprite)) return;
+          const original = object.onBeforeRender;
+          object.onBeforeRender = function (...args) { original.apply(this, args); frame.navigatorDraws++; };
+          restore.push(() => { object.onBeforeRender = original; });
+        });
+        try { return originalRender.call(gl, scene, camera); }
+        finally { restore.forEach((callback) => callback()); }
+      }
+      const frame: Frame = { at: performance.now(), ordinary: [], painting: [], colors: [], draws: [], navigatorDraws: 0 };
       const restore: Array<() => void> = [];
       scene.traverse((object) => {
         if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.LineSegments)) return;

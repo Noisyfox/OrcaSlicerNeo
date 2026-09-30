@@ -35,6 +35,8 @@ import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
 import { MmuPaintingPanel } from './gizmo/painting/MmuPaintingPanel';
 
+declare const __ORCA_E2E__: boolean;
+
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
 // CameraFraming below reapplies the same framing for the selected profile.
@@ -535,9 +537,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
                 Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
                 viewcube's Y-up face names). See
                 doc/2026-08-17-viewcube-gizmo.md. */}
-            {!paintingActive && <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
-              <GizmoViewport />
-            </GizmoHelper>}
+            <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
+              <GizmoViewport name={__ORCA_E2E__ ? 'viewport-navigator' : undefined} />
+            </GizmoHelper>
           </Canvas>
         </SceneContextMenu>
       </ViewportErrorBoundary>
@@ -558,7 +560,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
-      {prepareTab && plateSession && <PlateControls
+      {prepareTab && !paintingActive && plateSession && <PlateControls
         plateSession={plateSession}
         pending={plateActionPending}
         onAdd={addPlate}

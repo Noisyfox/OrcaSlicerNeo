@@ -1728,3 +1728,18 @@ benchmark records use `parent-*.log`, `parent-noop/` and `parent-edits/` under
 the same evidence directory. No native source or pinned submodule changed;
 parent did not repeat the unchanged native build or run a second real host,
 threaded variant or full release matrix.
+
+## Painting viewport chrome — 2026-09-30
+
+Painting mode hides the Prepare plate controls while keeping the bottom-left
+3D orientation navigator visible, including opening, drawing and closing. The
+plate controls return when the viewport returns to Prepare.
+
+Acceptance includes source review and the real serial Electron six-tool
+journey. The journey asserts toolbar visibility before/during/after painting
+and records actual navigator draw callbacks in the separate HUD scene.
+The native load receipt can precede load-overlay removal; the test waits for
+that overlay and two animation frames before selecting via raw coordinates.
+`pnpm test` (1,273 tests), `pnpm typecheck`, Desktop/Web production builds,
+21-artifact painting observer elision and `git diff --check` passed. No native
+code changed, and no native rebuild or full release matrix was run.

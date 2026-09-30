@@ -9,7 +9,7 @@ test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painti
 test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[] };
-type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
+type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
@@ -30,6 +30,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-confirmation-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 120_000 }).toBe(true);
     if (await page.getByTestId('project-load-confirmation-dialog').isVisible()) await page.getByTestId('project-load-confirmation-dialog-continue').click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 60_000 }).toMatchObject({ sourceDisplayName: basename(project!), sourceByteLength: statSync(project!).size, nativeResult: { ok: true, objects: 1, instances: 2 } });
+    // The native receipt precedes removal of the load overlay and scene effects.
+    // Raw mouse coordinates do not have locator.click's actionability waiting.
+    await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0);
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const center = await page.evaluate(() => {
       const hooks = (window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e as unknown as { modelWorldCenters(): [number, number, number][]; projectWorldToScreen(p: [number, number, number]): { x: number; y: number } };
       return hooks.projectWorldToScreen(hooks.modelWorldCenters()[0]);
@@ -80,15 +84,18 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       expect(frames.length, `${name}: real renderer frames were recorded`).toBeGreaterThan(1);
       expect(frames.filter((f) => f.ordinary.length + f.painting.length === 0), `${name}: every frame draws the selected target`).toEqual([]);
       expect(frames.filter((f) => f.ordinary.length > 0 && f.painting.length > 0), `${name}: Prepare and painting never expose the target together`).toEqual([]);
+      expect(frames.every((frame) => frame.navigatorDraws > 0), `${name}: the orientation navigator actually draws`).toBe(true);
     };
     const cameraPose = () => page.evaluate(() => { const state = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.cameraState(); return { position: state.position, quaternion: state.quaternion, target: state.target }; });
     const beforeOpenCamera = await cameraPose();
+    await expect(page.getByTestId('plate-controls')).toBeVisible();
     await startFrames(); await settleFrames(); await page.getByTestId('gizmo-btn-paint').click();
     const read = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingEvidence as (() => Evidence) | undefined)?.() ?? null);
     const committed = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingCommittedEvidence as () => Promise<Committed>)());
     const history = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.historyNativeStatus());
     const idle = async () => { await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle'); await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0); };
     await idle(); await settleFrames();
+    await expect(page.getByTestId('plate-controls')).toHaveCount(0);
     await assertPaintingArmed('idle'); await assertPaintingArmed('idle-hover', true);
     await page.screenshot({ path: test.info().outputPath('painting-toolbar-active.png') });
     const near = (actual: number[], expected: number[]) => actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 8));
@@ -521,6 +528,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(expandedHistory.editingSession).not.toBeNull();
     expect(expandedHistory.undoEntries.filter((entry: { label: string }) => entry.label === 'Paint').length).toBeGreaterThan(1);
     await page.getByRole('button', { name: 'Close painting', exact: true }).click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await expect(page.getByTestId('plate-controls')).toBeVisible();
     await expect(paintButton).toHaveAttribute('aria-pressed', 'false'); await leaveToolbar();
     await expect.poll(() => toolbarColors(paintButton)).toEqual(inactivePaintColors);
     toolbarEvidence.closedAfterSession = await toolbarColors(paintButton);
