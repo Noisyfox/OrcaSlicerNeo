@@ -201,6 +201,16 @@ left-drag permits rotation even over the model. Middle/right drag pans, and
 the unmodified wheel zooms. A gesture owned by camera navigation must not turn
 into painting merely because the pointer subsequently crosses the model.
 
+Painting camera rotation uses the world bounding-box centre of the displayed
+editing instance's solid parts, including its Z coordinate. Keep this pivot
+separate from the navigation target used for pan and zoom. Rotate the camera
+pose and navigation target together around the model centre, preserving that
+centre's camera-space position after pan. Update the pivot with a complete
+displayed target/transform handoff; colour edits, strokes and pan do not move
+it. Opening or closing painting does not itself reframe the view. Retain Neo's
+existing safe polar rotation range so ordinary camera controls can resume
+without a view jump.
+
 The first-release painting shortcuts are limited to Shift plus left button for
 erasing and Ctrl/Cmd plus wheel to adjust the current tool's size or threshold.
 Choose tools and filament colours through the panel; do not enable Orca's

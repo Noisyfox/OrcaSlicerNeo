@@ -1000,3 +1000,77 @@ on 21 artifacts. `git diff --check` passed; the pinned submodule remains
 Native code and the pinned submodule are unchanged. No native rebuild, full
 dual-host/dual-variant release matrix or universal frame-rate/GPU-latency claim
 is involved in this shared rendering fix.
+
+## Follow-up: painting camera rotation centre (2026-09-30)
+
+The user requires the current model bounding-box centre as the painting camera
+rotation centre. The pinned Orca source implements this in
+`GLCanvas3D.cpp`: the `MmSegmentation`/other painter camera branch passes
+`Selection::get_bounding_box().center()` to
+`Camera::rotate_on_sphere_with_target`, falling back to all-volume bounds only
+without a selection. `Camera.cpp` preserves the pivot's camera-space position
+while rotating the camera pose. The painter's opening/closing `set_target` and
+`look_at` code is commented out; opening alone does not recenter the viewport.
+
+Delivered as one bounded step: derive the world bounding-box centre of the
+displayed editing instance's solid parts using its original vertices and
+displayed transforms; rotate the camera pose about that centre while preserving
+framing. Keep the navigation target coherent with the camera pose for pan,
+zoom and returning to Prepare. Model switching/transform handoff updates the
+rotation centre with the displayed bundle; colour changes, strokes and pan do
+not move it. Opening/closing does not itself reframe the camera. Preserve stable
+pointer listeners, reliable terminal handling and unfinished-stroke camera
+guards. Do not add a native API or internal compatibility path.
+
+A fresh gpt-6.1-sol/high child implemented and self-verified this step. Parent
+accepted the camera math, resource/transform ownership, stable listener effect
+and current internal signatures after independent source review and checks.
+The original-vertex tight bounds are reused by the height cursor and rotation
+pivot; equal RGB/stroke metadata does not repeat vertex scans. A nullable pivot
+reserves rotation until a displayed model exists. The world-Z azimuth and
+current-camera-right zenith quaternion rotate camera position, orientation and
+the navigation target together about the pivot. Retain Neo's previous safe
+polar range (`1e-6` to `PI-1e-6`) using the view direction; the pinned Orca
+painter passes `false` for polar limits. This deliberate bounded difference
+preserves ordinary OrbitControls handoff without introducing inverted-view or
+dynamic-up camera behavior.
+
+Deterministic tests cover multi-part tight AABBs, mirrored/nonuniform transforms,
+Z height and exclusion of other instances; pan then orbit; both pole limits;
+entry and closure without reframing; delayed same-instance transforms and
+different-object/instance display handoffs; RGB/stroke cache reuse; and camera
+guards/reliable terminals during unfinished strokes. The real Electron journey
+checks the fixture's independent centre `[100,100,10]`, performs middle/right
+pan before modified-left orbit, and verifies unchanged pivot camera-space and
+screen position. Entry, RGB, close, six tools and nested history assertions
+remain. The existing E2E-only probe exposes the actual displayed pivot rather
+than a separately calculated test pivot.
+
+Child self-verification: focused 16/16; app 736/736 in 93 files; root
+`pnpm test` 1,146/1,146; app/root and desktop typechecks; current serial real
+Electron runner 1/1 (20.4-second test); fresh ordinary Desktop/Web builds and
+21-artifact profiling/probe elision. The first new entry-camera assertion tried
+to read the Prepare scene probe after that scene had unmounted. Its concrete
+observability failure was corrected to use the existing painting camera pose;
+before-open and after-close continue using the Prepare probe. No product
+camera change or assertion relaxation was used to repair the test.
+
+Parent independently passed `pnpm test` (1,146), `pnpm typecheck` and
+`pnpm exec node scripts/run-painting-e2e.mjs` (1/1, 20.5 seconds total). The
+runner verified the fixture and served current serial JS/WASM/data hashes.
+The pivot stayed `[100,100,10]` through both pans and rotation. Its camera-space
+position before/after rotation differed by at most approximately `3e-14`.
+Entry captured 19 main-scene frames; RGB captured 16. Both have zero empty or
+overlapping frames; RGB retains one geometry UUID and six frames drawing the
+new `445566` colour. Evidence JSON is under ignored desktop `test-results`;
+parent logs use `packages/slicer-wasm/.work/parent-painting-camera-*.log`.
+
+Parent also restored fresh ordinary production builds with
+`pnpm --filter @orca/desktop build` and `pnpm --filter @orca/web build`, and
+passed `pnpm exec node scripts/check-painting-profile-elision.mjs` on 21
+artifacts. `git diff --check` passed. The pinned submodule remains
+`c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`.
+
+No native code/submodule change or native rebuild is required for this shared
+camera fix. The full dual-host/dual-WASM release matrix was intentionally not
+rerun; focused shared behavior is exercised in real serial Electron.

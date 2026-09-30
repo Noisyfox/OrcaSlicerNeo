@@ -31,6 +31,15 @@ export function paintingCursorMeshes(previous: THREE.Mesh[], volumes: readonly L
   });
 }
 
+export function paintingModelBounds(meshes: readonly THREE.Mesh[]): THREE.Box3 {
+  const box = new THREE.Box3(), vertex = new THREE.Vector3();
+  for (const mesh of meshes) {
+    const position = mesh.geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i++) box.expandByPoint(vertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrix));
+  }
+  return box;
+}
+
 /** Dedicated painting tree: no ordinary model meshes, selection, drag or BVH on
  * subdivided geometry. Native candidates are separate, explicit manifests. */
 export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { volumes: readonly LoadedObject[]; resolveColor(display: PaintingDisplay, volumeId: number, state: number): string; openingVisual: ReactNode }) {
@@ -58,12 +67,19 @@ export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { vo
     return borrowedCursorMeshes.current;
   }, [volumes, session?.objectId, session?.instanceId, session?.instanceTransform, session?.parts, cursorMaterial]);
   const cursorMeshesRef = useRef(cursorMeshes); cursorMeshesRef.current = cursorMeshes;
+  // Bounds follow only the complete displayed target, using original solid
+  // vertices and its displayed matrices. Equivalent RGB/stroke receipts reuse
+  // cursorMeshes, so neither vertex scans nor the orbit centre change.
+  const bounds = useMemo(() => paintingModelBounds(cursorMeshes), [cursorMeshes]);
+  const pivot = useMemo(() => bounds.isEmpty() ? null : bounds.getCenter(new THREE.Vector3()), [bounds]);
+  const pivotRef = useRef(pivot); pivotRef.current = pivot;
   useEffect(() => {
     const canvas = gl.domElement;
-    const orbit = controls as unknown as { target?: THREE.Vector3; enabled: boolean; enableDamping: boolean; update(): void } | null;
-    const damping = orbit?.enableDamping;
-    if (orbit) { orbit.enableDamping = false; orbit.update(); }
-    const target = orbit?.target ?? new THREE.Vector3();
+    const orbit = controls as unknown as { target: THREE.Vector3; enableDamping: boolean; update(): void } | null;
+    if (!orbit) return;
+    const damping = orbit.enableDamping;
+    orbit.enableDamping = false; orbit.update();
+    const target = orbit.target;
     type Gesture = { id: number; mode: 'pending' | 'paint' | 'rotate' | 'pan'; x: number; y: number };
     let gesture: Gesture | null = null;
     let disposed = false;
@@ -96,7 +112,10 @@ export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { vo
       if (owner.unfinished) return;
       const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
       gesture.x = event.clientX; gesture.y = event.clientY;
-      if (gesture.mode === 'rotate') rotatePaintingCamera(camera, target, dx, dy, canvas.clientHeight);
+      if (gesture.mode === 'rotate') {
+        if (!pivotRef.current) return;
+        rotatePaintingCamera(camera, target, pivotRef.current, dx, dy, canvas.clientHeight);
+      }
       else panPaintingCamera(camera, target, dx, dy, canvas.clientHeight);
       camera.updateMatrixWorld(); invalidate(); setCursor(null); owner.hoverAt();
     };
@@ -138,27 +157,17 @@ export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { vo
     window.addEventListener('blur', interrupted); window.addEventListener('keydown', key, true);
     return () => {
       disposed = true; interrupted();
-      if (orbit) { orbit.update(); orbit.enableDamping = damping ?? true; }
+      orbit.update(); orbit.enableDamping = damping;
       canvas.removeEventListener('pointerdown', down, true); canvas.removeEventListener('pointermove', move, true);
       canvas.removeEventListener('pointerup', up, true); canvas.removeEventListener('pointercancel', interrupted, true);
       canvas.removeEventListener('lostpointercapture', lost, true); canvas.removeEventListener('pointerleave', leave);
       canvas.removeEventListener('wheel', wheel, true); window.removeEventListener('blur', interrupted); window.removeEventListener('keydown', key, true);
     };
   }, [camera, gl, controls, invalidate, owner]);
-  const bounds = useMemo(() => {
-    const box = new THREE.Box3(), vertex = new THREE.Vector3();
-    // The height cursor follows the displayed matrices too. The ordinary
-    // loader's GLVolume transforms may already describe the next project state.
-    for (const mesh of cursorMeshes) {
-      const position = mesh.geometry.getAttribute('position');
-      for (let i = 0; i < position.count; i++) box.expandByPoint(vertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrix));
-    }
-    return box;
-  }, [cursorMeshes]);
   const bandSize = bounds.getSize(new THREE.Vector3()), bandCenter = bounds.getCenter(new THREE.Vector3());
   const activeCandidates = new Set(visual?.display.candidates.map((c) => c.resourceId));
   return <>
-    {__ORCA_E2E__ && <PaintingProbe owner={owner} resources={cache} volumes={volumes} cursor={cursor} />}
+    {__ORCA_E2E__ && <PaintingProbe owner={owner} resources={cache} volumes={volumes} cursor={cursor} pivot={pivot} />}
     <ambientLight intensity={0.6} /><directionalLight position={[100, 150, 200]} intensity={1.2} />
     {visual ? visual.resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
       return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} />;
@@ -183,12 +192,20 @@ function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource:
   </group>;
 }
 
-export function rotatePaintingCamera(camera: THREE.Camera, target: THREE.Vector3, dx: number, dy: number, height: number): void {
-  const alignment = new THREE.Quaternion().setFromUnitVectors(camera.up, new THREE.Vector3(0, 1, 0));
-  const offset = camera.position.clone().sub(target).applyQuaternion(alignment);
-  const sphere = new THREE.Spherical().setFromVector3(offset);
-  sphere.theta -= 2 * Math.PI * dx / height; sphere.phi -= 2 * Math.PI * dy / height; sphere.makeSafe();
-  camera.position.copy(new THREE.Vector3().setFromSpherical(sphere).applyQuaternion(alignment.invert()).add(target)); camera.lookAt(target);
+export function rotatePaintingCamera(camera: THREE.Camera, target: THREE.Vector3, pivot: THREE.Vector3, dx: number, dy: number, height: number): void {
+  // Inverse of Orca's view rotation: world-Z azimuth and camera-right zenith.
+  // Retain Neo's safe polar range from the view direction, rather than the
+  // pivot offset (which differs after pan). Apply the same rigid transform to
+  // navigation's target so OrbitControls retains the existing framing.
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const backward = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+  const polar = Math.acos(THREE.MathUtils.clamp(backward.z, -1, 1));
+  const zenith = THREE.MathUtils.clamp(polar - 2 * Math.PI * dy / height, 1e-6, Math.PI - 1e-6) - polar;
+  const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -2 * Math.PI * dx / height)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(right, zenith));
+  camera.position.sub(pivot).applyQuaternion(rotation).add(pivot);
+  camera.quaternion.premultiply(rotation);
+  target.sub(pivot).applyQuaternion(rotation).add(pivot);
 }
 export function panPaintingCamera(camera: THREE.Camera, target: THREE.Vector3, dx: number, dy: number, height: number): void {
   const distance = camera.position.distanceTo(target);

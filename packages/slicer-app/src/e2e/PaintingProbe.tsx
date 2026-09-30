@@ -76,7 +76,7 @@ export function PaintingVisualProbe() {
 }
 
 /** Read-only observability for the real host journey; no alternate painting API. */
-export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: PaintingController; resources: PaintingResources; volumes: readonly LoadedObject[]; cursor: THREE.Vector3 | null }) {
+export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { owner: PaintingController; resources: PaintingResources; volumes: readonly LoadedObject[]; cursor: THREE.Vector3 | null; pivot: THREE.Vector3 | null }) {
   const { camera, gl, scene, controls } = useThree();
   const { runtime } = usePlatform();
   const interaction = useSceneInteraction();
@@ -201,6 +201,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
       let ordinaryModels = 0; scene.traverse((o) => { if (o.userData.orcaVolume) ordinaryModels++; });
       return { phase: state.phase, tool: state.tool, sessionId: state.session?.id, settings: state.settings, selection: [...interaction.selection.ids],
         camera: [...camera.position.toArray(), ...camera.quaternion.toArray()], target: (controls as unknown as { target?: THREE.Vector3 } | null)?.target?.toArray() ?? [0, 0, 0], cursor: cursor?.toArray() ?? null,
+        pivot: pivot?.toArray() ?? null, pivotCamera: pivot?.clone().applyMatrix4(camera.matrixWorldInverse).toArray() ?? null,
         center: center ? { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 } : null,
         resources: [...resources.resources.values()].map((r) => ({ id: r.source.resourceId, volumeId: r.source.volumeId, kind: r.source.kind, groups: r.source.groups, hasBvh: !!(r.geometry as THREE.BufferGeometry & { boundsTree?: unknown }).boundsTree })), ordinaryModels,
         nativeTarget: state.session, displayTarget: state.display?.session,
@@ -243,6 +244,6 @@ export function PaintingProbe({ owner, resources, volumes, cursor }: { owner: Pa
       return { x: rect.left + (projected.x + 1) * rect.width / 2,
         y: rect.top + (1 - projected.y) * rect.height / 2 };
     },
-  }), [camera, controls, cursor, gl, owner, resources, runtime, scene, volumes, interaction]);
+  }), [camera, controls, cursor, gl, owner, resources, runtime, scene, volumes, interaction, pivot]);
   return null;
 }

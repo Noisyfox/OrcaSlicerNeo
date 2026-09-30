@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
-type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
+type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[] };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
@@ -47,12 +47,22 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       expect(frames.filter((f) => f.ordinary.length + f.painting.length === 0), `${name}: every frame draws the selected target`).toEqual([]);
       expect(frames.filter((f) => f.ordinary.length > 0 && f.painting.length > 0), `${name}: Prepare and painting never expose the target together`).toEqual([]);
     };
+    const cameraPose = () => page.evaluate(() => { const state = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.cameraState(); return { position: state.position, quaternion: state.quaternion, target: state.target }; });
+    const beforeOpenCamera = await cameraPose();
     await startFrames(); await settleFrames(); await page.getByTestId('gizmo-btn-paint').click();
     const read = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingEvidence as (() => Evidence) | undefined)?.() ?? null);
     const committed = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingCommittedEvidence as () => Promise<Committed>)());
     const history = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.historyNativeStatus());
     const idle = async () => { await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle'); await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0); };
     await idle(); await settleFrames();
+    const near = (actual: number[], expected: number[]) => actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 8));
+    const afterOpen = (await read())!;
+    const afterOpenCamera = { position: afterOpen.camera.slice(0, 3), quaternion: afterOpen.camera.slice(3), target: afterOpen.target };
+    for (const key of ['position', 'quaternion', 'target'] as const) near(afterOpenCamera[key], beforeOpenCamera[key]);
+    // The repository cube has local bounds [-10,10] and the selected first
+    // instance translates by (100,100,10). The second is at (130,100,10).
+    // A scene/bed centre or a Z=0 pivot cannot satisfy this independent value.
+    near((await read())!.pivot, [100, 100, 10]);
     const entryFrames = await stopFrames(); await completeFrames('painting-entry-render-frames', entryFrames);
     expect(entryFrames.some((f) => f.ordinary.length > 0)).toBe(true); expect(entryFrames.some((f) => f.painting.length > 0)).toBe(true);
     const initialPoint = (await read())!.center;
@@ -110,8 +120,9 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         writeFileSync(path, JSON.stringify(evidence, null, 2)); await test.info().attach(`${tool} press failure`, { path, contentType: 'application/json' });
         throw error;
       }
-      const camera = (await read())!.camera;
-      await page.mouse.wheel(0, 90); expect((await read())!.camera).toEqual(camera);
+      const drawingEvidence = (await read())!;
+      await page.mouse.wheel(0, 90); expect((await read())!.camera).toEqual(drawingEvidence.camera);
+      expect((await read())!.pivot).toEqual(drawingEvidence.pivot); expect((await read())!.target).toEqual(drawingEvidence.target);
       await page.mouse.move(point.x + 2, point.y + 2); await page.mouse.up(); await idle();
       expect((await committed()).paint.some((p) => p.groups.some((g) => g.stateId === 2 && g.indexCount > 0)), tool).toBe(true); await idle();
       if (tool === 'region') {
@@ -156,20 +167,31 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await page.keyboard.press('Control+Shift+s');
     await expect.poll(() => existsSync(savedProject)).toBe(true); await idle();
     expect((await read())!.sessionId).toBe(sessionId);
-    for (const button of ['left', 'middle', 'right'] as const) {
-      point = (await read())!.center; const camera = (await read())!.camera;
+    const navigationEvidence: Array<{ button: string; before: Evidence; after: Evidence }> = [];
+    for (const button of ['middle', 'right', 'left'] as const) {
+      const before = (await read())!; point = before.center;
       if (button === 'left') await page.keyboard.down('Control');
       await page.mouse.move(point.x, point.y); await page.mouse.down({ button }); await page.mouse.move(point.x + 25, point.y + 15, { steps: 5 }); await page.mouse.up({ button });
       if (button === 'left') await page.keyboard.up('Control');
-      expect((await read())!.camera).not.toEqual(camera);
+      const after = (await read())!; navigationEvidence.push({ button, before, after });
+      expect(after.camera).not.toEqual(before.camera); near(after.pivot, before.pivot);
+      if (button === 'left') {
+        // Both pans move framing before this orbit. The model centre retains
+        // its camera-space position and screen projection under rigid orbit.
+        expect(after.target).not.toEqual(before.target); expect(after.camera.slice(3)).not.toEqual(before.camera.slice(3));
+        near(after.pivotCamera, before.pivotCamera); near([after.center.x, after.center.y], [before.center.x, before.center.y]);
+      } else {
+        expect(after.target).not.toEqual(before.target); expect(after.pivotCamera).not.toEqual(before.pivotCamera);
+      }
     }
+    const navigationPath = test.info().outputPath('painting-camera-pivot.json'); writeFileSync(navigationPath, JSON.stringify(navigationEvidence, null, 2));
+    await test.info().attach('painting-camera-pivot', { path: navigationPath, contentType: 'application/json' });
     await page.getByTestId('painting-tool-triangle').click();
     await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
     point = (await read())!.center;
     await page.mouse.click(point.x, point.y); await idle();
     expect((await committed()).paint.some((part) => part.groups.some((group) => group.stateId === 2 && group.indexCount > 0))).toBe(true);
     expect((await read())!.error).toBeNull();
-    const cameraPose = () => page.evaluate(() => { const state = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.cameraState(); return { position: state.position, quaternion: state.quaternion, target: state.target }; });
     const beforeClose = (await read())!;
     const beforeCloseCamera = { position: beforeClose.camera.slice(0, 3), quaternion: beforeClose.camera.slice(3), target: beforeClose.target };
     const expandedHistory = await history();
@@ -203,6 +225,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
       expect((await history()).undoEntries[0].label).toBe('Edit Filament Colour');
     };
+    const beforeRgb = (await read())!;
     await startFrames(); await settleFrames();
     await setSlot2Colour('#445566', 'rgb(68, 85, 102)'); await idle();
     await expect.poll(() => page.evaluate(() => ((window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualFrames() as VisualFrame[]).some((f) => f.colors.includes('445566')))).toBe(true);
@@ -211,6 +234,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(rgbFrames.every((f) => f.ordinary.length === 0 && f.painting.length > 0)).toBe(true);
     expect(new Set(rgbFrames.flatMap((f) => f.painting)).size, 'RGB-only edit retains rendered geometry identity').toBe(1);
     expect(rgbFrames.some((f) => f.colors.includes('445566')), 'new RGB reaches the actual rendered target material').toBe(true);
+    const afterRgb = (await read())!; near(afterRgb.pivot, beforeRgb.pivot); near(afterRgb.camera, beforeRgb.camera); near(afterRgb.target, beforeRgb.target);
     await page.getByTestId('history-undo').click(); await idle();
     await expect(slot2Badge).toHaveCSS('background-color', originalSlot2Colour);
     await page.getByTestId('history-redo').click(); await idle();
