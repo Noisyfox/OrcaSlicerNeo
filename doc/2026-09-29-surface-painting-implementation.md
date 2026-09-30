@@ -1443,3 +1443,58 @@ Parent restored ordinary builds with `pnpm --filter @orca/desktop build` and
 matrix was run; the pinned submodule and native sources are unchanged. This
 behavior-preserving consolidation did not require an old-controller negative
 experiment.
+
+## Follow-up: toolbar, Height range and Gap camera fixes (2026-09-30)
+
+The user requests three fixes in this order, each implemented by a fresh
+gpt-6.1-sol/high child, fully self-verified and independently code-reviewed and
+accepted by the parent before starting the next step:
+
+1. Painting toolbar activation: an open painting session already supplies
+   `aria-pressed`, but the button lacks the armed appearance. Use a shared
+   toolbar button variant for active visual state, preserving existing toggle,
+   enable/disable, selection and one-gizmo ownership semantics. Verify active
+   opening/idle/busy/error/closing versus closed state, transform button
+   consistency and actual rendered activation/closure.
+2. Height range presentation: compare the pinned Orca height cursor drawing
+   and match its geometry, height placement, colouring, transparency and depth
+   behavior. Replace the current wireframe box without changing native height
+   selection/painting. Verify actual rendered geometry/material and continuous
+   held cursor frames, preserving other tools' presentation.
+3. Gap fill camera input: allow normal left drag started outside the model to
+   rotate around the existing painting pivot, while preserving static Gap
+   candidates and preventing a paint stroke/history entry. Respect native
+   collision authority, drop busy intermediate moves and reliable terminal
+   handling. Verify exterior/model press distinctions, camera rotation, static
+   preview continuity and unchanged history/native annotations.
+
+Keep the current branch, public API and pinned native submodule intact unless
+verified native evidence requires a separately reviewed change. Update this
+living document and the approved spec in batches at step acceptance. Each
+step runs its affected package tests/typecheck and focused real painting
+journey; final handoff also runs root checks and restores ordinary
+Desktop/Web builds with production elision. Commit each accepted step
+separately; no release matrix or new standalone task notes are required.
+
+Step 1 accepted: the `gizmo` Button variant owns armed accent background and
+foreground, including hover and the inherited dark-theme hover rule. Paint and
+transform toolbar buttons use it; Add Model and other variants are unchanged.
+Parent reviewed the variant scope, state subscriptions, disabled gates and
+single-gizmo transitions. Ten component cases cover all eight session phases
+and successful/failed closure. Actual color assertions wait for settled CSS
+animations and compare to armed Move rather than hardcoding theme colors.
+
+Child self-verification passed app tests/typecheck, real serial six-tool
+journey, ordinary Desktop build, elision and diff checks. Parent independently
+passed `pnpm --filter @orca/slicer-app test` (837 tests), app typecheck and the
+real painting journey (1/1, 26.8 seconds total, current serial hashes checked).
+Parent inspected the active toolbar screenshot and computed-color JSON: paint
+matches armed Move during idle, hover, disabled drawing, reopening and switch
+back; closure/switch to Move restores transparent inactive paint. Transient
+opening/ending/cancelling/error/closing states use component coverage rather
+than claiming individual real-frame captures. Logs use
+`packages/slicer-wasm/.work/parent-toolbar-active-*.log`.
+Parent restored the ordinary Desktop build and passed production elision on
+21 artifacts plus `git diff --check`. Native build and second-host real E2E
+were omitted for this shared toolbar-only step; root gates remain scheduled
+for the final three-fix handoff.

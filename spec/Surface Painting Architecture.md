@@ -185,6 +185,11 @@ longest-shared-boundary heuristic. Preview and Apply use this same rule.
 Opening a painting gizmo changes the viewport to a dedicated drawing and input
 mode. It must not layer editing on the ordinary Prepare model/body-drag path.
 
+The painting toolbar button shows the same armed appearance as the transform
+gizmo buttons whenever its session is open, including processing and closing
+phases. Its accessible pressed state and visual active state agree; closing
+the session returns the button to its inactive appearance.
+
 The painting mode owns selector-derived draft surfaces, cursor rendering,
 candidate-region highlighting, and any enabled contours, wireframe, or clipping
 presentation. Ordinary object selection, body dragging, box selection, and

@@ -9,7 +9,6 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { cn } from 'cn';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
@@ -87,13 +86,12 @@ export function GizmoToolbar({
         return (
           <TooltipFor key={mode} content={label} disabled={disabled}>
             <Button
-              variant="ghost"
+              variant="gizmo"
               size="icon"
               aria-label={label}
               aria-pressed={armed}
               disabled={disabled}
               data-testid={testId}
-              className={cn(armed && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
               onClick={() => {
                 if (painting?.active) void painting.close().then((closed) => { if (closed) sceneInteraction.toggleGizmo(mode); });
                 else sceneInteraction.toggleGizmo(mode);
@@ -105,7 +103,7 @@ export function GizmoToolbar({
         );
       })}
       <TooltipFor content="Surface painting">
-        <Button size="icon" variant="ghost" aria-label="Surface painting" aria-pressed={paintActive} data-testid="gizmo-btn-paint"
+        <Button size="icon" variant="gizmo" aria-label="Surface painting" aria-pressed={paintActive} data-testid="gizmo-btn-paint"
           disabled={paintActive ? paintState?.phase !== 'idle' : slotCount < 2 || !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
           onClick={() => {
             if (!painting) return;

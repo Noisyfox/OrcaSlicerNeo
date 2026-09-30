@@ -37,6 +37,37 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const bounds = await page.getByTestId('viewport').boundingBox();
     await page.mouse.click(bounds!.x + center.x, bounds!.y + center.y);
     await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled();
+    const paintButton = page.getByTestId('gizmo-btn-paint');
+    const moveButton = page.getByTestId('gizmo-btn-move');
+    const toolbarColors = (button: typeof paintButton) => button.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, foreground: style.color };
+    });
+    const leaveToolbar = () => page.getByTestId('slicer-status').hover();
+    const toolbarEvidence: Record<string, unknown> = {};
+    await expect(paintButton).toHaveAttribute('aria-pressed', 'false');
+    await leaveToolbar();
+    const inactivePaintColors = await toolbarColors(paintButton);
+    toolbarEvidence.closed = inactivePaintColors;
+    await moveButton.click(); await expect(moveButton).toHaveAttribute('aria-pressed', 'true');
+    await leaveToolbar();
+    // Read the settled reference, rather than an interpolated transition colour.
+    await moveButton.evaluate(async (element) => {
+      getComputedStyle(element).backgroundColor;
+      await Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => {})));
+    });
+    await expect.poll(async () => (await toolbarColors(moveButton)).background).not.toBe(inactivePaintColors.background);
+    const armedColors = await toolbarColors(moveButton);
+    toolbarEvidence.transform = armedColors;
+    await moveButton.hover(); await expect.poll(() => toolbarColors(moveButton)).toEqual(armedColors);
+    await moveButton.click(); await expect(moveButton).toHaveAttribute('aria-pressed', 'false');
+    const assertPaintingArmed = async (phase: string, hover = false) => {
+      await expect(paintButton).toHaveAttribute('aria-pressed', 'true');
+      await expect(moveButton).toHaveAttribute('aria-pressed', 'false');
+      if (hover) await paintButton.hover(); else await leaveToolbar();
+      await expect.poll(() => toolbarColors(paintButton)).toEqual(armedColors);
+      toolbarEvidence[phase] = { pressed: true, ...(await toolbarColors(paintButton)) };
+    };
     const selectedTarget = await page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.modelSelectionIdentities()[0] as { objectId: number; instanceId: number });
     const startFrames = () => page.evaluate(({ objectId, instanceId }) => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualStart(objectId, instanceId), selectedTarget);
     const stopFrames = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualStop() as VisualFrame[]);
@@ -58,6 +89,8 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const history = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.historyNativeStatus());
     const idle = async () => { await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle'); await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0); };
     await idle(); await settleFrames();
+    await assertPaintingArmed('idle'); await assertPaintingArmed('idle-hover', true);
+    await page.screenshot({ path: test.info().outputPath('painting-toolbar-active.png') });
     const near = (actual: number[], expected: number[]) => actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 8));
     const afterOpen = (await read())!;
     const afterOpenCamera = { position: afterOpen.camera.slice(0, 3), quaternion: afterOpen.camera.slice(3), target: afterOpen.target };
@@ -166,6 +199,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const inputBefore = (await read())!.input;
     await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y); await page.mouse.down();
     await expect.poll(async () => (await read())?.phase).toBe('drawing');
+    // A held native stroke disables toggles without losing their armed colours.
+    await expect(paintButton).toHaveAttribute('aria-pressed', 'true'); await expect(paintButton).toBeDisabled();
+    await expect.poll(() => toolbarColors(paintButton)).toEqual(armedColors);
+    toolbarEvidence.drawing = { pressed: true, disabled: true, ...(await toolbarColors(paintButton)) };
     await page.evaluate(({ start, end }) => {
       const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="viewport"] canvas')!;
       for (let i = 0; i < 24; i++) canvas.dispatchEvent(new PointerEvent('pointermove', {
@@ -420,6 +457,9 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(expandedHistory.editingSession).not.toBeNull();
     expect(expandedHistory.undoEntries.filter((entry: { label: string }) => entry.label === 'Paint').length).toBeGreaterThan(1);
     await page.getByRole('button', { name: 'Close painting', exact: true }).click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await expect(paintButton).toHaveAttribute('aria-pressed', 'false'); await leaveToolbar();
+    await expect.poll(() => toolbarColors(paintButton)).toEqual(inactivePaintColors);
+    toolbarEvidence.closedAfterSession = await toolbarColors(paintButton);
     const compactedHistory = await history();
     expect(compactedHistory.editingSession).toBeNull();
     expect(compactedHistory.undoEntries.filter((entry: { label: string }) => entry.label === 'Paint')).toHaveLength(1);
@@ -433,6 +473,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     expect(await cameraUnchanged()).toBe(true);
     await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled(); await page.getByTestId('gizmo-btn-paint').click(); await idle();
+    await assertPaintingArmed('reopened');
     expect((await read())!.sessionId).not.toBe(sessionId);
     const slot2Badge = page.locator('[data-testid="filament-slot-2"] span[aria-label="Slot 2 colour"]');
     const originalSlot2Colour = await slot2Badge.evaluate((element) => getComputedStyle(element).backgroundColor);
@@ -502,7 +543,15 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect((await committed()).paint.some((part) => part.groups.some((group) => group.stateId === 2 && group.indexCount > 0))).toBe(true);
     expect((await history()).undoEntries.slice(0, 4).map((entry: { label: string }) => entry.label)).toEqual(['Paint', 'Paint', 'Edit Filament Colour', 'Paint']);
     await page.getByTestId('gizmo-btn-move').click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0); await expect(page.getByTestId('move-panel')).toBeVisible();
+    await expect(paintButton).toHaveAttribute('aria-pressed', 'false'); await expect(moveButton).toHaveAttribute('aria-pressed', 'true');
+    await leaveToolbar(); await expect.poll(() => toolbarColors(moveButton)).toEqual(armedColors);
+    await expect.poll(() => toolbarColors(paintButton)).toEqual(inactivePaintColors);
+    toolbarEvidence.switchedToMove = { paint: await toolbarColors(paintButton), transform: await toolbarColors(moveButton) };
     await page.getByTestId('gizmo-btn-paint').click(); await idle();
+    await assertPaintingArmed('switchedBackToPaint', true);
+    const toolbarPath = test.info().outputPath('painting-toolbar-active.json');
+    writeFileSync(toolbarPath, JSON.stringify(toolbarEvidence, null, 2));
+    await test.info().attach('painting-toolbar-active', { path: toolbarPath, contentType: 'application/json' });
     const hiddenSession = (await read())!.sessionId;
     for (const tab of ['home', 'device']) {
       await page.locator(`#app-tab-${tab}`).click();
