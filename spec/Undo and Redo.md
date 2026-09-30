@@ -274,13 +274,22 @@ At the shared application boundary, `packages/slicer-app` has one history
 coordinator for this stream, backed by a shared FIFO revision-operation gate.
 It serializes project transactions, navigation requests, and filament
 mutations before entering the Worker, owns an idempotent project-mutation
-lease, projects the returned `HistoryStatus` before publication, refreshes the
-complete filament-session snapshot after every native revision change through
-a non-reentrant lease read, and releases the lease only after the supplied
-renderer/model publication barrier settles. A filament command that arrives
-while a project operation is pending waits in the same FIFO and therefore uses
-the refreshed session revision; it is not rejected merely because the project
-is busy. Public history-status reads also enter the FIFO, so an older blocked
+lease, projects the returned `HistoryStatus` through `projectHistoryStatus`,
+and releases the lease only after the supplied renderer/model publication
+barrier settles. The shared history-status store is the registry for accepted
+native revisions; each dependent projection subscribes once rather than
+requiring every revision-producing operation to update it separately. The
+filament store synchronously advances its retained session/project command
+tokens from this registry, without replacing rack content, notifying rack
+subscribers, or reading another Worker snapshot. Older receipts cannot regress
+these tokens. Operations that can change rack content still publish a complete
+filament-session snapshot under the same non-reentrant lease; plate input
+revisions require their own matching operation receipt. A history revision
+alone does not establish that either projection's content is current.
+A filament command that arrives while a project operation is pending waits in
+the same FIFO and therefore uses the current session revision after publication;
+it is not rejected merely because the project is busy. Public history-status
+reads also enter the FIFO, so an older blocked
 read cannot overwrite a newer mutation's authoritative projection. Transform
 gestures, scene additions/clears, configuration edits,
 boot resets, and undo/redo/jumps must use this coordinator; no feature may

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClient, createMockModule } from '../../../../../../../slicer-wasm/src/client/index';
 import { PaintingController } from './PaintingController';
 import { registerPaintingCommands, paintingCommandAllowed, beforePaintingTopologyChange } from './projectCommands';
-import { coordinatePaintingRpc, runProjectHistoryMutation, runProjectMutationOperation, projectHistoryStatus } from '../../../actions/historyMutation';
+import { coordinatePaintingRpc, runProjectHistoryMutation, runProjectMutationOperation } from '../../../actions/historyMutation';
 import { saveProject, saveProjectAs, newProject, openProject } from '../../../../../projectActions';
 import { addModel } from '../../../actions/sceneActions';
 import { sliceModel, exportGcode } from '../../../actions/sliceActions';
@@ -12,8 +12,11 @@ import { useProjectStore } from '../../../../../stores/useProjectStore';
 import { useSlicerStore } from '../../../../../stores/useSlicerStore';
 import type { FilamentMutationSummary, FilamentSessionSnapshot } from '@slicer/client';
 import { useFilamentSessionStore } from '../../../../../stores/useFilamentSessionStore';
+import { projectHistoryStatus } from '../../../../../history/projectHistoryStatus';
+import { useHistoryNavigationStore } from '../../../../../stores/useHistoryNavigationStore';
 import { useObjectListStore } from '../../../objectList/useObjectListStore';
 import { glVolumeCollection } from '../../GLVolume';
+import { mmuPaintingColor } from './MmuPaintingGizmo';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 
@@ -21,14 +24,23 @@ const identity = [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 const event = { pointer: [1,2] as const, viewport: [0,0,100,100] as const, projection: identity, view: identity };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; }
 let unregister = () => {};
-afterEach(() => { unregister(); glVolumeCollection.clear(0); useObjectListStore.getState().clear(); useProjectStore.getState().reset(); vi.restoreAllMocks(); });
-async function setup() {
+afterEach(() => { unregister(); glVolumeCollection.clear(0); useObjectListStore.getState().clear(); useFilamentSessionStore.getState().reset(); useHistoryNavigationStore.getState().reset(); useProjectStore.getState().reset(); vi.restoreAllMocks(); });
+async function setup(preloadFilament = false) {
   const runtime = createClient(async () => createMockModule());
   await runtime.init();
   await runProjectHistoryMutation(runtime, 'Add cube', () => runtime.addShape('Cube'));
   const structure = await runtime.getModelStructure();
   if (!structure.ok || !structure.objects?.length) throw new Error('missing fixture');
   const object = structure.objects[0];
+  if (preloadFilament) {
+    const initial = await runtime.getFilamentSessionSnapshot();
+    if (!initial.ok) throw new Error(initial.error);
+    const added = await runtime.addFilamentSlot({ version: 1, revision: initial.revisions.session });
+    if (!added.ok) throw new Error(added.error);
+    const rack = await useFilamentSessionStore.getState().load(runtime);
+    if (!rack.ok) throw new Error(rack.error);
+  }
+  const filamentReads = vi.spyOn(runtime, 'getFilamentSessionSnapshot');
   const controller = new PaintingController({ api: runtime, coordinate: coordinatePaintingRpc,
     history: projectHistoryStatus, committed: vi.fn(), prepareClosed: vi.fn(async () => {}),
     schedule: () => () => {}, palette: () => useFilamentSessionStore.getState().snapshot });
@@ -39,10 +51,45 @@ async function setup() {
     projects: { save: vi.fn(async () => ({ status: 'ok' })), saveAs: vi.fn(async () => ({ status: 'ok' })), open: vi.fn(async () => ({ status: 'cancelled' })) },
     models: { pick: vi.fn(async () => null) }, exports: { save: vi.fn() }, preferences: { load: vi.fn(async () => ({})) },
   } as unknown as PlatformCapabilities;
-  return { runtime, controller, object, platform };
+  return { runtime, controller, object, platform, filamentReads };
 }
 
 describe('shared painting command admission', () => {
+  it('accepts a filament colour edit after painter open with the native history revision', async () => {
+    const { runtime, controller: c, filamentReads } = await setup(true);
+    expect(filamentReads).not.toHaveBeenCalled();
+    const before = useFilamentSessionStore.getState().snapshot!;
+    const native = await runtime.getFilamentSessionSnapshot();
+    expect(native.ok).toBe(true);
+    if (!native.ok) return;
+    expect(before.revisions.session).toBe(native.revisions.session);
+    const result = await useFilamentSessionStore.getState().run(runtime, () => runtime.setFilamentSlotColour({
+      version: 1, revision: useFilamentSessionStore.getState().snapshot!.revisions.session,
+      slot: 2, colour: '#445566',
+    }));
+    expect(result.ok).toBe(true);
+    expect(useFilamentSessionStore.getState().snapshot?.slots[1].colour.effective).toBe('#445566');
+    expect(c.getSnapshot().phase).toBe('idle');
+  });
+  it('accepts an idle filament colour edit after an effective paint commit and keeps the palette and history coherent', async () => {
+    const { runtime, controller: c, object, filamentReads } = await setup(true);
+    c.setSettings({ state: 2 });
+    expect(await c.apply('gap')).toBe(true);
+    expect(filamentReads).not.toHaveBeenCalled();
+    const native = await runtime.getFilamentSessionSnapshot();
+    expect(native.ok).toBe(true);
+    if (!native.ok) return;
+    expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(native.revisions.session);
+    const result = await useFilamentSessionStore.getState().run(runtime, () => runtime.setFilamentSlotColour({
+      version: 1, revision: useFilamentSessionStore.getState().snapshot!.revisions.session,
+      slot: 2, colour: '#445566',
+    }));
+    expect(result.ok).toBe(true);
+    expect(c.getSnapshot().phase).toBe('idle');
+    const rack = useFilamentSessionStore.getState().snapshot!;
+    expect(mmuPaintingColor(rack, object.id, object.volumes[0].id, 2)).toBe('#445566');
+    expect((await runtime.getHistoryStatus()).editingSession).not.toBeNull();
+  });
   it('rejects shared actions before dialogs, config queues, history or runtime while a press is pending; never replays', async () => {
     const { runtime, controller: c, platform, object } = await setup();
     const gate = deferred<void>(); const begin = runtime.beginPaintingStroke.bind(runtime);

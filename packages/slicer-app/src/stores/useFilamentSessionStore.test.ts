@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useFilamentSessionStore } from './useFilamentSessionStore';
+import { projectFilamentPlateInputRevisions, useFilamentSessionStore } from './useFilamentSessionStore';
 import { useSlicerStore } from './useSlicerStore';
 import type { FilamentSessionSnapshot, HistoryStatus, ModelObjectStructure, PlateSessionSnapshot, SlicerClient } from '@slicer/client';
 import { useHistoryNavigationStore } from './useHistoryNavigationStore';
+import { projectHistoryStatus } from '../history/projectHistoryStatus';
 import { useProjectStore } from './useProjectStore';
 import { usePlateSessionStore } from './usePlateSessionStore';
 import { useObjectListStore } from '../components/workspace/objectList/useObjectListStore';
@@ -42,6 +43,41 @@ afterEach(() => {
 });
 
 describe('filament session store lifecycle', () => {
+  it('projects accepted history epochs into the loaded command token without replacing the rack or notifying subscribers', () => {
+    // Bootstrap status has no rack to update. The first later rack load owns
+    // its own native revision and is never moved backwards by an old receipt.
+    projectHistoryStatus(historyStatus(4));
+    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+    const loaded = snapshot(5);
+    useFilamentSessionStore.getState().publish(loaded);
+    const listener = vi.fn();
+    const unsubscribe = useFilamentSessionStore.subscribe(listener);
+    projectHistoryStatus(historyStatus(4));
+    projectHistoryStatus(historyStatus(5));
+    expect(loaded.revisions).toMatchObject({ session: 5, project: 5 });
+    projectHistoryStatus(historyStatus(6));
+    expect(useFilamentSessionStore.getState().snapshot).toBe(loaded);
+    expect(loaded.revisions).toMatchObject({ session: 6, project: 6 });
+    projectHistoryStatus(historyStatus(5));
+    expect(loaded.revisions).toMatchObject({ session: 6, project: 6 });
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+    useFilamentSessionStore.getState().reset();
+    projectHistoryStatus(historyStatus(7));
+    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+  });
+  it('accepts plate-input revisions only from the current history receipt', () => {
+    const loaded = snapshot(5);
+    useFilamentSessionStore.getState().publish(loaded);
+    projectHistoryStatus(historyStatus(6));
+    projectFilamentPlateInputRevisions(5, { 'plate-a': 99 });
+    expect(loaded.revisions.plates).toEqual({});
+    projectFilamentPlateInputRevisions(6, { 'plate-a': 7 });
+    expect(loaded.revisions.plates).toEqual({ 'plate-a': 7 });
+    projectHistoryStatus(historyStatus(7));
+    projectFilamentPlateInputRevisions(6, { 'plate-a': 100 });
+    expect(loaded.revisions.plates).toEqual({ 'plate-a': 7 });
+  });
   it.each(['delete', 'merge'] as const)('refreshes painted models on two plates after a %s mutation', async (kind) => {
     const transform = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number],
       scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };

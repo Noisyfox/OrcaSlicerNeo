@@ -14,6 +14,7 @@ import type {
 } from '@slicer/client';
 import { applyFilamentMutationResult } from './plateResultLifecycle';
 import { usePlateSessionStore } from './usePlateSessionStore';
+import { useHistoryNavigationStore } from './useHistoryNavigationStore';
 import { enqueueProjectMutationOperation, type ProjectMutationLease } from '../history/projectMutationGate';
 import { projectHistoryStatus } from '../history/projectHistoryStatus';
 import { glVolumeCollection } from '../components/workspace/viewport/GLVolume';
@@ -173,17 +174,15 @@ export async function refreshFilamentSession(
   return useFilamentSessionStore.getState().refresh(runtime, isCurrent, lease);
 }
 
-/** A model transform advances History and plate inputs but cannot change the
- * filament rack, assignments, flushing values, or capabilities. Project the
- * committed revision receipt onto the retained snapshot instead of paying for
- * a full Worker snapshot read on the latency-critical pointer-release path. */
-export function projectFilamentHistoryRevision(
+/** Native history and filament commands share one monotonic command epoch.
+ * Accepted history receipts update this token only; operations that can
+ * change rack content must still publish a complete native snapshot. */
+function projectFilamentHistoryRevision(
   historyRevision: number,
-  plateInputRevisions?: Readonly<Record<string, number>>,
 ): void {
   if (!Number.isSafeInteger(historyRevision)) return;
   const snapshot = useFilamentSessionStore.getState().snapshot;
-  if (!snapshot) return;
+  if (!snapshot || historyRevision <= snapshot.revisions.session) return;
   // These are optimistic-concurrency tokens, not renderable rack data. Keep
   // the retained snapshot identity so every ModelMesh/FilamentRack subscriber
   // is not synchronously rerendered for a value that none of them displays.
@@ -193,8 +192,28 @@ export function projectFilamentHistoryRevision(
   };
   revisions.session = historyRevision;
   revisions.project = historyRevision;
-  if (plateInputRevisions) revisions.plates = { ...plateInputRevisions };
 }
+
+/** Plate inputs may advance alongside a history receipt without changing
+ * rack content. Apply only when the receipt matches the accepted command epoch. */
+export function projectFilamentPlateInputRevisions(
+  historyRevision: number,
+  plateInputRevisions?: Readonly<Record<string, number>>,
+): void {
+  if (!plateInputRevisions) return;
+  const snapshot = useFilamentSessionStore.getState().snapshot;
+  if (!snapshot || snapshot.revisions.session !== historyRevision) return;
+  (snapshot.revisions as { plates: Record<string, number> }).plates = { ...plateInputRevisions };
+}
+
+// One application-lifetime subscription keeps the retained rack's optimistic
+// concurrency token aligned with every accepted native history receipt.
+// Zustand listeners run synchronously inside setStatus; no Worker read or
+// extra React render is introduced on the per-stroke path.
+const unsubscribeHistoryRevision = useHistoryNavigationStore.subscribe((state) => {
+  if (state.status) projectFilamentHistoryRevision(state.status.revision);
+});
+if (import.meta.hot) import.meta.hot.dispose(unsubscribeHistoryRevision);
 
 export type FilamentMutationRequest =
   | FilamentSlotPresetRequest

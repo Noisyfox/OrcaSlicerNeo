@@ -15,6 +15,7 @@
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
 - Parent acceptance requires a substantive code review as well as test execution: check design/ownership boundaries, control and data flow, state transitions and concurrency, failure atomicity, resource lifetime, protocol validation, maintainability and avoidable performance costs. Record concrete findings, their resolution and material remaining limits. Passing tests or a graph reporting no affected flows never substitutes for reading the implementation.
+- Internal APIs target the current contract only: no older signatures, compatibility aliases or fallback handling for older internal receipts. There are no cross-version internal callers. Business-optional data and external project-file compatibility remain separate concerns.
 - Required unavailable or failing checks block that step. Diagnose and repair within authorization; never silently replace real-WASM evidence with mocks. Do not broaden unrelated configuration/build scope.
 - Keep incomplete feature entrypoints inaccessible until their required dependencies are accepted. No temporary user-visible controls pretending to work, alternate painting authorities, or permanently skipped tests.
 - The parent owns architecture/ABI decisions. Escalate a genuine conflict with the accepted spec, not routine implementation choices. Prefer complete functional stages over microsteps; use internal checklists within the assigned stage. Only create an extra stage for a material independently verifiable boundary.
@@ -854,3 +855,46 @@ by the material-consumption assertion. A comparable pinned native performance
 baseline and GPU execution timing remain unavailable. Numeric performance
 thresholds remain awaiting user review. These limits do not prevent functional
 delivery, but no universal latency/memory or native-equivalence claim is made.
+
+## Follow-up: shared history revision publication (2026-09-30)
+
+Accepted after child implementation/self-verification and parent independent
+code review and verification. Opening painting and committing an effective
+stroke advance the native global history revision. Filament commands validate
+against that same revision, but the retained rack previously kept an older
+token, causing colour edits during an idle painting session to fail with
+`stale_revision`.
+
+The shared `projectHistoryStatus` publication and history-status store now own
+revision fan-out. One synchronous application-lifetime filament subscription
+advances only the retained session/project command tokens; it neither reads a
+Worker snapshot nor replaces/notifies rack content. The subscription is disposed
+on development HMR. Painting uses the ordinary history publisher, and transform
+and restore fast paths no longer maintain filament history tokens themselves.
+They retain separately guarded plate-input receipt projection. Rejected restore
+status also uses the shared publisher. Bootstrap, empty/reset stores and older
+receipts cannot regress a loaded token. Content-changing operations retain
+their complete snapshot publication and existing mutation/restore fences;
+per-stroke material/Prime Tower settlement remains deferred.
+
+Parent review made the token helper private, required explicit fixture history
+resets, and strengthened the real regression to clear existing paint before
+the tested stroke and prove a new native Paint entry/revision. The first colour
+edit follows painter open alone; the second follows the effective stroke.
+Colour Undo/Redo, another stroke and interleaved history separators are verified.
+The mock now reports the same global native revision after retained rack edits.
+
+Child checks: focused app 52/52; final directly affected 22/22; full app 716/716;
+client 245/245; both package typechecks; `git diff --check`; real current-serial
+`pnpm exec node scripts/run-painting-e2e.mjs` 1/1. Earlier new-test failures in
+selectors, newest-first history ordering and no-op fixture setup were repaired.
+Parent independently passed `pnpm test` (1,126), `pnpm typecheck`, and the same
+real Electron runner (1/1, 23.8 seconds), including fixture self-test and served
+JS/WASM/data hash verification. Logs are under ignored
+`packages/slicer-wasm/.work/parent-painting-revision-*.log`.
+The parent restored the ordinary desktop build with
+`pnpm --filter @orca/desktop build` and passed
+`pnpm exec node scripts/check-painting-profile-elision.mjs` (21 artifacts).
+
+Native bridge/build code and the pinned submodule are unchanged; no native
+rebuild or dual-host release matrix was needed for this shared projection fix.

@@ -1160,6 +1160,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function filamentSessionSnapshot(): unknown {
     if (filamentSessionState !== undefined) {
       const snapshot = clone(filamentSessionState) as any;
+      // A prior slot mutation retains rack content, but later history-session
+      // opens and paint commits still advance the native filament command
+      // epoch. Mirror the bridge's global history revision on every read.
+      if (opts.filamentSession === undefined && snapshot.revisions) {
+        snapshot.revisions.session = historyRevision;
+        snapshot.revisions.project = historyRevision;
+      }
       // Slot mutations replace the mock's projected session object. Keep its
       // model-backed assignment projection live when a later Add Primitive
       // changes the model; the native bridge derives this from the current

@@ -15,7 +15,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { projectFilamentHistoryRevision, refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
+import { projectFilamentPlateInputRevisions, refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueuePaintingOperation, type ProjectMutationLease } from '../../../history/projectMutationGate';
 import { projectHistoryStatus } from '../../../history/projectHistoryStatus';
 import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '../../../history/historyDiagnostics';
@@ -258,7 +258,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
         const plateSession = (response.result as MutationResponse & {
           plateSession?: { inputRevisions?: Readonly<Record<string, number>> };
         }).plateSession;
-        projectFilamentHistoryRevision(response.status.revision, plateSession?.inputRevisions);
+        projectFilamentPlateInputRevisions(response.status.revision, plateSession?.inputRevisions);
       } else {
         await refreshFilamentSession(runtime, undefined, lease);
       }
@@ -362,7 +362,7 @@ export function restoreProjectHistory(
       if (result.status) projectHistoryStatus(result.status);
       const filamentStartedAt = historyDiagnosticNow();
       if (result.ok && !result.impact.filamentRack) {
-        projectFilamentHistoryRevision(result.status.revision, result.context.plateSession?.inputRevisions);
+        projectFilamentPlateInputRevisions(result.status.revision, result.context.plateSession?.inputRevisions);
       } else {
         await refreshFilamentSession(runtime, undefined, lease);
       }

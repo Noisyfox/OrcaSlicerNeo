@@ -3,7 +3,7 @@ import type { HistoryContext, NativeScopedConfigFullTransport, ProfileSnapshot, 
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
-import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
+import { projectHistoryStatus } from './projectHistoryStatus';
 import { restoreProjectHistory } from '../components/workspace/actions/historyMutation';
 import { invalidateAffectedPlateResults } from '../stores/plateResultLifecycle';
 import { historyDiagnosticNow, historyRestorePath, type HistoryRestorePath, useHistoryDiagnosticsStore } from './historyDiagnostics';
@@ -109,7 +109,7 @@ export function createHistoryRestoreCoordinator({
       const activeRevision = revision;
       if (!result.ok) {
         // Worker prepare/validation failure preserves its old model/cursor.
-        if (result.status) useHistoryNavigationStore.getState().setStatus(result.status);
+        if (result.status) projectHistoryStatus(result.status);
         if (activeRevision !== null && useHistoryRestoreStore.getState().revision === activeRevision) {
           useHistoryRestoreStore.getState().setError(restoreError(result));
           useHistoryRestoreStore.getState().setPhase('idle');
