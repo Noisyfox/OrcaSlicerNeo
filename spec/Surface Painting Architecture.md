@@ -411,6 +411,16 @@ clears it. Tool/target changes, errors and closure invalidate it; obsolete
 responses cannot restore it. Applying Gap fill continues to use native fragment
 selection and normal stroke/history semantics.
 
+Triangle, Region fill and Gap fill share one candidate-preview ownership
+lifecycle: request generation, invalidation, retention of the complete previous
+display and publication of the current complete native result. Tool policies
+determine pointer versus static inputs and recalculation/clear triggers. Pointer
+presence is an input requirement, not a separate publication-validity protocol;
+static previews do not have a tool-specific validity flag. Native stroke
+selection uses the same ownership rules, preserving Triangle's selected leaf
+and Region's candidate-free painted display. Model-only recovery after an
+invalidated request cannot restore its candidates.
+
 Once the pointer is pressed, native code performs all painting hit tests and
 face identification. The frontend sends the admitted pointer events in order and the
 camera/viewport information needed to reconstruct the corresponding rays. The

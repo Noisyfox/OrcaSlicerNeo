@@ -1372,3 +1372,74 @@ Parent restored ordinary builds with `pnpm --filter @orca/desktop build` and
 `git diff --check`. No native build, Web real E2E or full release matrix was run
 for this shared controller fix. Native sources and the pinned submodule remain
 unchanged.
+
+## Follow-up: unify candidate preview lifecycle (2026-09-30)
+
+The user approved consolidating Triangle, Region fill and Gap fill beyond the
+shared scheduler. One independently testable step replaces Gap-only validity
+and pointer-presence-based publication authorization with common candidate
+preview ownership. All three tools use the same request generation,
+invalidation, retained complete display and current-result publication rules.
+Only the tool strategy determines preview input (pointer or static), triggers
+for recalculation/clear and stroke versus Apply execution. Pointer presence
+remains an input requirement, not an alternate validity protocol.
+
+Keep native geometry and tool appearance unchanged. Pointer previews clear on
+leave; static Gap ignores pointer/leave/camera input. Completed native misses
+or empty results replace the previous display. Triangle's native stroke
+selection remains publishable, while Region's completed painted display may
+contain no candidate. Error, target/tool/close and queued project/history
+reservations reject obsolete publication without mixing session, resource or
+palette ownership. Preserve dropped intermediate moves, reliable terminals,
+ordinary cursor behavior and existing public API; remove Gap-only validity
+state and avoid compatibility paths or a new generic framework.
+
+A fresh gpt-6.1-sol/high child implements and completely self-verifies, then
+parent independently reviews code and runs acceptance checks before commit.
+Use shared parameterized behavioral coverage for all three tools where
+semantics match, plus explicit pointer/static and native stroke differences.
+Retain actual six-tool continuous-frame regression, stale reads, failure
+recovery, resource disposal and history evidence. Run root tests/typecheck,
+the current serial real painting journey, ordinary Desktop/Web builds,
+production elision and diff checks. No native build or release matrix is
+required for this application-controller-only consolidation.
+
+The child implemented a small `previewInput` policy and one
+`previewGeneration`/successful `candidateOwner` lifecycle inside the existing
+controller. `gapPreviewValid`, tool-specific authorization predicates and
+`settingsVersion` were removed. Current successful native preview or admitted
+stroke receipts authorize publication; pointer presence and model-only reads
+cannot. Settings/admissions revoke ownership while retaining the previous
+complete display. All three tools use the same stale-read rejection and
+matching resource/session/palette publication. Project/history refresh uses
+common input readiness to recalculate from the last admitted pointer or static
+input. Reliable terminal endpoints capture their generation and settings;
+endpoint-free termination after leave cannot reauthorize a candidate.
+
+Parent reviewed the production diff and consolidated behavioral test matrix.
+Equivalent lifecycle coverage is parameterized across all three tools, with
+pointer/static input, native begin/sample misses, Region painted display,
+Triangle held selection and terminal differences covered explicitly. There
+are 100 controller tests; no compatibility paths, framework or native/API
+changes were introduced. Stale reads leave published known-resource IDs
+untouched; a stable invalidated generation can publish model-only recovery,
+so invalidation does not create an endless read loop.
+
+Child self-verification passed root tests (1,238), typecheck, current serial
+real painting journey, ordinary builds, production elision and diff checks.
+Parent independently passed `pnpm test` (1,238 including 827 app tests),
+`pnpm typecheck` and `pnpm exec node scripts/run-painting-e2e.mjs` (1/1,
+25.6 seconds total, current serial artifact hashes verified). Actual expected
+draws have zero gaps: Triangle hover/held 28/75 frames, Region hover 25,
+Gap movement/leave 57 and settings 139, and Circle/Sphere/Height held cursors
+25/23/22. The unchanged journey also verifies native geometry membership,
+empty results, colour, camera, model rendering, commits and history. Logs use
+`packages/slicer-wasm/.work/parent-unified-preview-*.log`; child preserved its
+actual renderer evidence under `.work/child-unified-preview-evidence` there.
+Parent restored ordinary builds with `pnpm --filter @orca/desktop build` and
+`pnpm --filter @orca/web build`, passed
+`pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 artifacts and
+`git diff --check`. No native build, second-host real E2E or full release
+matrix was run; the pinned submodule and native sources are unchanged. This
+behavior-preserving consolidation did not require an old-controller negative
+experiment.
