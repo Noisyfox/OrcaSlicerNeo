@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { useMemo } from 'react';
 import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { PlateSessionPlate } from '@slicer/client';
 
 export const BED_SIZE = 220;

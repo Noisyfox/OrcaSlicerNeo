@@ -2,12 +2,12 @@ import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizm
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { PlateSessionMutationResult, PlateSessionSnapshotResult, PrimeTowerMoveMutation } from '@slicer/client';
 import { glVolumeCollection } from './viewport/GLVolume';
-import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useProjectStore } from '../../stores/useProjectStore';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import { invalidateAffectedPlateResults } from '../../stores/plateResultLifecycle';
+import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 
 /**
  * Apply the complete result of a runtime plate transaction.  Both Prepare's

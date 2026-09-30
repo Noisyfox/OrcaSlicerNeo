@@ -4,16 +4,16 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { Workspace } from './Workspace';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useProjectStore } from '../../stores/useProjectStore';
-import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
-import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import type { PlateSessionSnapshot, PrimeTowerProjection } from '@slicer/client';
 import type { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
 import { applySettledTransformSyncResult } from './actions/persistModelTransforms';
-import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
-import { useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
+import type { HistoryRestoreCoordinator } from '@/history/restoreCoordinator';
+import { useHistoryDiagnosticsStore } from '@/history/historyDiagnostics';
 
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 

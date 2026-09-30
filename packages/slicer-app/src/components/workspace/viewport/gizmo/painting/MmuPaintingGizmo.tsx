@@ -1,4 +1,4 @@
-import type { LoadedObject } from '../../useModelLoader';
+import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
 import type { ReactNode } from 'react';
 import { PaintingGizmoBase } from './PaintingGizmoBase';
 import type { FilamentSessionSnapshot } from '@slicer/client';

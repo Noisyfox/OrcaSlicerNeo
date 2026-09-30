@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { TransformControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSceneInteraction } from '../SceneInteractionContext';
-import { TransformGizmoProbe } from '../../../../e2e/TransformGizmoProbe';
+import { TransformGizmoProbe } from '@/e2e/TransformGizmoProbe';
 
 declare const __ORCA_E2E__: boolean;
 

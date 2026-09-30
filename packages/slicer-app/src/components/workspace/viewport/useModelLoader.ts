@@ -1,10 +1,10 @@
 // packages/slicer-app/src/components/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { GLVolume, glVolumeCollection, rejectGLVolumeRevision } from './GLVolume';
 import { projectFullModelMesh } from './modelMeshProjection';
-import { recordModelMeshResponse, registerModelLoadingProbeOwner } from '../../../e2e/modelLoadingProbe';
+import { recordModelMeshResponse, registerModelLoadingProbeOwner } from '@/e2e/modelLoadingProbe';
 
 declare const __ORCA_E2E__: boolean;
 

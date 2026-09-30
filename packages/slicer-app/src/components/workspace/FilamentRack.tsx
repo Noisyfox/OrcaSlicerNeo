@@ -1,10 +1,10 @@
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError } from '@slicer/client';
-import { publishRememberedFilamentRack } from '../../preferences';
+import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';

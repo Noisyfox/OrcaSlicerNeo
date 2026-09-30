@@ -18,7 +18,7 @@ import {
   splitVolumeToPartsInList,
 } from './structuralActions';
 import { changePartTypeInList, setObjectPrintableInList, setInstancePrintableInList } from './actions';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { assignmentTargetsForSelection } from './filamentAssignment';
 
 export type ObjectListCtxTarget =

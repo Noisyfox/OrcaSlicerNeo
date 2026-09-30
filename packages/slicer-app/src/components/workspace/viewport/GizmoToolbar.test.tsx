@@ -21,8 +21,8 @@ vi.mock('./gizmo/painting/PaintingProvider', () => ({
   }),
   paintingTarget: () => ({ objectId: 1, instanceId: 2 }),
 }));
-vi.mock('../../../stores/useSettingsStore', () => ({ useSettingsStore: () => true }));
-vi.mock('../../../stores/useFilamentSessionStore', () => ({ useFilamentSessionStore: () => 2 }));
+vi.mock('@/stores/useSettingsStore', () => ({ useSettingsStore: () => true }));
+vi.mock('@/stores/useFilamentSessionStore', () => ({ useFilamentSessionStore: () => 2 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement;

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from './useObjectListStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { waitForSettledModelTransforms } from '../actions/persistModelTransforms';
 import {
   addInstanceInList,

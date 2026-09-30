@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
-import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
-import { acquireProjectMutationLease } from '../../../history/projectMutationGate';
+import { acquireProjectMutationLease } from '@/history/projectMutationGate';
 
 const status: HistoryStatus = {
   editingSession: null, navigationFloor: null,

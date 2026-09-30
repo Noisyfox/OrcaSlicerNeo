@@ -12,10 +12,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { cn } from 'cn';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import {

@@ -6,7 +6,7 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDownIcon } from 'lucide-react';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import { maxMoveOrderForLayer, nextRenderablePreviewLayer, renderablePreviewLayers } from './previewSemantics';
 import {
@@ -16,7 +16,7 @@ import {
   formatPreviewValue,
   type PreviewColorSource,
 } from './toolpathColors';
-import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
+import type { PreviewColorScheme } from '@/stores/useSlicerStore';
 import { PreviewInspectionPanel } from './PreviewInspectionPanel';
 
 function previewWheelStep(event: WheelEvent): number {

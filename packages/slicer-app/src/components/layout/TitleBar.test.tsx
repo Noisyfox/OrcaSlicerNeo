@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { MenuStateSnapshot, PlatformChrome } from '@orca/platform-contract';
-import { buildMenuModel, buildMenuStateSnapshot } from '../../menu/menuModel';
+import { buildMenuModel, buildMenuStateSnapshot } from '@/menu/menuModel';
 import { TitleBar } from './TitleBar';
 
 function state(chrome: PlatformChrome): MenuStateSnapshot {

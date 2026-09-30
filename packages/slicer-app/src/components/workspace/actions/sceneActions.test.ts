@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 
 // The app package tests source files directly; the runtime package's public
 // barrel aliases its generated client package only in host builds.  This
@@ -11,7 +11,7 @@ vi.mock('@orca/slicer-runtime', () => ({
 }));
 
 import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
-import { useProjectStore } from '../../../stores/useProjectStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { glVolumeCollection } from '../viewport/GLVolume';
 
 // Model loading is owned by the viewport; publish its revision at the store

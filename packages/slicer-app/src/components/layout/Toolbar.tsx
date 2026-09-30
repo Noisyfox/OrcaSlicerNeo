@@ -4,16 +4,16 @@ import { Slice, Download, Send as SendIcon, Printer, AppWindowIcon, HouseIcon, L
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { exportGcode, sliceModel } from '../workspace/actions/sliceActions';
 import { usePlatform } from '@orca/platform-contract';
 import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
 import { isAppTab, isPrepareTab, isWorkspaceTab, type AppTab } from './appTabs';
-import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
-import { useHistoryNavigationStore } from '../../stores/useHistoryNavigationStore';
-import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
-import { historyNavigationDisabled, historyNextOperationLabel, projectHistoryEntries } from '../../history/historyNavigation';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import type { HistoryRestoreCoordinator } from '@/history/restoreCoordinator';
+import { historyNavigationDisabled, historyNextOperationLabel, projectHistoryEntries } from '@/history/historyNavigation';
 import { usePaintingState } from '../workspace/viewport/gizmo/painting/PaintingProvider';
 import {
   DropdownMenu,
@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { isSerialSliceBusy } from '../../runtimeExecution';
+import { isSerialSliceBusy } from '@/runtimeExecution';
 
 // The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see

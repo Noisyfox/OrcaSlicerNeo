@@ -1,6 +1,6 @@
 import { GLVolumeMesh } from './ModelMesh';
 import { WipeTowerVolumeCollection, useWipeTowerVolumeRevision } from './WipeTowerVolume';
-import { WipeTowerVolumeProbe } from '../../../e2e/WipeTowerVolumeProbe';
+import { WipeTowerVolumeProbe } from '@/e2e/WipeTowerVolumeProbe';
 
 declare const __ORCA_E2E__: boolean;
 

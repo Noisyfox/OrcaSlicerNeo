@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaintingState } from './PaintingController';
-import { useFilamentSessionStore } from '../../../../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { FilamentSessionSnapshot } from '@slicer/client';
 import { MmuPaintingPanel } from './MmuPaintingPanel';
 

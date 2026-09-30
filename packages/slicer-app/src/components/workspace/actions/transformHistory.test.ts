@@ -6,10 +6,10 @@ import { GLVolume, glVolumeCollection } from '../viewport/GLVolume';
 import { TransformHistoryCoordinator } from './transformHistory';
 import { runProjectMutationOperation } from './historyMutation';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
-import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
 function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): GLVolume {
   const buffer: ModelObjectBuffer = {

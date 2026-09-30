@@ -7,20 +7,20 @@ import { paintingCommandAllowed, closePaintingForCommand } from '../viewport/giz
 import type { ModelFile, PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import type { PlateSessionMutation } from '@slicer/client';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection, waitForGLVolumeRevision } from '../viewport/GLVolume';
-import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
-import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
+import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
+import { HANDY_MODELS, type HandyModel } from '@/resources/handyModels';
 import { resetSceneState } from './resetSceneState';
 import { runProjectHistoryMutation } from './historyMutation';
 
-export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
+export { HANDY_MODELS, type HandyModel } from '@/resources/handyModels';
 
 /**
  * Shared post-add choreography for file imports and engine-built primitives:

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { selectionBoundsBoxPositions } from './selectionBoundsBoxGeometry';
-import { SelectionBoundsBoxProbe } from '../../../e2e/SelectionBoundsBoxProbe';
+import { SelectionBoundsBoxProbe } from '@/e2e/SelectionBoundsBoxProbe';
 
 declare const __ORCA_E2E__: boolean;
 

@@ -9,11 +9,11 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
 import { paintingTarget, usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
   mode: Exclude<OpenGizmo, null>;

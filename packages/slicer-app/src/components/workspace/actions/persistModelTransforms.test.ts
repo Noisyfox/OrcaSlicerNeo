@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { persistSettledModelTransforms } from './persistModelTransforms';
 
 const syncModelTransforms = vi.hoisted(() => vi.fn());

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
+import type { PreviewColorScheme } from '@/stores/useSlicerStore';
 import type {
   GpuStreamingPage,
   GpuStreamingPagePlan,

@@ -1,10 +1,10 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { PlateSessionMutation } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms, syncModelTransforms } from './syncModelTransforms';
 
 type SyncResult = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };

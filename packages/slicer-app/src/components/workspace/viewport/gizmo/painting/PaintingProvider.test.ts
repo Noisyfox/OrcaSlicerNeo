@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelObjectBuffer, ModelObjectStructure, ModelScenePatchResult } from '@slicer/client';
 import { preparePaintingClosedScene } from './PaintingProvider';
-import { glVolumeCollection, retainedPaintGeometry } from '../../GLVolume';
-import { projectFullModelMesh } from '../../modelMeshProjection';
-import { useObjectListStore } from '../../../objectList/useObjectListStore';
-import { useSettingsStore } from '../../../../../stores/useSettingsStore';
+import { glVolumeCollection, retainedPaintGeometry } from '@/components/workspace/viewport/GLVolume';
+import { projectFullModelMesh } from '@/components/workspace/viewport/modelMeshProjection';
+import { useObjectListStore } from '@/components/workspace/objectList/useObjectListStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 
 const transform = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
 const structure = (id: number, index: number): ModelObjectStructure => ({ id, index, name: `object-${id}`, printable: true, instanceCount: 1,

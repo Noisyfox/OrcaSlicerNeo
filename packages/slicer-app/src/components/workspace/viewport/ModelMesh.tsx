@@ -10,7 +10,7 @@ import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { EULER_ORDER } from './transformDeltaMath';
 import { acceleratedRaycast } from 'three-mesh-bvh';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import {
   canRenderPreparePaint,
   isModelInstanceMarkedUnprintable,
@@ -23,7 +23,7 @@ import { WipeTowerVolume } from './WipeTowerVolume';
 import {
   capturePreviewFirstCommitPaintMaterials,
   releasePreviewFirstCommitPaintMaterials,
-} from '../../../e2e/modelLoadingProbe';
+} from '@/e2e/modelLoadingProbe';
 
 declare const __ORCA_E2E__: boolean;
 

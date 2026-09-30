@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/printer-control';
 import { SendGcodeDialog } from './SendGcodeDialog';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 
 // jsdom does not provide PointerEvent, while Base UI's checkbox click path
 // constructs one to preserve pointer modifiers.

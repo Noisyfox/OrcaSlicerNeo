@@ -1,10 +1,10 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { PlateSessionSnapshot } from '@slicer/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
-import { useProjectStore } from '../../stores/useProjectStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { applyPlateSessionResponse, applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
 
 const plateA: PlateSessionSnapshot = {

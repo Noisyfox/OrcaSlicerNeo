@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
 import type { HistoryContext, ModelStructureResult } from '@slicer/client';
-import type { Vec3 } from '../../../lib/vec3';
+import type { Vec3 } from '@/lib/vec3';
 import { GLVolume } from './GLVolume';
 import { WipeTowerVolume } from './WipeTowerVolume';
 import { instanceKeyOf, Selection, type InstanceKey, type SelectionMode } from './Selection';

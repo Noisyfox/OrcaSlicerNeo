@@ -1,4 +1,4 @@
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { usePlatform } from '@orca/platform-contract';
 import {
   Select,

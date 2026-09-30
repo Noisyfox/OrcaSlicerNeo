@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import type { PresetInfo } from '@slicer/client';
 import { usePlatform, type ProfileSource } from '@orca/platform-contract';

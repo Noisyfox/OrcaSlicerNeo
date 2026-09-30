@@ -1,5 +1,5 @@
 import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizmo/painting/projectCommands';
-import type { SliceStatus } from '../../stores/useSlicerStore';
+import type { SliceStatus } from '@/stores/useSlicerStore';
 
 export interface WorkspaceSliceCoordinator {
   /** Ensure the current model has a slice, joining this coordinator's task. */

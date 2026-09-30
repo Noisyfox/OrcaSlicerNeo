@@ -1,4 +1,4 @@
-import { invalidateAffectedPlateResults } from '../../../stores/plateResultLifecycle';
+import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 import { unstable_batchedUpdates } from 'react-dom';
 import type { PlatformCapabilities } from '@orca/platform-contract';
@@ -12,15 +12,15 @@ import type {
 } from '@slicer/client';
 import type { SlicerClient } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { projectHistoryStatus, runProjectHistoryMutation, runProjectMutationOperation } from '../actions/historyMutation';
-import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 
 let configurationMutationQueue: Promise<void> = Promise.resolve();
 

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sliceModel } from './sliceActions';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 
 describe('slice result publication', () => {
   beforeEach(() => {

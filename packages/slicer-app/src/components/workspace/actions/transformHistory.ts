@@ -1,9 +1,9 @@
 import type { HistoryContext, HistoryStatus, ModelStructureResult, SlicerClient } from '@slicer/client';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { projectSelection } from '../objectList/projection';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
 import { applySettledTransformSyncResult } from './persistModelTransforms';

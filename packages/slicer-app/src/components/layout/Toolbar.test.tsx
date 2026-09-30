@@ -3,10 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useHistoryNavigationStore } from '../../stores/useHistoryNavigationStore';
-import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import type { HistoryStatus } from '@slicer/client';
 vi.mock('../workspace/actions/sliceActions', () => ({ exportGcode: vi.fn(), sliceModel: vi.fn() }));
 vi.mock('../send/SendGcodeDialog', () => ({

@@ -4,7 +4,7 @@ import { PaintingController, type PaintingPorts } from './PaintingController';
 import { PaintingResources, paintingPartMatrix } from './PaintingResources';
 import * as THREE from 'three';
 import type { FilamentSessionSnapshot, PaintingGeometryResult } from '@slicer/client';
-import { Selection } from '../../Selection';
+import { Selection } from '@/components/workspace/viewport/Selection';
 
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const event = (x: number): PaintingPointerEvent => ({ pointer: [x, 2], viewport: [0, 0, 100, 100], projection: identity, view: identity });

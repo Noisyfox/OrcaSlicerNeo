@@ -3,9 +3,9 @@ import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectComman
 import { useState } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
 import type { PresetInfo } from '@slicer/client';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { MovePanel } from './MovePanel';
 import { RotatePanel } from './RotatePanel';
 import { ScalePanel } from './ScalePanel';
@@ -14,12 +14,12 @@ import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import { selectProcessPreset, invalidateAfterSharedConfigurationMutation } from './configurationActions';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
-import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack } from '../../../preferences';
+import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import {
   Combobox,

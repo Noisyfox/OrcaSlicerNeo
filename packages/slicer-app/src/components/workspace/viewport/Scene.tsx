@@ -12,16 +12,16 @@ import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo'
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { SelectionBoundsBox } from './SelectionBoundsBox';
-import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
+import { hasEnteredPreview, isPreviewTab } from '@/components/layout/appTabs';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSceneProjection';
 import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
-import { GizmoPivotProbe, SceneE2eProbe } from '../../../e2e/SceneProbe';
+import { GizmoPivotProbe, SceneE2eProbe } from '@/e2e/SceneProbe';
 import { usePaintingState } from './gizmo/painting/PaintingProvider';
 import { MmuPaintingGizmo } from './gizmo/painting/MmuPaintingGizmo';
 import { glVolumeCollection } from './GLVolume';
-import { PaintingVisualProbe } from '../../../e2e/PaintingProbe';
+import { PaintingVisualProbe } from '@/e2e/PaintingProbe';
 declare const __ORCA_E2E__: boolean;
 
 export function Scene({ activeTab, controller, wipeTowerVolumes, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {

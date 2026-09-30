@@ -1,8 +1,8 @@
 // packages/slicer-app/src/components/viewport/useSliceResult.ts
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis, SliceResultReceipt } from '@slicer/client';
 import { createPreviewSourceLineIndex, maxMoveOrderForLayer, type PreviewSourceLineIndex } from './previewSemantics';
 import { deriveLogicalMoveOrders } from './gpuStreamingPlanner';

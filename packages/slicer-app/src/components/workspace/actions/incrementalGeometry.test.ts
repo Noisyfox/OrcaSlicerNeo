@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createClient, createMockModule } from '../../../../../slicer-wasm/src/client/index';
+import { createClient, createMockModule } from '@slicer/client';
 import { runProjectHistoryMutation } from './historyMutation';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import { GLVolume, glVolumeCollection, leaseGeometry, retainedGeometry } from '../viewport/GLVolume';
 import { readSceneDeltaProjection } from '../viewport/sceneDeltaProjection';
 

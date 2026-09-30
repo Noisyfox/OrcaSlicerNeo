@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import { PreviewInspectionPanel, formatPreviewTime } from './PreviewInspectionPanel';
 import type { ToolpathGeometry } from './useSliceResult';
 

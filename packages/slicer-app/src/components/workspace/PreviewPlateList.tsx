@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { PlateSessionSnapshot } from '@slicer/client';
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectPreviewPlateList } from './previewPlateListProjection';
 
 export function PreviewPlateList({

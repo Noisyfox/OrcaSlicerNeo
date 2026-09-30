@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { ObjectListContextMenu } from './ObjectListContextMenu';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useObjectListStore } from './useObjectListStore';
 import type { FilamentSessionSnapshot, ModelObjectStructure } from '@slicer/client';
 

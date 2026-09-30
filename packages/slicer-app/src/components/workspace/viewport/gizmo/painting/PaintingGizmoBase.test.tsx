@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { PaintingController, type PaintingPorts, type PaintingState } from './PaintingController';
-import type { LoadedObject } from '../../useModelLoader';
+import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
 import { PaintingGizmoBase, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
 
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));

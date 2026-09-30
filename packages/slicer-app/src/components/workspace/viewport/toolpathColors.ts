@@ -1,5 +1,5 @@
 import type { PreviewAnalysis, PreviewPaletteEntry, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
-import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
+import type { PreviewColorScheme } from '@/stores/useSlicerStore';
 import { adjustRgbForRendering } from './renderColor';
 
 /** EMoveType::Travel in libslic3r/libvgcode. */

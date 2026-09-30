@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { HistoryStatus, PresetDraftMutationRequest, PresetDraftMutationResult } from '@slicer/client';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
-import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import {
   commitScopedConfigurationMutation,
   commitPresetDraftMutation,

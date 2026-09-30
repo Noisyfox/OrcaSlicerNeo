@@ -6,7 +6,7 @@ import type {
   UserPreferences,
 } from '@orca/platform-contract';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
-import type { ProjectNotice, ProjectOperation } from '../../stores/useProjectStore';
+import type { ProjectNotice, ProjectOperation } from '@/stores/useProjectStore';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,

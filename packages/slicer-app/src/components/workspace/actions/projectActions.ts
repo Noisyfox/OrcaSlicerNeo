@@ -7,5 +7,5 @@ export {
   saveProject,
   saveProjectAs,
   cancelProjectOperation,
-} from '../../../projectActions';
-export type { ProjectActionOptions, ProjectActionResult } from '../../../projectActions';
+} from '@/projectActions';
+export type { ProjectActionOptions, ProjectActionResult } from '@/projectActions';

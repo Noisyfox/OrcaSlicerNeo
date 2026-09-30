@@ -13,8 +13,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 
 export type SendGcodeAction = 'send' | 'send-and-print';
 type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled';

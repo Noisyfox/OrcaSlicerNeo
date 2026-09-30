@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { FilamentRack } from './FilamentRack';
-import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
-import { useProjectStore } from '../../stores/useProjectStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import type { FilamentSessionSnapshot, HistoryStatus } from '@slicer/client';
 
 function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): FilamentSessionSnapshot {

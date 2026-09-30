@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import type { ClientSliceResult } from '@slicer/client';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSliceResult, type ToolpathGeometry } from './useSliceResult';
 import { lastMovePosition } from './previewSemantics';
 

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { deleteSelection } from './deleteSelection';
 
 const structure = {

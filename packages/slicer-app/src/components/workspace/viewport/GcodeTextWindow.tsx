@@ -3,7 +3,7 @@ import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { normalizeGcodeTextWindowGeometry, usePlatform, type GcodeTextWindowGeometry } from '@orca/platform-contract';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { PreviewTextLines, PreviewTextLinesRequest } from '@slicer/client';
 import type { ToolpathGeometry } from './useSliceResult';
 import {

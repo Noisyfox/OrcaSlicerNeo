@@ -4,11 +4,11 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import type { PlateOperationTarget } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
-import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
+import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 
 /**

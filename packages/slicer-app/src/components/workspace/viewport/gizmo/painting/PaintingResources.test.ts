@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PaintingGeometry, PaintingGeometryResult, PaintingSessionMetadata } from '@slicer/client';
 import { PaintingResources, paintingPartMatrix } from './PaintingResources';
 import { paintingCursorMeshes } from './PaintingGizmoBase';
-import type { LoadedObject } from '../../useModelLoader';
+import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
 import * as THREE from 'three';
 const identity = new THREE.Matrix4().toArray();
 const session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, phase: 'idle', strokeId: null, annotation: 'mmu', instanceTransform: identity, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, draftResourceId: 'a', facetCounts: [] }] };

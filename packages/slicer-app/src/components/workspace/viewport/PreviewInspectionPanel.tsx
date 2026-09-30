@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { PreviewFeatureStatistics } from '@slicer/client';
 import { findPreviewMove, createPreviewInspectionIndex } from './previewSemantics';
 import type { ToolpathGeometry } from './useSliceResult';

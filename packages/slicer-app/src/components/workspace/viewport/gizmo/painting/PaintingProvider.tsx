@@ -1,16 +1,16 @@
 import { createContext, useContext, useRef, useLayoutEffect, useSyncExternalStore, type ReactNode } from 'react';
-import { coordinatePaintingRpc } from '../../../actions/historyMutation';
+import { coordinatePaintingRpc } from '@/components/workspace/actions/historyMutation';
 import { registerPaintingCommands } from './projectCommands';
 import { usePlatform } from '@orca/platform-contract';
 import { PaintingController } from './PaintingController';
-import { projectHistoryStatus } from '../../../../../history/projectHistoryStatus';
-import { invalidateAffectedPlateResults } from '../../../../../stores/plateResultLifecycle';
-import { useSettingsStore } from '../../../../../stores/useSettingsStore';
-import { useFilamentSessionStore } from '../../../../../stores/useFilamentSessionStore';
-import { glVolumeCollection } from '../../GLVolume';
-import { readSceneDeltaProjection } from '../../sceneDeltaProjection';
-import type { SceneInteractionController } from '../../SceneInteractionController';
-import { useObjectListStore } from '../../../objectList/useObjectListStore';
+import { projectHistoryStatus } from '@/history/projectHistoryStatus';
+import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { glVolumeCollection } from '@/components/workspace/viewport/GLVolume';
+import { readSceneDeltaProjection } from '@/components/workspace/viewport/sceneDeltaProjection';
+import type { SceneInteractionController } from '@/components/workspace/viewport/SceneInteractionController';
+import { useObjectListStore } from '@/components/workspace/objectList/useObjectListStore';
 import type { SlicerClient } from '@slicer/client';
 
 /** The caller owns the painting/project lane through this atomic publication. */

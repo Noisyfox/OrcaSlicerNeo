@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { formatPosition, parseNumberInput } from '../viewport/transformMath';
 import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import type { Vec3 } from '../../../lib/vec3';
+import type { Vec3 } from '@/lib/vec3';
 
 const AXES = ['x', 'y', 'z'] as const;
 

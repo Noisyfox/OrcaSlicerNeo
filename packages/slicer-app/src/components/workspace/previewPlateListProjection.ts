@@ -1,5 +1,5 @@
 import type { PlateSessionPlate, PlateSessionSnapshot } from '@slicer/client';
-import type { PlateSliceResult } from '../../stores/useSlicerStore';
+import type { PlateSliceResult } from '@/stores/useSlicerStore';
 
 export type PreviewPlateStatus = 'sliced' | 'unsliced' | 'empty' | 'out-of-bounds';
 

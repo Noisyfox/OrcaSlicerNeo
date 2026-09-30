@@ -1,5 +1,5 @@
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import { glVolumeCollection } from '../viewport/GLVolume';
 
 /**

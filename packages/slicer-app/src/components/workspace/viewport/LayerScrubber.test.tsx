@@ -12,7 +12,7 @@ vi.mock('./toolpathColors', async (importOriginal) => {
   };
 });
 
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import { LayerScrubber } from './LayerScrubber';
 import { describePreviewScheme, PREVIEW_SCHEME_LABELS, previewSchemeAvailable } from './toolpathColors';
 import type { ToolpathGeometry } from './useSliceResult';

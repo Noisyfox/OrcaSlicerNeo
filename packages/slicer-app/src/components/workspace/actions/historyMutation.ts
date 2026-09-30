@@ -11,16 +11,16 @@ import type {
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { projectSelection } from '../objectList/projection';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { projectFilamentPlateInputRevisions, refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
-import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueuePaintingOperation, type ProjectMutationLease } from '../../../history/projectMutationGate';
-import { projectHistoryStatus } from '../../../history/projectHistoryStatus';
-import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '../../../history/historyDiagnostics';
+import { projectFilamentPlateInputRevisions, refreshFilamentSession } from '@/stores/useFilamentSessionStore';
+import { acquireProjectMutationLease, enqueueProjectMutationOperation, enqueuePaintingOperation, type ProjectMutationLease } from '@/history/projectMutationGate';
+import { projectHistoryStatus } from '@/history/projectHistoryStatus';
+import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '@/history/historyDiagnostics';
 
-export { projectHistoryStatus } from '../../../history/projectHistoryStatus';
+export { projectHistoryStatus } from '@/history/projectHistoryStatus';
 export const coordinatePaintingRpc = enqueuePaintingOperation;
 
 /** Save owns one revision reservation from export through the host write.

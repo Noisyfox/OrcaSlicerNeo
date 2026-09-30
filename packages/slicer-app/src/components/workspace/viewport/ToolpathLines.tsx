@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import {
   createGpuStreamingPagePlan,
@@ -14,7 +14,7 @@ import {
   type GpuStreamingRendererHost,
   type GpuStreamingUnavailableDiagnostics,
 } from './gpuStreamingRenderer';
-import { ToolpathLinesProbe } from '../../../e2e/ToolpathLinesProbe';
+import { ToolpathLinesProbe } from '@/e2e/ToolpathLinesProbe';
 
 declare const __ORCA_E2E__: boolean;
 

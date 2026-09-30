@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
 import { buildPreviewVisibility, createPreviewInspectionIndex, createPreviewSourceLineIndex, findPreviewMove, findPreviewMoveForSourceLine, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, sourceLineForPreviewMove, TRAVEL_MOVE_TYPE } from './previewSemantics';
 import type { ToolpathGeometry } from './useSliceResult';
 

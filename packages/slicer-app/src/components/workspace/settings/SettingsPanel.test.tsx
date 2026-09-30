@@ -4,12 +4,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type RememberedFilamentRack, type UserPreferences } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, PresetInfo, ProfileSnapshot, ProfileSnapshotResult, PrinterTransitionResult } from '@slicer/client';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
-import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { SettingsPanel } from './SettingsPanel';
 
 vi.mock('./MovePanel', () => ({ MovePanel: () => null }));

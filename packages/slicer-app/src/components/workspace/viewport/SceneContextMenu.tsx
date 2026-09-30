@@ -36,9 +36,9 @@ import {
 } from '@/components/ui/context-menu';
 import { usePlatform } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { isSerialSliceBusy } from '../../../runtimeExecution';
-import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { isSerialSliceBusy } from '@/runtimeExecution';
+import { useSettingsStore } from '@/stores/useSettingsStore';
 import {
   addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS,
   PRIMITIVE_TYPES, type HandyModel, type PrimitiveType,
