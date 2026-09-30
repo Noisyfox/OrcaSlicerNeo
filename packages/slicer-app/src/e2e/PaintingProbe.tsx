@@ -26,19 +26,32 @@ export function paintingUploadBytes(method: 'bufferData' | 'bufferSubData', args
 export function PaintingVisualProbe() {
   const { gl, invalidate, scene: mainScene } = useThree();
   useEffect(() => {
-    type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
+    type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
       draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
         candidate?: { positions: number[] };
         contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] };
-        cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[] } }> };
+        cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] } }> };
     let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
     let raf: number | null = null;
     const originalRender = gl.render;
     gl.render = function (scene, camera) {
       // GizmoHelper renders a separate overlay scene through this renderer.
       // Only the persistent model scene is a viewport model frame.
-      if (!capture || scene !== mainScene) return originalRender.call(gl, scene, camera);
-      const frame: Frame = { at: performance.now(), ordinary: [], painting: [], colors: [], draws: [] };
+      if (!capture) return originalRender.call(gl, scene, camera);
+      if (scene !== mainScene) {
+        const navigator = scene.getObjectByName('viewport-navigator'), frame = capture.frames.at(-1);
+        if (!navigator || !frame) return originalRender.call(gl, scene, camera);
+        const restore: Array<() => void> = [];
+        navigator.traverse((object) => {
+          if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Sprite)) return;
+          const original = object.onBeforeRender;
+          object.onBeforeRender = function (...args) { original.apply(this, args); frame.navigatorDraws++; };
+          restore.push(() => { object.onBeforeRender = original; });
+        });
+        try { return originalRender.call(gl, scene, camera); }
+        finally { restore.forEach((callback) => callback()); }
+      }
+      const frame: Frame = { at: performance.now(), ordinary: [], painting: [], colors: [], draws: [], navigatorDraws: 0 };
       const restore: Array<() => void> = [];
       scene.traverse((object) => {
         if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.LineSegments)) return;
@@ -54,7 +67,7 @@ export function PaintingVisualProbe() {
         const original = object.onBeforeRender;
         object.onBeforeRender = function (...args) {
           original.apply(this, args);
-          const material = args[4] as THREE.MeshBasicMaterial;
+          const material = args[4] as THREE.MeshBasicMaterial & { linewidth?: number; worldUnits?: boolean; resolution?: THREE.Vector2 };
           if (kind === 'ordinary' || kind === 'painting') {
             frame[kind].push(object.geometry.uuid);
             frame.colors.push(material.color?.getHexString() ?? '');
@@ -72,6 +85,11 @@ export function PaintingVisualProbe() {
               primitive: object instanceof THREE.LineSegments ? 'lineSegments' : 'mesh',
               positions: object instanceof THREE.LineSegments ? Array.from({ length: object.geometry.getAttribute('position').count }, (_, i) => new THREE.Vector3().fromBufferAttribute(object.geometry.getAttribute('position'), i).applyMatrix4(object.matrixWorld).toArray()).flat() : [],
               ...(kind === 'painting-cursor-height' ? { heightPlanes: object.userData.heightPlanes, heightBounds: object.userData.heightBounds } : {}),
+              ...(kind === 'painting-cursor-circle' ? { lineWidth: material.linewidth, worldUnits: material.worldUnits, resolution: material.resolution?.toArray(),
+                circleSegments: Array.from({ length: object.geometry.getAttribute('instanceStart').count }, (_, i) => [
+                  ...new THREE.Vector3().fromBufferAttribute(object.geometry.getAttribute('instanceStart'), i).toArray(),
+                  ...new THREE.Vector3().fromBufferAttribute(object.geometry.getAttribute('instanceEnd'), i).toArray(),
+                ]) } : {}),
               opacity: material.opacity, depthTest: material.depthTest, depthWrite: material.depthWrite, side: material.side } } : {}) });
         };
         restore.push(() => { object.onBeforeRender = original; });

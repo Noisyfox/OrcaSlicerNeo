@@ -10,6 +10,8 @@ import { PaintingGizmoBase, paintingModelBounds, paintingCursorMeshes, rotatePai
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
 vi.mock('./PaintingProvider', () => ({ usePaintingState: () => mocked.state, usePaintingController: () => mocked.owner }));
 vi.mock('@react-three/fiber', () => ({ useThree: () => mocked.three }));
+// These tests exercise native input effects in a DOM host, not the R3F renderer.
+vi.mock('@react-three/drei', () => ({ Line: () => null }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement, canvas: HTMLCanvasElement;
 const identity = new THREE.Matrix4().toArray();
@@ -36,7 +38,7 @@ beforeEach(() => {
     release: vi.fn(), hoverAt: vi.fn(), reportDisplayError: vi.fn(), move: vi.fn(), cancel: vi.fn(), close: vi.fn() };
   const camera = new THREE.PerspectiveCamera(); camera.up.set(0, 0, 1); camera.position.set(80, -90, 100);
   const target = new THREE.Vector3(20, 30, 0); camera.lookAt(target); camera.updateMatrixWorld();
-  mocked.three = { camera, gl: { domElement: canvas }, invalidate: vi.fn(), controls: { target, enableDamping: true, update: vi.fn(() => { camera.lookAt(target); camera.updateMatrixWorld(); }) } };
+  mocked.three = { camera, size: { height: 600 }, gl: { domElement: canvas }, invalidate: vi.fn(), controls: { target, enableDamping: true, update: vi.fn(() => { camera.lookAt(target); camera.updateMatrixWorld(); }) } };
   Object.defineProperty(canvas, 'clientHeight', { value: 600 });
   source = { geometry: new THREE.BoxGeometry(), buffer: { objectId: 1, instanceId: 2, volumeId: 3 } } as unknown as LoadedObject;
   replacement = new THREE.BoxGeometry(2, 2, 2);

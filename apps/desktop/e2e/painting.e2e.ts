@@ -8,8 +8,8 @@ const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
-type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[] };
-type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
+type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] };
+type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
@@ -30,6 +30,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-confirmation-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 120_000 }).toBe(true);
     if (await page.getByTestId('project-load-confirmation-dialog').isVisible()) await page.getByTestId('project-load-confirmation-dialog-continue').click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 60_000 }).toMatchObject({ sourceDisplayName: basename(project!), sourceByteLength: statSync(project!).size, nativeResult: { ok: true, objects: 1, instances: 2 } });
+    // The native receipt precedes removal of the load overlay and scene effects.
+    // Raw mouse coordinates do not have locator.click's actionability waiting.
+    await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0);
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const center = await page.evaluate(() => {
       const hooks = (window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e as unknown as { modelWorldCenters(): [number, number, number][]; projectWorldToScreen(p: [number, number, number]): { x: number; y: number } };
       return hooks.projectWorldToScreen(hooks.modelWorldCenters()[0]);
@@ -80,15 +84,18 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       expect(frames.length, `${name}: real renderer frames were recorded`).toBeGreaterThan(1);
       expect(frames.filter((f) => f.ordinary.length + f.painting.length === 0), `${name}: every frame draws the selected target`).toEqual([]);
       expect(frames.filter((f) => f.ordinary.length > 0 && f.painting.length > 0), `${name}: Prepare and painting never expose the target together`).toEqual([]);
+      expect(frames.every((frame) => frame.navigatorDraws > 0), `${name}: the orientation navigator actually draws`).toBe(true);
     };
     const cameraPose = () => page.evaluate(() => { const state = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.cameraState(); return { position: state.position, quaternion: state.quaternion, target: state.target }; });
     const beforeOpenCamera = await cameraPose();
+    await expect(page.getByTestId('plate-controls')).toBeVisible();
     await startFrames(); await settleFrames(); await page.getByTestId('gizmo-btn-paint').click();
     const read = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingEvidence as (() => Evidence) | undefined)?.() ?? null);
     const committed = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingCommittedEvidence as () => Promise<Committed>)());
     const history = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.historyNativeStatus());
     const idle = async () => { await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle'); await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0); };
     await idle(); await settleFrames();
+    await expect(page.getByTestId('plate-controls')).toHaveCount(0);
     await assertPaintingArmed('idle'); await assertPaintingArmed('idle-hover', true);
     await page.screenshot({ path: test.info().outputPath('painting-toolbar-active.png') });
     const near = (actual: number[], expected: number[]) => actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 8));
@@ -251,6 +258,43 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       }
       const point = tool === 'triangle' ? topFaces[0] : tool === 'height' ? regionPoints[1] : (await read())!.center;
       await page.mouse.move(point.x, point.y); await settleFrames();
+      if (tool === 'circle') {
+        const beforeZoom = (await read())!, unchangedHistory = await history();
+        const viewportSize = await page.locator('[data-testid="viewport"] canvas[data-engine^="three.js"]').evaluate((canvas) => [canvas.clientWidth, canvas.clientHeight]);
+        const dashCounts: number[] = [];
+        await startFrames(); await settleFrames();
+        for (const [name, delta] of [['zoomed-out', 500], ['restored', -500]] as const) {
+          await page.mouse.wheel(0, delta);
+          await idle();
+          const center = (await read())!.center;
+          await page.mouse.move(center.x, center.y); await settleFrames();
+          await expect.poll(async () => (await readFrames()).at(-1)?.draws.at(-1)?.cursor?.lineWidth).toBe(2);
+          const actual = (await readFrames()).at(-1)!.draws.at(-1)!.cursor!;
+          expect(actual.worldUnits).toBe(false);
+          actual.resolution!.forEach((value, axis) => expect(value).toBeCloseTo(viewportSize[axis], 0));
+          dashCounts.push(actual.circleSegments!.length);
+          if (name === 'zoomed-out') expect((await read())!.camera).not.toEqual(beforeZoom.camera);
+          else near((await read())!.camera, beforeZoom.camera);
+          await page.screenshot({ path: test.info().outputPath(`painting-circle-width-${name}.png`) });
+        }
+        const frames = await stopFrames(); await completeFrames('painting-circle-screen-width', frames);
+        const circles = frames.flatMap((frame) => frame.draws.filter((draw) => draw.kind === 'painting-cursor-circle'));
+        expect(circles.length).toBeGreaterThan(1);
+        expect(circles.every((draw) => draw.cursor?.lineWidth === 2 && draw.cursor.worldUnits === false)).toBe(true);
+        expect(dashCounts[0], 'zooming out reduces Orca dash density').toBeLessThan(dashCounts[1]);
+        for (const draw of circles) {
+          const segments = draw.cursor!.circleSegments!, step = Math.PI / segments.length;
+          expect(segments.length).toBeGreaterThanOrEqual(3);
+          for (let i = 0; i < segments.length; i++) {
+            const [ax, ay, az, bx, by, bz] = segments[i], [cx, cy] = segments[(i + 1) % segments.length];
+            expect(Math.hypot(ax, ay)).toBeCloseTo(1, 5); expect(Math.hypot(bx, by)).toBeCloseTo(1, 5);
+            expect(az).toBe(0); expect(bz).toBe(0);
+            expect(Math.atan2(ax * by - ay * bx, ax * bx + ay * by), 'painted angular interval').toBeCloseTo(step, 5);
+            expect(Math.atan2(bx * cy - by * cx, bx * cx + by * cy), 'equal unpainted interval, including seam').toBeCloseTo(step, 5);
+          }
+        }
+        expect(await history()).toEqual(unchangedHistory);
+      }
       if (tool === 'triangle') await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
       const brushCursor = tool === 'circle' || tool === 'sphere' || tool === 'height';
       if (brushCursor || tool === 'triangle') { await startFrames(); await settleFrames(); }
@@ -284,6 +328,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
             opacity: tool === 'sphere' ? 0.25 : 1, depthTest: tool !== 'circle', depthWrite: false,
             side: tool === 'circle' ? 2 : 0 });
           if (tool === 'sphere') expect(cursor.radius).toBe(4);
+          if (tool === 'circle') expect(cursor).toMatchObject({ lineWidth: 2, worldUnits: false });
           if (tool === 'height') {
             expect(cursor.primitive).toBe('lineSegments'); expect(cursor.positions.length).toBeGreaterThan(0);
             expect(cursor.heightBounds).toEqual([0,20]);
@@ -521,6 +566,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(expandedHistory.editingSession).not.toBeNull();
     expect(expandedHistory.undoEntries.filter((entry: { label: string }) => entry.label === 'Paint').length).toBeGreaterThan(1);
     await page.getByRole('button', { name: 'Close painting', exact: true }).click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await expect(page.getByTestId('plate-controls')).toBeVisible();
     await expect(paintButton).toHaveAttribute('aria-pressed', 'false'); await leaveToolbar();
     await expect.poll(() => toolbarColors(paintButton)).toEqual(inactivePaintColors);
     toolbarEvidence.closedAfterSession = await toolbarColors(paintButton);
