@@ -329,6 +329,48 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const gapResources = (await read())!.resources.filter((r) => r.kind === 'gap');
     expect(gapResources.length).toBeGreaterThan(0);
     expect(gapResources.flatMap((r) => r.groups).every((g) => g[0] === 0)).toBe(true);
+    expect(gapResources.every((r) => r.matchesDraftLeaf && r.vertices!.length > 0 && r.contour!.length === 0)).toBe(true);
+    await settleFrames(); const gapHistory = await history();
+    const assertGapFrames = async (name: string, frames: VisualFrame[], selections: typeof gapResources[]) => {
+      await completeFrames(name, frames);
+      expect(new Set(frames.flatMap((f) => f.painting)).size, 'static Gap refresh preserves draft geometry').toBe(1);
+      for (const frame of frames) {
+        const fill = frame.draws.filter((d) => d.kind === 'painting-candidate'), contour = frame.draws.filter((d) => d.kind === 'painting-contour');
+        expect(fill, 'every expected static Gap frame draws native candidates').toHaveLength(gapResources.length);
+        // Native Gap resources have no contour; preserve that appearance.
+        expect(contour, 'Gap retains the native empty contour').toEqual([]);
+        expect(selections.some((selection) => selection.every((r, i) =>
+          JSON.stringify(r.vertices!.filter((_, j) => j % 6 < 3)) === JSON.stringify(fill[i].candidate!.positions)
+          && r.contour!.length === 0)), 'candidate positions belong to one complete native Gap receipt').toBe(true);
+        expect(frame.draws.filter((d) => d.kind.startsWith('painting-cursor-'))).toEqual([]);
+      }
+      expect(await history()).toEqual(gapHistory);
+    };
+    await startFrames(); await settleFrames();
+    const outside = await page.locator('#app-tab-prepare').boundingBox();
+    for (const point of [gapPoint, topFaces[0], { x: bounds!.x + 10, y: bounds!.y + 10 }, { x: outside!.x + outside!.width / 2, y: outside!.y + outside!.height / 2 }, gapPoint]) {
+      await page.mouse.move(point.x, point.y, { steps: 8 }); await settleFrames();
+    }
+    // Zoom invokes the same hoverAt(undefined) path as camera gestures.
+    await page.mouse.wheel(0, -20); await settleFrames();
+    await assertGapFrames('painting-gap-static-move-leave', await stopFrames(), [gapResources]);
+    const gapSelections = [gapResources];
+    await startFrames(); await settleFrames();
+    const area = page.getByRole('spinbutton', { name: 'Gap area (mm²)', exact: true });
+    for (const value of ['4', '3', '4']) {
+      const before = (await read())!.resources.find((r) => r.kind === 'gap')!.contourGeometry;
+      await area.fill(value);
+      await expect.poll(async () => (await read())!.resources.find((r) => r.kind === 'gap')?.contourGeometry).not.toBe(before);
+      const selection = (await read())!.resources.filter((r) => r.kind === 'gap');
+      expect(selection).toHaveLength(gapResources.length); expect(selection.every((r) => r.matchesDraftLeaf)).toBe(true);
+      gapSelections.push(selection); await settleFrames();
+    }
+    await assertGapFrames('painting-gap-static-settings', await stopFrames(), gapSelections);
+    // A complete native empty result is allowed to remove the static preview.
+    await area.fill('0'); await expect.poll(async () => (await read())!.rendered.candidates.length).toBe(0);
+    await settleFrames(); expect((await read())!.resources.filter((r) => r.kind === 'gap')).toEqual([]); expect(await history()).toEqual(gapHistory);
+    await area.fill('3'); await expect.poll(async () => (await read())!.rendered.candidates.length).toBeGreaterThan(0);
+    expect((await read())!.resources.filter((r) => r.kind === 'gap').every((r) => r.matchesDraftLeaf && r.groups.every((g) => g[0] === 0))).toBe(true);
     await page.screenshot({ path: test.info().outputPath('painting-gap.png') });
     await page.getByRole('button', { name: 'Apply gap fill', exact: true }).click(); await idle();
     expect((await committed()).paint).toHaveLength(0); await idle();

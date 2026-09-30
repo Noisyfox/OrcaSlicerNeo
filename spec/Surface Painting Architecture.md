@@ -402,6 +402,15 @@ tool/target, cancellation or errors clear it immediately and prevent an
 outstanding response from restoring it. Stale responses neither replace nor
 blank a still-valid displayed preview.
 
+Gap fill uses a static native fragment preview independent of pointer position.
+Pointer movement, canvas leave and camera navigation preserve it without
+requesting hover previews. Area or destination setting changes retain the
+previous complete display while the new native preview and geometry are being
+calculated, then replace the bundle together. A current complete empty result
+clears it. Tool/target changes, errors and closure invalidate it; obsolete
+responses cannot restore it. Applying Gap fill continues to use native fragment
+selection and normal stroke/history semantics.
+
 Once the pointer is pressed, native code performs all painting hit tests and
 face identification. The frontend sends the admitted pointer events in order and the
 camera/viewport information needed to reconstruct the corresponding rays. The

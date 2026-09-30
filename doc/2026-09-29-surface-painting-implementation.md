@@ -1328,3 +1328,47 @@ reliable terminals and the existing API. Verify deferred preview/geometry and
 stale settings tests, real continuous static Gap rendering during pointer
 movement/leave and threshold changes, and unchanged hover history. Parent
 reviews the implementation and independently verifies before acceptance.
+
+Upstream reference: `GLGizmoPainterBase.cpp`'s Moving handler excludes
+`GAP_FILL`; `GLGizmoMmuSegmentation.cpp` updates the threshold and applies
+fragments through selectors. `TriangleSelectorPatch` rebuilds patch render
+data and selects fragments with area below the threshold. Retaining the static
+preview during pointer movement therefore follows its tool semantics.
+The bounded lifecycle audit also covers a project/history operation reserved
+while a preview read is pending: obsolete selection publication must wait for
+the resulting current display, preserving the complete old model bundle.
+
+The child delivered separate pointer/candidate preview policies, a static
+Gap hover no-op, complete-bundle retention and obsolete-read rejection.
+A current successful native preview explicitly authorizes Gap candidates;
+model-only error recovery cannot resurrect a failed preview. Seventeen added
+controller cases cover delayed preview/geometry, successive settings,
+pointer-independent behavior, empty results, tool/target/error/close
+invalidation, Apply failure and project/history reservation. The Gap fixture
+uses the native empty contour. Real Gap verification checks native fragment
+positions and absence of synthetic contours, preserving current appearance.
+
+Parent reviewed the controller ownership/version guards, lifecycle resets,
+known-resource reuse, native leaf membership probe and actual-frame checks.
+No API compatibility paths, move queues, native algorithm or host-boundary
+changes were introduced. Child's controlled previous-controller negative
+failed 11 unit cases and lost candidates in 52 of 57 actual Gap frames;
+fixed production source was restored byte-for-byte and checks rerun.
+
+Parent independently passed `pnpm test` (1,205 including 794 app tests),
+`pnpm typecheck`, and `pnpm exec node scripts/run-painting-e2e.mjs` (1/1,
+25.9 seconds total, current serial artifact hashes verified). Actual captures
+have no missing expected draw: Gap movement/leave 58 frames and settings 147;
+Circle/Sphere/Height held cursors 25/23/20; Triangle hover/held contours 27/75;
+Region hover fill and contour 27. Gap settings retain draft geometry and
+history; threshold zero clears only its completed native empty result,
+restoring the threshold restores selection, and Apply still commits normally.
+Parent inspected the Gap screenshot. Logs are
+`packages/slicer-wasm/.work/parent-gap-retain-*.log`; child negative and restored
+positive evidence is preserved in ignored `.work/gap-retention`.
+Parent restored ordinary builds with `pnpm --filter @orca/desktop build` and
+`pnpm --filter @orca/web build`, passed
+`pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 artifacts and
+`git diff --check`. No native build, Web real E2E or full release matrix was run
+for this shared controller fix. Native sources and the pinned submodule remain
+unchanged.

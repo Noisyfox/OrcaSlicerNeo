@@ -223,7 +223,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
         pivot: pivot?.toArray() ?? null, pivotCamera: pivot?.clone().applyMatrix4(camera.matrixWorldInverse).toArray() ?? null,
         center: center ? { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 } : null,
         resources: [...resources.resources.values()].map((r) => ({ id: r.source.resourceId, volumeId: r.source.volumeId, kind: r.source.kind, groups: r.source.groups, hasBvh: !!(r.geometry as THREE.BufferGeometry & { boundsTree?: unknown }).boundsTree,
-          ...(r.source.kind === 'triangle' || r.source.kind === 'region' ? { vertices: Array.from(r.source.vertices), contour: Array.from(r.source.contour), contourGeometry: r.contour.uuid,
+          ...(r.source.kind === 'triangle' || r.source.kind === 'region' || r.source.kind === 'gap' ? { vertices: Array.from(r.source.vertices), contour: Array.from(r.source.contour), contourGeometry: r.contour.uuid,
             matchesDraftLeaf: [...resources.resources.values()].filter((p) => p.source.kind === 'draft' && p.source.volumeId === r.source.volumeId).some((p) => {
               for (let leaf = 0; leaf < r.source.vertices.length; leaf += 18) {
                 let found = false;

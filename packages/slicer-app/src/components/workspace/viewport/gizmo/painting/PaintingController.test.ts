@@ -408,6 +408,130 @@ describe.each(['triangle', 'region'] as const)('%s native hover admission and se
   }
 });
 
+describe('static Gap native preview receipts', () => {
+  async function gapPreview() {
+    const f = visualFixture(), c = f.controller;
+    await c.open(1, 2); await f.frame();
+    vi.mocked(f.ports.api.targetPaintingSession).mockImplementation(async (request) => {
+      const session = { ...c.getSnapshot().session!, objectId: request.objectId, instanceId: request.instanceId, revision: c.getSnapshot().session!.revision + 1 };
+      f.setSession(session); return { ok: true, version: 1, session };
+    });
+    vi.mocked(f.ports.api.previewPainting).mockImplementation(async () => ({ ...f.receipt('idle'), revision: c.getSnapshot().session!.revision + 1 }));
+    const gapGeometry = (id = `gap-${c.getSnapshot().session!.revision}`, draft = 'a', includeDraft = true): Extract<PaintingGeometryResult, { ok: true }> => {
+      const result = f.geometry(draft, includeDraft);
+      return { ...result, revision: c.getSnapshot().session!.revision,
+        candidates: [{ volumeId: 3, resourceId: id, kind: 'gap' }],
+        resources: [...result.resources, { resourceId: id, volumeId: 3, kind: 'gap', vertices: new Float32Array(18).fill(1), groups: [[0, 0, 3]], contour: new Float32Array() }] };
+    };
+    vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => gapGeometry());
+    c.setTool('gap'); c.setSettings({ gapArea: 3 }); await f.frame(); f.publish();
+    return { ...f, gapGeometry };
+  }
+  it('preserves the exact display/resource/palette through settings preview and geometry, then replaces together or clears a complete empty result', async () => {
+    const f = await gapPreview(), c = f.controller, before = f.publish();
+    const selected = f.cache.resources.get(before.candidates[0].resourceId)!, disposed = vi.spyOn(selected.contour, 'dispose');
+    const displays: unknown[] = [], unsubscribe = c.subscribe(() => { displays.push(c.getSnapshot().display); f.publish(); });
+    const preview = deferred<PaintingDraftResult>(), geometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(preview.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.setSettings({ gapArea: 4, state: 2 }); f.frames.shift()?.(); await tick();
+    c.hoverAt(event(1)); c.hoverAt(); preview.resolve(f.receipt('idle')); await tick();
+    c.hoverAt(event(100)); c.hoverAt(); f.setPalette('#445566');
+    expect(c.getSnapshot().display).toBe(before); expect(displays.every((d) => d === before)).toBe(true);
+    expect(f.cache.resources.get(before.candidates[0].resourceId)).toBe(selected); expect(disposed).not.toHaveBeenCalled();
+    expect(before.palette?.slots[0].colour.effective).toBe('#112233');
+    const next = f.gapGeometry('new', 'b'); geometry.resolve(next); await tick();
+    expect(c.getSnapshot().display).toMatchObject({ candidates: next.candidates, parts: next.parts, palette: { slots: [{ colour: { effective: '#445566' } }] } });
+    expect(c.getSnapshot().display?.session).toBe(c.getSnapshot().session);
+    expect(disposed).toHaveBeenCalledTimes(1); expect(f.cache.resources.size).toBe(2);
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'gap', settings: expect.objectContaining({ gapArea: 4, state: 2 }) }));
+    expect(vi.mocked(f.ports.api.previewPainting).mock.calls.every(([r]) => !('event' in r))).toBe(true);
+    const matched = c.getSnapshot().display, empty = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(empty.promise);
+    c.setSettings({ gapArea: 0 }); f.frames.shift()?.(); await tick(); expect(c.getSnapshot().display).toBe(matched);
+    empty.resolve({ ...f.geometry('b', false), revision: c.getSnapshot().session!.revision }); await tick();
+    expect(c.getSnapshot().display?.candidates).toEqual([]); expect(f.cache.resources.size).toBe(1);
+    unsubscribe(); f.cache.dispose();
+  });
+  it('ignores model/empty-space movement, leave and camera hover invalidation without any RPC or history changes', async () => {
+    const f = await gapPreview(), c = f.controller, before = c.getSnapshot().display;
+    const previewCalls = vi.mocked(f.ports.api.previewPainting).mock.calls.length, geometryCalls = vi.mocked(f.ports.api.getPaintingGeometry).mock.calls.length;
+    for (const point of [event(1), event(100), undefined, event(2), undefined]) c.hoverAt(point);
+    await f.frame(); expect(c.getSnapshot().display).toBe(before);
+    expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(previewCalls); expect(f.ports.api.getPaintingGeometry).toHaveBeenCalledTimes(geometryCalls);
+    expect(f.ports.history).toHaveBeenCalledTimes(1); expect(f.ports.committed).not.toHaveBeenCalled(); f.cache.dispose();
+  });
+  it.each(['preview', 'geometry'] as const)('discards obsolete %s work across successive settings without corrupting known resources', async (stage) => {
+    const f = await gapPreview(), c = f.controller, before = f.publish();
+    const preview = deferred<PaintingDraftResult>(), geometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(preview.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.setSettings({ gapArea: 4 }); f.frames.shift()?.(); await tick();
+    if (stage === 'geometry') { preview.resolve(f.receipt('idle')); await tick(); }
+    c.setSettings({ state: 2, gapArea: 3.5 });
+    if (stage === 'preview') { preview.resolve(f.receipt('idle')); await tick(); }
+    geometry.resolve(f.gapGeometry('obsolete', 'obsolete-draft')); await tick();
+    expect(c.getSnapshot().display).toBe(before); expect(f.cache.resources.has('obsolete')).toBe(false);
+    await f.frame(); const after = f.publish();
+    expect(after.candidates).toHaveLength(1); expect(after.resources.some((r) => r.resourceId.startsWith('obsolete'))).toBe(false);
+    expect(f.ports.api.getPaintingGeometry).toHaveBeenLastCalledWith(expect.objectContaining({ knownResourceIds: before.resources.map((r) => r.resourceId) }));
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ settings: expect.objectContaining({ state: 2, gapArea: 3.5 }) })); f.cache.dispose();
+  });
+  it.each(['tool', 'target', 'error', 'close'].flatMap((mode) => (['preview', 'geometry'] as const).map((stage) => ({ mode, stage }))))('invalidates immediately on $mode and does not resurrect from pending $stage', async ({ mode, stage }) => {
+    const f = await gapPreview(), c = f.controller, before = c.getSnapshot().display!;
+    const preview = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(preview.promise);
+    const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.setSettings({ gapArea: 4 }); f.frames.shift()?.(); await tick();
+    if (stage === 'geometry') { preview.resolve(f.receipt('idle')); await tick(); }
+    let command: Promise<boolean> | undefined;
+    if (mode === 'tool') c.setTool('circle');
+    if (mode === 'target') command = c.target(4, 5);
+    if (mode === 'error') c.reportDisplayError(new Error('renderer failed'));
+    if (mode === 'close') command = c.close();
+    expect(c.getSnapshot().display?.candidates).toEqual([]); expect(c.getSnapshot().display?.parts).toBe(before.parts);
+    if (stage === 'preview') { preview.resolve(f.receipt('idle')); await tick(); }
+    geometry.resolve(f.gapGeometry('obsolete')); await tick(); if (command) expect(await command).toBe(true);
+    expect(c.getSnapshot().display?.candidates ?? []).toEqual([]);
+    if (mode === 'target') {
+      const pending = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(pending.promise);
+      f.frames.shift()?.(); await tick(); expect(c.getSnapshot().display?.candidates).toEqual([]);
+      pending.resolve(f.receipt('idle')); await tick(); expect(c.getSnapshot().display?.session.objectId).toBe(4); expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    } else { await f.frame(); expect(c.getSnapshot().display?.candidates ?? []).toEqual([]); }
+    expect(c.getSnapshot().display?.resources.some((r) => r.resourceId === 'obsolete') ?? false).toBe(false); f.cache.dispose();
+  });
+  it.each(['preview', 'geometry'] as const)('clears on %s failure and keeps the model without automatic candidate resurrection', async (stage) => {
+    const f = await gapPreview(), c = f.controller, before = c.getSnapshot().display!;
+    if (stage === 'preview') vi.mocked(f.ports.api.previewPainting).mockRejectedValueOnce(new Error('native failed'));
+    else vi.mocked(f.ports.api.getPaintingGeometry).mockRejectedValueOnce(new Error('native failed'));
+    c.setSettings({ gapArea: 4 }); await f.frame();
+    expect(c.getSnapshot().display?.parts).toBe(before.parts); expect(c.getSnapshot().display?.candidates).toEqual([]); expect(c.getSnapshot().error).toBe('native failed');
+    await f.frame(); c.hoverAt(event(1)); c.hoverAt(); await f.frame(); expect(c.getSnapshot().display?.candidates).toEqual([]);
+    // An explicit complete native refresh, rather than old geometry, restores it.
+    c.setSettings({ gapArea: 3 }); await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1); f.cache.dispose();
+  });
+  it('does not revive old native candidates in the model-only refresh after an Apply failure', async () => {
+    const f = await gapPreview(), c = f.controller, before = c.getSnapshot().display!;
+    vi.mocked(f.ports.api.commitPaintingStroke).mockRejectedValueOnce(new Error('commit failed'));
+    expect(await c.apply('gap')).toBe(false); expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(c.getSnapshot().display?.parts).toBe(before.parts); expect(c.getSnapshot().error).toBe('commit failed');
+    await f.frame(); expect(c.getSnapshot().display?.candidates).toEqual([]); expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(2);
+    expect(f.ports.history).toHaveBeenCalledTimes(1); expect(f.ports.committed).not.toHaveBeenCalled();
+    c.setSettings({ gapArea: 4 }); await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1); f.cache.dispose();
+  });
+  it.each(['project', 'history'] as const)('reserves a %s mutation behind pending geometry and refreshes a matched native preview', async (kind) => {
+    const f = await gapPreview(), c = f.controller, before = f.publish();
+    const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.setSettings({ gapArea: 4 }); f.frames.shift()?.(); await tick();
+    const operation = vi.fn(async () => { f.setSession({ ...c.getSnapshot().session!, revision: 10 }); f.setPalette('#abcdef'); return true; });
+    const command = kind === 'history' ? c.betweenStrokes(operation) : c.projectOperation(operation);
+    expect(operation).not.toHaveBeenCalled(); geometry.resolve(f.gapGeometry('obsolete')); await tick(); expect(await command).toBe(true);
+    expect(c.getSnapshot().display).toBe(before); expect(before.palette?.slots[0].colour.effective).toBe('#112233');
+    await f.frame(); const after = f.publish(); expect(after.session.revision).toBe(11); expect(after.candidates).toHaveLength(1);
+    expect(after.palette?.slots[0].colour.effective).toBe('#abcdef');
+    expect(f.ports.api.getPaintingGeometry).toHaveBeenLastCalledWith(expect.objectContaining({ knownResourceIds: before.resources.map((r) => r.resourceId) })); f.cache.dispose();
+  });
+});
+
 describe('complete painting visual handoffs', () => {
   it('keeps the opening fallback until the complete native resource receipt and rejects invisible-target input', async () => {
     const f = visualFixture(), c = f.controller;
