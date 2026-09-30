@@ -1146,3 +1146,80 @@ and `pnpm --filter @orca/web build`, then passed
 `git diff --check` passed. No native rebuild or full dual-host/dual-WASM release
 matrix was run for this shared renderer-only change; the pinned native
 submodule remains `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`.
+
+## Follow-up: Triangle mode facet highlight (2026-09-30)
+
+The user requires Orca's Triangle mode: highlight the corresponding triangle
+instead of drawing a brush. Pinned `GLGizmoPainterBase::render_cursor()` draws
+only circle, sphere and height cursors. The POINTER path in its Moving handler
+selects through `bucket_fill_select_triangles(hit, facet, clipping, -1, false)`
+and clears selection on miss or part change. The paint path uses the same
+selection, including native subdivided leaves.
+
+One bounded step extends the existing isolated native candidate preview and
+shared controller publication to Triangle mode, removes the point brush, and
+renders native-selected facet geometry using Orca's highlight semantics. The
+MMU gizmo instantiates `TriangleSelectorPatch`: its renderer keeps patch-state
+material colours and draws the selected native contour in white. Triangle
+preview therefore uses that outline without a destination tint or Region's
+translucent fill overlay. Keep
+preview selection separate from annotations/history; preserve current draft,
+palette, camera and event-lane contracts. All internal callers migrate together.
+A fresh gpt-6.1-sol/high child implemented and self-verified this step; parent
+independently reviewed the native selection lifetime, current typed protocol
+migration, strict resource decoder, matched display publication, contour shader
+and event admission. No compatibility branches were added. Triangle preview
+retains the selected native leaf's geometry for membership/cache validation,
+but renders only its contour. The material has normal depth testing, no depth
+write and Orca's `0.00001 * abs(w)` clip-depth offset. It allocates no unused
+face materials. Region preview and other brush render paths remain intact.
+
+Scheduled/busy Triangle hover moves are dropped rather than queued. Leave,
+tool/settings changes and newer admitted samples invalidate old candidates.
+Setting changes while still on-model and release during an outstanding native
+geometry read are tested separately; terminal endpoints are preserved. Native
+tests assert one selected leaf for both original and actually subdivided
+meshes, unchanged selector/Model data during hover, part changes, misses,
+preview-to-paint membership and cancel restoration. The subdivided fixture
+uses the collision's local coordinates; world height must not be substituted.
+
+Child checks passed root tests (1,166), typecheck, both current-header WASM
+quick builds, native painting suites, serial production backend contract,
+threaded smoke, real serial Electron, ordinary host builds and production
+elision. Parent independently passed:
+
+- `pnpm test` (1,166; app 755 and slicer-wasm 246) and `pnpm typecheck`.
+- `scripts\build-windows.bat quick --variant both`.
+- `packages\slicer-wasm\.work\triangle-native-test.cmd`: reconfigure the
+  existing independent history-test build with current cereal include, check
+  both PaintingSession source objects, relink the configured target's response
+  file against fresh serial production core/deps archives and run its CJS.
+  Original/subdivided preview, six-tool engine and lifecycle suites all passed.
+  The local helper and response generator are ignored build artifacts.
+- `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs
+  packages/slicer-wasm/out/serial/orca_slice.js --expect-production`: original
+  and subdivided preview/history, publication, remap, 3MF and two-material
+  slicing passed. The existing `--interop-only` option still skips editing
+  preview tests.
+- `scripts\build-windows.bat smoke --variant threaded`.
+- `pnpm exec node scripts/run-painting-e2e.mjs`: 1/1, 22.1 seconds total, current
+  serial artifact hashes verified. Native hover captured 36 model frames, 32
+  with the white contour; held Triangle captured 8 frames across two model
+  geometries, 5 with the current contour. Undo replacement captured 39 frames
+  across two model geometries. All three captures have zero Triangle brush
+  draws and zero duplicate fill draws. Actual contour positions match native
+  selected geometry; its colour/depth properties are correct in every draw.
+  The real subdivided leaf is smaller than its original 200 mm² triangle,
+  belongs to the current draft, and hover leaves history unchanged. Parent
+  visually reviewed original-face and subdivided-leaf screenshots.
+
+Independent logs use `packages/slicer-wasm/.work/parent-triangle-*.log`; frame
+JSON/screenshots are in ignored desktop `test-results`. Parent restored fresh
+ordinary builds with `pnpm --filter @orca/desktop build` and
+`pnpm --filter @orca/web build`, passed
+`pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 production
+artifacts and `git diff --check`. The read-only pinned submodule remains
+`c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. Pinned selector behavior is unchanged:
+exact subdivision-edge hits can return an
+empty leaf selection; verification uses interior points. No full release
+matrix is claimed.

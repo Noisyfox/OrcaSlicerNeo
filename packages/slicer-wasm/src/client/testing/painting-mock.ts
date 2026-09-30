@@ -28,7 +28,7 @@ export function paintingMock(hooks: {
       session.parts.forEach((part: any) => part.generation++);
     }
   };
-  const metadata = () => ({ ok: true, version: 1, session: { ...session, candidate: session.candidate ? { revision: session.revision, selectedFacetCount: session.candidate === 'region' ? 1 : 0,
+  const metadata = () => ({ ok: true, version: 1, session: { ...session, candidate: session.candidate ? { revision: session.revision, selectedFacetCount: session.candidate === 'gap' ? 0 : 1,
     gapRegionCount: session.candidate === 'gap' ? 1 : 0, parts: session.parts.map((p: any, i: number) => ({ volumeId: p.volumeId,
       facetCounts: Array.from({ length: 17 }, (_, state) => +(state === session.states[i])) })) } : undefined, annotation: 'mmu', instanceTransform: identity,
     parts: session.parts.map((part: any, i: number) => ({ volumeId: part.volumeId, sourceTriangleCount: 1,
@@ -91,8 +91,8 @@ export function paintingMock(hooks: {
         .flatMap((part: any, i: number) => request.knownResourceIds?.includes(part.resourceId) ? [] : [{ ...part,
           vertex_ptr: hooks.allocate([0,0,0,0,0,1,1,0,0,0,0,1,0,1,0,0,0,1]), vertexCount: 3,
           groups: [[session.states[Math.min(i, session.states.length - 1)],0,3]],
-          contour_ptr: part.kind === 'region' ? hooks.allocate([0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0]) : 0,
-          contourVertexCount: part.kind === 'region' ? 6 : 0 }]);
+          contour_ptr: part.kind === 'region' || part.kind === 'triangle' ? hooks.allocate([0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0]) : 0,
+          contourVertexCount: part.kind === 'region' || part.kind === 'triangle' ? 6 : 0 }]);
       const leaseId = `pg-${nextLease++}`;
       leases.set(leaseId, resources.flatMap((resource: any) => [resource.vertex_ptr, resource.contour_ptr].filter(Boolean)));
       return { ok: true, version: 1, leaseId, sessionId: session.id, revision: session.revision, parts, candidates, resources };

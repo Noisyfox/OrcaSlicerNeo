@@ -93,7 +93,7 @@ json metadata(const Slic3r::Neo::Painting::Session& session) {
         std::size_t gap_regions = 0;
         for (const auto& regions : session.preview->gap_regions) gap_regions += regions.size();
         out["session"]["candidate"] = {{"revision", session.revision}, {"parts", std::move(preview_parts)},
-            {"selectedFacetCount", session.preview->region_selection ? session.preview->region_selection->selected_facet_count() : 0},
+            {"selectedFacetCount", session.preview->facet_selection ? session.preview->facet_selection->selected_facet_count() : 0},
             {"gapRegionCount", gap_regions}};
     }
     return out;
@@ -176,7 +176,7 @@ json receipt(const Session& session) {
         {"revision", session.revision}, {"strokeId", session.active_stroke_id ? json("pst-" + std::to_string(session.id) + "-" + std::to_string(session.active_stroke_id)) : json(nullptr)},
         {"phase", session.phase == Phase::Idle ? "idle" : session.phase == Phase::Drawing ? "drawing" : "finished"},
         {"effective", session.effective}, {"changedPartIds", session.changed_parts}, {"hit", std::move(hit)},
-        {"candidateRevision", session.preview ? json(session.revision) : json(nullptr)}};
+        {"candidateRevision", session.preview && session.phase == Phase::Idle ? json(session.revision) : json(nullptr)}};
 #ifdef NEO_PAINTING_PROFILE
     out["paintingProfile"] = {{"nativeHitUs", Profile::hit.microseconds}, {"nativeHitCalls", Profile::hit.calls},
         {"nativeSelectorUs", Profile::selector.microseconds}, {"nativeSelectorCalls", Profile::selector.calls},
@@ -371,10 +371,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
             if (!known.count(key)) resources.push_back(geometry(buffers, part.selector->display(), {}, part.volume_id, key, "draft"));
             if (!session.preview) continue;
             const auto prefix = "pc-" + std::to_string(session.id) + "-" + std::to_string(session.revision) + "-" + std::to_string(part.volume_id);
-            if (session.preview->region_selection && session.preview->hit && session.preview->hit->part == i) {
-                candidates.push_back({{"volumeId", part.volume_id}, {"resourceId", prefix}, {"kind", "region"}});
-                if (!known.count(prefix)) resources.push_back(geometry(buffers, session.preview->region_selection->display(nullptr, true),
-                    session.preview->region_selection->contour(), part.volume_id, prefix, "region"));
+            if (session.preview->facet_selection && session.preview->hit && session.preview->hit->part == i) {
+                const char* kind = session.preview->tool == Tool::Triangle ? "triangle" : "region";
+                candidates.push_back({{"volumeId", part.volume_id}, {"resourceId", prefix}, {"kind", kind}});
+                if (!known.count(prefix)) resources.push_back(geometry(buffers, session.preview->facet_selection->display(nullptr, true),
+                    session.preview->facet_selection->contour(), part.volume_id, prefix, kind));
             }
             if (i < session.preview->gap_regions.size()) {
                 std::size_t index = 0;

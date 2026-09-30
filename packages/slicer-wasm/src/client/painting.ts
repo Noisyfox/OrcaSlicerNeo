@@ -80,7 +80,7 @@ export interface PaintingPointerEvent {
   readonly view: readonly number[];
 }
 export interface PaintingPreviewRequest extends PaintingSessionRequest {
-  readonly tool: 'region' | 'gap';
+  readonly tool: 'triangle' | 'region' | 'gap';
   readonly settings: PaintingSettings;
   readonly event?: PaintingPointerEvent;
 }
@@ -89,7 +89,7 @@ export interface PaintingStrokeBeginRequest extends PaintingSessionRequest {
   readonly settings: PaintingSettings;
   /** Required for pointer tools; prohibited for gap and eraseAll. */
   readonly event?: PaintingPointerEvent;
-  /** Required for gap Apply; optional region-preview consistency guard. */
+  /** Required for gap Apply; optional triangle/region-preview consistency guard. */
   readonly candidateRevision?: PaintingRevision;
 }
 export interface PaintingStrokeRequest extends PaintingSessionRequest {
@@ -132,7 +132,7 @@ export interface PaintingGeometryRequest extends PaintingSessionRequest { readon
 export interface PaintingGeometry {
   readonly volumeId: number;
   readonly resourceId: string;
-  readonly kind: 'draft' | 'region' | 'gap';
+  readonly kind: 'draft' | 'triangle' | 'region' | 'gap';
   /** Nonindexed local-space P3N3 triangle vertices. */
   readonly vertices: Float32Array;
   readonly groups: readonly (readonly [state: number, firstVertex: number, vertexCount: number])[];
@@ -141,7 +141,7 @@ export interface PaintingGeometry {
 }
 export type PaintingGeometryResult = { readonly ok: true; readonly version: 1; readonly sessionId: string;
   readonly revision: number; readonly parts: readonly { volumeId: number; resourceId: string }[];
-  readonly candidates: readonly { volumeId: number; resourceId: string; kind: 'region' | 'gap' }[];
+  readonly candidates: readonly { volumeId: number; resourceId: string; kind: 'triangle' | 'region' | 'gap' }[];
   readonly resources: readonly PaintingGeometry[]; readonly paintingProfile?: PaintingProfileCounters } | { readonly error: string };
 export type PaintingSettlementResult = { readonly ok: true; readonly version: 1; readonly settledVersion: number;
   readonly projections: unknown } | { readonly error: string };

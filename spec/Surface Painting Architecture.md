@@ -367,7 +367,7 @@ painting operation. No BVH is built over the subdivided paint display geometry.
 
 Render brush cursors after draft surfaces, candidates and contours, with a
 stable draw order across stroke/geometry publication. Cursors do not write
-depth. Circle, height and triangle-pointer overlays ignore model depth; the
+depth. Circle and height overlays ignore model depth; the
 sphere uses a filled, translucent surface with normal model depth testing and
 opacity 0.25, rather than a wireframe or an X-ray sphere. Preserve cursor
 identity during a held stroke; refreshing a model must not require leaving and
@@ -377,6 +377,18 @@ filament's effective colour from the matched displayed palette. Apply Orca's
 encoded RGB channel: `min(channel * 1.25, 1)`, before Three's linear colour
 conversion. Keep that selected highlighted hue during painting and erasing;
 sphere translucency remains independent of the RGB highlight.
+
+Triangle mode has no point or brush cursor. Highlight its native-picked
+triangle through the selector's candidate geometry, including the hit leaf
+when the original triangle has already been subdivided. Use the same pinned
+Orca triangle-selection semantics for hover and painting. Match its MMU
+`TriangleSelectorPatch` appearance: retain the facet's existing material
+colour and draw the native selection contour in white, without a destination
+brush tint or a translucent fill overlay. Hover does not
+modify committed annotations or history; leaving the model, changing target
+part or changing tool clears or replaces its selection. Frontend BVH face
+indices do not determine the highlighted triangle. Reject outdated preview
+publication just as for region fill.
 
 Once the pointer is pressed, native code performs all painting hit tests and
 face identification. The frontend sends the admitted pointer events in order and the

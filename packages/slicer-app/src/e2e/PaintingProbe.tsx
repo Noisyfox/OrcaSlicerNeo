@@ -27,6 +27,7 @@ export function PaintingVisualProbe() {
   useEffect(() => {
     type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
       draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
+        contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] };
         cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number } }> };
     let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
     let raf: number | null = null;
@@ -44,7 +45,7 @@ export function PaintingVisualProbe() {
           if (ancestor.userData.orcaVolume) { volume = ancestor.userData.orcaVolume; break; }
         }
         const kind = object.name.startsWith('painting-cursor-') ? object.name
-          : object.name === 'painting-candidate' || object.name === 'painting-contour' ? object.name
+          : object.name === 'painting-candidate' || object.name === 'painting-contour' || object.name === 'painting-contour-triangle' ? object.name
           : object.name === `painting-model-${capture!.objectId}-${capture!.instanceId}` ? 'painting'
           : volume?.buffer.objectId === capture!.objectId && volume.buffer.instanceId === capture!.instanceId ? 'ordinary' : null;
         if (!kind) return;
@@ -61,6 +62,7 @@ export function PaintingVisualProbe() {
             if (ancestor instanceof THREE.Group) { groupOrder = ancestor.renderOrder; break; }
           }
           frame.draws.push({ kind, geometry: object.geometry.uuid, renderOrder: object.renderOrder, groupOrder,
+            ...(kind === 'painting-contour-triangle' ? { contour: { color: material.color.getHexString(), depthTest: material.depthTest, depthWrite: material.depthWrite, positions: Array.from(object.geometry.getAttribute('position').array) } } : {}),
             ...(kind.startsWith('painting-cursor-') ? { cursor: { uuid: object.uuid,
               radius: object.geometry instanceof THREE.SphereGeometry ? object.geometry.parameters.radius * object.getWorldScale(new THREE.Vector3()).x : null,
               color: material.color.getHexString(), encodedRgb: material.color.clone().convertLinearToSRGB().toArray(), linearRgb: material.color.toArray(), wireframe: material.wireframe, transparent: material.transparent,
@@ -218,7 +220,12 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
         camera: [...camera.position.toArray(), ...camera.quaternion.toArray()], target: (controls as unknown as { target?: THREE.Vector3 } | null)?.target?.toArray() ?? [0, 0, 0], cursor: cursor?.toArray() ?? null,
         pivot: pivot?.toArray() ?? null, pivotCamera: pivot?.clone().applyMatrix4(camera.matrixWorldInverse).toArray() ?? null,
         center: center ? { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 } : null,
-        resources: [...resources.resources.values()].map((r) => ({ id: r.source.resourceId, volumeId: r.source.volumeId, kind: r.source.kind, groups: r.source.groups, hasBvh: !!(r.geometry as THREE.BufferGeometry & { boundsTree?: unknown }).boundsTree })), ordinaryModels,
+        resources: [...resources.resources.values()].map((r) => ({ id: r.source.resourceId, volumeId: r.source.volumeId, kind: r.source.kind, groups: r.source.groups, hasBvh: !!(r.geometry as THREE.BufferGeometry & { boundsTree?: unknown }).boundsTree,
+          ...(r.source.kind === 'triangle' ? { vertices: Array.from(r.source.vertices), contour: Array.from(r.source.contour), contourGeometry: r.contour.uuid,
+            matchesDraftLeaf: [...resources.resources.values()].filter((p) => p.source.kind === 'draft' && p.source.volumeId === r.source.volumeId).some((p) => {
+              for (let i = 0; i < p.source.vertices.length; i += 18) if (r.source.vertices.every((value, j) => value === p.source.vertices[i + j])) return true;
+              return false;
+            }) } : {}) })), ordinaryModels,
         nativeTarget: state.session, displayTarget: state.display?.session,
         rendered: rendered.current, input: { ...input.current }, runtime: runtime.getRuntimeExecutionState?.(), error: state.error };
     },

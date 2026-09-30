@@ -36,6 +36,70 @@ struct Fixture {
         sessions.publish(sessions.prepare_preview(s().id, s().revision, tool, settings, event));
     }
 };
+void triangle_preview_tests() {
+    for (bool subdivided : {false, true}) {
+        Fixture f;
+        auto* second = f.object->add_volume(TriangleMesh(its_make_cube(4., 4., 4.)));
+        second->set_offset(Vec3d(12, 0, 0));
+        if (subdivided) {
+            NativeSelector painted(f.part->mesh());
+            AABBMesh original(f.part->mesh());
+            const auto hit = original.query_ray_hit(Vec3d(3, 4, 100), Vec3d(0, 0, -1));
+            const Transform3d transform = Transform3d::Identity();
+            auto cursor = TriangleSelector::SinglePointCursor::cursor_factory(hit.position().cast<float>(), Vec3f(3, 4, 100),
+                .5f, TriangleSelector::SPHERE, transform, {});
+            painted.select_patch(hit.face(), std::move(cursor), EnforcerBlockerType::Extruder1, transform, true);
+            f.part->mmu_segmentation_facets.set(painted);
+        }
+        f.open();
+        const auto annotation = f.part->mmu_segmentation_facets.get_data();
+        const auto timestamp = f.part->mmu_segmentation_facets.timestamp();
+        const auto selector = f.s().parts[0].selector;
+        const auto before = selector->serialize();
+        const auto hit = *f.sessions.pick(f.s(), top(3.013, 4.027));
+        auto expected = selector->clone();
+        expected->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet, {}, -1.f, false, true);
+        const auto selected = expected->display(nullptr, true);
+        CHECK(selected.vertices.size() == 18);
+        if (subdivided) {
+            CHECK(selector->display().vertices.size() > 12 * 18);
+            CHECK(f.s().parts[0].facet_counts()[1] > 0);
+            const Vec3f a(selected.vertices[0], selected.vertices[1], selected.vertices[2]);
+            const Vec3f b(selected.vertices[6], selected.vertices[7], selected.vertices[8]);
+            const Vec3f c(selected.vertices[12], selected.vertices[13], selected.vertices[14]);
+            CHECK((b - a).cross(c - a).norm() * .5f < 50.f);
+        }
+        Settings settings; settings.state = 2; settings.angle.reset(); settings.radius = 100;
+        f.preview(Tool::Triangle, settings, top(3.013, 4.027));
+        CHECK(f.s().preview->facet_selection->selected_facet_count() == 1);
+        CHECK(f.s().preview->facet_selection->display(nullptr, true).vertices == selected.vertices);
+        CHECK(f.s().preview->facet_selection->contour() == expected->contour());
+        CHECK(f.s().preview->facet_selection->contour().size() >= 18);
+        CHECK(f.s().preview->facet_selection->contour().size() % 6 == 0);
+        CHECK(f.s().preview->selectors[0] == selector && f.s().parts[0].selector == selector);
+        CHECK(selector->serialize() == before && !f.s().effective && f.s().changed_parts.empty());
+        CHECK(f.part->mmu_segmentation_facets.timestamp() == timestamp && f.part->mmu_segmentation_facets.get_data() == annotation);
+        f.preview(Tool::Triangle, settings, top(13, 2));
+        CHECK(f.s().preview->hit->part == 1 && f.s().preview->facet_selection->selected_facet_count() == 1);
+        f.preview(Tool::Triangle, settings, top(-10, 2));
+        CHECK(!f.s().preview->hit && !f.s().preview->facet_selection);
+        f.preview(Tool::Triangle, settings, top(3.013, 4.027));
+        const auto revision = f.s().revision;
+        THROWS(f.sessions.prepare_begin(f.s().id, revision, Tool::Triangle, settings, top(13, 2), revision));
+        f.sessions.publish(f.sessions.prepare_begin(f.s().id, revision, Tool::Triangle, settings, top(3.013, 4.027), revision));
+        CHECK(f.s().parts[0].facet_counts()[2] == 1);
+        CHECK(f.s().preview->facet_selection->display(nullptr, true).vertices == selected.vertices);
+        CHECK(f.s().preview->facet_selection->display(nullptr, true).groups.front()[0] == 2);
+        f.sample(settings, top(13, 2));
+        CHECK(f.s().preview->hit->part == 1);
+        f.sample(settings, top(-10, 2));
+        CHECK(!f.s().preview && !f.s().last_hit);
+        f.cancel();
+        CHECK(!f.s().preview && f.s().parts[0].selector->serialize() == before);
+        CHECK(f.part->mmu_segmentation_facets.get_data() == annotation);
+    }
+    std::cout << "Painting original/subdivided triangle preview tests passed\n";
+}
 void engine_tests() {
     Settings settings;
     Fixture f;
@@ -137,7 +201,7 @@ void engine_tests() {
     settings.state = 2; settings.angle = 30;
     f.preview(Tool::Region, settings, top(3, 4));
     CHECK(f.s().preview->selectors[1] == f.s().parts[1].selector);
-    CHECK(f.s().preview->region_selection->selected_facet_count() == 2);
+    CHECK(f.s().preview->facet_selection->selected_facet_count() == 2);
     CHECK(f.s().parts[0].facet_counts()[2] == 0);
     CHECK(f.s().preview->selectors[0]->num_facets(EnforcerBlockerType::Extruder2) == 2);
     auto candidate_data = f.s().preview->selectors[0]->serialize();
@@ -159,8 +223,8 @@ void engine_tests() {
     settings.angle = 0;
     settings.state = 0;
     f.preview(Tool::Region, settings, top(3, 4));
-    CHECK(f.s().preview->region_selection->selected_facet_count() == 2);
-    CHECK(!f.s().preview->region_selection->get_seed_fill_contour().empty());
+    CHECK(f.s().preview->facet_selection->selected_facet_count() == 2);
+    CHECK(!f.s().preview->facet_selection->get_seed_fill_contour().empty());
     CHECK(f.s().preview->selectors[0]->serialize() == f.s().parts[0].selector->serialize());
     settings.state = 2;
     f.begin(Tool::Region, settings, top(3, 4)); CHECK(f.s().parts[0].facet_counts()[2] == 2); f.cancel();
@@ -302,7 +366,7 @@ void engine_tests() {
     Fixture publication;
     publication.open();
     publication.preview(Tool::Region, Settings{}, top(3, 4));
-    const auto& selected = *publication.s().preview->region_selection;
+    const auto& selected = *publication.s().preview->facet_selection;
     const auto overlay = selected.display(nullptr, true);
     CHECK(!overlay.vertices.empty() && !selected.contour().empty());
     CHECK(overlay.groups.front()[0] == 0); // Unpainted candidate is still visible.
@@ -355,6 +419,8 @@ void engine_tests() {
 }
 
 int main() {
+    try {
+    triangle_preview_tests();
     engine_tests();
     Model model;
     auto* object = model.add_object();
@@ -423,4 +489,8 @@ int main() {
     THROWS(sessions.validate_target(model, *sessions.current()));
     sessions.reset();
     std::cout << "Painting session lifecycle tests passed\n";
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << '\n';
+        return 1;
+    }
 }

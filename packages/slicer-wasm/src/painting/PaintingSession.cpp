@@ -252,6 +252,15 @@ void Sessions::sample(Session& session, const Settings& settings, const PointerE
     session.last_event = event;
     session.last_hit = endpoint;
     session.preview.reset();
+    if (session.tool == Tool::Triangle) {
+        // Orca POINTER leaves the current native leaf selected after each
+        // admitted sample. Keep flags isolated from draft annotation topology.
+        auto selected = session.parts[endpoint->part].selector->clone();
+        selected->bucket_fill_select_triangles(endpoint->local.cast<float>(), endpoint->original_facet, {}, -1.f, false, true);
+        Preview preview{Tool::Triangle, settings, endpoint, {}, std::move(selected), {}};
+        for (const auto& part : session.parts) preview.selectors.push_back(part.selector);
+        session.preview = std::move(preview);
+    }
     compare(session, touched);
 }
 
@@ -315,7 +324,7 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
         next->phase = Phase::Finished;
         compare(*next, std::vector<bool>(next->parts.size(), true));
     } else sample(*next, settings, *event);
-    next->preview.reset();
+    if (tool != Tool::Triangle) next->preview.reset();
     return next;
 }
 
@@ -357,8 +366,8 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
 {
     const auto& current = require(id, revision);
     settings.validate();
-    if (tool != Tool::Region && tool != Tool::Gap) throw std::invalid_argument("painting tool has no candidate preview");
-    if ((tool == Tool::Region) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
+    if (tool != Tool::Triangle && tool != Tool::Region && tool != Tool::Gap) throw std::invalid_argument("painting tool has no candidate preview");
+    if ((tool != Tool::Gap) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
     auto next = stage(current);
     const auto hit = event ? pick(current, *event) : std::optional<Hit>{};
     // Candidate selectors are isolated from the authoritative draft as well as
@@ -386,11 +395,11 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
         Profile::Scope profile_region(Profile::selector);
 #endif
         selected->bucket_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, {},
-            settings.angle ? float(*settings.angle) : -1.f, true, true);
+            tool == Tool::Region && settings.angle ? float(*settings.angle) : -1.f, tool == Tool::Region, true);
         }
-        preview.region_selection = std::move(selected);
+        preview.facet_selection = std::move(selected);
         std::vector<bool> touched(work.parts.size(), false);
-        apply_hit(work, settings, *hit, {}, touched);
+        if (tool == Tool::Region) apply_hit(work, settings, *hit, {}, touched);
     }
     for (auto& part : work.parts) preview.selectors.push_back(std::move(part.selector));
     next->preview = std::move(preview);

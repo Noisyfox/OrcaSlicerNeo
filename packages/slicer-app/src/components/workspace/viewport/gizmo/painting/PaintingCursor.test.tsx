@@ -8,7 +8,7 @@ const position = new THREE.Vector3(5, 10, 15), cameraQuaternion = new THREE.Quat
 const color = new THREE.Color('#abcdef');
 const bounds = new THREE.Box3(new THREE.Vector3(-10, -20, 0), new THREE.Vector3(30, 40, 50));
 
-it.each(['circle', 'sphere', 'height', 'triangle'] as const)('draws the production %s cursor last without writing depth', (tool) => {
+it.each(['circle', 'sphere', 'height'] as const)('draws the production %s cursor last without writing depth', (tool) => {
   vi.stubGlobal('__ORCA_E2E__', false);
   const tree = PaintingCursor({ tool, settings, position, cameraQuaternion, bounds, color })!;
   const mesh = tree.props.children;
@@ -29,6 +29,6 @@ it.each(['circle', 'sphere', 'height', 'triangle'] as const)('draws the producti
   material.dispose();
 });
 
-it.each(['region', 'gap'] as const)('does not invent a cursor for %s', (tool) => {
+it.each(['triangle', 'region', 'gap'] as const)('does not invent a cursor for %s', (tool) => {
   expect(PaintingCursor({ tool, settings, position, cameraQuaternion, bounds, color })).toBeNull();
 });

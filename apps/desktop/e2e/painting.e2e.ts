@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os';
 const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
-type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
+type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
-  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw }> };
+  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
@@ -84,6 +84,24 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e;
       return [[105, 95, 20], [95, 105, 20]].map((world) => hooks.paintingWorldToScreen(world));
     });
+    const triangleHistory = await history();
+    await startFrames();
+    await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y);
+    await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
+    await settleFrames();
+    const triangleLeaf = (await read())!.resources.find((r) => r.kind === 'triangle')!;
+    expect(triangleLeaf.vertices).toHaveLength(18); expect(triangleLeaf.contour).toHaveLength(18);
+    const triangleHoverFrames = await stopFrames(); await completeFrames('painting-triangle-native-hover', triangleHoverFrames);
+    const outline = triangleHoverFrames.at(-1)!.draws.find((draw) => draw.kind === 'painting-contour-triangle')!;
+    expect(outline.geometry).toBe(triangleLeaf.contourGeometry);
+    expect(outline.contour).toEqual({ color: 'ffffff', depthTest: true, depthWrite: false, positions: triangleLeaf.contour });
+    expect(triangleHoverFrames.flatMap((f) => f.draws).filter((draw) => draw.kind === 'painting-cursor-triangle' || draw.kind === 'painting-candidate')).toEqual([]);
+    expect(await history()).toEqual(triangleHistory);
+    await page.screenshot({ path: test.info().outputPath('painting-triangle-native-hover.png') });
+    await page.mouse.move(bounds!.x + 10, bounds!.y + 10);
+    await expect.poll(async () => (await read())!.rendered.candidates.length).toBe(0);
+    await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y);
+    await expect.poll(async () => (await read())!.rendered.candidates.length).toBe(1);
     const inputBefore = (await read())!.input;
     await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y); await page.mouse.down();
     await expect.poll(async () => (await read())?.phase).toBe('drawing');
@@ -116,8 +134,9 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       if (tool === 'height') await page.getByRole('spinbutton', { name: 'Height (mm)', exact: true }).fill('5');
       const point = (await read())!.center;
       await page.mouse.move(point.x, point.y); await settleFrames();
-      if (tool !== 'region') { await startFrames(); await settleFrames(); }
-      const hoverFrames = tool === 'region' ? [] : await readFrames();
+      const brushCursor = tool === 'circle' || tool === 'sphere' || tool === 'height';
+      if (brushCursor || tool === 'triangle') { await startFrames(); await settleFrames(); }
+      const hoverFrames = brushCursor ? await readFrames() : [];
       await page.mouse.down();
       try { await expect.poll(async () => (await read())?.phase).toBe('drawing'); }
       catch (error) {
@@ -127,7 +146,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         throw error;
       }
       const drawingEvidence = (await read())!;
-      if (tool !== 'region') {
+      if (brushCursor) {
         // Capture the initial press publication and hold through a genuine
         // native draft replacement, without a pointerleave or a second hover.
         if (tool === 'circle') await expect.poll(async () => (await readFrames()).some((frame) =>
@@ -150,6 +169,14 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         }
         expect(cursorIds.size, `${tool}: held press retains the same cursor draw object`).toBe(1);
       }
+      if (tool === 'triangle') {
+        await expect.poll(async () => (await readFrames()).at(-1)?.draws.filter((draw) => draw.kind === 'painting-contour-triangle').length).toBe(1);
+        const frames = await stopFrames(); await completeFrames('painting-triangle-held-outline', frames);
+        expect(frames.flatMap((f) => f.draws).filter((draw) => draw.kind === 'painting-cursor-triangle' || draw.kind === 'painting-candidate')).toEqual([]);
+        const selected = (await read())!.resources.find((r) => r.kind === 'triangle')!;
+        expect(selected.matchesDraftLeaf).toBe(true); expect(selected.vertices).toHaveLength(18);
+        await page.screenshot({ path: test.info().outputPath('painting-triangle-held-outline.png') });
+      }
       await page.mouse.wheel(0, 90); expect((await read())!.camera).toEqual(drawingEvidence.camera);
       expect((await read())!.pivot).toEqual(drawingEvidence.pivot); expect((await read())!.target).toEqual(drawingEvidence.target);
       await page.mouse.move(point.x + 2, point.y + 2); await page.mouse.up(); await idle();
@@ -159,8 +186,32 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         await expect.poll(async () => (await read())!.rendered.candidates.length).toBeGreaterThan(0);
         await page.screenshot({ path: test.info().outputPath('painting-region.png') });
       }
+      if (tool === 'circle') {
+        // Retain the actual brush subdivisions and point inside the painted
+        // patch. The candidate must identify one smaller current native leaf.
+        const beforeHover = await history();
+        await page.getByTestId('painting-tool-triangle').click();
+        await page.mouse.move(point.x + 1.137, point.y + 0.719);
+        await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
+        const leaf = (await read())!.resources.find((r) => r.kind === 'triangle')!;
+        expect(leaf.vertices).toHaveLength(18);
+        const [a, b, c] = [0, 6, 12].map((i) => leaf.vertices!.slice(i, i + 3));
+        const ab = b.map((v, i) => v - a[i]), ac = c.map((v, i) => v - a[i]);
+        const area = Math.hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) / 2;
+        expect(area, 'Triangle highlights a subdivided leaf rather than its 200 mm² original cube face').toBeLessThan(200);
+        expect(await history()).toEqual(beforeHover);
+        await startFrames(); await settleFrames();
+        const frames = await readFrames();
+        expect(frames.at(-1)!.draws.find((draw) => draw.kind === 'painting-contour-triangle')?.geometry).toBe(leaf.contourGeometry);
+        await page.screenshot({ path: test.info().outputPath('painting-triangle-subdivided-leaf.png') });
+      }
       await page.getByTestId('history-undo').click(); await idle();
       expect((await committed()).paint).toHaveLength(0); await idle();
+      if (tool === 'circle') {
+        await settleFrames(); await completeFrames('painting-triangle-geometry-restore', await stopFrames());
+        expect((await read())!.resources.filter((r) => r.kind === 'triangle')).toEqual([]);
+        await page.getByTestId('painting-tool-circle').click();
+      }
       await page.getByTestId('history-redo').click(); await idle();
       expect((await committed()).paint.some((p) => p.groups.some((g) => g.stateId === 2)), `redo ${tool}`).toBe(true); await idle();
       expect((await read())!.sessionId).toBe(sessionId);

@@ -202,6 +202,69 @@ function visualFixture() {
     publish: () => { const display = f.controller.getSnapshot().display!; cache.update(display, display.session); return display; } };
 }
 
+describe('triangle native hover admission and selection receipts', () => {
+  async function triangle() {
+    const f = visualFixture(), c = f.controller;
+    await c.open(1, 2); await f.frame(); c.setTool('triangle'); await f.frame();
+    vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => {
+      const snapshot = c.getSnapshot(), result = f.geometry();
+      const resourceId = `pc-1-${snapshot.session!.revision}-3`;
+      return { ...result, revision: snapshot.session!.revision,
+        candidates: [{ volumeId: 3, resourceId, kind: 'triangle' }],
+        resources: [...result.resources, { resourceId, volumeId: 3, kind: 'triangle', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array(18) }] };
+    });
+    return f;
+  }
+  it('admits the first hover, drops all intermediate scheduled/busy moves, and accepts only a fresh later event', async () => {
+    const f = await triangle(), c = f.controller;
+    c.hoverAt(event(1)); c.hoverAt(event(2)); c.hoverAt(event(3));
+    const pending = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(pending.promise);
+    f.frames.shift()?.(); c.hoverAt(event(4)); c.hoverAt(event(5));
+    pending.resolve(f.receipt('idle')); await tick(); await f.frame();
+    expect(f.ports.api.previewPainting).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ tool: 'triangle', event: event(1) }));
+    expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    c.hoverAt(event(6)); await f.frame();
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(6) }));
+    expect(f.ports.history).toHaveBeenCalledTimes(1);
+    expect(f.ports.committed).not.toHaveBeenCalled();
+  });
+  it.each(['leave', 'tool', 'settings'] as const)('rejects a pending triangle receipt after %s without replaying a dropped move', async (mode) => {
+    const f = await triangle(), c = f.controller;
+    c.hoverAt(event(1));
+    const pending = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(pending.promise); f.frames.shift()?.();
+    c.hoverAt(event(2));
+    if (mode === 'leave') c.hoverAt();
+    if (mode === 'tool') c.setTool('circle');
+    if (mode === 'settings') c.setSettings({ state: 2 });
+    pending.resolve(f.receipt('idle')); await tick();
+    expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(1);
+    await f.frame();
+    if (mode === 'settings') {
+      expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(2);
+      expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(1), settings: expect.objectContaining({ state: 2 }) }));
+      expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    } else expect(c.getSnapshot().display?.candidates).toEqual([]);
+  });
+  it('uses the press/sample native selection while drawing, clears held leave, and retains a busy terminal endpoint', async () => {
+    const f = await triangle(), c = f.controller;
+    await c.press(event(1)); await f.frame();
+    expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    const geometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    expect(c.move(event(2))).toBe(true); await tick(); f.frames.shift()?.();
+    expect(c.move(event(3))).toBe(false); c.hoverAt();
+    expect(c.getSnapshot().display?.candidates).toEqual([]);
+    c.release(event(4), true);
+    expect(f.ports.api.commitPaintingStroke).not.toHaveBeenCalled();
+    geometry.resolve({ ...f.geometry(), revision: c.getSnapshot().session!.revision, candidates: [{ volumeId: 3, resourceId: 'old', kind: 'triangle' }] }); await tick();
+    expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(f.ports.api.commitPaintingStroke).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: event(4), settings: expect.objectContaining({ erase: true }) }));
+    expect(f.ports.api.samplePaintingStroke).toHaveBeenCalledTimes(1);
+    expect(f.ports.api.previewPainting).not.toHaveBeenCalled();
+  });
+});
+
 describe('complete painting visual handoffs', () => {
   it('keeps the opening fallback until the complete native resource receipt and rejects invisible-target input', async () => {
     const f = visualFixture(), c = f.controller;

@@ -128,7 +128,7 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     };
     const interrupted = () => { if (gesture?.mode === 'paint' || gesture?.mode === 'pending') owner.release(); releaseCapture(); setCursor(null); };
     const lost = (event: PointerEvent) => { if (gesture?.id === event.pointerId) interrupted(); };
-    const leave = () => { setCursor(null); if (!gesture) owner.hoverAt(); };
+    const leave = () => { setCursor(null); owner.hoverAt(); };
     const wheel = (event: WheelEvent) => {
       stop(event);
       if (event.ctrlKey || event.metaKey) {
@@ -172,18 +172,29 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     {visual ? visual.resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
       return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} />;
     }) : openingVisual}
-    {cursor && visual && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} color={resolveCursorColor(visual.display, state.settings.state)} />}
+    {cursor && visual && (state.tool === 'circle' || state.tool === 'sphere' || state.tool === 'height') && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} color={resolveCursorColor(visual.display, state.settings.state)} />}
   </>;
 }
+export function triangleContourMaterial(): THREE.LineBasicMaterial {
+  const material = new THREE.LineBasicMaterial({ color: 'white', depthTest: true, depthWrite: false });
+  // Pinned Orca mm_contour.vs offsets clip depth, preserving occlusion by other
+  // surfaces while preventing coplanar contour/face z fighting.
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n gl_Position.z -= 0.00001 * abs(gl_Position.w);');
+  };
+  material.customProgramCacheKey = () => 'painting-triangle-contour';
+  return material;
+}
 function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[]; targetName: string }) {
+  const triangle = resource.source.kind === 'triangle';
   const region = resource.source.kind === 'region', overlay = resource.source.kind !== 'draft';
-  const materials = useMemo(() => colors.map((color) => new THREE.MeshStandardMaterial({ color: region ? '#ffffff' : color, side: THREE.DoubleSide, transparent: region, opacity: region ? 0.35 : 1, polygonOffset: overlay, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })), [colors.join(','), region, overlay]);
-  const contourMaterial = useMemo(() => new THREE.LineBasicMaterial({ color: 'white', depthTest: false }), []);
+  const materials = useMemo(() => triangle ? [] : colors.map((color) => new THREE.MeshStandardMaterial({ color: region ? '#ffffff' : color, side: THREE.DoubleSide, transparent: region, opacity: region ? 0.35 : 1, polygonOffset: overlay, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })), [colors.join(','), triangle, region, overlay]);
+  const contourMaterial = useMemo(() => triangle ? triangleContourMaterial() : new THREE.LineBasicMaterial({ color: 'white', depthTest: false }), [triangle]);
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
   useEffect(() => () => contourMaterial.dispose(), [contourMaterial]);
   return <group matrix={matrix} matrixAutoUpdate={false} dispose={null}>
-    <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overlay ? PAINTING_RENDER_ORDER.candidate : PAINTING_RENDER_ORDER.draft} />
-    {resource.source.contour.length > 0 && <lineSegments name={__ORCA_E2E__ ? 'painting-contour' : undefined} geometry={resource.contour} material={contourMaterial} renderOrder={PAINTING_RENDER_ORDER.contour} />}
+    {!triangle && <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overlay ? PAINTING_RENDER_ORDER.candidate : PAINTING_RENDER_ORDER.draft} />}
+    {resource.source.contour.length > 0 && <lineSegments name={__ORCA_E2E__ ? triangle ? 'painting-contour-triangle' : 'painting-contour' : undefined} geometry={resource.contour} material={contourMaterial} renderOrder={PAINTING_RENDER_ORDER.contour} />}
   </group>;
 }
 

@@ -121,7 +121,7 @@ it('never guesses allocation bases when the ownership lease is malformed', () =>
   expect(freed).not.toHaveBeenCalled();
 });
 
-it.each(['region', 'gap'] as const)('transports %s preview to begin and commit through Worker', async tool => {
+it.each(['triangle', 'region', 'gap'] as const)('transports %s preview to begin and commit through Worker', async tool => {
   const module = createMockModule(); const channel = new Channel();
   startWorker(async () => module, m => channel.post(m), fn => channel.onMessage(fn));
   const client = createWorkerClient(channel);
@@ -133,6 +133,8 @@ it.each(['region', 'gap'] as const)('transports %s preview to begin and commit t
   const handle = { version: 1 as const, sessionId: opened.session.id, revision: opened.session.revision };
   const preview = await client.previewPainting({ ...handle, tool, settings: { state: 2 } });
   if (!('ok' in preview)) throw new Error(preview.error);
+  const geometry = await client.getPaintingGeometry({ ...handle, revision: preview.revision });
+  expect(geometry).toMatchObject({ candidates: [{ kind: tool }], resources: expect.arrayContaining([expect.objectContaining({ kind: tool })]) });
   const begun = await client.beginPaintingStroke({ ...handle, revision: preview.revision, tool, settings: { state: 2 }, candidateRevision: preview.revision });
   if (!('ok' in begun) || !begun.strokeId) throw new Error('begin failed');
   expect(begun.candidateRevision).toBeNull();

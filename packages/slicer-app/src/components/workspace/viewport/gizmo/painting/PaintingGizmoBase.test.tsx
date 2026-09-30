@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type { PaintingState } from './PaintingController';
 import type { LoadedObject } from '../../useModelLoader';
-import { PaintingGizmoBase, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera } from './PaintingGizmoBase';
+import { PaintingGizmoBase, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
 
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
 vi.mock('./PaintingProvider', () => ({ usePaintingState: () => mocked.state, usePaintingController: () => mocked.owner }));
@@ -46,9 +46,20 @@ afterEach(async () => {
 });
 const resolveCursorColor = vi.fn(() => new THREE.Color('#abcdef'));
 const render = (volumes: LoadedObject[]) => act(async () => root.render(<PaintingGizmoBase volumes={volumes} resolveColor={() => '#abcdef'} resolveCursorColor={resolveCursorColor} openingVisual={<span>Prepare</span>} />));
+it('matches Orca triangle contour depth offset without changing face materials', () => {
+  const material = triangleContourMaterial();
+  expect(material.color.getHexString()).toBe('ffffff');
+  expect(material.depthTest).toBe(true); expect(material.depthWrite).toBe(false);
+  const shader = { vertexShader: THREE.ShaderLib.basic.vertexShader } as THREE.WebGLProgramParametersWithUniforms;
+  material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+  expect(shader.vertexShader).toContain('#include <project_vertex>\n gl_Position.z -= 0.00001 * abs(gl_Position.w);');
+  expect(material.customProgramCacheKey()).toBe('painting-triangle-contour');
+  material.dispose();
+});
 function pointer(type: string, options: MouseEventInit = {}) { const event = new MouseEvent(type, { bubbles: true, button: 0, clientX: 10, clientY: 10, ...options }); Object.defineProperty(event, 'pointerId', { value: 1 }); return event; }
 
 it('resolves cursor colour from the retained matched display and current selected state throughout press/ending/erase', async () => {
+  mocked.state = { ...mocked.state!, tool: 'circle' };
   vi.spyOn(THREE.Raycaster.prototype, 'intersectObjects').mockReturnValue([{ point: new THREE.Vector3(1, 2, 3) } as THREE.Intersection]);
   await render([source]);
   await act(async () => canvas.dispatchEvent(pointer('pointermove')));

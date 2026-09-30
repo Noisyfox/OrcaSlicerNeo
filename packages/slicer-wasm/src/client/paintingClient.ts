@@ -38,15 +38,15 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
     });
     const candidates = raw.candidates.map((candidate: unknown) => {
       if (!record(candidate) || !integer(candidate.volumeId, 1) || !parts.some(p => p.volumeId === candidate.volumeId) ||
-          (candidate.kind !== 'region' && candidate.kind !== 'gap') || typeof candidate.resourceId !== 'string' ||
+          (candidate.kind !== 'triangle' && candidate.kind !== 'region' && candidate.kind !== 'gap') || typeof candidate.resourceId !== 'string' ||
           !new RegExp(`^pc-${request.sessionId.slice(3)}-${request.revision}-${candidate.volumeId}${candidate.kind === 'gap' ? '-[0-9]+' : ''}$`).test(candidate.resourceId) || ids.has(candidate.resourceId))
         throw new Error('invalid painting candidate manifest');
       ids.add(candidate.resourceId);
-      return { volumeId: candidate.volumeId, resourceId: candidate.resourceId, kind: candidate.kind as 'region' | 'gap' };
+      return { volumeId: candidate.volumeId, resourceId: candidate.resourceId, kind: candidate.kind as 'triangle' | 'region' | 'gap' };
     });
     const resources = raw.resources.map((entry: unknown) => {
       if (!record(entry) || !integer(entry.volumeId, 1) || !parts.some(p => p.volumeId === entry.volumeId) ||
-          typeof entry.resourceId !== 'string' || (entry.kind !== 'draft' && entry.kind !== 'region' && entry.kind !== 'gap') || !Array.isArray(entry.groups) || !integer(entry.vertexCount) || !integer(entry.contourVertexCount))
+          typeof entry.resourceId !== 'string' || (entry.kind !== 'draft' && entry.kind !== 'triangle' && entry.kind !== 'region' && entry.kind !== 'gap') || !Array.isArray(entry.groups) || !integer(entry.vertexCount) || !integer(entry.contourVertexCount))
         throw new Error('invalid painting geometry');
       if (entry.kind === 'draft' ? !parts.some(p => p.resourceId === entry.resourceId && p.volumeId === entry.volumeId)
           : !candidates.some(candidate => candidate.resourceId === entry.resourceId && candidate.kind === entry.kind && candidate.volumeId === entry.volumeId)) throw new Error('invalid painting resource identity');
@@ -61,7 +61,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
         states.add(group[0]); end += group[2];
       }
       if (end !== entry.vertexCount) throw new Error('invalid painting group coverage');
-      return { volumeId: entry.volumeId, resourceId: entry.resourceId, kind: entry.kind as 'draft' | 'region' | 'gap', vertices, contour, groups: entry.groups as [number, number, number][] };
+      return { volumeId: entry.volumeId, resourceId: entry.resourceId, kind: entry.kind as 'draft' | 'triangle' | 'region' | 'gap', vertices, contour, groups: entry.groups as [number, number, number][] };
     });
     if (new Set(resources.map(resource => resource.resourceId)).size !== resources.length) throw new Error('duplicate painting resource');
     for (const part of [...parts, ...candidates]) if (!resources.some(resource => resource.resourceId === part.resourceId) && !request.knownResourceIds?.includes(part.resourceId))

@@ -66,8 +66,9 @@ struct Preview {
     std::vector<std::shared_ptr<NativeSelector>> selectors;
     // TriangleSelectorGUI keeps seed membership/contours distinct from paint
     // colour. Retain that selection even when the prospective colour is NONE
-    // or already assigned; stage07 can derive its display without reselecting.
-    std::shared_ptr<const NativeSelector> region_selection;
+    // or already assigned. Triangle hover retains only current native leaf
+    // membership; its selectors above remain the unchanged draft selectors.
+    std::shared_ptr<const NativeSelector> facet_selection;
     // Leaf IDs refer to the unchanged Session::parts selectors, not the
     // prospective selectors above. Gap fragments remain separately inspectable.
     std::vector<std::vector<NativeSelector::GapPatch>> gap_regions;

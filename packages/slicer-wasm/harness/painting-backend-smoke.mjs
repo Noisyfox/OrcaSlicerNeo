@@ -109,6 +109,48 @@ function exportedBytes() {
 }
 ok(command('orc_init', { log_level: 'error' }));
 if (!process.argv.includes('--interop-only')) {
+// POINTER preview carries exactly the native original/subdivided leaf and its
+// white MMU contour. Hover replaces selection resources, never annotations or
+// history; drawing selects the current leaf again after applying its colour.
+for (const subdivided of [false, true]) {
+  load(fixture()); open();
+  if (subdivided) { begin('circle', { state: 1, radius: 1 }, top(92.013, 105.027)); commit(); }
+  const beforeHover = history(), annotations = exportedPaint();
+  const initial = read(), draft = geometry();
+  const originalKey = draft.parts[0].resourceId;
+  if (subdivided) assert.ok(draft.resources[0].vertexCount > 36, 'fixture must actually contain subdivided leaves');
+  const result = preview('triangle', { state: 2, angle: null, radius: 100 }, top(92.013, 105.027));
+  const selected = read();
+  assert.equal(selected.candidate.selectedFacetCount, 1);
+  assert.deepEqual(selected.parts.map(p => p.facetCounts), initial.parts.map(p => p.facetCounts));
+  assert.deepEqual(selected.candidate.parts.map(p => p.facetCounts), initial.parts.map(p => p.facetCounts));
+  assert.deepEqual(history(), beforeHover); assert.equal(exportedPaint(), annotations);
+  const candidate = geometry([originalKey]);
+  assert.equal(candidate.parts[0].resourceId, originalKey);
+  const leaf = candidate.resources.find(r => r.kind === 'triangle');
+  assert.ok(leaf); assert.equal(leaf.vertexCount, 3);
+  assert.ok(leaf.contourVertexCount >= 6 && leaf.contourVertexCount % 2 === 0);
+  const draftVertices = draft.resources[0].vertices;
+  assert.ok(Array.from({ length: draftVertices.length / 18 }, (_, i) => draftVertices.slice(i * 18, i * 18 + 18))
+    .some(vertices => JSON.stringify(vertices) === JSON.stringify(leaf.vertices)), 'native selected geometry must be one current draft leaf');
+  if (subdivided) {
+    const [a, b, c] = [0, 6, 12].map(i => leaf.vertices.slice(i, i + 3));
+    const ab = b.map((v, i) => v - a[i]), ac = c.map((v, i) => v - a[i]);
+    const area = Math.hypot(ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]) / 2;
+    assert.ok(area < 200, 'subdivided selection must be smaller than an original cube triangle');
+  }
+  assert.equal(geometry([originalKey, leaf.resourceId]).resources.length, 0);
+  begin('triangle', { state: 2, angle: null, radius: 100 }, top(92.013, 105.027), { candidateRevision: result.candidateRevision });
+  const drawing = geometry().resources.find(r => r.kind === 'triangle');
+  assert.deepEqual(drawing.vertices, leaf.vertices); assert.deepEqual(drawing.groups, [[2, 0, 3]]);
+  sample({ state: 2 }, top(108, 95));
+  assert.notDeepEqual(geometry().resources.find(r => r.kind === 'triangle').vertices, leaf.vertices);
+  sample({ state: 2 }, top(60, 60)); assert.deepEqual(geometry().candidates, []);
+  cancel(); assert.equal(exportedPaint(), annotations); assert.deepEqual(history(), beforeHover);
+  preview('triangle', { state: 2 }, top(60, 60)); assert.deepEqual(geometry().candidates, []);
+  ok(command('orc_history_session_close', { sessionId: hs }));
+}
+console.log('Painting triangle original/subdivided leaf preview/history smoke passed');
 load(fixture());
 // Keep a third empty plate as an unaffected input-generation witness.
 const twoPlates = ok(call('orc_add_plate')); ok(call('orc_add_plate'));
@@ -154,7 +196,7 @@ assert.equal(geometry(candidate.resources.map(r => r.resourceId)).resources.leng
 // A changed draft returning to clean must replace its last published geometry.
 begin('triangle', { state: 1 }); const changed = geometry();
 sample({ state: 2 }, top()); const clean = geometry(changed.parts.map(p => p.resourceId));
-assert.equal(clean.resources.length, 1); assert.notEqual(clean.parts[0].resourceId, changed.parts[0].resourceId);
+assert.equal(clean.resources.filter(r => r.kind === 'draft').length, 1); assert.notEqual(clean.parts[0].resourceId, changed.parts[0].resourceId);
 assert.equal(commit().committed, false);
 // The failure probe is compiled into the test build only. Production artifacts
 // run the same interoperability assertions without exposing that ABI.

@@ -142,7 +142,7 @@ export class PaintingController {
   setTool(tool: PaintTool): void {
     if (this.unfinished || !['idle', 'closed'].includes(this.state.phase)) return;
     this.update({ tool, display: this.withoutCandidates() });
-    this.previewDirty = tool === 'gap' || tool === 'region'; this.settingsVersion++; this.scheduleDisplay();
+    this.previewDirty = tool === 'gap' || tool === 'region' || tool === 'triangle'; this.settingsVersion++; this.scheduleDisplay();
   }
   setSettings(value: Partial<Required<PaintingSettings>>): void {
     const next = { ...this.state.settings, ...value };
@@ -173,16 +173,20 @@ export class PaintingController {
   private settings(erase: boolean): PaintingSettings { return { ...this.state.settings, erase: erase || this.state.settings.erase }; }
   private withoutCandidates() { return this.state.display ? { ...this.state.display, candidates: [] } : null; }
   hoverAt(event?: PaintingPointerEvent): void {
-    if (this.state.phase !== 'idle') return;
+    // Triangle hover admits one event, without replacing it with a later busy
+    // move. Leave is a reliable visual invalidation even during a native read.
+    if (event && (this.state.phase !== 'idle' || (this.state.tool === 'triangle' && (this.lane || (this.previewDirty && this.hover))))) return;
+    if (!event && !['idle', 'drawing', 'ending'].includes(this.state.phase)) return;
     this.hover = event;
     this.update({ display: this.withoutCandidates() });
-    if (this.state.tool === 'region') { this.previewDirty = true; this.settingsVersion++; this.scheduleDisplay(); }
+    if (this.state.tool === 'region' || this.state.tool === 'triangle') { this.previewDirty = true; this.settingsVersion++; this.scheduleDisplay(); }
   }
   /** Native hit is the sole authority for the initial paint/camera decision. */
   async press(event: PaintingPointerEvent, erase = false): Promise<'paint' | 'camera' | 'ignored'> {
     if (this.state.phase !== 'idle' || this.state.tool === 'gap') return 'ignored';
     if (!this.lane && !paintingDisplayMatchesTarget(this.state.display, this.state.session)) return 'ignored';
     const sample = { event, settings: this.settings(erase) }, tool = this.state.tool;
+    if (tool === 'triangle') { this.hover = event; this.settingsVersion++; }
     this.terminal = null; this.update({ phase: 'drawing', error: null, display: this.withoutCandidates() });
     return this.exclusive(async () => {
       try {
@@ -201,6 +205,7 @@ export class PaintingController {
   move(event: PaintingPointerEvent, erase = false): boolean {
     if (this.state.phase !== 'drawing' || this.lane || this.terminal) return false;
     const sample = { event, settings: this.settings(erase) };
+    if (this.state.tool === 'triangle') { this.hover = event; this.settingsVersion++; this.update({ display: this.withoutCandidates() }); }
     void this.exclusive(async () => {
       try { this.receipt(await this.ports.api.samplePaintingStroke({ ...this.stroke(), ...sample })); await this.drainTerminal(); }
       catch (error) { await this.recover(error); }
@@ -209,6 +214,7 @@ export class PaintingController {
   }
   release(event?: PaintingPointerEvent, erase = false): void {
     if (!this.unfinished || this.terminal) return;
+    if (this.state.tool === 'triangle' && event) { this.hover = event; this.settingsVersion++; }
     this.terminal = { kind: 'commit', ...(event ? { sample: { event, settings: this.settings(erase) } } : {}) };
     this.update({ phase: 'ending' }); this.startTerminal();
   }
@@ -238,7 +244,7 @@ export class PaintingController {
       if (result.committed) this.ports.committed(result.affectedPlateIds);
     }
     this.terminal = null; this.terminalExecuting = false; this.update({ phase: 'idle' });
-    this.previewDirty = this.state.tool === 'gap';
+    this.previewDirty = this.state.tool === 'gap' || (this.state.tool === 'triangle' && !!this.hover);
   }
   private async recover(error: unknown): Promise<void> {
     this.fail(error); this.terminal = null; this.terminalExecuting = false;
@@ -338,8 +344,8 @@ export class PaintingController {
           if (this.state.phase === 'idle' && this.previewDirty) {
             this.previewDirty = false;
             const tool = this.state.tool;
-            if ((tool === 'region' && this.hover) || tool === 'gap') {
-              this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool, settings: this.settings(false), ...(tool === 'region' ? { event: this.hover } : {}) }));
+            if (((tool === 'region' || tool === 'triangle') && this.hover) || tool === 'gap') {
+              this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool, settings: this.settings(false), ...(tool !== 'gap' ? { event: this.hover } : {}) }));
             }
           }
           if (this.displayDirty) {
@@ -351,7 +357,7 @@ export class PaintingController {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
-              const candidates = previewVersion === this.settingsVersion && (this.state.tool === 'gap' || (this.state.tool === 'region' && this.hover)) ? result.candidates : [];
+              const candidates = previewVersion === this.settingsVersion && (this.state.tool === 'gap' || ((this.state.tool === 'region' || this.state.tool === 'triangle') && this.hover)) ? result.candidates.filter((c) => c.kind === this.state.tool) : [];
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
               for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
               const session = this.state.session;
