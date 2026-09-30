@@ -372,16 +372,27 @@ painting operation. No BVH is built over the subdivided paint display geometry.
 
 Render brush cursors after draft surfaces, candidates and contours, with a
 stable draw order across stroke/geometry publication. Cursors do not write
-depth. Circle and height overlays ignore model depth; the
+depth. Circle overlays ignore model depth; the
 sphere uses a filled, translucent surface with normal model depth testing and
 opacity 0.25, rather than a wireframe or an X-ray sphere. Preserve cursor
 identity during a held stroke; refreshing a model must not require leaving and
 re-entering it to restore the cursor. Cursor colours follow the selected
-filament's effective colour from the matched displayed palette. Apply Orca's
+filament's effective colour from the matched displayed palette for Circle and
+Sphere. Apply Orca's
 `TriangleSelectorGUI::get_seed_fill_color` highlight formula to each original
 encoded RGB channel: `min(channel * 1.25, 1)`, before Three's linear colour
 conversion. Keep that selected highlighted hue during painting and erasing;
 sphere translucency remains independent of the RGB highlight.
+
+Height range follows Orca's section contours instead of a bounding-box
+wireframe or filled band. Draw white outlines of each displayed solid's actual
+world-space cross-section at the clamped hit height and that height plus the
+configured range, clamped to the model's maximum height. A plane at either
+global height boundary has no outline. Use normal depth testing, no depth
+writes and the stable final cursor pass. Derive this visual-only geometry
+from the original displayed meshes with accelerated BVH intersection and reuse
+it when the planes and displayed transforms are unchanged. Native height
+painting and history remain authoritative and unchanged.
 
 Triangle mode has no point or brush cursor. Highlight its native-picked
 triangle through the selector's candidate geometry, including the hit leaf

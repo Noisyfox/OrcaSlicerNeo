@@ -8,7 +8,7 @@ const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
-type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number };
+type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[] };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
@@ -230,7 +230,26 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       await page.getByTestId(`painting-tool-${tool}`).click();
       if (tool === 'circle' || tool === 'sphere') await page.getByRole('spinbutton', { name: 'Radius (mm)', exact: true }).fill('4');
       if (tool === 'height') await page.getByRole('spinbutton', { name: 'Height (mm)', exact: true }).fill('5');
-      const point = tool === 'triangle' ? topFaces[0] : (await read())!.center;
+      if (tool === 'height') {
+        const unchangedHistory = await history();
+        const nearMax = await page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingWorldToScreen([103,90,18]));
+        await page.mouse.move(nearMax.x,nearMax.y); await settleFrames();
+        await startFrames(); await settleFrames();
+        const clampedFrames = await stopFrames(); await completeFrames('painting-height-upper-clamp',clampedFrames);
+        for (const frame of clampedFrames) {
+          const cursors = frame.draws.filter((d)=>d.kind==='painting-cursor-height'); expect(cursors).toHaveLength(1);
+          const cursor = cursors[0].cursor!;
+          expect(cursor.heightPlanes![0]).toBeCloseTo(18,4); expect(cursor.heightPlanes![1]).toBe(20);
+          expect(cursor.positions.length).toBeGreaterThan(0);
+          expect(cursor.positions.filter((_,i)=>i%3===2).every((z)=>Math.abs(z-18)<1e-4)).toBe(true);
+        }
+        await page.mouse.move(topFaces[0].x,topFaces[0].y); await settleFrames();
+        await startFrames(); await settleFrames();
+        const endFrames = await stopFrames(); await completeFrames('painting-height-global-end-empty',endFrames);
+        expect(endFrames.every((frame)=>frame.draws.every((draw)=>draw.kind!=='painting-cursor-height'))).toBe(true);
+        expect(await history()).toEqual(unchangedHistory);
+      }
+      const point = tool === 'triangle' ? topFaces[0] : tool === 'height' ? regionPoints[1] : (await read())!.center;
       await page.mouse.move(point.x, point.y); await settleFrames();
       if (tool === 'triangle') await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
       const brushCursor = tool === 'circle' || tool === 'sphere' || tool === 'height';
@@ -261,10 +280,26 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
           const draw = cursors[0], cursor = draw.cursor!; cursorIds.add(cursor.uuid);
           expect(frame.draws.at(-1), `${tool}: cursor follows all model/candidate/contour draws`).toBe(draw);
           expect(draw.renderOrder).toBeGreaterThan(3); expect(draw.groupOrder).toBeGreaterThan(3);
-          expect(cursor).toMatchObject({ color: '00ff00', wireframe: tool === 'height', transparent: true,
-            opacity: tool === 'sphere' ? 0.25 : 1, depthTest: tool === 'sphere', depthWrite: false,
+          expect(cursor).toMatchObject({ color: tool === 'height' ? 'ffffff' : '00ff00', wireframe: false, transparent: true,
+            opacity: tool === 'sphere' ? 0.25 : 1, depthTest: tool !== 'circle', depthWrite: false,
             side: tool === 'circle' ? 2 : 0 });
           if (tool === 'sphere') expect(cursor.radius).toBe(4);
+          if (tool === 'height') {
+            expect(cursor.primitive).toBe('lineSegments'); expect(cursor.positions.length).toBeGreaterThan(0);
+            expect(cursor.heightBounds).toEqual([0,20]);
+            const [lower,upper] = cursor.heightPlanes!;
+            expect(lower).toBeCloseTo(11,4); expect(upper).toBeCloseTo(16,4);
+            let length = 0;
+            for (let i = 0; i < cursor.positions.length; i += 6) {
+              const [ax,ay,az,bx,by,bz] = cursor.positions.slice(i,i+6);
+              expect(az).toBeCloseTo(bz,5); expect([lower,upper].some((z)=>Math.abs(az-z)<1e-4)).toBe(true);
+              expect(ax).toBeGreaterThanOrEqual(90); expect(ax).toBeLessThanOrEqual(110);
+              expect(ay).toBeGreaterThanOrEqual(90); expect(ay).toBeLessThanOrEqual(110);
+              expect((ax===90 && bx===90)||(ax===110 && bx===110)||(ay===90 && by===90)||(ay===110 && by===110)).toBe(true);
+              length += Math.hypot(ax-bx,ay-by);
+            }
+            expect(length).toBeCloseTo(160,4);
+          }
         }
         expect(cursorIds.size, `${tool}: held press retains the same cursor draw object`).toBe(1);
       }

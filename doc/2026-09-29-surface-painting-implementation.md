@@ -1498,3 +1498,45 @@ Parent restored the ordinary Desktop build and passed production elision on
 21 artifacts plus `git diff --check`. Native build and second-host real E2E
 were omitted for this shared toolbar-only step; root gates remain scheduled
 for the final three-fix handoff.
+
+Step 2 implementation boundary follows the pinned upstream
+`GLGizmoPainterBase::render_cursor_height_range` and `update_contours`:
+white mesh-section outlines at clamped world hit Z and world hit Z plus height,
+with no outline at the global min/max planes. `GLGizmoMmuSegmentation::on_render`
+enables depth testing before cursor drawing; Height does not disable it.
+The original wireframe box, selected-filament tint and X-ray depth behavior are
+replaced for Height only. Circle and Sphere keep their existing color rules.
+Use accelerated original-mesh BVH intersection for this visual cursor, caching
+by displayed transforms and cut heights. Preserve native selection, complete
+display ownership, held cursor identity, history and resource cleanup. Verify
+actual non-box section geometry, transformed/multipart meshes and boundary
+behavior as well as real held-frame continuity; no native API is introduced.
+
+Step 2 accepted after parent source review and independent validation.
+`HeightRangeCursor` owns opaque white `LineSegments`, normal depth testing,
+no depth writes and the existing final cursor order. It borrows the immutable
+original BVH; a world-Z plane is transformed for shapecast pruning and vertices
+are transformed for section calculation. Native half-open top-edge ownership,
+deduplication and float hit/bounds/height arithmetic handle coplanar edges and
+the observed infinitesimal-below-top hit. Visual sections do not implement
+native slicer topology repair. Required typed mesh/render-order inputs avoid
+compatibility overloads and the parent-confirmed import cycle was removed.
+Memoized planes/meshes reuse the cut buffer through XY/color/native display
+updates; owned buffers/material are disposed without disposing borrowed data.
+
+Child passed 27 focused cases, all 845 app tests, typecheck, current serial
+real journey, ordinary Desktop build, elision and diff checks. Parent reviewed
+geometry, transformed/hollow/cap tests, cache/disposal, public call sites and
+actual renderer instrumentation, then independently passed app tests (845),
+app typecheck and the real six-tool journey (1/1, 29.0 seconds total, current
+serial hashes verified). Parent inspected the Height screenshot: two front
+white sections with rear occlusion, using no depth bias. Actual world cut
+positions/perimeters, upper clamp and empty global cap are checked together
+with retained model/history and the other five tools. Logs use
+`packages/slicer-wasm/.work/parent-height-contours-*.log`.
+Parent's held capture has 27/27 Height draws with one line object and one cut
+buffer across native model updates. Upper clamp has 2/2 draws using only the
+lower plane; the global cap has two retained-model frames and zero Height
+draws. Parent restored ordinary Desktop and passed elision on 21 artifacts
+plus diff checks. Native build/root matrix/second-host real E2E remain omitted
+for this visual-only step; final root checks follow step 3.

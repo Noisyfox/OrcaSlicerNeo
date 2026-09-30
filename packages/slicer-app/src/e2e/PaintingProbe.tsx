@@ -29,7 +29,7 @@ export function PaintingVisualProbe() {
       draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
         candidate?: { positions: number[] };
         contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] };
-        cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number } }> };
+        cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[] } }> };
     let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
     let raf: number | null = null;
     const originalRender = gl.render;
@@ -67,7 +67,10 @@ export function PaintingVisualProbe() {
             ...(kind === 'painting-contour-triangle' || kind === 'painting-contour' ? { contour: { color: material.color.getHexString(), depthTest: material.depthTest, depthWrite: material.depthWrite, positions: Array.from(object.geometry.getAttribute('position').array) } } : {}),
             ...(kind.startsWith('painting-cursor-') ? { cursor: { uuid: object.uuid,
               radius: object.geometry instanceof THREE.SphereGeometry ? object.geometry.parameters.radius * object.getWorldScale(new THREE.Vector3()).x : null,
-              color: material.color.getHexString(), encodedRgb: material.color.clone().convertLinearToSRGB().toArray(), linearRgb: material.color.toArray(), wireframe: material.wireframe, transparent: material.transparent,
+              color: material.color.getHexString(), encodedRgb: material.color.clone().convertLinearToSRGB().toArray(), linearRgb: material.color.toArray(), wireframe: material.wireframe ?? false, transparent: material.transparent,
+              primitive: object instanceof THREE.LineSegments ? 'lineSegments' : 'mesh',
+              positions: object instanceof THREE.LineSegments ? Array.from({ length: object.geometry.getAttribute('position').count }, (_, i) => new THREE.Vector3().fromBufferAttribute(object.geometry.getAttribute('position'), i).applyMatrix4(object.matrixWorld).toArray()).flat() : [],
+              ...(kind === 'painting-cursor-height' ? { heightPlanes: object.userData.heightPlanes, heightBounds: object.userData.heightBounds } : {}),
               opacity: material.opacity, depthTest: material.depthTest, depthWrite: material.depthWrite, side: material.side } } : {}) });
         };
         restore.push(() => { object.onBeforeRender = original; });
