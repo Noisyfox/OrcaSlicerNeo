@@ -1,3 +1,4 @@
+import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
 // packages/slicer-wasm/src/client/client.ts
 // ----------------------------------------------------------------
@@ -334,17 +335,18 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
     const item = entry as Record<string, unknown>;
     const preset = item.preset;
     const colour = item.colour;
-    if (!integer(item.slot, 1) || !preset || typeof preset !== 'object' ||
+    if (typeof item.logical_id !== 'string' || !item.logical_id || !integer(item.slot, 1) || !preset || typeof preset !== 'object' ||
         !colour || typeof colour !== 'object') return null;
     const p = preset as Record<string, unknown>;
     const c = colour as Record<string, unknown>;
     if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
-    return { slot: item.slot as number, preset: { id: p.id, name: p.name },
+    return { logicalId: item.logical_id as string, slot: item.slot as number, preset: { id: p.id, name: p.name },
       colour: { effective: c.effective, provenance: c.provenance } };
   });
   if (slots.some((slot) => slot === null)) return { ok: false, error: 'invalid filament session slots' };
   const orderedSlots = slots as FilamentSessionSlot[];
+  if (new Set(orderedSlots.map((slot) => slot.logicalId)).size !== orderedSlots.length) return { ok: false, error: 'duplicate filament identity' };
   if (orderedSlots.length === 0) return { ok: false, error: 'invalid filament session slots' };
   if (orderedSlots.some((slot, index) => slot.slot !== index + 1))
     return { ok: false, error: 'invalid filament session slot ordering' };
@@ -1234,22 +1236,48 @@ function historyFailure(raw: unknown, fallback: string): never {
   throw new Error(message);
 }
 
+function validHistorySessionId(value: unknown): value is string {
+  return typeof value === 'string' && /^hs-[1-9][0-9]{0,19}$/.test(value)
+    && BigInt(value.slice(3)) <= 18446744073709551615n;
+}
+
 function normalizeHistoryStatus(raw: unknown): HistoryStatus {
   if (!raw || typeof raw !== 'object') return historyFailure(raw, 'invalid history status');
   const value = raw as Record<string, unknown>;
-  const bool = (key: string): boolean => typeof value[key] === 'boolean' ? value[key] as boolean : false;
-  const integer = (key: string, fallback = 0): number =>
-    typeof value[key] === 'number' && Number.isSafeInteger(value[key]) ? value[key] as number : fallback;
+  if ('error' in value) return historyFailure(raw, 'invalid history status');
+  const invalid = (): never => { throw new Error('invalid history status'); };
+  const isInteger = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  const bool = (key: string): boolean => typeof value[key] === 'boolean' ? value[key] as boolean : invalid();
+  const integer = (key: string): number => isInteger(value[key]) ? value[key] as number : invalid();
   const entries = (key: string): HistoryStatus['undoEntries'] => {
-    if (!Array.isArray(value[key])) return [];
-    return value[key].flatMap((entry) => {
-      if (!entry || typeof entry !== 'object') return [];
-      const item = entry as Record<string, unknown>;
-      return typeof item.id === 'string' && typeof item.label === 'string' &&
-        item.category === 'project'
-        ? [{ id: item.id, label: item.label, category: item.category }] : [];
+    if (!Array.isArray(value[key])) return invalid();
+    const ids = new Set<string>();
+    return value[key].map((item: unknown) => {
+      if (!isRecord(item) || typeof item.id !== 'string' || !item.id || ids.has(item.id) ||
+          typeof item.label !== 'string' || item.category !== 'project') return invalid();
+      ids.add(item.id);
+      return { id: item.id, label: item.label, category: 'project' as const };
     });
   };
+  const nullableId = (key: string): string | null => value[key] === null ? null
+    : typeof value[key] === 'string' && value[key] ? value[key] as string : invalid();
+  const undoEntries = entries('undoEntries'), redoEntries = entries('redoEntries');
+  if (bool('canUndo') !== (undoEntries.length > 0) || bool('canRedo') !== (redoEntries.length > 0) ||
+      undoEntries.some(entry => redoEntries.some(redo => redo.id === entry.id))) invalid();
+  for (const [key, list] of [['undoLabel', undoEntries], ['redoLabel', redoEntries]] as const) {
+    if (list.length ? value[key] !== list[0].label : value[key] !== null && value[key] !== undefined) invalid();
+  }
+  let editingSession: HistoryStatus['editingSession'] = null;
+  if (value.editingSession !== null) {
+    const session = value.editingSession;
+    if (!isRecord(session) || !validHistorySessionId(session.id) || !isInteger(session.entryTimestamp) ||
+        typeof session.hasEffectiveCommit !== 'boolean') return invalid();
+    editingSession = { id: session.id, entryTimestamp: session.entryTimestamp, hasEffectiveCommit: session.hasEffectiveCommit };
+  }
+  const floor = value.navigationFloor;
+  if (editingSession === null ? floor !== null : !isInteger(floor) || floor < editingSession.entryTimestamp || floor > integer('cursor')) invalid();
+  if (editingSession && (floor === integer('cursor')) !== (undoEntries.length === 0)) invalid();
+  if (value.savedCheckpoint !== null && !isInteger(value.savedCheckpoint)) invalid();
   const saved = value.savedCheckpoint;
   const revision = integer('revision');
   let nativeScopedConfig: NativeScopedConfigTransport | undefined;
@@ -1262,16 +1290,16 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     canUndo: bool('canUndo'), canRedo: bool('canRedo'),
     ...(typeof value.undoLabel === 'string' ? { undoLabel: value.undoLabel } : {}),
     ...(typeof value.redoLabel === 'string' ? { redoLabel: value.redoLabel } : {}),
-    undoEntries: entries('undoEntries'), redoEntries: entries('redoEntries'),
+    undoEntries, redoEntries, editingSession, navigationFloor: floor as number | null,
     cursor: integer('cursor'),
     savedCheckpoint: saved === null ? null : typeof saved === 'number' && Number.isSafeInteger(saved) ? saved : null,
     savedCheckpointEvicted: bool('savedCheckpointEvicted'), dirty: bool('dirty'),
     bytesUsed: integer('bytesUsed'), byteBudget: integer('byteBudget'), disabled: bool('disabled'),
     evictedEntryCount: integer('evictedEntryCount'),
-    lastEvictedEntryId: typeof value.lastEvictedEntryId === 'string' ? value.lastEvictedEntryId : null,
-    oldestRetainedEntryId: typeof value.oldestRetainedEntryId === 'string' ? value.oldestRetainedEntryId : null,
+    lastEvictedEntryId: nullableId('lastEvictedEntryId'),
+    oldestRetainedEntryId: nullableId('oldestRetainedEntryId'),
     oversizedEntryRetained: bool('oversizedEntryRetained'),
-    activeTransactionId: typeof value.activeTransactionId === 'string' ? value.activeTransactionId : null,
+    activeTransactionId: nullableId('activeTransactionId'),
     revision,
     ...(nativeScopedConfig ? { nativeScopedConfig } : {}),
   };
@@ -1419,7 +1447,11 @@ export async function dispatchClientRequest(
     const check = clientAdmissionChecks.get(client);
     if (check) {
       const admitted = await check(observedSerialEpoch);
-      if (admitted.ok !== true) return admitted;
+      if (admitted.ok !== true) {
+        if (operation === 'openHistorySession' || operation === 'closeHistorySession')
+          return historyFailure(admitted, 'history session admission failed');
+        return admitted;
+      }
     }
   }
   const method = (client as unknown as Record<string, (...values: unknown[]) => unknown>)[operation];
@@ -1676,6 +1708,30 @@ export function createClient(
     return normalizeHistoryRestore(callJson(m, 'orc_history_jump', ['string', 'string'], [entryId, direction]));
   }
 
+  async function openHistorySession(): Promise<import('./history').HistorySessionOpenResult> {
+    const m = await module();
+    const raw = callJson(m, 'orc_history_session_open', ['string'], ['{}']);
+    if (!isRecord(raw) || raw.ok !== true || !validHistorySessionId(raw.sessionId))
+      return historyFailure(raw, 'invalid history session open response');
+    const status = normalizeHistoryStatus(raw.status);
+    if (status.editingSession?.id !== raw.sessionId || status.editingSession.hasEffectiveCommit ||
+        status.editingSession.entryTimestamp !== status.cursor || status.activeTransactionId !== null)
+      throw new Error('invalid history session open response');
+    return { sessionId: raw.sessionId, status };
+  }
+
+  async function closeHistorySession(sessionId: string, label?: string): Promise<HistoryStatus> {
+    if (!validHistorySessionId(sessionId) || (label !== undefined && (typeof label !== 'string' || !label)))
+      throw new Error('invalid history session close request');
+    const m = await module();
+    const raw = callJson(m, 'orc_history_session_close', ['string'], [JSON.stringify({ sessionId, ...(label === undefined ? {} : { label }) })]);
+    if (!isRecord(raw) || raw.ok !== true) return historyFailure(raw, 'invalid history session close response');
+    const status = normalizeHistoryStatus(raw.status);
+    if (status.editingSession !== null || status.navigationFloor !== null || status.activeTransactionId !== null)
+      throw new Error('invalid history session close response');
+    return status;
+  }
+
   async function getHistoryStatus(): Promise<HistoryStatus> {
     const m = await module();
     return normalizeHistoryStatus(callJson(m, 'orc_history_status', [], []));
@@ -1710,6 +1766,7 @@ export function createClient(
   }
 
   const client: SlicerClient = {
+    ...createPaintingApi(module, normalizeHistoryStatus),
     async init(): Promise<InitResult> {
       const m = await module();
       if (!beforeInitPromise) {
@@ -1826,6 +1883,8 @@ export function createClient(
     undoHistory,
     redoHistory,
     jumpHistory,
+    openHistorySession,
+    closeHistorySession,
     getHistoryStatus,
     markHistorySaved,
     resetHistory,

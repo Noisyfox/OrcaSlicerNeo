@@ -1,3 +1,4 @@
+import { paintingMock } from './painting-mock';
 // packages/slicer-wasm/src/client/testing/mock-module.ts
 // ----------------------------------------------------------------
 // Bridge-shaped mock Emscripten module for unit tests (no emsdk).
@@ -419,7 +420,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextVolumeId = 2000;
   let nextInstanceId = 3000;
   let objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }> = [];
-  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>> = [];
+  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }>> = [];
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
@@ -457,7 +458,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }>;
-    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>>;
+    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }>>;
     instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
     objectPlateIds: string[];
     currentPlateId: string;
@@ -479,6 +480,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextHistoryTransactionId = 1;
   let nextHistoryEntryId = 1;
   let historyRevision = 0;
+  let nextEditingSessionId = 1n;
+  let editingSession: { id: string; entryTimestamp: number; hasEffectiveCommit: boolean } | null = null;
   let historyDisabled = false;
   let savedHistoryCursor: number | null = null;
   let savedHistoryCheckpointEvicted = false;
@@ -730,6 +733,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
       label: `Edit ${canonicalName}`, category: 'project', context: clone(context) });
     historyCursor = historyEntries.length - 1;
+    if (editingSession) editingSession.hasEffectiveCommit = true;
 
     const result = presetDraftSnapshot(kind, canonicalName) as Record<string, unknown>;
     const plateSession = plateSessionSnapshot() as Record<string, unknown>;
@@ -848,12 +852,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function historyStatus() {
     const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0';
-    const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse()
+    const undoEntries = historyEntries.slice((editingSession?.entryTimestamp ?? 0) + 1, historyCursor + 1).reverse()
       .filter(project).map(({ id, label, category }) => ({ id, label, category }));
     const redoEntries = historyEntries.slice(historyCursor + 1)
       .filter(project).map(({ id, label, category }) => ({ id, label, category }));
     let undoIndex = -1;
-    for (let index = historyCursor; index > 0; index--)
+    for (let index = historyCursor; index > (editingSession?.entryTimestamp ?? 0); index--)
       if (project(historyEntries[index])) { undoIndex = index; break; }
     const redoIndex = historyEntries.findIndex((entry, index) => index > historyCursor && project(entry));
     const undo = undoIndex >= 0 ? historyEntries[undoIndex] : undefined;
@@ -867,6 +871,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       dirty = historyEntries.slice(lo + 1, hi + 1).some(project);
     }
     return {
+      editingSession: editingSession ? { ...editingSession } : null, navigationFloor: editingSession?.entryTimestamp ?? null,
       canUndo: undoIndex >= 0, canRedo: redoIndex >= 0,
       ...(undo ? { undoLabel: undo.label } : {}),
       ...(redo ? { redoLabel: redo.label } : {}), undoEntries, redoEntries,
@@ -886,6 +891,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       throw new Error('invalid history context');
   }
   function resetHistory(): void {
+    editingSession = null;
     historyEntries = []; historyCursor = 0; historyTransaction = null; historyNestedTransactions.length = 0;
     savedHistoryCursor = null; savedHistoryCheckpointEvicted = false;
     historyEvictedEntryCount = 0;
@@ -1142,6 +1148,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.splice(historyCursor + 1);
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: 'Move Prime Tower', category: 'project', context: clone(context) });
     historyCursor = historyEntries.length - 1;
+    if (editingSession) editingSession.hasEffectiveCommit = true;
     return { ok: true, version: 1, result: { history_status: historyStatus(), mutation: {
       kind: 'move', plate_id: request.plate_id, history_entry_delta: 1, revision_before: request.revision,
       revision_after: historyRevision, dirty: true, affected_plate_ids: [request.plate_id],
@@ -1153,6 +1160,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function filamentSessionSnapshot(): unknown {
     if (filamentSessionState !== undefined) {
       const snapshot = clone(filamentSessionState) as any;
+      // A prior slot mutation retains rack content, but later history-session
+      // opens and paint commits still advance the native filament command
+      // epoch. Mirror the bridge's global history revision on every read.
+      if (opts.filamentSession === undefined && snapshot.revisions) {
+        snapshot.revisions.session = historyRevision;
+        snapshot.revisions.project = historyRevision;
+      }
       // Slot mutations replace the mock's projected session object. Keep its
       // model-backed assignment projection live when a later Add Primitive
       // changes the model; the native bridge derives this from the current
@@ -1184,7 +1198,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         explicit_slot: 0, effective_slot: 1, inherited: true })));
     return {
       ok: true, version: 1,
-      slots: [{ slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
+      slots: [{ logical_id: 'filament-1', slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
         colour: { effective: '#F2754E', provenance: 'preset' } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
@@ -1196,6 +1210,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       status: { state: 'ready', error: null },
     };
   }
+  let nextFilamentIdentity = 1000;
   let filamentSessionState: any = opts.filamentSession !== undefined ? clone(opts.filamentSession) : undefined;
   function filamentMutation(requestJson: string, kind: string): unknown {
     if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
@@ -1229,7 +1244,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)
         return fail('filament slot capacity or capability rejected', 'capability_rejected');
       const colour = next.slots.at(-1)?.colour?.effective ?? '#26A69A';
-      next.slots.push({ slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: { effective: colour, provenance: 'preset' } });
+      next.slots.push({ logical_id: `filament-${nextFilamentIdentity++}`, slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: { effective: colour, provenance: 'preset' } });
       for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key].push(key === 'volume' ? 0 : 1);
       const n = next.slots.length;
       const planes = next.flushing.plane_count;
@@ -1718,6 +1733,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         historyEntries.push({ ...current, id: `entry-${nextHistoryEntryId++}`, label: historyTransaction.label,
           category: historyTransaction.category, context: clone(afterContext) });
         historyCursor = historyEntries.length - 1;
+        if (editingSession) editingSession.hasEffectiveCommit = true;
         historyRevision++;
       }
       const sceneDelta = changed ? mockSceneDelta(historyTransaction.before, current) : null;
@@ -1774,6 +1790,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // The baseline is the valid restore target for the first project edit.
       if (!historyEntries[target] || (target > 0 && !project(historyEntries[target])))
         target = 0;
+      if (editingSession && target < editingSession.entryTimestamp) return { error: 'history navigation floor' };
       historyCursor = target;
       return historyRestore(historyEntries[target]);
     },
@@ -1783,6 +1800,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       let target = historyCursor + 1;
       while (target < historyEntries.length && !project(historyEntries[target])) target++;
       if (target >= historyEntries.length) return { error: 'no redo history' };
+      if (editingSession && target < editingSession.entryTimestamp) return { error: 'history navigation floor' };
       historyCursor = target;
       return historyRestore(historyEntries[target]);
     },
@@ -1802,6 +1820,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           if (!historyEntries[target] || historyEntries[target].category !== 'project')
             return { error: 'history entry has no prior project state' };
         }
+        if (editingSession && target < editingSession.entryTimestamp) return { error: 'history navigation floor' };
         historyCursor = target;
       } else {
         if (index <= historyCursor && historyEntries[index].id !== 'entry-0')
@@ -1810,6 +1829,29 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       const current = historyEntries[historyCursor];
       return historyRestore(current);
+    },
+    orc_history_session_open(optionsJson: string) {
+      const options = JSON.parse(optionsJson);
+      if (!options || Array.isArray(options) || Object.keys(options).length) return { error: 'invalid history session options' };
+      if (historyDisabled || historyTransaction || editingSession) return { error: 'history session is busy' };
+      editingSession = { id: `hs-${nextEditingSessionId++}`, entryTimestamp: historyCursor, hasEffectiveCommit: false };
+      historyRevision++;
+      return { ok: true, sessionId: editingSession.id, status: historyStatus() };
+    },
+    orc_history_session_close(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      if (historyDisabled || historyTransaction) return { error: 'history session is busy' };
+      if (!editingSession || request.sessionId !== editingSession.id) return { error: 'history editing session is stale' };
+      if (editingSession.hasEffectiveCommit) {
+        if (savedHistoryCursor !== null && savedHistoryCursor > historyCursor) {
+          savedHistoryCheckpointEvicted = true;
+          savedHistoryCursor = null;
+        }
+        historyEntries.splice(historyCursor + 1);
+      }
+      editingSession = null;
+      historyRevision++;
+      return { ok: true, status: historyStatus() };
     },
     orc_history_status() {
       return historyStatus();
@@ -1878,7 +1920,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!Number.isSafeInteger(request.revision) || request.revision !== current.revisions.session)
         return { ok: false, version: 1, error: 'filament session revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'filament session revision is stale' } };
       const next: any = clone(current);
-      next.slots = request.slots.map((slot: any, index: number) => ({ slot: index + 1,
+      next.slots = request.slots.map((slot: any, index: number) => ({ logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
         preset: { id: slot.preset, name: slot.preset }, colour: { effective: slot.colour, provenance: 'user' } }));
       const slotCount = next.slots.length;
       next.mappings.filament = Array(slotCount).fill(1);
@@ -2179,7 +2221,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ? request.remembered_rack.slots : undefined;
       if (requestedSlots?.length) {
         const slots = requestedSlots.map((item: any, index: number) => ({
-          slot: index + 1,
+          logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
           preset: { id: item.preset, name: item.preset },
           colour: { effective: item.colour, provenance: 'user' },
         }));
@@ -2209,6 +2251,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
         label: 'Select Printer', category: 'project', context: clone(context) });
       historyCursor = historyEntries.length - 1;
+      if (editingSession) editingSession.hasEffectiveCommit = true;
       const plateSession = plateMutation('shared-configuration', [...plateIds], [...plateIds]);
       const status = historyStatus();
       const affectedPlateIds = plateSession.affected_plate_ids as string[];
@@ -2470,7 +2513,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           const source = volumeMeta[oi][vi];
           const sourceValues = nativeScopedConfig.parts[String(source.id)];
           if (!source.isSplittable) return { error: 'volume is not splittable' };
-          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }> = [];
           for (let p = 0; p < splitParts; p++) {
             parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
             if (sourceValues) nativeScopedConfig.parts[String(parts[p].id)] = clone(sourceValues);
@@ -2545,7 +2588,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const affectedBefore = srcIdxs.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       const newObjectId = nextObjectId++;
       const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
-      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }> = [];
       const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
       for (const oi of srcIdxs) {
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
@@ -2983,6 +3026,32 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
   };
 
+  let paintingBusy = false;
+  const painting = paintingMock({
+    free,
+    pending: value => { paintingBusy = value; },
+    historySession: () => editingSession?.id,
+    objects: () => objectMeta.map((object, i) => ({ id: object.id, instanceIds: instanceMeta[i].map(instance => instance.id), volumes: volumeMeta[i] })),
+    history: historyStatus,
+    allocate: values => { const ptr = malloc(values.length * 4); HEAPF32.set(values, ptr / 4); return ptr; },
+    commit: mutate => {
+      const context = historyEntries[historyCursor]?.context ?? { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+      paintingBusy = false;
+      try {
+        const begin = bridge.orc_history_begin('Paint', 'project', JSON.stringify(context)) as any;
+        if (begin.error) throw new Error(begin.error);
+        mutate();
+        return bridge.orc_history_commit(begin.transactionId, JSON.stringify(context));
+      } finally { paintingBusy = true; }
+    },
+  });
+  Object.assign(bridge, painting);
+  for (const name of ['orc_history_begin', 'orc_history_session_open', 'orc_history_session_close', 'orc_history_undo', 'orc_history_redo', 'orc_history_jump',
+    'orc_delete_filament_slot', 'orc_merge_filament_slots', 'orc_add_filament_slot', 'orc_set_filament_slot_colour']) {
+    const operation = bridge[name];
+    bridge[name] = (...args) => paintingBusy ? { error: 'painting stroke is busy' } : operation(...args);
+  }
+
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_init: { ret: 'number', args: ['string'] },
@@ -2992,6 +3061,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_undo: { ret: 'number', args: [] },
     orc_history_redo: { ret: 'number', args: [] },
     orc_history_jump: { ret: 'number', args: ['string', 'string'] },
+    orc_history_session_open: { ret: 'number', args: ['string'] },
+    orc_history_session_close: { ret: 'number', args: ['string'] },
     orc_history_status: { ret: 'number', args: [] },
     orc_history_mark_saved: { ret: 'number', args: ['string'] },
     orc_history_reset: { ret: 'number', args: ['string'] },
@@ -3068,6 +3139,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_cancel: { ret: 'number', args: [] },
   };
 
+  for (const name of Object.keys(painting)) SIGNATURES[name] = { ret: name === 'orc_painting_geometry_release' ? 'void' : 'number', args: ['string'] };
   return {
     ccall(name: string, _ret: string, _argTypes: string[], args: unknown[]): unknown {
       const sig = SIGNATURES[name];

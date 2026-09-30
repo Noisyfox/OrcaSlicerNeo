@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizmo/painting/projectCommands';
 import type { SliceStatus } from '../../stores/useSlicerStore';
 
 export interface WorkspaceSliceCoordinator {
@@ -31,7 +32,7 @@ export function createWorkspaceSliceCoordinator({
   let inFlight: Promise<void> | null = null;
 
   const ensureSlice = (): Promise<void> => {
-    if (!isModelLoaded()) return Promise.resolve();
+    if (!paintingCommandAllowed() || !isModelLoaded()) return Promise.resolve();
 
     const status = getStatus();
     if (status === 'done' || status === 'slicing') {
@@ -49,7 +50,8 @@ export function createWorkspaceSliceCoordinator({
 
   return {
     ensureSlice,
-    requestPreviewSlice: () => {
+    requestPreviewSlice: async () => {
+      if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
       requestPreview();
       return ensureSlice();
     },

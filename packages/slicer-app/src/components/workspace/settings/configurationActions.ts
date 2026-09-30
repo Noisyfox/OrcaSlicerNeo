@@ -1,3 +1,5 @@
+import { invalidateAffectedPlateResults } from '../../../stores/plateResultLifecycle';
+import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 import { unstable_batchedUpdates } from 'react-dom';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type {
@@ -99,6 +101,7 @@ export function commitScopedConfigurationMutation(
   platform: PlatformCapabilities,
   request: NativeScopedConfigMutationRequest,
 ): Promise<PlateSessionMutation | null> {
+  if (!paintingCommandAllowed()) return Promise.resolve(null);
   const task = configurationMutationQueue.then(() =>
     commitScopedConfigurationMutationNow(platform, request));
   configurationMutationQueue = task.then(() => undefined, () => undefined);
@@ -156,6 +159,7 @@ export function commitPresetDraftMutation(
   platform: PlatformCapabilities,
   request: PresetDraftMutationRequest,
 ): Promise<PresetDraftMutationResult> {
+  if (!paintingCommandAllowed()) return Promise.resolve({ ok: false, error: 'Painting command is busy', errorCode: 'invalid_request', revision: request.expectedRevision });
   const task = configurationMutationQueue.then(() => commitPresetDraftMutationNow(platform, request));
   configurationMutationQueue = task.then(() => undefined, () => undefined);
   return task;
@@ -206,4 +210,32 @@ export function invalidateAfterSharedConfigurationMutation(
   // slice errors. Preserve the visible warning while the result projection is
   // invalidated; ordinary errors retain the existing clearing behaviour.
   if (existingStatus?.startsWith('[Warning]')) useSlicerStore.getState().setError(existingStatus);
+}
+
+/** Effective Process selection is a chronological project edit, including when
+ * it separates two paint runs. The existing native history owns both roots. */
+export async function selectProcessPreset(platform: PlatformCapabilities, name: string) {
+  if (!paintingCommandAllowed()) return null;
+  const history = await runProjectHistoryMutation(platform.runtime, 'Select Process Preset', async () => {
+    const profile = await platform.runtime.selectProfile('print', name);
+    if (!profile.ok) throw new Error(profile.error ?? 'Process selection failed');
+    const plateSession = await platform.runtime.markSharedConfigurationMutation();
+    if (!plateSession.ok) throw new Error(plateSession.error);
+    const scoped = await platform.runtime.revalidateNativeScopedConfig();
+    if (!scoped.ok) throw new Error(scoped.error);
+    return { ok: true, profile, plateSession, nativeScopedConfig: scoped.nativeScopedConfig };
+  }, null, {
+    contextReceipt: (result) => ({ structure: 'preserved', activePlateId: result.plateSession.currentPlateId }),
+    publish: (result) => {
+      const settings = useSettingsStore.getState();
+      settings.hydrateProfileSnapshot(result.profile);
+      settings.applyNativeScopedConfigTransport(result.nativeScopedConfig);
+      applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
+      usePlateSessionStore.getState().setSnapshot(result.plateSession);
+      useProjectStore.getState().recordPlateMutation(result.plateSession);
+      invalidateAffectedPlateResults(platform.runtime, result.plateSession.affectedPlateIds ?? []);
+    },
+  });
+  if (!history.result.ok) throw new Error('Process selection failed');
+  return history.result.profile;
 }

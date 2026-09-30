@@ -11,6 +11,7 @@ import {
 } from './historyNavigation';
 
 const status: HistoryStatus = {
+  editingSession: null, navigationFloor: null,
   canUndo: true,
   canRedo: true,
   undoLabel: 'Move',

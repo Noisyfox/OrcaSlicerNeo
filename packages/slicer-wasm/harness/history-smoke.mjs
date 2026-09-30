@@ -204,7 +204,7 @@ historyCheck('instance transform and scoped config Undo retains unchanged render
     before: freshBeforeMoveStructure, after: callJson('orc_get_model_structure'), impact: freshMoveUndo.impact,
     transforms: freshMoveUndo.context.plateSession.instance_transforms }));
 const freshScenePatch = callJson('orc_get_model_scene_patch', ['string'],
-  [JSON.stringify({ object_ids: freshMoveUndo.scene_delta.object_ids, known_volume_ids: [] })]);
+  [JSON.stringify({ object_ids: freshMoveUndo.scene_delta.object_ids, known_volume_ids: [], known_paint_keys: [] })]);
 historyCheck('fresh-project move Undo targeted patch returns only the touched native object',
   freshScenePatch.ok === true &&
   JSON.stringify(freshScenePatch.object_order) === JSON.stringify(freshMoveUndo.scene_delta.object_order) &&

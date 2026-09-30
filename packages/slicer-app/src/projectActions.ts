@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, closePaintingForCommand, resetPaintingProjectPalette, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
 import type { PlateSessionMutation, ProjectLoadResult, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
@@ -13,8 +14,8 @@ import type { SceneResetTarget } from './components/workspace/actions/resetScene
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
 import {
   runProjectHistoryMutation,
+  runProjectSaveOperation,
   readProjectHistoryStatus,
-  markProjectHistorySaved,
   resetProjectHistory,
 } from './components/workspace/actions/historyMutation';
 import { applyRememberedFilamentRackFromRepository } from './preferences';
@@ -104,9 +105,6 @@ export async function projectDirtyStatus(platform: PlatformCapabilities): Promis
   const status = await currentHistoryStatus(runtimeOf(platform));
   return status.dirty || projectedBeforeQuery.dirtyReasons.length > 0;
 }
-async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus> {
-  return markProjectHistorySaved(runtime, projectedHistoryContext());
-}
 async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
   return resetProjectHistory(runtime, projectedHistoryContext());
 }
@@ -122,6 +120,7 @@ async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetS
   if (resolved?.ok) useSettingsStore.getState().hydrateProfileSnapshot(resolved);
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
+  if (!paintingCommandAllowed()) return { status: 'cancelled' };
   if (!await projectDirtyStatus(platform)) return null;
   setOperation('waiting-for-dirty-decision');
   const decision = await options.decideDirty?.(operationName, input) ?? 'cancel';
@@ -132,31 +131,44 @@ async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 
   return saved.status === 'ok' ? null : saved;
 }
 
-export async function saveProject(platform: PlatformCapabilities): Promise<ProjectActionResult> {
-  const session = useProjectStore.getState(); if (!session.hasContent) return errorResult(new Error('there is no project to save'));
-  setOperation('saving', 0, 'Exporting project');
-  try {
-    const exported = await runtimeOf(platform).exportProject(); if (!exported.ok) throw new Error(exported.error ?? 'project export failed');
-    setOperation('saving', 70, 'Writing project');
-    const saved = await platform.projects.save({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
-    if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
-    const history = await markHistorySaved(runtimeOf(platform));
-    useProjectStore.getState().setProject({ dirty: history.dirty, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
-  } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
+export function saveProject(platform: PlatformCapabilities): Promise<ProjectActionResult> {
+  return saveProjectFile(platform, false);
 }
-export async function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectActionResult> {
-  const session = useProjectStore.getState(); if (!session.hasContent) return errorResult(new Error('there is no project to save'));
-  setOperation('saving', 0, 'Exporting project');
-  try {
-    const exported = await runtimeOf(platform).exportProject(); if (!exported.ok) throw new Error(exported.error ?? 'project export failed');
-    const saved = await platform.projects.saveAs({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
-    if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
-    const history = await markHistorySaved(runtimeOf(platform));
-    useProjectStore.getState().setProject({ dirty: history?.dirty ?? false, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
-  } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
+export function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectActionResult> {
+  return saveProjectFile(platform, true);
+}
+async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean): Promise<ProjectActionResult> {
+  if (!paintingCommandAllowed()) return { status: 'cancelled' };
+  return runProjectSaveOperation(runtimeOf(platform), projectedHistoryContext, async (markSaved) => {
+    const session = useProjectStore.getState();
+    if (!session.hasContent) return errorResult(new Error('there is no project to save'));
+    setOperation('saving', 0, 'Exporting project');
+    try {
+      if (paintingSessionActive()) {
+        const settled = await platform.runtime.settlePainting();
+        if ('error' in settled) throw new Error(settled.error);
+      }
+      const exported = await runtimeOf(platform).exportProject();
+      if (!exported.ok) throw new Error(exported.error ?? 'project export failed');
+      setOperation('saving', 70, 'Writing project');
+      const request = { displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location };
+      const saved = asCopy ? await platform.projects.saveAs(request) : await platform.projects.save(request);
+      if (saved.status !== 'ok') {
+        setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed');
+        return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error);
+      }
+      const history = await markSaved();
+      useProjectStore.getState().setProject({ dirty: history.dirty, dirtyReasons: [], location: saved.location ?? session.location });
+      setOperation('completed', 100);
+      return { status: 'ok' };
+    } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
+  });
 }
 export async function newProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
+  if (!paintingCommandAllowed()) return { status: 'cancelled' };
   const gate = await gateDirty(platform, 'new', undefined, options); if (gate) return gate;
+  if (options.signal?.aborted || !await closePaintingForCommand()) return { status: 'cancelled' };
+  resetPaintingProjectPalette();
   const previous = useProjectStore.getState(); setOperation('loading', 0, 'Creating project');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
@@ -181,6 +193,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function importProjectGeometry(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
+  if (!paintingCommandAllowed()) return { status: 'cancelled' };
   setOperation('loading', 0, 'Importing geometry');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
@@ -213,6 +226,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 async function openProjectInput(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions): Promise<ProjectActionResult> {
+  if (!paintingCommandAllowed()) return { status: 'cancelled' };
   let behaviour = options.loadBehaviour;
   if (!behaviour) {
     try { behaviour = (await platform.preferences.load()).projectLoadBehaviour; } catch (error) { console.warn('project load preference unavailable; using Ask When Relevant', error); }
@@ -222,6 +236,8 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
   if (shouldAskProjectLoad(behaviour, useSettingsStore.getState().modelLoaded)) { setOperation('waiting-for-load-choice'); choice = await options.chooseLoad?.(input) ?? 'cancel'; if (choice === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; } }
   if (choice === 'geometry-only') return importProjectGeometry(platform, input, options);
   const gate = await gateDirty(platform, 'open', input, options); if (gate) return gate;
+  if (options.signal?.aborted || !await closePaintingForCommand()) return { status: 'cancelled' };
+  resetPaintingProjectPalette();
   setOperation('loading', 0, 'Opening project');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
@@ -318,6 +334,7 @@ export function validateProjectInputs(inputs: readonly ProjectInput[]): string |
 
 /** Shared project action entry point for picker batches and drag/drop batches. */
 export async function openProjectInputs(platform: PlatformCapabilities, inputs: readonly ProjectInput[], options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
+  if (!paintingCommandAllowed()) return { status: 'cancelled' };
   const ordered = sortProjectInputs(inputs);
   const invalid = validateProjectInputs(ordered);
   if (invalid) { setOperation('failed', 0, invalid); return errorResult(new Error(invalid)); }
@@ -336,6 +353,7 @@ export async function openProjectInputs(platform: PlatformCapabilities, inputs: 
 }
 
 export async function openProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
+  if (!paintingCommandAllowed()) return { status: 'cancelled' };
   if (options.inputs) return openProjectInputs(platform, options.inputs, options);
   const picked = platform.projects.openMany ? await platform.projects.openMany() : await platform.projects.open();
   if (picked.status === 'cancelled') { setOperation('cancelled'); return { status: 'cancelled' }; }

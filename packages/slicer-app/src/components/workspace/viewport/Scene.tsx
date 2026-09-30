@@ -18,6 +18,10 @@ import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSce
 import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { GizmoPivotProbe, SceneE2eProbe } from '../../../e2e/SceneProbe';
+import { usePaintingState } from './gizmo/painting/PaintingProvider';
+import { MmuPaintingGizmo } from './gizmo/painting/MmuPaintingGizmo';
+import { glVolumeCollection } from './GLVolume';
+import { PaintingVisualProbe } from '../../../e2e/PaintingProbe';
 declare const __ORCA_E2E__: boolean;
 
 export function Scene({ activeTab, controller, wipeTowerVolumes, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
@@ -32,6 +36,7 @@ export function Scene({ activeTab, controller, wipeTowerVolumes, glVolumes, tool
 }) {
   return (
     <SceneInteractionProvider controller={controller}>
+      {__ORCA_E2E__ && <PaintingVisualProbe />}
       <SceneContents activeTab={activeTab} controller={controller} wipeTowerVolumes={wipeTowerVolumes} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
     </SceneInteractionProvider>
   );
@@ -48,6 +53,9 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   onEmptyBedClick?: (plateId: string) => void;
 }) {
   const sceneInteraction = useSceneInteraction();
+  const painting = usePaintingState();
+  const paintingActive = activeTab === 'prepare' && painting != null && painting.phase !== 'closed';
+  const previouslyPainting = useRef(false);
   const previewVolumes = useMemo(
     () => isPreviewTab(activeTab) ? previewVolumesForCurrentPlate(glVolumes, plateSession, structure) : glVolumes,
     [activeTab, glVolumes, plateSession, structure],
@@ -69,9 +77,20 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
     // A Prime Tower move can republish model meshes while its native commit
     // is still in flight. The tower keeps its stable selection ID across that
     // receipt; prune against the current collection instead of clearing it.
-    if (wipeTowerVolumes?.busy) sceneInteraction.pruneSelection();
+    if (paintingActive || previouslyPainting.current || wipeTowerVolumes?.busy) sceneInteraction.pruneSelection();
     else sceneInteraction.resetForModel();
-  }, [glVolumes, sceneInteraction, wipeTowerVolumes]);
+    // Canvas and the DOM owner use separate React roots. The closed phase can
+    // arrive before Canvas receives the committed collection. Keep the handoff
+    // marker until this root observes that exact replacement, not just one render.
+    if (paintingActive) previouslyPainting.current = true;
+    else if (glVolumes.length === glVolumeCollection.volumes.length && glVolumes.every((v, i) => v === glVolumeCollection.volumes[i])) previouslyPainting.current = false;
+  }, [glVolumes, sceneInteraction, wipeTowerVolumes, paintingActive]);
+
+  if (paintingActive) return <MmuPaintingGizmo volumes={glVolumes} openingVisual={<>
+    {plateSession?.plates?.length ? plateSession.plates.map((plate) => <BedPlate key={plate.plateId} plate={plate} current={plate.plateId === plateSession.currentPlateId} />) : <BedPlate />}
+    <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive={false} structure={structure} plateSession={plateSession}
+      controller={controller} wipeTowerVolumes={wipeTowerVolumes} selectionRevision={controller.selection.revision} bodyDragEnabled={false} />
+  </>} />;
 
   return (
     <>
@@ -156,7 +175,7 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, s
 }) {
   return (
     <>
-      {interactive && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes}
+      {!preview && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} interactive={interactive}
         selectionRevision={selectionRevision} bodyDragEnabled={bodyDragEnabled} />}
       {glVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession}

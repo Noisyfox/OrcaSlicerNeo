@@ -24,6 +24,7 @@
 #include "libslic3r/Print.hpp"
 #include "bridge_preset_drafts.hpp"
 #include "history/TimestampedHistory.hpp"
+#include "painting/PaintingSession.hpp"
 #include "history/MeshCaptureCache.hpp"
 #include "history/MutableObjectCaptureCache.hpp"
 #include "plate_runtime_registry.hpp"
@@ -55,6 +56,11 @@ struct BridgeState {
     // including a reset that leaves an already-empty overlay unchanged.
     std::uint64_t preset_draft_revision = 0;
     Model       model;
+    Painting::Sessions painting;
+    std::uint64_t painting_derived_version = 0;
+    std::uint64_t painting_settled_version = 0;
+    nlohmann::json painting_settlement;
+    nlohmann::json painting_settlement_key;
     // FFF per-plate native ownership. Selected-plate slice/result/export/
     // cancel operations resolve this registry; no singleton Print or result
     // owner remains in BridgeState.
@@ -108,6 +114,9 @@ struct BridgeState {
     // transactional. History paths must never increment this counter.
     std::uint64_t full_preset_bundle_copy_count = 0;
     std::size_t next_filament_colour_index = 0;
+    // Runtime-only slot identity; history retains the vector, never the allocator.
+    std::vector<std::string> filament_slot_ids;
+    std::uint64_t next_filament_slot_id = 1;
     bool history_disabled = false;
     // Runtime-only identity for the headless plate session. These records are
     // deliberately independent from native plate_index values and are never

@@ -45,6 +45,7 @@ function makePlatform() {
 }
 
 const navigationStatus: HistoryStatus = {
+  editingSession: null, navigationFloor: null,
   canUndo: true, canRedo: true, undoLabel: 'Move', redoLabel: 'Delete',
   undoEntries: [
     { id: 'undo-move', label: 'Move', category: 'project' },

@@ -44,7 +44,7 @@ const resolvedSnapshot: ProfileSnapshot = {
 
 const resolvedRack: FilamentSessionSnapshot = {
   ok: true, version: 1,
-  slots: [{ slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament' }, colour: { effective: '#112233', provenance: 'preset' } }],
+  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament' }, colour: { effective: '#112233', provenance: 'preset' } }],
   mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
@@ -65,6 +65,7 @@ function printerTransition(profileSnapshot = resolvedSnapshot, filamentSession =
       affectedPlateIds, dirtyReasons: ['shared-configuration'],
     },
     historyStatus: {
+      editingSession: null, navigationFloor: null,
       canUndo: true, canRedo: false, undoLabel: 'Select Printer',
       undoEntries: [{ id: 'entry-1', label: 'Select Printer', category: 'project' }], redoEntries: [],
       cursor: 1, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,

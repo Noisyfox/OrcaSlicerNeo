@@ -10,8 +10,10 @@
 #include <exception>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
+#include <new>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -21,6 +23,7 @@
 #include <vector>
 
 #include "bridge_history.hpp"
+#include "bridge_painting.hpp"
 #include "bridge_performance.hpp"
 #include "bridge_filament.hpp"
 #include "bridge_plate.hpp"
@@ -68,12 +71,40 @@ namespace {
 
 constexpr int kMaxPlateCount = 36;
 
+bool history_operation_active(const BridgeState& bridge_state)
+{
+    return bridge_state.active_history_transaction.has_value() ||
+        !bridge_state.nested_history_transactions.empty() || bridge_state.history.operation_active();
+}
+
+json parse_history_session_request(const char* request_cstr, const char* description)
+{
+    if (!request_cstr || !*request_cstr)
+        throw std::runtime_error(std::string(description) + " JSON object is required");
+    json request = json::parse(request_cstr);
+    if (!request.is_object())
+        throw std::runtime_error(std::string(description) + " must be a JSON object");
+    return request;
+}
+
 const char* duplicate_json(const std::string& value)
 {
     char* out = static_cast<char*>(std::malloc(value.size() + 1));
     std::memcpy(out, value.data(), value.size());
     out[value.size()] = '\0';
     return out;
+}
+
+using OwnedJsonResponse = std::unique_ptr<char, decltype(&std::free)>;
+
+OwnedJsonResponse prepare_json_response(const json& value)
+{
+    const std::string encoded = value.dump();
+    char* out = static_cast<char*>(std::malloc(encoded.size() + 1));
+    if (!out) throw std::bad_alloc();
+    std::memcpy(out, encoded.data(), encoded.size());
+    out[encoded.size()] = '\0';
+    return OwnedJsonResponse(out, &std::free);
 }
 
 const char* error_json(const std::string& message)
@@ -84,6 +115,11 @@ const char* error_json(const std::string& message)
 json history_status_json()
 {
     return Neo::Bridge::HistoryMetadata::history_status_json(state());
+}
+
+json history_status_json(const History::TimestampedHistory& history, const std::uint64_t revision)
+{
+    return Neo::Bridge::HistoryMetadata::history_status_json(state(), history, revision);
 }
 
 json current_context(const Runtime& runtime)
@@ -428,6 +464,7 @@ json restore_timestamped_result(const Runtime& runtime,
     bool profile_selection_changed = false;
     json restored_profile_snapshot;
     std::set<std::string> affected_plates;
+    std::unique_ptr<Neo::Painting::Session> reconciled_painting;
     const double roots_restore_started_at = Neo::Bridge::Performance::now_ms();
     try {
         // A history frame owns both the registry and the selected rack. Restore
@@ -520,7 +557,8 @@ json restore_timestamped_result(const Runtime& runtime,
             for (const auto& [volume_id, before_volume] : before_volumes) {
                 const auto found = after_volumes.find(volume_id);
                 if (found == after_volumes.end() ||
-                    before_volume->get_transformation() != found->second->get_transformation()) {
+                    before_volume->get_transformation() != found->second->get_transformation() ||
+                    !before_volume->mmu_segmentation_facets.equals(found->second->mmu_segmentation_facets)) {
                     object_geometry_changed = true;
                     break;
                 }
@@ -628,6 +666,7 @@ json restore_timestamped_result(const Runtime& runtime,
         if (!Neo::History::Codec::prime_model_capture_cache(
                 state().model, restored.roots.model, state().mutable_object_capture_cache))
             state().mutable_object_capture_cache.clear();
+        reconciled_painting = state().painting.prepare_reconcile(state().model);
         restore_timings.plate_session_native_config_restore_ms =
             Neo::Bridge::Performance::now_ms() - roots_restore_started_at;
     } catch (...) {
@@ -706,6 +745,8 @@ json restore_timestamped_result(const Runtime& runtime,
         Neo::Bridge::PrimeTower::invalidate_projection_cache_and_usage_summaries(affected_plates);
     else
         Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_plates);
+    if (reconciled_painting) state().painting.publish(std::move(reconciled_painting));
+    if (!usage_unchanged) ++state().painting_derived_version;
     HistoryMetadata::advance_history_epoch(state());
     json response_context = state().history_live_context;
     json restored_instance_transforms = json::array();
@@ -1384,6 +1425,34 @@ bool parse_history_entry_id(const char* value, std::uint64_t& id)
     }
 }
 
+std::string history_editing_session_id(const std::uint64_t id)
+{
+    return std::string("hs-") + std::to_string(id);
+}
+
+bool parse_history_editing_session_id(const std::string& text, std::uint64_t& id)
+{
+    constexpr char prefix[] = "hs-";
+    constexpr std::size_t prefix_size = sizeof(prefix) - 1;
+    if (text.size() <= prefix_size || text.compare(0, prefix_size, prefix, prefix_size) != 0)
+        return false;
+    const std::string digits = text.substr(prefix_size);
+    // IDs are opaque at the bridge boundary, but their textual representation
+    // is deliberately canonical so stale or malformed handles never alias.
+    if (digits.front() < '1' || digits.front() > '9') return false;
+    std::uint64_t parsed = 0;
+    for (const char digit_char : digits) {
+        if (digit_char < '0' || digit_char > '9') return false;
+        const auto digit = static_cast<std::uint64_t>(digit_char - '0');
+        if (parsed > (std::numeric_limits<std::uint64_t>::max() - digit) / 10)
+            return false;
+        parsed = parsed * 10 + digit;
+    }
+    if (parsed == 0 || history_editing_session_id(parsed) != text) return false;
+    id = parsed;
+    return true;
+}
+
 bool parse_history_jump_direction(const char* value, History::JumpDirection& direction)
 {
     if (!value) return false;
@@ -1514,6 +1583,7 @@ History::TimestampedRoots capture_history_roots(BridgeState& state, const json& 
 bool begin_timestamped_operation(BridgeState& state, const std::string& label, const json& before_context,
                                  History::Codec::CaptureTimings* timings)
 {
+    if (state.painting.current() && state.painting.current()->phase != Neo::Painting::Phase::Idle) return false;
     auto roots = capture_history_roots(state, before_context, timings);
     if (!state.history.begin_operation(label, roots)) return false;
     state.history_live_context = before_context;
@@ -1522,9 +1592,12 @@ bool begin_timestamped_operation(BridgeState& state, const std::string& label, c
 
 bool commit_timestamped_operation(BridgeState& state, const json& after_context)
 {
-    auto successor = capture_history_roots(state, after_context);
+    auto painting = state.painting.prepare_reconcile(state.model);
+    auto context = after_context;
+    auto successor = capture_history_roots(state, context);
     if (!state.history.commit_operation(successor)) return false;
-    state.history_live_context = after_context;
+    if (painting) state.painting.publish(std::move(painting));
+    state.history_live_context.swap(context);
     advance_history_epoch(state);
     return true;
 }
@@ -1536,21 +1609,35 @@ void abort_timestamped_operation(BridgeState& state)
 
 json history_status_json(const BridgeState& state)
 {
-    const auto& entries = state.history.entries();
-    const auto current_timestamp = state.history.current_timestamp();
+    return history_status_json(state, state.history, state.history_revision);
+}
+
+json history_status_json(const BridgeState& state, const History::TimestampedHistory& history,
+                         const std::uint64_t revision)
+{
+    const auto& entries = history.entries();
+    const auto current_timestamp = history.current_timestamp();
+    const auto logical_navigation_floor = history.navigation_floor();
+    const auto editing_session = history.editing_session_status();
     json undo = json::array();
     json redo = json::array();
     auto cursor_timestamp = current_timestamp;
     while (true) {
+        if (logical_navigation_floor && cursor_timestamp <= *logical_navigation_floor) break;
         const auto found = std::find_if(entries.rbegin(), entries.rend(), [cursor_timestamp](const auto& entry) {
             return entry.after_timestamp == cursor_timestamp;
         });
         if (found == entries.rend()) break;
+        if (logical_navigation_floor && found->before_timestamp < *logical_navigation_floor) break;
         undo.push_back(json{{"id", history_entry_id(found->id)}, {"label", found->label},
                             {"category", "project"}, {"beforeTimestamp", found->before_timestamp},
                             {"afterTimestamp", found->after_timestamp}});
         cursor_timestamp = found->before_timestamp;
     }
+    const auto undo_chain_floor = cursor_timestamp;
+    const auto effective_navigation_floor = logical_navigation_floor
+        ? std::optional<History::LogicalTimestamp>(std::max(*logical_navigation_floor, undo_chain_floor))
+        : std::optional<History::LogicalTimestamp>{};
     cursor_timestamp = current_timestamp;
     while (true) {
         const auto found = std::find_if(entries.begin(), entries.end(), [cursor_timestamp](const auto& entry) {
@@ -1564,8 +1651,8 @@ json history_status_json(const BridgeState& state)
     }
     const json undo_label = undo.empty() ? json(nullptr) : undo.front()["label"];
     const json redo_label = redo.empty() ? json(nullptr) : redo.front()["label"];
-    const auto saved = state.history.saved_timestamp();
-    const auto resources = state.history.resource_diagnostics();
+    const auto saved = history.saved_timestamp();
+    const auto resources = history.resource_diagnostics();
     return json{
         // The visible navigation list is the filtered project stream. Keep
         // its booleans derived from the same stream so context checkpoints
@@ -1575,18 +1662,25 @@ json history_status_json(const BridgeState& state)
         {"undoEntries", std::move(undo)}, {"redoEntries", std::move(redo)},
         {"cursor", current_timestamp},
         {"savedCheckpoint", saved ? json(*saved) : json(nullptr)},
-        {"savedCheckpointEvicted", state.history.saved_checkpoint_evicted()},
-        {"dirty", state.history.project_modified()},
-        {"bytesUsed", state.history.bytes_used()}, {"byteBudget", state.history.byte_budget()},
+        {"savedCheckpointEvicted", history.saved_checkpoint_evicted()},
+        {"dirty", history.project_modified()},
+        {"bytesUsed", history.bytes_used()}, {"byteBudget", history.byte_budget()},
         {"evictedEntryCount", resources.evicted_timestamp_count},
         {"lastEvictedEntryId", resources.last_evicted_timestamp == 0
             ? json(nullptr) : json(std::string("ts-") + std::to_string(resources.last_evicted_timestamp))},
-        {"oldestRetainedEntryId", state.history.entries().empty()
-            ? json(nullptr) : json(history_entry_id(state.history.entries().front().id))},
+        {"oldestRetainedEntryId", history.entries().empty()
+            ? json(nullptr) : json(history_entry_id(history.entries().front().id))},
         {"oversizedEntryRetained", resources.oversized_nearest_history_retained},
         {"disabled", state.history_disabled},
         {"activeTransactionId", state.active_history_transaction ? json(state.active_history_transaction->id) : json(nullptr)},
-        {"revision", state.history_revision},
+        {"editingSession", editing_session
+            ? json{{"id", history_editing_session_id(editing_session->id)},
+                   {"entryTimestamp", editing_session->entry_timestamp},
+                   {"hasEffectiveCommit", editing_session->has_effective_commit}}
+            : json(nullptr)},
+        {"navigationFloor", effective_navigation_floor
+            ? json(*effective_navigation_floor) : json(nullptr)},
+        {"revision", revision},
     };
 }
 
@@ -1627,6 +1721,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
     try {
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const Runtime runtime = HistoryRuntime::runtime();
+        if (state().painting.current() && state().painting.current()->phase != Neo::Painting::Phase::Idle) return error_json("painting stroke is busy");
         if (state().history_disabled) return error_json("history is disabled");
         const std::string label = label_cstr ? label_cstr : "";
         const std::string category = category_cstr ? category_cstr : "";
@@ -1696,6 +1791,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
     try {
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const Runtime runtime = HistoryRuntime::runtime();
+        if (state().painting.current() && state().painting.current()->phase != Neo::Painting::Phase::Idle) return error_json("painting stroke is busy");
         if (state().history_disabled) return error_json("history is disabled");
         const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
         if (!state().active_history_transaction) return error_json("history transaction is not active");
@@ -1726,7 +1822,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         }
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
         Neo::History::SceneDelta committed_delta;
+        auto painting = state().painting.prepare_reconcile(state().model);
         if (!state().history.commit_operation(after_roots, &committed_delta)) return error_json("history commit rejected");
+        if (painting) state().painting.publish(std::move(painting));
         HistoryMetadata::advance_history_epoch(state());
         state().history_live_context = after_context;
         const auto removed_native_scoped_config_targets = native_scoped_config_removed_targets(
@@ -1856,8 +1954,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_undo()
 {
     try {
         const Runtime runtime = HistoryRuntime::runtime();
+        if (state().painting.current() && state().painting.current()->phase != Neo::Painting::Phase::Idle) return error_json("painting stroke is busy");
         if (state().history_disabled) return error_json("history is disabled");
         if (state().active_history_transaction) return error_json("history transaction is active");
+        if (!state().history.can_undo()) return error_json("no undo history");
         const auto original_timestamp = state().history.current_timestamp();
         const auto entry = std::find_if(state().history.entries().rbegin(), state().history.entries().rend(),
             [original_timestamp](const auto& candidate) { return candidate.after_timestamp == original_timestamp; });
@@ -1881,6 +1981,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_redo()
 {
     try {
         const Runtime runtime = HistoryRuntime::runtime();
+        if (state().painting.current() && state().painting.current()->phase != Neo::Painting::Phase::Idle) return error_json("painting stroke is busy");
         if (state().history_disabled) return error_json("history is disabled");
         if (state().active_history_transaction) return error_json("history transaction is active");
         const auto original_timestamp = state().history.current_timestamp();
@@ -1905,6 +2006,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
 {
     try {
         const Runtime runtime = HistoryRuntime::runtime();
+        if (state().painting.current() && state().painting.current()->phase != Neo::Painting::Phase::Idle) return error_json("painting stroke is busy");
         if (state().history_disabled) return error_json("history is disabled");
         if (state().active_history_transaction) return error_json("history transaction is active");
         std::uint64_t entry_id = 0;
@@ -1944,6 +2046,77 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_status()
     catch (...) { return error_json("unknown C++ exception"); }
 }
 
+EMSCRIPTEN_KEEPALIVE const char* orc_history_session_open(const char* options_json)
+{
+    try {
+        if (state().painting.current() && state().painting.current()->phase != Neo::Painting::Phase::Idle) return error_json("painting stroke is busy");
+        if (state().history_disabled) return error_json("history is disabled");
+        const json options = parse_history_session_request(options_json, "history session options");
+        if (!options.empty()) return error_json("history session options must be an empty object");
+        if (history_operation_active(state())) return error_json("history transaction is active");
+
+        OwnedJsonResponse response(nullptr, &std::free);
+        const std::uint64_t next_revision = state().history_revision + 1;
+        const auto session = state().history.begin_editing_session([&](const History::TimestampedHistory& candidate) {
+            const auto candidate_session = candidate.editing_session_status();
+            if (!candidate_session)
+                throw std::logic_error("staged history editing session is missing");
+            response = prepare_json_response(json{{"ok", true},
+                {"sessionId", HistoryMetadata::history_editing_session_id(candidate_session->id)},
+                {"status", history_status_json(candidate, next_revision)}});
+        });
+        if (!session) return error_json("history editing session could not be opened");
+        HistoryMetadata::advance_history_epoch(state());
+        return response.release();
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_session_close(const char* request_json)
+{
+    try {
+        if (state().painting.current() && state().painting.current()->phase != Neo::Painting::Phase::Idle) return error_json("painting stroke is busy");
+        if (state().history_disabled) return error_json("history is disabled");
+        const json request = parse_history_session_request(request_json, "history session close request");
+        for (auto item = request.begin(); item != request.end(); ++item)
+            if (item.key() != "sessionId" && item.key() != "label")
+                return error_json("unsupported history session close field: " + item.key());
+        if (!request.contains("sessionId") || !request["sessionId"].is_string())
+            return error_json("history session close requires a string sessionId");
+        std::uint64_t session_id = 0;
+        const auto encoded_id = request["sessionId"].get<std::string>();
+        if (!HistoryMetadata::parse_history_editing_session_id(encoded_id, session_id))
+            return error_json("invalid history editing session id");
+        std::string label = "Paint";
+        if (request.contains("label")) {
+            if (!request["label"].is_string() || request["label"].get<std::string>().empty())
+                return error_json("history session close label must be a non-empty string");
+            label = request["label"].get<std::string>();
+        }
+        if (history_operation_active(state())) return error_json("history transaction is active");
+        const auto session = state().history.editing_session_status();
+        if (!session || session->id != session_id)
+            return error_json("history editing session is stale or belongs to another writer");
+        if (const auto* painting = state().painting.current(); painting &&
+            painting->history_session_id == session_id && painting->phase != Neo::Painting::Phase::Idle)
+            return error_json("painting stroke is busy or awaiting publication/discard");
+        Neo::Bridge::PaintingBridge::settle_dependencies();
+        OwnedJsonResponse response(nullptr, &std::free);
+        const std::uint64_t next_revision = state().history_revision + 1;
+        if (!state().history.close_editing_session(session_id, std::move(label),
+            [&](const History::TimestampedHistory& candidate) {
+                response = prepare_json_response(json{{"ok", true},
+                    {"status", history_status_json(candidate, next_revision)}});
+            }))
+            return error_json("history editing session could not be closed");
+
+        state().painting.reset();
+        HistoryMetadata::advance_history_epoch(state());
+        return response.release();
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_history_restore_diagnostics()
 {
     return duplicate_json(Neo::Bridge::HistoryMetadata::restore_diagnostics_json(state()).dump());
@@ -1951,9 +2124,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_restore_diagnostics()
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
 {
+    const auto before_slot_ids = state().filament_slot_ids;
+    bool replaced = false;
     try {
         const Runtime runtime = HistoryRuntime::runtime();
-        const json context = canonical_history_context(runtime, parse_history_context(context_cstr));
+        const auto parsed_context = parse_history_context(context_cstr);
+        state().filament_slot_ids.clear();
+        const json context = canonical_history_context(runtime, parsed_context);
+        state().painting.reset();
         state().history.clear();
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();
@@ -1961,12 +2139,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
         state().nested_history_transactions.clear();
         state().history_disabled = false;
         state().history_live_context = context;
+        replaced = true;
         (void) HistoryMetadata::capture_history_roots(state(), context);
         state().history.mark_current_as_saved();
         HistoryMetadata::advance_history_epoch(state());
         return duplicate_json(history_status_json().dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
+    } catch (const std::exception& e) { if (!replaced) state().filament_slot_ids = before_slot_ids; return error_json(e.what()); }
+    catch (...) { if (!replaced) state().filament_slot_ids = before_slot_ids; return error_json("unknown C++ exception"); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr)

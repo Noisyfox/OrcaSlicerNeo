@@ -12,8 +12,8 @@ function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): Filamen
   return {
     ok: true, version: 1,
     slots: [
-      { slot: 1, preset: { id: 'pla', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' } },
-      { slot: 2, preset: { id: 'petg', name: 'PETG' }, colour: { effective: '#445566', provenance: 'user' } },
+      { logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' } },
+      { logicalId: 'filament-2', slot: 2, preset: { id: 'petg', name: 'PETG' }, colour: { effective: '#445566', provenance: 'user' } },
     ],
     mappings: { filament: [1, 2], volume: [0, 0], nozzle: [1, 2], filament2: [1, 2], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
@@ -30,7 +30,8 @@ function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): Filamen
 
 function historyStatus(revision: number): HistoryStatus {
   return {
-    canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+    editingSession: null, navigationFloor: null,
+    canUndo: true, canRedo: false, undoLabel: 'Edit Filament', undoEntries: [{ id: 'entry-1', label: 'Edit Filament', category: 'project' as const }], redoEntries: [], cursor: revision,
     savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true, bytesUsed: 1,
     byteBudget: 10, evictedEntryCount: 0,
     lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
@@ -78,7 +79,7 @@ describe('FilamentRack runtime interaction', () => {
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({
-      slots: [...initial.slots, { slot: 3, preset: { id: 'abs', name: 'ABS' }, colour: { effective: '#778899', provenance: 'preset' } }],
+      slots: [...initial.slots, { logicalId: 'filament-3', slot: 3, preset: { id: 'abs', name: 'ABS' }, colour: { effective: '#778899', provenance: 'preset' } }],
       revisions: { ...initial.revisions, session: 5 },
     });
     const add = vi.fn(async () => mutation(returned));

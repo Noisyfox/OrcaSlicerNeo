@@ -14,12 +14,12 @@ export interface OrcaE2eHooks extends Record<string, unknown> {
   gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'unavailable';
   gpuStreamingDiagnostic?: () => { reason: string; message: string } | null;
   gpuStreamingColorSamples?: () => readonly (readonly [number, number, number])[];
-  previewEvidence?: () => {
+  previewEvidence?: () => Promise<{
     extrusionTools: readonly number[];
     toolChanges: readonly number[];
     palette: readonly { tool: number; color: readonly number[] }[];
     renderedColors: readonly (readonly [number, number, number])[];
-  } | null;
+  } | null>;
   primeTowerStates?: () => unknown[];
   primeTowerSelection?: () => string | null;
   primeTowerMoveCommands?: () => number;

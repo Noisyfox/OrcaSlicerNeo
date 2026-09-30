@@ -1,3 +1,4 @@
+import type { PaintingApi } from './painting';
 // packages/slicer-wasm/src/client/types.ts
 // ----------------------------------------------------------------
 // Shared types: the OrcaModule shape (structural Emscripten factory
@@ -1088,6 +1089,8 @@ export type FilamentColourProvenance = 'preset' | 'user';
 
 /** One ordered, one-based material slot owned by the native session. */
 export interface FilamentSessionSlot {
+  /** Opaque runtime identity restored with native history, never persisted to 3MF. */
+  readonly logicalId: string;
   readonly slot: number;
   readonly preset: { readonly id: string; readonly name: string };
   readonly colour: {
@@ -1383,7 +1386,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient {
+export interface SlicerClient extends PaintingApi {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */
@@ -1410,6 +1413,8 @@ export interface SlicerClient {
   undoHistory(): Promise<import('./history').RestoreResult>;
   redoHistory(): Promise<import('./history').RestoreResult>;
   jumpHistory(entryId: import('./history').HistoryEntryId, direction: import('./history').HistoryJumpDirection): Promise<import('./history').RestoreResult>;
+  openHistorySession(): Promise<import('./history').HistorySessionOpenResult>;
+  closeHistorySession(sessionId: import('./history').HistoryEditingSessionId, label?: string): Promise<import('./history').HistoryStatus>;
   getHistoryStatus(): Promise<import('./history').HistoryStatus>;
   /** Advance the saved checkpoint without clearing retained history. */
   markHistorySaved(context?: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;

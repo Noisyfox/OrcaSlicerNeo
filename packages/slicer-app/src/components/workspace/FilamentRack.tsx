@@ -1,3 +1,4 @@
+import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -124,7 +125,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
             <DropdownMenuItem
               data-testid={`filament-merge-${slot.slot}`}
               disabled={!canMerge}
-              onClick={() => setMergeOpen(true)}
+              onClick={() => { if (paintingCommandAllowed()) setMergeOpen(true); }}
             >Merge with…</DropdownMenuItem>
             <DropdownMenuItem
               data-testid={`filament-delete-${slot.slot}`}
@@ -202,7 +203,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   function revision() { return useFilamentSessionStore.getState().snapshot?.revisions.session ?? 0; }
 
   function askOrRun(kind: 'delete' | 'merge', slot: number, destination: number | null) {
-    if (!snapshot) return;
+    if (!snapshot || !paintingCommandAllowed()) return;
     const summary = filamentImpactSummary(snapshot, slot, destination);
     if (summary.assignmentCount > 0 || summary.mappingCount > 0) setImpact({ kind, summary });
     else void confirmMutation(kind, slot, destination);

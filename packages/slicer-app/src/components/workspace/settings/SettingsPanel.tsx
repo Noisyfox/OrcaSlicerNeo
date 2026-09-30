@@ -1,3 +1,4 @@
+import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useState } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
@@ -12,8 +13,8 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
-import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
-import { refreshFilamentSession, useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { selectProcessPreset, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
@@ -43,15 +44,13 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter }: {
   const prints = useSettingsStore((s) => s.prints);
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
-  const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
-  const applyNativeScopedConfigTransport = useSettingsStore((s) => s.applyNativeScopedConfigTransport);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
 
   // A system profile selection is session state; only its three names and UI
   // preferences are persisted. Compatibility remains in the C++ bridge.
   async function handleSelectPreset(kind: PresetKind, name: string) {
-    if (presetTransitionPending) return;
+    if (presetTransitionPending || !paintingCommandAllowed()) return;
     setPresetTransitionPending(true);
     try {
       if (kind === 'printer') {
@@ -116,24 +115,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter }: {
         return;
       }
 
-      const r = await platform.runtime.selectProfile(kind, name);
-      if (!r.ok) throw new Error(r.error ?? 'selectProfile failed');
-      // Preset selection changes the shared slice input for every plate. The
-      // bridge owns the complete plate set and advances all revisions in one
-      // typed transaction; its response is the sole source for revisions and
-      // affected plates recorded by the shared action.
-      await applyPresetConfigurationMutation(platform);
-      const filament = await refreshFilamentSession(platform.runtime);
-      if (!filament.ok) throw new Error(filament.error ?? 'filament session refresh failed');
-      // The bridge's arrays are already the complete picker-ready candidate
-      // sets, in engine order. Replace every picker and resolved name together
-      // rather than composing a selection with independently fetched lists.
-      hydrateProfileSnapshot(r);
-      const revalidated = await platform.runtime.revalidateNativeScopedConfig();
-      if (revalidated.ok) applyNativeScopedConfigTransport(revalidated.nativeScopedConfig);
-      // The result belongs to the old profile combination. One action clears
-      // export, toolpath-layer state, progress, and completed status together.
-      invalidateAfterSharedConfigurationMutation();
+      const r = await selectProcessPreset(platform, name);
+      if (!r) return;
       const project = useProjectStore.getState();
       project.setProject({
         ...(project.scope === 'project' ? { projectPresets: {

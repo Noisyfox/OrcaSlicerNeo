@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, closePaintingForCommand, paintingSessionActive } from './components/workspace/viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/App.tsx (boot effect: app config load → worker
 // client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -42,6 +43,7 @@ import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppE2eProbe } from './e2e/AppE2eProbe';
 import { FileManagerWindow } from './components/fileManager/FileManagerWindow';
+import { PaintingProvider } from './components/workspace/viewport/gizmo/painting/PaintingProvider';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -62,7 +64,7 @@ export function handleMenuKeyDown(
 }
 
 export default function App() {
-  return <TooltipProvider><AppContent /></TooltipProvider>;
+  return <TooltipProvider><PaintingProvider><AppContent /></PaintingProvider></TooltipProvider>;
 }
 
 function AppContent() {
@@ -92,6 +94,9 @@ function AppContent() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState('Loading preferences...');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const navigationRequest = useRef(0);
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
   const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'notice' | 'project-confirm' | null>(null);
   const [loadInput, setLoadInput] = useState<ProjectInput | null>(null);
@@ -110,22 +115,30 @@ function AppContent() {
   const projectLoadReceiptRef = useRef<ProjectLoadReceipt | null>(null);
   const previewTransitionRef = useRef<PreviewRenderTransition | null>(null);
   const handleTabChange = useCallback((tab: AppTab) => {
-    if (tab !== 'preview') {
-      previewTransitionRef.current?.cancel();
-      setPrewarmingWorkspace(false);
-      setActiveTab(tab);
-      return;
-    }
-    if (tab === 'preview' && !isWorkspaceTab(activeTab)) {
-      const transition = previewTransitionRef.current;
-      if (transition) {
-        setPrewarmingWorkspace(true);
-        transition.begin();
+    if (!paintingCommandAllowed()) return;
+    const request = ++navigationRequest.current;
+    const navigate = () => {
+      if (request !== navigationRequest.current) return;
+      if (tab !== 'preview') {
+        previewTransitionRef.current?.cancel();
+        setPrewarmingWorkspace(false);
+        setActiveTab(tab);
         return;
       }
-    }
-    setActiveTab(tab);
-  }, [activeTab]);
+      if (!isWorkspaceTab(activeTabRef.current)) {
+        const transition = previewTransitionRef.current;
+        if (transition) {
+          setPrewarmingWorkspace(true);
+          transition.begin();
+          return;
+        }
+      }
+      setActiveTab(tab);
+    };
+    if (tab === 'preview' && paintingSessionActive()) {
+      void closePaintingForCommand().then((closed) => { if (closed) navigate(); });
+    } else navigate();
+  }, []);
   const navigateToPreview = useCallback(() => {
     handleTabChange('preview');
   }, [handleTabChange]);
@@ -197,6 +210,7 @@ function AppContent() {
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
   }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
+    if (!paintingCommandAllowed()) { await platform.lifecycle?.respondClose(false); return; }
     // Startup has not created a project history session yet. Querying the
     // Worker here can block the native close handshake while init/profile
     // restoration is still in progress, leaving the loading screen unable to
@@ -215,6 +229,7 @@ function AppContent() {
         allow = result.status === 'ok';
       }
     }
+    if (allow) allow = await closePaintingForCommand();
     await platform.lifecycle?.respondClose(allow);
   }, [boot, decideDirty, platform, reportProjectFailure]);
   const runSaveProject = useCallback(async (asCopy = false) => {
@@ -447,7 +462,7 @@ function AppContent() {
       // Browser lifecycle cannot present the app's Save/Don't Save/Cancel
       // dialog. It only gets the native leave/cancel prompt, and must never
       // trigger a download while the browser is unloading.
-      if (!useProjectStore.getState().dirty) return;
+      if (!useProjectStore.getState().dirty && paintingCommandAllowed()) return;
       event.preventDefault();
       event.returnValue = '';
     };

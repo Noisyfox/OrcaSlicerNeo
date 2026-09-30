@@ -1,0 +1,110 @@
+// Deterministic protocol model for UI tests; native picking/topology are tested
+// by the real WASM harness, never inferred from this one-triangle fixture.
+export function paintingMock(hooks: {
+  historySession: () => string | undefined;
+  pending: (value: boolean) => void;
+  objects: () => { id: number; instanceIds: number[]; volumes: { id: number; paintState?: number }[] }[];
+  commit: (mutate: () => void) => unknown;
+  history: () => unknown;
+  allocate: (values: number[]) => number;
+  free: (pointer: number) => void;
+}) {
+  let nextId = 1, nextStroke = 1, nextLease = 1;
+  const leases = new Map<string, number[]>();
+  let session: any = null;
+  let before: number[] = [];
+  let committed: number[] = [];
+  const identity = [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+  const require = (request: any, idle = false) => {
+    if (!session || session.historySessionId !== hooks.historySession() || request.sessionId !== session.id || request.revision !== session.revision) throw new Error('painting session is stale');
+    if (idle && session.phase !== 'idle') throw new Error('painting stroke is busy');
+  };
+  const sync = () => {
+    if (!session || session.phase !== 'idle') return;
+    const object = hooks.objects().find(o => o.id === session.objectId);
+    const states = object?.volumes.map(v => v.paintState ?? 0) ?? [];
+    if (JSON.stringify(states) !== JSON.stringify(committed)) {
+      committed = states; session.states = [...states]; session.revision++;
+      session.parts.forEach((part: any) => part.generation++);
+    }
+  };
+  const metadata = () => ({ ok: true, version: 1, session: { ...session, candidate: session.candidate ? { revision: session.revision, selectedFacetCount: session.candidate === 'gap' ? 0 : 1,
+    gapRegionCount: session.candidate === 'gap' ? 1 : 0, parts: session.parts.map((p: any, i: number) => ({ volumeId: p.volumeId,
+      facetCounts: Array.from({ length: 17 }, (_, state) => +(state === session.states[i])) })) } : undefined, annotation: 'mmu', instanceTransform: identity,
+    parts: session.parts.map((part: any, i: number) => ({ volumeId: part.volumeId, sourceTriangleCount: 1,
+      volumeTransform: identity, facetCounts: Array.from({ length: 17 }, (_, state) => +(state === session.states[i])),
+      draftResourceId: `pd-${session.id.slice(3)}-${part.generation}-${part.volumeId}` })) } });
+  const receipt = () => ({ ok: true, version: 1, sessionId: session.id, revision: session.revision, strokeId: session.strokeId,
+    phase: session.phase, effective: session.states.some((state: number, i: number) => state !== before[i]),
+    changedPartIds: session.parts.filter((_: any, i: number) => session.states[i] !== before[i]).map((part: any) => part.volumeId),
+    hit: null, candidateRevision: session.candidate ? session.revision : null });
+  const apply = (request: any) => {
+    const state = request.settings?.erase || request.tool === 'eraseAll' ? 0 : request.settings?.state ?? 1;
+    if (!Number.isInteger(state) || state < 0 || state > 16) throw new Error('invalid painting state');
+    if (session.states[0] !== state) { session.states[0] = state; session.parts[0].generation++; }
+  };
+  const finish = () => { session.phase = 'idle'; session.strokeId = null; session.candidate = false; before = [...session.states]; };
+  const functions: Record<string, (request: any) => unknown> = {
+    orc_painting_session_open(request) {
+      if (session && session.historySessionId !== hooks.historySession()) session = null;
+      if (session || request.historySessionId !== hooks.historySession()) throw new Error('painting history session is stale or busy');
+      const object = hooks.objects().find(o => o.id === request.objectId && o.instanceIds.includes(request.instanceId));
+      if (!object) throw new Error('painting target unavailable');
+      committed = object.volumes.map(v => v.paintState ?? 0); before = [...committed];
+      session = { id: `ps-${nextId++}`, historySessionId: request.historySessionId, objectId: request.objectId,
+        instanceId: request.instanceId, revision: 1, phase: 'idle', strokeId: null, states: [...committed],
+        parts: object.volumes.map(v => ({ volumeId: v.id, generation: 1 })) };
+      return metadata();
+    },
+    orc_painting_session_read(request) { sync(); require(request.latest ? { ...request, revision: session?.revision } : request); return metadata(); },
+    orc_painting_session_target(request) {
+      require(request, true); const previous = session; session = null;
+      try { const result: any = functions.orc_painting_session_open({ ...request, historySessionId: previous.historySessionId });
+        session.id = previous.id; session.revision = previous.revision + 1; session.parts.forEach((part: any) => part.generation = session.revision); return metadata();
+      } catch (error) { session = previous; throw error; }
+    },
+    orc_painting_session_close(request) { require(request, true); session = null; return { ok: true, version: 1 }; },
+    orc_painting_preview(request) { require(request, true); session.candidate = request.tool; session.revision++; return receipt(); },
+    orc_painting_stroke_begin(request) {
+      sync(); require(request, true); before = [...session.states]; session.strokeId = `pst-${session.id.slice(3)}-${nextStroke++}`;
+      session.candidate = false; session.phase = ['gap', 'eraseAll'].includes(request.tool) ? 'finished' : 'drawing'; apply(request); session.revision++; return receipt();
+    },
+    orc_painting_stroke_sample(request) { require(request); if (session.phase !== 'drawing' || request.strokeId !== session.strokeId) throw new Error('painting stroke stale'); apply(request); session.revision++; return receipt(); },
+    orc_painting_stroke_finish(request) { require(request); if (session.phase !== 'drawing' || request.strokeId !== session.strokeId) throw new Error('painting stroke stale'); session.phase = 'finished'; session.revision++; return receipt(); },
+    orc_painting_stroke_cancel(request) { require(request); session.states = [...before]; session.parts.forEach((p: any) => p.generation++); session.revision++; finish(); return receipt(); },
+    orc_painting_stroke_commit(request) {
+      require(request); if (session.phase === 'idle' || request.strokeId !== session.strokeId) throw new Error('painting stroke stale');
+      if (request.event) apply(request);
+      const effective = session.states.some((s: number, i: number) => s !== before[i]);
+      if (effective) hooks.commit(() => {
+        const object = hooks.objects().find(o => o.id === session.objectId)!;
+        object.volumes.forEach((v, i) => { v.paintState = session.states[i]; });
+      });
+      committed = [...session.states]; session.revision++; finish();
+      return { ...receipt(), committed: effective, affectedPlateIds: [], history: hooks.history() };
+    },
+    orc_painting_geometry(request) {
+      require(request); const parts = metadata().session.parts.map((p: any) => ({ volumeId: p.volumeId, resourceId: p.draftResourceId }));
+      const candidates = session.candidate ? [{ volumeId: parts[0].volumeId,
+        resourceId: `pc-${session.id.slice(3)}-${session.revision}-${parts[0].volumeId}${session.candidate === 'gap' ? '-0' : ''}`, kind: session.candidate }] : [];
+      const resources = [...parts.map((part: any) => ({ ...part, kind: 'draft' })), ...candidates]
+        .flatMap((part: any, i: number) => request.knownResourceIds?.includes(part.resourceId) ? [] : [{ ...part,
+          vertex_ptr: hooks.allocate([0,0,0,0,0,1,1,0,0,0,0,1,0,1,0,0,0,1]), vertexCount: 3,
+          groups: [[session.states[Math.min(i, session.states.length - 1)],0,3]],
+          contour_ptr: part.kind === 'region' || part.kind === 'triangle' ? hooks.allocate([0,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,0,0]) : 0,
+          contourVertexCount: part.kind === 'region' || part.kind === 'triangle' ? 6 : 0 }]);
+      const leaseId = `pg-${nextLease++}`;
+      leases.set(leaseId, resources.flatMap((resource: any) => [resource.vertex_ptr, resource.contour_ptr].filter(Boolean)));
+      return { ok: true, version: 1, leaseId, sessionId: session.id, revision: session.revision, parts, candidates, resources };
+    },
+    orc_painting_geometry_release(request) {
+      for (const pointer of leases.get(request.leaseId) ?? []) hooks.free(pointer);
+      leases.delete(request.leaseId);
+    },
+    orc_painting_settle() { return { ok: true, version: 1, settledVersion: 0, projections: null }; },
+  };
+  return Object.fromEntries(Object.entries(functions).map(([name, fn]) => [name, (text: string) => {
+    try { const request = JSON.parse(text); if (request.version !== 1) throw new Error('invalid painting version'); const result = fn(request); hooks.pending(!!session && session.phase !== 'idle'); return result; }
+    catch (error) { return { error: (error as Error).message }; }
+  }]));
+}

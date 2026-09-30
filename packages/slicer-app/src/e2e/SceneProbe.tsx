@@ -46,6 +46,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
       previewMarkerPresent?: () => boolean;
       cameraState?: () => {
         position: [number, number, number];
+        quaternion: [number, number, number, number];
         target: [number, number, number];
         near: number;
         far: number;
@@ -206,6 +207,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
     previewMarkerPresent: () => Boolean(scene.getObjectByName('preview-nozzle-marker')),
     cameraState: () => ({
       position: [camera.position.x, camera.position.y, camera.position.z],
+      quaternion: [camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w],
       target: controls?.target ? [controls.target.x, controls.target.y, controls.target.z] : [0, 0, 0],
       near: camera.near,
       far: camera.far,

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useFilamentSessionStore } from './useFilamentSessionStore';
+import { projectFilamentPlateInputRevisions, useFilamentSessionStore } from './useFilamentSessionStore';
 import { useSlicerStore } from './useSlicerStore';
 import type { FilamentSessionSnapshot, HistoryStatus, ModelObjectStructure, PlateSessionSnapshot, SlicerClient } from '@slicer/client';
 import { useHistoryNavigationStore } from './useHistoryNavigationStore';
+import { projectHistoryStatus } from '../history/projectHistoryStatus';
 import { useProjectStore } from './useProjectStore';
 import { usePlateSessionStore } from './usePlateSessionStore';
 import { useObjectListStore } from '../components/workspace/objectList/useObjectListStore';
@@ -11,7 +12,7 @@ import { projectFullModelMesh } from '../components/workspace/viewport/modelMesh
 
 function snapshot(revision: number): FilamentSessionSnapshot {
   return {
-    ok: true, version: 1, slots: [{ slot: 1, preset: { id: 'a', name: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset' } }],
+    ok: true, version: 1, slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset' } }],
     mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
     capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -22,7 +23,9 @@ function snapshot(revision: number): FilamentSessionSnapshot {
 
 function historyStatus(revision: number, dirty = true): HistoryStatus {
   return {
-    canUndo: dirty, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+    editingSession: null, navigationFloor: null,
+    canUndo: dirty, canRedo: false, ...(dirty ? { undoLabel: 'Edit Filament' } : {}),
+    undoEntries: dirty ? [{ id: 'entry-1', label: 'Edit Filament', category: 'project' }] : [], redoEntries: [], cursor: revision,
     savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
     byteBudget: 10, evictedEntryCount: 0,
     lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
@@ -40,6 +43,41 @@ afterEach(() => {
 });
 
 describe('filament session store lifecycle', () => {
+  it('projects accepted history epochs into the loaded command token without replacing the rack or notifying subscribers', () => {
+    // Bootstrap status has no rack to update. The first later rack load owns
+    // its own native revision and is never moved backwards by an old receipt.
+    projectHistoryStatus(historyStatus(4));
+    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+    const loaded = snapshot(5);
+    useFilamentSessionStore.getState().publish(loaded);
+    const listener = vi.fn();
+    const unsubscribe = useFilamentSessionStore.subscribe(listener);
+    projectHistoryStatus(historyStatus(4));
+    projectHistoryStatus(historyStatus(5));
+    expect(loaded.revisions).toMatchObject({ session: 5, project: 5 });
+    projectHistoryStatus(historyStatus(6));
+    expect(useFilamentSessionStore.getState().snapshot).toBe(loaded);
+    expect(loaded.revisions).toMatchObject({ session: 6, project: 6 });
+    projectHistoryStatus(historyStatus(5));
+    expect(loaded.revisions).toMatchObject({ session: 6, project: 6 });
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+    useFilamentSessionStore.getState().reset();
+    projectHistoryStatus(historyStatus(7));
+    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+  });
+  it('accepts plate-input revisions only from the current history receipt', () => {
+    const loaded = snapshot(5);
+    useFilamentSessionStore.getState().publish(loaded);
+    projectHistoryStatus(historyStatus(6));
+    projectFilamentPlateInputRevisions(5, { 'plate-a': 99 });
+    expect(loaded.revisions.plates).toEqual({});
+    projectFilamentPlateInputRevisions(6, { 'plate-a': 7 });
+    expect(loaded.revisions.plates).toEqual({ 'plate-a': 7 });
+    projectHistoryStatus(historyStatus(7));
+    projectFilamentPlateInputRevisions(6, { 'plate-a': 100 });
+    expect(loaded.revisions.plates).toEqual({ 'plate-a': 7 });
+  });
   it.each(['delete', 'merge'] as const)('refreshes painted models on two plates after a %s mutation', async (kind) => {
     const transform = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number],
       scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };

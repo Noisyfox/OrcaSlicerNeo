@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, closePaintingForCommand } from './viewport/gizmo/painting/projectCommands';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { PlateSessionMutationResult, PlateSessionSnapshotResult, PrimeTowerMoveMutation } from '@slicer/client';
 import { glVolumeCollection } from './viewport/GLVolume';
@@ -78,8 +79,10 @@ export async function selectPlateSession(
   platform: PlatformCapabilities,
   plateId: string,
 ): Promise<boolean> {
+  if (!paintingCommandAllowed()) return false;
   const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
   if (current === plateId) return true;
+  if (!await closePaintingForCommand()) return false;
   const result = await platform.runtime.selectPlate(plateId);
   if (!result.ok) {
     useSlicerStore.getState().setError(result.error);
@@ -105,7 +108,9 @@ export async function selectPlateSessionAndClearSelection(
   plateId: string,
   clearSelection: () => void,
 ): Promise<boolean> {
+  if (!paintingCommandAllowed()) return false;
   if (usePlateSessionStore.getState().snapshot?.currentPlateId === plateId) {
+    if (!await closePaintingForCommand()) return false;
     clearSelection();
     return false;
   }

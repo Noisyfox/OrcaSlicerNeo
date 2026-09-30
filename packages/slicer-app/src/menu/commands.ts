@@ -1,3 +1,4 @@
+import { paintingCommandAllowed } from '../components/workspace/viewport/gizmo/painting/projectCommands';
 import type {
   MenuCommandId,
   MenuStateSnapshot,
@@ -46,7 +47,7 @@ export function createCommandDispatcher({
 
   return {
     async dispatch(command) {
-      if (!active || inFlight.has(command)) return false;
+      if (!active || inFlight.has(command) || !paintingCommandAllowed()) return false;
       if (!getSnapshot().items[command]?.enabled) return false;
 
       // A store update can happen between a menu click and this call. The

@@ -83,6 +83,8 @@ json project_history_context()
 
 void establish_clean_history_baseline()
 {
+    state().filament_slot_ids.clear();
+    state().painting.reset();
     state().history.clear();
     state().mesh_capture_cache.clear();
     state().mutable_object_capture_cache.clear();
@@ -110,6 +112,7 @@ json close_project_session()
     bridge_state.preset_draft_revision = 0;
     invalidate_preview_source();
 
+    bridge_state.painting.reset();
     bridge_state.model = Model{};
     bridge_state.pending_membership_instance_ids.clear();
     bridge_state.presets.reset_project_embedded_presets();

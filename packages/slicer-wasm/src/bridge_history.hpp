@@ -85,6 +85,8 @@ using json = nlohmann::json;
 
 std::string history_entry_id(std::uint64_t id);
 bool parse_history_entry_id(const char* value, std::uint64_t& id);
+std::string history_editing_session_id(std::uint64_t id);
+bool parse_history_editing_session_id(const std::string& value, std::uint64_t& id);
 bool parse_history_jump_direction(const char* value, History::JumpDirection& direction);
 json parse_history_context(const char* context_cstr);
 
@@ -97,6 +99,8 @@ json canonical_history_context(const BridgeState& state,
                                const json& filament_state);
 
 json history_status_json(const BridgeState& state);
+json history_status_json(const BridgeState& state, const History::TimestampedHistory& history,
+                         std::uint64_t revision);
 json restore_diagnostics_json(const BridgeState& state);
 
 // The sole mutation path for the Worker-owned history epoch. Call this after

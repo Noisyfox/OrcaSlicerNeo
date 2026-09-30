@@ -242,12 +242,12 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
 
     const evidence = () => page.evaluate(() => (window as unknown as {
       __orcaE2e?: {
-        previewEvidence?: () => {
+        previewEvidence?: () => Promise<{
           extrusionTools: number[];
           toolChanges: number[];
           palette: Array<{ tool: number; color: number[] }>;
           renderedColors: Array<[number, number, number]>;
-        } | null;
+        } | null>;
       };
     }).__orcaE2e?.previewEvidence?.() ?? null);
     await expect.poll(evidence, { timeout: 30_000 }).toEqual(expect.objectContaining({

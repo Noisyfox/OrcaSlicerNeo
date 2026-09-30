@@ -1,0 +1,365 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-29T15:21:32.150Z",
+  "hardware": {
+    "os": {
+      "platform": "win32",
+      "arch": "x64",
+      "release": "10.0.26200"
+    },
+    "cpu": "AMD Ryzen 9 5900X 12-Core Processor            ",
+    "logicalProcessors": 24,
+    "ramBytes": 68641243136,
+    "node": "v24.19.0",
+    "gitHead": "00997b9c1b743bb70a1dcc0be9b9ef0f34ce833a",
+    "pinnedOrca": "c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d",
+    "serialArtifacts": {
+      "orca_slice.js": "7e1e5f2b47c3f05ba0707dd18fc5647f29f961783c4c75022adbba5d2497cff1",
+      "orca_slice.wasm": "bffa189aea8606c9af65114119c24b31dc42a91f8b4a3406234da702ee1a1466",
+      "orca_slice.data": "31105d0d32a3f7ba60c46851c0e6ef2138892037ec620d67d0688e593cb99169"
+    },
+    "configuration": {
+      "neoPaintingProfile": true,
+      "neoProjectHistoryTest": true,
+      "wasm": "serial wasm64",
+      "e2e": true,
+      "webIsolation": false
+    },
+    "sourceChanges": {
+      "trackedDiffSha256": "03dd661ccce84ce6e8d1a15a045dd66ecde1fde1a94aa65670ffec7ad2703315",
+      "untrackedFiles": {
+        "apps/desktop/e2e/painting-benchmark-journey.ts": "65299171a7f663a856a8b6a59a3066e50663d4495e60bba39d1f5704a8341467",
+        "apps/desktop/e2e/painting-benchmark.e2e.ts": "7323d57aa1111079fac61a296d7df1792e2fbebb4918e38cadbf34276a4fc245",
+        "apps/web/e2e/painting-benchmark.e2e.ts": "390549fcdad639a1c041c797b6a4ab5d5b4c4435048cccae067696e300613bf5",
+        "apps/web/playwright.benchmark.config.ts": "d2db8e8ad42508b59dd0cfce9f0adb0e32b5062131fcbbd71db090e1f3a3870a",
+        "packages/slicer-app/src/e2e/PaintingProbe.test.ts": "ae17534aa0f593f8a3502f2a1300087c9d28dcb8c92ed5c4f8e2ef8ec9161198",
+        "packages/slicer-wasm/src/painting/PaintingProfile.hpp": "9073e511de742f2419c0f7ee18e1a81ed21073ddd1b1b8253caf899bd5a29009",
+        "scripts/archive-painting-benchmark-evidence.mjs": "1c459fcc29ccceec26d14d0ecab4ad127f902923686804dd18345733d5ff3d26",
+        "scripts/check-painting-profile-elision.mjs": "567eb96d2057c8156567aef257b97227c032c0ab9ae25c4e04ddc33e48b53435",
+        "scripts/painting-benchmark-corpus.mjs": "2297f3718726310194dc2121df4fa4233fed1f559fa1c038b9c2d150486e7995",
+        "scripts/run-painting-benchmark.mjs": "d585635492d54c716e3136de7544c032ae0e4517776decb1cbc9e3ed7ade441f",
+        "scripts/summarize-painting-benchmark.mjs": "7c96f44ed684c7d5bc7307c169cc6ce314c9d9c2e97fc7e9684b07b7cffcab83"
+      }
+    },
+    "nativeOrca": {
+      "path": "F:\\MyProject\\OrcaSlicer\\build-dbginfo\\src\\RelWithDebInfo\\orca-slicer.exe",
+      "available": true,
+      "mtime": "2026-09-27T12:15:21.703Z",
+      "sizeBytes": 339456,
+      "checkoutHead": "996c8ca2d7f3bba040e8279440cb2898b8b06e25",
+      "fileVersion": null
+    },
+    "gpuControllers": [
+      {
+        "Name": "OrayIddDriver Device",
+        "DriverVersion": "17.50.19.949",
+        "AdapterRAM": null
+      },
+      {
+        "Name": "Meta Virtual Monitor",
+        "DriverVersion": "11.1.45.729",
+        "AdapterRAM": null
+      },
+      {
+        "Name": "NVIDIA GeForce RTX 3080",
+        "DriverVersion": "32.0.16.1692",
+        "AdapterRAM": 4293918720
+      }
+    ]
+  },
+  "corpus": {
+    "schemaVersion": 1,
+    "generator": "scripts/painting-benchmark-corpus.mjs",
+    "sourceSha256": "10471af07fd7a7c4090d2c56a89874c9fa37a492df2f17f2b78d492e76b3e503",
+    "sourceAcquisition": "repository-tracked fixture packages/slicer-wasm/fixtures/painted-facet/painted-facet-instances.3mf",
+    "cases": [
+      {
+        "id": "cube-12",
+        "path": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\.work\\painting-benchmark\\corpus\\cube-12-triangles.3mf",
+        "sha256": "51e4e20d9bad70a8157de65dbd5e7c1bc765756767b4adbc679db400ddd6e6ee",
+        "bytes": 5791,
+        "originalTriangles": 12,
+        "solidParts": 1,
+        "divisions": 1,
+        "source": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\fixtures\\painted-facet\\painted-facet-instances.3mf"
+      },
+      {
+        "id": "cube-192",
+        "path": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\.work\\painting-benchmark\\corpus\\cube-192-triangles.3mf",
+        "sha256": "02dfaf18ab1f6e40f2f25b1d81d0b70946b86c3acd99d24646c2d079e4521aff",
+        "bytes": 17466,
+        "originalTriangles": 192,
+        "solidParts": 1,
+        "divisions": 4,
+        "source": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\fixtures\\painted-facet\\painted-facet-instances.3mf"
+      },
+      {
+        "id": "cube-768",
+        "path": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\.work\\painting-benchmark\\corpus\\cube-768-triangles.3mf",
+        "sha256": "1d013dd480ddc3152d0a8404c4092e3cfb1b777797d2f4b6cd7c568dd42de11e",
+        "bytes": 57362,
+        "originalTriangles": 768,
+        "solidParts": 1,
+        "divisions": 8,
+        "source": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\fixtures\\painted-facet\\painted-facet-instances.3mf"
+      },
+      {
+        "id": "cube-3072-4parts",
+        "path": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\.work\\painting-benchmark\\corpus\\cube-3072-triangles-4-parts.3mf",
+        "sha256": "1d8075408a1533567e1551e03759a26dd7cc7ceadd8313d771eaee1a15b04580",
+        "bytes": 216020,
+        "originalTriangles": 3072,
+        "solidParts": 4,
+        "divisions": 8,
+        "coincidentParts": true,
+        "source": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\fixtures\\painted-facet\\painted-facet-instances.3mf"
+      },
+      {
+        "id": "cube-3072",
+        "path": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\.work\\painting-benchmark\\corpus\\cube-3072-triangles.3mf",
+        "sha256": "7cc64f2d9aaf700ca6639d6435e19143d2b11cf79f4a7dfe603f1d30f19de0ab",
+        "bytes": 222487,
+        "originalTriangles": 3072,
+        "solidParts": 1,
+        "divisions": 16,
+        "source": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\fixtures\\painted-facet\\painted-facet-instances.3mf"
+      },
+      {
+        "id": "cube-12288",
+        "path": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\.work\\painting-benchmark\\corpus\\cube-12288-triangles.3mf",
+        "sha256": "073584118ba81169c33e9abcd9264decd596b7295f41c96db20df06900be053d",
+        "bytes": 906865,
+        "originalTriangles": 12288,
+        "solidParts": 1,
+        "divisions": 32,
+        "source": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\fixtures\\painted-facet\\painted-facet-instances.3mf"
+      },
+      {
+        "id": "big-project-fixed",
+        "path": "F:\\MyProject\\OrcaSlicerNeo\\packages\\slicer-wasm\\fixtures\\big-proj.3mf",
+        "sha256": "de8afeac2e7b53a63fe5925d8b05ddfe0c0b7f0a7b3f88fbc2a5fc29c0524ce0",
+        "bytes": 44473498,
+        "kind": "fixed-project",
+        "acquisition": "repository-tracked fixture packages/slicer-wasm/fixtures/big-proj.3mf; no external download"
+      }
+    ]
+  },
+  "samples": [
+    {
+      "host": "electron",
+      "caseId": "cube-12",
+      "trial": 1,
+      "file": "raw/electron-cube-12-1.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-12",
+      "trial": 2,
+      "file": "raw/electron-cube-12-2.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-12",
+      "trial": 3,
+      "file": "raw/electron-cube-12-3.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-192",
+      "trial": 1,
+      "file": "raw/electron-cube-192-1.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-192",
+      "trial": 2,
+      "file": "raw/electron-cube-192-2.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-192",
+      "trial": 3,
+      "file": "raw/electron-cube-192-3.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-3072",
+      "trial": 1,
+      "file": "raw/electron-cube-3072-1.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-3072",
+      "trial": 2,
+      "file": "raw/electron-cube-3072-2.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-3072",
+      "trial": 3,
+      "file": "raw/electron-cube-3072-3.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-3072-4parts",
+      "trial": 1,
+      "file": "raw/electron-cube-3072-4parts-1.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-3072-4parts",
+      "trial": 2,
+      "file": "raw/electron-cube-3072-4parts-2.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-3072-4parts",
+      "trial": 3,
+      "file": "raw/electron-cube-3072-4parts-3.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-12288",
+      "trial": 1,
+      "file": "raw/electron-cube-12288-1.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-12288",
+      "trial": 2,
+      "file": "raw/electron-cube-12288-2.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "cube-12288",
+      "trial": 3,
+      "file": "raw/electron-cube-12288-3.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "big-project-fixed",
+      "trial": 1,
+      "file": "raw/electron-big-project-fixed-1.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "big-project-fixed",
+      "trial": 2,
+      "file": "raw/electron-big-project-fixed-2.json.gz"
+    },
+    {
+      "host": "electron",
+      "caseId": "big-project-fixed",
+      "trial": 3,
+      "file": "raw/electron-big-project-fixed-3.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-12",
+      "trial": 1,
+      "file": "raw/web-cube-12-1.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-12",
+      "trial": 2,
+      "file": "raw/web-cube-12-2.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-12",
+      "trial": 3,
+      "file": "raw/web-cube-12-3.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-192",
+      "trial": 1,
+      "file": "raw/web-cube-192-1.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-192",
+      "trial": 2,
+      "file": "raw/web-cube-192-2.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-192",
+      "trial": 3,
+      "file": "raw/web-cube-192-3.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-3072",
+      "trial": 1,
+      "file": "raw/web-cube-3072-1.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-3072",
+      "trial": 2,
+      "file": "raw/web-cube-3072-2.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-3072",
+      "trial": 3,
+      "file": "raw/web-cube-3072-3.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-3072-4parts",
+      "trial": 1,
+      "file": "raw/web-cube-3072-4parts-1.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-3072-4parts",
+      "trial": 2,
+      "file": "raw/web-cube-3072-4parts-2.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-3072-4parts",
+      "trial": 3,
+      "file": "raw/web-cube-3072-4parts-3.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-12288",
+      "trial": 1,
+      "file": "raw/web-cube-12288-1.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-12288",
+      "trial": 2,
+      "file": "raw/web-cube-12288-2.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "cube-12288",
+      "trial": 3,
+      "file": "raw/web-cube-12288-3.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "big-project-fixed",
+      "trial": 1,
+      "file": "raw/web-big-project-fixed-1.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "big-project-fixed",
+      "trial": 2,
+      "file": "raw/web-big-project-fixed-2.json.gz"
+    },
+    {
+      "host": "web",
+      "caseId": "big-project-fixed",
+      "trial": 3,
+      "file": "raw/web-big-project-fixed-3.json.gz"
+    }
+  ]
+}

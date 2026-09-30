@@ -92,10 +92,18 @@ remains.
 
 The following are explicitly outside history:
 
-- printer, process, and filament preset selection;
+- preset selection except project-owned rack/transition operations and the
+  effective Process-selection command defined below;
 - global/system preferences and their persisted storage;
 - opening or closing a gizmo as an isolated UI action;
 - derived slicing and preview output.
+
+The later [Surface Painting Architecture](Surface%20Painting%20Architecture.md#7-external-operations-and-session-closure)
+requires effective Process selection to be a chronological project edit. Its
+native selection/configuration participates in the existing transaction and
+forms a non-paint separator between painting runs, whether the painter is open
+or closed. This supersedes the original Process-selection exclusion; it does
+not add preference-storage snapshots.
 
 Undo/Redo therefore does not restore historical global-preference snapshots.
 When a restored project requires a compatible printing technology, normal
@@ -266,13 +274,22 @@ At the shared application boundary, `packages/slicer-app` has one history
 coordinator for this stream, backed by a shared FIFO revision-operation gate.
 It serializes project transactions, navigation requests, and filament
 mutations before entering the Worker, owns an idempotent project-mutation
-lease, projects the returned `HistoryStatus` before publication, refreshes the
-complete filament-session snapshot after every native revision change through
-a non-reentrant lease read, and releases the lease only after the supplied
-renderer/model publication barrier settles. A filament command that arrives
-while a project operation is pending waits in the same FIFO and therefore uses
-the refreshed session revision; it is not rejected merely because the project
-is busy. Public history-status reads also enter the FIFO, so an older blocked
+lease, projects the returned `HistoryStatus` through `projectHistoryStatus`,
+and releases the lease only after the supplied renderer/model publication
+barrier settles. The shared history-status store is the registry for accepted
+native revisions; each dependent projection subscribes once rather than
+requiring every revision-producing operation to update it separately. The
+filament store synchronously advances its retained session/project command
+tokens from this registry, without replacing rack content, notifying rack
+subscribers, or reading another Worker snapshot. Older receipts cannot regress
+these tokens. Operations that can change rack content still publish a complete
+filament-session snapshot under the same non-reentrant lease; plate input
+revisions require their own matching operation receipt. A history revision
+alone does not establish that either projection's content is current.
+A filament command that arrives while a project operation is pending waits in
+the same FIFO and therefore uses the current session revision after publication;
+it is not rejected merely because the project is busy. Public history-status
+reads also enter the FIFO, so an older blocked
 read cannot overwrite a newer mutation's authoritative projection. Transform
 gestures, scene additions/clears, configuration edits,
 boot resets, and undo/redo/jumps must use this coordinator; no feature may
@@ -404,7 +421,8 @@ entry.
   dirty.
 - Selection and plate-only UI changes preserve the existing dirty state because
   they do not touch history.
-- Preset selection and system preferences remain outside this calculation.
+- System preferences and preset selections outside the project-history scope
+  above remain outside this calculation.
 - If eviction removes the saved checkpoint, Neo conservatively reports dirty.
 - All project mutations must enter through the history transaction boundary;
   the previous accumulated dirty-reasons boolean cannot compete with the
@@ -502,8 +520,8 @@ scope.
   config is its own exact history root. The Worker-to-React scoped snapshot is a
   projection, not a serialized root, so no scope is serialized twice. The Project
   root is intentionally history-tracked even though Orca keeps its
-  `PresetBundle` project configuration outside `UndoRedo`; preset selection
-  remains outside. Restoring that root is exact replacement, so a key absent
+  `PresetBundle` project configuration outside `UndoRedo`; effective Process
+  selection follows the accepted boundary in section 4. Restoring that root is exact replacement, so a key absent
   from the historical map is erased rather than merged from live state. Filament
   and rack history state does not duplicate Project configuration.
 - An outer transaction captures its predecessor before the first model write.

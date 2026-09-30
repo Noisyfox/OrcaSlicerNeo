@@ -10,7 +10,8 @@ import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMuta
 import { acquireProjectMutationLease } from '../../../history/projectMutationGate';
 
 const status: HistoryStatus = {
-  canUndo: true, canRedo: false, undoLabel: 'Delete', undoEntries: [], redoEntries: [],
+  editingSession: null, navigationFloor: null,
+  canUndo: true, canRedo: false, undoLabel: 'Delete', undoEntries: [{ id: 'entry-1', label: 'Delete', category: 'project' as const }], redoEntries: [],
   cursor: 1, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
   bytesUsed: 1, byteBudget: 10, evictedEntryCount: 0,
   lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,

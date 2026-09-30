@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, closePaintingForCommand } from '../viewport/gizmo/painting/projectCommands';
 // Shared Add Model / Add Primitive / Add Handy models / Clear Scene actions.
 // They moved out of the app toolbar row (Add Model → gizmo toolbar; Add
 // Primitive, Add Handy models, and Clear Scene → scene context menu), but
@@ -90,6 +91,7 @@ export async function addModel(
   sceneInteraction: SceneInteractionController | null,
   onModelAdded?: () => void,
 ): Promise<boolean> {
+  if (!paintingCommandAllowed()) return false;
   useProjectStore.getState().setOperation({
     phase: 'model-import', progress: 0, message: 'Preparing model import…', cancellable: false,
   });
@@ -147,6 +149,7 @@ export async function addDroppedModels(
   expectedCount?: number,
   onModelAdded?: () => void,
 ): Promise<boolean> {
+  if (!paintingCommandAllowed()) return false;
   const initialCount = expectedCount ?? (Array.isArray(files) ? files.length : 0);
   useProjectStore.getState().setOperation({
     phase: 'model-import',
@@ -231,6 +234,7 @@ export async function addHandyModel(
   model: HandyModel,
   onModelAdded?: () => void,
 ): Promise<boolean> {
+  if (!paintingCommandAllowed()) return false;
   try {
     const files = await Promise.all(model.files.map(async (displayName) => ({
       displayName,
@@ -275,6 +279,7 @@ export async function addPrimitive(
   type: PrimitiveType,
   onModelAdded?: () => void,
 ): Promise<boolean> {
+  if (!paintingCommandAllowed()) return false;
   try {
     await commitAdded(platform, sceneInteraction, type, () => platform.runtime.addShape(type));
     onModelAdded?.();
@@ -294,6 +299,7 @@ export async function clearScene(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
 ): Promise<void> {
+  if (!paintingCommandAllowed() || !await closePaintingForCommand()) return;
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
   if (slicer.status === 'slicing' || !settings.modelLoaded) return;

@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -13,6 +14,18 @@
 namespace Slic3r::Neo::History {
 
 using LogicalTimestamp = std::uint64_t;
+using EditingSessionId = std::uint64_t;
+
+enum class TimestampedOperationKind : std::uint8_t {
+    NonPaint = 0,
+    Paint = 1,
+};
+
+struct TimestampedEditingSessionInfo {
+    EditingSessionId id { 0 };
+    LogicalTimestamp entry_timestamp { 0 };
+    bool has_effective_commit { false };
+};
 
 struct SessionHistoryRoot {
     Bytes plate_session;
@@ -52,6 +65,9 @@ struct TimestampedEntryInfo {
     LogicalTimestamp before_timestamp { 0 };
     LogicalTimestamp after_timestamp { 0 };
     SceneDelta scene_delta;
+    TimestampedOperationKind operation_kind { TimestampedOperationKind::NonPaint };
+    // Zero marks entries created outside an editing session.
+    EditingSessionId editing_session_id { 0 };
 };
 
 struct TimestampedRestore {
@@ -78,6 +94,11 @@ struct TimestampedResourceDiagnostics {
 
 class TimestampedHistory {
 public:
+    // Publication hooks inspect a fully staged, read-only candidate before it
+    // replaces the live history. If the callback throws, live history is
+    // preserved; callbacks must not re-enter or mutate the source history.
+    using BeforeEditingSessionPublish = std::function<void(const TimestampedHistory&)>;
+
     static constexpr std::size_t kDefaultByteBudget = std::size_t(256) * 1024 * 1024;
     static constexpr LogicalTimestamp kOpenEnded = std::numeric_limits<LogicalTimestamp>::max();
 
@@ -90,12 +111,35 @@ public:
 
     void clear();
 
+    // Opening an editing session sets the navigation floor to the current
+    // timestamp without capturing a snapshot, changing the saved marker, or
+    // opening an operation. Returns no value when a session, operation, or
+    // conflicting manual floor is already active.
+    std::optional<TimestampedEditingSessionInfo> begin_editing_session(
+        BeforeEditingSessionPublish before_publish = {});
+    std::optional<TimestampedEditingSessionInfo> editing_session_status() const;
+
+    // Merge adjacent retained Paint entries belonging to the active session,
+    // without crossing the current cursor. A valid session with no multi-entry
+    // paint run succeeds without changing history.
+    bool compact_editing_session(EditingSessionId session_id, std::string label = "Paint");
+    // Atomically compact applied session paint runs and close the session. Any
+    // effective session commit discards the complete Redo branch.
+    bool close_editing_session(EditingSessionId session_id, std::string label = "Paint",
+                               BeforeEditingSessionPublish before_publish = {});
+
     // The outer operation captures its predecessor before the first write.
     // Nested calls join that operation. Only the outer commit creates one
     // named before/after timestamp pair; its resulting topmost state remains
-    // uncaptured until a later operation or the first Undo needs it.
-    bool begin_operation(std::string label, const TimestampedRoots& predecessor);
-    bool commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta = nullptr);
+    // uncaptured until a later operation or the first Undo needs it. Nested
+    // calls retain the outer operation's kind and editing-session identity.
+    // Existing callers default to non-paint operations.
+    bool begin_operation(std::string label, const TimestampedRoots& predecessor,
+                         TimestampedOperationKind kind = TimestampedOperationKind::NonPaint);
+    // Every successful outer commit creates an entry. Callers that determine
+    // an operation had no effect must use abort_operation instead.
+    bool commit_operation(const TimestampedRoots& successor, SceneDelta* committed_delta = nullptr,
+                          BeforeEditingSessionPublish before_publish = {});
     bool abort_operation(TimestampedRestore* predecessor = nullptr);
     bool operation_active() const;
 
@@ -110,6 +154,11 @@ public:
     bool can_undo() const;
     bool can_redo() const;
     LogicalTimestamp current_timestamp() const;
+    // Restrict navigation to this timestamp and later; nullopt clears the floor.
+    // Changes fail during an active operation or editing session, or when the
+    // timestamp is unavailable.
+    bool set_navigation_floor(std::optional<LogicalTimestamp> timestamp);
+    std::optional<LogicalTimestamp> navigation_floor() const;
     const std::vector<TimestampedEntryInfo>& entries() const;
 
     void mark_current_as_saved();
@@ -129,6 +178,10 @@ public:
 
 private:
     struct Impl;
+    explicit TimestampedHistory(std::unique_ptr<Impl> impl) noexcept;
+    static bool compact_editing_session_staged(Impl& staged, EditingSessionId session_id,
+                                               const std::string& label, bool apply, bool enforce_budget,
+                                               bool& compacted);
     std::unique_ptr<Impl> m_impl;
 };
 

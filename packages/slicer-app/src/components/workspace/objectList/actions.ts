@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { VolumeType } from '@slicer/client';
 import type { PlateSessionMutation } from '@slicer/client';
@@ -46,11 +47,14 @@ export interface MutationOutcome {
 }
 
 /**
- * Structural and metadata mutations use positional model indices. Drain the
- * transform queue before changing those indices so an older snapshot cannot
- * arrive after the mutation and overwrite the wrong object or part.
+ * Prepare an object-list mutation by checking painting admission synchronously.
+ * Reject commands while painting is busy without queuing them, then await
+ * pending transform synchronization. Structural and metadata mutations use
+ * positional model indices, so an older transform snapshot must not arrive
+ * after a mutation and overwrite the wrong object or part.
  */
-export async function waitForPendingModelTransforms(): Promise<MutationOutcome> {
+export async function prepareObjectListMutation(): Promise<MutationOutcome> {
+  if (!paintingCommandAllowed()) return { ok: false };
   try {
     const settled = await waitForSettledModelTransforms();
     if (!settled.ok) {
@@ -106,8 +110,8 @@ export async function refreshAfterModelMutation(
 }
 
 export async function renameObjectInList(runtime: SlicerRuntime, objectId: number, name: string): Promise<MutationOutcome> {
-  const settled = await waitForPendingModelTransforms();
-  if (!settled.ok) return settled;
+  const prepared = await prepareObjectListMutation();
+  if (!prepared.ok) return prepared;
   // Orca: renaming a single-volume object renames its only part too, keeping
   // the part name in sync with the object name.
   const obj = useObjectListStore.getState().structure.find((o) => o.id === objectId);
@@ -125,16 +129,17 @@ export async function renameObjectInList(runtime: SlicerRuntime, objectId: numbe
 }
 
 export async function renamePartInList(runtime: SlicerRuntime, volumeId: number, name: string): Promise<MutationOutcome> {
-  const settled = await waitForPendingModelTransforms();
-  if (!settled.ok) return settled;
+  const prepared = await prepareObjectListMutation();
+  if (!prepared.ok) return prepared;
   const r = await runListHistory(runtime, 'Rename Part', () => runtime.renameVolume(volumeId, name));
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true };
 }
 
 export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: number, type: VolumeType): Promise<MutationOutcome> {
-  const settled = await waitForPendingModelTransforms();
-  if (!settled.ok) return settled;
+  if (!await beforePaintingTopologyChange({ parts: [volumeId] })) return { ok: false };
+  const prepared = await prepareObjectListMutation();
+  if (!prepared.ok) return prepared;
   const r = await runListHistory(runtime, 'Change Part Type', () => runtime.setVolumeType(volumeId, type));
   if (!r.ok) return { ok: false, error: r.error };
   // Changing a part's type alters which volumes compose the print mesh.
@@ -146,8 +151,8 @@ export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: num
  *  single-id, so the loop runs the sequential bridge calls and the structure
  *  refresh happens once after all of them. */
 export async function setObjectPrintableInList(runtime: SlicerRuntime, objectIds: number[], printable: boolean): Promise<MutationOutcome> {
-  const settled = await waitForPendingModelTransforms();
-  if (!settled.ok) return settled;
+  const prepared = await prepareObjectListMutation();
+  if (!prepared.ok) return prepared;
   const receipts: PlateSessionMutation[] = [];
   const r = await runListHistory(runtime, 'Change Printable', async () => {
     for (const objectId of objectIds) {
@@ -162,8 +167,8 @@ export async function setObjectPrintableInList(runtime: SlicerRuntime, objectIds
 }
 
 export async function setInstancePrintableInList(runtime: SlicerRuntime, instanceIds: number[], printable: boolean): Promise<MutationOutcome> {
-  const settled = await waitForPendingModelTransforms();
-  if (!settled.ok) return settled;
+  const prepared = await prepareObjectListMutation();
+  if (!prepared.ok) return prepared;
   const receipts: PlateSessionMutation[] = [];
   const r = await runListHistory(runtime, 'Change Printable', async () => {
     for (const instanceId of instanceIds) {

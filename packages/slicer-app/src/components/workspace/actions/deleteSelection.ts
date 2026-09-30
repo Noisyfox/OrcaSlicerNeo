@@ -1,3 +1,4 @@
+import { paintingCommandAllowed, beforePaintingTopologyChange } from '../viewport/gizmo/painting/projectCommands';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
 import type { PlateSessionMutation } from '@slicer/client';
@@ -46,7 +47,9 @@ export async function deleteSelection(
   runtime: SlicerRuntime,
   sceneInteraction: SceneInteractionController,
 ): Promise<DeleteSelectionResult> {
+  if (!paintingCommandAllowed()) return { ok: false };
   const selected = sceneInteraction.selectedVolumes();
+  if (!await beforePaintingTopologyChange({ objects: selected.map((volume) => volume.buffer.objectId) })) return { ok: false };
   const objectIndices = sceneInteraction.selectedObjectIndices();
   if (selected.length === 0 || objectIndices.length === 0) return { ok: true };
   try {
