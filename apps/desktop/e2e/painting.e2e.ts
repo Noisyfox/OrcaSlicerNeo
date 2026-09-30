@@ -10,7 +10,7 @@ test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
-  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
+  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
@@ -119,6 +119,50 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect.poll(async () => (await read())!.rendered.candidates.length).toBe(0);
     await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y);
     await expect.poll(async () => (await read())!.rendered.candidates.length).toBe(1);
+    // Region hover traverses distinct visible planes, not two triangles on
+    // the same cap. Native angle-30 fill must change actual membership.
+    await page.getByTestId('painting-tool-region').click();
+    const regionPoints = await page.evaluate(() => {
+      const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e;
+      return [[105, 95, 20], [103, 90, 11]].map((world) => hooks.paintingWorldToScreen(world));
+    });
+    const regionHistory = await history();
+    await page.mouse.move(regionPoints[0].x, regionPoints[0].y);
+    await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'region')?.matchesDraftLeaf).toBe(true);
+    await settleFrames();
+    const regions = [(await read())!.resources.find((r) => r.kind === 'region')!];
+    await startFrames(); await settleFrames();
+    for (const point of [regionPoints[1], regionPoints[0], regionPoints[1], regionPoints[0]]) {
+      const before = (await read())!.resources.find((r) => r.kind === 'region')!.vertices;
+      await page.mouse.move(point.x, point.y);
+      await expect.poll(async () => (await read())!.resources.find((r) => r.kind === 'region')?.vertices).not.toEqual(before);
+      const region = (await read())!.resources.find((r) => r.kind === 'region')!;
+      expect(region.matchesDraftLeaf).toBe(true); regions.push(region); await settleFrames();
+    }
+    const regionHoverFrames = await stopFrames(); await completeFrames('painting-region-native-hover', regionHoverFrames);
+    expect(new Set(regions.map((r) => JSON.stringify(r.vertices))).size).toBe(2);
+    expect(new Set(regionHoverFrames.flatMap((f) => f.painting)).size, 'Region hover preserves draft geometry').toBe(1);
+    for (const frame of regionHoverFrames) {
+      const fill = frame.draws.filter((d) => d.kind === 'painting-candidate');
+      const contour = frame.draws.filter((d) => d.kind === 'painting-contour');
+      expect(fill, 'every continuous Region hover frame draws one native fill').toHaveLength(1);
+      expect(contour, 'every continuous Region hover frame draws one native contour').toHaveLength(1);
+      expect(regions.some((r) => JSON.stringify(r.vertices!.filter((_, i) => i % 6 < 3)) === JSON.stringify(fill[0].candidate!.positions)
+        && JSON.stringify(r.contour) === JSON.stringify(contour[0].contour!.positions)), 'fill and contour belong to one complete native region').toBe(true);
+      expect(contour[0].contour).toMatchObject({ color: 'ffffff', depthTest: false });
+    }
+    expect(new Set(regionHoverFrames.flatMap((f) => f.draws.filter((d) => d.kind === 'painting-candidate').map((d) => JSON.stringify(d.candidate!.positions)))).size, 'actual renderer draws both native regions').toBe(2);
+    expect(await history()).toEqual(regionHistory);
+    await page.screenshot({ path: test.info().outputPath('painting-region-native-hover.png') });
+    // An in-canvas native miss clears only after its new empty receipt.
+    await startFrames(); await page.mouse.move(bounds!.x + 10, bounds!.y + 10);
+    await expect.poll(async () => (await read())!.rendered.candidates.length).toBe(0);
+    await settleFrames(); const regionMissFrames = await stopFrames(); await completeFrames('painting-region-native-miss', regionMissFrames);
+    expect(regionMissFrames.at(-1)!.draws.filter((d) => d.kind === 'painting-candidate' || d.kind === 'painting-contour')).toEqual([]);
+    expect(await history()).toEqual(regionHistory);
+    await page.getByTestId('painting-tool-triangle').click();
+    await page.mouse.move(topFaces[0].x, topFaces[0].y);
+    await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
     const inputBefore = (await read())!.input;
     await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y); await page.mouse.down();
     await expect.poll(async () => (await read())?.phase).toBe('drawing');

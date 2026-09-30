@@ -390,10 +390,13 @@ part or changing tool clears or replaces its selection. Frontend BVH face
 indices do not determine the highlighted triangle. Reject outdated preview
 publication just as for region fill.
 
-While an admitted Triangle hover or painting sample is being calculated,
-retain the previous complete display and selected contour. Replace it only
-when the current native selection and its geometry are available together;
-do not clear the contour merely because a new move or press was admitted.
+Triangle and Region fill retain the previous complete display and selection
+while a new native preview is being calculated, including settings changes.
+Replace it only when the current native result and its candidate geometry are
+available together; do not clear the selection merely because a new move or
+press was admitted. A completed paint display without a candidate can replace
+the prior preview. Triangle also retains its selected contour during admitted
+painting samples until the new native selection and draft geometry arrive.
 A completed native miss clears the selection. Leaving the canvas, changing
 tool/target, cancellation or errors clear it immediately and prevent an
 outstanding response from restoring it. Stale responses neither replace nor

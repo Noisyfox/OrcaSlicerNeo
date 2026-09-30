@@ -9,7 +9,7 @@ import { Selection } from '../../Selection';
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const event = (x: number): PaintingPointerEvent => ({ pointer: [x, 2], viewport: [0, 0, 100, 100], projection: identity, view: identity });
 const status = { revision: 1 } as HistoryStatus;
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; }
+function deferred<T>() { let resolve!: (value: T) => void, reject!: (reason: unknown) => void; const promise = new Promise<T>((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; }
 const tick = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 function fixture() {
   let session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, parts: [], phase: 'idle', strokeId: null, annotation: 'mmu' };
@@ -202,21 +202,21 @@ function visualFixture() {
     publish: () => { const display = f.controller.getSnapshot().display!; cache.update(display, display.session); return display; } };
 }
 
-describe('triangle native hover admission and selection receipts', () => {
-  async function triangle() {
+describe.each(['triangle', 'region'] as const)('%s native hover admission and selection receipts', (tool) => {
+  async function pointerPreview() {
     const f = visualFixture(), c = f.controller;
-    await c.open(1, 2); await f.frame(); c.setTool('triangle'); await f.frame();
+    await c.open(1, 2); await f.frame(); c.setTool(tool); await f.frame();
     vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => {
       const snapshot = c.getSnapshot(), result = f.geometry();
       const resourceId = `pc-1-${snapshot.session!.revision}-3`;
       return { ...result, revision: snapshot.session!.revision,
-        candidates: [{ volumeId: 3, resourceId, kind: 'triangle' }],
-        resources: [...result.resources, { resourceId, volumeId: 3, kind: 'triangle', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array(18) }] };
+        candidates: [{ volumeId: 3, resourceId, kind: tool }],
+        resources: [...result.resources, { resourceId, volumeId: 3, kind: tool, vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array(18) }] };
     });
     return f;
   }
   it('retains one matched bundle through admitted hover and both native reads, then atomically replaces or clears it', async () => {
-    const f = await triangle(), c = f.controller;
+    const f = await pointerPreview(), c = f.controller;
     c.hoverAt(event(1)); await f.frame(); const before = f.publish();
     const selected = f.cache.resources.get(before.candidates[0].resourceId)!;
     const disposed = vi.spyOn(selected.contour, 'dispose');
@@ -230,12 +230,15 @@ describe('triangle native hover admission and selection receipts', () => {
     preview.resolve(f.receipt('idle')); await tick();
     expect(c.getSnapshot().display).toBe(before); expect(disposed).not.toHaveBeenCalled();
     expect(displays.every((display) => display === before)).toBe(true);
+    f.setPalette('#445566');
+    expect(before.palette?.slots[0].colour.effective).toBe('#112233');
     const next = { ...f.geometry('b'), revision: c.getSnapshot().session!.revision,
-      candidates: [{ volumeId: 3, resourceId: 'next', kind: 'triangle' as const }],
+      candidates: [{ volumeId: 3, resourceId: 'next', kind: tool }],
       resources: [...f.geometry('b').resources, { ...selected.source, resourceId: 'next', contour: new Float32Array(18).fill(2) }] };
     geometry.resolve(next); await tick();
     expect(c.getSnapshot().display?.candidates).toEqual(next.candidates);
     expect(c.getSnapshot().display?.parts).toEqual(next.parts);
+    expect(c.getSnapshot().display?.palette?.slots[0].colour.effective).toBe('#445566');
     expect(disposed).toHaveBeenCalledTimes(1); expect(f.cache.resources.size).toBe(2);
     expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(2) }));
     const matched = c.getSnapshot().display;
@@ -249,8 +252,9 @@ describe('triangle native hover admission and selection receipts', () => {
     expect(c.getSnapshot().display?.candidates).toEqual([]); expect(f.cache.resources.size).toBe(1);
     unsubscribe(); f.cache.dispose();
   });
+  if (tool === 'triangle') {
   it('retains the matched triangle during press, admitted held movement and a newer terminal over obsolete geometry', async () => {
-    const f = await triangle(), c = f.controller;
+    const f = await pointerPreview(), c = f.controller;
     c.hoverAt(event(1)); await f.frame(); const before = c.getSnapshot().display;
     const pressResult = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.beginPaintingStroke).mockReturnValueOnce(pressResult.promise);
     const press = c.press(event(2)); expect(c.getSnapshot().display).toBe(before);
@@ -271,8 +275,36 @@ describe('triangle native hover admission and selection receipts', () => {
     expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(5) }));
     expect(c.getSnapshot().display?.parts[0].resourceId).toBe('a');
   });
+  }
+  if (tool === 'region') {
+  it('hands the retained Region hover to completed painted geometry without inventing a held candidate', async () => {
+    const f = await pointerPreview(), c = f.controller;
+    c.hoverAt(event(1)); await f.frame(); const before = c.getSnapshot().display;
+    const pressResult = deferred<PaintingDraftResult>(), painted = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.beginPaintingStroke).mockReturnValueOnce(pressResult.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(painted.promise);
+    const press = c.press(event(2), true); expect(c.getSnapshot().display).toBe(before);
+    pressResult.resolve(f.receipt()); await press; f.frames.shift()?.(); await tick();
+    expect(c.getSnapshot().display).toBe(before);
+    painted.resolve({ ...f.geometry('painted'), revision: c.getSnapshot().session!.revision }); await tick();
+    expect(c.getSnapshot().display?.parts[0].resourceId).toBe('painted');
+    expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(f.ports.api.beginPaintingStroke).toHaveBeenCalledWith(expect.objectContaining({ tool: 'region', settings: expect.objectContaining({ erase: true }) }));
+    const sample = deferred<PaintingDraftResult>(), geometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.samplePaintingStroke).mockReturnValueOnce(sample.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    const held = c.getSnapshot().display;
+    expect(c.move(event(3))).toBe(true); expect(c.move(event(4))).toBe(false);
+    sample.resolve(f.receipt()); await tick(); f.frames.shift()?.(); await tick();
+    c.release(event(5)); geometry.resolve({ ...f.geometry('obsolete'), revision: c.getSnapshot().session!.revision }); await tick();
+    expect(c.getSnapshot().display).toBe(held);
+    await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ tool: 'region', event: event(5) }));
+    expect(f.ports.api.commitPaintingStroke).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: event(5) }));
+  });
+  }
   it('keeps a valid contour when settings invalidate an outstanding geometry read without publishing obsolete resources', async () => {
-    const f = await triangle(), c = f.controller;
+    const f = await pointerPreview(), c = f.controller;
     c.hoverAt(event(1)); await f.frame(); const before = c.getSnapshot().display;
     const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
     c.hoverAt(event(2)); f.frames.shift()?.(); await tick(); c.setSettings({ state: 2 });
@@ -283,8 +315,8 @@ describe('triangle native hover admission and selection receipts', () => {
     expect(f.ports.api.getPaintingGeometry).toHaveBeenLastCalledWith(expect.objectContaining({ knownResourceIds: before!.resources.map((r) => r.resourceId) }));
   });
   it('clears cancellation immediately and cannot revive a selected leaf from the pending held geometry', async () => {
-    const f = await triangle(), c = f.controller;
-    await c.press(event(1)); await f.frame(); const selected = c.getSnapshot().display!;
+    const f = await pointerPreview(), c = f.controller;
+    c.hoverAt(event(1)); await f.frame(); await c.press(event(1)); await f.frame(); const selected = c.getSnapshot().display!;
     const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
     expect(c.move(event(2))).toBe(true); await tick(); f.frames.shift()?.(); await tick();
     c.cancel(); expect(c.getSnapshot().display?.candidates).toEqual([]);
@@ -292,10 +324,10 @@ describe('triangle native hover admission and selection receipts', () => {
     expect(c.getSnapshot().display?.candidates).toEqual([]);
     expect(f.ports.api.cancelPaintingStroke).toHaveBeenCalledTimes(1);
     await f.frame(); expect(c.getSnapshot().display?.candidates).toEqual([]);
-    expect(f.ports.api.previewPainting).not.toHaveBeenCalled();
+    expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(1);
   });
   it.each(['leave', 'tool', 'target', 'error'] as const)('immediately invalidates a displayed contour on %s and prevents an outstanding read restoring it', async (mode) => {
-    const f = await triangle(), c = f.controller;
+    const f = await pointerPreview(), c = f.controller;
     c.hoverAt(event(1)); await f.frame(); const before = c.getSnapshot().display!;
     const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
     c.hoverAt(event(2)); f.frames.shift()?.(); await tick();
@@ -311,21 +343,34 @@ describe('triangle native hover admission and selection receipts', () => {
     await f.frame(); expect(c.getSnapshot().display?.candidates).toEqual([]);
     expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(2);
   });
+  it('clears the candidate on native preview failure without clearing the displayed model or retrying dropped input', async () => {
+    const f = await pointerPreview(), c = f.controller;
+    c.hoverAt(event(1)); await f.frame(); const before = f.publish();
+    const pending = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(pending.promise);
+    c.hoverAt(event(2)); f.frames.shift()?.(); await tick(); c.hoverAt(event(3));
+    pending.reject(new Error('preview unavailable')); await tick();
+    expect(c.getSnapshot().display?.parts).toBe(before.parts);
+    expect(c.getSnapshot().display?.candidates).toEqual([]); expect(c.getSnapshot().error).toBe('preview unavailable');
+    await f.frame(); expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(2);
+    c.hoverAt(event(4)); await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(4) }));
+    f.cache.dispose();
+  });
   it('admits the first hover, drops all intermediate scheduled/busy moves, and accepts only a fresh later event', async () => {
-    const f = await triangle(), c = f.controller;
+    const f = await pointerPreview(), c = f.controller;
     c.hoverAt(event(1)); c.hoverAt(event(2)); c.hoverAt(event(3));
     const pending = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(pending.promise);
     f.frames.shift()?.(); c.hoverAt(event(4)); c.hoverAt(event(5));
     pending.resolve(f.receipt('idle')); await tick(); await f.frame();
-    expect(f.ports.api.previewPainting).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ tool: 'triangle', event: event(1) }));
+    expect(f.ports.api.previewPainting).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ tool, event: event(1) }));
     expect(c.getSnapshot().display?.candidates).toHaveLength(1);
     c.hoverAt(event(6)); await f.frame();
     expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(6) }));
     expect(f.ports.history).toHaveBeenCalledTimes(1);
     expect(f.ports.committed).not.toHaveBeenCalled();
   });
-  it.each(['leave', 'tool', 'settings'] as const)('rejects a pending triangle receipt after %s without replaying a dropped move', async (mode) => {
-    const f = await triangle(), c = f.controller;
+  it.each(['leave', 'tool', 'settings'] as const)('rejects a pending pointer-preview receipt after %s without replaying a dropped move', async (mode) => {
+    const f = await pointerPreview(), c = f.controller;
     c.hoverAt(event(1));
     const pending = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(pending.promise); f.frames.shift()?.();
     c.hoverAt(event(2));
@@ -342,8 +387,9 @@ describe('triangle native hover admission and selection receipts', () => {
       expect(c.getSnapshot().display?.candidates).toHaveLength(1);
     } else expect(c.getSnapshot().display?.candidates).toEqual([]);
   });
+  if (tool === 'triangle') {
   it('uses the press/sample native selection while drawing, clears held leave, and retains a busy terminal endpoint', async () => {
-    const f = await triangle(), c = f.controller;
+    const f = await pointerPreview(), c = f.controller;
     await c.press(event(1)); await f.frame();
     expect(c.getSnapshot().display?.candidates).toHaveLength(1);
     const geometry = deferred<PaintingGeometryResult>();
@@ -353,12 +399,13 @@ describe('triangle native hover admission and selection receipts', () => {
     expect(c.getSnapshot().display?.candidates).toEqual([]);
     c.release(event(4), true);
     expect(f.ports.api.commitPaintingStroke).not.toHaveBeenCalled();
-    geometry.resolve({ ...f.geometry(), revision: c.getSnapshot().session!.revision, candidates: [{ volumeId: 3, resourceId: 'old', kind: 'triangle' }] }); await tick();
+    geometry.resolve({ ...f.geometry(), revision: c.getSnapshot().session!.revision, candidates: [{ volumeId: 3, resourceId: 'old', kind: tool }] }); await tick();
     expect(c.getSnapshot().display?.candidates).toEqual([]);
     expect(f.ports.api.commitPaintingStroke).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: event(4), settings: expect.objectContaining({ erase: true }) }));
     expect(f.ports.api.samplePaintingStroke).toHaveBeenCalledTimes(1);
     expect(f.ports.api.previewPainting).not.toHaveBeenCalled();
   });
+  }
 });
 
 describe('complete painting visual handoffs', () => {

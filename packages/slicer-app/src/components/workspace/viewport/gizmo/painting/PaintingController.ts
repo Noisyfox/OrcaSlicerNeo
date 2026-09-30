@@ -44,6 +44,7 @@ export interface PaintingPorts {
 }
 type Sample = { event: PaintingPointerEvent; settings: PaintingSettings };
 type Terminal = { kind: 'commit'; sample?: Sample } | { kind: 'cancel' };
+function hasPointerPreview(tool: PaintTool): tool is 'triangle' | 'region' { return tool === 'triangle' || tool === 'region'; }
 const defaults: Required<PaintingSettings> = { state: 1, erase: false, radius: 2, height: 1, angle: 30, gapArea: 0 };
 
 /** One RPC lane, shared by input and display. Moves are never retained. Only
@@ -103,8 +104,8 @@ export class PaintingController {
     finally { if (this.lane === mine) this.lane = null; release(); this.scheduleDisplay(); }
   }
   private fail(error: unknown): void {
-    if (this.state.tool === 'triangle') { this.hover = undefined; this.previewDirty = false; this.settingsVersion++; }
-    this.update({ error: error instanceof Error ? error.message : String(error), ...(this.state.tool === 'triangle' ? { display: this.withoutCandidates() } : {}) });
+    if (hasPointerPreview(this.state.tool)) { this.hover = undefined; this.previewDirty = false; this.settingsVersion++; }
+    this.update({ error: error instanceof Error ? error.message : String(error), ...(hasPointerPreview(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
   }
   async open(objectId: number, instanceId: number): Promise<boolean> {
     if (this.active) return false;
@@ -131,8 +132,8 @@ export class PaintingController {
   async target(objectId: number, instanceId: number): Promise<boolean> {
     if (this.state.phase !== 'idle') return false;
     if (this.state.session?.objectId === objectId && this.state.session.instanceId === instanceId) return true;
-    if (this.state.tool === 'triangle') { this.hover = undefined; this.previewDirty = false; this.settingsVersion++; }
-    this.update({ phase: 'opening', ...(this.state.tool === 'triangle' ? { display: this.withoutCandidates() } : {}) });
+    if (hasPointerPreview(this.state.tool)) { this.hover = undefined; this.previewDirty = false; this.settingsVersion++; }
+    this.update({ phase: 'opening', ...(hasPointerPreview(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
     return this.exclusive(async () => {
       try {
         const result = await this.ports.api.targetPaintingSession({ ...this.identity(), objectId, instanceId });
@@ -146,7 +147,7 @@ export class PaintingController {
   setTool(tool: PaintTool): void {
     if (this.unfinished || !['idle', 'closed'].includes(this.state.phase)) return;
     this.update({ tool, display: this.withoutCandidates() });
-    this.previewDirty = tool === 'gap' || tool === 'region' || tool === 'triangle'; this.settingsVersion++; this.scheduleDisplay();
+    this.previewDirty = tool === 'gap' || hasPointerPreview(tool); this.settingsVersion++; this.scheduleDisplay();
   }
   setSettings(value: Partial<Required<PaintingSettings>>): void {
     const next = { ...this.state.settings, ...value };
@@ -154,7 +155,7 @@ export class PaintingController {
       !Number.isFinite(next.radius) || next.radius <= 0 || !Number.isFinite(next.height) || next.height <= 0 ||
       !Number.isFinite(next.gapArea) || next.gapArea < 0 || next.gapArea > 5 ||
       (next.angle !== null && (!Number.isFinite(next.angle) || next.angle < 0 || next.angle > 90))) return;
-    this.settingsVersion++; this.update({ settings: next, ...(this.state.tool !== 'triangle' ? { display: this.withoutCandidates() } : {}) });
+    this.settingsVersion++; this.update({ settings: next, ...(!hasPointerPreview(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
     if (value.state !== undefined) this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
     this.previewDirty = true; this.scheduleDisplay();
   }
@@ -177,21 +178,21 @@ export class PaintingController {
   private settings(erase: boolean): PaintingSettings { return { ...this.state.settings, erase: erase || this.state.settings.erase }; }
   private withoutCandidates() { return this.state.display?.candidates.length ? { ...this.state.display, candidates: [] } : this.state.display; }
   hoverAt(event?: PaintingPointerEvent): void {
-    // Triangle hover admits one event, without replacing it with a later busy
+    // Pointer preview admits one event, without replacing it with a later busy
     // move. Leave is a reliable visual invalidation even during a native read.
-    if (event && (this.state.phase !== 'idle' || (this.state.tool === 'triangle' && (this.lane || (this.previewDirty && this.hover))))) return;
+    if (event && (this.state.phase !== 'idle' || (hasPointerPreview(this.state.tool) && (this.lane || (this.previewDirty && this.hover))))) return;
     if (!event && !['idle', 'drawing', 'ending'].includes(this.state.phase)) return;
     this.hover = event;
-    if (!event || this.state.tool !== 'triangle') this.update({ display: this.withoutCandidates() });
-    if (this.state.tool === 'region' || this.state.tool === 'triangle') { this.previewDirty = true; this.settingsVersion++; this.scheduleDisplay(); }
+    if (!event || !hasPointerPreview(this.state.tool)) this.update({ display: this.withoutCandidates() });
+    if (hasPointerPreview(this.state.tool)) { this.previewDirty = true; this.settingsVersion++; this.scheduleDisplay(); }
   }
   /** Native hit is the sole authority for the initial paint/camera decision. */
   async press(event: PaintingPointerEvent, erase = false): Promise<'paint' | 'camera' | 'ignored'> {
     if (this.state.phase !== 'idle' || this.state.tool === 'gap') return 'ignored';
     if (!this.lane && !paintingDisplayMatchesTarget(this.state.display, this.state.session)) return 'ignored';
     const sample = { event, settings: this.settings(erase) }, tool = this.state.tool;
-    if (tool === 'triangle') { this.hover = event; this.settingsVersion++; }
-    this.terminal = null; this.update({ phase: 'drawing', error: null, ...(tool !== 'triangle' ? { display: this.withoutCandidates() } : {}) });
+    if (hasPointerPreview(tool)) { this.hover = event; this.settingsVersion++; }
+    this.terminal = null; this.update({ phase: 'drawing', error: null, ...(!hasPointerPreview(tool) ? { display: this.withoutCandidates() } : {}) });
     return this.exclusive(async () => {
       try {
         if (!paintingDisplayMatchesTarget(this.state.display, this.state.session)) {
@@ -209,7 +210,7 @@ export class PaintingController {
   move(event: PaintingPointerEvent, erase = false): boolean {
     if (this.state.phase !== 'drawing' || this.lane || this.terminal) return false;
     const sample = { event, settings: this.settings(erase) };
-    if (this.state.tool === 'triangle') { this.hover = event; this.settingsVersion++; }
+    if (hasPointerPreview(this.state.tool)) { this.hover = event; this.settingsVersion++; }
     void this.exclusive(async () => {
       try { this.receipt(await this.ports.api.samplePaintingStroke({ ...this.stroke(), ...sample })); await this.drainTerminal(); }
       catch (error) { await this.recover(error); }
@@ -218,13 +219,13 @@ export class PaintingController {
   }
   release(event?: PaintingPointerEvent, erase = false): void {
     if (!this.unfinished || this.terminal) return;
-    if (this.state.tool === 'triangle' && event) { this.hover = event; this.settingsVersion++; }
+    if (hasPointerPreview(this.state.tool) && event) { this.hover = event; this.settingsVersion++; }
     this.terminal = { kind: 'commit', ...(event ? { sample: { event, settings: this.settings(erase) } } : {}) };
     this.update({ phase: 'ending' }); this.startTerminal();
   }
   cancel(): void {
     if (!this.unfinished || this.terminalExecuting) return;
-    if (this.state.tool === 'triangle') { this.hover = undefined; this.settingsVersion++; this.update({ display: this.withoutCandidates() }); }
+    if (hasPointerPreview(this.state.tool)) { this.hover = undefined; this.settingsVersion++; this.update({ display: this.withoutCandidates() }); }
     this.terminal = { kind: 'cancel' }; this.update({ phase: 'cancelling' }); this.startTerminal();
   }
   private startTerminal(): void {
@@ -249,7 +250,7 @@ export class PaintingController {
       if (result.committed) this.ports.committed(result.affectedPlateIds);
     }
     this.terminal = null; this.terminalExecuting = false; this.update({ phase: 'idle' });
-    this.previewDirty = this.state.tool === 'gap' || (this.state.tool === 'triangle' && !!this.hover);
+    this.previewDirty = this.state.tool === 'gap' || (hasPointerPreview(this.state.tool) && !!this.hover);
   }
   private async recover(error: unknown): Promise<void> {
     this.fail(error); this.terminal = null; this.terminalExecuting = false;
@@ -349,7 +350,7 @@ export class PaintingController {
           if (this.state.phase === 'idle' && this.previewDirty) {
             this.previewDirty = false;
             const tool = this.state.tool;
-            if (((tool === 'region' || tool === 'triangle') && this.hover) || tool === 'gap') {
+            if ((hasPointerPreview(tool) && this.hover) || tool === 'gap') {
               this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool, settings: this.settings(false), ...(tool !== 'gap' ? { event: this.hover } : {}) }));
             }
           }
@@ -358,7 +359,7 @@ export class PaintingController {
             const identity = this.identity(), epoch = this.state.epoch;
             const result = await this.ports.api.getPaintingGeometry({ ...identity, knownResourceIds: [...this.known] });
             if ('error' in result) throw new Error(result.error);
-            if (previewTool === 'triangle' && previewVersion !== this.settingsVersion) {
+            if (hasPointerPreview(previewTool) && previewVersion !== this.settingsVersion) {
               // A newer input/setting/terminal owns the next selection. Keep the
               // complete displayed geometry/contour together until its receipt;
               // publishing this draft with an empty or retained old candidate
@@ -368,7 +369,7 @@ export class PaintingController {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
-              const candidates = previewVersion === this.settingsVersion && (this.state.tool === 'gap' || ((this.state.tool === 'region' || this.state.tool === 'triangle') && this.hover)) ? result.candidates.filter((c) => c.kind === this.state.tool) : [];
+              const candidates = previewVersion === this.settingsVersion && (this.state.tool === 'gap' || (hasPointerPreview(this.state.tool) && this.hover)) ? result.candidates.filter((c) => c.kind === this.state.tool) : [];
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
               for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
               const session = this.state.session;

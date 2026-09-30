@@ -1273,3 +1273,58 @@ and `pnpm --filter @orca/web build`, passed
 artifacts and `git diff --check`. No native build or full release matrix was
 run for this shared controller-only fix; native sources and the pinned
 submodule are unchanged.
+
+## Follow-up: retain Region fill preview during movement (2026-09-30)
+
+The user reports the same flicker in Region fill. Its accepted hover still
+clears candidates before calculating the next native preview; retained-display
+handling currently applies only to Triangle.
+
+One bounded step shares the pointer-preview retention/publication lifecycle
+between Triangle and Region fill. Keep the prior matched display until a
+complete current native candidate, native miss or painted display replaces it.
+Preserve native fill geometry/angle/erase behavior and candidate appearance.
+Busy intermediate moves remain dropped; leave, tool/target changes,
+cancellation and errors clear immediately and suppress late responses. Keep
+Gap behavior intact and do not introduce native APIs or compatibility branches.
+A fresh gpt-6.1-sol/high child implements and self-verifies, followed by parent
+code review and independent tests. Verify delayed/stale Region reads and actual
+continuous hover across different native regions without missing fill/contour
+frames, preserving Triangle's existing regression and unchanged hover history.
+
+The child delivered the shared predicate and delayed-read/lifecycle coverage.
+Parent reviewed admission, terminal handling, complete resource publication,
+native Region semantics and actual interleaved vertex extraction. Parent
+independently passed `pnpm test` (1,188 including 777 app tests),
+`pnpm typecheck`, and the real serial painting Electron journey (1/1, 23.2
+seconds total). Region captured 24 continuous frames without missing native
+fill or contour, across two distinct native regions; its hover history and
+draft geometry remain unchanged. Parent viewed the Region screenshot.
+Circle, Sphere and Height range captured 25, 21 and 22 held frames with no
+missing cursor, including native model replacements. Triangle remains covered
+by its continuous hover/held regression. Child's controlled negative using the
+previous controller failed eight unit cases and lost both Region fill and
+contour in four of 27 frames; restored fixed source passed again.
+Parent restored ordinary Desktop/Web builds and passed production elision
+on 21 artifacts plus `git diff --check`. No native build or full release
+matrix was required; native sources and the pinned submodule are unchanged.
+
+## Follow-up: audit other tools and retain static Gap preview (2026-09-30)
+
+The audit found a separate Gap lifecycle defect: ordinary pointer movement
+clears static candidates without requesting replacement, and area/settings
+changes clear candidates before asynchronous calculation completes. Circle,
+Sphere and Height range use the separate cursor path and their actual held
+frame checks show no equivalent interruption.
+
+After Region acceptance, a fresh gpt-6.1-sol/high child fixes this bounded Gap
+step. Gap preview is independent of pointer position: movement, canvas leave
+and camera navigation must preserve it without hover RPCs. Settings changes
+retain the complete matched display until the current complete native preview
+and geometry replace it; a valid empty result clears it. Tool/target changes,
+errors and closure invalidate it, and obsolete responses cannot revive it.
+Preserve native threshold/fill/apply semantics, dropped intermediate moves,
+reliable terminals and the existing API. Verify deferred preview/geometry and
+stale settings tests, real continuous static Gap rendering during pointer
+movement/leave and threshold changes, and unchanged hover history. Parent
+reviews the implementation and independently verifies before acceptance.
