@@ -1578,3 +1578,30 @@ artifacts and `git diff --check`. Logs are
 The pinned submodule remains `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`.
 No native build, second-host real E2E or dual-host/dual-WASM release matrix was
 run for these shared application fixes; production builds cover both hosts.
+
+## Object-list mutation preparation naming
+
+The shared object-list entrypoint is `prepareObjectListMutation`: it owns
+synchronous painting command admission, rejects busy commands without queuing,
+and awaits pending model-transform synchronization before admitting the edit.
+All 16 metadata and structural callers use this name and a `prepared` outcome.
+Target-specific `beforePaintingTopologyChange` checks remain in their existing
+callers and order; the helper does not own target closure or a global command
+policy. This is an internal naming/comment refactor with unchanged behavior,
+types and failure outcomes; no compatibility alias or architecture-spec change.
+
+Child self-review confirmed the helper body and topology-check order are
+unchanged. Exact workspace lookup found no remaining old identifier and no
+test/mock references requiring rename. Existing focused verification passed:
+`pnpm --filter @orca/slicer-app exec vitest run src/components/workspace/objectList/actions.test.ts src/components/workspace/objectList/structuralActions.test.ts src/components/workspace/viewport/gizmo/painting/projectCommands.test.ts`
+(3 files, 30 tests), `pnpm --filter @orca/slicer-app test` (98 files, 853 tests),
+`pnpm --filter @orca/slicer-app typecheck`, and `git diff --check`.
+Parent independently reviewed the complete source diff, verified all 16 callers
+and the absence of old exports/aliases, and passed app tests (853), app
+typecheck, `pnpm test` (1264), `pnpm typecheck` and `git diff --check`.
+Logs use `packages/slicer-wasm/.work/parent-object-list-admission-*.log`.
+Under the testing-guidelines pure-shared-logic routing, no rendered
+interaction, DOM/WebGL wiring, host seam, native bridge or WASM artifact changed;
+no host E2E, native build, real-WASM run or release matrix was run for this
+refactor. The existing behavior tests cover transform settlement/failure and
+busy painting command rejection without replay; no rename-only test was added.
