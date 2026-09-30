@@ -1747,8 +1747,8 @@ code changed, and no native rebuild or full release matrix was run.
 ## Circle cursor screen width — 2026-10-01
 
 The circle cursor uses the existing drei `Line` (`Line2`/`LineMaterial`) with
-`worldUnits=false` and a fixed 2 CSS-pixel line width. A static unit circle is
-scaled by the configured brush radius and faces the camera. Its shader expands
+`worldUnits=false` and a fixed 2 CSS-pixel line width. Unit-circle samples are
+scaled by the configured brush radius and face the camera. Its shader expands
 the projected line in screen space, avoiding per-frame CPU geometry updates.
 Zoom follows the existing cursor lifecycle: hide the stale hit, then recreate
 the cursor on the next pointer move. Sphere and height-range cursors keep their
@@ -1761,6 +1761,18 @@ antialias fringe on each side. Its non-core path uses `glLineWidth(1.5f)`.
 NEO uses the same screen-space expansion principle through its existing Three
 line shader, while retaining the configured brush footprint and filament
 highlight colour.
+
+The accepted dashed-circle follow-up uses Orca's core-profile geometry rule,
+rather than setting a generic dash/gap material pattern. Its interval count is
+`2 * (4 + trunc(252 * (zoom - 1) / 249))` with camera zoom capped at 250;
+only alternating pairs of circle samples are drawn, leaving equal angular gaps,
+including the closing gap. Neo uses drei `Line` in `segments` mode. It derives
+the effective pixels/mm scale at the brush plane from camera projection and
+clip W (valid for perspective and orthographic cameras), and memoizes points
+by integer interval count. Pointer motion and native publications do not
+recreate geometry when that count is unchanged. Orca's core path sets
+`gap_size=0` because its geometry already supplies the gaps; its non-core path
+instead uses `glLineStipple(4, 0xAAAA)`.
 
 Independent source review checked shader viewport units, stable circle points,
 resource disposal and final transparent-pass ordering. `pnpm test` passed all
@@ -1776,3 +1788,16 @@ artifacts also passed; build logs use `painting-viewport-*-production.log` in
 the same directory. `git diff --check` passed.
 No native source or pinned submodule changed; no native rebuild, second real
 host or full release matrix was required for these shared viewport changes.
+
+Dashed-circle acceptance: source review and zoom/held-stroke screenshot review
+passed. `pnpm test` passed 1,279 tests (868 shared-app tests), `pnpm typecheck`
+passed, and `pnpm exec node scripts/run-painting-e2e.mjs` passed the real serial
+Electron six-tool journey (1/1, 39.8 s). The journey validates actual uploaded
+segment endpoints, equal painted/gap angles and closure, reduced dash density
+after zooming out, fixed line width and viewport resolution, and held-stroke
+visibility/colour/order. The runner checks staged JS/WASM/DATA against current
+serial artifacts. Logs use `painting-circle-dashes-{tests,typecheck,e2e}.log`
+in `packages/slicer-wasm/.work/`. No native code changed or was rebuilt.
+Desktop/Web production builds, 21-artifact observer elision and
+`git diff --check` also passed. Build logs use
+`painting-circle-dashes-{desktop,web}-production.log` in the same directory.

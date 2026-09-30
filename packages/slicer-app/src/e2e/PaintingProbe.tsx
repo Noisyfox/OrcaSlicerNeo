@@ -30,7 +30,7 @@ export function PaintingVisualProbe() {
       draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
         candidate?: { positions: number[] };
         contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] };
-        cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[] } }> };
+        cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] } }> };
     let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
     let raf: number | null = null;
     const originalRender = gl.render;
@@ -85,7 +85,11 @@ export function PaintingVisualProbe() {
               primitive: object instanceof THREE.LineSegments ? 'lineSegments' : 'mesh',
               positions: object instanceof THREE.LineSegments ? Array.from({ length: object.geometry.getAttribute('position').count }, (_, i) => new THREE.Vector3().fromBufferAttribute(object.geometry.getAttribute('position'), i).applyMatrix4(object.matrixWorld).toArray()).flat() : [],
               ...(kind === 'painting-cursor-height' ? { heightPlanes: object.userData.heightPlanes, heightBounds: object.userData.heightBounds } : {}),
-              ...(kind === 'painting-cursor-circle' ? { lineWidth: material.linewidth, worldUnits: material.worldUnits, resolution: material.resolution?.toArray() } : {}),
+              ...(kind === 'painting-cursor-circle' ? { lineWidth: material.linewidth, worldUnits: material.worldUnits, resolution: material.resolution?.toArray(),
+                circleSegments: Array.from({ length: object.geometry.getAttribute('instanceStart').count }, (_, i) => [
+                  ...new THREE.Vector3().fromBufferAttribute(object.geometry.getAttribute('instanceStart'), i).toArray(),
+                  ...new THREE.Vector3().fromBufferAttribute(object.geometry.getAttribute('instanceEnd'), i).toArray(),
+                ]) } : {}),
               opacity: material.opacity, depthTest: material.depthTest, depthWrite: material.depthWrite, side: material.side } } : {}) });
         };
         restore.push(() => { object.onBeforeRender = original; });

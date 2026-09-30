@@ -379,7 +379,12 @@ painting operation. No BVH is built over the subdivided paint display geometry.
 
 Render brush cursors after draft surfaces, candidates and contours, with a
 stable draw order across stroke/geometry publication. Cursors do not write
-depth. Circle overlays ignore model depth; the
+depth. Circle overlays ignore model depth and retain a 2 CSS-pixel line width.
+Match Orca's core-profile dashed circle: alternate equal painted/unpainted
+angular intervals, including the closing gap, and vary the interval count with
+camera pixels/mm using `2 * (4 + trunc(252 * (zoom - 1) / 249))`, capped at
+Orca's zoom limit of 250. For Neo's perspective camera, use pixels/mm at the
+cursor plane. Rebuild sampled points only when the interval count changes. The
 sphere uses a filled, translucent surface with normal model depth testing and
 opacity 0.25, rather than a wireframe or an X-ray sphere. Preserve cursor
 identity during a held stroke; refreshing a model must not require leaving and

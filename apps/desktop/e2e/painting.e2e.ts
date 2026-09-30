@@ -8,7 +8,7 @@ const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
-type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[] };
+type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
@@ -261,6 +261,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       if (tool === 'circle') {
         const beforeZoom = (await read())!, unchangedHistory = await history();
         const viewportSize = await page.locator('[data-testid="viewport"] canvas[data-engine^="three.js"]').evaluate((canvas) => [canvas.clientWidth, canvas.clientHeight]);
+        const dashCounts: number[] = [];
         await startFrames(); await settleFrames();
         for (const [name, delta] of [['zoomed-out', 500], ['restored', -500]] as const) {
           await page.mouse.wheel(0, delta);
@@ -271,6 +272,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
           const actual = (await readFrames()).at(-1)!.draws.at(-1)!.cursor!;
           expect(actual.worldUnits).toBe(false);
           actual.resolution!.forEach((value, axis) => expect(value).toBeCloseTo(viewportSize[axis], 0));
+          dashCounts.push(actual.circleSegments!.length);
           if (name === 'zoomed-out') expect((await read())!.camera).not.toEqual(beforeZoom.camera);
           else near((await read())!.camera, beforeZoom.camera);
           await page.screenshot({ path: test.info().outputPath(`painting-circle-width-${name}.png`) });
@@ -279,6 +281,18 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         const circles = frames.flatMap((frame) => frame.draws.filter((draw) => draw.kind === 'painting-cursor-circle'));
         expect(circles.length).toBeGreaterThan(1);
         expect(circles.every((draw) => draw.cursor?.lineWidth === 2 && draw.cursor.worldUnits === false)).toBe(true);
+        expect(dashCounts[0], 'zooming out reduces Orca dash density').toBeLessThan(dashCounts[1]);
+        for (const draw of circles) {
+          const segments = draw.cursor!.circleSegments!, step = Math.PI / segments.length;
+          expect(segments.length).toBeGreaterThanOrEqual(3);
+          for (let i = 0; i < segments.length; i++) {
+            const [ax, ay, az, bx, by, bz] = segments[i], [cx, cy] = segments[(i + 1) % segments.length];
+            expect(Math.hypot(ax, ay)).toBeCloseTo(1, 5); expect(Math.hypot(bx, by)).toBeCloseTo(1, 5);
+            expect(az).toBe(0); expect(bz).toBe(0);
+            expect(Math.atan2(ax * by - ay * bx, ax * bx + ay * by), 'painted angular interval').toBeCloseTo(step, 5);
+            expect(Math.atan2(bx * cy - by * cx, bx * cx + by * cy), 'equal unpainted interval, including seam').toBeCloseTo(step, 5);
+          }
+        }
         expect(await history()).toEqual(unchangedHistory);
       }
       if (tool === 'triangle') await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);

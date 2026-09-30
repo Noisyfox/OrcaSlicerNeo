@@ -38,7 +38,7 @@ beforeEach(() => {
     release: vi.fn(), hoverAt: vi.fn(), reportDisplayError: vi.fn(), move: vi.fn(), cancel: vi.fn(), close: vi.fn() };
   const camera = new THREE.PerspectiveCamera(); camera.up.set(0, 0, 1); camera.position.set(80, -90, 100);
   const target = new THREE.Vector3(20, 30, 0); camera.lookAt(target); camera.updateMatrixWorld();
-  mocked.three = { camera, gl: { domElement: canvas }, invalidate: vi.fn(), controls: { target, enableDamping: true, update: vi.fn(() => { camera.lookAt(target); camera.updateMatrixWorld(); }) } };
+  mocked.three = { camera, size: { height: 600 }, gl: { domElement: canvas }, invalidate: vi.fn(), controls: { target, enableDamping: true, update: vi.fn(() => { camera.lookAt(target); camera.updateMatrixWorld(); }) } };
   Object.defineProperty(canvas, 'clientHeight', { value: 600 });
   source = { geometry: new THREE.BoxGeometry(), buffer: { objectId: 1, instanceId: 2, volumeId: 3 } } as unknown as LoadedObject;
   replacement = new THREE.BoxGeometry(2, 2, 2);
