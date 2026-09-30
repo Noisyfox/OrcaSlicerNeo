@@ -17,9 +17,9 @@ export interface PaintingState {
   epoch: number;
 }
 export interface PaintingPorts {
-  coordinate?<T>(operation: () => Promise<T>): Promise<T>;
-  palette?(): FilamentSessionSnapshot | null;
-  targetAvailable?(objectId: number, instanceId: number): boolean;
+  coordinate<T>(operation: () => Promise<T>): Promise<T>;
+  palette(): FilamentSessionSnapshot | null;
+  targetAvailable(objectId: number, instanceId: number): boolean;
   api: PaintingApi & Pick<SlicerClient, 'openHistorySession' | 'closeHistorySession'>;
   history(status: HistoryStatus): void;
   committed(plates: readonly string[]): void;
@@ -83,7 +83,7 @@ export class PaintingController {
     let release!: () => void;
     const mine = new Promise<void>((resolve) => { release = resolve; });
     this.lane = mine;
-    try { if (previous) await previous; return await (this.ports.coordinate ? this.ports.coordinate(operation) : operation()); }
+    try { if (previous) await previous; return await this.ports.coordinate(operation); }
     finally { if (this.lane === mine) this.lane = null; release(); this.scheduleDisplay(); }
   }
   private fail(error: unknown): void { this.update({ error: error instanceof Error ? error.message : String(error) }); }
@@ -135,7 +135,7 @@ export class PaintingController {
       !Number.isFinite(next.gapArea) || next.gapArea < 0 || next.gapArea > 5 ||
       (next.angle !== null && (!Number.isFinite(next.angle) || next.angle < 0 || next.angle > 90))) return;
     this.settingsVersion++; this.update({ settings: next, display: this.withoutCandidates() });
-    if (value.state !== undefined) this.selectedFilamentId = this.ports.palette?.()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
+    if (value.state !== undefined) this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
     this.previewDirty = true; this.scheduleDisplay();
   }
   remapPalette(mapping: Readonly<Record<number, number>>, count: number): void {
@@ -265,7 +265,7 @@ export class PaintingController {
         if (!this.active) return operation();
         const result = await operation();
         const target = this.state.session;
-        if (target && this.ports.targetAvailable?.(target.objectId, target.instanceId) === false) {
+        if (target && !this.ports.targetAvailable(target.objectId, target.instanceId)) {
           await this.closeOwned();
           return result;
         }

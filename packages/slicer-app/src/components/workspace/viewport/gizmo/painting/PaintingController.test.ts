@@ -16,6 +16,9 @@ function fixture() {
   };
   const frames: (() => void)[] = [];
   const ports: PaintingPorts = {
+    coordinate: async (operation) => operation(),
+    palette: () => null,
+    targetAvailable: () => true,
     api: {
       openHistorySession: vi.fn(async () => ({ sessionId: 'hs-1', status })),
       closeHistorySession: vi.fn(async () => status),
@@ -107,6 +110,28 @@ describe('painting event admission and reliable terminal', () => {
   });
 });
 describe('painting session and display ownership', () => {
+  it('waits for the coordinator before opening native history', async () => {
+    const { controller: c, ports: p } = fixture();
+    const gate = deferred<void>();
+    p.coordinate = async (operation) => { await gate.promise; return operation(); };
+    const opening = c.open(1, 2);
+    expect(p.api.openHistorySession).not.toHaveBeenCalled();
+    gate.resolve();
+    expect(await opening).toBe(true);
+    expect(p.api.openHistorySession).toHaveBeenCalledTimes(1);
+  });
+  it('closes an active session when a project operation removes its target', async () => {
+    const { controller: c, ports: p } = fixture();
+    expect(await c.open(1, 2)).toBe(true);
+    p.targetAvailable = () => false;
+    const mutation = vi.fn(async () => 'removed');
+    expect(await c.projectOperation(mutation)).toBe('removed');
+    expect(mutation).toHaveBeenCalledTimes(1);
+    expect(p.api.closeHistorySession).toHaveBeenCalledTimes(1);
+    expect(p.prepareClosed).toHaveBeenCalledTimes(1);
+    expect(p.api.readPaintingSession).not.toHaveBeenCalled();
+    expect(c.getSnapshot().phase).toBe('closed');
+  });
   it('rejects a second selection during deferred target binding without replaying it later', async () => {
     const { controller: c, ports: p } = fixture(); await c.open(1, 2);
     const selection = new Selection(); selection.replaceIds(['A']); selection.setAdmissionGuard(() => c.selectionAllowed());

@@ -10,7 +10,7 @@
 
 ## Execution contract
 
-- New implementation children from stage 10 onward use **gpt-6-sol / high**, explicitly requested by the user; this overrides the skill default. The already-running stage 09 child continues with **gpt-6-astra / medium**, as used for stage 08.
+- All newly started subagents use **gpt-6.1-sol / high**, per the latest user instruction; this overrides the skill default. Already-running agents finish their assigned work on their existing model. Earlier stage 10 onward and the two follow-up children used **gpt-6-sol / high**; stage 09 continued on **gpt-6-astra / medium**.
 - Execute numbered steps strictly in order. Start a fresh implementation subagent for every new step. Do not start the next step until the parent has independently accepted the previous one.
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
@@ -898,3 +898,39 @@ The parent restored the ordinary desktop build with
 
 Native bridge/build code and the pinned submodule are unchanged; no native
 rebuild or dual-host release matrix was needed for this shared projection fix.
+
+## Follow-up: current internal painting contract (2026-09-30)
+
+The user requires current internal APIs without cross-version compatibility.
+A fresh child reviewed the painting controller, client/Worker/native painting
+contract and shared history revision integration. The parent independently
+reviewed the concrete changes and callers before accepting the cleanup.
+
+`PaintingPorts.coordinate`, `palette` and `targetAvailable` are now required.
+Production already supplies all three, so missing-port branches served only
+incomplete callers/fixtures: direct uncoordinated RPC, skipped palette query
+and implicitly available targets. Those branches are removed and fixtures
+provide the complete contract. A nullable palette snapshot remains a current
+loading state. New behavior tests prove coordinator admission precedes native
+history open and removal of a painting target closes its session without a
+stale session read. This adds no alternative API or compatibility wrapper.
+
+The bounded audit found no further demonstrated older painting signature or
+receipt fallback. Exact v1 validation rejects unsupported internal requests;
+tool-specific settings, candidate guards, retained geometry IDs, recoverable
+errors and release cleanup describe current behavior. The history mutation
+module's publisher re-export is a current barrel used by Workspace/settings,
+not a second implementation or older-signature adapter. This is not a claim
+that every unrelated repository API has been audited.
+
+Child self-verification: focused app 27/27, full app 718/718, app and root
+typechecks, real serial Electron painting 1/1, ordinary desktop build and
+21-artifact profiling elision. Parent independently passed `pnpm test`
+(1,128), `pnpm typecheck`, `pnpm exec node scripts/run-painting-e2e.mjs`
+(1/1, 20.9 seconds, with current served artifact hash verification), and
+`git diff --check`. Parent logs use ignored
+`packages/slicer-wasm/.work/parent-painting-contract-*.log`. No native build,
+submodule change or external project-format compatibility change is involved.
+The parent also restored `pnpm --filter @orca/desktop build` and independently
+passed `pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 ordinary
+production artifacts.

@@ -43,7 +43,9 @@ async function setup(preloadFilament = false) {
   const filamentReads = vi.spyOn(runtime, 'getFilamentSessionSnapshot');
   const controller = new PaintingController({ api: runtime, coordinate: coordinatePaintingRpc,
     history: projectHistoryStatus, committed: vi.fn(), prepareClosed: vi.fn(async () => {}),
-    schedule: () => () => {}, palette: () => useFilamentSessionStore.getState().snapshot });
+    schedule: () => () => {}, palette: () => useFilamentSessionStore.getState().snapshot,
+    targetAvailable: (objectId, instanceId) => useObjectListStore.getState().structure
+      .some((entry) => entry.id === objectId && entry.instances.some((instance) => instance.id === instanceId)) });
   unregister = registerPaintingCommands(controller);
   expect(await controller.open(object.id, object.instances[0].id)).toBe(true);
   useProjectStore.getState().setProject({ hasContent: true });
