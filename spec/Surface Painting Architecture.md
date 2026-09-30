@@ -390,6 +390,15 @@ part or changing tool clears or replaces its selection. Frontend BVH face
 indices do not determine the highlighted triangle. Reject outdated preview
 publication just as for region fill.
 
+While an admitted Triangle hover or painting sample is being calculated,
+retain the previous complete display and selected contour. Replace it only
+when the current native selection and its geometry are available together;
+do not clear the contour merely because a new move or press was admitted.
+A completed native miss clears the selection. Leaving the canvas, changing
+tool/target, cancellation or errors clear it immediately and prevent an
+outstanding response from restoring it. Stale responses neither replace nor
+blank a still-valid displayed preview.
+
 Once the pointer is pressed, native code performs all painting hit tests and
 face identification. The frontend sends the admitted pointer events in order and the
 camera/viewport information needed to reconstruct the corresponding rays. The

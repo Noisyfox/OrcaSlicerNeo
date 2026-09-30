@@ -1175,7 +1175,7 @@ write and Orca's `0.00001 * abs(w)` clip-depth offset. It allocates no unused
 face materials. Region preview and other brush render paths remain intact.
 
 Scheduled/busy Triangle hover moves are dropped rather than queued. Leave,
-tool/settings changes and newer admitted samples invalidate old candidates.
+tool/settings changes and newer admitted samples invalidate old responses.
 Setting changes while still on-model and release during an outstanding native
 geometry read are tested separately; terminal endpoints are preserved. Native
 tests assert one selected leaf for both original and actually subdivided
@@ -1223,3 +1223,53 @@ artifacts and `git diff --check`. The read-only pinned submodule remains
 exact subdivision-edge hits can return an
 empty leaf selection; verification uses interior points. No full release
 matrix is claimed.
+
+## Follow-up: retain Triangle highlight during movement (2026-09-30)
+
+The user reports flickering Triangle contours during mouse movement and
+requires the prior result to remain until the next result is available.
+Before this fix, accepted moves called `withoutCandidates()` before native
+preview or geometry completion; Triangle press/sample admission did the same.
+This created an empty rendered interval between valid native results.
+
+One bounded controller/render-publication step retains the previous complete
+Triangle display through hover, press and admitted samples. Atomically replace
+it with a current native result, including an authoritative miss. Canvas leave
+and tool changes clear immediately; outdated responses may neither resurrect
+cleared candidates nor blank a still-valid preview. Preserve one-event
+admission, dropped intermediate moves, reliable terminals and matched resource,
+transform and palette ownership. No native algorithm/API change is required.
+A fresh gpt-6.1-sol/high child implemented and self-verified. Parent source
+review confirmed that Triangle admission/settings retain the complete bundle,
+obsolete geometry reads request a fresh publication without installing their
+resources, and candidate/cache ownership remains matched. Target-start
+invalidation is limited to Triangle; Region/Gap keep their existing behavior.
+Canvas leave, target/tool changes, cancellation and errors clear the contour
+without clearing the model. Eight added controller tests cover delayed
+preview/geometry, stale settings/terminal responses, miss/leave/tool/target/error
+lifecycle, known-resource reuse and disposal. A controlled negative with the
+old controller triggered five regression failures; fixed source was restored.
+
+Child checks passed 36 controller tests, root tests (1,174), typecheck, real
+serial Electron, ordinary Desktop/Web builds and production elision. Parent
+independently passed `pnpm test` (1,174, including 763 app tests),
+`pnpm typecheck` and `pnpm exec node scripts/run-painting-e2e.mjs` (1/1,
+22.8 seconds total; current serial artifact hashes checked). Actual renderer
+captures contain 31 continuous hover frames and 75 hover/press/held movement
+frames. Every frame has exactly one native white contour, with two distinct
+selected contour shapes in each capture. Hover retains one draft geometry;
+held movement replaces it across three geometries. A held miss captures four
+frames retaining the prior contour while native work is pending, then 28
+cleared frames, ending with no contour. The stroke remains active and native
+re-entry succeeds. Hover leaves geometry/history unchanged, and the existing
+colour, camera, six-tool and history journey passes. Parent reviewed the held
+outline screenshot. Independent logs use
+`packages/slicer-wasm/.work/parent-triangle-retain-*.log`; actual frame JSON and
+screenshots are under ignored desktop `test-results`.
+
+Parent restored fresh ordinary builds with `pnpm --filter @orca/desktop build`
+and `pnpm --filter @orca/web build`, passed
+`pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 production
+artifacts and `git diff --check`. No native build or full release matrix was
+run for this shared controller-only fix; native sources and the pinned
+submodule are unchanged.

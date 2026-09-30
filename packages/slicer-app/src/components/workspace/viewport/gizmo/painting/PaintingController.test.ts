@@ -215,6 +215,102 @@ describe('triangle native hover admission and selection receipts', () => {
     });
     return f;
   }
+  it('retains one matched bundle through admitted hover and both native reads, then atomically replaces or clears it', async () => {
+    const f = await triangle(), c = f.controller;
+    c.hoverAt(event(1)); await f.frame(); const before = f.publish();
+    const selected = f.cache.resources.get(before.candidates[0].resourceId)!;
+    const disposed = vi.spyOn(selected.contour, 'dispose');
+    const displays: unknown[] = [];
+    const unsubscribe = c.subscribe(() => { displays.push(c.getSnapshot().display); f.publish(); });
+    const preview = deferred<PaintingDraftResult>(), geometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(preview.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.hoverAt(event(2)); c.hoverAt(event(3)); f.frames.shift()?.(); await tick();
+    expect(c.getSnapshot().display).toBe(before);
+    preview.resolve(f.receipt('idle')); await tick();
+    expect(c.getSnapshot().display).toBe(before); expect(disposed).not.toHaveBeenCalled();
+    expect(displays.every((display) => display === before)).toBe(true);
+    const next = { ...f.geometry('b'), revision: c.getSnapshot().session!.revision,
+      candidates: [{ volumeId: 3, resourceId: 'next', kind: 'triangle' as const }],
+      resources: [...f.geometry('b').resources, { ...selected.source, resourceId: 'next', contour: new Float32Array(18).fill(2) }] };
+    geometry.resolve(next); await tick();
+    expect(c.getSnapshot().display?.candidates).toEqual(next.candidates);
+    expect(c.getSnapshot().display?.parts).toEqual(next.parts);
+    expect(disposed).toHaveBeenCalledTimes(1); expect(f.cache.resources.size).toBe(2);
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(2) }));
+    const matched = c.getSnapshot().display;
+    const miss = deferred<PaintingDraftResult>(), missGeometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.previewPainting).mockReturnValueOnce(miss.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(missGeometry.promise);
+    c.hoverAt(event(9)); f.frames.shift()?.(); await tick(); expect(c.getSnapshot().display).toBe(matched);
+    miss.resolve({ ...f.receipt('idle'), hit: null }); await tick();
+    expect(c.getSnapshot().display).toBe(matched);
+    missGeometry.resolve({ ...f.geometry('b'), revision: c.getSnapshot().session!.revision }); await tick();
+    expect(c.getSnapshot().display?.candidates).toEqual([]); expect(f.cache.resources.size).toBe(1);
+    unsubscribe(); f.cache.dispose();
+  });
+  it('retains the matched triangle during press, admitted held movement and a newer terminal over obsolete geometry', async () => {
+    const f = await triangle(), c = f.controller;
+    c.hoverAt(event(1)); await f.frame(); const before = c.getSnapshot().display;
+    const pressResult = deferred<PaintingDraftResult>(); vi.mocked(f.ports.api.beginPaintingStroke).mockReturnValueOnce(pressResult.promise);
+    const press = c.press(event(2)); expect(c.getSnapshot().display).toBe(before);
+    pressResult.resolve(f.receipt()); await press; expect(c.getSnapshot().display).toBe(before);
+    await f.frame(); const pressed = c.getSnapshot().display;
+    const sample = deferred<PaintingDraftResult>(), geometry = deferred<PaintingGeometryResult>();
+    vi.mocked(f.ports.api.samplePaintingStroke).mockReturnValueOnce(sample.promise);
+    vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    const displays: unknown[] = []; c.subscribe(() => displays.push(c.getSnapshot().display));
+    expect(c.move(event(3))).toBe(true); expect(c.move(event(4))).toBe(false);
+    expect(c.getSnapshot().display).toBe(pressed);
+    sample.resolve(f.receipt()); await tick(); f.frames.shift()?.(); await tick();
+    expect(c.getSnapshot().display).toBe(pressed);
+    c.release(event(5)); geometry.resolve({ ...f.geometry('obsolete'), revision: c.getSnapshot().session!.revision }); await tick();
+    expect(displays.every((display) => display === pressed)).toBe(true);
+    expect(f.ports.api.commitPaintingStroke).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: event(5) }));
+    await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(5) }));
+    expect(c.getSnapshot().display?.parts[0].resourceId).toBe('a');
+  });
+  it('keeps a valid contour when settings invalidate an outstanding geometry read without publishing obsolete resources', async () => {
+    const f = await triangle(), c = f.controller;
+    c.hoverAt(event(1)); await f.frame(); const before = c.getSnapshot().display;
+    const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.hoverAt(event(2)); f.frames.shift()?.(); await tick(); c.setSettings({ state: 2 });
+    geometry.resolve({ ...f.geometry('obsolete'), revision: c.getSnapshot().session!.revision }); await tick();
+    expect(c.getSnapshot().display).toBe(before);
+    await f.frame(); expect(c.getSnapshot().display?.candidates).toHaveLength(1);
+    expect(f.ports.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({ event: event(2), settings: expect.objectContaining({ state: 2 }) }));
+    expect(f.ports.api.getPaintingGeometry).toHaveBeenLastCalledWith(expect.objectContaining({ knownResourceIds: before!.resources.map((r) => r.resourceId) }));
+  });
+  it('clears cancellation immediately and cannot revive a selected leaf from the pending held geometry', async () => {
+    const f = await triangle(), c = f.controller;
+    await c.press(event(1)); await f.frame(); const selected = c.getSnapshot().display!;
+    const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    expect(c.move(event(2))).toBe(true); await tick(); f.frames.shift()?.(); await tick();
+    c.cancel(); expect(c.getSnapshot().display?.candidates).toEqual([]);
+    geometry.resolve({ ...selected, revision: c.getSnapshot().session!.revision }); await tick();
+    expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(f.ports.api.cancelPaintingStroke).toHaveBeenCalledTimes(1);
+    await f.frame(); expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(f.ports.api.previewPainting).not.toHaveBeenCalled();
+  });
+  it.each(['leave', 'tool', 'target', 'error'] as const)('immediately invalidates a displayed contour on %s and prevents an outstanding read restoring it', async (mode) => {
+    const f = await triangle(), c = f.controller;
+    c.hoverAt(event(1)); await f.frame(); const before = c.getSnapshot().display!;
+    const geometry = deferred<PaintingGeometryResult>(); vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(geometry.promise);
+    c.hoverAt(event(2)); f.frames.shift()?.(); await tick();
+    let target: Promise<boolean> | undefined;
+    if (mode === 'leave') c.hoverAt();
+    if (mode === 'tool') c.setTool('circle');
+    if (mode === 'target') target = c.target(4, 5);
+    if (mode === 'error') c.reportDisplayError(new Error('renderer failed'));
+    expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(c.getSnapshot().display?.parts).toBe(before.parts);
+    geometry.resolve({ ...before, revision: c.getSnapshot().session!.revision }); await tick(); if (target) await target;
+    expect(c.getSnapshot().display?.candidates).toEqual([]);
+    await f.frame(); expect(c.getSnapshot().display?.candidates).toEqual([]);
+    expect(f.ports.api.previewPainting).toHaveBeenCalledTimes(2);
+  });
   it('admits the first hover, drops all intermediate scheduled/busy moves, and accepts only a fresh later event', async () => {
     const f = await triangle(), c = f.controller;
     c.hoverAt(event(1)); c.hoverAt(event(2)); c.hoverAt(event(3));
