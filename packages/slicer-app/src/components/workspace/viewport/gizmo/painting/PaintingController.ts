@@ -39,7 +39,7 @@ export interface PaintingPorts {
   api: PaintingApi & Pick<SlicerClient, 'openHistorySession' | 'closeHistorySession'>;
   history(status: HistoryStatus): void;
   committed(plates: readonly string[]): void;
-  prepareClosed(): Promise<void>;
+  prepareClosed(paintedObjectIds: readonly number[]): Promise<void>;
   schedule(callback: () => void): () => void;
 }
 type Sample = { event: PaintingPointerEvent; settings: PaintingSettings };
@@ -72,6 +72,10 @@ export class PaintingController {
   private candidateOwner: number | null = null;
   private selectedFilamentId: string | null = null;
   private projectOperations = 0;
+  /** Committed painting is not projected into ordinary Prepare during editing.
+   * Keep every touched target until publication succeeds, including after Undo
+   * and after a native close followed by a renderer projection failure. */
+  private paintedObjectIds = new Set<number>();
   constructor(private ports: PaintingPorts) {}
   getSnapshot = (): PaintingState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
@@ -273,6 +277,7 @@ export class PaintingController {
         }
         throw new Error(result.error);
       }
+      if (result.committed && this.state.session) this.paintedObjectIds.add(this.state.session.objectId);
       this.receipt(result, terminal.generation); this.ports.history(result.history);
       if (result.committed) this.ports.committed(result.affectedPlateIds);
     }
@@ -365,7 +370,8 @@ export class PaintingController {
       this.terminal = null; this.terminalExecuting = false;
     }
     if (this.historyId) { this.ports.history(await this.ports.api.closeHistorySession(this.historyId, 'Paint')); this.historyId = null; }
-    await this.ports.prepareClosed();
+    await this.ports.prepareClosed([...this.paintedObjectIds]);
+    this.paintedObjectIds.clear();
     this.known.clear(); this.cancelFrame?.(); this.cancelFrame = null;
     this.displayDirty = false; this.previewDirty = false; this.advancePreview(); this.hover = undefined;
     this.update({ phase: 'closed', session: null, display: null, error: null, epoch: this.state.epoch + 1 });

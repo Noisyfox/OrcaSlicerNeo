@@ -7,6 +7,7 @@ import type { PaintingController } from '../components/workspace/viewport/gizmo/
 import type { PaintingResources } from '../components/workspace/viewport/gizmo/painting/PaintingResources';
 import type { LoadedObject } from '../components/workspace/viewport/useModelLoader';
 import { useSceneInteraction } from '../components/workspace/viewport/SceneInteractionContext';
+import { glVolumeCollection } from '../components/workspace/viewport/GLVolume';
 
 export function paintingUploadBytes(method: 'bufferData' | 'bufferSubData', args: unknown[]): number {
   const payload = args[method === 'bufferData' ? 1 : 2];
@@ -104,7 +105,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
   const interaction = useSceneInteraction();
   const rendered = useRef<{ revision: number; candidates: string[] }>({ revision: -1, candidates: [] });
   const input = useRef({ admittedMoves: 0, droppedMoves: 0 });
-  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string }>;
+  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string; retainedVolumes?: number; volumeCount?: number; touchedVolumeCount?: number; sourceTriangles?: number; exportedSourceGeometries?: number; exportedPaintGeometries?: number; objectIds?: readonly number[] }>;
     frames: Array<{ at: number; revision: number; candidates: number }>; phases: Array<{ at: number; phase: string; revision: number }>;
     inputs: Array<{ at: number; kind: string }>; glUploads: Array<{ at: number; method: string; ms: number; bytes: number }>;
     resources: Array<{ at: number; ms: number; created: number; released: number; live: number; bytes: number }>;
@@ -141,7 +142,8 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
     }
     const api = (owner as unknown as { ports: { api: Record<string, (...args: unknown[]) => Promise<unknown>> } }).ports.api;
     const names = ['openPaintingSession', 'previewPainting', 'beginPaintingStroke', 'samplePaintingStroke', 'commitPaintingStroke',
-      'cancelPaintingStroke', 'getPaintingGeometry', 'closePaintingSession'] as const;
+      'cancelPaintingStroke', 'getPaintingGeometry', 'closePaintingSession', 'closeHistorySession',
+      'getModelMesh', 'getModelScenePatch'] as const;
     const originals = names.map((name) => [name, api[name]] as const);
     for (const [name, original] of originals) {
       if (!original) continue;
@@ -151,7 +153,10 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
           const result = await original(...args) as { paintingProfile?: unknown; resources?: Array<{ vertices: Float32Array; contour: Float32Array }> };
           const paint = result as { committed?: boolean; effective?: boolean; changedPartIds?: number[]; revision?: number; hit?: unknown };
           const request = args[0] as { tool?: string; event?: { pointer: readonly number[] } };
+          const patch = result as { geometries?: unknown[]; paintGeometries?: unknown[] };
           perf.current.calls.push({ name, at: start, ms: performance.now() - start,
+            ...(name === 'getModelScenePatch' ? { objectIds: args[0] as number[],
+              exportedSourceGeometries: patch.geometries?.length, exportedPaintGeometries: patch.paintGeometries?.length } : {}),
             ...(paint.revision !== undefined ? { revision: paint.revision } : {}),
             ...(result.paintingProfile ? { native: result.paintingProfile } : {}),
             ...(result.resources ? { resourceBytes: result.resources.reduce((n, r) => n + r.vertices.byteLength + r.contour.byteLength, 0) } : {}),
@@ -168,6 +173,19 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
         }
       };
     }
+    const ports = (owner as unknown as { ports: { prepareClosed: (...args: unknown[]) => Promise<void> } }).ports;
+    const originalPrepare = ports.prepareClosed;
+    ports.prepareClosed = async (...args) => {
+      const before = [...glVolumeCollection.volumes], start = performance.now();
+      try { await originalPrepare(...args); }
+      finally {
+        perf.current.calls.push({ name: 'prepareClosed', at: start, ms: performance.now() - start,
+          retainedVolumes: glVolumeCollection.volumes.filter((v) => before.includes(v)).length,
+          volumeCount: before.length,
+          touchedVolumeCount: before.filter((v) => (args[0] as number[])?.includes(v.buffer.objectId)).length,
+          sourceTriangles: before.reduce((n, v) => n + v.buffer.indexCount / 3, 0) });
+      }
+    };
     const originalUpdate = resources.update;
     resources.update = (...args) => {
       const start = performance.now(), before = new Set(resources.resources.keys());
@@ -191,6 +209,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
       unsubscribe(); canvas.removeEventListener('pointerup', pointerUp, true); window.removeEventListener('keydown', keyDown, true);
       for (const [name, original] of originalGl) (ctx as unknown as Record<string, unknown>)[name] = original;
       for (const [name, original] of originals) if (original) api[name] = original;
+      ports.prepareClosed = originalPrepare;
       resources.update = originalUpdate; resources.dispose = originalDispose;
       queueMicrotask(() => {
         perf.current.totalReleased += Math.max(0, liveBeforeCleanup - resources.resources.size);
@@ -198,6 +217,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
           at: performance.now(), liveResources: resources.resources.size,
           totalCreated: perf.current.totalCreated, totalReleased: perf.current.totalReleased,
           phases: [...perf.current.phases], inputs: [...perf.current.inputs], frames: [...perf.current.frames],
+          calls: [...perf.current.calls],
           peakJsHeapBytes: perf.current.peakJsHeapBytes,
         };
       });

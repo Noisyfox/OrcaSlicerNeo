@@ -8,9 +8,25 @@ import { invalidateAffectedPlateResults } from '../../../../../stores/plateResul
 import { useSettingsStore } from '../../../../../stores/useSettingsStore';
 import { useFilamentSessionStore } from '../../../../../stores/useFilamentSessionStore';
 import { glVolumeCollection } from '../../GLVolume';
-import { projectFullModelMesh } from '../../modelMeshProjection';
+import { readSceneDeltaProjection } from '../../sceneDeltaProjection';
 import type { SceneInteractionController } from '../../SceneInteractionController';
 import { useObjectListStore } from '../../../objectList/useObjectListStore';
+import type { SlicerClient } from '@slicer/client';
+
+/** The caller owns the painting/project lane through this atomic publication. */
+export async function preparePaintingClosedScene(runtime: Pick<SlicerClient, 'getModelScenePatch'>, paintedObjectIds: readonly number[]) {
+  // Project/history commands already publish their own SceneDelta. Only
+  // strokes leave committed paint absent from Prepare; an untouched session
+  // can return to its existing complete projection without a native read.
+  if (!paintedObjectIds.length) return;
+  const structure = useObjectListStore.getState().structure;
+  const projection = await readSceneDeltaProjection(runtime, {
+    version: 1, objectIds: paintedObjectIds, objectOrder: structure.map((o) => o.id),
+    volumeIds: [], instanceIds: [], plateIds: [],
+  }, structure, glVolumeCollection.volumes);
+  projection.apply();
+  glVolumeCollection.patch(projection.volumes, useSettingsStore.getState().modelRevision);
+}
 
 const Context = createContext<PaintingController | null>(null);
 /** App-owned: removing or hiding a viewport does not close native history. */
@@ -25,11 +41,7 @@ export function PaintingProvider({ children }: { children: ReactNode }) {
     api: runtime,
     history: projectHistoryStatus,
     committed: (plates) => invalidateAffectedPlateResults(runtime, plates),
-    prepareClosed: async () => {
-      const mesh = await runtime.getModelMesh();
-      const volumes = projectFullModelMesh(mesh);
-      glVolumeCollection.replace(volumes, useSettingsStore.getState().modelRevision);
-    },
+    prepareClosed: (paintedObjectIds) => preparePaintingClosedScene(runtime, paintedObjectIds),
     schedule: (callback) => { const id = requestAnimationFrame(callback); return () => cancelAnimationFrame(id); },
   });
   useLayoutEffect(() => registerPaintingCommands(owner.current!), []);

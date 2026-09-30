@@ -1605,3 +1605,126 @@ interaction, DOM/WebGL wiring, host seam, native bridge or WASM artifact changed
 no host E2E, native build, real-WASM run or release matrix was run for this
 refactor. The existing behavior tests cover transform settlement/failure and
 busy painting command rejection without replay; no rename-only test was added.
+
+## Painting closure performance — 2026-09-30
+
+The reported slow exit also occurs when opening and closing without painting.
+The measured redundant work was `PaintingProvider.prepareClosed` reading the
+entire project through `getModelMesh`, projecting every renderable, and replacing
+every `GLVolume`. Existing resource keys already shared original geometry and
+BVHs; this was not evidence of rebuilding their BVHs.
+
+Accepted implementation: retain Prepare without a geometry read when the session
+has no committed paint. Otherwise collect every successfully painted object ID
+through the session, including target switches, and refresh only those objects
+using the existing `readSceneDeltaProjection` and known source/paint keys. Project
+commands and history navigation continue to publish their own projections. Keep
+the touched set through Undo and native-close/render-publication failure, and
+clear it only after successful Prepare publication. Preserve the native close,
+material/Prime Tower settlement, epoch publication, history compaction, conditional
+Redo cleanup, and synchronous lane ownership through resource publication. No
+native ABI, architecture contract, submodule, or deferred-update policy changed.
+
+The reference workload is the checked-in `fixtures/big-proj.3mf`, SHA-256
+`de8afeac2e7b53a63fe5925d8b05ddfe0c0b7f0a7b3f88fbc2a5fc29c0524ce0`.
+It contains 51 objects, 321 source volumes/renderables and 3,031,116 original
+triangles. The selected target has three solid parts with 126,922, 8,590 and
+8,400 source triangles, initially unpainted and unsubdivided. Its no-op session
+has no history effects. This reproduces the repository workload, not the user's
+unsupplied scene. Additional generated corpus cases hold four coincident solid
+parts (3,072 source triangles total) and two instances (12,288 triangles in the
+shared source mesh); edited workloads exercise triangle painting, Undo, and an
+interleaved filament-colour edit.
+
+Baseline and after each use three consecutive no-op sessions in one fresh
+Electron process on the same Ryzen 9 5900X / 64 GiB machine, with current serial
+wasm64, identical native artifact hashes, and native profile/history-test gates
+OFF. The recorded index includes OS, browser/GPU, fixture, artifact, source-diff
+and build identities. The initial after run overlapped other checks and is
+excluded from the timing comparison; `after-isolated` ran without another test
+or harness process. No absolute latency threshold is asserted.
+
+| Observed phase | Before | After, isolated |
+| --- | --- | --- |
+| Input pointer-up to painting-resource disposal, all three samples | 455.535 / 449.990 / 427.120 ms | 59.135 / 55.885 / 55.040 ms |
+| Full-project mesh RPC | 380.960 / 388.330 / 372.825 ms | No call |
+| Prepare publication including mesh RPC | 384.900 / 392.220 / 375.945 ms | 1.205 / 1.180 / 1.070 ms |
+| History-session close RPC | 22.015 / 19.840 / 19.110 ms | 21.775 / 19.935 / 19.715 ms |
+| Existing GLVolume wrappers retained | 0 of 321 | 321 of 321 |
+
+The median observed no-op exit falls from 449.990 to 55.885 ms (87.6% reduction).
+The old renderer work beyond its full mesh RPC was approximately 3–4 ms; the
+dominant cost was the mesh request, not renderer geometry construction. The
+separate production-native harness reports 0.215–0.943 ms for no-op native
+history closure versus 225–296 ms for full native mesh export and allocation of
+54,567,552 buffer bytes. These direct calls exclude Worker transfer, JS decoding,
+and renderer scheduling and must not be treated as a decomposition of the same
+host sample. No-op native settlement does not scan materials when the derived
+version is zero; settlement caching remains intact for later sessions.
+
+Final complex-project workload checks measured no-op / painted / Undo / separator
+exit at 55.545 / 160.155 / 60.155 / 203.785 ms. Painted exits request only their
+one touched object, export zero original geometries, and retain all 318 unrelated
+wrappers; the current paint resource is ready before Prepare appears. Undo's
+already-projected geometry requires zero newly exported paint resources. Material
+settlement and history closure remain awaited; these edited timings are not a
+new quantitative guarantee or a claim that their remaining costs were removed.
+
+Reproduction commands (PowerShell, production serial artifact):
+
+```powershell
+pnpm exec node packages/slicer-wasm/harness/painting-close-profile.mjs
+pnpm exec node scripts/run-painting-benchmark.mjs --host electron --cases big-project-fixed --trials 1 --close-only --expect-incremental-close --output packages/slicer-wasm/.work/painting-close/after-isolated
+pnpm exec node scripts/run-painting-benchmark.mjs --host electron --cases big-project-fixed,cube-3072-4parts,cube-12288 --trials 1 --close-edits --expect-incremental-close --output packages/slicer-wasm/.work/painting-close/accepted-workloads
+```
+
+Raw evidence is under `packages/slicer-wasm/.work/painting-close/`: `baseline/`,
+`after-isolated/`, `native.json`, and `accepted-workloads/`. Each host sample
+contains the complete before/after history, facet counts, observed RPCs, retained
+wrappers, and Prepare resources. The baseline index corrects the old runner's
+hardcoded native-profile flag; the runner now records the actual CMake flag.
+The observer lives in the existing compile-gated E2E probe; ordinary artifacts
+contain no observer call sites or new `exportedSourceGeometries` sentinel.
+
+Child self-verification passed `pnpm test` (1,273 tests; app 862), `pnpm typecheck`,
+the serial quick build, the direct native profile harness, all three final real
+close-workload E2Es, and `pnpm exec node scripts/run-painting-e2e.mjs` (current
+serial six-tool/history/camera/close journey, 29.1 s). Provider tests execute the
+production publication function and cover no-op no-read/no-publication, targeted
+paint refresh with original BVH and unrelated wrapper retention, failed resource
+publication/retry, release of earlier staged resources on a later-part failure,
+and deletion of a previously painted object. Controller tests cover multiple
+targets, ineffective/recovered failed commits, cancellation, Undo reconciliation,
+and retry after native closure without losing touched targets. Final real
+workload assertions preserve no-op cursor/Undo/Redo/dirty/save state, preserve
+non-paint entry identities, clear edited Redo, and verify actual Prepare paint
+geometry, facet states, and original geometry identity after closure.
+
+Ordinary Desktop and Web builds and `check-painting-profile-elision.mjs` passed
+(21 artifacts); `git diff --check` passed. Logs are `unit-final.log`,
+`typecheck-final.log`, `serial-quick.log`, `six-tools.log`,
+`accepted-workloads.log`, `desktop-production.log`, and `web-production.log`
+under the same evidence directory. No C++ edit required a new native test build;
+no second real host, threaded rebuild, or full release matrix was run for this
+bounded shared-app optimization.
+
+Parent independent acceptance passed after substantive source review of dirty
+target tracking, publication failure/retry, stable-resource leasing and atomic
+SceneDelta composition, benchmark observers and production elision. Parent
+confirmed the baseline fixture is tracked and reviewed its raw timing records.
+Independent `pnpm test` passed all 1,273 tests and `pnpm typecheck` passed.
+The no-op complex-project benchmark passed (30.4 s total): 56.580 / 55.620 /
+50.780 ms, each retaining all 321 wrappers with zero full-mesh or patch reads.
+The same complex-project edited benchmark passed (33.1 s total): no-op / paint /
+Undo / separator exit at 56.190 / 161.640 / 55.110 / 216.285 ms. Each edited
+closure requested only object 16 and exported no original geometry; paint and
+separator exported one current paint resource, while Undo exported none. Actual
+Prepare resource/state and history assertions passed in this independent run.
+
+Parent also passed the current-serial real six-tool journey (1/1, 28.8 s total,
+staged JS/WASM/DATA hashes checked), ordinary Desktop and Web builds,
+21-artifact profile elision and `git diff --check`. Independent logs and raw
+benchmark records use `parent-*.log`, `parent-noop/` and `parent-edits/` under
+the same evidence directory. No native source or pinned submodule changed;
+parent did not repeat the unchanged native build or run a second real host,
+threaded variant or full release matrix.

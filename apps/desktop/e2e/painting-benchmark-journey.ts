@@ -51,6 +51,9 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
       { timeout: 180_000 }).toMatchObject({ sourceDisplayName: basename(project), sourceByteLength: statSync(project).size });
   });
   const receipt = (await hook('projectLoadEvidence') as { receipt: unknown }).receipt;
+  // The load receipt precedes the asynchronous renderer mesh publication.
+  await expect.poll(async () => (await hook('modelWorldCenters') as unknown[])?.length ?? 0,
+    { timeout: 120_000 }).toBeGreaterThan(0);
   const center = await page.evaluate(() => {
     const e = (window as unknown as { __orcaE2e: Record<string, (...args: never[]) => unknown> }).__orcaE2e;
     const world = e.modelWorldCenters() as [number, number, number][];
@@ -60,6 +63,83 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
   if (!bounds) throw new Error('viewport missing');
   await page.mouse.click(bounds.x + center.x, bounds.y + center.y);
   await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled();
+  if (process.env.ORCA_PAINTING_BENCHMARK_CLOSE_ONLY === '1') {
+    const cycles = [];
+    const workloads = process.env.ORCA_PAINTING_BENCHMARK_CLOSE_EDITS === '1'
+      ? ['noop', 'paint', 'undo', 'separator'] : ['noop', 'noop', 'noop'];
+    type History = { editingSession: unknown; navigationFloor: number | null; cursor: number; dirty: boolean; savedCheckpoint: number | null;
+      undoEntries: Array<{ id: string; label: string }>; redoEntries: Array<{ id: string; label: string }> };
+    type PrepareResource = { id: string; originalGeometryUuid: string; paintGroupStates: number[]; visibleGeometryUuid: string | null; paintGeometryUuid: string | null };
+    for (const [cycle, workload] of workloads.entries()) {
+      const originalResources = await hook('modelPaintResources') as PrepareResource[];
+      await page.getByTestId('gizmo-btn-paint').click(); await idle();
+      const targetId = (await read() as Probe & { nativeTarget: { objectId: number } }).nativeTarget.objectId;
+      if (workload !== 'noop') {
+        await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle();
+        await page.getByTestId('painting-tool-triangle').click();
+        await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
+        const point = (await read()).center;
+        await page.mouse.click(point.x, point.y); await idle();
+        const calls = (await perf() as { calls: Array<{ name: string; committed?: boolean }> }).calls;
+        expect(calls.filter((call) => call.name === 'commitPaintingStroke').at(-1)?.committed).toBe(true);
+        if (workload === 'undo') { await page.getByTestId('history-undo').click(); await idle(); }
+        if (workload === 'separator') {
+          await page.getByTestId('filament-colour-2').evaluate((element) => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(element, '#445566');
+            element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          await expect.poll(async () => (await hook('historyNativeStatus') as { undoEntries: Array<{ label: string }> }).undoEntries[0]?.label)
+            .toBe('Edit Filament Colour'); await idle();
+        }
+      }
+      const facets = await hook('paintingNativeFacetCounts');
+      const before = await hook('historyNativeStatus') as History;
+      const button = page.getByRole('button', { name: 'Close painting', exact: true });
+      await button.evaluate((element) => element.addEventListener('pointerup', () => {
+        (window as unknown as { __orcaCloseInputAt: number }).__orcaCloseInputAt = performance.now();
+      }, { capture: true, once: true }));
+      await button.click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+      await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+      const final = await page.evaluate(() => ({
+        resources: (window as unknown as { __orcaPaintingBenchmarkFinal: { at: number; calls: Array<{ name: string; at: number; retainedVolumes?: number; volumeCount?: number; touchedVolumeCount?: number; objectIds?: number[]; exportedSourceGeometries?: number }>; liveResources: number } }).__orcaPaintingBenchmarkFinal,
+        inputAt: (window as unknown as { __orcaCloseInputAt: number }).__orcaCloseInputAt,
+      }));
+      expect(final.resources.liveResources).toBe(0);
+      const after = await hook('historyNativeStatus') as History;
+      expect(after.editingSession).toBeNull(); expect(after.navigationFloor).toBeNull(); expect(after.cursor).toBe(before.cursor);
+      if (workload === 'noop') {
+        expect(after.undoEntries).toEqual(before.undoEntries); expect(after.redoEntries).toEqual(before.redoEntries);
+        expect(after.dirty).toBe(before.dirty); expect(after.savedCheckpoint).toBe(before.savedCheckpoint);
+      } else {
+        expect(after.redoEntries).toEqual([]);
+        expect(after.undoEntries.filter((e) => e.label !== 'Paint')).toEqual(before.undoEntries.filter((e) => e.label !== 'Paint'));
+      }
+      const shown = await hook('modelPaintResources') as PrepareResource[];
+      expect(shown.map((r) => [r.id, r.originalGeometryUuid])).toEqual(originalResources.map((r) => [r.id, r.originalGeometryUuid]));
+      const targetIds = new Set((await hook('modelSelectionIdentities') as Array<{ id: string; objectId: number }>)
+        .filter((v) => v.objectId === targetId).map((v) => v.id));
+      const targetResources = shown.filter((r) => targetIds.has(r.id));
+      if (workload === 'paint' || workload === 'separator') {
+        expect(targetResources.some((r) => r.paintGroupStates.includes(2))).toBe(true);
+        expect(targetResources.filter((r) => r.paintGeometryUuid).every((r) => r.visibleGeometryUuid === r.paintGeometryUuid)).toBe(true);
+      }
+      if (workload === 'undo') expect(targetResources.every((r) => r.paintGeometryUuid === null)).toBe(true);
+      if (process.env.ORCA_PAINTING_EXPECT_INCREMENTAL_CLOSE === '1') {
+        const closeCalls = final.resources.calls.filter((call) => call.at >= final.inputAt);
+        expect(closeCalls.some((call) => call.name === 'getModelMesh')).toBe(false);
+        const prepare = closeCalls.find((call) => call.name === 'prepareClosed')!;
+        const patch = closeCalls.find((call) => call.name === 'getModelScenePatch');
+        if (workload === 'noop') { expect(patch).toBeUndefined(); expect(prepare.retainedVolumes).toBe(prepare.volumeCount); }
+        else {
+          expect(patch?.objectIds).toEqual([targetId]); expect(patch?.exportedSourceGeometries).toBe(0);
+          expect(prepare.retainedVolumes).toBe(prepare.volumeCount! - prepare.touchedVolumeCount!);
+        }
+      }
+      cycles.push({ cycle, workload, facets, before, after, prepare: targetResources, ...final,
+        inputToDisposedMs: final.resources.at - final.inputAt });
+    }
+    return { host, project, browserEnvironment, receipt, closeOnly: true, cycles };
+  }
   await measure('open', async () => { await page.getByTestId('gizmo-btn-paint').click(); await idle(); });
   const session = await read();
   const facets: Record<string, unknown> = { initial: await hook('paintingNativeFacetCounts') };

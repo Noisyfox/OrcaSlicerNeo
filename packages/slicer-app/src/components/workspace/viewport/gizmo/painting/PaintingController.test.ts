@@ -155,11 +155,42 @@ describe('painting session and display ownership', () => {
   });
   it('a failed history close remains retryable; a failed projection retries without closing history twice', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    await c.press(event(1)); c.release(event(2)); await tick();
     vi.mocked(p.api.closeHistorySession).mockRejectedValueOnce(new Error('close failed'));
     expect(await c.close()).toBe(false); expect(c.getSnapshot().phase).toBe('idle');
     vi.mocked(p.prepareClosed).mockRejectedValueOnce(new Error('projection failed'));
     expect(await c.close()).toBe(false); expect(c.getSnapshot().phase).toBe('error');
     expect(await c.close()).toBe(true); expect(p.api.closeHistorySession).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(p.prepareClosed).mock.calls).toEqual([[[1]], [[1]]]);
+  });
+  it('returns an untouched or cancelled session to the retained Prepare scene', async () => {
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    await c.press(event(1)); c.cancel(); await tick();
+    expect(await c.close()).toBe(true);
+    expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
+    expect(p.api.closeHistorySession).toHaveBeenCalledTimes(1);
+  });
+  it('refreshes all committed targets across target switches and Undo, then resets for reopening', async () => {
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    expect(await c.apply('eraseAll')).toBe(true); expect(await c.target(4, 5)).toBe(true); await frame();
+    expect(await c.apply('eraseAll')).toBe(true);
+    await c.betweenStrokes(async () => true); // Undo can already refresh Prepare.
+    expect(await c.close()).toBe(true);
+    expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([1, 4]);
+    await c.open(1, 2); await frame(); expect(await c.close()).toBe(true);
+    expect(p.prepareClosed).toHaveBeenLastCalledWith([]);
+  });
+  it('does not refresh Prepare for an ineffective commit', async () => {
+    const { controller: c, ports: p, frame, receipt } = fixture(); await c.open(1, 2); await frame();
+    vi.mocked(p.api.commitPaintingStroke).mockImplementationOnce(async () => ({ ...receipt('idle'), committed: false, affectedPlateIds: [], history: status }));
+    await c.apply('eraseAll'); expect(await c.close()).toBe(true);
+    expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
+  });
+  it('does not refresh Prepare after a recovered failed commit', async () => {
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, sessionId: 'ps-1', revision: 3 });
+    expect(await c.apply('eraseAll')).toBe(false);
+    expect(await c.close()).toBe(true); expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
   });
   it('gap apply uses an exact fresh native candidate and commits all parts once', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame(); c.setSettings({ gapArea: 2.5 });
