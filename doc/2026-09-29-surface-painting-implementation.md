@@ -1743,3 +1743,36 @@ that overlay and two animation frames before selecting via raw coordinates.
 `pnpm test` (1,273 tests), `pnpm typecheck`, Desktop/Web production builds,
 21-artifact painting observer elision and `git diff --check` passed. No native
 code changed, and no native rebuild or full release matrix was run.
+
+## Circle cursor screen width — 2026-10-01
+
+The circle cursor uses the existing drei `Line` (`Line2`/`LineMaterial`) with
+`worldUnits=false` and a fixed 2 CSS-pixel line width. A static unit circle is
+scaled by the configured brush radius and faces the camera. Its shader expands
+the projected line in screen space, avoiding per-frame CPU geometry updates.
+Zoom follows the existing cursor lifecycle: hide the stale hit, then recreate
+the cursor on the next pointer move. Sphere and height-range cursors keep their
+existing rendering.
+
+Orca's core-profile reference uses `GLGizmoPainterBase::render_cursor_circle`
+with the `dashed_thick_lines` geometry shader: it supplies viewport dimensions
+and `width = 0.25`, which the shader clamps to a 1-pixel core plus a 0.5-pixel
+antialias fringe on each side. Its non-core path uses `glLineWidth(1.5f)`.
+NEO uses the same screen-space expansion principle through its existing Three
+line shader, while retaining the configured brush footprint and filament
+highlight colour.
+
+Independent source review checked shader viewport units, stable circle points,
+resource disposal and final transparent-pass ordering. `pnpm test` passed all
+1,273 tests, including 862 shared-app tests. `pnpm typecheck` passed. The real
+serial Electron six-tool journey passed (1/1, 35.2 s): it checks actual circle
+draws before/after zoom, fixed width and viewport resolution, unchanged history,
+filament colour, and cursor visibility/order through a native stroke replacement.
+Zoom screenshots were visually reviewed. Acceptance logs are
+`painting-viewport-cursor-unit.log`, `painting-viewport-typecheck.log` and
+`painting-viewport-cursor-e2e-acceptance.log` in `packages/slicer-wasm/.work/`.
+Desktop and Web production builds and painting observer elision in 21 production
+artifacts also passed; build logs use `painting-viewport-*-production.log` in
+the same directory. `git diff --check` passed.
+No native source or pinned submodule changed; no native rebuild, second real
+host or full release matrix was required for these shared viewport changes.

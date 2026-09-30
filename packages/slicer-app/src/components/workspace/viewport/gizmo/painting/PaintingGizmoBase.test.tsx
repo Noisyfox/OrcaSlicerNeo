@@ -10,6 +10,8 @@ import { PaintingGizmoBase, paintingModelBounds, paintingCursorMeshes, rotatePai
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
 vi.mock('./PaintingProvider', () => ({ usePaintingState: () => mocked.state, usePaintingController: () => mocked.owner }));
 vi.mock('@react-three/fiber', () => ({ useThree: () => mocked.three }));
+// These tests exercise native input effects in a DOM host, not the R3F renderer.
+vi.mock('@react-three/drei', () => ({ Line: () => null }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement, canvas: HTMLCanvasElement;
 const identity = new THREE.Matrix4().toArray();

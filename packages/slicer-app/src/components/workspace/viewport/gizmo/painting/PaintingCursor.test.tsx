@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
+import { Line } from '@react-three/drei';
 import { PaintingCursor, PAINTING_RENDER_ORDER } from './PaintingCursor';
 import { HeightRangeCursor } from './HeightRangeCursor';
 
@@ -13,8 +14,9 @@ it.each(['circle', 'sphere'] as const)('draws the production %s cursor last with
   vi.stubGlobal('__ORCA_E2E__', false);
   const tree = PaintingCursor({ tool, settings, position, cameraQuaternion, bounds, color, meshes: [] })!;
   const mesh = tree.props.children;
-  const [geometry, materialElement] = mesh.props.children;
-  const material = new THREE.MeshBasicMaterial(materialElement.props);
+  const materialProps = tool === 'circle' ? mesh.props : mesh.props.children[1].props;
+  const { color: materialColor, transparent, opacity, side, depthTest, depthWrite } = materialProps;
+  const material = new THREE.MeshBasicMaterial({ color: materialColor, transparent, opacity, side, depthTest, depthWrite });
   expect(tree.props.position).toBe(position);
   expect(tree.props.renderOrder).toBe(PAINTING_RENDER_ORDER.cursor);
   expect(mesh.props.renderOrder).toBe(PAINTING_RENDER_ORDER.cursor);
@@ -22,10 +24,17 @@ it.each(['circle', 'sphere'] as const)('draws the production %s cursor last with
   expect(PAINTING_RENDER_ORDER.cursor).toBeGreaterThan(Math.max(PAINTING_RENDER_ORDER.draft, PAINTING_RENDER_ORDER.candidate, PAINTING_RENDER_ORDER.contour));
   expect(material.transparent).toBe(true); expect(material.depthWrite).toBe(false);
   expect(material.depthTest).toBe(tool === 'sphere'); expect(material.opacity).toBe(tool === 'sphere' ? 0.25 : 1);
-  expect(material.wireframe).toBe(false); expect(materialElement.props.color).toBe(color); expect(material.color.equals(color)).toBe(true);
+  expect(material.wireframe).toBe(false); expect(materialProps.color).toBe(color); expect(material.color.equals(color)).toBe(true);
   expect(material.side).toBe(tool === 'circle' ? THREE.DoubleSide : THREE.FrontSide);
-  if (tool === 'sphere') { expect(geometry.type).toBe('sphereGeometry'); expect(geometry.props.args[0]).toBe(settings.radius); }
-  if (tool === 'circle') { expect(mesh.props.quaternion).toBe(cameraQuaternion); expect(geometry.props.args.slice(0, 2)).toEqual([6.79, 7]); }
+  if (tool === 'sphere') { const geometry = mesh.props.children[0]; expect(geometry.type).toBe('sphereGeometry'); expect(geometry.props.args[0]).toBe(settings.radius); }
+  if (tool === 'circle') {
+    expect(mesh.type).toBe(Line); expect(mesh.props.quaternion).toBe(cameraQuaternion);
+    expect(mesh.props.scale).toBe(settings.radius); expect(mesh.props.worldUnits).toBe(false);
+    expect(mesh.props.lineWidth).toBe(2);
+    for (const [x, y, z] of mesh.props.points) { expect(Math.hypot(x, y)).toBeCloseTo(1); expect(z).toBe(0); }
+    expect(mesh.props.points.at(-1)[0]).toBeCloseTo(mesh.props.points[0][0]);
+    expect(mesh.props.points.at(-1)[1]).toBeCloseTo(mesh.props.points[0][1]);
+  }
   material.dispose();
 });
 

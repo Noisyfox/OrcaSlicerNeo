@@ -8,7 +8,7 @@ const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
-type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[] };
+type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[] };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
@@ -258,6 +258,29 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       }
       const point = tool === 'triangle' ? topFaces[0] : tool === 'height' ? regionPoints[1] : (await read())!.center;
       await page.mouse.move(point.x, point.y); await settleFrames();
+      if (tool === 'circle') {
+        const beforeZoom = (await read())!, unchangedHistory = await history();
+        const viewportSize = await page.locator('[data-testid="viewport"] canvas[data-engine^="three.js"]').evaluate((canvas) => [canvas.clientWidth, canvas.clientHeight]);
+        await startFrames(); await settleFrames();
+        for (const [name, delta] of [['zoomed-out', 500], ['restored', -500]] as const) {
+          await page.mouse.wheel(0, delta);
+          await idle();
+          const center = (await read())!.center;
+          await page.mouse.move(center.x, center.y); await settleFrames();
+          await expect.poll(async () => (await readFrames()).at(-1)?.draws.at(-1)?.cursor?.lineWidth).toBe(2);
+          const actual = (await readFrames()).at(-1)!.draws.at(-1)!.cursor!;
+          expect(actual.worldUnits).toBe(false);
+          actual.resolution!.forEach((value, axis) => expect(value).toBeCloseTo(viewportSize[axis], 0));
+          if (name === 'zoomed-out') expect((await read())!.camera).not.toEqual(beforeZoom.camera);
+          else near((await read())!.camera, beforeZoom.camera);
+          await page.screenshot({ path: test.info().outputPath(`painting-circle-width-${name}.png`) });
+        }
+        const frames = await stopFrames(); await completeFrames('painting-circle-screen-width', frames);
+        const circles = frames.flatMap((frame) => frame.draws.filter((draw) => draw.kind === 'painting-cursor-circle'));
+        expect(circles.length).toBeGreaterThan(1);
+        expect(circles.every((draw) => draw.cursor?.lineWidth === 2 && draw.cursor.worldUnits === false)).toBe(true);
+        expect(await history()).toEqual(unchangedHistory);
+      }
       if (tool === 'triangle') await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
       const brushCursor = tool === 'circle' || tool === 'sphere' || tool === 'height';
       if (brushCursor || tool === 'triangle') { await startFrames(); await settleFrames(); }
@@ -291,6 +314,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
             opacity: tool === 'sphere' ? 0.25 : 1, depthTest: tool !== 'circle', depthWrite: false,
             side: tool === 'circle' ? 2 : 0 });
           if (tool === 'sphere') expect(cursor.radius).toBe(4);
+          if (tool === 'circle') expect(cursor).toMatchObject({ lineWidth: 2, worldUnits: false });
           if (tool === 'height') {
             expect(cursor.primitive).toBe('lineSegments'); expect(cursor.positions.length).toBeGreaterThan(0);
             expect(cursor.heightBounds).toEqual([0,20]);
