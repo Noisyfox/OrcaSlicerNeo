@@ -8,7 +8,9 @@ const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
 type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
-type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[] };
+type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number };
+type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
+  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
@@ -38,6 +40,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const selectedTarget = await page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.modelSelectionIdentities()[0] as { objectId: number; instanceId: number });
     const startFrames = () => page.evaluate(({ objectId, instanceId }) => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualStart(objectId, instanceId), selectedTarget);
     const stopFrames = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualStop() as VisualFrame[]);
+    const readFrames = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualFrames() as VisualFrame[]);
     const settleFrames = () => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const completeFrames = async (name: string, frames: VisualFrame[]) => {
       const path = test.info().outputPath(`${name}.json`);
@@ -112,7 +115,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       if (tool === 'circle' || tool === 'sphere') await page.getByRole('spinbutton', { name: 'Radius (mm)', exact: true }).fill('4');
       if (tool === 'height') await page.getByRole('spinbutton', { name: 'Height (mm)', exact: true }).fill('5');
       const point = (await read())!.center;
-      await page.mouse.move(point.x, point.y); await page.mouse.down();
+      await page.mouse.move(point.x, point.y); await settleFrames();
+      if (tool !== 'region') { await startFrames(); await settleFrames(); }
+      const hoverFrames = tool === 'region' ? [] : await readFrames();
+      await page.mouse.down();
       try { await expect.poll(async () => (await read())?.phase).toBe('drawing'); }
       catch (error) {
         const evidence = await page.evaluate(() => { const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e; return { state: hooks.paintingEvidence(), performance: hooks.paintingPerformanceEvidence() }; });
@@ -121,6 +127,29 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         throw error;
       }
       const drawingEvidence = (await read())!;
+      if (tool !== 'region') {
+        // Capture the initial press publication and hold through a genuine
+        // native draft replacement, without a pointerleave or a second hover.
+        if (tool === 'circle') await expect.poll(async () => (await readFrames()).some((frame) =>
+          frame.painting.some((geometry) => !hoverFrames[0].painting.includes(geometry)))).toBe(true);
+        await settleFrames();
+        await page.screenshot({ path: test.info().outputPath(`painting-${tool}-held-cursor.png`) });
+        const frames = await stopFrames(); await completeFrames(`painting-${tool}-held-cursor-frames`, frames);
+        expect(frames.length).toBeGreaterThan(hoverFrames.length);
+        const cursorIds = new Set<string>();
+        for (const frame of frames) {
+          const cursors = frame.draws.filter((draw) => draw.kind === `painting-cursor-${tool}`);
+          expect(cursors, `${tool}: cursor draws in every hover/pressed frame`).toHaveLength(1);
+          const draw = cursors[0], cursor = draw.cursor!; cursorIds.add(cursor.uuid);
+          expect(frame.draws.at(-1), `${tool}: cursor follows all model/candidate/contour draws`).toBe(draw);
+          expect(draw.renderOrder).toBeGreaterThan(3); expect(draw.groupOrder).toBeGreaterThan(3);
+          expect(cursor).toMatchObject({ color: '00ff00', wireframe: tool === 'height', transparent: true,
+            opacity: tool === 'sphere' ? 0.25 : 1, depthTest: tool === 'sphere', depthWrite: false,
+            side: tool === 'circle' ? 2 : 0 });
+          if (tool === 'sphere') expect(cursor.radius).toBe(4);
+        }
+        expect(cursorIds.size, `${tool}: held press retains the same cursor draw object`).toBe(1);
+      }
       await page.mouse.wheel(0, 90); expect((await read())!.camera).toEqual(drawingEvidence.camera);
       expect((await read())!.pivot).toEqual(drawingEvidence.pivot); expect((await read())!.target).toEqual(drawingEvidence.target);
       await page.mouse.move(point.x + 2, point.y + 2); await page.mouse.up(); await idle();
@@ -138,6 +167,24 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle();
     }
     await page.getByTestId('painting-tool-circle').click();
+    await idle();
+    const colourPoint = (await read())!.center;
+    await page.mouse.move(colourPoint.x, colourPoint.y); await settleFrames();
+    await startFrames(); await settleFrames();
+    // Keyboard activation changes the production palette selection while the
+    // mouse stays on-model, so cursor lifetime/order can be verified directly.
+    for (const [slot, color] of [[1, 'ff0000'], [2, '00ff00']] as const) {
+      const radio = page.getByRole('radio', { name: `Paint filament ${slot}`, exact: true });
+      await radio.focus(); await page.keyboard.press('Space'); await expect(radio).toBeChecked();
+      await expect.poll(async () => (await readFrames()).at(-1)?.draws.at(-1)?.cursor?.color).toBe(color);
+    }
+    await settleFrames();
+    const colourFrames = await stopFrames(); await completeFrames('painting-selected-filament-cursor', colourFrames);
+    expect(new Set(colourFrames.flatMap((frame) => frame.draws.flatMap((draw) => draw.cursor ? [draw.cursor.uuid] : []))).size).toBe(1);
+    expect(new Set(colourFrames.flatMap((frame) => frame.painting)).size).toBe(1);
+    expect(colourFrames.every((frame) => frame.draws.at(-1)?.kind === 'painting-cursor-circle')).toBe(true);
+    expect(colourFrames.some((frame) => frame.draws.at(-1)?.cursor?.color === 'ff0000')).toBe(true);
+    expect(colourFrames.some((frame) => frame.draws.at(-1)?.cursor?.color === '00ff00')).toBe(true);
     await page.getByRole('radio', { name: 'Paint filament 1', exact: true }).click();
     await page.getByRole('spinbutton', { name: 'Radius (mm)', exact: true }).fill('0.3');
     const gapPoint = (await read())!.center;
@@ -226,6 +273,11 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       expect((await history()).undoEntries[0].label).toBe('Edit Filament Colour');
     };
     const beforeRgb = (await read())!;
+    await page.getByTestId('painting-tool-sphere').click(); await idle();
+    const slot2 = page.getByRole('radio', { name: 'Paint filament 2', exact: true });
+    await slot2.focus(); await page.keyboard.press('Space'); await expect(slot2).toBeChecked();
+    const rgbPoint = (await read())!.center;
+    await page.mouse.move(rgbPoint.x, rgbPoint.y); await settleFrames();
     await startFrames(); await settleFrames();
     await setSlot2Colour('#445566', 'rgb(68, 85, 102)'); await idle();
     await expect.poll(() => page.evaluate(() => ((window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingVisualFrames() as VisualFrame[]).some((f) => f.colors.includes('445566')))).toBe(true);
@@ -234,6 +286,20 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(rgbFrames.every((f) => f.ordinary.length === 0 && f.painting.length > 0)).toBe(true);
     expect(new Set(rgbFrames.flatMap((f) => f.painting)).size, 'RGB-only edit retains rendered geometry identity').toBe(1);
     expect(rgbFrames.some((f) => f.colors.includes('445566')), 'new RGB reaches the actual rendered target material').toBe(true);
+    expect(rgbFrames.every((frame) => frame.draws.at(-1)?.kind === 'painting-cursor-sphere')).toBe(true);
+    expect(new Set(rgbFrames.flatMap((frame) => frame.draws.flatMap((draw) => draw.cursor ? [draw.cursor.uuid] : []))).size).toBe(1);
+    const highlighted = rgbFrames.flatMap((frame) => frame.draws).filter((draw) => draw.cursor?.color === '556a80');
+    expect(highlighted.length, 'new RGB reaches the actual cursor with Orca highlight').toBeGreaterThan(0);
+    const expectedEncoded = [85 / 255, 106.25 / 255, 127.5 / 255];
+    for (const draw of highlighted) {
+      expect(draw.cursor).toMatchObject({ transparent: true, opacity: 0.25, wireframe: false, depthTest: true, depthWrite: false });
+      expectedEncoded.forEach((channel, i) => {
+        expect(draw.cursor!.encodedRgb[i]).toBeCloseTo(channel, 4);
+        const linear = channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+        expect(draw.cursor!.linearRgb[i]).toBeCloseTo(linear, 6);
+      });
+    }
+    await page.screenshot({ path: test.info().outputPath('painting-sphere-highlighted-cursor.png') });
     const afterRgb = (await read())!; near(afterRgb.pivot, beforeRgb.pivot); near(afterRgb.camera, beforeRgb.camera); near(afterRgb.target, beforeRgb.target);
     await page.getByTestId('history-undo').click(); await idle();
     await expect(slot2Badge).toHaveCSS('background-color', originalSlot2Colour);

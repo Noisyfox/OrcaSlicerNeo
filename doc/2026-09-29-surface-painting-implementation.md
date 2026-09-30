@@ -1074,3 +1074,75 @@ artifacts. `git diff --check` passed. The pinned submodule remains
 No native code/submodule change or native rebuild is required for this shared
 camera fix. The full dual-host/dual-WASM release matrix was intentionally not
 rerun; focused shared behavior is exercised in real serial Electron.
+
+## Follow-up: persistent brush visibility and solid sphere cursor (2026-09-30)
+
+The user reports that starting a stroke hides the brush behind refreshed model
+surfaces until leaving/re-entering the model, and requires a translucent solid
+sphere rather than a wireframe. The user additionally requires the selected
+filament's highlighted colour using Orca's algorithm. The pinned MMU renderer
+enables blending and depth testing, renders triangles/cuts, then calls `render_cursor()`.
+`GLGizmoPainterBase::render_cursor_circle` disables depth testing for its circle;
+`render_cursor_sphere` uses a solid sphere/flat shader under normal depth testing.
+The base pressed sphere colours use alpha 0.25. Neo's current white wire sphere
+and ordinary opaque cursor meshes lack a stable cursor render-order contract.
+
+Implement one bounded step: make all existing brush cursors render in a stable
+final cursor layer after draft surfaces/candidates/contours across geometry
+replacement, without writing depth. Keep circle/height/pointer cursor overlays
+independent of model depth. Use a translucent filled sphere with normal model
+depth testing and a fixed 0.25 opacity; retain existing brush
+size/position/input semantics. Do not add native APIs, clipping,
+wireframe modes or internal compatibility signatures.
+
+Use the selected positive filament slot from the displayed bundle's matched
+palette for all cursor tools and throughout hover, held painting and erasing.
+The MMU adapter owns colour selection; generic rendering receives a required
+cursor colour resolver/value. Orca's `TriangleSelectorGUI::get_seed_fill_color`
+(`GLGizmoPainterBase.cpp`) computes `min(channel * 1.25, 1)` separately for the
+three original RGB channels. Apply that formula in encoded sRGB before Three's
+linear-working-space conversion, without a brightness floor or HSV substitute.
+The helper returns alpha 1; retain the separately specified sphere opacity
+0.25. This uses Orca's highlight algorithm as explicitly requested; the pinned
+MMU hover cursor itself reads the unmodified selected extruder colour and its
+base pressed cursor colours differ. Filament selection updates cursor colour
+immediately; palette refresh publishes cursor colour with its matched display
+bundle and preserves cursor/geometry identity.
+
+A fresh gpt-6.1-sol/high child implemented and self-verified this step. Parent
+source review confirmed the required colour resolver and all current callers,
+the module-private slot lookup shared by MMU surface/cursor adapters, exact
+encoded-channel highlighting, and explicit cursor group/object render order.
+The display bundle, model-centre camera rotation and stable pointer listeners
+remain intact. No optional legacy signature or internal compatibility path was
+introduced. Independent IEC sRGB equations verify highlighted linear channels;
+the source parser avoids an approximate inverse-colour round trip before
+highlighting.
+
+The controlled negative restored the old opaque circle/default draw order:
+22/22 frames after native geometry replacement drew the cursor before both
+model surfaces. The fixed source was restored and the positive journey rerun.
+This establishes that refresh-induced draw sorting caused the reported hiding.
+
+Child validation passed 24 focused tests, 1,159 root tests, root typecheck and
+the real serial Electron journey (1/1). Parent independently reviewed code and
+passed `pnpm test` (1,159, including 749 app tests), `pnpm typecheck` and
+`pnpm exec node scripts/run-painting-e2e.mjs` (1/1, 21.4 seconds total). The
+runner checked fixture and served serial JS/WASM/data hashes. Parent actual
+renderer captures contain 31 circle, 22 sphere, 24 triangle and 23 height
+frames. Each crosses two model geometry UUIDs, retains one cursor UUID and
+draws the cursor last in every frame. Selected-filament switching captured
+15 frames with both red and green cursors. RGB editing captured 15 frames,
+including actual `#556a80` cursor rendering for source `#445566`, independent
+linear-channel checks and unchanged sphere alpha 0.25. Entry (19 frames) and
+RGB captures both have zero blank or overlapping model frames. Parent visually
+reviewed held-sphere and highlighted-sphere screenshots. Evidence lives in
+ignored desktop `test-results`; independent logs use
+`packages/slicer-wasm/.work/parent-painting-cursor-*.log`.
+
+Parent restored fresh ordinary builds with `pnpm --filter @orca/desktop build`
+and `pnpm --filter @orca/web build`, then passed
+`pnpm exec node scripts/check-painting-profile-elision.mjs` on 21 artifacts.
+`git diff --check` passed. No native rebuild or full dual-host/dual-WASM release
+matrix was run for this shared renderer-only change; the pinned native
+submodule remains `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`.

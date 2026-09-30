@@ -25,7 +25,9 @@ export function paintingUploadBytes(method: 'bufferData' | 'bufferSubData', args
 export function PaintingVisualProbe() {
   const { gl, invalidate, scene: mainScene } = useThree();
   useEffect(() => {
-    type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[] };
+    type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[];
+      draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
+        cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number } }> };
     let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
     let raf: number | null = null;
     const originalRender = gl.render;
@@ -33,23 +35,36 @@ export function PaintingVisualProbe() {
       // GizmoHelper renders a separate overlay scene through this renderer.
       // Only the persistent model scene is a viewport model frame.
       if (!capture || scene !== mainScene) return originalRender.call(gl, scene, camera);
-      const frame: Frame = { at: performance.now(), ordinary: [], painting: [], colors: [] };
+      const frame: Frame = { at: performance.now(), ordinary: [], painting: [], colors: [], draws: [] };
       const restore: Array<() => void> = [];
       scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
+        if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.LineSegments)) return;
         let volume: LoadedObject | undefined;
         for (let ancestor: THREE.Object3D | null = object; ancestor; ancestor = ancestor.parent) {
           if (ancestor.userData.orcaVolume) { volume = ancestor.userData.orcaVolume; break; }
         }
-        const kind = object.name === `painting-model-${capture!.objectId}-${capture!.instanceId}` ? 'painting'
+        const kind = object.name.startsWith('painting-cursor-') ? object.name
+          : object.name === 'painting-candidate' || object.name === 'painting-contour' ? object.name
+          : object.name === `painting-model-${capture!.objectId}-${capture!.instanceId}` ? 'painting'
           : volume?.buffer.objectId === capture!.objectId && volume.buffer.instanceId === capture!.instanceId ? 'ordinary' : null;
         if (!kind) return;
         const original = object.onBeforeRender;
         object.onBeforeRender = function (...args) {
           original.apply(this, args);
-          frame[kind].push(object.geometry.uuid);
-          const material = args[4] as THREE.MeshStandardMaterial;
-          frame.colors.push(material.color?.getHexString() ?? '');
+          const material = args[4] as THREE.MeshBasicMaterial;
+          if (kind === 'ordinary' || kind === 'painting') {
+            frame[kind].push(object.geometry.uuid);
+            frame.colors.push(material.color?.getHexString() ?? '');
+          }
+          let groupOrder = 0;
+          for (let ancestor: THREE.Object3D | null = object.parent; ancestor; ancestor = ancestor.parent) {
+            if (ancestor instanceof THREE.Group) { groupOrder = ancestor.renderOrder; break; }
+          }
+          frame.draws.push({ kind, geometry: object.geometry.uuid, renderOrder: object.renderOrder, groupOrder,
+            ...(kind.startsWith('painting-cursor-') ? { cursor: { uuid: object.uuid,
+              radius: object.geometry instanceof THREE.SphereGeometry ? object.geometry.parameters.radius * object.getWorldScale(new THREE.Vector3()).x : null,
+              color: material.color.getHexString(), encodedRgb: material.color.clone().convertLinearToSRGB().toArray(), linearRgb: material.color.toArray(), wireframe: material.wireframe, transparent: material.transparent,
+              opacity: material.opacity, depthTest: material.depthTest, depthWrite: material.depthWrite, side: material.side } } : {}) });
         };
         restore.push(() => { object.onBeforeRender = original; });
       });

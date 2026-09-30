@@ -365,6 +365,19 @@ The React-side BVH is used only to locate the cursor visually on the original
 model. Its hit point, `faceIndex`, and selected hit volume do not determine a
 painting operation. No BVH is built over the subdivided paint display geometry.
 
+Render brush cursors after draft surfaces, candidates and contours, with a
+stable draw order across stroke/geometry publication. Cursors do not write
+depth. Circle, height and triangle-pointer overlays ignore model depth; the
+sphere uses a filled, translucent surface with normal model depth testing and
+opacity 0.25, rather than a wireframe or an X-ray sphere. Preserve cursor
+identity during a held stroke; refreshing a model must not require leaving and
+re-entering it to restore the cursor. Cursor colours follow the selected
+filament's effective colour from the matched displayed palette. Apply Orca's
+`TriangleSelectorGUI::get_seed_fill_color` highlight formula to each original
+encoded RGB channel: `min(channel * 1.25, 1)`, before Three's linear colour
+conversion. Keep that selected highlighted hue during painting and erasing;
+sphere translucency remains independent of the RGB highlight.
+
 Once the pointer is pressed, native code performs all painting hit tests and
 face identification. The frontend sends the admitted pointer events in order and the
 camera/viewport information needed to reconstruct the corresponding rays. The

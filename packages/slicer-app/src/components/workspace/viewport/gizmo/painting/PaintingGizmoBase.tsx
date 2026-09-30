@@ -8,6 +8,7 @@ import { usePaintingController, usePaintingState } from './PaintingProvider';
 import { paintingPartMatrix, PaintingResources, type PaintingResource } from './PaintingResources';
 import { PaintingProbe } from '../../../../../e2e/PaintingProbe';
 import type { PaintingDisplay } from './PaintingController';
+import { PaintingCursor, PAINTING_RENDER_ORDER } from './PaintingCursor';
 declare const __ORCA_E2E__: boolean;
 
 export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>, canvas: HTMLCanvasElement, camera: THREE.Camera): PaintingPointerEvent {
@@ -42,7 +43,7 @@ export function paintingModelBounds(meshes: readonly THREE.Mesh[]): THREE.Box3 {
 
 /** Dedicated painting tree: no ordinary model meshes, selection, drag or BVH on
  * subdivided geometry. Native candidates are separate, explicit manifests. */
-export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { volumes: readonly LoadedObject[]; resolveColor(display: PaintingDisplay, volumeId: number, state: number): string; openingVisual: ReactNode }) {
+export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, openingVisual }: { volumes: readonly LoadedObject[]; resolveColor(display: PaintingDisplay, volumeId: number, state: number): string; resolveCursorColor(display: PaintingDisplay, state: number): THREE.Color; openingVisual: ReactNode }) {
   const owner = usePaintingController()!, state = usePaintingState()!;
   const { camera, gl, invalidate, controls } = useThree();
   const cache = useMemo(() => new PaintingResources(), []);
@@ -164,7 +165,6 @@ export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { vo
       canvas.removeEventListener('wheel', wheel, true); window.removeEventListener('blur', interrupted); window.removeEventListener('keydown', key, true);
     };
   }, [camera, gl, controls, invalidate, owner]);
-  const bandSize = bounds.getSize(new THREE.Vector3()), bandCenter = bounds.getCenter(new THREE.Vector3());
   const activeCandidates = new Set(visual?.display.candidates.map((c) => c.resourceId));
   return <>
     {__ORCA_E2E__ && <PaintingProbe owner={owner} resources={cache} volumes={volumes} cursor={cursor} pivot={pivot} />}
@@ -172,12 +172,7 @@ export function PaintingGizmoBase({ volumes, resolveColor, openingVisual }: { vo
     {visual ? visual.resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
       return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} />;
     }) : openingVisual}
-    {cursor && state.tool !== 'gap' && state.tool !== 'region' && <group position={cursor}>
-      {state.tool === 'sphere' ? <mesh><sphereGeometry args={[state.settings.radius, 24, 16]} /><meshBasicMaterial color="white" wireframe transparent opacity={0.5} depthTest={false} /></mesh>
-        : state.tool === 'circle' ? <mesh quaternion={camera.quaternion}><ringGeometry args={[state.settings.radius * 0.97, state.settings.radius, 64]} /><meshBasicMaterial color="white" side={THREE.DoubleSide} depthTest={false} /></mesh>
-          : state.tool === 'height' ? <group position={[bandCenter.x - cursor.x, bandCenter.y - cursor.y, state.settings.height / 2]}><mesh><boxGeometry args={[bandSize.x, bandSize.y, state.settings.height]} /><meshBasicMaterial color="white" wireframe depthTest={false} /></mesh></group>
-            : <mesh><sphereGeometry args={[0.4, 8, 8]} /><meshBasicMaterial color="white" depthTest={false} /></mesh>}
-    </group>}
+    {cursor && visual && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} color={resolveCursorColor(visual.display, state.settings.state)} />}
   </>;
 }
 function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[]; targetName: string }) {
@@ -187,8 +182,8 @@ function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource:
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
   useEffect(() => () => contourMaterial.dispose(), [contourMaterial]);
   return <group matrix={matrix} matrixAutoUpdate={false} dispose={null}>
-    <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overlay ? 2 : 0} />
-    {resource.source.contour.length > 0 && <lineSegments geometry={resource.contour} material={contourMaterial} renderOrder={3} />}
+    <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overlay ? PAINTING_RENDER_ORDER.candidate : PAINTING_RENDER_ORDER.draft} />
+    {resource.source.contour.length > 0 && <lineSegments name={__ORCA_E2E__ ? 'painting-contour' : undefined} geometry={resource.contour} material={contourMaterial} renderOrder={PAINTING_RENDER_ORDER.contour} />}
   </group>;
 }
 

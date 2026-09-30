@@ -15,6 +15,7 @@ let root: Root, container: HTMLDivElement, canvas: HTMLCanvasElement;
 const identity = new THREE.Matrix4().toArray();
 let source: LoadedObject, replacement: THREE.BufferGeometry;
 beforeEach(() => {
+  resolveCursorColor.mockClear();
   vi.stubGlobal('__ORCA_E2E__', false); vi.stubGlobal('PointerEvent', MouseEvent);
   // React DOM hosts the effect under test. It intentionally has no Three
   // reconciler; capture only the expected custom-element/property warnings.
@@ -43,8 +44,26 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount()); container.remove(); canvas.remove(); source.geometry.dispose(); replacement.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
-const render = (volumes: LoadedObject[]) => act(async () => root.render(<PaintingGizmoBase volumes={volumes} resolveColor={() => '#abcdef'} openingVisual={<span>Prepare</span>} />));
+const resolveCursorColor = vi.fn(() => new THREE.Color('#abcdef'));
+const render = (volumes: LoadedObject[]) => act(async () => root.render(<PaintingGizmoBase volumes={volumes} resolveColor={() => '#abcdef'} resolveCursorColor={resolveCursorColor} openingVisual={<span>Prepare</span>} />));
 function pointer(type: string, options: MouseEventInit = {}) { const event = new MouseEvent(type, { bubbles: true, button: 0, clientX: 10, clientY: 10, ...options }); Object.defineProperty(event, 'pointerId', { value: 1 }); return event; }
+
+it('resolves cursor colour from the retained matched display and current selected state throughout press/ending/erase', async () => {
+  vi.spyOn(THREE.Raycaster.prototype, 'intersectObjects').mockReturnValue([{ point: new THREE.Vector3(1, 2, 3) } as THREE.Intersection]);
+  await render([source]);
+  await act(async () => canvas.dispatchEvent(pointer('pointermove')));
+  const previous = mocked.state!.display!;
+  expect(resolveCursorColor).toHaveBeenLastCalledWith(previous, 1);
+  mocked.state = { ...mocked.state!, display: null, session: { ...mocked.state!.session!, revision: 2 }, settings: { ...mocked.state!.settings, state: 2 } };
+  await render([source]); expect(resolveCursorColor).toHaveBeenLastCalledWith(previous, 2);
+  for (const phase of ['drawing', 'ending'] as const) {
+    mocked.state = { ...mocked.state!, phase, settings: { ...mocked.state!.settings, erase: true } };
+    await render([source]); expect(resolveCursorColor).toHaveBeenLastCalledWith(previous, 2);
+  }
+  const next = { ...previous, session: mocked.state!.session!, revision: 2, resources: [] };
+  mocked.state = { ...mocked.state!, phase: 'idle', display: next };
+  await render([source]); expect(resolveCursorColor).toHaveBeenLastCalledWith(next, 2);
+});
 
 it('keeps a held native gesture when borrowed cursor geometry refreshes, and delivers only the actual pointer terminal', async () => {
   await render([source]);
