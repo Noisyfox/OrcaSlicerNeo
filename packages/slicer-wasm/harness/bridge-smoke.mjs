@@ -60,6 +60,25 @@ const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 
+// The upstream Assimp reader is excluded from WASM. Its dispatch must reject
+// these formats cleanly instead of creating an empty or partial scene.
+const beforeUnsupportedImport = callJson('orc_get_model_structure', [], []);
+const unsupportedBytes = new Uint8Array([0, 1, 2, 3]);
+const unsupportedPtr = Number(Module._malloc(unsupportedBytes.length));
+try {
+  Module.HEAPU8.set(unsupportedBytes, unsupportedPtr);
+  for (const ext of ['glb', 'gltf', 'fbx']) {
+    const rejected = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+      [unsupportedPtr, unsupportedBytes.length, ext, `unsupported.${ext}`]);
+    check(`${ext} import rejects without changing the scene`,
+      rejected.ok !== true && typeof rejected.error === 'string'
+      && JSON.stringify(callJson('orc_get_model_structure', [], [])) === JSON.stringify(beforeUnsupportedImport),
+      JSON.stringify(rejected));
+  }
+} finally {
+  Module._free(unsupportedPtr);
+}
+
 const plateSession = callJson('orc_get_plate_session_snapshot', [], []);
 check('plate session starts with one native-positioned Plate 1',
   plateSession.ok === true && plateSession.version === 1 &&

@@ -30,9 +30,14 @@ printer profile.
 - Prepare and Preview retain one STL geometry per scene; only the current
   plate renders it. Switching plates reuses that geometry at the new origin. Geometry
   remains in slicer Z-up coordinates; placement follows `Bed3D::update_model_offset`,
-  in the pinned core: centered vendor models (including BBL) and the -0.45 mm
-  Z offset, followed by the native plate origin. Older Orca BBL offsets do not
-  apply to the centered STL resources in this version.
+  in the pinned core: vendor models use the printable bounding-box center and
+  the -0.45 mm Z offset, followed by the native plate origin. The updated core
+  at `489cbe9184` restores stock Bambu STL coordinates: paths containing
+  `bbl-3dp-` additionally subtract half of the third printable-area point's X
+  and Y coordinates, exactly as Orca does. Standard P1P and A1 mini profiles
+  therefore place their bed models at local XY `(0, 0)`; other vendor models
+  retain their centered placement. This affects decorative geometry only;
+  printable polygons, grids, artwork, and slicer coordinates are unchanged.
 - A successfully loaded model replaces the current plate's generic visible
   polygon. Other plates retain their generic backgrounds. Every plate keeps
   its grid, drawn at -0.26 mm above the model at -0.45 mm, matching the separate
@@ -80,7 +85,7 @@ printer profile.
   passes 27 tests; the two real-model import cases are intentionally skipped.
 - `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts e2e/web.e2e.ts --grep 'real printer bed STL'`
   passes against real threaded WASM. It verifies P1P/A1 mini geometry changes,
-  centered coordinates, current-only model rendering, grid overlays on both
+  native Bambu/non-Bambu offsets, current-only model rendering, grid overlays on both
   plates, and geometry reuse when switching plate origins. It also verifies
   Prusa MK4 SVG artwork on only the current plate, its Z position, bounded
   upload size, and disabled depth writes. The screenshot was visually inspected.
