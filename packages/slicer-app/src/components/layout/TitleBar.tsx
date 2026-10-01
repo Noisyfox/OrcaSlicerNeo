@@ -5,7 +5,14 @@ import type {
   MenuStateSnapshot,
   PlatformChrome,
 } from '@orca/platform-contract';
-import orcaIconUrl from '@/resources/orca-icon.png';
+import { MenuIcon, SaveIcon, HouseIcon, BoxIcon, LayersIcon, ComputerIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { TooltipFor } from '@/components/ui/tooltip';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { HistoryNavigation } from './HistoryNavigation';
+import { isAppTab, type AppTab } from './appTabs';
+import type { HistoryRestoreCoordinator } from '@/history/restoreCoordinator';
 import {
   Menubar,
   MenubarContent,
@@ -25,6 +32,12 @@ export interface TitleBarProps {
   model: MenuModel;
   state: MenuStateSnapshot;
   onCommand: (command: MenuCommandId) => void;
+  activeTab?: AppTab;
+  onTabChange?: (tab: AppTab) => void;
+  historyRestoreCoordinator?: HistoryRestoreCoordinator | null;
+  projectName?: string;
+  projectDirty?: boolean;
+  navigationDisabled?: boolean;
 }
 
 function MenuItems({
@@ -78,49 +91,64 @@ function MenuItems({
 }
 
 /**
- * Shared renderer titlebar. Native macOS menus intentionally leave this
- * surface empty; the same startup/ready state is still synchronized by App.
+ * Shared navigation and quick actions; macOS keeps its native menu surface.
  */
-export function TitleBar({ chrome, model, state, onCommand }: TitleBarProps) {
+export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', onTabChange, historyRestoreCoordinator, projectName = 'Untitled', projectDirty = false, navigationDisabled = false }: TitleBarProps) {
   const native = model.menuMode === 'native' || chrome.menuMode === 'native';
   return (
     <header
       data-testid="titlebar"
       aria-label="Application title bar"
       className={cn(
-        'flex h-8 shrink-0 items-center bg-titlebar select-none',
+        'titlebar flex h-8 min-w-0 shrink-0 items-center bg-titlebar select-none',
         chrome.dragRegion && '[-webkit-app-region:drag]',
         chrome.macSafeInset && 'pl-20',
+        chrome.kind === 'desktop' && !chrome.macSafeInset && 'titlebar-window-inset',
       )}
     >
-      {!native && (
-        <img
-          src={orcaIconUrl}
-          alt="OrcaSlicer"
-          data-testid="titlebar-brand-icon"
-          className="ml-2 mr-2 h-5 w-5 shrink-0 object-contain"
-        />
-      )}
       {!native && (
         <Menubar
           data-testid="titlebar-menu"
           aria-label="Application menu"
-          className="h-8 rounded-none border-0 p-0 [-webkit-app-region:no-drag]"
+          className="ml-2 h-8 shrink-0 rounded-none border-0 p-0 [-webkit-app-region:no-drag]"
         >
-          {model.menus.map((menu) => (
-            <MenubarMenu key={menu.testId}>
-              <MenubarTrigger data-testid={`${menu.testId}-trigger`} className="px-2.5 py-0.5 [-webkit-app-region:no-drag]">
-                {menu.label}
-              </MenubarTrigger>
-              <MenubarContent>
-                <MenubarGroup>
-                  <MenuItems items={menu.items} state={state} onCommand={onCommand} />
-                </MenubarGroup>
-              </MenubarContent>
-            </MenubarMenu>
-          ))}
+          <MenubarMenu>
+            <MenubarTrigger data-testid="titlebar-menu-trigger" aria-label="Application menu" className="titlebar-action size-7 justify-center p-0 [-webkit-app-region:no-drag]">
+              <MenuIcon className="size-4" />
+            </MenubarTrigger>
+            <MenubarContent>
+              <MenubarGroup>
+                {model.menus.map((menu) => (
+                  <MenubarSub key={menu.testId}>
+                    <MenubarSubTrigger data-testid={`${menu.testId}-trigger`}>{menu.label}</MenubarSubTrigger>
+                    <MenubarSubContent>
+                      <MenubarGroup><MenuItems items={menu.items} state={state} onCommand={onCommand} /></MenubarGroup>
+                    </MenubarSubContent>
+                  </MenubarSub>
+                ))}
+              </MenubarGroup>
+            </MenubarContent>
+          </MenubarMenu>
         </Menubar>
       )}
+      {!native && <Separator orientation="vertical" className="mx-1 h-5 self-center" />}
+      <TooltipFor content="Save Project" disabled={!state.items['save-project']?.enabled}>
+        <Button size="icon" variant="ghost" className="titlebar-action [-webkit-app-region:no-drag]" aria-label="Save Project" data-testid="titlebar-save-project" disabled={!state.items['save-project']?.enabled} onClick={() => onCommand('save-project')}>
+          <SaveIcon />
+        </Button>
+      </TooltipFor>
+      <HistoryNavigation activeTab={activeTab} coordinator={historyRestoreCoordinator} />
+      <Separator orientation="vertical" className={cn('ml-2 mr-0 h-5 self-center', activeTab === 'home' && 'invisible')} />
+      <Tabs value={activeTab} className="titlebar-tabs no-scrollbar min-w-0 shrink self-end overflow-x-auto [-webkit-app-region:no-drag]" onValueChange={(value) => { if (isAppTab(value)) onTabChange?.(value); }}>
+        <TabsList aria-label="Main pages" className="titlebar-tabs-list">
+          <TabsTrigger className="titlebar-tab" value="home" id="app-tab-home" aria-label="Home" aria-controls="app-panel-home" disabled={navigationDisabled}><HouseIcon /></TabsTrigger>
+          <TabsTrigger className="titlebar-tab" value="prepare" id="app-tab-prepare" aria-controls="app-panel-workspace" disabled={navigationDisabled}><BoxIcon />Prepare</TabsTrigger>
+          <TabsTrigger className="titlebar-tab" value="preview" id="app-tab-preview" aria-controls="app-panel-workspace" disabled={navigationDisabled}><LayersIcon />Preview</TabsTrigger>
+          <TabsTrigger className="titlebar-tab" value="device" id="app-tab-device" aria-controls="app-panel-device" data-testid="tab-device" disabled={navigationDisabled}><ComputerIcon />Device</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      <Separator orientation="vertical" className={cn('ml-0 mr-3 h-5 self-center', activeTab === 'device' && 'invisible')} />
+      <span className="titlebar-project-label min-w-0 truncate pr-3 text-[13px] leading-5 text-muted-foreground" title={projectName} data-testid="titlebar-project-name">{projectName === 'Untitled' ? 'Untitled Project' : projectName}{projectDirty ? ' *' : ''}</span>
     </header>
   );
 }

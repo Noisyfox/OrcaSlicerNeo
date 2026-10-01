@@ -368,15 +368,19 @@ function AppContent() {
       chrome={platform.chrome}
       model={menuModel}
       state={menuState}
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      historyRestoreCoordinator={historyRestoreCoordinator}
+      projectName={projectState.projectName}
+      projectDirty={projectState.dirty}
+      navigationDisabled={boot !== 'ready'}
       onCommand={(command) => { void dispatcher.dispatch(command); }}
     />
   );
 
-  // The app's only context menus are the 3D scene's own menu
-  // (SceneContextMenu, right-click on empty viewport space) and the native
-  // copy/paste menus on editable controls. Right-clicking empty space outside
-  // any editor — the toolbar row, settings sidebar, status bar — must not
-  // surface the browser/host default menu.
+  // Explicit context-menu triggers and the 3D scene own their right-clicks;
+  // editors retain native copy/paste menus. Empty space elsewhere suppresses
+  // the browser/host default menu.
   useEffect(() => {
     const suppressEmptySpaceContextMenu = (event: MouseEvent) => {
       const target = event.target;
@@ -388,8 +392,8 @@ function AppContent() {
         event.stopPropagation();
         return;
       }
-      // The WebGL viewport owns its own scene context menu.
-      if (target.closest('canvas[data-engine^="three.js"]')) return;
+      // Scene and explicit UI context-menu triggers own their right-clicks.
+      if (target.closest('canvas[data-engine^="three.js"], [data-slot="context-menu-trigger"]')) return;
       event.preventDefault();
     };
     document.addEventListener('contextmenu', suppressEmptySpaceContextMenu, true);
@@ -567,7 +571,7 @@ function AppContent() {
       {appE2eProbe}
       <AppShell
         titleBar={titleBar}
-        toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} historyRestoreCoordinator={historyRestoreCoordinator} />}
+        toolbar={<Toolbar activeTab={activeTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}

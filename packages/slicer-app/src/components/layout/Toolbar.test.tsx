@@ -7,7 +7,6 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
-import type { HistoryStatus } from '@slicer/client';
 vi.mock('../workspace/actions/sliceActions', () => ({ exportGcode: vi.fn(), sliceModel: vi.fn() }));
 vi.mock('../send/SendGcodeDialog', () => ({
   SendGcodeDialog: ({ onNavigateToDevice }: { onNavigateToDevice?: () => void }) => (
@@ -44,27 +43,14 @@ function makePlatform() {
   };
 }
 
-const navigationStatus: HistoryStatus = {
-  editingSession: null, navigationFloor: null,
-  canUndo: true, canRedo: true, undoLabel: 'Move', redoLabel: 'Delete',
-  undoEntries: [
-    { id: 'undo-move', label: 'Move', category: 'project' },
-  ],
-  redoEntries: [
-    { id: 'redo-delete', label: 'Delete', category: 'project' },
-  ],
-  cursor: 2, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
-  bytesUsed: 1, byteBudget: 256, evictedEntryCount: 0,
-  lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
-  disabled: false, activeTransactionId: null, revision: 2,
-};
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe('Toolbar send navigation', () => {
   let root: Root | undefined;
 
   afterEach(() => {
     vi.useRealTimers();
-    root?.unmount();
+    act(() => root?.unmount());
     root = undefined;
     document.body.innerHTML = '';
     useSettingsStore.setState({ modelLoaded: false });
@@ -141,108 +127,4 @@ describe('Toolbar send navigation', () => {
     expect((container.querySelector('[data-testid="btn-send-and-print"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('keeps fixed button text and Worker-derived accessible labels', async () => {
-    const { platform } = makePlatform();
-    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
-    useHistoryNavigationStore.getState().setStatus(navigationStatus);
-    const container = document.createElement('div');
-    document.body.append(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
-    });
-    const undo = container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement;
-    expect(undo.textContent?.trim()).toBe('Undo');
-    expect(undo.getAttribute('aria-label')).toBe('Undo Move');
-    expect(undo.disabled).toBe(false);
-    expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
-    await act(async () => { undo.click(); });
-    expect(coordinator.restore).toHaveBeenCalledWith('undo');
-  });
-
-  it('keeps navigation available while restoring so the coordinator can queue Worker-validated intents', async () => {
-    const { platform } = makePlatform();
-    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
-    useHistoryNavigationStore.getState().setStatus(navigationStatus);
-    const container = document.createElement('div');
-    document.body.append(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
-    });
-    await act(async () => { useHistoryRestoreStore.getState().setPhase('restoring'); });
-    expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(false);
-    expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it('disables buttons and history menus during a serial slice but keeps threaded history responsive', async () => {
-    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
-    useHistoryNavigationStore.getState().setStatus(navigationStatus);
-    useSlicerStore.setState({ status: 'slicing' });
-    const { platform } = makePlatform();
-    const runtimeState = vi.mocked(platform.runtime.getRuntimeExecutionState);
-    runtimeState.mockReturnValue({ threaded: false, sliceActive: true, serialSliceActive: true, serialTerminalEpoch: '0' });
-    const container = document.createElement('div');
-    document.body.append(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
-    });
-    for (const testId of ['history-undo', 'history-redo', 'history-undo-menu-trigger', 'history-redo-menu-trigger'])
-      expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).disabled).toBe(true);
-
-    runtimeState.mockReturnValue({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' });
-    await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
-    });
-    expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(false);
-    expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it.each(['home', 'preview', 'device'] as const)('disables history controls outside Prepare on %s', async (activeTab) => {
-    const { platform } = makePlatform();
-    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
-    useHistoryNavigationStore.getState().setStatus(navigationStatus);
-    const container = document.createElement('div');
-    document.body.append(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar activeTab={activeTab} historyRestoreCoordinator={coordinator} /></PlatformProvider>);
-    });
-
-    for (const testId of ['history-undo', 'history-redo', 'history-undo-menu-trigger', 'history-redo-menu-trigger'])
-      expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('opens directional menus and jumps directly to the Worker entry', async () => {
-    const { platform } = makePlatform();
-    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
-    useHistoryNavigationStore.getState().setStatus(navigationStatus);
-    const container = document.createElement('div');
-    document.body.append(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
-    });
-    await act(async () => {
-      (container.querySelector('[data-testid="history-undo-menu-trigger"]') as HTMLButtonElement).click();
-    });
-    expect(document.querySelector('[data-testid="history-undo-entry-undo-move"]')).not.toBeNull();
-    await act(async () => {
-      (document.querySelector('[data-testid="history-undo-entry-undo-move"]') as HTMLElement).click();
-    });
-    expect(coordinator.restore).toHaveBeenCalledWith({ jump: 'undo-move', direction: 'undo' });
-  });
-
-  it('surfaces retryable restore errors without fabricating a history entry', async () => {
-    const { platform } = makePlatform();
-    useHistoryRestoreStore.getState().setError('invalid staged model');
-    const container = document.createElement('div');
-    document.body.append(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar /></PlatformProvider>);
-    });
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe('invalid staged model');
-  });
 });

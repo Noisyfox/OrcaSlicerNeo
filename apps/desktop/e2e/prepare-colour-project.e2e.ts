@@ -30,7 +30,12 @@ test('imported opaque RGBA slots colour Prepare models like the filament rack', 
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await page.getByTestId('file-open-project').click();
     const confirmation = page.getByTestId('project-load-confirmation-dialog');
     if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))

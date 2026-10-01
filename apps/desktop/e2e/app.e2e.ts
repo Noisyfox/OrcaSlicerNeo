@@ -568,7 +568,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
-test('shared history toolbar supports buttons, shortcuts, menu jumps, and native input undo', async () => {
+test('shared titlebar history supports buttons, shortcuts, menu jumps, and native input undo', async () => {
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
@@ -579,7 +579,8 @@ test('shared history toolbar supports buttons, shortcuts, menu jumps, and native
 
     await page.getByTestId('btn-add-model').click();
     await expect(undo).toBeEnabled({ timeout: 30_000 });
-    await expect(undo).toContainText('Undo');
+    await expect(undo).toHaveText('');
+    await expect(undo).toHaveAttribute('aria-label', /^Undo /);
 
     // Project history is an editing operation: it remains intact but cannot
     // be invoked through buttons or global shortcuts outside Prepare.
@@ -660,14 +661,14 @@ test('shared history toolbar supports buttons, shortcuts, menu jumps, and native
     // One directional-menu command can cross the retained Add Model and Add
     // Plate entries. The Worker receives the selected opaque entry ID rather
     // than a sequence of renderer-side button clicks.
-    await page.getByTestId('history-undo-menu-trigger').click();
+    await page.getByTestId('history-undo').click({ button: 'right' });
     const undoEntries = page.getByTestId(/history-undo-entry-/);
     await expect(undoEntries).toHaveCount(4);
     await undoEntries.last().click();
     await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
 
-    await page.getByTestId('history-redo-menu-trigger').click();
+    await page.getByTestId('history-redo').click({ button: 'right' });
     const redoEntries = page.getByTestId(/history-redo-entry-/);
     await expect(redoEntries).toHaveCount(4);
     await redoEntries.last().click();

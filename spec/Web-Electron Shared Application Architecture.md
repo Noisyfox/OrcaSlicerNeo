@@ -103,13 +103,15 @@ Themes, global CSS, shadcn wrappers, and application components belong to
 `slicer-app`; hosts may add only narrow platform CSS, such as Electron window
 drag regions.
 
-The common app includes a visually shared `BrandBar`. In custom Electron and
-browser menu modes, it places the Orca icon at the left beside the shared menu.
-Native macOS menu mode hides both the icon and renderer menu, while retaining
-the traffic-light safe inset and draggable area. Electron supplies drag-region
-styling; Web renders the branded bar without a drag region, native-window inset,
-or window controls. This preserves the intentional Electron frameless design
-without making it a Web-only or desktop-only component.
+The common app includes a shared 32px titlebar with page tabs, icon-only Save
+Project and Undo/Redo actions, and the project name. Custom Electron and
+browser modes put all renderer menu categories inside one hamburger menu at
+the far left. Native macOS mode hides the renderer menu and retains the flat
+system menu, traffic-light safe inset, shared actions, and page navigation.
+Selected page tabs have a gray surface with rounded top corners and a square
+bottom edge. Undo/Redo history opens by right-clicking the corresponding icon.
+Electron supplies drag-region styling and native-window control clearance;
+Web renders the shared bar without window controls or drag regions.
 
 The first-release Web layout is a desktop layout that adapts fluidly to the
 viewport size: it retains the complete layout at any window size, shrinking
@@ -193,7 +195,8 @@ Host placement is deliberately platform-specific while the model and state
 remain shared:
 
 - Web renders the browser titlebar menu and never exposes Quit/Exit.
-- Windows/Linux Electron renders File/Help in the custom frameless titlebar,
+- Windows/Linux Electron renders File/Help as submenus of one hamburger menu
+  in the custom frameless titlebar,
   includes Exit, and marks menu controls `no-drag` so pointer activation does
   not interfere with window dragging or window controls.
 - macOS Electron renders no duplicate File/Help controls in the shared

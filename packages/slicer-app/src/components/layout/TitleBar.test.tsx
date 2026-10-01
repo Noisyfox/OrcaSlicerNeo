@@ -1,8 +1,23 @@
-import { renderToStaticMarkup } from 'react-dom/server';
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
+import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import type { MenuStateSnapshot, PlatformChrome } from '@orca/platform-contract';
 import { buildMenuModel, buildMenuStateSnapshot } from '@/menu/menuModel';
 import { TitleBar } from './TitleBar';
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+function renderTitlebar(element: React.ReactElement) {
+  const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true, sliceActive: false }) } } as unknown as PlatformCapabilities;
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  act(() => root.render(<PlatformProvider value={platform}>{element}</PlatformProvider>));
+  const html = container.innerHTML;
+  act(() => root.unmount());
+  return html;
+}
 
 function state(chrome: PlatformChrome): MenuStateSnapshot {
   return buildMenuStateSnapshot({
@@ -12,14 +27,14 @@ function state(chrome: PlatformChrome): MenuStateSnapshot {
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: true },
     result: { hasResult: false, exported: false },
-    project: { hasContent: true, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
+    project: { hasContent: true, dirty: true, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: chrome.kind === 'desktop', menuMode: chrome.menuMode },
   }, chrome);
 }
 
 function markup(chrome: PlatformChrome) {
   const snapshot = state(chrome);
-  return renderToStaticMarkup(
+  return renderTitlebar(
     <TitleBar
       chrome={chrome}
       model={buildMenuModel(snapshot, chrome)}
@@ -40,14 +55,14 @@ describe('TitleBar menu surface', () => {
 
     expect(custom).toContain('titlebar-menu');
     expect(custom).toContain('no-drag');
-    expect(custom).toContain('File');
-    expect(custom).toContain('Help');
+    expect(custom).toContain('titlebar-menu-trigger');
+    expect(custom).not.toContain('menu-help-trigger');
     expect(browser).toContain('titlebar-menu');
     expect(customModel.menus[0].items.some((item) => item.command === 'quit')).toBe(true);
     expect(browserModel.menus[0].items.some((item) => item.command === 'quit')).toBe(false);
   });
 
-  it('keeps macOS native titlebar empty while retaining the safe inset', () => {
+  it('keeps macOS native menus while showing shared navigation and quick actions', () => {
     const native = markup({
       kind: 'desktop',
       platform: 'darwin',
@@ -58,6 +73,8 @@ describe('TitleBar menu surface', () => {
 
     expect(native).not.toContain('titlebar-menu');
     expect(native).toContain('pl-20');
+    expect(native).toContain('app-tab-prepare');
+    expect(native).toContain('titlebar-save-project');
     expect(native).not.toContain('OrcaSlicerNeo');
     expect(native).not.toContain('AGPL-3.0 source');
   });
@@ -67,4 +84,24 @@ describe('TitleBar menu surface', () => {
     expect(html).not.toContain('OrcaSlicerNeo');
     expect(html).not.toContain('<a');
   });
+  it('dispatches Save from the titlebar using the shared command state', () => {
+    const chrome: PlatformChrome = { kind: 'web', menuMode: 'browser' };
+    const snapshot = state(chrome);
+    const onCommand = vi.fn();
+    const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true, sliceActive: false }) } } as unknown as PlatformCapabilities;
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    const render = () => act(() => root.render(<PlatformProvider value={platform}><TitleBar chrome={chrome} model={buildMenuModel(snapshot, chrome)} state={snapshot} onCommand={onCommand} /></PlatformProvider>));
+    try {
+      render();
+      const save = container.querySelector('[data-testid="titlebar-save-project"]') as HTMLButtonElement;
+      expect(save.disabled).toBe(false);
+      act(() => save.click());
+      expect(onCommand).toHaveBeenCalledWith('save-project');
+      snapshot.items['save-project'].enabled = false;
+      render();
+      expect((container.querySelector('[data-testid="titlebar-save-project"]') as HTMLButtonElement).disabled).toBe(true);
+    } finally { act(() => root.unmount()); }
+  });
+
 });

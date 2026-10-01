@@ -56,7 +56,12 @@ test('commits the requested multi-plate project before dependent E2E assertions'
       (window as unknown as { __orcaE2e?: { projectLoadEvidence?: () => ProjectLoadEvidence } })
         .__orcaE2e?.projectLoadEvidence?.() ?? null,
     );
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await page.getByTestId('file-open-project').click();
 
     await expect(page.getByTestId('project-progress-dialog')).toBeVisible({ timeout: 10_000 });

@@ -22,7 +22,12 @@ async function launchMenuApp(): Promise<ElectronApplication> {
 }
 
 async function openFileMenu(page: Page): Promise<void> {
-  await page.getByTestId('menu-file-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await expect(page.getByTestId('file-add-model')).toBeVisible();
 }
 
@@ -35,11 +40,31 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    const dividers = page.getByTestId('titlebar').locator(':scope > [data-slot="separator"]');
+    await expect(dividers.nth(1)).toBeHidden();
+    await page.locator('#app-tab-device').click();
+    await expect(dividers.nth(2)).toBeHidden();
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('titlebar')).toBeVisible();
     await expect(page.getByTestId('titlebar-menu')).toBeVisible();
-    await expect(page.getByTestId('menu-file-trigger')).toHaveClass(/no-drag/);
-    await expect(page.getByTestId('menu-help-trigger')).toHaveClass(/no-drag/);
+    await expect(page.getByTestId('titlebar-menu-trigger')).toHaveClass(/no-drag/);
+    await expect(dividers.nth(1)).toBeVisible();
+    await expect(dividers.nth(2)).toBeVisible();
+    const layout = await page.getByTestId('titlebar').evaluate((bar) => {
+      const tab = bar.querySelector('#app-tab-prepare')!.getBoundingClientRect();
+      const center = tab.y + tab.height / 2;
+      const icons = ['#app-tab-prepare svg', '[data-testid="titlebar-menu-trigger"] svg', '[data-testid="titlebar-save-project"] svg', '[data-testid="history-undo"] svg', '[data-testid="history-redo"] svg'];
+      return {
+        height: bar.getBoundingClientRect().height,
+        offsets: icons.map((selector) => { const r = bar.querySelector(selector)!.getBoundingClientRect(); return r.y + r.height / 2 - center; }),
+        lines: Array.from(bar.querySelectorAll(':scope > [data-slot="separator"]')).map((line) => line.getBoundingClientRect().width),
+      };
+    });
+    expect(layout.height).toBe(32);
+    layout.offsets.forEach((offset) => expect(Math.abs(offset)).toBeLessThanOrEqual(0.5));
+    expect(layout.lines).toEqual([1, 1, 1]);
+    await expect(page.getByTestId('titlebar-save-project')).toBeDisabled();
+
 
     await expect(page.getByTestId('preset-select')).toBeVisible();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
@@ -54,6 +79,7 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
     await page.getByTestId('file-add-model').click();
 
     await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await expect(page.getByTestId('titlebar-save-project')).toBeEnabled();
     await openFileMenu(page);
     await expect(page.getByTestId('file-add-model')).toBeEnabled();
     await expect(page.getByTestId('file-clear-scene')).toBeEnabled();
@@ -67,7 +93,9 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
 
     // Slice enters passive Preview; scene-mutating menu commands become
     // available again only after returning to Prepare.
-    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape'); // Close File submenu.
+    await page.keyboard.press('Escape'); // Close application menu.
+    await expect(page.getByTestId('titlebar-menu-trigger')).toHaveAttribute('aria-expanded', 'false');
     await page.locator('#app-tab-prepare').click();
     await openFileMenu(page);
     await page.getByTestId('file-clear-scene').click();
@@ -86,7 +114,11 @@ testCustom('Help opens one floating File Manager that can navigate, move, resize
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
-    await page.getByTestId('menu-help-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-help-trigger').hover();
     const openCommand = page.getByTestId('help-file-manager');
     await expect(openCommand).toBeEnabled();
     await openCommand.click();
@@ -103,7 +135,12 @@ testCustom('Help opens one floating File Manager that can navigate, move, resize
     await expect(path).not.toHaveText('/');
     const visitedPath = await path.textContent();
 
-    await page.getByTestId('menu-help-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+
+    await page.getByTestId('menu-help-trigger').hover();
     await page.getByTestId('help-file-manager').click();
     await expect(page.getByTestId('file-manager-window')).toHaveCount(1);
     await expect(manager).toBeFocused();
@@ -135,7 +172,11 @@ testCustom('Help opens one floating File Manager that can navigate, move, resize
 
     await page.getByTestId('file-manager-close').click();
     await expect(manager).toHaveCount(0);
-    await page.getByTestId('menu-help-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-help-trigger').hover();
     await page.getByTestId('help-file-manager').click();
     await expect(page.getByTestId('file-manager-path')).toHaveText('/');
   } finally {

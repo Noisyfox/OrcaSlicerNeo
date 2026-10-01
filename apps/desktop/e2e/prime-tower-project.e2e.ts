@@ -90,7 +90,13 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
 
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await page.getByTestId('file-open-project').click();
     // With an empty startup scene the configured load policy opens directly;
     // a dirty scene instead presents the explicit geometry/project choice.
@@ -172,13 +178,15 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       return beds.find((bed) => bed.current)?.plateId ?? null;
     });
     const readHistory = async () => {
-      const menuTrigger = page.getByTestId('history-undo-menu-trigger');
+      const menuTrigger = page.getByTestId('history-undo');
       if (!(await menuTrigger.isEnabled())) return [] as string[];
-      await menuTrigger.click();
+      await menuTrigger.click({ button: 'right' });
       const entries = page.getByTestId(/history-undo-entry-/);
       await expect(entries.first()).toBeVisible({ timeout: 30_000 });
       const labels = await entries.allTextContents();
-      await menuTrigger.click();
+      const title = await page.getByTestId('titlebar-project-name').boundingBox();
+      if (!title) throw new Error('titlebar project label is unavailable');
+      await page.mouse.click(title.x + title.width / 2, title.y + title.height / 2);
       await expect(entries).toHaveCount(0);
       await expect(page.locator('[data-base-ui-inert]')).toHaveCount(0);
       return labels;

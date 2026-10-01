@@ -105,11 +105,20 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
     await page.goto('/');
     await manifestStarted;
     await expect(page.getByTestId('startup-screen')).toBeVisible();
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await expect(page.getByTestId('file-add-model')).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('file-add-model')).toHaveCount(0);
-    await page.getByTestId('menu-help-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-help-trigger').hover();
     await expect(openCommand).toBeEnabled();
     await expect.poll(() => openCommand.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe('auto');
     const hitTestId = await openCommand.evaluate((element) => {
@@ -132,7 +141,11 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
   }
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await expect(path).toHaveText(earlyPath ?? '');
-  await page.getByTestId('menu-help-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-help-trigger').hover();
   await page.getByTestId('help-file-manager').click();
   await expect(page.getByTestId('file-manager-window')).toHaveCount(1);
   await expect(manager).toBeFocused();
@@ -142,7 +155,12 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
   await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
 
-  await page.getByTestId('menu-help-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+
+  await page.getByTestId('menu-help-trigger').hover();
   await expect(openCommand).toBeEnabled();
   await openCommand.click();
 
@@ -190,7 +208,12 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
   await expect(path).not.toHaveText('/');
   const visitedPath = await path.textContent();
 
-  await page.getByTestId('menu-help-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+
+  await page.getByTestId('menu-help-trigger').hover();
   await page.getByTestId('help-file-manager').click();
   await expect(page.getByTestId('file-manager-window')).toHaveCount(1);
   await expect(manager).toBeFocused();
@@ -221,7 +244,11 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
 
   await page.getByTestId('file-manager-close').click();
   await expect(manager).toHaveCount(0);
-  await page.getByTestId('menu-help-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-help-trigger').hover();
   await page.getByTestId('help-file-manager').click();
   await expect(page.getByTestId('file-manager-path')).toHaveText('/');
 });
@@ -243,11 +270,20 @@ test('Web Help keeps File Manager available after profile startup fails', async 
     await page.goto('/');
     await manifestStarted;
     await expect(page.getByTestId('startup-screen')).toBeVisible();
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await expect(page.getByTestId('file-add-model')).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('file-add-model')).toHaveCount(0);
-    await page.getByTestId('menu-help-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-help-trigger').hover();
     await expect(openCommand).toBeEnabled();
     await expect.poll(() => openCommand.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe('auto');
     await openCommand.click();
@@ -261,7 +297,11 @@ test('Web Help keeps File Manager available after profile startup fails', async 
   await expect(page.getByTestId('startup-error')).toBeVisible({ timeout: 30_000 });
   await expect(manager).toBeVisible();
   await page.getByTestId('file-manager-close').click();
-  await page.getByTestId('menu-help-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-help-trigger').hover();
   await expect(openCommand).toBeEnabled();
   await openCommand.click();
   await expect(manager).toBeVisible();
@@ -330,15 +370,23 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   await page.getByTestId('project-load-cancel').click();
   await expect(page.getByTestId('project-load-choice-dialog')).toBeHidden();
   await expect(page.getByTestId('titlebar-menu')).toBeVisible();
-  await expect(page.getByTestId('menu-file-trigger')).toBeVisible();
-  await expect(page.getByTestId('menu-help-trigger')).toBeVisible();
-  await page.getByTestId('menu-file-trigger').click();
+  await expect(page.getByTestId('titlebar-menu-trigger')).toBeVisible();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await expect(page.getByTestId('file-add-model')).toBeEnabled();
   await expect(page.getByTestId('file-clear-scene')).toBeDisabled();
   await expect(page.getByTestId('file-slice')).toBeDisabled();
   await expect(page.getByTestId('file-export-gcode')).toBeDisabled();
   await expect(page.getByTestId('file-quit')).toHaveCount(0);
-  await page.getByTestId('menu-help-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-help-trigger').hover();
   // Activate the visible menu item programmatically. In headless Chrome the
   // popup's visual layer can be geometrically overlapped by the tab strip.
   await page.getByTestId('help-source').evaluate((element) => (element as HTMLElement).click());
@@ -360,11 +408,21 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
     '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc',
   ));
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
-  await page.getByTestId('menu-file-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await expect(page.getByTestId('file-clear-scene')).toBeEnabled();
   await expect(page.getByTestId('file-slice')).toBeEnabled();
   await expect(page.getByTestId('file-export-gcode')).toBeDisabled();
-  await page.getByTestId('menu-file-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   expect(await page.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(true);
   const layerHeight = page.locator('#layer_height');
   if (await layerHeight.count()) await layerHeight.fill('0.21');
@@ -383,9 +441,19 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
     return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
   }), { timeout: 20_000 }).toBe(true);
   await page.setViewportSize({ width: 720, height: 520 });
-  await page.getByTestId('menu-file-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await expect(page.getByTestId('file-export-gcode')).toBeEnabled();
-  await page.getByTestId('menu-file-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await expect(page.getByTestId('viewport')).toBeVisible();
   const scrubber = page.getByTestId('layer-scrubber');
   await expect(scrubber).toBeAttached({ timeout: 30_000 });
@@ -554,11 +622,11 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   await (await reloadedChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
   await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', /^Undo Add /, { timeout: 120_000 });
   await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 120_000 });
-  await page.getByTestId('history-undo-menu-trigger').click();
+  await page.getByTestId('history-undo').click({ button: 'right' });
   await expect(page.getByTestId(/history-undo-entry-/).first()).toBeVisible();
   await page.getByTestId(/history-undo-entry-/).first().click();
   await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Select Printer', { timeout: 30_000 });
-  await page.getByTestId('history-undo-menu-trigger').click();
+  await page.getByTestId('history-undo').click({ button: 'right' });
   await page.getByTestId(/history-undo-entry-/).first().click();
   await expect(page.getByTestId('history-undo')).toBeDisabled({ timeout: 30_000 });
 });

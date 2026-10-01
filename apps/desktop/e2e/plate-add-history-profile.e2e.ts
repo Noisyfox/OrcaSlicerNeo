@@ -46,7 +46,12 @@ test('profiles Add Plate click through its visible Undo entry on the real projec
     // Opening through the app route is intentional: it proves the supplied
     // real file reaches the native project loader instead of measuring the
     // startup fixture or a merely configured path.
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await page.getByTestId('file-open-project').click();
     const choice = page.getByTestId('project-load-choice-dialog');
     if (await choice.isVisible({ timeout: 30_000 }).catch(() => false)) {

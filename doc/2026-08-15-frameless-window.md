@@ -15,6 +15,17 @@ custom one (`TitleBar.tsx`, M2). Window controls stay native:
   32px bar). The renderer exposes `window.orca.platform` (preload) and pads
   the label `pl-20` on darwin so it clears the lights.
 
+## Current shared titlebar layout (2026-10-01)
+
+The shared titlebar is now 32px high (`h-8`). Windows/Linux overlay height is
+32px with the existing `#262E30` background, and macOS traffic lights use
+`{ x: 12, y: 9 }`. Shared page tabs and Save/Undo/Redo controls are no-drag;
+Windows/Linux reserve the native window-control area. macOS retains the native
+flat application menu and traffic-light safe inset. See
+[`2026-08-25-titlebar-native-menu-implementation.md`](2026-08-25-titlebar-native-menu-implementation.md)
+for the current layout. The original implementation notes below provide the window-control background. Focused mock Electron layout/menu verification passed on Windows; macOS
+traffic-light placement remains a manual platform check.
+
 ## Why
 
 The app needs a custom top bar anyway (it carries the slicer's brand chrome),

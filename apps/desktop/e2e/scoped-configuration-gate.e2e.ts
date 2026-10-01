@@ -51,7 +51,12 @@ test('release scoped configuration full history matrix', async () => {
     await page.bringToFront();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     const openedAt = Date.now();
     await page.getByTestId('file-open-project').click();
     await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e?.projectLoadEvidence?.()), { timeout: 300_000 })
@@ -161,7 +166,12 @@ test('release scoped configuration full history matrix', async () => {
     try {
       const savedPath = env.ORCA_E2E_PROJECT_SAVE;
       const beforeSave = await snapshot();
-      await page.getByTestId('menu-file-trigger').click();
+      if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+        await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+        await page.getByTestId('titlebar-menu-trigger').click();
+      }
+      await page.getByTestId('menu-file-trigger').hover();
+      await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
       const saveAt = Date.now();
       await page.getByTestId('file-save-project-as').click();
       await expect.poll(() => existsSync(savedPath), { timeout: 300_000 }).toBe(true);
@@ -171,7 +181,12 @@ test('release scoped configuration full history matrix', async () => {
       expect(saved.includes(Buffer.from('Metadata/orca_neo_config_overlay_v1.json'))).toBe(false);
       report.sidecarBytes = 0;
       await app.evaluate((_, path) => { process.env.ORCA_E2E_MODEL = path; }, savedPath);
-      await page.getByTestId('menu-file-trigger').click();
+      if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+        await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+        await page.getByTestId('titlebar-menu-trigger').click();
+      }
+      await page.getByTestId('menu-file-trigger').hover();
+      await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
       const reopenAt = Date.now();
       await page.getByTestId('file-open-project').click();
       await page.waitForFunction((name) =>

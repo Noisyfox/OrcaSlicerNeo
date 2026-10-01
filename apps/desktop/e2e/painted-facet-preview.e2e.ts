@@ -127,7 +127,13 @@ test('real imported painted facets retain Preview colours, share resources, and 
       return `idle:${status}`;
     });
 
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await page.getByTestId('file-open-project').click();
 
     // A dirty startup scene asks whether to open the 3MF as a project or

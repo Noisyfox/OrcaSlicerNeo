@@ -34,7 +34,12 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
   });
   await measure('projectLoad', async () => {
     const chooser = host === 'web' ? page.waitForEvent('filechooser') : null;
-    await page.getByTestId('menu-file-trigger').click(); await page.getByTestId('file-open-project').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } }); await page.getByTestId('file-open-project').click();
     if (chooser) await (await chooser).setFiles(project);
     await expect.poll(async () => !!(await hook('projectLoadEvidence') as { receipt?: unknown } | null)?.receipt ||
       await page.getByTestId('project-load-choice-dialog').isVisible().catch(() => false) ||

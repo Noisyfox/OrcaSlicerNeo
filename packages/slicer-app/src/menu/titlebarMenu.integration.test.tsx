@@ -1,5 +1,8 @@
-import { renderToStaticMarkup } from 'react-dom/server';
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
+import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import type { MenuCommandId, MenuStateSnapshotInput, PlatformChrome } from '@orca/platform-contract';
 import { TitleBar } from '../components/layout/TitleBar';
 import { buildMenuModel, buildMenuStateSnapshot } from './menuModel';
@@ -10,6 +13,18 @@ const linux: PlatformChrome = { kind: 'desktop', platform: 'linux', menuMode: 'c
 const mac: PlatformChrome = {
   kind: 'desktop', platform: 'darwin', menuMode: 'native', dragRegion: true, macSafeInset: true,
 };
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+function renderTitlebar(element: React.ReactElement) {
+  const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true, sliceActive: false }) } } as unknown as PlatformCapabilities;
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  act(() => root.render(<PlatformProvider value={platform}>{element}</PlatformProvider>));
+  const html = container.innerHTML;
+  act(() => root.unmount());
+  return html;
+}
 
 function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapshotInput {
   return {
@@ -107,26 +122,28 @@ describe('shared titlebar menu integration projection', () => {
 
   it('renders custom/browser controls inside no-drag titlebar zones and hides native duplicates', () => {
     const customSnapshot = items(windows, input({ host: { isElectron: true, menuMode: 'custom' } }));
-    const custom = renderToStaticMarkup(
+    const custom = renderTitlebar(
       <TitleBar chrome={windows} model={customSnapshot.model} state={customSnapshot.state} onCommand={() => {}} />,
     );
     expect(custom).toContain('titlebar-menu');
     expect(custom).toContain('[-webkit-app-region:no-drag]');
-    expect(custom).toContain('menu-file-trigger');
-    expect(custom).toContain('menu-help-trigger');
+    expect(custom).toContain('titlebar-menu-trigger');
+    expect(custom).not.toContain('menu-help-trigger');
 
     const browserSnapshot = items(web);
-    const browser = renderToStaticMarkup(
+    const browser = renderTitlebar(
       <TitleBar chrome={web} model={browserSnapshot.model} state={browserSnapshot.state} onCommand={() => {}} />,
     );
     expect(browser).toContain('titlebar-menu');
     expect(browser).not.toContain('file-quit');
 
     const nativeSnapshot = items(mac, input({ host: { isElectron: true, menuMode: 'native' } }));
-    const native = renderToStaticMarkup(
+    const native = renderTitlebar(
       <TitleBar chrome={mac} model={nativeSnapshot.model} state={nativeSnapshot.state} onCommand={() => {}} />,
     );
     expect(native).not.toContain('titlebar-menu');
     expect(native).toContain('pl-20');
+    expect(native).toContain('app-tab-prepare');
+    expect(native).toContain('titlebar-save-project');
   });
 });

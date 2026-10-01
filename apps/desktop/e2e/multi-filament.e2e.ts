@@ -64,7 +64,13 @@ test('new project slots remain assignable from the ObjectList select and context
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
     await expect(page.getByTestId('filament-preset-select')).toHaveCount(0);
 
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await page.getByTestId('file-new-project').click();
     await expect(page.getByTestId('filament-rack')).toBeVisible();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
@@ -196,7 +202,12 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await page.getByTestId('file-new-project').click();
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();

@@ -434,14 +434,13 @@ close confirmation describe the same project state.
 ## 9. History Navigation UI and Shortcuts
 
 Neo provides both one-step and direct history navigation, matching Orca's
-Undo/Redo toolbar behaviour:
+Undo/Redo history behaviour:
 
-- enabled/disabled one-step Undo and Redo buttons in the shared primary
-  toolbar, with fixed visible labels `Undo` and `Redo` so their widths stay
-  stable as history changes; each tooltip and accessible name identifies the
-  next operation (for example, `Undo Move`);
-- directional dropdown lists labelled with the available project-modifying Undo
-  or Redo entries;
+- enabled/disabled icon-only one-step Undo and Redo buttons in the shared
+  titlebar; each tooltip and accessible name identifies the next operation
+  (for example, `Undo Move`);
+- right-clicking either icon opens its directional context menu with available
+  project-modifying Undo or Redo entries; there is no separate dropdown trigger;
 - direct jump to any listed entry through one atomic Worker restore. Sparse
   adjacent-only frames crossed by the jump are resolved from the selected
   opaque entry ID and applied internally in order; React receives only the
@@ -452,8 +451,7 @@ Undo/Redo toolbar behaviour:
   Undo/Redo takes precedence and project shortcuts do not run.
 
 Project-history navigation is available only on the **Prepare** tab. On Home,
-Preview, and Device, the toolbar buttons and their directional-menu triggers
-remain visible but disabled, and the shared app neither consumes nor dispatches
+Preview, and Device, the titlebar buttons remain visible but disabled, and the shared app neither consumes nor dispatches
 project Undo/Redo shortcuts. Returning to Prepare re-enables them solely from
 the current Worker `HistoryStatus`; navigating away never discards history.
 

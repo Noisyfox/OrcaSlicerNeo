@@ -12,6 +12,7 @@
    mappings; this application remains dark-only. */
 @theme {
   --color-titlebar: #262E30;
+  --color-titlebar-tab: #54545A;
   --color-tabbar: #27272A;
   --color-background: #27272A;
   --color-foreground: #EFEFF0;
@@ -46,6 +47,79 @@
 
 :root {
   color-scheme: dark;
+}
+
+/* Top-level tabs join the bottom edge of the titlebar, like the reference UI. */
+.titlebar-window-inset {
+  padding-right: max(138px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+}
+.titlebar .titlebar-action {
+  width: 28px;
+  height: 28px;
+  transform: translateY(2.5px);
+  color: var(--color-muted-foreground);
+}
+.titlebar .titlebar-project-label,
+.titlebar [data-testid="history-restore-error"],
+.titlebar > [data-slot="separator"] {
+  transform: translateY(2.5px);
+}
+.titlebar > [data-slot="separator"],
+.titlebar .titlebar-tab + .titlebar-tab:not([data-active])::before {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  opacity: 1;
+  flex-shrink: 0;
+}
+.titlebar .titlebar-action svg,
+.titlebar .titlebar-tab svg {
+  width: 16px;
+  height: 16px;
+}
+.titlebar .titlebar-action:hover,
+.titlebar .titlebar-action[aria-expanded="true"] {
+  background: var(--color-secondary);
+  color: var(--color-foreground);
+}
+.titlebar .titlebar-tabs-list {
+  height: 32px;
+  align-items: flex-end;
+  gap: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.titlebar .titlebar-tab {
+  height: 27px;
+  flex: none;
+  gap: 10px;
+  /* Center content in the highlighted surface (y=18.5 in the 32px bar). */
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+}
+.titlebar .titlebar-tab[data-active] {
+  background: var(--color-titlebar-tab);
+  color: var(--color-foreground);
+}
+.titlebar .titlebar-tab:not([data-active]):hover {
+  color: var(--color-foreground);
+}
+.titlebar .titlebar-tab + .titlebar-tab:not([data-active])::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3.5px;
+  bottom: 3.5px;
+}
+.titlebar .titlebar-tab[data-active] + .titlebar-tab::before {
+  display: none;
 }
 
 /* Match Orca's modified-option label color across configuration editors. */

@@ -35,7 +35,12 @@ async function ready(page: Page): Promise<void> {
 }
 
 async function openPickerProject(page: Page): Promise<void> {
-  await page.getByTestId('menu-file-trigger').click();
+  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+    await page.getByTestId('titlebar-menu-trigger').click();
+  }
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await page.getByTestId('file-open-project').click();
   await expect(page.getByTestId('object-list').getByRole('button', { name: 'picked-project.3mf' })).toBeVisible();
 }
@@ -51,7 +56,12 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     const page = await app.firstWindow();
     await ready(page);
     await openPickerProject(page);
-    await page.getByTestId('menu-file-trigger').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
     await expect(page.getByTestId('file-save-project')).toBeDisabled();
     await expect(page.getByTestId('file-save-project-as')).toBeEnabled();
     await page.getByTestId('file-save-project-as').click();

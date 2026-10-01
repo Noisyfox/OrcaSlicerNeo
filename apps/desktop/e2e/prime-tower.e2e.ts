@@ -90,23 +90,25 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     });
     const readHistory = async (): Promise<HistorySnapshot> => {
       const undoButtonLabel = await page.getByTestId('history-undo').getAttribute('aria-label');
-      const menuTrigger = page.getByTestId('history-undo-menu-trigger');
+      const menuTrigger = page.getByTestId('history-undo');
       let undoLabels: string[] = [];
       if (await menuTrigger.isEnabled()) {
-        await menuTrigger.click();
+        await menuTrigger.click({ button: 'right' });
         const entries = page.getByTestId(/history-undo-entry-/);
         await expect(entries.first()).toBeVisible({ timeout: 30_000 });
         undoLabels = await entries.allTextContents();
         // Escape is also the Prepare viewport shortcut for clearing selection.
-        // Close the menu through its trigger so history inspection cannot
-        // change the Prime Tower selection under test.
-        await menuTrigger.click();
+        // Dismiss outside the menu on the project label without invoking Undo
+        // or the viewport's selection-clearing Escape shortcut.
+        const title = await page.getByTestId('titlebar-project-name').boundingBox();
+        if (!title) throw new Error('titlebar project label is unavailable');
+        await page.mouse.click(title.x + title.width / 2, title.y + title.height / 2);
         await expect(entries).toHaveCount(0);
       }
       return { undoLabels, undoButtonLabel };
     };
     const readHistoryUntilEntries = async (): Promise<HistorySnapshot> => {
-      await expect(page.getByTestId('history-undo-menu-trigger')).toBeEnabled({ timeout: 30_000 });
+      await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 30_000 });
       return readHistory();
     };
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');

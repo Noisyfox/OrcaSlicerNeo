@@ -24,7 +24,12 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1400, height: 900 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
-    await page.getByTestId('menu-file-trigger').click(); await page.getByTestId('file-open-project').click();
+    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+      await page.getByTestId('titlebar-menu-trigger').click();
+    }
+    await page.getByTestId('menu-file-trigger').hover();
+    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } }); await page.getByTestId('file-open-project').click();
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-choice-dialog"], [data-testid="project-load-confirmation-dialog"], [data-testid="project-progress-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt)).toBe(true);
     if (await page.getByTestId('project-load-choice-dialog').isVisible()) { await page.getByTestId('project-load-project').click(); await page.getByTestId('project-load-confirm').click(); }
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-confirmation-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 120_000 }).toBe(true);
