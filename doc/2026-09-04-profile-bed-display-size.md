@@ -52,6 +52,8 @@ printer profile.
   The original SVG is rasterized with a 2048-pixel longest edge; PNG uses the
   same bounded upload size. Failed loads leave the platform and grid usable;
   stale loads, Blob URLs, replaced materials/geometry, and textures are released.
+  Electron's development and built renderer CSP allow `blob:` in `img-src`
+  so these filesystem-backed images can decode before canvas upload.
 - Bambu-specific bed-type strips, calibration markings, extra logo polygons,
   and dual-extruder artwork layouts are deferred at the user's request. Its
   configured `bed_texture` can still use the generic path.
@@ -86,3 +88,10 @@ printer profile.
 The generic artwork change reran the checks above, including both native builds
 and smoke tests. Focused texture tests also cover rasterization, failed decoding,
 stale resource reads, and disposal after replacement or unmount.
+
+The Electron CSP correction reran `pnpm test`, `pnpm typecheck`, the mock
+Electron E2E build, and `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'renderer CSP'`.
+The regression verifies SVG/PNG Blob decoding and readable canvas pixels under
+the built renderer's actual policy. The development Vite server's HTTP response
+also confirms `img-src 'self' data: blob:`. `git diff --check` passes; no WASM
+build was rerun for this host-policy-only correction.
