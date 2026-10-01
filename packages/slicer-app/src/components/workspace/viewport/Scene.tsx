@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
 import { BedPlate } from './BedPlate';
+import { useBedModel } from './useBedModel';
+import { useBedTexture } from './useBedTexture';
 import { GLVolumeMesh } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
@@ -53,6 +55,8 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   onEmptyBedClick?: (plateId: string) => void;
 }) {
   const sceneInteraction = useSceneInteraction();
+  const bedModel = useBedModel();
+  const bedTexture = useBedTexture();
   const painting = usePaintingState();
   const paintingActive = activeTab === 'prepare' && painting != null && painting.phase !== 'closed';
   const previouslyPainting = useRef(false);
@@ -87,7 +91,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   }, [glVolumes, sceneInteraction, wipeTowerVolumes, paintingActive]);
 
   if (paintingActive) return <MmuPaintingGizmo volumes={glVolumes} openingVisual={<>
-    {plateSession?.plates?.length ? plateSession.plates.map((plate) => <BedPlate key={plate.plateId} plate={plate} current={plate.plateId === plateSession.currentPlateId} />) : <BedPlate />}
+    {plateSession?.plates?.length ? plateSession.plates.map((plate) => <BedPlate bedModel={bedModel} bedTexture={bedTexture} key={plate.plateId} plate={plate} current={plate.plateId === plateSession.currentPlateId} />) : <BedPlate bedModel={bedModel} bedTexture={bedTexture} />}
     <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive={false} structure={structure} plateSession={plateSession}
       controller={controller} wipeTowerVolumes={wipeTowerVolumes} selectionRevision={controller.selection.revision} bodyDragEnabled={false} />
   </>} />;
@@ -101,7 +105,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
       <directionalLight position={[100, 150, 200]} intensity={1.2} />
       {!isPreviewTab(activeTab) && plateSession?.plates?.length
         ? plateSession.plates.map((plate) => (
-          <BedPlate
+          <BedPlate bedModel={bedModel} bedTexture={bedTexture}
             key={plate.plateId}
             plate={plate}
             current={plate.plateId === plateSession.currentPlateId}
@@ -109,8 +113,8 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           />
         ))
         : isPreviewTab(activeTab) && currentPreviewPlate(plateSession)
-          ? <BedPlate plate={currentPreviewPlate(plateSession)!} current />
-          : <BedPlate />}
+          ? <BedPlate bedModel={bedModel} bedTexture={bedTexture} plate={currentPreviewPlate(plateSession)!} current />
+          : <BedPlate bedModel={bedModel} bedTexture={bedTexture} />}
       {isPreviewTab(activeTab) ? (
         <PreviewScene
           controller={controller}

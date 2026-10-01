@@ -365,6 +365,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       filament_catalog: candidates('filament').map(filamentEntry),
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
+      bed_model: '',
+      bed_texture: '',
       printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area
         ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
     };

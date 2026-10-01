@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { BED_SIZE, DEFAULT_PRINTABLE_AREA, getPrintableAreaBounds, normalizePrintableArea } from './BedPlate';
+import { BED_SIZE, DEFAULT_PRINTABLE_AREA, getPrintableAreaBounds, normalizePrintableArea, getBedModelOffset } from './BedPlate';
 
 describe('profile build plate geometry', () => {
+  it('matches the pinned Orca centered STL offsets for BBL and other vendors', () => {
+    const area: Array<[number, number]> = [[0, 0], [256, 0], [256, 256], [0, 256]];
+    expect(getBedModelOffset(area)).toEqual([128, 128, expect.closeTo(-0.45)]);
+    expect(getBedModelOffset([[-100, -90], [100, -90], [100, 90], [-100, 90]])).toEqual([0, 0, expect.closeTo(-0.45)]);
+  });
   it('uses the fallback square when printable_area is missing or malformed', () => {
     expect(normalizePrintableArea(undefined)).toBe(DEFAULT_PRINTABLE_AREA);
     expect(normalizePrintableArea([[0, 0], [10, 0]] as Array<[number, number]>)).toBe(DEFAULT_PRINTABLE_AREA);

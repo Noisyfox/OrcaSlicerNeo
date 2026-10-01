@@ -25,7 +25,8 @@ interface SceneE2eProbeProps {
 
 export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewVolumes, plateSession, toolpath }: SceneE2eProbeProps) {
   const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls as unknown as { target?: THREE.Vector3; enabled?: boolean } | undefined);
+  const controls = useThree((s) => s.controls as unknown as { target?: THREE.Vector3; enabled?: boolean; update?: () => void } | undefined);
+  const invalidate = useThree((s) => s.invalidate);
   const scene = useThree((s) => s.scene);
   const size = useThree((s) => s.size);
   const w = window as unknown as {
@@ -52,6 +53,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
         far: number;
         controlsEnabled?: boolean;
       };
+      setCameraView?: (position: [number, number, number], target: [number, number, number]) => void;
       bedPlateStates?: () => Array<{
         plateId?: string;
         current: boolean;
@@ -205,6 +207,13 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
       return Boolean(hit && sceneInteraction && sceneInteraction.selectFromHit(hit, additive));
     },
     previewMarkerPresent: () => Boolean(scene.getObjectByName('preview-nozzle-marker')),
+    setCameraView: (position: [number, number, number], target: [number, number, number]) => {
+      camera.position.fromArray(position);
+      controls?.target?.fromArray(target);
+      camera.lookAt(new THREE.Vector3(...target));
+      controls?.update?.();
+      invalidate();
+    },
     cameraState: () => ({
       position: [camera.position.x, camera.position.y, camera.position.z],
       quaternion: [camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w],
@@ -240,6 +249,42 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
         });
       });
       return beds;
+    },
+    bedModelStates: () => {
+      const models: Array<{ geometry: string; vertices: number; position: number[]; visible: boolean }> = [];
+      scene.traverse((object) => {
+        if (object.name !== 'printer-bed-model' || !(object instanceof THREE.Mesh)) return;
+        const position = new THREE.Vector3();
+        object.getWorldPosition(position);
+        models.push({ geometry: object.geometry.uuid, vertices: object.geometry.getAttribute('position').count,
+          position: position.toArray(), visible: object.visible && object.parent?.visible !== false });
+      });
+      return models;
+    },
+    bedGridStates: () => {
+      const grids: Array<{ position: number[]; visible: boolean }> = [];
+      scene.traverse((object) => {
+        if (object.name !== 'printer-bed-grid') return;
+        const position = new THREE.Vector3();
+        object.getWorldPosition(position);
+        grids.push({ position: position.toArray(), visible: object.visible });
+      });
+      return grids;
+    },
+    bedTextureStates: () => {
+      const textures: Array<{ path: string; position: number[]; size: number[]; depthWrite: boolean; visible: boolean }> = [];
+      scene.traverse((object) => {
+        if (object.name !== 'printer-bed-texture' || !(object instanceof THREE.Mesh)) return;
+        const material = object.material as THREE.MeshBasicMaterial;
+        const map = material.map;
+        if (!map) return;
+        const position = new THREE.Vector3();
+        object.getWorldPosition(position);
+        textures.push({ path: map.name, position: position.toArray(),
+          size: [(map.image as HTMLCanvasElement).width, (map.image as HTMLCanvasElement).height], depthWrite: material.depthWrite,
+          visible: object.visible && object.parent?.visible !== false });
+      });
+      return textures;
     },
     modelWorldCenters: () => previewVolumes.map((volume) => {
       const center = volume.getWorldBounds().getCenter(new THREE.Vector3());

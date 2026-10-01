@@ -1,10 +1,13 @@
 // packages/slicer-app/src/components/viewport/BedPlate.tsx
 import * as THREE from 'three';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { PlateSessionPlate } from '@slicer/client';
+import type { BedModel } from './useBedModel';
+import type { BedTexture } from './useBedTexture';
 
 export const BED_SIZE = 220;
 export const DEFAULT_PRINTABLE_AREA: Array<[number, number]> = [
@@ -58,12 +61,22 @@ const GROUND_Z_GRID = -0.26;
 const GROUND_Z_BED = -0.41 + GROUND_Z;
 
 export interface BedPlateProps {
+  bedModel?: BedModel | null;
+  bedTexture?: BedTexture | null;
   plate?: PlateSessionPlate;
   current?: boolean;
   onEmptyBedClick?: (plateId: string) => void;
 }
 
-export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlateProps = {}) {
+export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel, bedTexture }: BedPlateProps = {}) {
+  const decorations = useRef<THREE.Group>(null);
+  const cameraDirection = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    // Camera::is_looking_downward: horizontal and upward views hide Bed3D
+    // and PartPlate artwork. Keep loaded resources for the next downward view.
+    if (decorations.current)
+      decorations.current.visible = camera.getWorldDirection(cameraDirection).z < 0;
+  });
   const printableArea = useSettingsStore((state) => state.printableArea);
   const area = useMemo(() => normalizePrintableArea(printableArea), [printableArea]);
   const bounds = useMemo(() => getPrintableAreaBounds(area), [area]);
@@ -79,8 +92,19 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
 
   const plateOrigin = plate?.origin ?? [0, 0, 0] as const;
   const outOfBounds = Boolean(plate && plate.valid === false);
+  // Orca's single Bed3D follows the current plate; PartPlate draws the other
+  // backgrounds and draws gridlines independently on every plate.
+  const showModel = current && Boolean(bedModel);
+  const modelOffset = getBedModelOffset(area);
   return (
     <group>
+      <group ref={decorations}>
+        {showModel && bedModel && <mesh name="printer-bed-model" geometry={bedModel.geometry} dispose={null} raycast={() => {}}
+          position={[plateOrigin[0] + modelOffset[0], plateOrigin[1] + modelOffset[1], plateOrigin[2] + modelOffset[2]]}>
+          <meshStandardMaterial color={outOfBounds ? '#BB2A3A' : current ? '#414148' : '#535656'} roughness={1} />
+        </mesh>}
+        {current && bedTexture && <BedArtwork shape={shape} bounds={bounds} artwork={bedTexture} origin={plateOrigin} />}
+      </group>
       {/* Slicer convention: Z up, X right, Y into screen — the bed is the XY
           plane at Z=0, so the plane geometry needs no rotation (it is born
           in XY) and all core coordinates pass through unmodified. */}
@@ -104,6 +128,8 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
       >
         <shapeGeometry args={[shape]} />
         <meshStandardMaterial
+          colorWrite={!showModel}
+          depthWrite={!showModel}
           color={outOfBounds ? '#BB2A3A' : current ? '#34343A' : '#626269'}
           roughness={1}
         />
@@ -116,16 +142,17 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
           rendered from steep top-down angles). DoubleSide renders from
           every view above the bed. */}
       <Grid
+        name="printer-bed-grid"
         position={[plateOrigin[0] + bounds.centerX, plateOrigin[1] + bounds.centerY, plateOrigin[2] + GROUND_Z_GRID]}
         rotation={[-Math.PI / 2, 0, 0]}
         args={[bounds.width, bounds.depth]}
         side={THREE.DoubleSide}
         cellSize={10}
         cellThickness={0.5}
-        cellColor="#3E3E45"
+        cellColor={current ? '#4C4C55' : '#6E6E76'}
         sectionSize={50}
         sectionThickness={1}
-        sectionColor="#4C4C55"
+        sectionColor={current ? '#4C4C55' : '#6E6E76'}
         // drei's fade is measured from the camera's projection onto the
         // grid plane. The default camera sits ~320-545mm off the bed (see
         // DEFAULT_CAMERA_POSITION in Viewport.tsx), so any finite
@@ -137,7 +164,38 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
         fadeStrength={1}
         infiniteGrid={false}
       />
-      {plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
+      {current && plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
     </group>
   );
+}
+
+/** PartPlate::generate_logo_polygon and init_model_from_poly UV projection. */
+function BedArtwork({ shape, bounds, artwork, origin }: {
+  shape: THREE.Shape; bounds: PrintableAreaBounds; artwork: BedTexture; origin: readonly number[];
+}) {
+  const geometry = useMemo(() => {
+    const value = new THREE.ShapeGeometry(shape);
+    const positions = value.getAttribute('position');
+    const uv = value.getAttribute('uv');
+    for (let i = 0; i < positions.count; i++)
+      uv.setXY(i, (positions.getX(i) - bounds.minX) / bounds.width, (positions.getY(i) - bounds.minY) / bounds.depth);
+    return value;
+  }, [shape, bounds]);
+  const material = useMemo(() => new THREE.MeshBasicMaterial({
+    map: artwork.texture, transparent: true, depthWrite: false, toneMapped: false,
+  }), [artwork.texture]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => material.dispose(), [material]);
+  return <mesh name="printer-bed-texture" geometry={geometry} material={material} dispose={null} raycast={() => {}}
+    position={[origin[0], origin[1], origin[2] - 0.01]} renderOrder={1} />;
+}
+
+/** Bed3D::update_model_offset in the pinned core: vendor STLs are centered. */
+export function getBedModelOffset(area: Array<[number, number]>): [number, number, number] {
+  const bounds = getPrintableAreaBounds(area);
+  return [
+    bounds.centerX,
+    bounds.centerY,
+    GROUND_Z_BED,
+  ];
 }

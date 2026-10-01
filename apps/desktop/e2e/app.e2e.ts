@@ -82,6 +82,47 @@ function attachRendererDiagnostics(page: Page) {
   };
 }
 
+test('renderer CSP allows Blob bed artwork decoding and canvas upload', async () => {
+  const { app } = await launchApp({ initialTab: 'home' });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('home-page')).toBeAttached({ timeout: PRESET_READY_TIMEOUT });
+    const result = await page.evaluate(async () => {
+      const violations: string[] = [];
+      const onViolation = (event: SecurityPolicyViolationEvent) => violations.push(event.effectiveDirective);
+      document.addEventListener('securitypolicyviolation', onViolation);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 2;
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#ff0000';
+      context.fillRect(0, 0, 2, 2);
+      const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error('PNG encoding failed')), 'image/png',
+      ));
+      const svg = new Blob([
+        '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><path fill="#ff0000" d="M0 0h2v2H0z"/></svg>',
+      ], { type: 'image/svg+xml' });
+      try {
+        const pixels: number[][] = [];
+        for (const blob of [svg, png]) {
+          const url = URL.createObjectURL(blob);
+          try {
+            const image = new Image();
+            image.src = url;
+            await image.decode();
+            context.clearRect(0, 0, 2, 2);
+            context.drawImage(image, 0, 0);
+            pixels.push(Array.from(context.getImageData(0, 0, 1, 1).data));
+          } finally { URL.revokeObjectURL(url); }
+        }
+        return { pixels, violations };
+      } finally { document.removeEventListener('securitypolicyviolation', onViolation); }
+    });
+    expect(result.pixels).toEqual([[255, 0, 0, 255], [255, 0, 0, 255]]);
+    expect(result.violations).toEqual([]);
+  } finally { await app.close(); }
+});
+
 interface LaunchResult {
   app: ElectronApplication;
   exportPath: string;

@@ -324,6 +324,36 @@ json selected_printer_printable_area_json()
     return points;
 }
 
+struct PrinterBedResources {
+    std::string model;
+    std::string texture;
+};
+
+PrinterBedResources selected_printer_bed_resources()
+{
+    auto& bundle = state().presets;
+    const Preset& printer = bundle.printers.get_selected_preset();
+    PrinterBedResources resources;
+    if (printer.is_system) {
+        resources.model = PresetUtils::system_printer_bed_model(printer);
+        resources.texture = PresetUtils::system_printer_bed_texture(printer);
+    } else if (const auto* model = printer.config.opt<ConfigOptionString>("printer_model");
+               model != nullptr && !model->value.empty()) {
+        resources.model = bundle.get_stl_model_for_printer_model(model->value);
+        resources.texture = bundle.get_texture_for_printer_model(model->value);
+    }
+    // Native lookup already preserves installed /vendor priority. Its bundled
+    // fallback assumes resources/profiles; Neo mounts that tree at /system.
+    auto adapt_bundled_path = [](std::string& path) {
+        const auto bundled = path.find("/profiles/");
+        if (bundled != std::string::npos)
+            path = "/system/" + path.substr(bundled + std::strlen("/profiles/"));
+    };
+    adapt_bundled_path(resources.model);
+    adapt_bundled_path(resources.texture);
+    return resources;
+}
+
 } // namespace
 
 const char* duplicate_json(const std::string& value)
@@ -374,6 +404,7 @@ const json& option_metadata_json()
 
 json preset_snapshot_json()
 {
+    const auto bed_resources = selected_printer_bed_resources();
     return json{{"ok", true},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
                 {"prints", preset_candidates_json(state().presets.prints, true)},
@@ -381,6 +412,8 @@ json preset_snapshot_json()
                 {"printer", preset_selection_json(state().presets.printers)},
                 {"print", preset_selection_json(state().presets.prints)},
                 {"printable_area", selected_printer_printable_area_json()},
+                {"bed_model", bed_resources.model},
+                {"bed_texture", bed_resources.texture},
                 // Embedded project settings and the selected Process preset
                 // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to

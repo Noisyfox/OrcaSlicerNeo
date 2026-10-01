@@ -30,7 +30,8 @@ export default defineConfig(({ mode }) => {
           // Electron's Insecure-CSP devtools warning in `dev` mode.
           'content-security-policy':
             "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; " +
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+            // Bed artwork is decoded from Worker filesystem bytes via Blob URLs.
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
             // Vite emits the package worker as a data URL in the e2e/mock bundle;
             // keep the allowance scoped to worker-src (never script-src).
             "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",

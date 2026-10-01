@@ -378,6 +378,10 @@ export interface ProfileSnapshot {
   print: PresetSelection;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printable_area?: Array<[number, number]>;
+  /** Native-resolved STL path in the Worker filesystem; empty means generic bed. */
+  bed_model?: string;
+  /** Native-resolved SVG/PNG artwork path in the Worker filesystem. */
+  bed_texture?: string;
   /**
    * Effective native project/process configuration before local scoped values.
    * The settings UI uses this as its base value source; slicing remains

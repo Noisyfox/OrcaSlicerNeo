@@ -5,6 +5,85 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('real printer bed STL renders and updates with the selected printer', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  const models = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedModelStates?: () => Array<{ geometry: string; vertices: number; position: number[]; visible: boolean }> };
+  }).__orcaE2e?.bedModelStates?.() ?? []);
+  async function selectPrinter(name: string) {
+    await page.getByTestId('preset-select').click();
+    const popup = page.locator('[data-slot="combobox-content"]');
+    await popup.getByPlaceholder('Search presets…').fill(name);
+    await popup.getByRole('option', { name, exact: true }).click();
+    await expect(page.getByTestId('preset-select')).toContainText(name);
+  }
+  await selectPrinter('Bambu Lab P1P 0.4 nozzle');
+  await expect.poll(async () => (await models()).length).toBe(1);
+  const first = (await models())[0];
+  expect(first.vertices).toBeGreaterThan(3);
+  expect(first.position[0]).toBeCloseTo(128);
+  expect(first.position[1]).toBeCloseTo(128);
+  expect(first.position[2]).toBeCloseTo(-0.45);
+  await selectPrinter('Bambu Lab A1 mini 0.4 nozzle');
+  await expect.poll(async () => (await models())[0]?.geometry).not.toBe(first.geometry);
+  await expect.poll(async () => (await models())[0]?.vertices ?? 0).toBeGreaterThan(3);
+  expect((await models())[0].position[0]).toBeCloseTo(90);
+  expect((await models())[0].position[1]).toBeCloseTo(90);
+  await page.screenshot({ path: test.info().outputPath('printer-bed.png') });
+  const mini = (await models())[0];
+  await page.getByTestId('add-plate').click();
+  await expect.poll(async () => (await models())[0]?.position).not.toEqual(mini.position);
+  expect(await models()).toHaveLength(1);
+  expect((await models())[0].geometry).toBe(mini.geometry);
+  const grids = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedGridStates?: () => Array<{ position: number[]; visible: boolean }> };
+  }).__orcaE2e?.bedGridStates?.() ?? []);
+  await expect.poll(async () => (await grids()).length).toBe(2);
+  for (const grid of await grids()) {
+    expect(grid.visible).toBe(true);
+    expect(grid.position[2]).toBeCloseTo(-0.26);
+  }
+  // Click the first bed in world coordinates and verify the existing geometry
+  // moves back to it rather than leaving another model on the former current bed.
+  const point = await page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null };
+  }).__orcaE2e?.projectWorldToScreen?.([90, 90, 0]));
+  expect(point).toBeTruthy();
+  const canvas = await page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]').boundingBox();
+  expect(canvas).toBeTruthy();
+  await page.mouse.click(canvas!.x + point!.x, canvas!.y + point!.y);
+  await expect.poll(async () => (await models())[0]?.position).toEqual(mini.position);
+  expect(await models()).toHaveLength(1);
+  await page.screenshot({ path: test.info().outputPath('printer-bed-multiple.png') });
+  await selectPrinter('Prusa MK4 0.4 nozzle');
+  const artwork = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedTextureStates?: () => Array<{ path: string; position: number[]; size: number[]; depthWrite: boolean; visible: boolean }> };
+  }).__orcaE2e?.bedTextureStates?.() ?? []);
+  await expect.poll(async () => (await artwork())[0]?.path).toBe('/system/Prusa/mk4is.svg');
+  expect(await artwork()).toHaveLength(1);
+  expect((await artwork())[0].position[2]).toBeCloseTo(-0.01);
+  expect((await artwork())[0].depthWrite).toBe(false);
+  expect(Math.max(...(await artwork())[0].size)).toBe(2048);
+  await page.screenshot({ path: test.info().outputPath('printer-bed-artwork.png') });
+  const geometry = (await models())[0].geometry;
+  async function viewFrom(z: number) {
+    await page.evaluate((z) => (window as unknown as {
+      __orcaE2e?: { setCameraView?: (position: [number, number, number], target: [number, number, number]) => void };
+    }).__orcaE2e?.setCameraView?.([125, -250, z], [125, 105, 0]), z);
+  }
+  await viewFrom(-300);
+  await expect.poll(async () => (await models())[0]?.visible).toBe(false);
+  await expect.poll(async () => (await artwork())[0]?.visible).toBe(false);
+  expect((await grids()).every((grid) => grid.visible)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('printer-bed-from-below.png') });
+  await viewFrom(300);
+  await expect.poll(async () => (await models())[0]?.visible).toBe(true);
+  await expect.poll(async () => (await artwork())[0]?.visible).toBe(true);
+  expect((await models())[0].geometry).toBe(geometry);
+});
+
 test('Web Help opens one nonmodal Worker File Manager and reopening it resets to root', async ({ page }) => {
   let releaseManifest!: () => void;
   const manifestGate = new Promise<void>((resolve) => { releaseManifest = resolve; });
