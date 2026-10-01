@@ -116,6 +116,12 @@ set(DROP_PATTERNS
   "VoronoiUtilsCgal"      # CGAL Voronoi planarity diagnostics; planarity checks
                           # stubbed in stubs/voronoi-cgal-stubs.cpp
   "ObjColorUtils"         # OpenCV-based 3MF color utilities; zero kept callers
+  "/CAD/"                # native design workspace; extended OCCT + SolveSpace
+  "/Format/AssimpImport"  # native-only additional mesh formats (Assimp)
+  "/TextureToColor/"      # native texture-to-filament conversion (CGAL)
+  "/TexturePainting.cpp" # native texture painting (OpenCV + CGAL)
+  "/TextureDisplacement.cpp" # native texture displacement/UV unwrap (CGAL)
+  "/TextureBake/"        # native texture-displacement bake pipeline
   "TryCatchSignalSEH"     # _WIN32-only SEH (windows.h); POSIX TryCatchSignal.cpp is kept
   "Triangulation"         # CGAL constrained-Delaunay; symbols stubbed in stubs/triangulation-stub.cpp
   "PNGReadWrite"          # libpng image export; symbols stubbed in stubs/png-stub.cpp

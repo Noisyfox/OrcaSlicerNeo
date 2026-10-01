@@ -13,7 +13,7 @@ hit, the bridge JSON contract, and the known M2 work. Companion to the approved 
 
 `packages/slicer-wasm` compiles the pinned C++ submodule
 (`cpp/` → `Noisyfox/OrcaSlicer`, branch `dev/orcaslicerneo-wasm`, based on
-upstream SHA `b97ca3c0ac`) into Emscripten wasm64
+upstream main `3384daa6bc`, merged into the existing WASM branch) into Emscripten wasm64
 modules: threaded and serial TBB variants, scaffold CMake with a denylist of
 dropped features, the OCCT/XCAF STEP closure, the extern "C" bridge API, and
 the CLI driver. The build machinery is inherited from the phase-0 spike and
@@ -27,7 +27,11 @@ Artifacts land in
 > compile define are not part of the pinned source. The Orca WASM adaptation
 > sequence is now 11 commits on `dev/orcaslicerneo-wasm`, ending at
 > `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The superproject pins that exact
-> commit; build scripts compile it directly and do not apply `patches/orca`.
+> commit at that date; build scripts compile the gitlink directly and do not
+> apply `patches/orca`. On 2026-10-01, upstream main `3384daa6bc` was merged as
+> `41a96752d9afc747ccdd9d88e85c474bb8abcc95`, followed by WASM logging
+> adaptation `489cbe91840ff97aaf4d8029009d5db410f32893`. The superproject now
+> pins the latter commit.
 
 The build is **not push-button** — it is an iteration surface. When it fails,
 work the loops in AGENTS.md ("WASM Build Workflow") and this note's
@@ -107,11 +111,12 @@ is deleted, per ruling 2026-08-13).
 ## Orca source adaptation commits
 
 The previous build-time patch files have been replaced by individual commits
-on the submodule branch `dev/orcaslicerneo-wasm`, based on upstream commit
-`b97ca3c0ac`. The table records the same patches in application order. The
-superproject gitlink pins the final commit
-`c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`; build scripts compile the pinned
-source directly. The branch ref is local to this checkout, so publish the
+on the submodule branch `dev/orcaslicerneo-wasm`, originally based on upstream
+commit `b97ca3c0ac`. The table records those original patches in application
+order, ending at `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The branch now
+contains upstream main `3384daa6bc` through merge `41a96752d9`; the current
+gitlink pins `489cbe91840ff97aaf4d8029009d5db410f32893`.
+Build scripts compile the pinned source directly. Publish the
 submodule branch before distributing a superproject commit that depends on it.
 
 | Order | Former patch | Submodule commit | Purpose |
@@ -127,6 +132,37 @@ submodule branch before distributing a superproject commit that depends on it.
 | 9 | `0009-wipe-tower-single-tool-priming.patch` | `0e9e8f75d8` | `WipeTower2.cpp` — use the existing `old_tool` when priming has only one tool. |
 | 10 | `0010-config-option-vector-resize-stable-default.patch` | `62188ffb4b` | `Config.hpp` — copy the default value before resize may reallocate the vector. |
 | 11 | `0011-extruder-variant-missing-options.patch` | `c7801bdbdb` | `PrintConfig.cpp` — create missing extruder variant options before extending them. |
+
+### Current upstream integration (2026-10-01)
+
+The merge of main `3384daa6bcbdfccea9797238fc7acb9f4144dae8` is recorded
+separately as `41a96752d9afc747ccdd9d88e85c474bb8abcc95`. Upstream now
+includes the configuration-vector value-copy fix and `<sstream>` include;
+those overlapping changes use upstream's implementations, including its
+new `<iomanip>` include. The remaining WASM adaptations are retained.
+
+The subsequent `489cbe9184` commit excludes native Boost.Log file setup on
+Emscripten. The new upstream preset includes expose the WASM Boost.Thread
+shim before file setup, whose native thread declarations would conflict.
+Both the setup header and `set_logging_file` implementation now follow the
+existing WASM file-logging exclusion.
+
+The NEO scaffold excludes the new native CAD design workspace, Assimp reader,
+OpenCV/CGAL texture painting, and texture displacement/bake sources. These
+authoring features have no NEO client operation and require dependencies
+outside the current WASM build. The format stub rejects GLB/GLTF/FBX imports
+without changing the scene. Existing STEP import and manual facet painting
+remain supported. The history bridge includes Cereal's pair serializer for
+the expanded upstream model snapshot data.
+
+The serial TBB shim supplies `is_current_task_group_canceling()` for the new
+batched preset resolver. It returns false because serial tasks execute inline
+and the shim has no asynchronous task cancellation; the existing synchronous
+Worker bridge contract remains unchanged.
+
+Both WASM variants and profile packages must be rebuilt from this same pin;
+the existing Worker/client boundary and browser capability requirements
+remain unchanged.
 
 The old `Model.hpp` STEP include guard patch was removed after OCCT/XCAF STEP
 support was restored. The numbering is now continuous; no patch is needed for

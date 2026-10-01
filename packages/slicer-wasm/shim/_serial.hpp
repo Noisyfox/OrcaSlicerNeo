@@ -245,6 +245,10 @@ using spin_rw_mutex = spin_mutex;
 using queuing_mutex = spin_mutex;
 
 // ---------------- task_group / task_arena / this_task_arena ----------------
+// Serial tasks finish inline; cancel() below has no pending work to cancel.
+// Upstream preset resolution queries this before committing each batch.
+inline bool is_current_task_group_canceling() { return false; }
+
 class task_group {
 public:
   template <typename Function>
