@@ -262,6 +262,20 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
       });
       return grids;
     },
+    bedTextureStates: () => {
+      const textures: Array<{ path: string; position: number[]; size: number[]; depthWrite: boolean }> = [];
+      scene.traverse((object) => {
+        if (object.name !== 'printer-bed-texture' || !(object instanceof THREE.Mesh)) return;
+        const material = object.material as THREE.MeshBasicMaterial;
+        const map = material.map;
+        if (!map) return;
+        const position = new THREE.Vector3();
+        object.getWorldPosition(position);
+        textures.push({ path: map.name, position: position.toArray(),
+          size: [(map.image as HTMLCanvasElement).width, (map.image as HTMLCanvasElement).height], depthWrite: material.depthWrite });
+      });
+      return textures;
+    },
     modelWorldCenters: () => previewVolumes.map((volume) => {
       const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
       return [center.x, center.y, center.z];

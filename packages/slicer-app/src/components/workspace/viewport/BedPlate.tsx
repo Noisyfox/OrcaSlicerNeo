@@ -1,11 +1,12 @@
 // packages/slicer-app/src/components/viewport/BedPlate.tsx
 import * as THREE from 'three';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { PlateSessionPlate } from '@slicer/client';
 import type { BedModel } from './useBedModel';
+import type { BedTexture } from './useBedTexture';
 
 export const BED_SIZE = 220;
 export const DEFAULT_PRINTABLE_AREA: Array<[number, number]> = [
@@ -60,12 +61,13 @@ const GROUND_Z_BED = -0.41 + GROUND_Z;
 
 export interface BedPlateProps {
   bedModel?: BedModel | null;
+  bedTexture?: BedTexture | null;
   plate?: PlateSessionPlate;
   current?: boolean;
   onEmptyBedClick?: (plateId: string) => void;
 }
 
-export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel }: BedPlateProps = {}) {
+export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel, bedTexture }: BedPlateProps = {}) {
   const printableArea = useSettingsStore((state) => state.printableArea);
   const area = useMemo(() => normalizePrintableArea(printableArea), [printableArea]);
   const bounds = useMemo(() => getPrintableAreaBounds(area), [area]);
@@ -150,9 +152,31 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel }: 
         fadeStrength={1}
         infiniteGrid={false}
       />
+      {current && bedTexture && <BedArtwork shape={shape} bounds={bounds} artwork={bedTexture} origin={plateOrigin} />}
       {current && plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
     </group>
   );
+}
+
+/** PartPlate::generate_logo_polygon and init_model_from_poly UV projection. */
+function BedArtwork({ shape, bounds, artwork, origin }: {
+  shape: THREE.Shape; bounds: PrintableAreaBounds; artwork: BedTexture; origin: readonly number[];
+}) {
+  const geometry = useMemo(() => {
+    const value = new THREE.ShapeGeometry(shape);
+    const positions = value.getAttribute('position');
+    const uv = value.getAttribute('uv');
+    for (let i = 0; i < positions.count; i++)
+      uv.setXY(i, (positions.getX(i) - bounds.minX) / bounds.width, (positions.getY(i) - bounds.minY) / bounds.depth);
+    return value;
+  }, [shape, bounds]);
+  const material = useMemo(() => new THREE.MeshBasicMaterial({
+    map: artwork.texture, transparent: true, depthWrite: false, toneMapped: false,
+  }), [artwork.texture]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => material.dispose(), [material]);
+  return <mesh name="printer-bed-texture" geometry={geometry} material={material} dispose={null} raycast={() => {}}
+    position={[origin[0], origin[1], origin[2] - 0.01]} renderOrder={1} />;
 }
 
 /** Bed3D::update_model_offset in the pinned core: vendor STLs are centered. */

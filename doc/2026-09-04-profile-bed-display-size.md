@@ -43,6 +43,18 @@ printer profile.
 - Missing or malformed optional STL resources fall back to the generic bed.
   Printer switching hides the old model immediately; late responses cannot
   replace the new selection. Replaced geometry is disposed on the scene owner.
+- `bed_texture` exposes Orca's native SVG/PNG resource lookup through the same
+  atomic snapshot and Worker filesystem as the STL. Both resources share one
+  native helper for preset lookup and bundled-path adaptation. Generic artwork is mapped
+  over the printable polygon's XY bounds, with the source image top aligned to
+  maximum Y. Only the current plate displays it, at -0.01 mm, using alpha
+  blending with depth testing and without depth writes (`PartPlate::render_logo`).
+  The original SVG is rasterized with a 2048-pixel longest edge; PNG uses the
+  same bounded upload size. Failed loads leave the platform and grid usable;
+  stale loads, Blob URLs, replaced materials/geometry, and textures are released.
+- Bambu-specific bed-type strips, calibration markings, extra logo polygons,
+  and dual-extruder artwork layouts are deferred at the user's request. Its
+  configured `bed_texture` can still use the generic path.
 - This change uses existing desktop-layout support on both hosts. It adds no
   mobile input requirement; mobile remains deferred. Resource bytes are read
   through the Worker client, and a small vendor STL is parsed once in the
@@ -54,7 +66,7 @@ printer profile.
 - `scripts\build-windows.bat quick --variant serial -j 8` and
   `scripts\build-windows.bat quick --variant threaded -j 8` pass.
 - `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/fixtures/cube.stl`
-  passes, including a real installed P1P STL read.
+  passes, including real installed P1P STL and SVG reads.
 - `node packages/slicer-wasm/harness/native-printer-transition-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js`
   passes.
 - With `VITE_USE_MOCK=1`, `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`
@@ -63,14 +75,14 @@ printer profile.
 - `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts e2e/web.e2e.ts --grep 'real printer bed STL'`
   passes against real threaded WASM. It verifies P1P/A1 mini geometry changes,
   centered coordinates, current-only model rendering, grid overlays on both
-  plates, and geometry reuse when switching plate origins. The
-  screenshot was visually inspected.
-- `pnpm --filter @orca/web build` passes; `bedModelStates` and `bedGridStates` are absent from
+  plates, and geometry reuse when switching plate origins. It also verifies
+  Prusa MK4 SVG artwork on only the current plate, its Z position, bounded
+  upload size, and disabled depth writes. The screenshot was visually inspected.
+- `pnpm --filter @orca/web build` passes; `bedModelStates`, `bedGridStates`, and `bedTextureStates` are absent from
   production JavaScript assets. `git diff --check` passes.
 - Full dual-host/dual-variant release qualification is outside this feature's
   verification scope; real Electron and serial Web visual E2E were not run.
 
-The current-only STL/grid-overlay correction reran the root tests/typecheck,
-the same Electron and real Web E2E commands, the production build/probe checks,
-and `git diff --check`. It changes renderer behaviour only; the earlier native
-build/smoke results above were not rerun for this correction.
+The generic artwork change reran the checks above, including both native builds
+and smoke tests. Focused texture tests also cover rasterization, failed decoding,
+stale resource reads, and disposal after replacement or unmount.

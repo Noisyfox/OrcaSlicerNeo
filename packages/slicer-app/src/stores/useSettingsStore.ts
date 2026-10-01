@@ -46,6 +46,7 @@ interface SettingsState {
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printableArea: Array<[number, number]>;
   bedModel: string;
+  bedTexture: string;
   /** Native effective profile/project configuration before local edits. */
   baseValues: Record<string, string>;
   values: Record<string, string>;
@@ -87,6 +88,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   selectedPrint: '',
   printableArea: [[0, 0], [220, 0], [220, 220], [0, 220]],
   bedModel: '',
+  bedTexture: '',
   baseValues: {},
   values: {},
   nativeScopedConfig: emptyNativeScopedConfig(),
@@ -107,6 +109,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       selectedPrint: snapshot.print.name,
       printableArea: snapshot.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
       bedModel: snapshot.bed_model ?? '',
+      bedTexture: snapshot.bed_texture ?? '',
       baseValues,
       // A profile/project replacement starts with no scoped local values. The
       // caller applies the replacement project's native snapshot separately.

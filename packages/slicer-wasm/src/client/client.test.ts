@@ -814,6 +814,7 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
     expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
     expect(snapshot.bed_model).toBe('');
+    expect(snapshot.bed_texture).toBe('');
   });
 
   it('selectProfile returns the resolved printer-to-process-to-rack snapshot', async () => {

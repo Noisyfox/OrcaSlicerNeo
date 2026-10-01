@@ -57,6 +57,16 @@ test('real printer bed STL renders and updates with the selected printer', async
   await expect.poll(async () => (await models())[0]?.position).toEqual(mini.position);
   expect(await models()).toHaveLength(1);
   await page.screenshot({ path: test.info().outputPath('printer-bed-multiple.png') });
+  await selectPrinter('Prusa MK4 0.4 nozzle');
+  const artwork = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedTextureStates?: () => Array<{ path: string; position: number[]; size: number[]; depthWrite: boolean }> };
+  }).__orcaE2e?.bedTextureStates?.() ?? []);
+  await expect.poll(async () => (await artwork())[0]?.path).toBe('/system/Prusa/mk4is.svg');
+  expect(await artwork()).toHaveLength(1);
+  expect((await artwork())[0].position[2]).toBeCloseTo(-0.01);
+  expect((await artwork())[0].depthWrite).toBe(false);
+  expect(Math.max(...(await artwork())[0].size)).toBe(2048);
+  await page.screenshot({ path: test.info().outputPath('printer-bed-artwork.png') });
 });
 
 test('Web Help opens one nonmodal Worker File Manager and reopening it resets to root', async ({ page }) => {

@@ -971,6 +971,9 @@ check('slice error surfaces the real message, not the bare category',
   check('P1P resolves its installed bed STL',
         typeof p1p.bed_model === 'string' && p1p.bed_model.endsWith('.stl')
         && Module.FS.readFile(p1p.bed_model).byteLength > 84, p1p.bed_model);
+  check('P1P resolves its installed profile artwork',
+        typeof p1p.bed_texture === 'string' && p1p.bed_texture.endsWith('.svg')
+        && Module.FS.readFile(p1p.bed_texture).byteLength > 0, p1p.bed_texture);
   const p = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, p);
   const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'], [p, stl.length, 'stl', 'cube.stl']);
