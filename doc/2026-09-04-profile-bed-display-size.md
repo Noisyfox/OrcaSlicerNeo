@@ -18,3 +18,48 @@ printer profile.
 - Changing the printer profile updates the displayed build plate and camera
   framing together with the atomic profile snapshot.
 - No host-specific API or duplicate printer-size table is introduced.
+
+## Printer bed models (2026-10-01)
+
+- The atomic profile snapshot also exposes `bed_model`, resolved in the Worker
+  using Orca's native system-preset and printer-model resource lookup. Installed
+  vendor resources take priority over bundled resources. No printer-name table
+  or separate HTTP asset deployment is introduced.
+  The native bundled `resources/profiles` fallback maps to Neo's `/system`
+  mount in the bridge; installed vendor paths pass through unchanged.
+- Prepare and Preview share one STL geometry per scene across plates. Geometry
+  remains in slicer Z-up coordinates; placement follows `Bed3D::update_model_offset`,
+  in the pinned core: centered vendor models (including BBL) and the -0.45 mm
+  Z offset, followed by the native plate origin. Older Orca BBL offsets do not
+  apply to the centered STL resources in this version.
+- A successfully loaded model replaces the generic visible polygon and grid.
+  The printable polygon retains bed-click and pointer-occlusion behaviour;
+  decorative STL geometry does not participate in model selection.
+- Missing or malformed optional STL resources fall back to the generic bed.
+  Printer switching hides the old model immediately; late responses cannot
+  replace the new selection. Replaced geometry is disposed on the scene owner.
+- This change uses existing desktop-layout support on both hosts. It adds no
+  mobile input requirement; mobile remains deferred. Resource bytes are read
+  through the Worker client, and a small vendor STL is parsed once in the
+  renderer and shared across plates, rather than copied per plate.
+
+### Verification
+
+- `pnpm test` and `pnpm typecheck` pass.
+- `scripts\build-windows.bat quick --variant serial -j 8` and
+  `scripts\build-windows.bat quick --variant threaded -j 8` pass.
+- `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/fixtures/cube.stl`
+  passes, including a real installed P1P STL read.
+- `node packages/slicer-wasm/harness/native-printer-transition-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js`
+  passes.
+- With `VITE_USE_MOCK=1`, `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`
+  followed by `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts`
+  passes 27 tests; the two real-model import cases are intentionally skipped.
+- `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts e2e/web.e2e.ts --grep 'real printer bed STL'`
+  passes against real threaded WASM. It verifies P1P/A1 mini geometry changes,
+  centered coordinates, and geometry sharing across two plate origins. The
+  screenshot was visually inspected.
+- `pnpm --filter @orca/web build` passes; `bedModelStates` is absent from
+  production JavaScript assets. `git diff --check` passes.
+- Full dual-host/dual-variant release qualification is outside this feature's
+  verification scope; real Electron and serial Web visual E2E were not run.

@@ -5,6 +5,7 @@ import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import type { PlateSessionPlate } from '@slicer/client';
+import type { BedModel } from './useBedModel';
 
 export const BED_SIZE = 220;
 export const DEFAULT_PRINTABLE_AREA: Array<[number, number]> = [
@@ -58,12 +59,13 @@ const GROUND_Z_GRID = -0.26;
 const GROUND_Z_BED = -0.41 + GROUND_Z;
 
 export interface BedPlateProps {
+  bedModel?: BedModel | null;
   plate?: PlateSessionPlate;
   current?: boolean;
   onEmptyBedClick?: (plateId: string) => void;
 }
 
-export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlateProps = {}) {
+export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel }: BedPlateProps = {}) {
   const printableArea = useSettingsStore((state) => state.printableArea);
   const area = useMemo(() => normalizePrintableArea(printableArea), [printableArea]);
   const bounds = useMemo(() => getPrintableAreaBounds(area), [area]);
@@ -79,8 +81,13 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
 
   const plateOrigin = plate?.origin ?? [0, 0, 0] as const;
   const outOfBounds = Boolean(plate && plate.valid === false);
+  const modelOffset = getBedModelOffset(area);
   return (
     <group>
+      {bedModel && <mesh name="printer-bed-model" geometry={bedModel.geometry} dispose={null} raycast={() => {}}
+        position={[plateOrigin[0] + modelOffset[0], plateOrigin[1] + modelOffset[1], plateOrigin[2] + modelOffset[2]]}>
+        <meshStandardMaterial color={outOfBounds ? '#BB2A3A' : current ? '#414148' : '#535656'} roughness={1} />
+      </mesh>}
       {/* Slicer convention: Z up, X right, Y into screen — the bed is the XY
           plane at Z=0, so the plane geometry needs no rotation (it is born
           in XY) and all core coordinates pass through unmodified. */}
@@ -104,6 +111,8 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
       >
         <shapeGeometry args={[shape]} />
         <meshStandardMaterial
+          colorWrite={!bedModel}
+          depthWrite={!bedModel}
           color={outOfBounds ? '#BB2A3A' : current ? '#34343A' : '#626269'}
           roughness={1}
         />
@@ -115,7 +124,7 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
           the default camera elevation (verified empirically: the grid only
           rendered from steep top-down angles). DoubleSide renders from
           every view above the bed. */}
-      <Grid
+      {!bedModel && <Grid
         position={[plateOrigin[0] + bounds.centerX, plateOrigin[1] + bounds.centerY, plateOrigin[2] + GROUND_Z_GRID]}
         rotation={[-Math.PI / 2, 0, 0]}
         args={[bounds.width, bounds.depth]}
@@ -136,8 +145,18 @@ export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlatePr
         fadeDistance={Infinity}
         fadeStrength={1}
         infiniteGrid={false}
-      />
+      />}
       {plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
     </group>
   );
+}
+
+/** Bed3D::update_model_offset in the pinned core: vendor STLs are centered. */
+export function getBedModelOffset(area: Array<[number, number]>): [number, number, number] {
+  const bounds = getPrintableAreaBounds(area);
+  return [
+    bounds.centerX,
+    bounds.centerY,
+    GROUND_Z_BED,
+  ];
 }

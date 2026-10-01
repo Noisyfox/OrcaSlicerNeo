@@ -115,6 +115,7 @@ check('preset snapshot carries the selected printer build plate',
         && point.length >= 2 && point.every((value) => Number.isFinite(value))),
       JSON.stringify(snapshot.printable_area));
 // Select a different visible printer and then process.  Their returned
+check('preset snapshot explicitly carries the optional bed model', typeof snapshot.bed_model === 'string', snapshot.bed_model);
 // snapshots prove that the bridge runs Orca's printer -> process -> filament
 // and process -> filament compatibility/fallback chains before responding.
 const nextPrinter = snapshot.printers.find((preset) => preset.name !== snapshot.printer.name);
@@ -967,6 +968,9 @@ check('slice error surfaces the real message, not the bare category',
   const p1p = callJson('orc_select_preset', ['string', 'string'], ['printer', 'Bambu Lab P1P 0.4 nozzle']);
   check('P1P selection resolves a Bambu printer profile',
         p1p.ok === true && p1p.printer?.name === 'Bambu Lab P1P 0.4 nozzle', JSON.stringify(p1p.printer));
+  check('P1P resolves its installed bed STL',
+        typeof p1p.bed_model === 'string' && p1p.bed_model.endsWith('.stl')
+        && Module.FS.readFile(p1p.bed_model).byteLength > 84, p1p.bed_model);
   const p = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, p);
   const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'], [p, stl.length, 'stl', 'cube.stl']);

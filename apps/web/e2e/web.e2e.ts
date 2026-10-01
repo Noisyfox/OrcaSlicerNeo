@@ -5,6 +5,40 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('real printer bed STL renders and updates with the selected printer', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  const models = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedModelStates?: () => Array<{ geometry: string; vertices: number; position: number[] }> };
+  }).__orcaE2e?.bedModelStates?.() ?? []);
+  async function selectPrinter(name: string) {
+    await page.getByTestId('preset-select').click();
+    const popup = page.locator('[data-slot="combobox-content"]');
+    await popup.getByPlaceholder('Search presets…').fill(name);
+    await popup.getByRole('option', { name, exact: true }).click();
+    await expect(page.getByTestId('preset-select')).toContainText(name);
+  }
+  await selectPrinter('Bambu Lab P1P 0.4 nozzle');
+  await expect.poll(async () => (await models()).length).toBe(1);
+  const first = (await models())[0];
+  expect(first.vertices).toBeGreaterThan(3);
+  expect(first.position[0]).toBeCloseTo(128);
+  expect(first.position[1]).toBeCloseTo(128);
+  expect(first.position[2]).toBeCloseTo(-0.45);
+  await selectPrinter('Bambu Lab A1 mini 0.4 nozzle');
+  await expect.poll(async () => (await models())[0]?.geometry).not.toBe(first.geometry);
+  await expect.poll(async () => (await models())[0]?.vertices ?? 0).toBeGreaterThan(3);
+  expect((await models())[0].position[0]).toBeCloseTo(90);
+  expect((await models())[0].position[1]).toBeCloseTo(90);
+  await page.screenshot({ path: test.info().outputPath('printer-bed.png') });
+  await page.getByTestId('add-plate').click();
+  await expect.poll(async () => (await models()).length).toBe(2);
+  const plates = await models();
+  expect(plates[0].geometry).toBe(plates[1].geometry);
+  expect(plates[0].position).not.toEqual(plates[1].position);
+});
+
 test('Web Help opens one nonmodal Worker File Manager and reopening it resets to root', async ({ page }) => {
   let releaseManifest!: () => void;
   const manifestGate = new Promise<void>((resolve) => { releaseManifest = resolve; });

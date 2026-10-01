@@ -939,6 +939,7 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
     printer: raw.printer as ProfileSnapshot['printer'],
     print: raw.print as ProfileSnapshot['print'],
     ...(Array.isArray(raw.printable_area) ? { printable_area: raw.printable_area as Array<[number, number]> } : {}),
+    ...(typeof raw.bed_model === 'string' ? { bed_model: raw.bed_model } : {}),
     ...(raw.project_config && typeof raw.project_config === 'object'
       ? { project_config: raw.project_config as Record<string, string> } : {}),
   };

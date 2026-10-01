@@ -324,6 +324,21 @@ json selected_printer_printable_area_json()
     return points;
 }
 
+std::string selected_printer_bed_model()
+{
+    const Preset& printer = state().presets.printers.get_selected_preset();
+    const auto* model = printer.config.opt<ConfigOptionString>("printer_model");
+    std::string path = printer.is_system ? PresetUtils::system_printer_bed_model(printer) :
+        model == nullptr || model->value.empty() ? std::string{} :
+            state().presets.get_stl_model_for_printer_model(model->value);
+    // Native lookup already preserves installed /vendor priority. Its bundled
+    // fallback assumes resources/profiles; Neo mounts that tree at /system.
+    const auto bundled = path.find("/profiles/");
+    if (bundled != std::string::npos)
+        path = "/system/" + path.substr(bundled + std::strlen("/profiles/"));
+    return path;
+}
+
 } // namespace
 
 const char* duplicate_json(const std::string& value)
@@ -381,6 +396,7 @@ json preset_snapshot_json()
                 {"printer", preset_selection_json(state().presets.printers)},
                 {"print", preset_selection_json(state().presets.prints)},
                 {"printable_area", selected_printer_printable_area_json()},
+                {"bed_model", selected_printer_bed_model()},
                 // Embedded project settings and the selected Process preset
                 // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to

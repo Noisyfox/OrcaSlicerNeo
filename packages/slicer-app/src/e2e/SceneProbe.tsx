@@ -241,6 +241,17 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
       });
       return beds;
     },
+    bedModelStates: () => {
+      const models: Array<{ geometry: string; vertices: number; position: number[] }> = [];
+      scene.traverse((object) => {
+        if (object.name !== 'printer-bed-model' || !(object instanceof THREE.Mesh)) return;
+        const position = new THREE.Vector3();
+        object.getWorldPosition(position);
+        models.push({ geometry: object.geometry.uuid, vertices: object.geometry.getAttribute('position').count,
+          position: position.toArray() });
+      });
+      return models;
+    },
     modelWorldCenters: () => previewVolumes.map((volume) => {
       const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
       return [center.x, center.y, center.z];
