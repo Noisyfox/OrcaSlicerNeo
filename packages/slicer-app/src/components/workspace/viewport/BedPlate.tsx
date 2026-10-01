@@ -81,10 +81,13 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel }: 
 
   const plateOrigin = plate?.origin ?? [0, 0, 0] as const;
   const outOfBounds = Boolean(plate && plate.valid === false);
+  // Orca's single Bed3D follows the current plate; PartPlate draws the other
+  // backgrounds and draws gridlines independently on every plate.
+  const showModel = current && Boolean(bedModel);
   const modelOffset = getBedModelOffset(area);
   return (
     <group>
-      {bedModel && <mesh name="printer-bed-model" geometry={bedModel.geometry} dispose={null} raycast={() => {}}
+      {showModel && bedModel && <mesh name="printer-bed-model" geometry={bedModel.geometry} dispose={null} raycast={() => {}}
         position={[plateOrigin[0] + modelOffset[0], plateOrigin[1] + modelOffset[1], plateOrigin[2] + modelOffset[2]]}>
         <meshStandardMaterial color={outOfBounds ? '#BB2A3A' : current ? '#414148' : '#535656'} roughness={1} />
       </mesh>}
@@ -111,8 +114,8 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel }: 
       >
         <shapeGeometry args={[shape]} />
         <meshStandardMaterial
-          colorWrite={!bedModel}
-          depthWrite={!bedModel}
+          colorWrite={!showModel}
+          depthWrite={!showModel}
           color={outOfBounds ? '#BB2A3A' : current ? '#34343A' : '#626269'}
           roughness={1}
         />
@@ -124,17 +127,18 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel }: 
           the default camera elevation (verified empirically: the grid only
           rendered from steep top-down angles). DoubleSide renders from
           every view above the bed. */}
-      {!bedModel && <Grid
+      <Grid
+        name="printer-bed-grid"
         position={[plateOrigin[0] + bounds.centerX, plateOrigin[1] + bounds.centerY, plateOrigin[2] + GROUND_Z_GRID]}
         rotation={[-Math.PI / 2, 0, 0]}
         args={[bounds.width, bounds.depth]}
         side={THREE.DoubleSide}
         cellSize={10}
         cellThickness={0.5}
-        cellColor="#3E3E45"
+        cellColor={current ? '#4C4C55' : '#6E6E76'}
         sectionSize={50}
         sectionThickness={1}
-        sectionColor="#4C4C55"
+        sectionColor={current ? '#4C4C55' : '#6E6E76'}
         // drei's fade is measured from the camera's projection onto the
         // grid plane. The default camera sits ~320-545mm off the bed (see
         // DEFAULT_CAMERA_POSITION in Viewport.tsx), so any finite
@@ -145,8 +149,8 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel }: 
         fadeDistance={Infinity}
         fadeStrength={1}
         infiniteGrid={false}
-      />}
-      {plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
+      />
+      {current && plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
     </group>
   );
 }

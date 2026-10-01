@@ -252,6 +252,16 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
       });
       return models;
     },
+    bedGridStates: () => {
+      const grids: Array<{ position: number[]; visible: boolean }> = [];
+      scene.traverse((object) => {
+        if (object.name !== 'printer-bed-grid') return;
+        const position = new THREE.Vector3();
+        object.getWorldPosition(position);
+        grids.push({ position: position.toArray(), visible: object.visible });
+      });
+      return grids;
+    },
     modelWorldCenters: () => previewVolumes.map((volume) => {
       const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
       return [center.x, center.y, center.z];

@@ -32,11 +32,31 @@ test('real printer bed STL renders and updates with the selected printer', async
   expect((await models())[0].position[0]).toBeCloseTo(90);
   expect((await models())[0].position[1]).toBeCloseTo(90);
   await page.screenshot({ path: test.info().outputPath('printer-bed.png') });
+  const mini = (await models())[0];
   await page.getByTestId('add-plate').click();
-  await expect.poll(async () => (await models()).length).toBe(2);
-  const plates = await models();
-  expect(plates[0].geometry).toBe(plates[1].geometry);
-  expect(plates[0].position).not.toEqual(plates[1].position);
+  await expect.poll(async () => (await models())[0]?.position).not.toEqual(mini.position);
+  expect(await models()).toHaveLength(1);
+  expect((await models())[0].geometry).toBe(mini.geometry);
+  const grids = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedGridStates?: () => Array<{ position: number[]; visible: boolean }> };
+  }).__orcaE2e?.bedGridStates?.() ?? []);
+  await expect.poll(async () => (await grids()).length).toBe(2);
+  for (const grid of await grids()) {
+    expect(grid.visible).toBe(true);
+    expect(grid.position[2]).toBeCloseTo(-0.26);
+  }
+  // Click the first bed in world coordinates and verify the existing geometry
+  // moves back to it rather than leaving another model on the former current bed.
+  const point = await page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null };
+  }).__orcaE2e?.projectWorldToScreen?.([90, 90, 0]));
+  expect(point).toBeTruthy();
+  const canvas = await page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]').boundingBox();
+  expect(canvas).toBeTruthy();
+  await page.mouse.click(canvas!.x + point!.x, canvas!.y + point!.y);
+  await expect.poll(async () => (await models())[0]?.position).toEqual(mini.position);
+  expect(await models()).toHaveLength(1);
+  await page.screenshot({ path: test.info().outputPath('printer-bed-multiple.png') });
 });
 
 test('Web Help opens one nonmodal Worker File Manager and reopening it resets to root', async ({ page }) => {
