@@ -1,6 +1,7 @@
 // packages/slicer-app/src/components/viewport/BedPlate.tsx
 import * as THREE from 'three';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -68,6 +69,14 @@ export interface BedPlateProps {
 }
 
 export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel, bedTexture }: BedPlateProps = {}) {
+  const decorations = useRef<THREE.Group>(null);
+  const cameraDirection = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    // Camera::is_looking_downward: horizontal and upward views hide Bed3D
+    // and PartPlate artwork. Keep loaded resources for the next downward view.
+    if (decorations.current)
+      decorations.current.visible = camera.getWorldDirection(cameraDirection).z < 0;
+  });
   const printableArea = useSettingsStore((state) => state.printableArea);
   const area = useMemo(() => normalizePrintableArea(printableArea), [printableArea]);
   const bounds = useMemo(() => getPrintableAreaBounds(area), [area]);
@@ -89,10 +98,13 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel, be
   const modelOffset = getBedModelOffset(area);
   return (
     <group>
-      {showModel && bedModel && <mesh name="printer-bed-model" geometry={bedModel.geometry} dispose={null} raycast={() => {}}
-        position={[plateOrigin[0] + modelOffset[0], plateOrigin[1] + modelOffset[1], plateOrigin[2] + modelOffset[2]]}>
-        <meshStandardMaterial color={outOfBounds ? '#BB2A3A' : current ? '#414148' : '#535656'} roughness={1} />
-      </mesh>}
+      <group ref={decorations}>
+        {showModel && bedModel && <mesh name="printer-bed-model" geometry={bedModel.geometry} dispose={null} raycast={() => {}}
+          position={[plateOrigin[0] + modelOffset[0], plateOrigin[1] + modelOffset[1], plateOrigin[2] + modelOffset[2]]}>
+          <meshStandardMaterial color={outOfBounds ? '#BB2A3A' : current ? '#414148' : '#535656'} roughness={1} />
+        </mesh>}
+        {current && bedTexture && <BedArtwork shape={shape} bounds={bounds} artwork={bedTexture} origin={plateOrigin} />}
+      </group>
       {/* Slicer convention: Z up, X right, Y into screen — the bed is the XY
           plane at Z=0, so the plane geometry needs no rotation (it is born
           in XY) and all core coordinates pass through unmodified. */}
@@ -152,7 +164,6 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel, be
         fadeStrength={1}
         infiniteGrid={false}
       />
-      {current && bedTexture && <BedArtwork shape={shape} bounds={bounds} artwork={bedTexture} origin={plateOrigin} />}
       {current && plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
     </group>
   );

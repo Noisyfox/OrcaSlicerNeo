@@ -10,7 +10,7 @@ test('real printer bed STL renders and updates with the selected printer', async
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
   const models = () => page.evaluate(() => (window as unknown as {
-    __orcaE2e?: { bedModelStates?: () => Array<{ geometry: string; vertices: number; position: number[] }> };
+    __orcaE2e?: { bedModelStates?: () => Array<{ geometry: string; vertices: number; position: number[]; visible: boolean }> };
   }).__orcaE2e?.bedModelStates?.() ?? []);
   async function selectPrinter(name: string) {
     await page.getByTestId('preset-select').click();
@@ -59,7 +59,7 @@ test('real printer bed STL renders and updates with the selected printer', async
   await page.screenshot({ path: test.info().outputPath('printer-bed-multiple.png') });
   await selectPrinter('Prusa MK4 0.4 nozzle');
   const artwork = () => page.evaluate(() => (window as unknown as {
-    __orcaE2e?: { bedTextureStates?: () => Array<{ path: string; position: number[]; size: number[]; depthWrite: boolean }> };
+    __orcaE2e?: { bedTextureStates?: () => Array<{ path: string; position: number[]; size: number[]; depthWrite: boolean; visible: boolean }> };
   }).__orcaE2e?.bedTextureStates?.() ?? []);
   await expect.poll(async () => (await artwork())[0]?.path).toBe('/system/Prusa/mk4is.svg');
   expect(await artwork()).toHaveLength(1);
@@ -67,6 +67,21 @@ test('real printer bed STL renders and updates with the selected printer', async
   expect((await artwork())[0].depthWrite).toBe(false);
   expect(Math.max(...(await artwork())[0].size)).toBe(2048);
   await page.screenshot({ path: test.info().outputPath('printer-bed-artwork.png') });
+  const geometry = (await models())[0].geometry;
+  async function viewFrom(z: number) {
+    await page.evaluate((z) => (window as unknown as {
+      __orcaE2e?: { setCameraView?: (position: [number, number, number], target: [number, number, number]) => void };
+    }).__orcaE2e?.setCameraView?.([125, -250, z], [125, 105, 0]), z);
+  }
+  await viewFrom(-300);
+  await expect.poll(async () => (await models())[0]?.visible).toBe(false);
+  await expect.poll(async () => (await artwork())[0]?.visible).toBe(false);
+  expect((await grids()).every((grid) => grid.visible)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('printer-bed-from-below.png') });
+  await viewFrom(300);
+  await expect.poll(async () => (await models())[0]?.visible).toBe(true);
+  await expect.poll(async () => (await artwork())[0]?.visible).toBe(true);
+  expect((await models())[0].geometry).toBe(geometry);
 });
 
 test('Web Help opens one nonmodal Worker File Manager and reopening it resets to root', async ({ page }) => {

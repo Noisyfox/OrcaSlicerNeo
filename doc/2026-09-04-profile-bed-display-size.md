@@ -57,6 +57,10 @@ printer profile.
 - Bambu-specific bed-type strips, calibration markings, extra logo polygons,
   and dual-extruder artwork layouts are deferred at the user's request. Its
   configured `bed_texture` can still use the generic path.
+- Model and artwork visibility follows Orca's `Camera::is_looking_downward`:
+  they render only when the camera's world forward direction has negative Z.
+  Upward and horizontal views hide both, while grids retain their existing
+  visibility. Switching back restores the same loaded resources.
 - This change uses existing desktop-layout support on both hosts. It adds no
   mobile input requirement; mobile remains deferred. Resource bytes are read
   through the Worker client, and a small vendor STL is parsed once in the
@@ -95,3 +99,10 @@ The regression verifies SVG/PNG Blob decoding and readable canvas pixels under
 the built renderer's actual policy. The development Vite server's HTTP response
 also confirms `img-src 'self' data: blob:`. `git diff --check` passes; no WASM
 build was rerun for this host-policy-only correction.
+
+The camera-direction correction reran `pnpm test`, `pnpm typecheck`, the real
+Web bed E2E above, and the Web production build/probe exclusion check. The E2E
+verifies hidden models/artwork from below, retained grids, and restoration of
+the same geometry from above; the below-bed screenshot was visually inspected.
+`git diff --check` passes. Native builds and Electron E2E were not rerun for
+this shared renderer visibility correction.
