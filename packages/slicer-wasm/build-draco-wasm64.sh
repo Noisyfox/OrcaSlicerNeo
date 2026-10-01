@@ -16,10 +16,24 @@ if [[ "$WASM_THREADING" != "0" ]]; then DRACO_FLAGS+=" -pthread"; fi
 command -v emcmake >/dev/null 2>&1 || { echo "[draco] Activate emsdk first" >&2; exit 1; }
 command -v cmake >/dev/null 2>&1 || { echo "[draco] cmake not found" >&2; exit 1; }
 command -v ninja >/dev/null 2>&1 || { echo "[draco] ninja not found" >&2; exit 1; }
-if [[ -z "${EMSCRIPTEN:-}" && -n "${EMSDK:-}" && -d "$EMSDK/upstream/emscripten" ]]; then
-  export EMSCRIPTEN="$EMSDK/upstream/emscripten"
+if [[ -z "${EMSCRIPTEN:-}" ]]; then
+  if [[ -n "${EMSDK:-}" && -d "$EMSDK/upstream/emscripten" ]]; then
+    EMSCRIPTEN="$EMSDK/upstream/emscripten"
+  elif command -v em-config >/dev/null 2>&1; then
+    # PATH-only installs (such as Homebrew) do not set EMSDK, but em-config
+    # knows the actual Emscripten root even when its commands are symlinked.
+    EMSCRIPTEN="$(em-config EMSCRIPTEN_ROOT 2>/dev/null || true)"
+  fi
 fi
-[[ -n "${EMSCRIPTEN:-}" ]] || { echo "[draco] EMSCRIPTEN must name the Emscripten directory" >&2; exit 1; }
+if [[ -z "${EMSCRIPTEN:-}" ]]; then
+  echo "[draco] EMSCRIPTEN must name the Emscripten directory (set EMSCRIPTEN or EMSDK, or add em-config to PATH)" >&2
+  exit 1
+fi
+if [[ ! -d "$EMSCRIPTEN" || ! -f "$EMSCRIPTEN/emcc" ]]; then
+  echo "[draco] EMSCRIPTEN does not contain emcc: $EMSCRIPTEN" >&2
+  exit 1
+fi
+export EMSCRIPTEN
 
 if [[ ! -f "$DRACO_SOURCE/CMakeLists.txt" ]]; then
   bash "$PKG_DIR/fetch-deps.sh"
