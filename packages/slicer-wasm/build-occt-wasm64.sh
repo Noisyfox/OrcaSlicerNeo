@@ -21,10 +21,22 @@ command -v emcmake >/dev/null 2>&1 || die "activate emsdk first"
 command -v emcc >/dev/null 2>&1 || die "emcc not found"
 command -v cmake >/dev/null 2>&1 || die "cmake not found"
 command -v ninja >/dev/null 2>&1 || die "ninja not found"
-[[ -n "${EMSCRIPTEN:-}" ]] || {
-  [[ -n "${EMSDK:-}" && -d "$EMSDK/upstream/emscripten" ]] || die "EMSCRIPTEN must name the Emscripten directory"
-  export EMSCRIPTEN="$EMSDK/upstream/emscripten"
-}
+if [[ -z "${EMSCRIPTEN:-}" ]]; then
+  if [[ -n "${EMSDK:-}" && -d "$EMSDK/upstream/emscripten" ]]; then
+    EMSCRIPTEN="$EMSDK/upstream/emscripten"
+  elif command -v em-config >/dev/null 2>&1; then
+    # PATH-only installs (such as Homebrew) do not set EMSDK, but em-config
+    # knows the actual Emscripten root even when its commands are symlinked.
+    EMSCRIPTEN="$(em-config EMSCRIPTEN_ROOT 2>/dev/null || true)"
+  fi
+fi
+if [[ -z "${EMSCRIPTEN:-}" ]]; then
+  die "EMSCRIPTEN must name the Emscripten directory (set EMSCRIPTEN or EMSDK, or add em-config to PATH)"
+fi
+if [[ ! -d "$EMSCRIPTEN" || ! -f "$EMSCRIPTEN/emcc" ]]; then
+  die "EMSCRIPTEN does not contain emcc: $EMSCRIPTEN"
+fi
+export EMSCRIPTEN
 [[ -f "$OCCT_SOURCE/CMakeLists.txt" ]] || bash "$PKG_DIR/fetch-deps.sh"
 [[ -f "$OCCT_SOURCE/CMakeLists.txt" ]] || die "OCCT source is unavailable"
 
