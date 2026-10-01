@@ -23,14 +23,14 @@ test('real printer bed STL renders and updates with the selected printer', async
   await expect.poll(async () => (await models()).length).toBe(1);
   const first = (await models())[0];
   expect(first.vertices).toBeGreaterThan(3);
-  expect(first.position[0]).toBeCloseTo(128);
-  expect(first.position[1]).toBeCloseTo(128);
+  expect(first.position[0]).toBeCloseTo(0);
+  expect(first.position[1]).toBeCloseTo(0);
   expect(first.position[2]).toBeCloseTo(-0.45);
   await selectPrinter('Bambu Lab A1 mini 0.4 nozzle');
   await expect.poll(async () => (await models())[0]?.geometry).not.toBe(first.geometry);
   await expect.poll(async () => (await models())[0]?.vertices ?? 0).toBeGreaterThan(3);
-  expect((await models())[0].position[0]).toBeCloseTo(90);
-  expect((await models())[0].position[1]).toBeCloseTo(90);
+  expect((await models())[0].position[0]).toBeCloseTo(0);
+  expect((await models())[0].position[1]).toBeCloseTo(0);
   await page.screenshot({ path: test.info().outputPath('printer-bed.png') });
   const mini = (await models())[0];
   await page.getByTestId('add-plate').click();
@@ -58,6 +58,9 @@ test('real printer bed STL renders and updates with the selected printer', async
   expect(await models()).toHaveLength(1);
   await page.screenshot({ path: test.info().outputPath('printer-bed-multiple.png') });
   await selectPrinter('Prusa MK4 0.4 nozzle');
+  await expect.poll(async () => (await models())[0]?.position[0]).toBeCloseTo(125);
+  expect((await models())[0].position[1]).toBeCloseTo(105);
+  expect((await models())[0].position[2]).toBeCloseTo(-0.45);
   const artwork = () => page.evaluate(() => (window as unknown as {
     __orcaE2e?: { bedTextureStates?: () => Array<{ path: string; position: number[]; size: number[]; depthWrite: boolean; visible: boolean }> };
   }).__orcaE2e?.bedTextureStates?.() ?? []);

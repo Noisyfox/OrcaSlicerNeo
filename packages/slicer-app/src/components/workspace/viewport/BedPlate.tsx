@@ -95,7 +95,7 @@ export function BedPlate({ plate, current = false, onEmptyBedClick, bedModel, be
   // Orca's single Bed3D follows the current plate; PartPlate draws the other
   // backgrounds and draws gridlines independently on every plate.
   const showModel = current && Boolean(bedModel);
-  const modelOffset = getBedModelOffset(area);
+  const modelOffset = getBedModelOffset(area, bedModel?.path ?? '');
   return (
     <group>
       <group ref={decorations}>
@@ -190,12 +190,13 @@ function BedArtwork({ shape, bounds, artwork, origin }: {
     position={[origin[0], origin[1], origin[2] - 0.01]} renderOrder={1} />;
 }
 
-/** Bed3D::update_model_offset in the pinned core: vendor STLs are centered. */
-export function getBedModelOffset(area: Array<[number, number]>): [number, number, number] {
+/** Match Bed3D::update_model_offset, including stock Bambu STL coordinates. */
+export function getBedModelOffset(area: Array<[number, number]>, modelPath = ''): [number, number, number] {
   const bounds = getPrintableAreaBounds(area);
+  const bambuModel = modelPath.includes('bbl-3dp-');
   return [
-    bounds.centerX,
-    bounds.centerY,
+    bounds.centerX - (bambuModel ? area[2][0] / 2 : 0),
+    bounds.centerY - (bambuModel ? area[2][1] / 2 : 0),
     GROUND_Z_BED,
   ];
 }

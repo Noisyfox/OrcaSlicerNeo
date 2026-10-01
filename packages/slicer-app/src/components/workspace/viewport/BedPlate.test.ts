@@ -2,10 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { BED_SIZE, DEFAULT_PRINTABLE_AREA, getPrintableAreaBounds, normalizePrintableArea, getBedModelOffset } from './BedPlate';
 
 describe('profile build plate geometry', () => {
-  it('matches the pinned Orca centered STL offsets for BBL and other vendors', () => {
+  it('matches the pinned Orca stock Bambu and centered vendor STL offsets', () => {
     const area: Array<[number, number]> = [[0, 0], [256, 0], [256, 256], [0, 256]];
-    expect(getBedModelOffset(area)).toEqual([128, 128, expect.closeTo(-0.45)]);
+    expect(getBedModelOffset(area, '/system/BBL/bbl-3dp-X1.stl')).toEqual([0, 0, expect.closeTo(-0.45)]);
+    const mini: Array<[number, number]> = [[0, 0], [180, 0], [180, 180], [0, 180]];
+    expect(getBedModelOffset(mini, '/system/BBL/bbl-3dp-A1M.stl')).toEqual([0, 0, expect.closeTo(-0.45)]);
+    expect(getBedModelOffset(area, '/system/Prusa/mk4is.stl')).toEqual([128, 128, expect.closeTo(-0.45)]);
     expect(getBedModelOffset([[-100, -90], [100, -90], [100, 90], [-100, 90]])).toEqual([0, 0, expect.closeTo(-0.45)]);
+  });
+  it('uses the native filename match and third shape point for Bambu offsets', () => {
+    const area: Array<[number, number]> = [[10, 20], [266, 20], [266, 276], [10, 276]];
+    expect(getBedModelOffset(area, '/vendor/BBL/bbl-3dp-X1.stl')).toEqual([5, 10, expect.closeTo(-0.45)]);
+    expect(getBedModelOffset(area, '/vendor/BBL/custom.stl')).toEqual([138, 148, expect.closeTo(-0.45)]);
   });
   it('uses the fallback square when printable_area is missing or malformed', () => {
     expect(normalizePrintableArea(undefined)).toBe(DEFAULT_PRINTABLE_AREA);
