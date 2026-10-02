@@ -39,6 +39,7 @@ enum class Phase { Idle, Drawing, Finished };
 struct Settings {
     int state = 1;
     bool erase = false;
+    bool vertical = false;
     double radius = 2.;
     double height = 1.;
     std::optional<double> angle = 30.; // nullopt disables geometry edge detection.
@@ -90,6 +91,7 @@ struct Session {
     Tool tool = Tool::Circle;
     std::vector<std::shared_ptr<NativeSelector>> before_stroke;
     std::shared_ptr<const std::vector<TriangleSelector::TriangleSplittingData>> before_data;
+    double stroke_screen_x = 0.;
     std::optional<PointerEvent> last_event;
     std::optional<Hit> last_hit;
     std::optional<Preview> preview;

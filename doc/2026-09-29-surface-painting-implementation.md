@@ -7,8 +7,8 @@ adapter work; historical MMU work used `dev/surface-painting-spec`.
 
 **Status:** Steps 01–12 implemented and independently accepted; MMU functional
 delivery qualified 2026-09-30. Scheme B support/seam/fuzzy adapters approved and
-implementation authorized 2026-10-02; steps 13–14 independently accepted,
-steps 15–19 pending. Quantitative
+implementation authorized 2026-10-02; steps 13–15 independently accepted,
+steps 16–19 pending. Quantitative
 performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
@@ -255,7 +255,10 @@ a toolbar entry appears only when its complete channel stage is accepted.
 - Step 13: independently accepted by the parent on 2026-10-02; hidden native
   adapters and strict transport are implemented.
 - Step 14: independently accepted by the parent on 2026-10-02; four-channel
-  history/cache restoration is implemented. Steps 15–19 remain pending.
+  history/cache restoration is implemented.
+- Step 15: independently accepted by the parent on 2026-10-02; complete Seam
+  editor, persistence and native downstream slicing are implemented. Steps 16–19
+  remain pending.
 - Existing serial/threaded build trees and pnpm/native tools were verified by the
   parent as available for this checkout. Children must still verify configured
   source roots, build flags and current artifact identity before running evidence.
@@ -497,7 +500,7 @@ new editors hidden. No downstream seam/fuzzy/support effects are claimed here.
 
 ### 15. Complete seam editor, native persistence and downstream slicing
 
-**Status:** Pending. **Depends on:** 14 accepted/committed.
+**Status:** Accepted by parent (2026-10-02). **Depends on:** 14 accepted/committed.
 **Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
 
 **Allowed scope:** Shared painting adapter/provider/controller/panel/toolbar,
@@ -510,7 +513,9 @@ camera snapshot. Per-channel memory-only tool parameters, single-filament entry,
 active-channel colours and normal MMU scene return work. Idle switching normally
 closes the old channel before opening the new one; failed closure prevents entry.
 All existing mounted lifetime, command/terminal/history/save/slice policies apply.
-Expose seam only when this complete boundary passes acceptance.
+Provide a separate seam toolbar entry following Orca’s independent gizmo entries;
+support/fuzzy entries remain hidden until their complete steps. Expose seam only
+when this complete boundary passes acceptance.
 
 **Child self-check:** Serial quick and real seam annotation/save/reopen/slice
 cases, A, affected transport typechecks and extended real Electron journey.
@@ -519,10 +524,157 @@ erase/cancel/Undo/Redo and actual native seam placement effects; busy ignored
 switches, close failure/retry, normal pan/erase shortcuts and ordinary MMU colours.
 Production builds and elision are required for new probe paths.
 
+**Accepted implementation and child self-verification (2026-10-02):**
+
+The separate Seam painting toolbar entry opens the shared mounted controller with
+single-filament admission; MMU retains its entry-only two-filament gate. The seam
+panel exposes only Circle/Sphere, Enforce/Block/Erase, Vertical, radius and Erase
+all. Support/fuzzy entries remain absent. Idle switches close/settle the previous
+history session before entry; busy switches are discarded and close failure
+requires a successful retry. Each channel retains its own memory-only tool and
+settings, including inactive MMU choice reconciliation after slot deletion/merge.
+Seam commits invalidate plate results while retaining ordinary MMU geometry/BVH.
+
+Native Vertical substitutes the stroke's initial CSS screen X before hit testing
+and one-pixel trajectory projection using the supplied camera matrices. Turning
+Vertical off uses the actual pointer; turning it on retains the stroke anchor.
+The visual cursor mirrors that projection while raw input remains native-owned.
+Native tests exercise Circle/Sphere on a rotated, mirrored, non-uniformly scaled
+part and a rotated camera; the real renderer records projected cursor agreement.
+
+Self-check commands and results:
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm test
+pnpm typecheck
+emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=ON -DNEO_PAINTING_PROFILE=OFF
+cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice painting_session_test timestamped_history_core_test -j 8
+pnpm exec node packages/slicer-wasm/.work/serial/build/painting_session_test.cjs
+pnpm exec node packages/slicer-wasm/.work/serial/build/timestamped_history_core_test.cjs
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-history-plate-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/history-editing-session-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js
+emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=OFF -DNEO_PAINTING_PROFILE=OFF
+bash scripts/build.sh quick --variant serial -j 8
+pnpm exec node packages/slicer-wasm/harness/painting-session-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/painting-engine-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/seam-painting-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production
+pnpm exec node scripts/run-painting-e2e.mjs
+pnpm --filter @orca/desktop build
+pnpm --filter @orca/web build
+pnpm exec node scripts/check-painting-profile-elision.mjs
+git diff --check
+```
+
+Workspace tests pass **1,312** tests (app 891, client 256, runtime 35); typecheck
+passes. Gated native lifecycle/history tests and comprehensive backend/session/
+history regressions pass; four-channel plate coverage includes 48 fresh slices
+and 20 rollback injections. Serial production is restored with test/profile
+gates OFF and threading 0. Imported fixtures still emit the previously recorded
+missing-parent diagnostics while all assertions pass.
+
+The generated native-format seam fixture proves all four exact per-triangle
+annotation streams survive save/reopen, independent seam 0/1/2, split trees,
+local erase, cancel, Undo/Redo and unchanged ordinary MMU resource keys. A
+single-filament controlled cube proves actual outer-wall seam starts: baseline
+0 starts in the front-face strip, Enforce 53, Block 0; Erase all exactly restores
+the baseline. Undo/Redo, undo-erase and saved/reopened Enforce reproduce exact
+seam-start coordinates. G-code, two saved native 3MFs and JSON evidence are in
+`packages/slicer-wasm/.work/step15-seam/`; gated artifacts and SHA256SUMS are in
+`packages/slicer-wasm/.work/step15-history-test/`.
+
+The extended actual Electron journey exercises the distinct toolbar entries,
+real green seam draw frames, rotated-camera screen-X cursor, Block, Shift erase,
+Undo/Redo, cancel, middle/right pan, Ctrl-wheel, busy ignored switches, injected
+RPC close failure/retry, exact per-channel parameter restoration and ordinary
+MMU draw return. Its close-failure probe is gated in the existing painting probe;
+production elision checks its new unique sentinels. Source/artifact hashes and
+preserved renderer evidence are recorded in the child's final handoff receipt.
+
+The full threaded/dual-host release matrix and quantitative performance remain
+Step 19 qualification; no acceptance for those deferred checks is claimed here.
+The pinned submodule remains unchanged. Independent parent acceptance follows.
+
 **Parent acceptance:** Review input projection, native constraint, adapter/UI
 availability, resource lifetime and failure paths. Rerun real seam fixture and
 current-artifact journey plus app checks; inspect actual seam/state and viewport
 evidence. Verify no world-Z substitution, other-channel changes or MMU regression.
+
+**Independent parent acceptance (2026-10-02):**
+
+The parent read every changed production path, focused regression and new native
+harness, using graph change/flow analysis as a locator. The graph was built at
+`dbee028` and could not establish current coverage; actual source and executed
+native/renderer assertions supplied that evidence. Reviewed boundaries included
+native screen-X projection before picking/interpolation, transformed geometry,
+strict seam-only settings, mounted renderer ownership, per-channel parameter
+memory, inactive MMU logical-slot reconciliation, exclusive input/close lanes,
+failed closure/retry, reliable cancellation, resource retention and production
+probe removal. The same child repaired findings about close/reopen parameter
+retention, inactive MMU merge/delete reconciliation and constrained visual-cursor
+agreement before final handoff. No unresolved acceptance defect remains.
+
+At the user's renewed request, the parent fetched and merged main `86ce9f7` as
+`c2c375a` before completing acceptance. The only merge conflict concerned an
+existing colour-label test locator; main's exact label locator was retained.
+The child's 25 source hashes were verified before merge, and all except that
+expected locator delta matched afterward. Native sources/artifacts were unchanged
+by the merge. Electron now runs the same typed painting session in a Node Worker
+inside its utility process; Web retains its browser Worker. No Python capability
+is introduced by this feature.
+
+Independent commands and results:
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm test
+pnpm typecheck
+bash scripts/build.sh quick --variant serial -j 8
+pnpm exec node packages/slicer-wasm/.work/step15-history-test/painting_session_test.cjs
+pnpm exec node packages/slicer-wasm/.work/step15-history-test/timestamped_history_core_test.cjs
+pnpm exec node packages/slicer-wasm/harness/seam-painting-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-history-plate-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs
+pnpm --filter @orca/desktop build
+pnpm --filter @orca/web build
+pnpm exec node scripts/check-painting-profile-elision.mjs
+git diff --check
+```
+
+All passed. Before merge the workspace passed 1,312 tests; after merge the parent
+reran tests and typechecks: **1,320** tests across eight projects (app 891, client
+260, runtime 36), with all typechecks passing. Serial quick and both native test
+executables passed. The comprehensive backend retained all six MMU tools,
+four-channel exact native annotations and fault rollback; plate/history tests
+passed 48 fresh slices and 20 restore-failure injections. Production interop
+observed 47,012 actual toolpath segments and MMU tools 0/1. The parent independently
+reproduced Seam's 0/53/0 placement witness and exact erase/history/reopen positions.
+The final Electron journey passed **1/1 in 36.5 seconds** on the merged utility
+runtime, with source/staged serial artifact hashes checked by the runner. The
+parent inspected its rotated-camera screenshot and draw evidence: separate armed
+Seam entry/panel, constrained cursor, green seam draw and ordinary MMU return.
+
+Final production desktop/Web builds passed; elision checked **24** production
+artifacts including utility bundles. Native history/painting test hooks were
+absent from production JS/WASM; the serial cache has history/profile gates OFF,
+threading 0. Production SHA256s are JS
+`2ddb6c4816bd1ceb2d8d14af9308f5f37cb6d6433fd2bc32a69ff7d685017889`, WASM
+`57b894d7a3ab6877cd9db83924d1286a4a75a5f2e742231b2cc6fbb462667be7` and data
+`6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+All preserved gated/native artifacts also matched the child's manifest. Parent
+renderer evidence is preserved in `.work/step15-parent-electron-evidence/` under
+slicer-wasm; child receipt remains `.work/step15-handoff.json`. Changed local
+link targets and command paths were verified against authoritative sources.
+
+Node 26.7.0 differs from the pinned 24.19.0, so browser/jsdom checks used the stated
+Node flag. Previously recorded missing-parent fixture diagnostics and Web chunk
+warnings remain non-failing. Threaded/full-host release qualification and
+quantitative performance are intentionally not run in this piece; they remain
+step 19 gates. Earlier optional step-14 harness failures retain their recorded
+status and are not reclassified by this acceptance.
 
 ### 16. Native Smart Fill and support Gap/overhang foundations
 
@@ -652,7 +804,7 @@ comparison remain explicit limitations, separate from functional qualification.
 - [x] Documentation piece independently reviewed and verified; committed before step 13.
 - [x] 13 strict channel/native/transport boundary and all-six MMU regression accepted.
 - [x] 14 all-channel history, affected plates and support-derived invalidation accepted.
-- [ ] 15 complete seam editor/save/slice accepted before entrypoint exposure.
+- [x] 15 complete seam editor/save/slice accepted before entrypoint exposure.
 - [ ] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
 - [ ] 17 complete fuzzy editor and explicit independent configuration action accepted.
 - [ ] 18 complete support editor and derived settlement accepted.

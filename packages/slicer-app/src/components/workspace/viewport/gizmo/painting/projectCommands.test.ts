@@ -48,7 +48,7 @@ async function setup(preloadFilament = false) {
     targetAvailable: (objectId, instanceId) => useObjectListStore.getState().structure
       .some((entry) => entry.id === objectId && entry.instances.some((instance) => instance.id === instanceId)) });
   unregister = registerPaintingCommands(controller);
-  expect(await controller.open(object.id, object.instances[0].id)).toBe(true);
+  expect(await controller.open(object.id, object.instances[0].id, 'mmu')).toBe(true);
   frames.shift()?.(); await vi.waitFor(() => expect(controller.getSnapshot().display).not.toBeNull());
   useProjectStore.getState().setProject({ hasContent: true });
   const platform = { runtime,

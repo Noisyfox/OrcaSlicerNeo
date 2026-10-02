@@ -3,7 +3,7 @@ import type { HistoryStatus, PaintingDraftResult, PaintingSessionMetadata, Paint
 import { PaintingController, type PaintingPorts } from './PaintingController';
 import { PaintingResources, paintingPartMatrix } from './PaintingResources';
 import * as THREE from 'three';
-import type { FilamentSessionSnapshot, PaintingGeometryResult } from '@slicer/client';
+import type { FilamentSessionSnapshot, FilamentMutationSummary, PaintingGeometryResult } from '@slicer/client';
 import { Selection } from '@/components/workspace/viewport/Selection';
 
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -15,7 +15,7 @@ function fixture() {
   let session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, parts: [], phase: 'idle', strokeId: null, channel: 'mmu' };
   const receipt = (phase: 'idle' | 'drawing' | 'finished' = 'drawing'): Exclude<PaintingDraftResult, { error: string }> => {
     session = { ...session, revision: session.revision + 1, phase, strokeId: phase === 'idle' ? null : 'pst-1-1' };
-    return { ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: session.revision, strokeId: session.strokeId, phase, effective: true, changedPartIds: [3], hit: { volumeId: 3, originalFacet: 9, world: [0, 0, 0] }, candidateRevision: session.revision };
+    return { ok: true, version: 1, channel: session.channel, sessionId: session.id, revision: session.revision, strokeId: session.strokeId, phase, effective: true, changedPartIds: [3], hit: { volumeId: 3, originalFacet: 9, world: [0, 0, 0] }, candidateRevision: session.revision };
   };
   const frames: (() => void)[] = [];
   const ports: PaintingPorts = {
@@ -25,7 +25,7 @@ function fixture() {
     api: {
       openHistorySession: vi.fn(async () => ({ sessionId: 'hs-1', status })),
       closeHistorySession: vi.fn(async () => status),
-      openPaintingSession: vi.fn(async () => ({ ok: true as const, version: 1 as const, session })),
+      openPaintingSession: vi.fn(async (request) => ({ ok: true as const, version: 1 as const, session: session = { ...session, channel: request.channel, revision: 1 } })),
       targetPaintingSession: vi.fn(async (r) => ({ ok: true as const, version: 1 as const, session: session = { ...session, objectId: r.objectId, instanceId: r.instanceId, revision: session.revision + 1 } })),
       readPaintingSession: vi.fn(async () => ({ ok: true as const, version: 1 as const, session })),
       closePaintingSession: vi.fn(async () => ({ ok: true as const, version: 1 as const, channel: 'mmu' as const })),
@@ -35,7 +35,7 @@ function fixture() {
       finishPaintingStroke: vi.fn(async () => receipt('finished')),
       cancelPaintingStroke: vi.fn(async () => receipt('idle')),
       commitPaintingStroke: vi.fn(async () => ({ ...receipt('idle'), committed: true, affectedPlateIds: ['plate1'], history: status })),
-      getPaintingGeometry: vi.fn(async () => ({ ok: true as const, version: 1 as const, channel: 'mmu' as const, sessionId: session.id, revision: session.revision, parts: [], candidates: [], resources: [] })),
+      getPaintingGeometry: vi.fn(async () => ({ ok: true as const, version: 1 as const, channel: session.channel, sessionId: session.id, revision: session.revision, parts: [], candidates: [], resources: [] })),
       settlePainting: vi.fn(async () => ({ ok: true as const, version: 1 as const, settledVersion: 1, projections: {} })),
     },
     schedule: (callback) => { frames.push(callback); return () => { const i = frames.indexOf(callback); if (i >= 0) frames.splice(i, 1); }; },
@@ -46,7 +46,7 @@ function fixture() {
 }
 describe('painting event admission and reliable terminal', () => {
   it('drops every busy move, retains release endpoint/settings, and requires a fresh press', async () => {
-    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     const pending = deferred<PaintingDraftResult>(); vi.mocked(p.api.beginPaintingStroke).mockReturnValueOnce(pending.promise);
     const press = c.press(event(1));
     expect(c.move(event(2))).toBe(false); expect(c.move(event(3))).toBe(false);
@@ -59,7 +59,7 @@ describe('painting event admission and reliable terminal', () => {
     expect(await c.press(event(8))).toBe('paint');
   });
   it('waits for an admitted sample then Escape cancels without an endpoint', async () => {
-    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2); await frame(); await c.press(event(1));
+    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
     const pending = deferred<PaintingDraftResult>(); vi.mocked(p.api.samplePaintingStroke).mockReturnValueOnce(pending.promise);
     expect(c.move(event(2))).toBe(true); c.release(event(3)); c.cancel();
     expect(c.move(event(4))).toBe(false); expect(await c.press(event(5))).toBe('ignored');
@@ -68,13 +68,13 @@ describe('painting event admission and reliable terminal', () => {
     expect(c.getSnapshot().phase).toBe('idle'); c.release(event(6)); expect(p.api.commitPaintingStroke).not.toHaveBeenCalled();
   });
   it('focus/capture interruptions commit once without sampling the interruption', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame(); await c.press(event(1));
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
     c.release(); c.release(); await tick(); c.release(event(9));
     expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1);
     expect(vi.mocked(p.api.commitPaintingStroke).mock.calls[0][0]).not.toHaveProperty('event');
   });
   it('press waits behind display; terminal survives both commands and display never races native', async () => {
-    const { controller: c, ports: p, frames } = fixture(); await c.open(1, 2);
+    const { controller: c, ports: p, frames } = fixture(); await c.open(1, 2, 'mmu');
     const pending = deferred<Awaited<ReturnType<typeof p.api.getPaintingGeometry>>>();
     vi.mocked(p.api.getPaintingGeometry).mockReturnValueOnce(pending.promise); frames.shift()?.();
     const press = c.press(event(1)); c.release(event(2));
@@ -84,14 +84,14 @@ describe('painting event admission and reliable terminal', () => {
     expect(c.getSnapshot().phase).toBe('idle');
   });
   it('display during a drawing gesture drops moves but retains termination', async () => {
-    const { controller: c, ports: p, frames, frame } = fixture(); await c.open(1, 2); await frame(); await c.press(event(1));
+    const { controller: c, ports: p, frames, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
     const pending = deferred<Awaited<ReturnType<typeof p.api.getPaintingGeometry>>>(); vi.mocked(p.api.getPaintingGeometry).mockReturnValueOnce(pending.promise); frames.shift()?.();
     expect(c.move(event(2))).toBe(false); c.release(event(3));
     pending.resolve({ ok: true, version: 1, channel: 'mmu' as const, sessionId: 'ps-1', revision: 2, parts: [], candidates: [], resources: [] }); await tick();
     expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1); expect(c.getSnapshot().phase).toBe('idle');
   });
   it('keeps admitted settings immutable and blocks tool switches/history/close until terminal completes', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame(); await c.press(event(1));
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
     c.setTool('sphere'); c.setSettings({ state: 2, erase: true, radius: 7 }); c.move(event(2)); await tick();
     expect(c.getSnapshot().tool).toBe('circle');
     expect(vi.mocked(p.api.beginPaintingStroke).mock.calls[0][0].settings).toMatchObject({ state: 1, radius: 2, erase: false });
@@ -99,14 +99,14 @@ describe('painting event admission and reliable terminal', () => {
     const history = vi.fn(async () => true); expect(await c.betweenStrokes(history)).toBe(false); expect(history).not.toHaveBeenCalled(); expect(await c.close()).toBe(false);
   });
   it('recoverable commit discards the failed draft and permits a fresh press', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame(); await c.press(event(1));
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
     vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, channel: 'mmu', sessionId: 'ps-1', revision: 3 });
     c.release(event(2)); await tick();
     expect(c.getSnapshot()).toMatchObject({ phase: 'idle', error: 'allocation failed' });
     expect(p.committed).not.toHaveBeenCalled(); expect(await c.press(event(3))).toBe('paint');
   });
   it('native initial miss owns empty-space rotation; no frontend face filter exists', async () => {
-    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     vi.mocked(p.api.beginPaintingStroke).mockImplementationOnce(async () => ({ ...receipt(), hit: null }));
     expect(await c.press(event(100))).toBe('camera'); expect(p.api.cancelPaintingStroke).toHaveBeenCalledTimes(1);
     expect(p.api.commitPaintingStroke).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ describe('painting session and display ownership', () => {
     const { controller: c, ports: p } = fixture();
     const gate = deferred<void>();
     p.coordinate = async (operation) => { await gate.promise; return operation(); };
-    const opening = c.open(1, 2);
+    const opening = c.open(1, 2, 'mmu');
     expect(p.api.openHistorySession).not.toHaveBeenCalled();
     gate.resolve();
     expect(await opening).toBe(true);
@@ -125,7 +125,7 @@ describe('painting session and display ownership', () => {
   });
   it('closes an active session when a project operation removes its target', async () => {
     const { controller: c, ports: p } = fixture();
-    expect(await c.open(1, 2)).toBe(true);
+    expect(await c.open(1, 2, 'mmu')).toBe(true);
     p.targetAvailable = () => false;
     const mutation = vi.fn(async () => 'removed');
     expect(await c.projectOperation(mutation)).toBe('removed');
@@ -136,7 +136,7 @@ describe('painting session and display ownership', () => {
     expect(c.getSnapshot().phase).toBe('closed');
   });
   it('rejects a second selection during deferred target binding without replaying it later', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     const selection = new Selection(); selection.replaceIds(['A']); selection.setAdmissionGuard(() => c.selectionAllowed());
     const pending = deferred<Awaited<ReturnType<typeof p.api.targetPaintingSession>>>();
     vi.mocked(p.api.targetPaintingSession).mockReturnValueOnce(pending.promise);
@@ -147,14 +147,14 @@ describe('painting session and display ownership', () => {
     expect(p.api.targetPaintingSession).toHaveBeenCalledTimes(1); expect(selection.replaceIds(['C'])).toBe(true);
   });
   it('opens history first; switches targets in one session; retains tool settings across close', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     expect(vi.mocked(p.api.openHistorySession).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(p.api.openPaintingSession).mock.invocationCallOrder[0]);
     c.setTool('height'); c.setSettings({ height: 9, state: 2 }); expect(await c.target(4, 5)).toBe(true);
-    expect(p.api.openHistorySession).toHaveBeenCalledTimes(1); expect(await c.close()).toBe(true); await c.open(1, 2); await frame();
+    expect(p.api.openHistorySession).toHaveBeenCalledTimes(1); expect(await c.close()).toBe(true); await c.open(1, 2, 'mmu'); await frame();
     expect(c.getSnapshot()).toMatchObject({ tool: 'height', settings: { height: 9, state: 2 } });
   });
   it('a failed history close remains retryable; a failed projection retries without closing history twice', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     await c.press(event(1)); c.release(event(2)); await tick();
     vi.mocked(p.api.closeHistorySession).mockRejectedValueOnce(new Error('close failed'));
     expect(await c.close()).toBe(false); expect(c.getSnapshot().phase).toBe('idle');
@@ -164,48 +164,48 @@ describe('painting session and display ownership', () => {
     expect(vi.mocked(p.prepareClosed).mock.calls).toEqual([[[1]], [[1]]]);
   });
   it('returns an untouched or cancelled session to the retained Prepare scene', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     await c.press(event(1)); c.cancel(); await tick();
     expect(await c.close()).toBe(true);
     expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
     expect(p.api.closeHistorySession).toHaveBeenCalledTimes(1);
   });
   it('refreshes all committed targets across target switches and Undo, then resets for reopening', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     expect(await c.apply('eraseAll')).toBe(true); expect(await c.target(4, 5)).toBe(true); await frame();
     expect(await c.apply('eraseAll')).toBe(true);
     await c.betweenStrokes(async () => true); // Undo can already refresh Prepare.
     expect(await c.close()).toBe(true);
     expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([1, 4]);
-    await c.open(1, 2); await frame(); expect(await c.close()).toBe(true);
+    await c.open(1, 2, 'mmu'); await frame(); expect(await c.close()).toBe(true);
     expect(p.prepareClosed).toHaveBeenLastCalledWith([]);
   });
   it('does not refresh Prepare for an ineffective commit', async () => {
-    const { controller: c, ports: p, frame, receipt } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, frame, receipt } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     vi.mocked(p.api.commitPaintingStroke).mockImplementationOnce(async () => ({ ...receipt('idle'), committed: false, affectedPlateIds: [], history: status }));
     await c.apply('eraseAll'); expect(await c.close()).toBe(true);
     expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
   });
   it('does not refresh Prepare after a recovered failed commit', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, channel: 'mmu', sessionId: 'ps-1', revision: 3 });
     expect(await c.apply('eraseAll')).toBe(false);
     expect(await c.close()).toBe(true); expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
   });
   it('gap apply uses an exact fresh native candidate and commits all parts once', async () => {
-    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame(); c.setSettings({ gapArea: 2.5 });
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); c.setSettings({ gapArea: 2.5 });
     expect(await c.apply('gap')).toBe(true);
     expect(p.api.beginPaintingStroke).toHaveBeenCalledWith(expect.objectContaining({ tool: 'gap', candidateRevision: 2, settings: expect.objectContaining({ gapArea: 2.5 }) }));
     expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1); expect(p.committed).toHaveBeenCalledWith(['plate1']);
   });
   it('history reconciliation adopts latest selector revision before another stroke', async () => {
-    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2); await frame();
+    const { controller: c, ports: p, receipt, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame();
     await c.betweenStrokes(async () => { receipt('idle'); return true; }); await c.press(event(1));
     expect(p.api.readPaintingSession).toHaveBeenCalledWith(expect.objectContaining({ latest: true }));
     expect(p.api.beginPaintingStroke).toHaveBeenCalledWith(expect.objectContaining({ revision: 2 }));
   });
   it('coalesces preview settings without a fixed timer and rejects stale candidates', async () => {
-    const { controller: c, ports: p, receipt, frames, frame } = fixture(); await c.open(1, 2); await frame(); c.setTool('region'); c.hoverAt(event(1));
+    const { controller: c, ports: p, receipt, frames, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); c.setTool('region'); c.hoverAt(event(1));
     const pending = deferred<PaintingDraftResult>(); vi.mocked(p.api.previewPainting).mockReturnValueOnce(pending.promise); frames.shift()?.();
     c.setSettings({ angle: 80 }); c.hoverAt(); pending.resolve(receipt('idle')); await tick(); await frame();
     expect(c.getSnapshot().display?.candidates).toEqual([]);
@@ -225,7 +225,7 @@ function visualFixture() {
   f.ports.palette = () => palette;
   vi.mocked(f.ports.api.openPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
   vi.mocked(f.ports.api.readPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
-  const geometry = (resourceId = 'a', include = true): Extract<PaintingGeometryResult, { ok: true }> => ({ ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: session.revision, parts: [{ volumeId: 3, resourceId }], candidates: [], resources: include ? [{ resourceId, volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] : [] });
+  const geometry = (resourceId = 'a', include = true): Extract<PaintingGeometryResult, { ok: true }> => ({ ok: true, version: 1, channel: session.channel, sessionId: session.id, revision: session.revision, parts: [{ volumeId: 3, resourceId }], candidates: [], resources: include ? [{ resourceId, volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] : [] });
   vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => geometry());
   const cache = new PaintingResources();
   return { ...f, cache, geometry, setSession: (next: PaintingSessionMetadata) => { session = next; },
@@ -236,7 +236,7 @@ function visualFixture() {
 describe.each(['triangle', 'region'] as const)('%s native hover admission and selection receipts', (tool) => {
   async function pointerPreview() {
     const f = visualFixture(), c = f.controller;
-    await c.open(1, 2); await f.frame(); c.setTool(tool); await f.frame();
+    await c.open(1, 2, 'mmu'); await f.frame(); c.setTool(tool); await f.frame();
     vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => {
       const snapshot = c.getSnapshot(), result = f.geometry();
       const resourceId = `pc-mmu-1-${snapshot.session!.revision}-3`;
@@ -417,7 +417,7 @@ describe.each(['triangle', 'region'] as const)('%s native hover admission and se
 describe.each(['triangle', 'region', 'gap'] as const)('%s shared candidate preview ownership', (tool) => {
   async function candidatePreview() {
     const f = visualFixture(), c = f.controller;
-    await c.open(1, 2); await f.frame();
+    await c.open(1, 2, 'mmu'); await f.frame();
     vi.mocked(f.ports.api.targetPaintingSession).mockImplementation(async (request) => {
       const session = { ...c.getSnapshot().session!, objectId: request.objectId, instanceId: request.instanceId, revision: c.getSnapshot().session!.revision + 1 };
       f.setSession(session); return { ok: true, version: 1, session };
@@ -579,7 +579,7 @@ describe.each(['triangle', 'region', 'gap'] as const)('%s shared candidate previ
 describe('complete painting visual handoffs', () => {
   it('keeps the opening fallback until the complete native resource receipt and rejects invisible-target input', async () => {
     const f = visualFixture(), c = f.controller;
-    await c.open(1, 2);
+    await c.open(1, 2, 'mmu');
     const pending = deferred<Awaited<ReturnType<typeof f.ports.api.getPaintingGeometry>>>();
     vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(pending.promise);
     expect(c.getSnapshot().display).toBeNull(); expect(await c.press(event(1))).toBe('ignored');
@@ -590,7 +590,7 @@ describe('complete painting visual handoffs', () => {
     expect(f.cache.resources.size).toBe(1); f.cache.dispose();
   });
   it('retains the old matched bundle during a palette operation and changes colour without rebuilding geometry', async () => {
-    const f = visualFixture(), c = f.controller; await c.open(1, 2); await f.frame();
+    const f = visualFixture(), c = f.controller; await c.open(1, 2, 'mmu'); await f.frame();
     const before = f.publish(), mesh = f.cache.resources.get('a')!, disposal = vi.spyOn(mesh.geometry, 'dispose');
     const operation = deferred<void>(), replacement = deferred<Awaited<ReturnType<typeof f.ports.api.getPaintingGeometry>>>();
     vi.mocked(f.ports.api.getPaintingGeometry).mockReturnValueOnce(replacement.promise);
@@ -603,7 +603,7 @@ describe('complete painting visual handoffs', () => {
     expect(after.palette?.slots[0].colour.effective).toBe('#445566'); expect(f.cache.resources.get('a')).toBe(mesh); expect(disposal).not.toHaveBeenCalled(); f.cache.dispose();
   });
   it('holds old matrices and palette through same-target transform changes, missing resources and a later complete replacement', async () => {
-    const f = visualFixture(), c = f.controller; await c.open(1, 2); await f.frame(); const before = f.publish();
+    const f = visualFixture(), c = f.controller; await c.open(1, 2, 'mmu'); await f.frame(); const before = f.publish();
     const old = f.cache.resources.get('a')!, disposed = vi.spyOn(old.geometry, 'dispose');
     const latest = { ...before.session, revision: 2, instanceTransform: new THREE.Matrix4().makeTranslation(10, 20, 30).toArray(), parts: [{ ...before.session.parts[0], draftResourceId: 'b' }] };
     await c.projectOperation(async () => { f.setSession(latest); f.setPalette('#abcdef'); });
@@ -621,14 +621,14 @@ describe('complete painting visual handoffs', () => {
     expect(await c.press(event(1))).toBe('paint'); c.cancel(); await tick(); f.cache.dispose();
   });
   it('keeps a complete visual on latest-session failure and failed recovery, and permits explicit cleanup', async () => {
-    const f = visualFixture(), c = f.controller; await c.open(1, 2); await f.frame(); const before = f.publish();
+    const f = visualFixture(), c = f.controller; await c.open(1, 2, 'mmu'); await f.frame(); const before = f.publish();
     vi.mocked(f.ports.api.readPaintingSession).mockRejectedValue(new Error('read unavailable'));
     await expect(c.projectOperation(async () => true)).rejects.toThrow('read unavailable');
     expect(c.getSnapshot()).toMatchObject({ phase: 'error', display: before }); expect(f.cache.resources.size).toBe(1); expect(await c.press(event(1))).toBe('ignored');
     expect(await c.close()).toBe(true); expect(c.getSnapshot().display).toBeNull(); f.cache.dispose(); expect(f.cache.resources.size).toBe(0);
   });
   it('cancels a draft retained by renderer failure before closing history, with safe cancellation/history retries', async () => {
-    const f = fixture(), c = f.controller; await c.open(1, 2); await f.frame();
+    const f = fixture(), c = f.controller; await c.open(1, 2, 'mmu'); await f.frame();
     expect(await c.press(event(1))).toBe('paint'); c.reportDisplayError(new Error('renderer allocation failed'));
     vi.mocked(f.ports.api.cancelPaintingStroke).mockRejectedValueOnce(new Error('cancel failed'));
     expect(await c.close()).toBe(false); expect(c.getSnapshot().phase).toBe('error'); expect(c.getSnapshot().session?.strokeId).not.toBeNull();
@@ -643,7 +643,7 @@ describe('complete painting visual handoffs', () => {
     expect(f.ports.api.commitPaintingStroke).not.toHaveBeenCalled();
   });
   it('retains target A until target B geometry is complete and rejects stale results and renderer publication failures', async () => {
-    const f = visualFixture(), c = f.controller; await c.open(1, 2); await f.frame(); const before = f.publish();
+    const f = visualFixture(), c = f.controller; await c.open(1, 2, 'mmu'); await f.frame(); const before = f.publish();
     const next = { ...before.session, objectId: 4, instanceId: 5, revision: 2, instanceTransform: new THREE.Matrix4().makeTranslation(40, 50, 60).toArray() };
     vi.mocked(f.ports.api.targetPaintingSession).mockResolvedValueOnce({ ok: true, version: 1, session: next });
     await c.target(4, 5); expect(c.getSnapshot().display).toBe(before); expect(await c.press(event(1))).toBe('ignored');
@@ -653,4 +653,58 @@ describe('complete painting visual handoffs', () => {
     const after = c.getSnapshot().display!; expect(after.session.instanceId).toBe(5); expect(after.session.instanceTransform.slice(12, 15)).toEqual([40, 50, 60]);
     c.reportDisplayError(new Error('allocation failed')); expect(c.getSnapshot().phase).toBe('error'); expect(await c.press(event(1))).toBe('ignored'); expect(await c.close()).toBe(true); f.cache.dispose();
   });
+});
+
+
+describe('seam channel switching and memory-only parameters', () => {
+  it('closes and publishes before opening a fresh channel; restores each channel parameters', async () => {
+    const { controller: c, ports: p, frame } = fixture();
+    await c.open(1, 2, 'mmu'); await frame(); c.setTool('height'); c.setSettings({ state: 4, height: 9 });
+    expect(await c.open(1, 2, 'seam')).toBe(true); await frame();
+    expect(c.getSnapshot()).toMatchObject({ channel: 'seam', tool: 'circle', settings: { state: 1, radius: 2, vertical: false } });
+    expect(p.api.closeHistorySession).toHaveBeenCalledWith('hs-1', 'Paint');
+    expect(vi.mocked(p.prepareClosed).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(p.api.openPaintingSession).mock.invocationCallOrder[1]);
+    c.setTool('height'); expect(c.getSnapshot().tool).toBe('circle');
+    c.setTool('sphere'); c.setSettings({ state: 2, radius: 5, vertical: true });
+    c.reconcilePalette({ slots: [{ slot: 4, logicalId: 'four' }] } as unknown as FilamentSessionSnapshot); expect(c.getSnapshot().settings.state).toBe(2);
+    await c.open(1, 2, 'mmu'); await frame();
+    expect(p.api.closeHistorySession).toHaveBeenLastCalledWith('hs-1', 'Paint Seam');
+    expect(c.getSnapshot()).toMatchObject({ tool: 'height', settings: { state: 4, height: 9, vertical: false } });
+    await c.close(); await c.open(1, 2, 'seam'); await frame();
+    expect(c.getSnapshot()).toMatchObject({ tool: 'sphere', settings: { state: 2, radius: 5, vertical: true } });
+  });
+  it('ignores busy switches without replay; failed close blocks next entry until retry', async () => {
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'mmu'); await frame(); await c.press(event(1));
+    expect(await c.open(1, 2, 'seam')).toBe(false); c.release(); await tick();
+    expect(p.api.openPaintingSession).toHaveBeenCalledTimes(1);
+    vi.mocked(p.api.closeHistorySession).mockRejectedValueOnce(new Error('close failed'));
+    expect(await c.open(1, 2, 'seam')).toBe(false);
+    expect(c.getSnapshot()).toMatchObject({ channel: 'mmu', phase: 'idle', error: 'close failed' });
+    expect(p.api.openPaintingSession).toHaveBeenCalledTimes(1);
+    expect(await c.open(1, 2, 'seam')).toBe(true);
+    expect(p.api.openPaintingSession).toHaveBeenCalledTimes(2);
+  });
+  it('seam commits invalidate results without exporting ordinary MMU geometry', async () => {
+    const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2, 'seam'); await frame();
+    c.setSettings({ state: 2 }); await c.press(event(1)); c.release(event(2), true); await tick(); await c.close();
+    expect(p.committed).toHaveBeenCalledWith(['plate1']); expect(p.prepareClosed).toHaveBeenCalledWith([]);
+    expect(p.api.commitPaintingStroke).toHaveBeenCalledWith(expect.objectContaining({ channel: 'seam', settings: expect.objectContaining({ state: 2, erase: true }) }));
+  });
+});
+
+it('reconciles logical MMU choice through merge/delete while seam parameters remain independent', async () => {
+  const { controller: c, ports: p, frame } = fixture();
+  const rack = (slots: [number,string][]) => ({ slots: slots.map(([slot,logicalId])=>({slot,logicalId})) } as unknown as FilamentSessionSnapshot);
+  p.palette = () => rack([[1,'one'],[2,'two'],[3,'three'],[4,'four']]);
+  await c.open(1,2,'mmu'); await frame(); c.setTool('height'); c.setSettings({state:4,height:9});
+  await c.open(1,2,'seam'); await frame(); c.setSettings({state:2,radius:7,vertical:true});
+  c.reconcilePalette(rack([[1,'one'],[2,'two'],[3,'four']]), {kind:'delete',source:3} as FilamentMutationSummary);
+  expect(c.getSnapshot().settings).toMatchObject({state:2,radius:7,vertical:true});
+  await c.open(1,2,'mmu'); await frame(); expect(c.getSnapshot()).toMatchObject({tool:'height',settings:{state:3,height:9,vertical:false}});
+  await c.open(1,2,'seam'); await frame();
+  c.reconcilePalette(rack([[1,'one'],[2,'two']]), {kind:'merge',source:3,destination:2} as FilamentMutationSummary);
+  await c.open(1,2,'mmu'); await frame(); expect(c.getSnapshot().settings.state).toBe(2);
+  await c.open(1,2,'seam'); await frame(); c.resetProjectPalette();
+  expect(c.getSnapshot().settings).toMatchObject({state:2,radius:7,vertical:true});
+  await c.open(1,2,'mmu'); await frame(); expect(c.getSnapshot()).toMatchObject({tool:'height',settings:{state:1,height:9}});
 });

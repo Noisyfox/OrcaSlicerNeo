@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
-type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
+type Evidence = { channel: string; cursor: number[] | null; phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number; vertical: boolean; state: number; erase: boolean }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
@@ -676,6 +676,79 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const toolbarPath = test.info().outputPath('painting-toolbar-active.json');
     writeFileSync(toolbarPath, JSON.stringify(toolbarEvidence, null, 2));
     await test.info().attach('painting-toolbar-active', { path: toolbarPath, contentType: 'application/json' });
+    // Dedicated seam entry: all controls use the real shared controller/Worker.
+    const seamButton = page.getByTestId('gizmo-btn-seam');
+    expect(await page.getByTestId('gizmo-btn-support').count()).toBe(0);
+    expect(await page.getByTestId('gizmo-btn-fuzzy').count()).toBe(0);
+    const mmuParameters = {tool:(await read())!.tool,settings:(await read())!.settings};
+    const seamEvidence: Record<string, unknown> = {};
+    await seamButton.click(); await idle();
+    await expect(seamButton).toHaveAttribute('aria-pressed','true'); await expect(paintButton).toHaveAttribute('aria-pressed','false');
+    expect((await read())!.channel).toBe('seam'); expect((await read())!.resources.flatMap(r=>r.groups.map(g=>g[0]))).toEqual([0]);
+    await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');
+    await page.getByRole('checkbox',{name:'Vertical',exact:true}).check();
+    // Rotate the camera by actual navigation before the constrained stroke.
+    let seamCenter = (await read())!.center;
+    await page.mouse.move(seamCenter.x,seamCenter.y); await page.keyboard.down('Control'); await page.mouse.down();
+    await page.mouse.move(seamCenter.x+35,seamCenter.y+15,{steps:5}); await page.mouse.up(); await page.keyboard.up('Control');
+    seamCenter = (await read())!.center;
+    const seamBefore = await history(); await startFrames();
+    await page.mouse.move(seamCenter.x,seamCenter.y); await page.mouse.down(); await expect.poll(async()=> (await read())?.phase).toBe('drawing');
+    const drawingSession = (await read())!.sessionId;
+    await expect(paintButton).toBeDisabled(); await expect(seamButton).toBeDisabled();
+    await paintButton.evaluate(button=>(button as HTMLButtonElement).click());
+    await page.mouse.move(seamCenter.x+25,seamCenter.y+8,{steps:4});
+    await expect.poll(async()=> (await read())?.cursor).not.toBeNull();
+    const projectedCursor = await page.evaluate(() => { const hooks=(window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e; return hooks.paintingWorldToScreen(hooks.paintingEvidence().cursor); });
+    expect(projectedCursor.x).toBeCloseTo(seamCenter.x,3); expect(projectedCursor.y).toBeCloseTo(seamCenter.y+8,3);
+    expect((await read())!.sessionId).toBe(drawingSession);
+    await page.screenshot({path:test.info().outputPath('seam-vertical-rotated-camera.png')});
+    await page.mouse.up(); await idle();
+    const enforcedCounts = await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(enforcedCounts[0].facetCounts[1]).toBeGreaterThan(0); expect((await history()).undoEntries.length).toBe(seamBefore.undoEntries.length+1);
+    await settleFrames(); const seamFrames=await stopFrames(); await completeFrames('seam-enforce-actual-draw',seamFrames);
+    expect(seamFrames.some(f=>f.colors.includes('80ff80'))).toBe(true);
+    seamEvidence.enforce={counts:enforcedCounts,cursor:projectedCursor,screenAnchor:seamCenter,frames:seamFrames};
+    // Block with sphere, then local Shift erase. Right/middle retain pan semantics.
+    await page.getByTestId('painting-tool-sphere').click(); await page.getByRole('radio',{name:'Block',exact:true}).click();
+    seamCenter=(await read())!.center; await page.mouse.click(seamCenter.x,seamCenter.y); await idle();
+    const blockedCounts=await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(blockedCounts[0].facetCounts[2]).toBeGreaterThan(0);
+    await page.keyboard.down('Shift'); await page.mouse.click(seamCenter.x,seamCenter.y); await page.keyboard.up('Shift'); await idle();
+    const erasedCounts=await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(erasedCounts[0].facetCounts[2]).toBeLessThan(blockedCounts[0].facetCounts[2]);
+    // History restores annotations/transforms; draft keys advance monotonically.
+    const annotationParts=(parts: Array<Record<string,unknown>>) => parts.map(({draftResourceId,...part})=>part);
+    await page.getByTestId('history-undo').click(); await idle();
+    expect(annotationParts(await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts()))).toEqual(annotationParts(blockedCounts));
+    await page.getByTestId('history-redo').click(); await idle();
+    expect(annotationParts(await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts()))).toEqual(annotationParts(erasedCounts));
+    const seamRadius=(await read())!.settings.radius; await page.mouse.move(seamCenter.x,seamCenter.y); await page.keyboard.down('Control'); await page.mouse.wheel(0,-1); await page.keyboard.up('Control');
+    await expect.poll(async()=> (await read())!.settings.radius).toBeCloseTo(seamRadius+.2,6);
+    const beforeCancel=await history(); await page.mouse.move(seamCenter.x,seamCenter.y); await page.mouse.down();
+    await expect.poll(async()=> (await read())?.phase).toBe('drawing'); await page.keyboard.press('Escape'); await page.mouse.up(); await idle();
+    expect((await history()).undoEntries.length).toBe(beforeCancel.undoEntries.length);
+    for (const button of ['middle','right'] as const) {
+      const before=(await read())!; const h=await history(); await page.mouse.move(seamCenter.x,seamCenter.y); await page.mouse.down({button});
+      await page.mouse.move(seamCenter.x+10,seamCenter.y+5,{steps:3}); await page.mouse.up({button});
+      expect((await read())!.camera).not.toEqual(before.camera); expect((await history()).undoEntries.length).toBe(h.undoEntries.length);
+    }
+    // Close failure leaves seam active and prevents MMU opening; an explicit retry succeeds.
+    const seamParameters={tool:(await read())!.tool,settings:(await read())!.settings};
+    await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingFailNextClose());
+    await paintButton.click(); await expect(page.getByRole('alert')).toContainText('Injected painting close failure');
+    expect((await read())!.channel).toBe('seam'); await expect(seamButton).toHaveAttribute('aria-pressed','true');
+    await paintButton.click(); await idle(); expect((await read())!.channel).toBe('mmu');
+    expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(mmuParameters);
+    await seamButton.click(); await idle(); expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(seamParameters);
+    await seamButton.click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await startFrames(); await settleFrames(); const ordinaryAfterSeam=await stopFrames();
+    await completeFrames('seam-close-ordinary-MMU',ordinaryAfterSeam);
+    expect(ordinaryAfterSeam.every(frame=>frame.painting.length===0 && frame.ordinary.length>0)).toBe(true);
+    expect(ordinaryAfterSeam.some(frame=>frame.colors.includes('80ff80') || frame.colors.includes('ff8080'))).toBe(false);
+    const seamPath=test.info().outputPath('seam-editor-evidence.json'); writeFileSync(seamPath,JSON.stringify(seamEvidence,null,2));
+    await test.info().attach('seam-editor-evidence',{path:seamPath,contentType:'application/json'});
+    await paintButton.click(); await idle();
     const hiddenSession = (await read())!.sessionId;
     for (const tab of ['home', 'device']) {
       await page.locator(`#app-tab-${tab}`).click();

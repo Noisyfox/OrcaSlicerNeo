@@ -77,6 +77,49 @@ void channel_tests() {
         THROWS(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, channel, 1, 1));
     }
 }
+void seam_vertical_tests() {
+    for (const auto tool : {Tool::Circle, Tool::Sphere}) {
+        Fixture f;
+        f.part->set_scaling_factor(Vec3d(1.4, .7, 1.2));
+        f.part->set_mirror(Vec3d(-1, 1, 1));
+        f.part->set_rotation(Vec3d(.3, .2, .45));
+        f.instance->set_rotation(Vec3d(.15, -.1, .2));
+        f.instance->set_offset(Vec3d(1, -1, 2));
+        f.sessions.publish(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, Channel::Seam, 1, 1));
+        auto press = top(1, -1);
+        // A rotated camera right/up basis ensures screen vertical is neither
+        // local/world X nor world Z, even on a transformed mirrored part.
+        press.view.block<3,3>(0,0) = Eigen::AngleAxisd(.7, Vec3d::UnitZ()).toRotationMatrix();
+        const Vec3d center = f.s().instance_transform * Vec3d::Zero();
+        const Eigen::Vector4d projected = press.projection * press.view * center.homogeneous();
+        press.pointer = Vec2d((projected.x()/projected.w()+1.)*50., (1.-projected.y()/projected.w())*50.);
+        const auto initial = f.sessions.pick(f.s(), press); CHECK(initial);
+        Settings settings; settings.vertical = true; settings.radius = .35;
+        f.begin(tool, settings, press);
+        CHECK(f.s().parts[0].facet_counts()[1] > 0);
+        auto drag = press; drag.pointer += Vec2d(4, 2);
+        auto locked = drag; locked.pointer.x() = press.pointer.x();
+        const auto expected = f.sessions.pick(f.s(), locked); CHECK(expected);
+        const auto unconstrained = f.sessions.pick(f.s(), drag); CHECK(unconstrained);
+        CHECK((unconstrained->world - expected->world).norm() > 1.);
+        settings.state = 2; f.sample(settings, drag);
+        CHECK(f.s().last_event->pointer.x() == press.pointer.x());
+        CHECK(f.s().last_event->pointer.y() == drag.pointer.y());
+        CHECK(f.s().last_hit->world.isApprox(expected->world, 1e-7));
+        const auto clip = drag.projection * drag.view * expected->world.homogeneous();
+        const double screen_x = (clip.x()/clip.w()+1.) * drag.viewport.z()/2. + drag.viewport.x();
+        CHECK(std::abs(screen_x - press.pointer.x()) < 1e-7);
+        CHECK((initial->world.head<2>() - expected->world.head<2>()).norm() > .5);
+        // The live Block capsule includes the initial Enforce dot.
+        CHECK(f.s().parts[0].facet_counts()[2] > 0);
+        f.cancel(); CHECK(f.s().parts[0].facet_counts()[1] == 0 && f.s().parts[0].facet_counts()[2] == 0);
+        // Live disabling restores the true pointer ray without changing anchor.
+        settings.vertical = false; f.begin(tool, settings, press); f.sample(settings, drag);
+        CHECK(f.s().last_hit->world.isApprox(unconstrained->world, 1e-7));
+        f.cancel();
+    }
+    Settings invalid; invalid.vertical = true; THROWS(invalid.validate(Channel::Mmu));
+}
 void triangle_preview_tests() {
     for (bool subdivided : {false, true}) {
         Fixture f;
@@ -462,6 +505,7 @@ void engine_tests() {
 int main() {
     try {
     channel_tests();
+    seam_vertical_tests();
     triangle_preview_tests();
     engine_tests();
     Model model;

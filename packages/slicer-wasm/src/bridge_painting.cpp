@@ -125,7 +125,7 @@ double number(const json& value) {
     return out;
 }
 Settings settings(const json& value, Channel channel) {
-    fields(value, {"state", "erase", "radius", "height", "angle", "gapArea"});
+    fields(value, {"state", "erase", "radius", "height", "angle", "gapArea", "vertical"});
     Settings out;
     if (value.contains("state")) {
         const double state = number(value["state"]);
@@ -135,6 +135,10 @@ Settings settings(const json& value, Channel channel) {
     if (value.contains("erase")) {
         if (!value["erase"].is_boolean()) throw std::invalid_argument("invalid painting erase setting");
         out.erase = value["erase"].get<bool>();
+    }
+    if (value.contains("vertical")) {
+        if (!value["vertical"].is_boolean()) throw std::invalid_argument("invalid painting vertical setting");
+        out.vertical = value["vertical"].get<bool>();
     }
     if (value.contains("radius")) out.radius = number(value["radius"]);
     if (value.contains("height")) out.height = number(value["height"]);

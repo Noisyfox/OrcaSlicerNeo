@@ -4,7 +4,7 @@
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
-import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush } from 'lucide-react';
+import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush, Scissors } from 'lucide-react';
 import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -103,14 +103,24 @@ export function GizmoToolbar({
         );
       })}
       <TooltipFor content="Surface painting">
-        <Button size="icon" variant="gizmo" aria-label="Surface painting" aria-pressed={paintActive} data-testid="gizmo-btn-paint"
-          disabled={paintActive ? paintState?.phase !== 'idle' : slotCount < 2 || !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
+        <Button size="icon" variant="gizmo" aria-label="Surface painting" aria-pressed={paintActive && paintState?.channel !== 'seam'} data-testid="gizmo-btn-paint"
+          disabled={paintActive && paintState?.channel !== 'seam' ? paintState?.phase !== 'idle' : slotCount < 2 || (paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive)}
           onClick={() => {
             if (!painting) return;
-            if (painting.active) { void painting.close(); return; }
+            if (painting.active && paintState?.channel !== 'seam') { void painting.close(); return; }
             const target = paintingTarget(sceneInteraction);
-            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId); }
+            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'mmu'); }
           }}><Paintbrush /></Button>
+      </TooltipFor>
+      <TooltipFor content="Seam painting">
+        <Button size="icon" variant="gizmo" aria-label="Seam painting" aria-pressed={paintActive && paintState?.channel === 'seam'} data-testid="gizmo-btn-seam"
+          disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
+          onClick={() => {
+            if (!painting) return;
+            if (painting.active && paintState?.channel === 'seam') { void painting.close(); return; }
+            const target = paintingTarget(sceneInteraction);
+            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'seam'); }
+          }}><Scissors /></Button>
       </TooltipFor>
     </div>
   );

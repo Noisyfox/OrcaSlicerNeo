@@ -8,7 +8,7 @@ import { HeightRangeCursor } from './HeightRangeCursor';
 vi.mock('@react-three/drei', () => ({ Line: vi.fn(() => null) }));
 vi.mock('@react-three/fiber', () => ({ useThree: () => ({ camera, size: { height: 600 } }) }));
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
-const settings = { state: 1, erase: false, radius: 7, height: 3, angle: 30, gapArea: 0 };
+const settings = { state: 1, erase: false, vertical: false, radius: 7, height: 3, angle: 30, gapArea: 0 };
 const position = new THREE.Vector3(5, 10, 15), cameraQuaternion = new THREE.Quaternion();
 const color = new THREE.Color('#abcdef');
 const bounds = new THREE.Box3(new THREE.Vector3(-10, -20, 0), new THREE.Vector3(30, 40, 50));

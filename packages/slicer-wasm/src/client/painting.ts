@@ -67,6 +67,8 @@ export interface PaintingProfileCounters {
 export interface PaintingSettings {
   readonly state?: number;
   readonly erase?: boolean;
+  /** Seam-only: hold the stroke press screen X while projecting native rays. */
+  readonly vertical?: boolean;
   /** World-space millimetres, default 2. */
   readonly radius?: number;
   /** World-Z band height in millimetres, default 1. */

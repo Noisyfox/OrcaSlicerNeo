@@ -81,13 +81,15 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     const damping = orbit.enableDamping;
     orbit.enableDamping = false; orbit.update();
     const target = orbit.target;
-    type Gesture = { id: number; mode: 'pending' | 'paint' | 'rotate' | 'pan'; x: number; y: number };
+    type Gesture = { id: number; mode: 'pending' | 'paint' | 'rotate' | 'pan'; x: number; y: number; pressX: number };
     let gesture: Gesture | null = null;
     let disposed = false;
     const raycaster = new THREE.Raycaster();
     const cursorAt = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), camera);
+      const snapshot = owner.getSnapshot();
+      const x = gesture && (gesture.mode === 'pending' || gesture.mode === 'paint') && snapshot.channel === 'seam' && snapshot.settings.vertical ? gesture.pressX : event.clientX;
+      raycaster.setFromCamera(new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), camera);
       const hit = raycaster.intersectObjects(cursorMeshesRef.current, false)[0]; setCursor(hit?.point.clone() ?? null); invalidate();
     };
     const stop = (event: Event) => { event.preventDefault(); event.stopImmediatePropagation(); };
@@ -97,7 +99,7 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
       if (gesture || owner.getSnapshot().phase !== 'idle') return;
       canvas.focus(); canvas.setPointerCapture(event.pointerId);
       const mode = event.button === 1 || event.button === 2 ? 'pan' : event.ctrlKey || event.metaKey ? 'rotate' : 'pending';
-      const mine: Gesture = { id: event.pointerId, mode, x: event.clientX, y: event.clientY };
+      const mine: Gesture = { id: event.pointerId, mode, x: event.clientX, y: event.clientY, pressX: event.clientX };
       gesture = mine;
       if (mode === 'pending') void owner.press(paintingPointer(event, canvas, camera), event.shiftKey).then((result) => {
         if (disposed || gesture !== mine) return;
@@ -172,7 +174,7 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     {visual ? visual.resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
       return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} />;
     }) : openingVisual}
-    {cursor && visual && (state.tool === 'circle' || state.tool === 'sphere' || state.tool === 'height') && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} meshes={cursorMeshes} color={resolveCursorColor(visual.display, state.settings.state)} />}
+    {cursor && visual && (state.tool === 'circle' || state.tool === 'sphere' || state.tool === 'height') && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} meshes={cursorMeshes} color={resolveCursorColor(visual.display, state.channel === 'seam' && state.settings.erase ? 0 : state.settings.state)} />}
   </>;
 }
 export function triangleContourMaterial(): THREE.LineBasicMaterial {

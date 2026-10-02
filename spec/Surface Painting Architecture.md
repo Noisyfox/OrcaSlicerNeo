@@ -210,6 +210,11 @@ neighbour choice and non-mutating preview, using support states instead of
 material slots. Overhang highlighting/restriction uses native transformed
 surface/angle semantics; highlighting alone never commits annotations.
 
+Each adapter has its own dedicated toolbar entry, following Orca’s independent
+support, seam, fuzzy-skin and MMU gizmo entries. Do not hide the adapters behind
+a shared channel picker. Expose each entry only when its complete boundary passes
+acceptance.
+
 All three new channels permit single-filament projects. MMU retains its
 at-least-two-slot entry gate and 1–16 explicit palette. Support and seam panels
 provide explicit Enforce, Block and Erase choices; fuzzy provides Enable and

@@ -33,6 +33,7 @@ import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '
 import { runProjectHistoryMutation } from '../actions/historyMutation';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
+import { SeamPaintingPanel } from './gizmo/painting/SeamPaintingPanel';
 import { MmuPaintingPanel } from './gizmo/painting/MmuPaintingPanel';
 
 declare const __ORCA_E2E__: boolean;
@@ -549,7 +550,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       {/* The canvas fills the removed chrome gaps; the control frame preserves
           the previous screen positions and passes empty-space input through. */}
       <div ref={controlsRef} className="pointer-events-none absolute top-1 right-1 bottom-0 left-1.5 [&>*:not([role=status])]:pointer-events-auto" data-testid="viewport-control-frame">
-        {paintingActive && <MmuPaintingPanel />}
+        {paintingActive && (paintState?.channel === 'seam' ? <SeamPaintingPanel /> : <MmuPaintingPanel />)}
         {!paintingActive && paintState?.error && <p role="alert" className="absolute top-14 right-0 rounded-md border bg-card p-3 text-sm text-destructive">{paintState.error}</p>}
         {previewTab && !toolpath && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" aria-live="polite">

@@ -1,7 +1,7 @@
 import type {
   PaintingApi, PaintingSessionMetadata, PaintingDraftResult, PaintingPointerEvent,
   PaintingSettings, PaintingTool, PaintingGeometryResult, HistoryStatus, SlicerClient,
-  FilamentSessionSnapshot, FilamentMutationSummary,
+  FilamentSessionSnapshot, FilamentMutationSummary, PaintingChannel,
 } from '@slicer/client';
 
 export type PaintTool = Exclude<PaintingTool, 'eraseAll'>;
@@ -24,6 +24,7 @@ function paintingDisplayMatchesTarget(display: PaintingDisplay | null, session: 
 }
 export interface PaintingState {
   phase: PaintingPhase;
+  channel: PaintingChannel;
   session: PaintingSessionMetadata | null;
   tool: PaintTool;
   settings: Required<PaintingSettings>;
@@ -49,13 +50,15 @@ function previewInput(tool: PaintTool): 'pointer' | 'static' | null {
   if (tool === 'triangle' || tool === 'region') return 'pointer';
   return tool === 'gap' ? 'static' : null;
 }
-const defaults: Required<PaintingSettings> = { state: 1, erase: false, radius: 2, height: 1, angle: 30, gapArea: 0 };
+const defaults: Required<PaintingSettings> = { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0 };
 
 /** One RPC lane, shared by input and display. Moves are never retained. Only
  * a press (behind a display read) and a reliable terminal may wait for the lane.
  * The scheduler coalesces display opportunities, not admitted painting input. */
 export class PaintingController {
-  private state: PaintingState = { phase: 'closed', session: null, tool: 'circle', settings: defaults, error: null, display: null, epoch: 0 };
+  private state: PaintingState = { phase: 'closed', channel: 'mmu', session: null, tool: 'circle', settings: defaults, error: null, display: null, epoch: 0 };
+  private switching = false;
+  private parameters = new Map<PaintingChannel, { tool: PaintTool; settings: Required<PaintingSettings> }>();
   private listeners = new Set<() => void>();
   private lane: Promise<unknown> | null = null;
   private terminal: Terminal | null = null;
@@ -119,14 +122,25 @@ export class PaintingController {
     if (previewInput(this.state.tool)) { this.invalidatePreview(); }
     this.update({ error: error instanceof Error ? error.message : String(error), ...(previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
   }
-  async open(objectId: number, instanceId: number): Promise<boolean> {
-    if (this.active) return false;
-    this.update({ phase: 'opening', error: null });
+  async open(objectId: number, instanceId: number, channel: 'mmu' | 'seam'): Promise<boolean> {
+    if (this.switching) return false;
+    // Reserve closing synchronously. Busy switches are discarded, never queued.
+    if (this.active) {
+      if (this.state.phase !== 'idle') return false;
+      if (this.state.channel === channel) return this.target(objectId, instanceId);
+      this.switching = true;
+      const closed = await this.close();
+      this.switching = false;
+      if (!closed) return false;
+    }
+    this.parameters.set(this.state.channel, { tool: this.state.tool, settings: this.state.settings });
+    const parameters = this.parameters.get(channel) ?? { tool: 'circle' as const, settings: { ...defaults } };
+    this.update({ channel, ...parameters, phase: 'opening', error: null });
     return this.exclusive(async () => {
       try {
         const history = await this.ports.api.openHistorySession();
         this.historyId = history.sessionId; this.ports.history(history.status);
-        const result = await this.ports.api.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: history.sessionId, objectId, instanceId });
+        const result = await this.ports.api.openPaintingSession({ version: 1, channel, historySessionId: history.sessionId, objectId, instanceId });
         if ('error' in result) throw new Error(result.error);
         this.update({ session: result.session, phase: 'idle', epoch: this.state.epoch + 1 });
         this.displayDirty = true; this.previewDirty = previewInput(this.state.tool) === 'static';
@@ -158,33 +172,47 @@ export class PaintingController {
   }
   setTool(tool: PaintTool): void {
     if (this.unfinished || !['idle', 'closed'].includes(this.state.phase)) return;
+    if (this.state.channel === 'seam' && tool !== 'circle' && tool !== 'sphere') return;
     this.update({ tool, display: this.withoutCandidates() });
     this.previewDirty = !!previewInput(tool); this.advancePreview(); this.scheduleDisplay();
   }
   setSettings(value: Partial<Required<PaintingSettings>>): void {
     const next = { ...this.state.settings, ...value };
-    if (!Number.isInteger(next.state) || next.state < 1 || next.state > 16 ||
+    if (!Number.isInteger(next.state) || next.state < 1 || next.state > (this.state.channel === 'mmu' ? 16 : 2) ||
+      (next.vertical && this.state.channel !== 'seam') ||
       !Number.isFinite(next.radius) || next.radius <= 0 || !Number.isFinite(next.height) || next.height <= 0 ||
       !Number.isFinite(next.gapArea) || next.gapArea < 0 || next.gapArea > 5 ||
       (next.angle !== null && (!Number.isFinite(next.angle) || next.angle < 0 || next.angle > 90))) return;
     this.advancePreview(); this.update({ settings: next, ...(!previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
-    if (value.state !== undefined) this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
+    if (value.state !== undefined && this.state.channel === 'mmu') this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
     this.previewDirty = true; this.scheduleDisplay();
   }
-  remapPalette(mapping: Readonly<Record<number, number>>, count: number): void {
-    const state = mapping[this.state.settings.state] ?? this.state.settings.state;
-    this.setSettings({ state: state >= 1 && state <= Math.min(16, count) ? state : 1 });
+  private mmuParameters() {
+    return this.state.channel === 'mmu' ? { tool: this.state.tool, settings: this.state.settings }
+      : this.parameters.get('mmu') ?? { tool: 'circle' as const, settings: { ...defaults } };
   }
-  resetProjectPalette(): void { this.setSettings({ state: 1 }); }
+  private setMmuState(state: number): void {
+    if (this.state.channel === 'mmu') this.setSettings({ state });
+    else {
+      const parameters = this.mmuParameters();
+      this.parameters.set('mmu', { ...parameters, settings: { ...parameters.settings, state } });
+    }
+  }
+  remapPalette(mapping: Readonly<Record<number, number>>, count: number): void {
+    const state = mapping[this.mmuParameters().settings.state] ?? this.mmuParameters().settings.state;
+    this.setMmuState(state >= 1 && state <= Math.min(16, count) ? state : 1);
+  }
+  resetProjectPalette(): void { this.selectedFilamentId = null; this.setMmuState(1); }
   reconcilePalette(snapshot: FilamentSessionSnapshot, mutation?: FilamentMutationSummary): void {
-    if (mutation?.kind === 'merge' && mutation.source === this.state.settings.state && mutation.destination) {
+    const state = this.mmuParameters().settings.state;
+    if (mutation?.kind === 'merge' && mutation.source === state && mutation.destination) {
       this.selectedFilamentId = snapshot.slots.find((slot) => slot.slot === mutation.destination)?.logicalId ?? null;
     }
     const selected = this.selectedFilamentId
       ? snapshot.slots.find((slot) => slot.logicalId === this.selectedFilamentId)
-      : snapshot.slots.find((slot) => slot.slot === this.state.settings.state);
+      : snapshot.slots.find((slot) => slot.slot === state);
     const slot = selected && selected.slot <= 16 ? selected : snapshot.slots[0];
-    this.setSettings({ state: slot?.slot ?? 1 });
+    this.setMmuState(slot?.slot ?? 1);
     this.selectedFilamentId = slot?.logicalId ?? null;
   }
   private invalidatePreview(): void {
@@ -277,7 +305,7 @@ export class PaintingController {
         }
         throw new Error(result.error);
       }
-      if (result.committed && this.state.session) this.paintedObjectIds.add(this.state.session.objectId);
+      if (result.committed && this.state.session?.channel === 'mmu') this.paintedObjectIds.add(this.state.session.objectId);
       this.receipt(result, terminal.generation); this.ports.history(result.history);
       if (result.committed) this.ports.committed(result.affectedPlateIds);
     }

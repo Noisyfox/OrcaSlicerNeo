@@ -123,6 +123,7 @@ const Session& Sessions::require(std::uint64_t id, std::uint64_t revision, bool 
 void Settings::validate(Channel channel) const
 {
     validate_state(channel, state);
+    if (vertical && channel != Channel::Seam) throw std::invalid_argument("vertical constraint is seam-only");
     if (!std::isfinite(radius) || radius <= 0 || radius > std::numeric_limits<float>::max() ||
         !std::isfinite(height) || height <= 0 || height > std::numeric_limits<float>::max())
         throw std::invalid_argument("painting radius and height must be positive finite millimetres");
@@ -265,9 +266,14 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
     }
 }
 
-void Sessions::sample(Session& session, const Settings& settings, const PointerEvent& event)
+void Sessions::sample(Session& session, const Settings& settings, const PointerEvent& input)
 {
     settings.validate(session.channel);
+    // Match Orca drag projection: constrain CSS screen X before native picking
+    // and trajectory interpolation, never a world-space axis or mesh normal.
+    if (!input.pointer.allFinite()) throw std::invalid_argument("invalid painting pointer");
+    auto event = input;
+    if (session.channel == Channel::Seam && settings.vertical) event.pointer.x() = session.stroke_screen_x;
     const auto endpoint = pick(session, event); // Reject malformed inputs before any staged work.
     if (session.last_event && (session.last_event->view != event.view || session.last_event->projection != event.projection ||
         session.last_event->viewport != event.viewport)) throw std::invalid_argument("painting camera changed during stroke");
@@ -357,6 +363,7 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
     }
     next->before_data = std::move(before_data);
     next->last_event.reset(); next->last_hit.reset();
+    if (event) next->stroke_screen_x = event->pointer.x();
     if (tool == Tool::Gap) {
         for (std::size_t i = 0; i < next->parts.size(); ++i) next->parts[i].selector = current.preview->selectors[i];
         next->phase = Phase::Finished;

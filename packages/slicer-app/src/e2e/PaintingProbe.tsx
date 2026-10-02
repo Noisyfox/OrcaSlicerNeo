@@ -123,6 +123,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
   const interaction = useSceneInteraction();
   const rendered = useRef<{ revision: number; candidates: string[] }>({ revision: -1, candidates: [] });
   const input = useRef({ admittedMoves: 0, droppedMoves: 0 });
+  const closeFailure = useRef(false);
   const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string; retainedVolumes?: number; volumeCount?: number; touchedVolumeCount?: number; sourceTriangles?: number; exportedSourceGeometries?: number; exportedPaintGeometries?: number; objectIds?: readonly number[] }>;
     frames: Array<{ at: number; revision: number; candidates: number }>; phases: Array<{ at: number; phase: string; revision: number }>;
     inputs: Array<{ at: number; kind: string }>; glUploads: Array<{ at: number; method: string; ms: number; bytes: number }>;
@@ -168,6 +169,9 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
       api[name] = async (...args) => {
         const start = performance.now();
         try {
+          if (name === 'closeHistorySession' && closeFailure.current) {
+            closeFailure.current = false; throw new Error('Injected painting close failure');
+          }
           const result = await original(...args) as { paintingProfile?: unknown; resources?: Array<{ vertices: Float32Array; contour: Float32Array }> };
           const paint = result as { committed?: boolean; effective?: boolean; changedPartIds?: number[]; revision?: number; hit?: unknown };
           const request = args[0] as { tool?: string; event?: { pointer: readonly number[] } };
@@ -254,12 +258,13 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
     return () => { owner.move = originalMove; };
   }, [owner]);
   useEffect(() => registerOrcaE2eOwner('painting', {
+    paintingFailNextClose: () => { closeFailure.current = true; },
     paintingEvidence: () => {
       const state = owner.getSnapshot(), rect = gl.domElement.getBoundingClientRect();
       const source = volumes.find((v) => v.buffer.objectId === state.session?.objectId && v.buffer.instanceId === state.session.instanceId);
       const center = source?.getWorldBounds().getCenter(new THREE.Vector3()).project(camera);
       let ordinaryModels = 0; scene.traverse((o) => { if (o.userData.orcaVolume) ordinaryModels++; });
-      return { phase: state.phase, tool: state.tool, sessionId: state.session?.id, settings: state.settings, selection: [...interaction.selection.ids],
+      return { phase: state.phase, channel: state.channel, tool: state.tool, sessionId: state.session?.id, settings: state.settings, selection: [...interaction.selection.ids],
         camera: [...camera.position.toArray(), ...camera.quaternion.toArray()], target: (controls as unknown as { target?: THREE.Vector3 } | null)?.target?.toArray() ?? [0, 0, 0], cursor: cursor?.toArray() ?? null,
         pivot: pivot?.toArray() ?? null, pivotCamera: pivot?.clone().applyMatrix4(camera.matrixWorldInverse).toArray() ?? null,
         center: center ? { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 } : null,
