@@ -276,6 +276,8 @@ Electron 的往返，防止 Web 丢失 capability 身份、manifest 或配置覆
 - 重载/关闭终止旧 utility；异常退出拒绝等待中的请求及后续操作，不自动重放编辑。
   显式重载建立新会话；本步不新增工程自动恢复功能。
 - 原生打包验证包含 asar/unpacked 资源读取，不能只测开发目录。
+- staging 在 `public/wasm/package.json` 声明 `type: module`，随资源复制到构建及
+  unpacked 目录；明确生成 JS 与 pthread 的 ESM 类型，不改变 Electron 主进程的 CommonJS 类型。
 
 验证包含现有 Electron mock 回归、真实导入/切片/导出、多盘大项目、历史与交互性能，
 新增进程重载/退出检查，以及 Web 的 threaded/serial 兼容检查。性能采用仓库既有预算，
@@ -317,6 +319,9 @@ runner 验证源文件身份及 staged 产物。盘切换首轮 utility 为 111/
 已完成检查：
 
 - `pnpm typecheck`：全部 workspace 通过。
+- ESM 声明修复后重新 staging/build，开发资源与构建输出的 threaded/serial 模块均可由
+  Node 导入且不再出现 `MODULE_TYPELESS_PACKAGE_JSON`；强制 threaded 的 utility 生命周期
+  E2E 复测通过。本次小修未重复打包验收。
 - `pnpm test`：1399 项通过。
 - `pnpm --filter @orca/desktop test:e2e`：45 项通过，11 项按宿主/fixture 条件跳过；
   不把这些跳过项记为覆盖。新增 utility 的重载、进程终止与会话替换检查通过。

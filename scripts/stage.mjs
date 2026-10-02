@@ -6,7 +6,7 @@
 // --soft: warn and exit 0 when the build is missing — used by the desktop `predev`
 // hook so mock-mode UI dev (VITE_USE_MOCK=1) still boots on a fresh checkout
 // with no wasm build.
-import { copyFile, cp, mkdir, rm } from 'node:fs/promises';
+import { copyFile, cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +47,11 @@ if (!existsSync(outRoot)) {
   console.error('no WASM build found — run: bash packages/slicer-wasm/build.sh');
   process.exit(1);
 }
+// Emscripten emits ES modules. Scope Node's module type to these assets,
+// including pthread imports, without changing the CommonJS Electron host.
+// Vite copies this boundary with public assets; asarUnpack preserves it too.
+await mkdir(dstRoot, { recursive: true });
+await writeFile(join(dstRoot, 'package.json'), '{"type":"module"}\n');
 for (const variant of ['threaded', 'serial']) {
   const src = join(outRoot, variant);
   const dst = join(dstRoot, variant);
