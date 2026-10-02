@@ -1,4 +1,4 @@
-import { startWorker } from '@slicer/client';
+import { mountNativeTemporaryDirectory, startWorker } from '@slicer/client';
 import type { OrcaModuleFactory, OrcaModule } from '@slicer/client';
 import { createMockModule } from '@slicer/testing';
 import { installProfiles, type ProfileSource } from '../profiles';
@@ -26,6 +26,8 @@ if (envLogLevel) {
 
 export interface SlicerWorkerHost {
   threaded: boolean;
+  /** Trusted host setup; never supplied by renderer requests. Serial uses MEMFS. */
+  nativeTemporaryDirectory?: string;
   load(variant: WasmArtifactVariant | 'profile-threaded'): Promise<OrcaModule>;
   profiles: ProfileSource;
   post(message: WorkerMessage, transfer?: Transferable[]): void;
@@ -33,6 +35,12 @@ export interface SlicerWorkerHost {
 }
 
 export function startSlicerHost(host: SlicerWorkerHost): void {
+  const prepareModule = (module: OrcaModule, variant: WasmArtifactVariant | 'profile-threaded') => {
+    if (variant !== 'serial' && host.nativeTemporaryDirectory) {
+      mountNativeTemporaryDirectory(module, host.nativeTemporaryDirectory);
+    }
+    return module;
+  };
   const factory: OrcaModuleFactory = useMock
     ? async () => createMockModule({ instanceCount: mockInstanceCount, volumeCount: mockVolumeCount, primeTowerFixture: mockPrimeTowerFixture,
       paintedFacetFixture: mockPaintedFacetFixture,
@@ -44,7 +52,7 @@ export function startSlicerHost(host: SlicerWorkerHost): void {
         const load = host.load;
         if (realProjectProfileBuild) {
           if (!threaded) throw new Error('the real-project profile requires the visible threaded Electron runtime');
-          return load('profile-threaded');
+          return prepareModule(await load('profile-threaded'), 'profile-threaded');
         }
         const gateVariant = import.meta.env.VITE_SCOPED_CONFIGURATION_GATE === '1'
           ? import.meta.env.VITE_SCOPED_CONFIGURATION_GATE_VARIANT : undefined;
@@ -53,7 +61,7 @@ export function startSlicerHost(host: SlicerWorkerHost): void {
           if (gateVariant === 'threaded') throw error;
           console.warn('[slicer] threaded WASM failed to start; falling back to serial', error);
         });
-        return loaded.module;
+        return prepareModule(loaded.module, loaded.variant);
       };
 
   startWorker(factory, host.post, host.onMessage, async (module) => {
