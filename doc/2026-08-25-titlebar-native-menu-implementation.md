@@ -126,6 +126,22 @@ The pre-existing dirty
 
 ## Verification
 
+### 2026-10-02 — PR #34 CI repair
+
+The mock E2E job in run `36963331294` failed in five scene-context-menu cases.
+Their fixed right-click coordinate overlapped the FPS display after it moved to
+the top-right. A shared `rightClickEmptyScene` helper now chooses an empty-scene
+point below the actual FPS bounds. Production behavior is unchanged.
+
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'redoes a moved Cube|Add Primitive submenu|consecutive primitive replacements|Add Handy models|gizmo keyboard shortcuts'`:
+  all five originally failing cases passed.
+- `pnpm --filter @orca/desktop typecheck`: passed.
+- `pnpm --filter @orca/desktop test:e2e`: passed, 43 tests / 11 existing skips,
+  including the staging step, fresh mock Electron build and CSS smoke. This is
+  the complete command used by the failing CI job.
+- `git diff --check`: passed.
+
+
 ### 2026-10-02 — edge-to-edge viewport follow-up
 
 - `pnpm test`: passed, 138 files / 1291 tests; slicer-app 102 files / 880 tests.

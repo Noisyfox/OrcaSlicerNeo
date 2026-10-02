@@ -82,6 +82,13 @@ function attachRendererDiagnostics(page: Page) {
   };
 }
 
+/** Right-click empty scene space below the interactive FPS overlay. */
+async function rightClickEmptyScene(page: Page, box: { x: number; y: number; width: number; height: number }) {
+  const fps = await page.locator('.scene-stats').boundingBox();
+  const y = Math.max(box.y + 40, fps ? fps.y + fps.height + 16 : box.y + 40);
+  await page.mouse.click(box.x + box.width - 40, y, { button: 'right' });
+}
+
 test('renderer CSP allows Blob bed artwork decoding and canvas upload', async () => {
   const { app } = await launchApp({ initialTab: 'home' });
   try {
@@ -781,7 +788,7 @@ test('redoes a moved Cube after undoing both Move and Add Cube without stale ide
     const box = await canvas.boundingBox();
     if (!box) throw new Error('viewport canvas has no bounding box');
 
-    await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+    await rightClickEmptyScene(page, box);
     await expect(page.getByTestId('ctx-menu')).toBeVisible();
     await page.getByTestId('btn-add-primitive').click();
     await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
@@ -1399,7 +1406,7 @@ test('scene context menu: Add Primitive submenu appends engine-built shapes', as
       const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
       const box = await canvas.boundingBox();
       if (!box) throw new Error('viewport canvas has no bounding box');
-      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await rightClickEmptyScene(page, box);
       await expect(page.getByTestId('ctx-menu')).toBeVisible();
     };
     const addPrimitive = async (testId: string) => {
@@ -1469,7 +1476,7 @@ test('scene context menu: selection remains live after consecutive primitive rep
     const addPrimitive = async (testId: string) => {
       const box = await canvas.boundingBox();
       if (!box) throw new Error('viewport canvas has no bounding box');
-      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await rightClickEmptyScene(page, box);
       await expect(page.getByTestId('ctx-menu')).toBeVisible();
       await page.getByTestId('btn-add-primitive').click();
       await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
@@ -1509,7 +1516,7 @@ test('scene context menu: Add Handy models imports the bundled catalogue', async
       const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
       const box = await canvas.boundingBox();
       if (!box) throw new Error('viewport canvas has no bounding box');
-      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await rightClickEmptyScene(page, box);
       await expect(page.getByTestId('ctx-menu')).toBeVisible();
       await page.getByTestId('btn-add-handy-models').click();
       const handyMenu = page.getByTestId('ctx-handy-models-menu');
@@ -2309,7 +2316,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
       const box = await canvas.boundingBox();
       if (!box) throw new Error('viewport canvas has no bounding box');
-      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await rightClickEmptyScene(page, box);
       await expect(page.getByTestId('ctx-menu')).toBeVisible();
       await expect(page.getByTestId('btn-clear-scene')).toBeDisabled();
       await page.keyboard.press('Escape');
