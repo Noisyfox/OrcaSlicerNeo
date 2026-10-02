@@ -720,3 +720,14 @@ it('keeps delivered MMU/Seam tools strict and excludes support-only settings fro
   await c.press(event(1));c.release();await tick();
   expect(vi.mocked(p.api.beginPaintingStroke).mock.calls.at(-1)![0].settings).not.toHaveProperty('overhangAngle');
 });
+
+it('fuzzy has its own four tools, legal state1/erase and strict Smart Fill angle memory',async()=>{
+  const {controller:c,ports:p,frame}=fixture();await c.open(1,2,'seam');await frame();c.setSettings({state:2,radius:7,vertical:true});
+  await c.open(1,2,'fuzzy');await frame();expect(c.getSnapshot().settings).toMatchObject({state:1,radius:2,vertical:false});
+  c.setSettings({state:2});expect(c.getSnapshot().settings.state).toBe(1);c.setSettings({vertical:true});expect(c.getSnapshot().settings.vertical).toBe(false);
+  for(const tool of ['circle','sphere','triangle','smartFill'] as const){c.setTool(tool);expect(c.getSnapshot().tool).toBe(tool);}
+  c.setSettings({angle:null});expect(c.getSnapshot().settings.angle).toBe(30);c.setSettings({angle:0});expect(c.getSnapshot().settings.angle).toBe(0);c.setSettings({angle:90,radius:5,erase:true});c.setSettings({angle:91});expect(c.getSnapshot().settings.angle).toBe(90);
+  c.setTool('region');expect(c.getSnapshot().tool).toBe('smartFill');await c.open(1,2,'seam');await frame();expect(c.getSnapshot().settings).toMatchObject({state:2,radius:7,vertical:true});
+  await c.open(1,2,'fuzzy');await frame();expect(c.getSnapshot()).toMatchObject({tool:'smartFill',settings:{angle:90,radius:5,erase:true}});
+  await c.press(event(1));expect(await c.open(1,2,'mmu')).toBe(false);c.release();await tick();expect(p.api.openPaintingSession).toHaveBeenLastCalledWith(expect.objectContaining({channel:'fuzzy'}));
+});

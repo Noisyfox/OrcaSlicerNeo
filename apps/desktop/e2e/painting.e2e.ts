@@ -679,7 +679,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     // Dedicated seam entry: all controls use the real shared controller/Worker.
     const seamButton = page.getByTestId('gizmo-btn-seam');
     expect(await page.getByTestId('gizmo-btn-support').count()).toBe(0);
-    expect(await page.getByTestId('gizmo-btn-fuzzy').count()).toBe(0);
+    expect(await page.getByTestId('gizmo-btn-fuzzy').count()).toBe(1);
     const mmuParameters = {tool:(await read())!.tool,settings:(await read())!.settings};
     const seamEvidence: Record<string, unknown> = {};
     await seamButton.click(); await idle();
@@ -748,6 +748,49 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(ordinaryAfterSeam.some(frame=>frame.colors.includes('80ff80') || frame.colors.includes('ff8080'))).toBe(false);
     const seamPath=test.info().outputPath('seam-editor-evidence.json'); writeFileSync(seamPath,JSON.stringify(seamEvidence,null,2));
     await test.info().attach('seam-editor-evidence',{path:seamPath,contentType:'application/json'});
+    // Fuzzy is a separate, single-filament-capable editor sharing the mounted
+    // controller. Brushing remains independent from scoped configuration.
+    const fuzzyButton=page.getByTestId('gizmo-btn-fuzzy');
+    await fuzzyButton.click();await idle();
+    await expect(fuzzyButton).toHaveAttribute('aria-pressed','true');await expect(paintButton).toHaveAttribute('aria-pressed','false');
+    expect((await read())!.channel).toBe('fuzzy');
+    await expect(page.getByTestId('fuzzy-disabled-warning')).toBeVisible();
+    const fuzzyEvidence:Record<string,unknown>={};
+    await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');
+    let fuzzyCenter=(await read())!.center;
+    await startFrames();await page.mouse.click(fuzzyCenter.x,fuzzyCenter.y);await idle();
+    await expect(page.getByTestId('fuzzy-disabled-warning')).toBeVisible();
+    const fuzzyCircle=await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(fuzzyCircle[0].facetCounts[1]).toBeGreaterThan(0);expect(fuzzyCircle[0].facetCounts.slice(2).every((count:number)=>count===0)).toBe(true);
+    await settleFrames();const fuzzyFrames=await stopFrames();await completeFrames('fuzzy-enable-actual-draw',fuzzyFrames);expect(fuzzyFrames.some(f=>f.colors.includes('80ff80'))).toBe(true);
+    const beforeEnable=await history();
+    await page.getByRole('button',{name:'Enable painted fuzzy skin',exact:true}).click();await idle();
+    await expect(page.getByTestId('fuzzy-disabled-warning')).toHaveCount(0);await expect(page.getByTestId('fuzzy-effective-configuration')).toContainText('Painted only (object)');
+    expect((await history()).undoEntries.length).toBe(beforeEnable.undoEntries.length+1);
+    expect((await history()).undoEntries[0].label).toBe('Change Scoped Configuration');
+    const fuzzyCounts=()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(annotationParts(await fuzzyCounts())).toEqual(annotationParts(fuzzyCircle));
+    await page.getByTestId('history-undo').click();await idle();await expect(page.getByTestId('fuzzy-disabled-warning')).toBeVisible();expect(annotationParts(await fuzzyCounts())).toEqual(annotationParts(fuzzyCircle));
+    await page.getByTestId('history-redo').click();await idle();await expect(page.getByTestId('fuzzy-disabled-warning')).toHaveCount(0);
+    for(const tool of ['sphere','triangle','smartFill']){
+      await page.getByRole('button',{name:'Erase all',exact:true}).click();await idle();expect((await fuzzyCounts())[0].facetCounts[1]).toBe(0);
+      await page.getByTestId(`painting-tool-${tool}`).click();await idle();
+      if(tool==='smartFill')await page.getByRole('spinbutton',{name:'Edge angle (degrees)',exact:true}).fill('90');
+      fuzzyCenter=(await read())!.center;await page.mouse.move(fuzzyCenter.x,fuzzyCenter.y);
+      if(tool!=='sphere')await expect.poll(async()=> (await read())!.rendered.candidates.length).toBeGreaterThan(0);
+      await page.mouse.click(fuzzyCenter.x,fuzzyCenter.y);await idle();expect((await fuzzyCounts())[0].facetCounts[1]).toBeGreaterThan(0);
+    }
+    await page.getByTestId('painting-tool-circle').click();await idle();await page.getByRole('radio',{name:'Erase',exact:true}).click();
+    fuzzyCenter=(await read())!.center;await page.mouse.click(fuzzyCenter.x,fuzzyCenter.y);await idle();
+    const fuzzyParameters={tool:(await read())!.tool,settings:(await read())!.settings};
+    fuzzyEvidence.parameters=fuzzyParameters;fuzzyEvidence.facets=await fuzzyCounts();fuzzyEvidence.frames=fuzzyFrames;
+    await seamButton.click();await idle();expect((await read())!.channel).toBe('seam');expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(seamParameters);
+    await fuzzyButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(fuzzyParameters);
+    await fuzzyButton.click();await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await startFrames();await settleFrames();const ordinaryAfterFuzzy=await stopFrames();await completeFrames('fuzzy-close-ordinary-MMU',ordinaryAfterFuzzy);
+    expect(ordinaryAfterFuzzy.every(frame=>frame.painting.length===0&&frame.ordinary.length>0)).toBe(true);
+    expect(ordinaryAfterFuzzy.some(frame=>frame.colors.includes('80ff80'))).toBe(false);
+    const fuzzyPath=test.info().outputPath('fuzzy-editor-evidence.json');writeFileSync(fuzzyPath,JSON.stringify(fuzzyEvidence,null,2));await test.info().attach('fuzzy-editor-evidence',{path:fuzzyPath,contentType:'application/json'});
     await paintButton.click(); await idle();
     const hiddenSession = (await read())!.sessionId;
     for (const tab of ['home', 'device']) {

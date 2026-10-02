@@ -460,7 +460,24 @@ std::pair<std::string, json> finalize_slice_task(
         return {"stale", json{{"error", "plate slice result is stale or unavailable"}}};
     }
     try {
-        materialize_completed_generation(task->lease.entry());
+        auto& entry = task->lease.entry();
+        // Native warnings are durable slicing results, not progress samples. The
+        // mailbox coalesces progress (especially during a synchronous serial slice),
+        // so projecting callback text alone loses fuzzy/XY-compensation warnings.
+        // Read only current warnings after native processing has completed; cached
+        // Print steps retain their current warnings on a repeated slice.
+        const auto append_warnings = [&task](const PrintStateBase::StateWithWarnings& step) {
+            for (const auto& warning : step.warnings)
+                if (warning.current && !warning.message.empty() &&
+                    std::find(task->warnings.begin(), task->warnings.end(), warning.message) == task->warnings.end())
+                    task->warnings.push_back(warning.message);
+        };
+        for (int step = 0; step < psCount; ++step)
+            append_warnings(entry.print->step_state_with_warnings(static_cast<PrintStep>(step)));
+        for (const PrintObject* object : entry.print->objects())
+            for (int step = 0; step < posCount; ++step)
+                append_warnings(object->step_state_with_warnings(static_cast<PrintObjectStep>(step)));
+        materialize_completed_generation(entry);
     } catch (const std::bad_alloc&) {
         registry.mark_process_failed(task->lease);
         release_active_slice_task(task);

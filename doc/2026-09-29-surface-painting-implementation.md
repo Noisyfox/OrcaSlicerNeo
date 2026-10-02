@@ -7,8 +7,8 @@ adapter work; historical MMU work used `dev/surface-painting-spec`.
 
 **Status:** Steps 01–12 implemented and independently accepted; MMU functional
 delivery qualified 2026-09-30. Scheme B support/seam/fuzzy adapters approved and
-implementation authorized 2026-10-02; steps 13–16 independently accepted,
-steps 17–19 pending. Quantitative
+implementation authorized 2026-10-02; steps 13–17 independently accepted,
+steps 18–19 pending. Quantitative
 performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
@@ -259,8 +259,10 @@ a toolbar entry appears only when its complete channel stage is accepted.
 - Step 15: independently accepted by the parent on 2026-10-02; complete Seam
   editor, persistence and native downstream slicing are implemented.
 - Step 16: independently accepted by the parent on 2026-10-02; native Smart Fill,
-  Support Gap and independent overhang foundations are implemented. Steps 17–19
-  remain pending.
+  Support Gap and independent overhang foundations are implemented.
+- Step 17: independently accepted by the parent on 2026-10-02; complete Fuzzy
+  editor, explicit scoped configuration and native downstream slicing are
+  implemented. Steps 18–19 remain pending.
 - Existing serial/threaded build trees and pnpm/native tools were verified by the
   parent as available for this checkout. Children must still verify configured
   source roots, build flags and current artifact identity before running evidence.
@@ -834,7 +836,7 @@ limits remain; no later child was launched before this acceptance. Step 16 accep
 
 ### 17. Complete fuzzy-skin editor and explicit configuration action
 
-**Status:** Pending. **Depends on:** 16 accepted/committed.
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** 16 accepted/committed.
 **Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
 
 **Allowed scope:** Shared fuzzy adapter/panel/provider and existing scoped-config
@@ -853,7 +855,7 @@ fuzzy-plus-MMU and native XY-compensation warnings. Expose only after acceptance
 **Child self-check:** A and affected config/transport tests/typechecks, serial quick
 if native changes, current real fuzzy save/reopen and slice harness/journey.
 Observe native fuzzy segmentation/toolpath effects, disabled annotations with no
-slice effect, explicit enable and separate config Undo/Redo, inherited/object/part
+fuzzy texture, explicit enable and separate config Undo/Redo, inherited/object/part
 settings, whole-surface erase, mixed channels and warnings. Prove other channel
 bytes and ordinary MMU material rendering unchanged; production probe elision.
 
@@ -861,6 +863,115 @@ bytes and ordinary MMU material rendering unchanged; production probe elision.
 Smart Fill integration, resources and controls. Independently rerun native effects,
 configuration/history behavior and current journey plus affected checks. A stored
 fuzzy annotation alone does not establish downstream acceptance.
+
+**Implementation / child self-check (2026-10-02):** The dedicated Fuzzy toolbar
+entry is ordered between Seam and MMU; Support remains hidden. Its shared mounted
+controller, own wrapper and panel expose Circle, Sphere, Triangle and native Smart
+Fill with Enable/Erase, independent memory-only parameters and native neutral/green
+colours. MMU toolbar matching is explicitly `channel === 'mmu'`. Effective fuzzy
+modes reuse the existing native scoped projection for each solid part and parameter
+modifier; native names/enum labels and provenance identify surviving overrides.
+Missing, unknown or refresh-required projections remain unavailable. Explicit
+object enable captures the stable object ID and uses the existing scoped mutation
+coordinator, creating an independent configuration history separator. Brushing never
+enables configuration; busy actions are ignored and failures remain retryable.
+
+The [native fuzzy harness](../packages/slicer-wasm/harness/fuzzy-painting-smoke.mjs)
+proves all four tools make effective 0→1 edits, exact four-field native split-tree
+save/reopen, unchanged other-channel trees and ordinary MMU resource keys,
+erase/cancel/Undo/Redo, disabled/no-jitter versus Painted only/jitter, independent
+configuration and paint Undo/Redo, Project/object/part inheritance, retained part
+and coincident modifier overrides, all whole-surface modes after erase, and actual
+MMU+fuzzy dual-tool G-code. Baseline/disabled/independent history-disabled paths
+produce 290 extrusion commands; Painted only produces 10,620. A modifier override
+reduces 10,587 inherited commands to 290 and retains that result after reopen.
+The solid cube has no holes: Hole mode proves native configuration/painted effect
+and erased contour baseline, not textured hole-surface geometry.
+
+A required warning-retention repair in `bridge_slicing_pipeline.cpp` projects
+current native Print/PrintObject step warnings into the existing durable string
+array before completed-result publication, within its existing exception boundary.
+This preserves native XY-compensation messages/object names through serial progress
+coalescing. Durable enabled/disabled warnings, erased/cached warning removal and a
+live unrelated object on another plate all pass. The ABI and pinned submodule
+remain unchanged.
+
+Checks run: focused app/controller/panel/scoped-projection/toolbar checks (131 tests),
+`NODE_OPTIONS=--no-experimental-webstorage pnpm test` (143 files, 1,337 tests),
+`NODE_OPTIONS=--no-experimental-webstorage pnpm typecheck`, production
+`bash scripts/build.sh quick --variant serial -j 8` (Release, history-test OFF,
+painting-profile OFF, threading 0), the current serial fuzzy harness and accepted
+Smart Fill/overhang foundation harness, the existing Prime Tower slice-settings
+warning/result regression, and the current real Electron painting
+journey (one test, 36.7 seconds) all pass. The journey retains all six MMU tools,
+Seam controls and adds real Fuzzy control routing, effective edits, configuration
+history, independent channel parameters and ordinary MMU rendering after close.
+Production Desktop then Web builds ran sequentially; production probe elision
+passes across 24 artifacts. Source/build/out/staged serial artifacts and the exact
+existing transformed Web loader are checked by the handoff receipt. Build warnings
+are the existing macro redefinitions and Vite chunk-size advisory.
+
+Evidence and exact command logs are retained in ignored
+`packages/slicer-wasm/.work/step17-native/` and
+`packages/slicer-wasm/.work/step17-electron-final/`; the source/artifact/fixture receipts
+are in `packages/slicer-wasm/.work/step17-handoff.json`. Repaired development
+attempts are recorded in `step17-native/attempts.txt`; no failing attempt is claimed
+as passing. Code-review-graph tools were unavailable to the child, so focused
+source review was used. Full Web/dual-variant/release/performance qualification,
+textured hole geometry and the previously recorded unrelated multi-filament
+logical-ID/preset-draft optional probes remain stage 19 work. No parent acceptance,
+roadmap milestone change or commit is claimed here.
+
+**Independent parent acceptance (2026-10-02):** Reviewed all 15 handed-off
+source files, including the native warning publication and its failure boundary,
+scoped inheritance and stable-target mutation, mounted controller admission,
+resource colours, toolbar order and actual journey assertions. Graph change
+analysis reported 41 affected flows but was built at `dbee028`; its missing test
+edges were checked against current source/tests rather than treated as coverage
+results. Accepted the repaired unavailable/stale configuration handling, separate
+configuration history, effective tool-edit assertions and durable current warnings.
+Clarified the specification: disabled annotations produce no fuzzy texture but
+still trigger the pinned native XY-compensation behavior.
+
+Independently verified every handoff source/artifact/evidence hash, deleted only
+the derived slicing-pipeline object, and forced the current serial quick rebuild.
+The rebuilt object and JS/WASM/data hashes match the child receipt. Parent checks:
+
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: **143 files / 1,337 tests passed**.
+- `pnpm typecheck`: all workspace packages passed.
+- `bash scripts/build.sh quick --variant serial -j 8`: current Release, history-test
+  OFF, painting-profile OFF, threading 0 build passed.
+- Current serial `fuzzy-painting-smoke.mjs` with separate
+  `.work/step17-parent-fuzzy` output: all four effective tool edits, exact native
+  fields/save/reopen, disabled/explicit-enable and independent configuration/paint
+  history, scoped part/modifier inheritance, whole-mode effects, actual dual-tool
+  MMU+Fuzzy G-code and durable XY warnings passed. Baseline/disabled 290 versus
+  enabled 10,620 extrusion commands; modifier Disabled restored 290.
+- Current serial `painting-foundations-smoke.mjs`,
+  `painting-backend-smoke.mjs --expect-production`, `seam-painting-smoke.mjs`
+  (separate `.work/step17-parent-seam`) and
+  `prime-tower-slice-settings-smoke.mjs`: passed. Backend retained 47,012 MMU
+  segments; Seam placement remained baseline 0 / Enforce 53 / Block 0.
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`:
+  actual current Electron utility-process/Node Worker journey passed **1/1, 49.4 s**.
+  Preserved 73 evidence files in `.work/step17-parent-electron-evidence` before
+  restoring production builds.
+- Production Desktop then Web builds ran sequentially and passed;
+  `check-painting-profile-elision.mjs` passed **24 artifacts**. Actual serial and
+  existing threaded export tables contain none of the three native test hooks;
+  this is not a current threaded stage-17 build qualification.
+- Changed local links/anchors, command paths and `git diff --check`: passed.
+  Pinned `cpp` remains clean at `489cbe91840ff97aaf4d8029009d5db410f32893`.
+
+Parent logs are `/tmp/painting-step17-parent-*.log`; preserved native fixtures,
+G-code and host evidence use the directories above. Accepted production hashes:
+JS `bfd296e2107ab85196b4fc72146fd387e3e55e20f99a7ebeea7a179ebba69e65`,
+WASM `37d350870f93eca8e4756b5443ef9b34fc2bee1df0dbe3fd7921b7709e5019c0`,
+data `6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+Node 26.7.0 differs from pinned 24.19.0; the stated Web Storage switch was used
+for jsdom. Current dual-variant/Web/release gates, textured hole-surface evidence,
+performance and the two recorded optional probes remain step 19. No full adapter
+milestone or quantitative performance threshold is claimed by this acceptance.
 
 ### 18. Complete support editor and derived projection integration
 
@@ -932,7 +1043,7 @@ comparison remain explicit limitations, separate from functional qualification.
 - [x] 14 all-channel history, affected plates and support-derived invalidation accepted.
 - [x] 15 complete seam editor/save/slice accepted before entrypoint exposure.
 - [x] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
-- [ ] 17 complete fuzzy editor and explicit independent configuration action accepted.
+- [x] 17 complete fuzzy editor and explicit independent configuration action accepted.
 - [ ] 18 complete support editor and derived settlement accepted.
 - [ ] 19 both-host/variant interoperability, cleanup and functional qualification accepted.
 - [ ] Quantitative performance thresholds separately reviewed and approved.

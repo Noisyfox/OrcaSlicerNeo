@@ -122,7 +122,7 @@ export class PaintingController {
     if (previewInput(this.state.tool)) { this.invalidatePreview(); }
     this.update({ error: error instanceof Error ? error.message : String(error), ...(previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
   }
-  async open(objectId: number, instanceId: number, channel: 'mmu' | 'seam'): Promise<boolean> {
+  async open(objectId: number, instanceId: number, channel: 'mmu' | 'seam' | 'fuzzy'): Promise<boolean> {
     if (this.switching) return false;
     // Reserve closing synchronously. Busy switches are discarded, never queued.
     if (this.active) {

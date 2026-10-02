@@ -269,7 +269,13 @@ the effective configuration including applicable inherited scoped settings,
 rather than reading only a global preset or a directly present object key.
 
 Allow editing while fuzzy skin is effectively disabled, with a clear warning
-that the annotations will have no slicing effect. Provide an explicit action
+that the annotations will not produce fuzzy texture. The pinned native engine
+still disables XY compensation and emits its warning based on fuzzy annotation
+presence, even when the effective mode is Disabled. Preserve that behavior and
+project current native warnings into the durable slice result; coalesced progress
+callbacks alone are insufficient. Deduplicate identical messages and retain
+native object names, without carrying warnings from unrelated objects or plates.
+Provide an explicit action
 that sets the selected object's `fuzzy_skin` to Painted only (`none`) through
 the existing scoped-configuration mutation path. That action is a separate
 non-paint history operation and is subject to the usual command gate; brushing

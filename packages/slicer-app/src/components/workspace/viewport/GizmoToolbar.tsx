@@ -4,7 +4,7 @@
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
-import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush, Scissors } from 'lucide-react';
+import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush, Scissors, Sparkles } from 'lucide-react';
 import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -102,16 +102,6 @@ export function GizmoToolbar({
           </TooltipFor>
         );
       })}
-      <TooltipFor content="Surface painting">
-        <Button size="icon" variant="gizmo" aria-label="Surface painting" aria-pressed={paintActive && paintState?.channel !== 'seam'} data-testid="gizmo-btn-paint"
-          disabled={paintActive && paintState?.channel !== 'seam' ? paintState?.phase !== 'idle' : slotCount < 2 || (paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive)}
-          onClick={() => {
-            if (!painting) return;
-            if (painting.active && paintState?.channel !== 'seam') { void painting.close(); return; }
-            const target = paintingTarget(sceneInteraction);
-            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'mmu'); }
-          }}><Paintbrush /></Button>
-      </TooltipFor>
       <TooltipFor content="Seam painting">
         <Button size="icon" variant="gizmo" aria-label="Seam painting" aria-pressed={paintActive && paintState?.channel === 'seam'} data-testid="gizmo-btn-seam"
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
@@ -121,6 +111,26 @@ export function GizmoToolbar({
             const target = paintingTarget(sceneInteraction);
             if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'seam'); }
           }}><Scissors /></Button>
+      </TooltipFor>
+      <TooltipFor content="Fuzzy skin painting">
+        <Button size="icon" variant="gizmo" aria-label="Fuzzy skin painting" aria-pressed={paintActive && paintState?.channel === 'fuzzy'} data-testid="gizmo-btn-fuzzy"
+          disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
+          onClick={() => {
+            if (!painting) return;
+            if (painting.active && paintState?.channel === 'fuzzy') { void painting.close(); return; }
+            const target = paintingTarget(sceneInteraction);
+            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'fuzzy'); }
+          }}><Sparkles /></Button>
+      </TooltipFor>
+      <TooltipFor content="Surface painting">
+        <Button size="icon" variant="gizmo" aria-label="Surface painting" aria-pressed={paintActive && paintState?.channel === 'mmu'} data-testid="gizmo-btn-paint"
+          disabled={paintActive && paintState?.channel === 'mmu' ? paintState?.phase !== 'idle' : slotCount < 2 || (paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive)}
+          onClick={() => {
+            if (!painting) return;
+            if (painting.active && paintState?.channel === 'mmu') { void painting.close(); return; }
+            const target = paintingTarget(sceneInteraction);
+            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'mmu'); }
+          }}><Paintbrush /></Button>
       </TooltipFor>
     </div>
   );
