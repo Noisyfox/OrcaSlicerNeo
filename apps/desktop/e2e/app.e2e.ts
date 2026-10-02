@@ -248,6 +248,12 @@ test('sidebar panels resize independently and configuration controls keep their 
     await divider.press('ArrowUp');
     await expect.poll(async () => (await device.boundingBox())!.height).toBeLessThan(draggedHeight);
 
+    // Resizing can leave the pointer over a preset picker. Verify hover
+    // deliberately, then leave the sidebar before checking its resting style.
+    await process.hover();
+    await expect(process).toHaveCSS('background-color', 'rgb(39, 39, 42)');
+    await page.mouse.move(0, 0);
+
     for (const control of [device.getByTestId('preset-select'), process, page.getByTestId('filament-preset-1')]) {
       await expect(control).toHaveCSS('height', '24px');
       await expect(control).toHaveCSS('background-color', 'rgb(29, 29, 31)');
