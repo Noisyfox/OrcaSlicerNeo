@@ -155,8 +155,9 @@ jobs:
         run: bash packages/slicer-wasm/build.sh
       - name: Verify arrangement with cached threaded NLopt
         run: |
-          cmake --build packages/slicer-wasm/.work/threaded/build --target arrangement_core_test --parallel 2
+          cmake --build packages/slicer-wasm/.work/threaded/build --target arrangement_core_test headless_arrangement_test --parallel 2
           node packages/slicer-wasm/.work/threaded/build/arrangement_core_test.cjs
+          node packages/slicer-wasm/.work/threaded/build/headless_arrangement_test.cjs
       - name: Smoke — slice cube.stl end to end
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Bridge smoke — binary-buffer contract (M2 deferred verification)
@@ -211,8 +212,9 @@ jobs:
         run: WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
       - name: Verify arrangement with cached serial NLopt
         run: |
-          cmake --build packages/slicer-wasm/.work/serial/build --target arrangement_core_test --parallel 2
+          cmake --build packages/slicer-wasm/.work/serial/build --target arrangement_core_test headless_arrangement_test --parallel 2
           node packages/slicer-wasm/.work/serial/build/arrangement_core_test.cjs
+          node packages/slicer-wasm/.work/serial/build/headless_arrangement_test.cjs
       - name: Smoke — serial fallback slices cube.stl
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Upload serial Web WASM artifact

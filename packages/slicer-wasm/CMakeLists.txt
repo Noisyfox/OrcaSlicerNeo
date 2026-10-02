@@ -369,6 +369,7 @@ target_compile_options(deps_core PRIVATE
 # set outside the pinned Orca submodule; the C bridge and Worker transaction
 # adapters remain Neo code.
 set(ORCA_BRIDGE_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
@@ -609,17 +610,21 @@ endforeach()
 # A real algorithm/linkage probe, separate from the product ABI. Building the
 # scaffold's default target includes this executable; it can also be selected
 # explicitly for the fast arrange-only loop.
-add_executable(arrangement_core_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/ArrangementCore.test.cpp")
-target_compile_options(arrangement_core_test PRIVATE -fexceptions)
 get_target_property(_arrange_test_libraries orca_slice LINK_LIBRARIES)
-target_link_libraries(arrangement_core_test PRIVATE ${_arrange_test_libraries})
-target_link_options(arrangement_core_test PRIVATE -m64 -O2 -fexceptions
+add_executable(arrangement_core_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/ArrangementCore.test.cpp")
+add_executable(headless_arrangement_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.test.cpp")
+foreach(_arrange_test arrangement_core_test headless_arrangement_test)
+target_compile_options(${_arrange_test} PRIVATE -fexceptions)
+target_link_libraries(${_arrange_test} PRIVATE ${_arrange_test_libraries})
+target_link_options(${_arrange_test} PRIVATE -m64 -O2 -fexceptions
   -sDISABLE_EXCEPTION_CATCHING=0 -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1
   -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
-set_target_properties(arrangement_core_test PROPERTIES SUFFIX ".cjs")
+set_target_properties(${_arrange_test} PROPERTIES SUFFIX ".cjs")
 if(WASM_THREADING)
-  target_link_options(arrangement_core_test PRIVATE -pthread -sPTHREAD_POOL_SIZE=4)
+  target_link_options(${_arrange_test} PRIVATE -pthread -sPTHREAD_POOL_SIZE=4)
 endif()
+endforeach()
 if(NOT PRELOAD_FILES)
   if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
     target_link_options(orca_slice PRIVATE "--preload-file=${PRELOAD_FILE}")
