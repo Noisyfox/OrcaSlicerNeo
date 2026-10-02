@@ -4,9 +4,10 @@
 
 **Status:** Partially approved — operation scope, capacity, plate rules, instance
 eligibility, material/printing constraints, parameter/persistence rules, UI
-entry points, editing restrictions, history, cancellation, and failure behavior
-accepted. Remaining task coordination and acceptance decisions are under
-discussion. Implementation has not started.
+entry points, editing restrictions, history, cancellation, failure behavior,
+slicing coordination, footprint geometry, and parity criteria accepted.
+Performance targets and implementation stages remain under discussion.
+Implementation has not started.
 
 **Scope:** Orca-compatible model arrangement in the shared Electron and Web
 application. This is the living feature specification, maintained in batches
@@ -30,6 +31,14 @@ documented submodule update.
 WASM compilation, dependency compatibility, performance, and runtime task
 behavior remain unverified. Choosing this direction does not authorize product
 implementation before the remaining design decisions are resolved.
+
+### Footprint geometry
+
+Use Orca's native two-dimensional convex hull for each arrangement instance,
+as prepared by `ModelInstance::get_arrange_polygon()`. Do not add concave
+nesting or treat holes and concavities as available placement space. For
+example, the open interior of a U-shaped footprint is occupied by its convex
+hull for packing purposes.
 
 ## Accepted operation scope
 
@@ -318,8 +327,27 @@ camera orbit, pan, and zoom available for viewing the scene.
 
 This is a uniform Neo editing restriction. Native Orca instead checks job
 activity in individual actions and cancels jobs from some editing paths.
-Coordination with already-running slicing and other non-editing operations
-remains to be resolved.
+
+### Coordination with slicing
+
+Do not start a new slice job while arrangement is running. The converse depends
+on the runtime variant:
+
+- Threaded WASM permits starting arrangement while an existing slice job runs.
+  Computing an arrangement does not itself cancel that slice job.
+- On successful arrangement application, object mutations use the existing
+  affected-plate invalidation and cancellation mechanism. Request cancellation
+  of an active slice job only if its plate is affected; unaffected jobs continue.
+  Preserve the existing input-version and task-identity checks so stale output
+  cannot publish as a current result.
+- Serial WASM keeps arrangement disabled while slicing occupies the sole
+  stateful Worker. Arrangement may start after slicing reaches a terminal state.
+
+Follow the mutation lifecycle in
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md). Do not cancel
+all slicing eagerly on arrangement entry or replace this policy with symmetric
+mutual exclusion. Supporting threaded slice and arrangement computation
+concurrently is a requirement for the later task integration design.
 
 ### Atomic application and Undo
 
@@ -365,6 +393,29 @@ An oversized model, excessive height, an unusable footprint classified as an
 unsuccessful placement, or exhaustion of the plate budget remains a normal
 partial-success outcome as defined above. Distinguish those outcomes from an
 exception that prevents the operation from producing a valid result.
+
+## Accepted native-parity criteria
+
+Use a fixed Orca version, matching inputs, and matching arrangement parameters
+for comparison, accounting for the explicit Neo behavior differences in this
+specification. Require matching rules and no unexplained material regression in
+packing quality; do not require identical instance-by-instance layouts for
+every complex case.
+
+- For simple, stable fixtures, compare positions and rotation angles using
+  numerical tolerances.
+- For complex fixtures, verify the placement constraints and compare the number
+  of plates needed and the number of instances that could not be placed. Account
+  separately for Neo's deliberate retention of empty plates.
+- Investigate material regressions rather than accepting any collision-free
+  layout. Known native spacing, fitting, exclusion, and fallback semantics remain
+  the reference instead of imposing stronger geometric rules in the tests.
+
+Orca uses libnest2d/NLopt optimization with accuracy and parallel-execution
+parameters. Cross-platform layout differences have not yet been measured;
+this criterion does not assert that native and WASM results will differ. Fixture
+selection and numerical tolerances remain to be defined during validation
+planning.
 
 ## Native Orca reference behavior
 
@@ -437,15 +488,23 @@ helper functions.
   remains. Its special `libnest2d::GeometryException` handler reports the error
   and clears the exception marker. Neo's uniform failure rule does not retain
   that special continuation behavior.
+- `ArrangeJob::finalize()` applies object transforms, updates the scene, rebuilds
+  plate relationships, and updates the current slicing context. Native
+  `Plater::priv::restart_background_process()` refuses restart while a UI job is
+  active; this alone does not imply that every existing slice job is canceled.
+- [Model.cpp](../packages/slicer-wasm/cpp/src/libslic3r/Model.cpp) implements
+  `ModelInstance::get_arrange_polygon()` using `ModelObject::convex_hull_2d()`.
+  `Arrange.cpp` configures libnest2d accuracy and parallel execution; these are
+  optimization settings rather than a definition of one unique final layout.
 
 ## Remaining design decisions
 
 Resolve each related group before updating this specification again:
 
-1. Coordination with slicing and other non-editing operations, remaining
-   control details, and runtime result-validation boundaries.
-2. Native parity targets, effective-configuration mapping, acceptance fixtures,
-   performance expectations, and independently verifiable implementation stages.
+1. Performance expectations and representative acceptance workloads.
+2. Independently verifiable implementation stages, including effective-config
+   mapping, concurrent task integration, result validation, acceptance fixtures,
+   and remaining control/non-editing-operation details.
 
 This document is a peer of [Grand Plan](Grand%20Plan.md). Accepted design
 decisions do not mark arrangement as delivered or complete any roadmap item.
