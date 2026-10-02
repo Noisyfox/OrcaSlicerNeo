@@ -617,6 +617,9 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // Export → file on disk with the expected gcode contents.
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
+    // writeFile creates the destination before its asynchronous write finishes.
+    // Export unlocks only after the host save promise resolves.
+    await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 30_000 });
     const gcode = readFileSync(exportPath, 'utf8');
     if (REAL) {
       expect(gcode).toContain('G1'); // real module: extruder moves

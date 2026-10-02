@@ -599,7 +599,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled(); await page.getByTestId('gizmo-btn-paint').click(); await idle();
     await assertPaintingArmed('reopened');
     expect((await read())!.sessionId).not.toBe(sessionId);
-    const slot2Badge = page.getByTestId('filament-slot-2').locator('label').filter({ has: page.getByTestId('filament-colour-2') });
+    const slot2Badge = page.getByTestId('filament-slot-2').locator('label').filter({ has: page.getByLabel('Slot 2 colour', { exact: true }) });
     const originalSlot2Colour = await slot2Badge.evaluate((element) => getComputedStyle(element).backgroundColor);
     const setSlot2Colour = async (colour: string, cssColour: string) => {
       await page.getByTestId('filament-colour-2').evaluate((element, value) => {

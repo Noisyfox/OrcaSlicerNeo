@@ -15,7 +15,24 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
-    main: { resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
+    main: {
+      define: {
+        'import.meta.env': JSON.stringify({
+          ...Object.fromEntries(Object.entries(env).filter(([key]) => key.startsWith('VITE_'))),
+          DEV: mode === 'development',
+        }),
+      },
+      resolve: { alias: {
+        '@orca/printer-control': resolve(printerControlRoot, 'index.ts'),
+        '@slicer/client': resolve(clientRoot, 'index.ts'),
+        '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
+      } },
+      build: { rollupOptions: { input: {
+        index: resolve('src/main/index.ts'),
+        'slicer-host': resolve('src/utility/slicer-host.ts'),
+        'slicer-worker': resolve('src/utility/slicer-worker.ts'),
+      } } },
+    },
     preload: { resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
     renderer: {
       define: {
@@ -41,7 +58,7 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@renderer': appRoot,
           '@': appRoot,
-          '@orca/slicer-runtime': resolve(runtimeRoot, 'index.ts'),
+          '@orca/slicer-runtime': resolve(runtimeRoot, 'core.ts'),
           '@orca/platform-contract': resolve(platformRoot, 'index.ts'),
           '@orca/printer-control': resolve(printerControlRoot, 'index.ts'),
           '@slicer/client': resolve(clientRoot, 'index.ts'),

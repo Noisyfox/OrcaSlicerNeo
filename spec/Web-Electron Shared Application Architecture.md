@@ -223,6 +223,15 @@ same contract with browser `window.open` semantics for the fixed source URL.
 
 ## 5. Runtime and WASM Loading
 
+Electron's utility-host feasibility migration is authorized under
+[Native Python Plugin Architecture, section 12](Native%20Python%20Plugin%20Architecture.md#12-authorized-first-step-utility-host-feasibility-validation).
+Electron runs its existing WASM session in a Node Worker inside a window-owned
+utility process, connected directly to the renderer by MessagePort. Web keeps
+its browser Worker. This migration adds no Python/plugin capability.
+Future native Python integration is limited to Electron with the threaded WASM
+runtime. Electron serial mode and both Web modes provide no Python plugin support;
+falling back to serial must not initialize Python or silently skip required plugins.
+
 `packages/slicer-wasm/src/client` remains the only JavaScript layer that calls
 the C++ bridge. `slicer-runtime` owns creation of the app Worker and resolution
 of runtime assets and profile installation into MEMFS; UI features receive a
@@ -235,12 +244,10 @@ No app code hardcodes an origin or root-relative asset path. This applies to
 the Worker, WASM artifacts, profile manifest, and profile packages, so the
 same Web build can run at a site root, a subpath, or a preview deployment.
 
-In the first release, both hosts resolve profile packages through this same
-relative-URL fetch path. Electron bundles the packages with its renderer
-assets and its existing restricted loopback HTTP server serves them to the
-Worker; Web serves the equivalent static files. The Worker never receives
-profile bytes through preload/IPC or direct Node filesystem access. Electron
-may introduce an optimized source later behind the `ProfileSource` contract.
+Web resolves profile packages through the relative-URL fetch path. Electron's
+utility Worker reads the same bundled package tree through `ProfileSource` and
+loads the same WASM artifacts locally. Packaged WASM/data/profile assets are
+asar-unpacked. Profile bytes do not pass through preload or renderer IPC.
 
 At startup the Web host performs capability gating before creating the app:
 

@@ -15,7 +15,9 @@
   directly to the Emscripten module. Application code must use
   `packages/slicer-runtime/`; never import module URLs or Emscripten globals
   into the application.
-- Run the WASM module in a Web Worker; never block the renderer UI thread.
+- Run WASM off the renderer UI thread: a browser Web Worker on Web, or a Node
+  Worker in Electron's utility process. See the native Python architecture spec
+  for the current utility-host validation scope; no Python is introduced yet.
 - Use pnpm for workspace development, unit tests, typechecks, and Electron e2e.
   Do not substitute npm or yarn. The native WASM build drivers are the intended
   exception.
@@ -55,6 +57,8 @@ Start each feature or design change with one dated, living task document in
 `doc/` and update it in place. Record only accepted behavior and decisions;
 do not create phase-by-phase notes. When approved, promote that same document
 to `spec/` and remove superseded task notes.
+
+Write all repository documentation in English.
 
 ## Working rules
 

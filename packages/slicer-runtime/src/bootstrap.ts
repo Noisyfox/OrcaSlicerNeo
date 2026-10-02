@@ -51,8 +51,12 @@ export function createWorkerRuntime(workerUrl: string | URL, options: Omit<Runti
 }
 
 /** Keeps lifecycle state at the reusable runtime boundary while preserving the typed bridge. */
-export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): SlicerRuntime {
+export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): SlicerRuntime & {
+  readonly ready: Promise<void>;
+  readonly status: RuntimeStatus;
+} {
   let status: RuntimeStatus = { phase: 'checking-capabilities' };
+  let runtimeFailure: Error | undefined;
   let resolveReady!: () => void;
   let rejectReady!: (error: unknown) => void;
   const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
@@ -60,6 +64,11 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
   const transport: WorkerTransport = {
     post: (message, transfer) => options.transport.post(message, transfer),
     onMessage: (listener) => options.transport.onMessage((message) => {
+      if (message.type === 'fatal') {
+        runtimeFailure = new Error(message.error);
+        status = { phase: 'failed', message: message.error };
+        rejectReady(runtimeFailure);
+      }
       if (message.type === 'startup-progress') {
         for (const progressListener of startupProgressListeners) progressListener(message.text);
         return;
@@ -70,7 +79,7 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
   const client = createWorkerClient(transport) as SlicerClient;
   // Keep lifecycle properties outside the client's Proxy dispatch. Defining
   // `status` on the Proxy itself would still be intercepted as an operation.
-  const runtime = Object.create(client) as SlicerRuntime & { ready: Promise<void> };
+  const runtime = Object.create(client) as SlicerRuntime & { ready: Promise<void>; readonly status: RuntimeStatus };
   runtime.ready = ready;
   runtime.onStartupProgress = (listener) => {
     startupProgressListeners.add(listener);
@@ -86,10 +95,12 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
       try {
         status = { phase: 'loading-runtime' };
         await options.initialize?.();
+        if (runtimeFailure) throw runtimeFailure;
         if (options.installProfiles) {
           status = { phase: 'installing-profiles' };
           await options.installProfiles();
         }
+        if (runtimeFailure) throw runtimeFailure;
         status = { phase: 'ready' };
         resolveReady();
       } catch (error) {

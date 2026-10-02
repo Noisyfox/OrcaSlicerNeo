@@ -12,6 +12,9 @@ import type { PrinterTransportBody } from '../../../../packages/printer-control/
 export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 
 export const Ipc = {
+  slicerConnect: 'slicer:connect',
+  slicerPort: 'slicer:port',
+  slicerFailed: 'slicer:failed',
   openFileDialog: 'dialog:openFile',
   saveFileDialog: 'dialog:saveFile',
   readFile: 'file:read',
@@ -59,6 +62,7 @@ export function isMenuCommandId(value: unknown): value is MenuCommandId {
 export type HostCommandId = 'quit';
 
 export interface ElectronBridge {
+  connectSlicerRuntime(): void;
   version: string;
   openFileDialog(filters: FileDialogFilter[]): Promise<OpenFileResult>;
   saveFileDialog(defaultName: string, filters: FileDialogFilter[]): Promise<SaveFileResult>;
