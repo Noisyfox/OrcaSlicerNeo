@@ -263,8 +263,8 @@ layout to the shared responsive React sidebar.
 
 ### 9.1 Filament slot area
 
-A collapsible **Filament** area near the top of the Prepare settings sidebar
-owns material-rack operations. Each slot presents:
+A collapsible **Material (count)** area in the upper device/material sidebar
+panel owns material-rack operations. Each slot presents:
 
 - its one-based slot number and effective colour;
 - the selected filament preset;
@@ -273,10 +273,14 @@ owns material-rack operations. Each slot presents:
 - enough state to identify incompatible fallback, pending work, or a rejected
   mutation without constructing a partial optimistic session.
 
-The slot area uses two columns when the current sidebar width can present the
-controls without truncating their primary content and one column otherwise.
-This is responsive layout, not a host-specific implementation. Electron and
-Web render the same component and command model.
+The rack uses a compact two-column grid. Each slot is a single 24px-high row
+with a rectangular colour/number block, a truncated preset name, and a dropdown
+chevron. The full preset name is available on hover. Clicking the colour block
+opens the native colour picker; the preset dropdown remains searchable. Edit,
+Merge with, and Delete are available in the slot's context menu. The rack's
+minus and plus buttons sit above the grid at the right; minus removes the last
+slot using the existing reference-impact confirmation. Electron and Web render
+the same component and command model.
 
 Add, Delete, and other commands are enabled from the capability fields in the
 Worker-provided filament-session snapshot. The UI does not infer device type

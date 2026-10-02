@@ -42,7 +42,7 @@ describe('MemoryIndicator', () => {
     });
     const trigger = container.querySelector('[data-testid="memory-indicator"]') as HTMLButtonElement;
     expect(trigger.textContent).toBe('Memory: 8 MiB');
-    expect(trigger.className).toContain('hover:bg-muted');
+    expect(trigger.className).toContain('hover:bg-button-hover');
     expect(trigger.className).toContain('hover:text-foreground');
 
     await act(async () => {

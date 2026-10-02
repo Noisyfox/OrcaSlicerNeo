@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type {
   NativeScopedConfigMutationRequest,
   NativeScopedConfigTarget,
@@ -12,6 +12,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { cn } from 'cn';
+import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, Search } from 'lucide-react';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { PRINT_SETTINGS_PAGES, printSettingPlacement, printSettingLabel, printSettingSection } from './printSettingsLayout';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -93,10 +96,18 @@ export const ScopedField = memo(function ScopedField({
   };
   const onDiscrete = (value: string) => { setDraft(value); void commit(value); };
   const reset = () => { void onReset(field).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); };
-  const label = field.label;
-  const row = 'flex items-center gap-1 py-0.5 min-h-7';
-  const labelCls = 'w-32 shrink-0 truncate text-xs text-muted-foreground';
+  const label = printSettingLabel(field);
+  const row = 'grid grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
+  const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
   const displayed = draft;
+  const canStep = isScalar(field.meta) || field.meta.type === 'percent' || field.meta.type === 'float_or_percent';
+  const step = field.meta.type === 'float' || field.meta.type === 'float_or_percent' ? 0.1 : 1;
+  const adjust = (direction: number) => {
+    if (!/^-?(?:\d+\.?\d*|\.\d+)%?$/.test(draft.trim())) return;
+    const number = Number.parseFloat(draft);
+    const next = Math.max(field.meta.min ?? -Infinity, Math.min(field.meta.max ?? Infinity, Number((number + direction * step).toFixed(6))));
+    onDiscrete(`${next}${draft.trim().endsWith('%') ? '%' : ''}`);
+  };
   const hasEditableLocalOverride = field.local && field.resettable;
   const tooltip = valueTooltip(field);
 
@@ -104,18 +115,19 @@ export const ScopedField = memo(function ScopedField({
   if (field.meta.type === 'bool' && !field.mixed) {
     control = <TooltipFor content={tooltip}><Checkbox
       id={`scoped-${field.key}`}
+      className="size-5 rounded-sm after:inset-0"
       checked={displayed === '1'}
       onCheckedChange={(checked) => onDiscrete(checked ? '1' : '0')}
     /></TooltipFor>;
   } else if (field.meta.type === 'enum' && field.meta.enum_values?.length && !field.mixed) {
     control = <Select value={displayed} onValueChange={(value) => value != null && onDiscrete(value)}>
       <TooltipFor content={tooltip}>
-        <SelectTrigger className="flex-1" data-testid={`config-input-${field.key}`}><SelectValue placeholder={displayed} /></SelectTrigger>
+        <SelectTrigger variant="sidebar" id={`scoped-${field.key}`} size="sm" className="w-full" data-testid={`config-input-${field.key}`}><SelectValue placeholder={displayed} /></SelectTrigger>
       </TooltipFor>
-      <SelectContent>{field.meta.enum_values.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+      <SelectContent>{field.meta.enum_values.map((value, index) => <SelectItem key={value} value={value}>{field.meta.enum_labels?.[index] ?? value}</SelectItem>)}</SelectContent>
     </Select>;
   } else {
-    control = <TooltipFor content={tooltip}><Input
+    control = <div className="flex h-6 min-w-0 items-center rounded-sm bg-control-background focus-within:ring-1 focus-within:ring-ring"><TooltipFor content={tooltip}><Input
         id={`scoped-${field.key}`}
         data-testid={`config-input-${field.key}`}
         value={displayed}
@@ -133,13 +145,21 @@ export const ScopedField = memo(function ScopedField({
           if (event.key === 'Escape') { event.preventDefault(); cancelBlur.current = true; setDraft(valueForField(field)); setError(null); event.currentTarget.blur(); }
         }}
         onChange={(event) => setDraft(event.target.value)}
-        className="flex-1"
-      /></TooltipFor>;
+        className="h-6 min-w-0 flex-1 rounded-sm border-0 bg-transparent dark:bg-transparent px-1.5 text-[13px] focus-visible:ring-0 md:text-[13px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      /></TooltipFor>
+      {canStep && <div className="flex shrink-0 gap-px pr-0.5">
+        <Button type="button" variant="ghost" size="icon-xs" className="size-[18px] rounded-sm bg-card text-muted-foreground [&>svg]:size-3"
+          aria-label={`Decrease ${field.label}`} disabled={committing.current || field.mixed} onClick={() => adjust(-1)}><Minus /></Button>
+        <Button type="button" variant="ghost" size="icon-xs" className="size-[18px] rounded-sm bg-card text-muted-foreground [&>svg]:size-3"
+          aria-label={`Increase ${field.label}`} disabled={committing.current || field.mixed} onClick={() => adjust(1)}><Plus /></Button>
+      </div>}
+      </div>;
   }
   return (
     <div data-testid={`config-field-${field.key}`} className="space-y-0.5">
       <div className={row}>
-        <TooltipFor content={label}>
+        <div className="flex min-w-0 items-center gap-1">
+        <TooltipFor content={field.meta.tooltip ?? field.label}>
           <Label
             htmlFor={`scoped-${field.key}`}
             data-testid={`config-option-label-${field.key}`}
@@ -147,17 +167,16 @@ export const ScopedField = memo(function ScopedField({
             className={cn(labelCls, hasEditableLocalOverride && 'config-override-label')}
           >{label}</Label>
         </TooltipFor>
-        {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">Mixed</span>}
-        {control}
         {field.local && field.resettable && <TooltipFor content="Reset this local override"><Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          data-testid={`config-reset-${field.key}`}
-          onClick={reset}
-        >Reset</Button></TooltipFor>}
+          type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 text-config-override [&>svg]:size-3"
+          aria-label={`Reset ${field.label}`} data-testid={`config-reset-${field.key}`} onClick={reset}><RotateCcw /></Button></TooltipFor>}
+        </div>
+        <div className="min-w-0">
+          {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="sr-only">Mixed</span>}
+          {control}
+        </div>
       </div>
-      {error && <div role="alert" data-testid={`config-error-${field.key}`} className="pl-32 text-[0.65rem] text-destructive">{error}</div>}
+      {error && <div role="alert" data-testid={`config-error-${field.key}`} className="text-[0.65rem] text-destructive">{error}</div>}
     </div>
   );
 }, (previous, next) => previous.targets === next.targets
@@ -165,7 +184,11 @@ export const ScopedField = memo(function ScopedField({
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
 
-export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent }: {
+  sceneInteraction: SceneInteractionController | null;
+  projectContent?: ReactNode;
+  scopedContent?: ReactNode;
+}) {
   const platform = usePlatform();
   const mode = useSettingsStore((state) => state.configurationMode);
   const selection = sceneInteraction?.selection;
@@ -184,7 +207,26 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     ? state.snapshot?.plates.find((plate) => plate.plateId === state.snapshot?.currentPlateId)?.name : undefined);
   const setError = useSlicerStore((state) => state.setError);
   const [search, setSearch] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activePage, setActivePage] = useState('Quality');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const optionsScrollRef = useRef<HTMLDivElement>(null);
+  const optionsContentRef = useRef<HTMLDivElement>(null);
+  const [optionsOverflowing, setOptionsOverflowing] = useState(false);
+  useLayoutEffect(() => {
+    const scroll = optionsScrollRef.current;
+    const content = optionsContentRef.current;
+    if (!scroll || !content) return;
+    const updateOverflow = () => setOptionsOverflowing(scroll.scrollHeight > scroll.clientHeight);
+    updateOverflow();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateOverflow);
+    // Track both panel resizing and changes in the visible option catalogue.
+    observer.observe(scroll);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
   const resolution = useMemo(() => mode === 'project' ? PROJECT_RESOLUTION : resolveScopedConfigurationTarget({
     selectionKind: sceneInteraction?.computeSelectionKind() ?? 'empty',
     selectedVolumes: (sceneInteraction?.selectedVolumes() ?? []).map((volume) => ({ objectId: volume.buffer.objectId, volumeId: volume.buffer.volumeId })),
@@ -202,15 +244,30 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
     const query = search.trim().toLocaleLowerCase();
     return query ? allFields.filter((field) => `${field.key} ${field.label} ${field.category}`.toLocaleLowerCase().includes(query)) : allFields;
   }, [allFields, search]);
+  const availablePages = useMemo(() => PRINT_SETTINGS_PAGES.filter((page) =>
+    allFields.some((field) => printSettingPlacement(field).page === page.title)), [allFields]);
+  const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
   const categories = useMemo(() => {
     const grouped = new Map<string, ScopedConfigurationField[]>();
     for (const field of fields) {
-      const category = grouped.get(field.category);
-      if (category) category.push(field);
-      else grouped.set(field.category, [field]);
+      const placement = printSettingPlacement(field);
+      if (!search.trim() && placement.page !== selectedPage) continue;
+      const category = search.trim() ? `${placement.page} / ${placement.group}` : placement.group;
+      const group = grouped.get(category);
+      if (group) group.push(field);
+      else grouped.set(category, [field]);
     }
-    return [...grouped.entries()];
-  }, [fields]);
+    const groupOrder = PRINT_SETTINGS_PAGES.flatMap((page) => page.groups.map((group) =>
+      search.trim() ? `${page.title} / ${group.title}` : group.title));
+    return [...grouped.entries()]
+      .sort(([left], [right]) => {
+        const leftIndex = groupOrder.indexOf(left);
+        const rightIndex = groupOrder.indexOf(right);
+        return (leftIndex < 0 ? Infinity : leftIndex) - (rightIndex < 0 ? Infinity : rightIndex);
+      })
+      .map(([category, groupFields]) => [category, groupFields.sort((left, right) =>
+        printSettingPlacement(left).order - printSettingPlacement(right).order)] as const);
+  }, [fields, search, selectedPage]);
   const highlightedCategories = useMemo(() => new Set(allFields
     .filter((field) => field.local && field.resettable)
     .map((field) => field.category)), [allFields]);
@@ -268,58 +325,94 @@ export function ScopedConfigurationPanel({ sceneInteraction }: { sceneInteractio
   };
 
   return (
-    <section data-testid="scoped-configuration-panel" className="space-y-2 border-t px-2 py-2">
-      <div role="tablist" aria-label="Configuration mode" className="grid grid-cols-2 rounded border p-0.5">
-        <Button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'project'}
-          data-testid="config-mode-project"
-          variant={mode === 'project' ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setConfigurationMode('project')}
-        >Project</Button>
-        <Button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'scoped'}
-          data-testid="config-mode-scoped"
-          variant={mode === 'scoped' ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setConfigurationMode('scoped')}
-        >Scoped</Button>
+    <section data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
+      <div className="shrink-0 space-y-1 bg-card pb-1">
+        <div data-testid="configuration-mode-header" className="bg-button-expanded">
+          <div role="tablist" aria-label="Configuration mode" className="flex h-5 items-end justify-center">
+            {(['project', 'scoped'] as const).map((value) => <Button key={value} type="button" role="tab"
+              aria-selected={mode === value} data-testid={`config-mode-${value}`} variant="ghost" size="xs"
+              className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-xs leading-none font-normal',
+                mode === value ? 'bg-card text-foreground hover:bg-card' : 'text-muted-foreground')}
+              onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : 'Scoped'}</Button>)}
+          </div>
+        </div>
+        <div className="space-y-1 px-2">
+        {scopedContent && <div hidden={mode !== 'scoped'}>{scopedContent}</div>}
+        <div className="flex min-w-0 items-center gap-1">
+          <TooltipFor content="Reset all local overrides"><Button type="button" variant="ghost" size="icon-xs"
+            className="size-5 shrink-0 text-config-override [&>svg]:size-3" aria-label="Reset All" data-testid="config-reset-all"
+            disabled={!hasLocalOverrides || (mode === 'scoped' && resolution.scope === 'invalid')} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
+          {mode === 'project' ? <div className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
+            <span data-testid="scoped-target-label" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{resolution.label}</span>}
+          {mode === 'project' && <span data-testid="scoped-target-label" className="sr-only">Project</span>}
+          <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-background"
+            aria-label="Search settings" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }}><Search /></Button></TooltipFor>
+        </div>
+        {searchOpen && <Input autoFocus data-testid="scoped-config-search" value={search} onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search settings…" className="h-6 rounded-sm border-0 bg-control-background" />}
+        {!search.trim() && <div role="tablist" aria-label="Settings category" className="flex overflow-x-auto overflow-y-hidden border-b border-border">
+          {availablePages.map((page) => <Button key={page.title} role="tab" type="button" variant="ghost" size="xs"
+            aria-selected={selectedPage === page.title} data-testid={`config-page-${page.title}`}
+            className={cn('h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-[13px] font-normal',
+              allFields.some((field) => printSettingPlacement(field).page === page.title && field.local && field.resettable) && 'config-override-label',
+              selectedPage === page.title && 'border-primary')}
+            onClick={() => setActivePage(page.title)} onKeyDown={(event) => {
+              const index = availablePages.indexOf(page);
+              const next = event.key === 'ArrowRight' ? (index + 1) % availablePages.length
+                : event.key === 'ArrowLeft' ? (index + availablePages.length - 1) % availablePages.length
+                : event.key === 'Home' ? 0 : event.key === 'End' ? availablePages.length - 1 : -1;
+              if (next < 0) return;
+              event.preventDefault();
+              setActivePage(availablePages[next].title);
+              const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+              tabs?.[next]?.focus();
+            }}>{page.title}</Button>)}
+        </div>}
+        </div>
       </div>
-      {!metadata ? <div className="p-3 text-xs text-muted-foreground">Loading configuration…</div> : <>
-      <div className="flex items-center justify-between gap-1 text-xs text-muted-foreground">
-        <span data-testid="scoped-target-label">{mode === 'project' ? 'Project' : resolution.label}</span>
-        {(mode === 'project' || resolution.targets.length > 0) && <Button type="button" variant="ghost" size="xs" data-testid="config-reset-all" disabled={!hasLocalOverrides} onClick={() => void resetAll()}>Reset All</Button>}
-      </div>
-      {mode === 'scoped' && resolution.scope === 'invalid' ? (
-        <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
-      ) : (
-        <>
-          <Input data-testid="scoped-config-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search settings…" />
+      <div ref={optionsScrollRef} className={cn("mx-2 min-h-0 flex-1 overflow-y-auto", optionsOverflowing && "pr-1")}
+        data-testid="configuration-options-scroll" data-overflow-y={optionsOverflowing}>
+      <div ref={optionsContentRef}>
+      {!metadata ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> :
+        mode === 'scoped' && resolution.scope === 'invalid' ? (
+          <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
+        ) : <>
           {categories.length === 0 && <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div>}
           {categories.map(([category, categoryFields]) => {
-            const open = expanded[category] ?? true;
-            const highlighted = highlightedCategories.has(category);
-            return <div key={category} data-testid={`config-category-${category}`} className="rounded border">
-              <div className="flex items-center justify-between px-2 py-1">
-                <Button type="button" variant="ghost" size="xs"
-                  data-testid={`config-category-toggle-${category}`}
-                  data-local-override-highlight={highlighted ? 'true' : 'false'}
-                  className={cn('flex-1 justify-start font-semibold', highlighted && 'config-override-label')}
-                  onClick={() => setExpanded((current) => ({ ...current, [category]: !open }))}>
-                  {open ? '▾' : '▸'} {category}
-                </Button>
-                <Button type="button" variant="ghost" size="xs" data-testid={`config-reset-category-${category}`} disabled={!highlighted} onClick={() => void resetCategory(category)}>Reset</Button>
-              </div>
-              {open && <div className="px-1 pb-1">{categoryFields.map((field) => <ScopedField key={field.key} field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />)}</div>}
+            const expansionKey = `${selectedPage}/${category}`;
+            const open = expanded[expansionKey] ?? true;
+            const placement = printSettingPlacement(categoryFields[0]);
+            const groupCatalogue = allFields.filter((field) => {
+              const candidate = printSettingPlacement(field);
+              return candidate.page === placement.page && candidate.group === placement.group;
+            });
+            const nativeCategories = [...new Set(groupCatalogue.map((field) => field.category))];
+            const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
+            return <div key={category} data-testid={`config-category-${category}`}>
+              <ContextMenu>
+                <ContextMenuTrigger render={<div />}>
+                  <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
+                    aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
+                    className={cn("h-5 w-full justify-between rounded-none border-0 bg-background px-1 text-xs font-semibold", highlighted && "config-override-label")}
+                    onClick={() => setExpanded((current) => ({ ...current, [expansionKey]: !open }))}>
+                    {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                  </Button>
+                </ContextMenuTrigger>
+                <ContextMenuContent>{nativeCategories.map((nativeCategory) => <ContextMenuItem key={nativeCategory}
+                  data-testid={`config-reset-category-${nativeCategory}`} disabled={!highlightedCategories.has(nativeCategory)}
+                  onClick={() => void resetCategory(nativeCategory)}>Reset {nativeCategory}</ContextMenuItem>)}</ContextMenuContent>
+              </ContextMenu>
+              {open && <div className="py-1">{categoryFields.map((field) => <div key={field.key}>
+                {printSettingSection(field.key) && <div className="mt-1 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
+                  {printSettingSection(field.key)}<span className="h-px flex-1 bg-border" />
+                </div>}
+                <ScopedField field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
+              </div>)}</div>}
             </div>;
           })}
-        </>
-      )}
-      </>}
+        </>}
+      </div>
+      </div>
     </section>
   );
 }

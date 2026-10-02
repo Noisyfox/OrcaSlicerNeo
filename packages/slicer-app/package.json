@@ -31,6 +31,7 @@
     "lucide-react": "^1.31.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-resizable-panels": "^4.14.1",
     "three": "^0.185.1",
     "three-mesh-bvh": "^0.9.14",
     "zustand": "^5.0.15"

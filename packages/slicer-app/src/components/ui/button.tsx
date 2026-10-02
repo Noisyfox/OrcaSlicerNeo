@@ -10,13 +10,13 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary-hover",
         outline:
-          "border-border hover:bg-input/50 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:bg-input/30",
+          "border-border hover:bg-input/50 hover:text-foreground aria-expanded:bg-button-expanded aria-expanded:text-foreground dark:bg-input/30",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--color-secondary),var(--color-foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+          "hover:bg-button-hover hover:text-foreground aria-expanded:bg-button-expanded aria-expanded:text-foreground dark:hover:bg-button-hover",
         gizmo:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:hover:bg-accent aria-pressed:hover:text-accent-foreground dark:aria-pressed:hover:bg-accent",
+          "hover:bg-button-hover hover:text-foreground aria-expanded:bg-button-expanded aria-expanded:text-foreground dark:hover:bg-button-hover aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:hover:bg-accent aria-pressed:hover:text-accent-foreground dark:aria-pressed:hover:bg-accent",
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-foreground underline decoration-primary underline-offset-4 hover:decoration-primary-hover",

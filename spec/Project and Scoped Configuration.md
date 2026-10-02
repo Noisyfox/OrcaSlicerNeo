@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Status:** Final user experience; delivered in the shared Electron and Web application.
-**Last updated:** 2026-09-24
+**Last updated:** 2026-10-02
 
 This specification records the final behavior visible to users. Project-wide and
 selection-scoped configuration share one settings surface and follow OrcaSlicer's
@@ -10,7 +10,36 @@ configuration behavior.
 ## 1. Project and Scoped modes
 
 The `Project | Scoped` switch appears inside the configuration panel, above
-the target label and configuration options.
+the target label and configuration options. Immediately below the switch,
+Project shows the Process preset selector; Scoped shows the object list.
+
+The workspace sidebar has two panels with a draggable horizontal divider.
+The upper device/material panel scrolls its content. In the lower panel, only
+the options below the category tabs scroll; the mode, preset/search row, and
+category tabs stay fixed, and the scrollbar starts below the tabs. The upper
+panel contains the Printer selector and filament
+slots; the lower panel contains configuration. The initial height split is
+35% / 65%, and adjusting it affects only the current workspace session.
+
+The lower panel uses compact, aligned parameter rows. The preset row contains
+an icon for Reset All at the left and a search toggle at the right. In Scoped
+mode the object list appears immediately below the mode switch and the target
+label replaces the process preset. Search expands into a text field and finds
+options across all pages in the current mode.
+
+The horizontal page tabs are Quality, Strength, Speed, Support, Multi., and
+Other, with only pages containing eligible options displayed. The selected tab
+is indicated by its underline; selection alone does not colour the text orange.
+Orange is reserved for indicators of local modifications. Page and group
+order follows the pinned Orca `TabPrint::build()` layout. Unmapped eligible
+options remain accessible under Other. Groups are collapsible dark heading
+bars; Shells and Infill include compact subsection headings. Labels occupy the
+left column and controls align in the right column. Boolean controls use
+square checkboxes, enums use dropdowns, and numeric controls have minus/plus
+buttons. Each increment uses the existing configuration mutation path and
+respects native metadata bounds. Field Reset is an orange icon beside its
+label; category Reset remains available through a group header's context menu,
+explicitly naming the native category it resets.
 
 - **Project** edits and displays project-wide values, regardless of the current
   selection. Its value path is `Preset → Project`.

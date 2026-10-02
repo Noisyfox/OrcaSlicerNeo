@@ -503,6 +503,7 @@ test('Prepare prime tower enable/disable clears selection and invalidates the cu
     // Prime Tower is a generic Project configuration field now. Its checkbox
     // is rendered by the scoped catalogue rather than the old flat option
     // row, while the tower projection remains scene-owned.
+    await page.getByTestId('config-page-Multi.').click();
     const primeTowerCheckbox = page.getByTestId('config-field-enable_prime_tower').getByRole('checkbox');
     const toggleTower = () => primeTowerCheckbox.click();
     await expect.poll(readTowers).toHaveLength(1);

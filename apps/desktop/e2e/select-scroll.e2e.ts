@@ -54,10 +54,11 @@ async function launchApp() {
   // enter Scoped mode so the mock's PrintRegionConfig enum is rendered from
   // its authoritative object/part scopes.
   const object = page.locator('[data-testid^="object-"]:not([data-testid="object-list"])').first();
+  await page.getByTestId('config-mode-scoped').click();
   await expect(object).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
   await object.click();
-  await page.getByTestId('config-mode-scoped').click();
   await expect(page.getByTestId('scoped-target-label')).toContainText('Object');
+  await page.getByTestId('config-page-Strength').click();
   return { app, page };
 }
 
@@ -65,12 +66,10 @@ async function launchApp() {
 // The compact mock calls this sparse_infill_pattern, while profile revisions
 // may rename or omit that option; selecting the first actual process enum
 // keeps the layout test tied to rendered controls rather than a fixture key.
-// The scroll container is the aside's inner overflow-y-auto div — the aside
-// itself is overflow-hidden so its border-radius clips the custom scrollbar
-// to the card's rounded corners (see AppShell.tsx).
+// Only the configuration options scroll; mode, preset and page tabs stay fixed.
 async function scrollRowToMidlist(page: Page) {
   const aside = page.locator('#app-panel-workspace aside');
-  const scroller = aside.locator(':scope > div');
+  const scroller = page.getByTestId('configuration-options-scroll');
   // The real preset panel already has genuine scrollable content. Synthetic
   // spacer nodes are retained only for the compact mock fixture; injecting
   // nodes into the real React-owned scroll tree can invalidate Base UI's
@@ -82,24 +81,25 @@ async function scrollRowToMidlist(page: Page) {
         d.style.height = `${h}px`;
         return d;
       };
-      el.insertBefore(mk(700), el.firstChild);
-      el.appendChild(mk(600));
+      const content = el.firstElementChild!;
+      content.insertBefore(mk(700), content.firstChild);
+      content.appendChild(mk(600));
     });
   }
   await scroller.evaluate((el) => {
     const triggers = el.querySelectorAll('[data-slot="select-trigger"]');
     const trigger = triggers.item(triggers.length - 1);
-    const row = trigger?.closest('div.space-y-4, div.flex');
+    const row = trigger?.closest('[data-testid^="config-field-"]');
     if (!row) throw new Error('real enum row not found');
     const rowTopInScroller = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
-    const target = Math.min(el.scrollHeight - el.clientHeight, Math.max(0, rowTopInScroller + el.scrollTop - 300));
+    const target = Math.min(el.scrollHeight - el.clientHeight, Math.max(0, rowTopInScroller + el.scrollTop - el.clientHeight * 0.25));
     el.scrollTop = target;
   });
   await expect.poll(async () => (await scroller.evaluate((el) => el.scrollTop)) > 0).toBe(true);
   return { aside, scroller };
 }
 
-const sparseTrigger = (page: Page) => page.locator('#app-panel-workspace aside [data-slot="select-trigger"]').last();
+const sparseTrigger = (page: Page) => page.getByTestId('configuration-options-scroll').locator('[data-slot="select-trigger"]').last();
 
 test('select popup opens below the trigger and tracks it on sidebar scroll', async () => {
   const { app, page } = await launchApp();

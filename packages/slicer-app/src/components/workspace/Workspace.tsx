@@ -16,8 +16,7 @@ import {
 import { usePlatform } from '@orca/platform-contract';
 import { WorkspaceHistoryProbe } from '@/e2e/WorkspaceHistoryProbe';
 import { ScopedConfigurationGateProbe } from '@/e2e/ScopedConfigurationGateProbe';
-import { ObjectList } from './objectList/ObjectList';
-import { SettingsPanel } from './settings/SettingsPanel';
+import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { Viewport } from './viewport/Viewport';
 import { SceneInteractionController } from './viewport/SceneInteractionController';
 import { glVolumeCollection, waitForGLVolumeRevision } from './viewport/GLVolume';
@@ -766,34 +765,25 @@ export function Workspace({
     )}
     <div className="mt-1 flex flex-1 min-h-0" inert={serialSliceBusy} aria-busy={serialSliceBusy}>
       <aside
-        className="shrink-0 overflow-hidden rounded-md border bg-card"
+        className="shrink-0 overflow-hidden"
         style={{
           width: `${sidebarWidth}px`,
           minWidth: `${MIN_SIDEBAR_WIDTH}px`,
           maxWidth: `${MAX_SIDEBAR_WIDTH}px`,
         }}
       >
-        {/* The aside itself is overflow-hidden so its border-radius clips
-            the inner scroller's custom webkit scrollbar (Chromium draws
-            ::-webkit-scrollbar chrome as a rectangle, ignoring the
-            scroller's rounded corners). */}
-        <div className="h-full overflow-y-auto">
-          {activeTab === 'prepare' && <FilamentRack onEditPreset={(canonicalName) =>
+        <WorkspaceSidebar
+          sceneInteraction={sceneInteraction}
+          onEditPrinter={(canonicalName) => void openPresetEditor({ kind: 'printer', canonicalName })}
+          printerExtras={activeTab === 'prepare' && <FilamentRack onEditPreset={(canonicalName) =>
             void openPresetEditor({ kind: 'filament', canonicalName })
           } />}
-          {isPreviewTab(activeTab) && plateSession && (
-            <PreviewPlateList
-              snapshot={plateSession}
-              pending={previewPlateSelectionPending}
-              onSelect={selectPreviewPlate}
-            />
-          )}
-          <ObjectList sceneInteraction={sceneInteraction} />
-          <SettingsPanel
-            sceneInteraction={sceneInteraction}
-            onEditPrinter={(canonicalName) => void openPresetEditor({ kind: 'printer', canonicalName })}
-          />
-        </div>
+          configurationExtras={isPreviewTab(activeTab) && plateSession && <PreviewPlateList
+            snapshot={plateSession}
+            pending={previewPlateSelectionPending}
+            onSelect={selectPreviewPlate}
+          />}
+        />
       </aside>
       <div
         role="separator"

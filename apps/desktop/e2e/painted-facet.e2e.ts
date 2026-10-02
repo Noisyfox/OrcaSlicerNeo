@@ -142,6 +142,7 @@ test('Prepare painted model uses original BVH for selection and dragging', async
 
     // Native printable=false suppresses facet materials and uses Orca's
     // semi-transparent black default. Restoring printability reveals paint.
+    await page.getByTestId('config-mode-scoped').click();
     const objectRow = page.getByTestId('object-list')
       .locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first();
     await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });

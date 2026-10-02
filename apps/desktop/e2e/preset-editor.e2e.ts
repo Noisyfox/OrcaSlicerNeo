@@ -122,7 +122,7 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     const initialActualColour = page.getByTestId('filament-colour-1');
     const initialActualColourValue = await initialActualColour.inputValue();
     await expect(initialActualColour).toHaveValue(initialActualColourValue);
-    await page.getByTestId('filament-actions-1').click();
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
     await page.getByTestId('filament-edit-1').click();
     await expect(dialog).toBeVisible();
     await expect(page.getByTestId('preset-editor-title')).not.toBeEmpty();
@@ -186,7 +186,7 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();
     const secondActualColour = page.getByTestId('filament-colour-2');
     const secondActualColourValue = await secondActualColour.inputValue();
-    await page.getByTestId('filament-actions-2').click();
+    await page.getByTestId('filament-slot-2').click({ button: 'right' });
     await page.getByTestId('filament-edit-2').click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText(filamentSourceName);
     await expect(page.getByTestId('preset-editor-slot-reference'))
@@ -232,7 +232,7 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
       await page.getByTestId('preset-editor-close').click();
 
       await page.getByTestId('history-undo').click();
-      await page.getByTestId('filament-actions-2').click();
+      await page.getByTestId('filament-slot-2').click({ button: 'right' });
       await page.getByTestId('filament-edit-2').click();
       await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
       await page.getByTestId('preset-editor-page-tab-filament').click();
@@ -249,7 +249,7 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
       await page.getByTestId('preset-editor-close').click();
 
       await page.getByTestId('history-redo').click();
-      await page.getByTestId('filament-actions-2').click();
+      await page.getByTestId('filament-slot-2').click({ button: 'right' });
       await page.getByTestId('filament-edit-2').click();
       await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
       await page.getByTestId('preset-editor-page-tab-filament').click();

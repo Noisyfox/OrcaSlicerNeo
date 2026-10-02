@@ -82,6 +82,7 @@ test('new project slots remain assignable from the ObjectList select and context
 
     await addPrimitive(page, 'cube');
     await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await page.getByTestId('config-mode-scoped').click();
     const objectRow = page.locator('[data-testid^="object-"]').first();
     const filamentSelect = page.locator('[data-testid^="filament-cell-object-"]').first();
     await expect(objectRow).toBeVisible();

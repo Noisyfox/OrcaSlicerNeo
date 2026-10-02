@@ -429,7 +429,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                   onChange={(e) => setDraftName(e.target.value)}
                   onBlur={commitRename}
                   onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
-                  className="w-32 rounded border bg-background px-1 text-xs"
+                  className="w-32 rounded border bg-control-background px-1 text-xs"
                 />
               ) : obj.name}
               {hasScopedMarker('object', obj.id) && <span data-testid={`config-marker-object-${obj.id}`} aria-label="Object has scoped overrides" className="ml-1 text-[0.65rem] text-muted-foreground">●</span>}
@@ -494,7 +494,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           onChange={(e) => setDraftName(e.target.value)}
                           onBlur={commitRename}
                           onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
-                          className="w-28 rounded border bg-background px-1 text-xs"
+                          className="w-28 rounded border bg-control-background px-1 text-xs"
                         />
                       ) : vol.name}
                       {hasScopedMarker('part', vol.id) && <span data-testid={`config-marker-part-${vol.id}`} aria-label="Part has scoped overrides" className="ml-1 text-[0.65rem] text-muted-foreground">●</span>}

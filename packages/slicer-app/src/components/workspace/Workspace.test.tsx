@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
@@ -26,12 +26,21 @@ const testMocks = vi.hoisted(() => ({
 
 // The scene components are intentionally not part of this structural test.
 // Mocks keep it focused on Workspace's ownership boundary.
+vi.mock('@/components/ui/resizable', () => ({
+  ResizablePanelGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ResizablePanel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ResizableHandle: (props: { 'data-testid'?: string; 'aria-label'?: string }) => <div {...props} role="separator" />,
+}));
 vi.mock('./objectList/ObjectList', () => ({ ObjectList: () => <div data-testid="mock-object-list" /> }));
 vi.mock('./settings/SettingsPanel', () => ({
-  SettingsPanel: (props: { onEditPrinter?: (canonicalName: string) => void }) => <>
-    <div data-testid="mock-settings-panel" />
-    <button data-testid="mock-printer-edit" onClick={() => props.onEditPrinter?.('Printer A')}>Edit Printer</button>
-  </>,
+  SettingsPanel: (props: { onEditPrinter?: (canonicalName: string) => void;
+    renderLayout?: (panels: { printer: ReactNode; settings: ReactNode }) => ReactNode }) => {
+    const panels = {
+      printer: <button data-testid="mock-printer-edit" onClick={() => props.onEditPrinter?.('Printer A')}>Edit Printer</button>,
+      settings: <><div data-testid="mock-settings-panel" /><div data-testid="mock-object-list" /></>,
+    };
+    return props.renderLayout ? props.renderLayout(panels) : <>{panels.printer}{panels.settings}</>;
+  },
 }));
 vi.mock('./FilamentRack', () => ({
   FilamentRack: (props: { onEditPreset?: (canonicalName: string) => void }) =>
@@ -93,6 +102,9 @@ describe('Workspace ownership', () => {
 
     expect(container.querySelector('[data-testid="mock-object-list"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="mock-settings-panel"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="sidebar-device-panel"] [data-testid="mock-printer-edit"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="sidebar-settings-panel"] [data-testid="mock-settings-panel"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="sidebar-panel-resizer"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="mock-viewport"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="device-panel"]')).toBeNull();
     expect(container.querySelector('[role="tabpanel"]')).toBeNull();

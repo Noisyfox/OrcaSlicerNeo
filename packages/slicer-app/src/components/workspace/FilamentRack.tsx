@@ -6,15 +6,16 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError } from '@slicer/client';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
-import { MoreHorizontal } from 'lucide-react';
+import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
   ComboboxList, ComboboxTrigger, ComboboxValue,
 } from '@/components/ui/combobox';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
+  ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
+} from '@/components/ui/context-menu';
 
 type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary } | null;
 
@@ -55,7 +56,6 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
-  const [mergeOpen, setMergeOpen] = useState(false);
   const colourInputRef = useRef<HTMLInputElement>(null);
   const authoritativeColour = slot.colour.effective.slice(0, 7).toLowerCase();
   const [draftColour, setDraftColour] = useState<string | null>(null);
@@ -92,54 +92,32 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   }, [authoritativeColour, onColour]);
 
   const displayedColour = draftColour ?? authoritativeColour;
+  const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(displayedColour.slice(offset, offset + 2), 16));
+  const numberColour = red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
   return (
-    <article className="min-w-0 rounded-md border bg-background/40 p-2" data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
-      <div className="flex items-center gap-2">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white" style={{ backgroundColor: slot.colour.effective }} aria-label={`Slot ${slot.slot} colour`}>
+    <ContextMenu>
+      <ContextMenuTrigger render={<article />}
+        className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-background"
+        data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
+        <label className="relative flex h-full w-6 shrink-0 cursor-pointer items-center justify-center text-[13px] font-medium"
+          style={{ backgroundColor: displayedColour, color: numberColour }}>
           {slot.slot}
-        </span>
-        <input
-          ref={colourInputRef}
-          aria-label={`Slot ${slot.slot} colour`}
-          data-testid={`filament-colour-${slot.slot}`}
-          type="color"
-          value={displayedColour}
-          disabled={pending}
-          className="size-6 cursor-pointer rounded border-0 bg-transparent p-0"
-        />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">Slot {slot.slot}</span>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button
-              variant="ghost"
-              size="icon-xs"
-              data-testid={`filament-actions-${slot.slot}`}
-              disabled={pending}
-              aria-label={`Actions for slot ${slot.slot}`}
-            />}
-          >
-            <MoreHorizontal aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {onEdit && <DropdownMenuItem data-testid={`filament-edit-${slot.slot}`} onClick={onEdit}>Edit</DropdownMenuItem>}
-            <DropdownMenuItem
-              data-testid={`filament-merge-${slot.slot}`}
-              disabled={!canMerge}
-              onClick={() => { if (paintingCommandAllowed()) setMergeOpen(true); }}
-            >Merge with…</DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid={`filament-delete-${slot.slot}`}
-              variant="destructive"
-              disabled={!canDelete}
-              onClick={onDelete}
-            >Delete</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      <div className="mt-2 flex min-w-0 gap-1">
+          <input
+            ref={colourInputRef}
+            aria-label={`Slot ${slot.slot} colour`}
+            data-testid={`filament-colour-${slot.slot}`}
+            type="color"
+            value={displayedColour}
+            disabled={pending}
+            className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-default"
+          />
+        </label>
         <Combobox value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
-          <ComboboxTrigger data-testid={`filament-preset-${slot.slot}`} render={<Button variant="outline" size="sm" className="min-w-0 flex-1 justify-between font-normal" />}>
-            <ComboboxValue />
+          <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
+            aria-label={`Filament preset for slot ${slot.slot}`}
+            title={slot.preset.name}
+            render={<Button variant="ghost" size="sm" />}>
+            <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue /></span>
           </ComboboxTrigger>
           <ComboboxContent>
             <ComboboxInput placeholder="Search compatible presets…" showTrigger={false} />
@@ -147,20 +125,21 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
             <ComboboxEmpty>No compatible preset</ComboboxEmpty>
           </ComboboxContent>
         </Combobox>
-      </div>
-      {mergeOpen && (
-        <div className="mt-1 flex flex-wrap gap-1" data-testid={`filament-merge-menu-${slot.slot}`}>
-          <span className="sr-only">Choose surviving slot</span>
-        </div>
-      )}
-      {/* The destination buttons are supplied as a compact native menu by the
-          rack parent to keep the card itself free of a second session model. */}
-      <div className="mt-1 flex justify-end gap-1">
-        {mergeOpen && mergeDestinations.filter((destination) => destination !== slot.slot).map((destination) => (
-          <Button key={destination} variant="ghost" size="icon-xs" data-testid={`filament-merge-${slot.slot}-to-${destination}`} onClick={() => { setMergeOpen(false); onMerge(destination); }}>→{destination}</Button>
-        ))}
-      </div>
-    </article>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {onEdit && <ContextMenuItem data-testid={`filament-edit-${slot.slot}`} disabled={pending} onClick={onEdit}>Edit</ContextMenuItem>}
+        <ContextMenuSub>
+          <ContextMenuSubTrigger data-testid={`filament-merge-${slot.slot}`} disabled={pending || !canMerge}>Merge with…</ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            {mergeDestinations.filter((destination) => destination !== slot.slot).map((destination) => (
+              <ContextMenuItem key={destination} data-testid={`filament-merge-${slot.slot}-to-${destination}`}
+                onClick={() => { if (paintingCommandAllowed()) onMerge(destination); }}>Slot {destination}</ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuItem data-testid={`filament-delete-${slot.slot}`} variant="destructive" disabled={pending || !canDelete} onClick={onDelete}>Delete</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -233,15 +212,25 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
 
   return (
     <>
-      <section data-testid="filament-rack" className="border-b p-3" aria-busy={pending}>
-        <div className="flex items-center gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Filament</h2>
-          <span className="text-[0.65rem] text-muted-foreground">{snapshot.slots.length}/{snapshot.capabilities.maxSlots}</span>
-          <Button className="ml-auto" variant="ghost" size="icon-xs" data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>{expanded ? '−' : '+'}</Button>
-          <Button variant="outline" size="xs" data-testid="filament-add" disabled={pending || !snapshot.capabilities.canAdd} onClick={() => void updateSlot(() => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}>Add</Button>
+      <section data-testid="filament-rack" className="px-2 pb-2" aria-busy={pending}>
+        <div className="relative flex h-6 items-end justify-center bg-background">
+          <h2 className="rounded-t-sm bg-card px-3 py-1 text-xs font-medium">Material ({snapshot.slots.length})</h2>
+          <Button className="absolute right-0 bottom-0 size-6" variant="ghost" size="icon-xs"
+            data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)}
+            aria-label={expanded ? 'Collapse materials' : 'Expand materials'} aria-expanded={expanded}>
+            {expanded ? <ChevronDown /> : <ChevronUp />}
+          </Button>
         </div>
+        {expanded && <div className="flex h-8 items-center justify-end gap-1">
+          <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-remove"
+            aria-label="Remove last filament slot" disabled={pending || !snapshot.capabilities.canDelete || snapshot.slots.length === 0}
+            onClick={() => askOrRun('delete', snapshot.slots[snapshot.slots.length - 1].slot, null)}><Minus /></Button>
+          <Button variant="secondary" size="icon-xs" className="size-5 rounded-sm" data-testid="filament-add"
+            aria-label="Add filament slot" disabled={pending || !snapshot.capabilities.canAdd}
+            onClick={() => void updateSlot(() => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}><Plus /></Button>
+        </div>}
         {rejected && <div className="mt-2 flex items-center gap-2 rounded border border-destructive/50 p-2 text-xs text-destructive" role="alert" data-testid="filament-rejected"><span className="min-w-0 flex-1">{rejected}</span><Button variant="ghost" size="icon-xs" onClick={clearRejected} aria-label="Dismiss rejection">×</Button></div>}
-        {expanded && <div className="filament-slot-grid mt-2 grid grid-cols-1 gap-2" data-testid="filament-slot-grid">
+        {expanded && <div className="filament-slot-grid grid grid-cols-2 gap-x-2 gap-y-1.5" data-testid="filament-slot-grid">
           {snapshot.slots.map((slot) => (
             <SlotCard
               key={slot.slot}

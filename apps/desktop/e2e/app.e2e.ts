@@ -219,6 +219,82 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
   }
 });
 
+test('sidebar panels resize independently and configuration controls keep their alignment', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const device = page.getByTestId('sidebar-device-panel');
+    const settings = page.getByTestId('sidebar-settings-panel');
+    const divider = page.getByTestId('sidebar-panel-resizer');
+    const process = page.getByTestId('process-preset-select');
+    await expect(device.getByTestId('preset-select')).toBeVisible();
+    await expect(device.getByTestId('filament-rack')).toBeVisible();
+    await expect(settings.getByTestId('object-list')).toBeHidden();
+    await expect(settings.getByTestId('process-preset-select')).toBeVisible();
+    await page.getByTestId('config-mode-scoped').click();
+    await expect(settings.getByTestId('object-list')).toBeVisible();
+    await expect(process).toHaveCount(0);
+    await page.getByTestId('config-mode-project').click();
+
+    const before = (await device.boundingBox())!;
+    const handle = (await divider.boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + 80, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(async () => (await device.boundingBox())!.height).toBeGreaterThan(before.height + 60);
+    await divider.focus();
+    const draggedHeight = (await device.boundingBox())!.height;
+    await divider.press('ArrowUp');
+    await expect.poll(async () => (await device.boundingBox())!.height).toBeLessThan(draggedHeight);
+
+    for (const control of [device.getByTestId('preset-select'), process, page.getByTestId('filament-preset-1')]) {
+      await expect(control).toHaveCSS('height', '24px');
+      await expect(control).toHaveCSS('background-color', 'rgb(29, 29, 31)');
+      await expect(control).toHaveCSS('border-radius', '3px');
+      await expect(control.locator('.sidebar-dropdown-arrow')).toHaveCSS('width', '20px');
+    }
+    const tabs = settings.getByRole('tablist', { name: 'Settings category' });
+    const quality = page.getByTestId('config-page-Quality');
+    const tabBefore = (await quality.boundingBox())!;
+    await page.mouse.move(tabBefore.x + tabBefore.width / 2, tabBefore.y + tabBefore.height / 2);
+    await page.mouse.down();
+    try {
+      expect((await quality.boundingBox())!.y).toBe(tabBefore.y);
+      expect(await tabs.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+    } finally { await page.mouse.up(); }
+
+    const options = page.getByTestId('configuration-options-scroll');
+    // A compact window forces real catalogue overflow, without synthetic DOM.
+    await page.getByTestId('config-page-Other').click();
+    await page.setViewportSize({ width: 1280, height: 400 });
+    await expect(options).toHaveAttribute('data-overflow-y', 'true');
+    await expect(options).toHaveCSS('padding-right', '4px');
+    const tabsBeforeScroll = (await tabs.boundingBox())!;
+    await options.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    expect((await tabs.boundingBox())!.y).toBe(tabsBeforeScroll.y);
+    const scrollbar = await options.evaluate((el) => ({
+      width: getComputedStyle(el, '::-webkit-scrollbar').width,
+      track: getComputedStyle(el, '::-webkit-scrollbar-track').backgroundColor,
+      thumb: getComputedStyle(el, '::-webkit-scrollbar-thumb').backgroundColor,
+    }));
+    expect(scrollbar).toEqual({ width: '6px', track: 'rgb(29, 29, 31)', thumb: 'rgb(75, 75, 75)' });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await settings.getByRole('button', { name: 'Search settings', exact: true }).click();
+    await page.getByTestId('scoped-config-search').fill('layer_height');
+    await expect(options).toHaveAttribute('data-overflow-y', 'false');
+    await expect(options).toHaveCSS('padding-right', '0px');
+    const group = options.locator('[data-testid^="config-category-toggle-"]').first();
+    const label = page.getByTestId('config-field-layer_height').locator('label');
+    expect((await label.boundingBox())!.x).toBeCloseTo((await group.boundingBox())!.x + 4, 2);
+    await expect(page.getByTestId('config-input-layer_height').locator('..')).toHaveCSS('background-color', 'rgb(29, 29, 31)');
+    await page.getByTestId('config-input-layer_height').fill('0.3');
+    await page.getByTestId('config-input-layer_height').press('Enter');
+    await expect(group).toHaveAttribute('data-local-override-highlight', 'true');
+  } finally { await app.close(); }
+});
+
 test('shows total application memory and grouped details from the status bar', async () => {
   const { app } = await launchApp({ initialTab: 'home' });
   try {
@@ -661,6 +737,7 @@ test('shared titlebar history supports buttons, shortcuts, menu jumps, and nativ
     await page.getByTestId('add-plate').click();
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
     await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('config-mode-scoped').click();
     const objectRows = page.getByTestId('object-list')
       .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
     await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
@@ -732,6 +809,7 @@ test('undoes the first Cube added after an empty-scene Add Plate', async () => {
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
+    await page.getByTestId('config-mode-scoped').click();
     const objectRows = page.getByTestId('object-list')
       .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
     await page.getByTestId('add-plate').click();
@@ -782,6 +860,7 @@ test('redoes a moved Cube after undoing both Move and Add Cube without stale ide
   try {
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('config-mode-scoped').click();
     const objectRows = page.getByTestId('object-list')
       .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
@@ -1027,6 +1106,7 @@ test('object list: refuses mixing object and part selection (mock)', async () =>
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     if (REAL) return;
 
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     await list.locator('[data-testid^="object-expand-"]').first().click();
@@ -1063,6 +1143,7 @@ test('object list: drag reorder objects (mock)', async () => {
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     if (REAL) return;
 
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const rows = list.locator('div[data-testid^="object-"]');
@@ -1113,6 +1194,7 @@ test('object list: add instance via the context menu (mock)', async () => {
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     if (REAL) return;
 
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const objectRow = list.locator('div[data-testid^="object-"]').first();
@@ -1145,6 +1227,7 @@ test('object list: ctrl and shift multi-select (mock)', async () => {
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     if (REAL) return;
 
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     await list.locator('[data-testid^="object-expand-"]').first().click();
@@ -1191,6 +1274,7 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     if (REAL) return;
 
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const objectCount = () => list.locator('[data-testid^="object-expand-"]').count();
@@ -1273,6 +1357,7 @@ test('object list: context menu follows the selection (mock)', async () => {
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     if (REAL) return;
 
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
@@ -1337,6 +1422,7 @@ test('object list: rename, printable, and slice (mock)', async () => {
     });
     expect(settingsEditorKeepsNativeContextMenu).toBe(true);
 
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const objectRow = list.locator('div[data-testid^="object-"]').first();
@@ -1613,6 +1699,7 @@ test('scene context menu: right-click on a model body opens the object menu', as
       }).__orcaE2e?.projectWorldToScreen?.([10, 10, 10]) ?? null,
     );
     if (!pt) throw new Error('world→screen projection unavailable');
+    await page.getByTestId('config-mode-scoped').click();
     const list = page.getByTestId('object-list');
     // The list container's own testid ("object-list") also matches the `object-`
     // prefix, so exclude it — row locators must target the actual rows.

@@ -42,6 +42,7 @@ async function openPickerProject(page: Page): Promise<void> {
   await page.getByTestId('menu-file-trigger').hover();
   await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await page.getByTestId('file-open-project').click();
+  await page.getByTestId('config-mode-scoped').click();
   await expect(page.getByTestId('object-list').getByRole('button', { name: 'picked-project.3mf' })).toBeVisible();
 }
 
@@ -95,6 +96,7 @@ test('Electron STL drop uses the shared Add Model action', async () => {
   try {
     const page = await app.firstWindow();
     await ready(page);
+    await page.getByTestId('config-mode-scoped').click();
     await expect(page.getByTestId('object-list')).toBeVisible();
     await page.evaluate(({ bytes }) => {
       const transfer = new DataTransfer();

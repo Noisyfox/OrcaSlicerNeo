@@ -19,17 +19,18 @@ function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
 // render={<Button ... />} so the trigger becomes a full select-look button.
 function ComboboxTrigger({
   className,
+  variant = "default",
   children,
   ...props
-}: ComboboxPrimitive.Trigger.Props) {
+}: ComboboxPrimitive.Trigger.Props & { variant?: "default" | "sidebar" }) {
   return (
     <ComboboxPrimitive.Trigger
       data-slot="combobox-trigger"
-      className={cn("[&_svg:not([class*='size-'])]:size-3.5", className)}
+      className={cn(variant === "sidebar" ? "sidebar-dropdown text-foreground" : "[&_svg:not([class*='size-'])]:size-3.5", className)}
       {...props}
     >
       {children}
-      <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
+      <ChevronDownIcon className={variant === "sidebar" ? "sidebar-dropdown-arrow" : "pointer-events-none size-3.5 text-muted-foreground"} />
     </ComboboxPrimitive.Trigger>
   )
 }

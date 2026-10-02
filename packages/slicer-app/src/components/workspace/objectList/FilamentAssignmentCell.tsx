@@ -41,9 +41,10 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
     >
       <TooltipFor content={label}>
         <SelectTrigger
+          variant="sidebar"
           aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
           data-testid={`filament-cell-${kind}-${id}`}
-          className={cn('h-5 w-16 shrink-0 px-1 py-0 text-[0.65rem] data-[size=sm]:h-5', assignment.inherited && 'italic text-muted-foreground')}
+          className={cn('w-16 shrink-0', assignment.inherited && 'italic text-muted-foreground')}
           size="sm"
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}

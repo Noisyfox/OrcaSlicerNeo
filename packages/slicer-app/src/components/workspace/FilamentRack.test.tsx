@@ -62,7 +62,9 @@ function renderRack(runtime: Record<string, unknown>, onEditPreset?: (canonicalN
 
 async function openSlotAction(container: HTMLElement, slot: number, action: 'edit' | 'delete' | 'merge') {
   await act(async () => {
-    (container.querySelector(`[data-testid="filament-actions-${slot}"]`) as HTMLButtonElement).click();
+    container.querySelector(`[data-testid="filament-slot-${slot}"]`)!.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 }),
+    );
     await Promise.resolve();
   });
   return document.querySelector(`[data-testid="filament-${action}-${slot}"]`) as HTMLElement | null;

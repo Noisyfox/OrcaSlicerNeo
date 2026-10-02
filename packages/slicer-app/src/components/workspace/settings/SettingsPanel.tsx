@@ -1,6 +1,7 @@
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { ObjectList } from '../objectList/ObjectList';
 import { unstable_batchedUpdates } from 'react-dom';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -34,9 +35,10 @@ import {
 
 type PresetKind = 'printer' | 'print';
 
-export function SettingsPanel({ sceneInteraction, onEditPrinter }: {
+export function SettingsPanel({ sceneInteraction, onEditPrinter, renderLayout }: {
   sceneInteraction: SceneInteractionController | null;
   onEditPrinter?: (canonicalName: string) => void;
+  renderLayout?: (panels: { printer: ReactNode; settings: ReactNode }) => ReactNode;
 }) {
   const platform = usePlatform();
   const metadata = useSettingsStore((s) => s.metadata);
@@ -149,31 +151,32 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter }: {
     }
   }
 
-  if (!metadata) {
-    return <div className="p-3 text-xs text-muted-foreground">Loading presets…</div>;
-  }
-
-  return (
-    <div className="space-y-4 p-3">
+  const printer = !metadata ? <div className="p-3 text-xs text-muted-foreground">Loading presets…</div> : (
+    <section className="p-3" aria-busy={presetTransitionPending} data-testid="preset-transition-region">
+      <PresetRow
+        label="Printer"
+        items={printers}
+        value={selectedPrinter}
+        onValue={(v) => handleSelectPreset('printer', v)}
+        onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
+        disabled={presetTransitionPending}
+        testId="preset-select"
+      />
+    </section>
+  );
+  const settings = !metadata ? <div className="p-3 text-xs text-muted-foreground">Loading presets…</div> : (
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-2 pb-2">
       <MovePanel sceneInteraction={sceneInteraction} />
       <RotatePanel sceneInteraction={sceneInteraction} />
       <ScalePanel sceneInteraction={sceneInteraction} />
-      <section aria-busy={presetTransitionPending} data-testid="preset-transition-region">
-        <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
-        <PresetRow
-          label="Printer"
-          items={printers}
-          value={selectedPrinter}
-          onValue={(v) => handleSelectPreset('printer', v)}
-          onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
-          disabled={presetTransitionPending}
-          testId="preset-select"
-        />
-        <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
-      </section>
-      <ScopedConfigurationPanel sceneInteraction={sceneInteraction} />
+      <ScopedConfigurationPanel
+        sceneInteraction={sceneInteraction}
+        projectContent={<PresetRow compact label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />}
+        scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
+      />
     </div>
   );
+  return renderLayout ? renderLayout({ printer, settings }) : <>{printer}{settings}</>;
 }
 
 // Picker-ready candidates only. The bridge has already applied visibility and
@@ -181,7 +184,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter }: {
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-function PresetRow({ label, items, value, onValue, onEdit, disabled, testId }: {
+function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false }: {
+  compact?: boolean;
   label: string;
   items: PresetInfo[];
   value: string;
@@ -192,8 +196,8 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId }: {
 }) {
   if (items.length === 0) return null;
   return (
-    <div className="space-y-1 py-1">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+    <div className={compact ? "min-w-0" : "space-y-1 py-1"}>
+      <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
       {/*
         Filtering is items-prop driven in base-ui 1.7 — rendered children are
         NOT auto-filtered. The List's function child becomes a Collection that
@@ -207,13 +211,15 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId }: {
       >
         <div className="flex min-w-0 gap-1">
           <ComboboxTrigger
+            variant="sidebar"
+            aria-label={label}
+            title={value}
+            className="min-w-0 flex-1"
             data-testid={testId}
             disabled={disabled}
-            render={
-              <Button variant="outline" className="min-w-0 flex-1 justify-between font-normal" />
-            }
+            render={<Button variant="ghost" size="sm" />}
           >
-            <ComboboxValue placeholder="— select —" />
+            <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue placeholder="— select —" /></span>
           </ComboboxTrigger>
           {onEdit && <Button
             type="button"

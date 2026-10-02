@@ -17,6 +17,13 @@ are intentionally not recorded here.
   normal single-filament printer has one slot; supported material-switching
   printers may use up to OrcaSlicer's 64-slot limit, and fixed multi-nozzle
   printers retain the slots required by their physical nozzles.
+- The upper device/material panel presents a collapsible Material area with
+  a slot count and plus/minus buttons. Slots use a compact two-column grid:
+  each single-line row has a rectangular colour/number block and a searchable
+  preset selector. Long preset names are truncated and available on hover.
+  Clicking the colour block changes its colour; Edit, Merge, and Delete are
+  available in the slot context menu. Minus removes the last slot through the
+  same reference-impact confirmation as the Delete command.
 - Each slot shows its number, effective colour, and selected filament preset.
   Users can add, delete, merge, choose a compatible preset, and edit the slot
   colour directly in the rack. The ordinary Presets controls do not contain a
