@@ -516,6 +516,32 @@ sentinel and call-site exclusion scan.
 
 ## Verification
 
+The 2026-10-02 main CI failure was a threaded bridge-smoke sequencing race.
+Waiting for a superseded pending Slice drained the mailbox, which could also
+finalize the active task and start the last explicit replacement. A subsequent
+mutation/Cancel then correctly affected that replacement. The smoke now sends
+the mutation and Cancel before its first mailbox drain, and guards result
+inspection when no receipt was published. The native active-job cancellation
+and last-replacement-wins contracts are unchanged.
+
+Validation for that CI fix:
+
+- `pnpm --filter @orca/slicer-wasm exec node harness/bridge-smoke.mjs out/threaded/orca_slice.js fixtures/cube.stl`
+  and the corresponding `out/serial/orca_slice.js` invocation — passed against
+  the existing real WASM artifacts; no native source or artifact was changed.
+- A temporary timing probe allowed 250ms of native execution after the pending
+  replacements were admitted. The old smoke reproduced the cancelled
+  replacement and missing-receipt exception; the corrected smoke passed with
+  the same timing probe. This covers fast native completion before mailbox
+  consumption without adding a timing delay to CI.
+- `pnpm --filter @orca/slicer-wasm test` — 246 tests passed;
+  `pnpm --filter @orca/slicer-wasm typecheck` — passed.
+- `pnpm test` — 1291 tests passed; `pnpm typecheck` — passed.
+- `git diff --check` — passed. The fix changes only the smoke harness and this
+  existing task document, so no native rebuild or host E2E was required.
+
+Earlier qualification results:
+
 - `pnpm --filter @orca/slicer-wasm test` — 153 tests passed.
 - `pnpm --filter @orca/slicer-wasm typecheck` — passed.
 - `pnpm --filter @orca/slicer-runtime test` — 34 tests passed.

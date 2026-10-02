@@ -692,11 +692,9 @@ if (threading.threaded) {
         && BigInt(active.task_id) < BigInt(replaced.task_id)
         && BigInt(replaced.task_id) < BigInt(replacement.task_id),
         `${JSON.stringify(replaced)} ${JSON.stringify(replacement)}`);
-  const replacedResult = await awaitTaskResult(replaced);
-  check('superseded pending Slice receives one replaced terminal',
-        replacedResult.ok !== true && /replaced/i.test(replacedResult.error ?? ''),
-        JSON.stringify(replacedResult));
-
+  // Drain only after mutation/Cancel: draining the superseded task's terminal
+  // may also finalize the active task and start the retained replacement.
+  // A later Cancel would then correctly cancel that replacement instead.
   const mutationStarted = Date.now();
   const mutatedDuringSlice = callJson('orc_set_instance_offset',
     ['number', 'number', 'number', 'number', 'number'], [0, 0, 11, 20, 0]);
@@ -708,6 +706,10 @@ if (threading.threaded) {
   check('threaded cancellation request is asynchronous', cancelled.ok === true
         && Date.now() - cancelStarted < 1_000,
         `${JSON.stringify(cancelled)} elapsed_ms=${Date.now() - cancelStarted}`);
+  const replacedResult = await awaitTaskResult(replaced);
+  check('superseded pending Slice receives one replaced terminal',
+        replacedResult.ok !== true && /replaced/i.test(replacedResult.error ?? ''),
+        JSON.stringify(replacedResult));
   const cancelledResult = await awaitTaskResult(active);
   check('mutated or cancelled task cannot publish a stale result',
         cancelledResult.ok !== true && /cancel|stale|supersed/i.test(cancelledResult.error ?? ''),
@@ -717,7 +719,9 @@ if (threading.threaded) {
         replacementResult.ok === true
         && replacementResult.receipt?.slice_task_id === replacement.task_id,
         JSON.stringify(replacementResult));
-  const replacementResultView = getSliceResult(callJson, replacementResult.receipt);
+  const replacementResultView = replacementResult.receipt
+    ? getSliceResult(callJson, replacementResult.receipt)
+    : { error: 'replacement task did not publish a result receipt' };
   check('cancelled task never overwrites the replacement result',
         replacementResultView.ok === true
         && replacementResultView.receipt?.slice_task_id === replacement.task_id,
