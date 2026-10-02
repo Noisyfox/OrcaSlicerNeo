@@ -2,12 +2,9 @@
 
 **Date:** 2026-10-02
 
-**Status:** Partially approved — operation scope, capacity, plate rules, instance
-eligibility, material/printing constraints, parameter/persistence rules, UI
-entry points, editing restrictions, history, cancellation, failure behavior,
-slicing coordination, footprint geometry, and parity criteria accepted.
-Performance targets and implementation stages remain under discussion.
-Implementation has not started.
+**Status:** Approved for implementation. The behavior and staged delivery plan
+below are accepted. Implementation is in progress; delivery gates have not yet
+passed.
 
 **Scope:** Orca-compatible model arrangement in the shared Electron and Web
 application. This is the living feature specification, maintained in batches
@@ -28,9 +25,8 @@ The pinned `packages/slicer-wasm/cpp` submodule remains protected by repository
 rules; required upstream adaptations use maintained patches or a deliberate,
 documented submodule update.
 
-WASM compilation, dependency compatibility, performance, and runtime task
-behavior remain unverified. Choosing this direction does not authorize product
-implementation before the remaining design decisions are resolved.
+WASM compilation, dependency compatibility, and runtime task behavior must be
+verified through the implementation gates below.
 
 ### Footprint geometry
 
@@ -497,14 +493,42 @@ helper functions.
   `Arrange.cpp` configures libnest2d accuracy and parallel execution; these are
   optimization settings rather than a definition of one unique final layout.
 
-## Remaining design decisions
+## Performance scope
 
-Resolve each related group before updating this specification again:
+Do not profile the native Orca arrangement algorithm or introduce a native
+versus WASM performance benchmark or comparative timing gate in this scope.
+Use native Orca for functional and packing-quality comparisons only. Validate
+Neo's UI responsiveness, cancellation behavior, and successful task completion;
+dedicated performance benchmarks and optimization are deferred.
 
-1. Performance expectations and representative acceptance workloads.
-2. Independently verifiable implementation stages, including effective-config
-   mapping, concurrent task integration, result validation, acceptance fixtures,
-   and remaining control/non-editing-operation details.
+## Implementation stages and delivery gates
+
+Complete and verify each stage before advancing to the next. Keep independently
+testable changes in separate commits and apply the repository's
+[testing guidelines](../doc/testing_guidelines.md).
+
+1. **Build feasibility:** integrate Arrange, libnest2d, and NLopt into the WASM
+   scaffold. Build both threaded and serial variants and run a minimal real
+   arrangement in each. Keep the pinned core protected and exclude GUI code.
+2. **Headless adapter:** prepare native geometry and effective configuration,
+   collect eligible instances and plate constraints, and solve without mutating
+   the project. Verify geometry, materials, plate rules, and partial-success
+   outcomes against the accepted behavior.
+3. **Result application:** validate instance identities and results, apply the
+   complete change atomically, and integrate native history and affected-plate
+   tracking. Verify one-step Undo, failure rollback, and preserved state on
+   cancellation or rejected results.
+4. **Task coordination:** integrate progress, variant-specific cancellation,
+   editing admission, and concurrent threaded slicing. Verify that computing an
+   arrangement preserves an existing slice, application cancels only affected
+   slicing, and obsolete task output cannot overwrite current state.
+5. **Shared UI and acceptance:** connect the settings popup, plate action,
+   preferences, progress, and diagnostics. Verify the complete user flow on
+   Electron and Web, variant-specific behavior, and functional Orca parity.
+
+Resolve concrete interface, fixture, tolerance, and control details within
+these stages without weakening accepted behavior. Mobile input and mobile
+qualification remain deferred under the shared desktop application scope.
 
 This document is a peer of [Grand Plan](Grand%20Plan.md). Accepted design
 decisions do not mark arrangement as delivered or complete any roadmap item.
