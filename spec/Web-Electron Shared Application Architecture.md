@@ -228,6 +228,9 @@ Electron's utility-host feasibility migration is authorized under
 Electron runs its existing WASM session in a Node Worker inside a window-owned
 utility process, connected directly to the renderer by MessagePort. Web keeps
 its browser Worker. This migration adds no Python/plugin capability.
+Future native Python integration is limited to Electron with the threaded WASM
+runtime. Electron serial mode and both Web modes provide no Python plugin support;
+falling back to serial must not initialize Python or silently skip required plugins.
 
 `packages/slicer-wasm/src/client` remains the only JavaScript layer that calls
 the C++ bridge. `slicer-runtime` owns creation of the app Worker and resolution

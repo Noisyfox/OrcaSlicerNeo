@@ -22,6 +22,10 @@ Confirmed goals and direction:
 
 - Execute Python plugins only in Electron, with the runtime hosted by a native
   Electron addon rather than compiled to WASM.
+- Python integration is supported only with the threaded WASM runtime. Serial
+  mode has no Python plugin support: no CPython initialization, plugin dispatcher,
+  Python execution, or copying compatibility backend. This includes Python
+  G-code post-processing and other plugin services, not only geometry access.
 - Preserve compatibility with existing OrcaSlicer Python plugins as directly as
   possible, prioritizing unchanged plugin source and observable API behavior.
 - Minimize runtime copying, especially when plugins traverse, read, and modify geometry.
@@ -32,8 +36,8 @@ Confirmed goals and direction:
   plugin capabilities remain at the design stage; preserve the pinned submodule.
 
 Open decisions include whether B2 becomes the final deployment after validation,
-the implementation of native shared-memory views, Python fallback behavior with
-serial WASM, plugin delivery order, and Web interaction rules for projects that
+the implementation of native shared-memory views, plugin delivery order, and
+unsupported-host interaction rules for projects that
 depend on plugins.
 
 ## 2. Alternatives and the Role of Option B
@@ -90,6 +94,7 @@ Inspection baseline: this documentation branch was created from remote main at
 Validate B2 first because the existing API includes writable NumPy views, not
 only read-only snapshots. This recommendation is not a final deployment decision.
 B2 still executes WASM libslic3r; it is not option C.
+Both deployment candidates restrict Python integration to threaded WASM.
 
 ```mermaid
 flowchart LR
@@ -205,9 +210,8 @@ Node-API/NumPy path must be validated in a real Electron build before promising 
 - After shared memory grows, an old view does not automatically cover the new
   region; acquire a new view for the new range. Validate native backing-store
   retention rather than caching an unmanaged heap pointer indefinitely.
-- Growing serial, non-shared memory can detach old buffers. The threaded raw-pointer
-  approach cannot be reused unchanged. A copying compatibility backend or another
-  serial strategy remains undecided; equivalent zero-copy behavior is not assumed.
+- Serial WASM is outside Python integration scope. No serial memory-view strategy
+  or copying compatibility backend will be added.
 
 An initial read-only probe on Electron 43.4.0 / Node 24.18.1 confirmed shared
 wasm64 memory creation, growth, and visibility of the shared prefix through old
@@ -222,10 +226,10 @@ The candidate protocol needs restricted command handling during hook waits so
 the slicing thread that owns the objects can service allowed plugin operations.
 It must not permit arbitrary scene editing or a second slice to reenter the core.
 
-Threaded and serial execution locations differ in
-[bridge_slicing_pipeline.cpp](../packages/slicer-wasm/src/bridge_slicing_pipeline.cpp).
-Serial synchronous slicing occupies its Worker, which cannot be expected to
-process ordinary JS messages at that time. Validate both protocols separately.
+The threaded execution path in
+[bridge_slicing_pipeline.cpp](../packages/slicer-wasm/src/bridge_slicing_pipeline.cpp)
+must be validated for hook waits and reverse calls. Serial execution receives no
+Python callback protocol or dispatcher.
 The GIL is not a WASM object lock; bridge waits must avoid holding it in ways that
 deadlock callbacks. Native background threads must also respect V8 thread affinity.
 
@@ -250,7 +254,7 @@ dependencies to Web.
 | Application-facing slicing interface | Same contract | Same contract |
 | Transport | Browser Worker | preload/MessagePort |
 | WASM deployment | Browser Web Worker | Node Worker in utility |
-| Python execution | Unavailable | Native addon + CPython |
+| Python execution | Unavailable in both WASM modes | Native addon + CPython in threaded mode only; unavailable in serial mode |
 
 Separate host entry points are required; conditionally executing a statically
 imported Node dependency inside shared code is insufficient. Shared UI should
@@ -258,6 +262,14 @@ use capability declarations, such as the proposed `pythonPlugins`, to expose
 entry points. The runtime must also reject unsupported execution requests. Web
 does not install a Python dispatcher, and the core stays independent of Python/Node
 headers and libraries.
+
+Python capability must depend on the active runtime variant, not merely the
+Electron host or the availability of threaded artifacts. If runtime selection
+falls back to serial, Python capability remains unavailable and CPython is not
+initialized. Unsupported execution requests must fail explicitly; a slice that
+requires a Python plugin must not silently skip it. Ordinary serial slicing
+remains supported. The detailed UI and project reference-preservation rules for
+unsupported execution remain subject to review, including Electron serial mode.
 
 Prioritize sharing the same WASM artifacts across hosts. Node needs resource
 location, profile installation, pthread startup, and capability detection adapted;
@@ -302,8 +314,10 @@ These are planned steps, not claims of completed or passing validation.
    in both directions, dtype/shape/read-only rules, memory growth, release order,
    and long-lived mesh retention. Reassess B2's benefits if this fails.
 2. **Synchronous protocol prototype:** Call geometry operations back from hooks,
-   covering cancellation, exceptions, and threaded/serial execution. Verify no
-   deadlocks or invalid core reentrancy.
+   covering cancellation and exceptions in threaded execution. Verify no deadlocks
+   or invalid core reentrancy. Separately verify that serial mode, including an
+   automatic fallback, never initializes CPython or dispatches Python plugins and
+   rejects plugin-dependent execution while ordinary slicing remains usable.
 3. **Plugin behavior comparison:** Compare representative existing plugins such
    as Inset, Fuzzy, Twistify, Inspector, and G-code stamp against original Orca
    results, configuration, array semantics, and errors. Establish the actual
@@ -324,9 +338,8 @@ records the authorized utility migration and its measured results.
 ## 11. Open Questions for Further Discussion
 
 - Whether to adopt B2, and acceptable renderer-transfer budgets and recovery boundaries.
-- Plugin compatibility under serial WASM, including whether a copying backend and its limitations are acceptable.
 - The first required plugin set and the scope/order of non-slicing host services.
-- Web rules for blocking plugin-dependent slices, explicit disablement, and round-trip preservation.
+- Unsupported-host UI, explicit disablement, and round-trip preservation rules for Web and Electron serial mode; Python execution in these modes is excluded.
 - Native view lifetime guarantees, synchronization, and cache invalidation details.
 
 ## 12. Authorized First Step: Utility Host Feasibility Validation
