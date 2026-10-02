@@ -1541,6 +1541,8 @@ export interface SlicerClient extends PaintingApi {
   selectPrinterWithRememberedRack(
     printer: string, rememberedRack: RememberedFilamentRackPreference | null,
   ): Promise<PrinterTransitionResult>;
+  arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
+  cancelArrangement(): Promise<{ ok: boolean; error?: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
@@ -1562,3 +1564,23 @@ export interface SlicerClient extends PaintingApi {
   /** Read an absolute regular MEMFS file into an owned byte buffer. */
   readFilesystemFile(path: string): Promise<Uint8Array>;
 }
+
+export interface ArrangementRequest {
+  scope: 'all' | 'current';
+  distance: number;
+  rotate: boolean;
+  alignY: boolean;
+  multipleMaterials: boolean;
+  avoidCalibration: boolean;
+  context?: import('./history').HistoryContext;
+}
+export type ArrangementParkingReason = 'non-printable' | 'degenerate' | 'too-tall' | 'unfit' | 'plate-limit' | 'current-plate-overflow';
+export type ArrangementResult = { ok: false; error: string } | {
+  ok: true;
+  cancelled: boolean;
+  changed: boolean;
+  placed: number;
+  unplaced: { instanceId: number; reason: ArrangementParkingReason }[];
+  plateLimitReached: boolean;
+  plateSession?: PlateSessionMutation;
+};

@@ -41,6 +41,52 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true };
+
+  it('allows arrangement during threaded slicing, isolates progress, and rejects edits until terminal publication', async () => {
+    const transport = new RecordingTransport();
+    const client = createWorkerClient(transport);
+    transport.emit({ type: 'runtime-state', threaded: true, serialTerminalEpoch: '0' });
+    const sliceProgress: number[] = [], arrangeProgress: number[] = [];
+    const slice = client.slice({}, pct => sliceProgress.push(pct));
+    const arrange = client.arrange(arrangement, pct => arrangeProgress.push(pct));
+    await expect(client.addPlate()).rejects.toThrow('arrangement_busy');
+    await expect(client.undoHistory()).rejects.toThrow('arrangement_busy');
+    await expect(client.slice({})).rejects.toThrow('arrangement_busy');
+    await expect(client.arrange(arrangement)).rejects.toThrow('arrangement_busy');
+    const cancel = client.cancelArrangement();
+    expect(transport.posted.map(message => message.type === 'request' && message.op)).toEqual(['slice', 'arrange', 'cancelArrangement']);
+    expect((transport.posted[1] as Extract<WorkerMessage, {type: 'request'}>).args).toEqual([arrangement]);
+    transport.emit({ type: 'progress', percent: 30, text: 'slice' });
+    transport.emit({ type: 'arrangement-progress', percent: 40, text: 'arrange' });
+    expect(sliceProgress).toEqual([30]); expect(arrangeProgress).toEqual([40]);
+    for (const message of transport.posted) if (message.type === 'request')
+      transport.emit({ type: 'response', id: message.id, ok: true, result: { ok: true } });
+    await Promise.all([slice, arrange, cancel]);
+    const edit = client.addPlate();
+    const message = transport.posted.at(-1) as Extract<WorkerMessage, {type: 'request'}>;
+    transport.emit({ type: 'response', id: message.id, ok: true, result: { ok: true } });
+    await edit;
+  });
+
+  it('rejects arrangement during serial slicing before posting it', async () => {
+    const transport = new RecordingTransport();
+    const client = createWorkerClient(transport);
+    transport.emit({ type: 'runtime-state', threaded: false, serialTerminalEpoch: '0' });
+    const slice = client.slice({});
+    await expect(client.arrange(arrangement)).rejects.toThrow('slice_busy');
+    expect(transport.posted).toHaveLength(1);
+    transport.emit({ type: 'response', id: 1, ok: true, result: {} });
+    await slice;
+  });
+
+  it('releases arrangement admission after transport failure', async () => {
+    let attempts = 0;
+    const client = createWorkerClient({ onMessage() {}, post() { attempts++; throw new Error('port closed'); } });
+    await expect(client.arrange(arrangement)).rejects.toThrow('port closed');
+    await expect(client.arrange(arrangement)).rejects.toThrow('port closed');
+    expect(attempts).toBe(2);
+  });
   it('rejects pending and future operations after the runtime process is lost', async () => {
     const transport = new RecordingTransport();
     const client = createWorkerClient(transport);

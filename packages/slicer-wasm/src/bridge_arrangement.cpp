@@ -4,6 +4,7 @@
 #include "bridge_prime_tower.hpp"
 #include "bridge_preset_drafts.hpp"
 #include "bridge_history.hpp"
+#include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/Geometry/ConvexHull.hpp"
 #include <emscripten/emscripten.h>
 #include <cstdlib>
@@ -11,11 +12,23 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <atomic>
+#include <memory>
 
 namespace Slic3r::Neo::Bridge::Arrangement {
 using namespace PlateSession;
 namespace A = Neo::Arrangement;
 namespace {
+struct Task {
+    std::uint64_t id;
+    Operation operation;
+    std::atomic<bool> cancel{false};
+    A::Result result;
+    std::string error;
+};
+// Only the stateful Worker reads/writes this owner. The solver captures its
+// own shared owner and publishes completion through the mailbox mutex.
+std::shared_ptr<Task> current;
 json predecessor() {
     json transforms = json::array();
     for (const auto& ref : plate_instance_refs()) transforms.push_back(instance_transform_record(ref));
@@ -227,11 +240,57 @@ json apply_result(const Operation& operation, const A::Result& result) {
     return response;
 }
 
+bool active() { return bool(current); }
+
+json finalize(std::uint64_t task_id) {
+    if (!current || current->id != task_id) return {{"ok", false}, {"error", "Stale arrangement task"}};
+    auto task = std::move(current);
+    try {
+        if (task->cancel.load()) task->result.canceled = true;
+        if (!task->error.empty() && !task->result.canceled) throw std::runtime_error(task->error);
+        return apply_result(task->operation, task->result);
+    } catch (const std::exception& e) { return {{"ok", false}, {"error", e.what()}}; }
+    catch (...) { return {{"ok", false}, {"error", "Arrangement failed"}}; }
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_cancel_arrangement(const char* task_id) {
+#ifdef ORCA_WASM_THREADING
+    if (current && task_id && std::to_string(current->id) == task_id) {
+        current->cancel.store(true);
+        return encode(json{{"ok", true}});
+    }
+#endif
+    return encode(json{{"ok", false}, {"error", "No matching cancellable arrangement"}});
+}
+
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_arrange(const char* request) {
     try {
+        if (active()) throw std::runtime_error("arrangement_busy");
         auto operation = prepare_operation(json::parse(request ? request : "{}"));
-        const auto result = A::solve(operation.prepared);
-        return encode(apply_result(operation, result));
+        auto task = std::make_shared<Task>();
+        task->id = SlicingPipeline::allocate_async_task_id();
+        task->operation = std::move(operation);
+        const auto accepted = json{{"accepted", true}, {"task_id", std::to_string(task->id)}, {"kind", "arrange"}};
+        current = task;
+        auto run = [task] {
+            try {
+                task->result = A::solve(task->operation.prepared,
+                    [task] { return task->cancel.load(); },
+                    [task](unsigned percent, std::string text) {
+                        SlicingPipeline::enqueue_async_task_message(task->id, json{{"type", "progress"},
+                            {"kind", "arrange"}, {"percent", percent}, {"text", std::move(text)}});
+                    });
+            } catch (const std::exception& e) { task->error = e.what(); }
+            catch (...) { task->error = "Arrangement computation failed"; }
+            SlicingPipeline::enqueue_async_task_message(task->id, json{{"type", "native-arrange-terminal"}});
+        };
+#ifdef ORCA_WASM_THREADING
+        try { state().tbb_arena.enqueue(std::move(run)); }
+        catch (...) { current.reset(); throw; }
+#else
+        run();
+#endif
+        return encode(accepted);
     } catch (const std::exception& e) { return encode(json{{"ok", false}, {"error", e.what()}}); }
     catch (...) { return encode(json{{"ok", false}, {"error", "Arrangement failed"}}); }
 }

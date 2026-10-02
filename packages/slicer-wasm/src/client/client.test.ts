@@ -13,6 +13,18 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true };
+  it.each([false, true])('decodes arrangement completion and its separate progress (threaded=%s)', async (threaded) => {
+    const module = createMockModule({ threaded });
+    const progress: number[] = [], otherProgress: number[] = [];
+    const client = createClient(async () => module, pct => otherProgress.push(pct));
+    expect(await client.arrange(arrangement, pct => progress.push(pct))).toMatchObject({ ok: true, changed: false, placed: 0 });
+    expect(progress).toEqual([50]); expect(otherProgress).toEqual([]);
+  });
+  it('rejects malformed placement diagnostics', async () => {
+    const client = createClient(async () => createMockModule({ arrangementResult: { ok: true, changed: false, placed: 1, unplaced: [{ instance_id: 2, reason: 'invented' }] } }));
+    expect(await client.arrange(arrangement)).toMatchObject({ ok: false });
+  });
   it('validates the native retained-geometry proof and its complete transform transport', () => {
     const transform = { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
     const native = { version: 1, object_ids: [1], volume_ids: [2], instance_ids: [3], plate_ids: ['plate-1'],

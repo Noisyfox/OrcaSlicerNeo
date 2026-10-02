@@ -13,4 +13,6 @@ struct Operation {
 };
 Operation prepare_operation(const json& request);
 json apply_result(const Operation& operation, const Neo::Arrangement::Result& result);
+bool active();
+json finalize(std::uint64_t task_id);
 }

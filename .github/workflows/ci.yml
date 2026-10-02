@@ -162,6 +162,8 @@ jobs:
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Bridge smoke — binary-buffer contract (M2 deferred verification)
         run: node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
+      - name: Arrangement — atomic history, cancellation, concurrent slicing
+        run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/orca_slice.js
       - name: Upload the legacy threaded WASM artifact
         uses: actions/upload-artifact@v7
         with:
@@ -215,6 +217,8 @@ jobs:
           cmake --build packages/slicer-wasm/.work/serial/build --target arrangement_core_test headless_arrangement_test --parallel 2
           node packages/slicer-wasm/.work/serial/build/arrangement_core_test.cjs
           node packages/slicer-wasm/.work/serial/build/headless_arrangement_test.cjs
+      - name: Arrangement — serial atomic history and partial success
+        run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - name: Smoke — serial fallback slices cube.stl
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Upload serial Web WASM artifact
