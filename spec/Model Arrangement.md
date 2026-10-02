@@ -2,9 +2,9 @@
 
 **Date:** 2026-10-02
 
-**Status:** Approved for implementation. The behavior and staged delivery plan
-below are accepted. Build feasibility is verified for both WASM variants;
-headless project integration and the remaining delivery gates are in progress.
+**Status:** Delivered 2026-10-02. Native arrangement, atomic history, task
+coordination, and shared controls are implemented. Both production WASM
+variants and the focused real Electron/Web acceptance journeys pass.
 
 **Scope:** Orca-compatible model arrangement in the shared Electron and Web
 application. This is the living feature specification, maintained in batches
@@ -27,6 +27,14 @@ documented submodule update.
 
 WASM compilation, dependency compatibility, and runtime task behavior must be
 verified through the implementation gates below.
+
+All application, runtime, typed-client, Worker, and native bridge components
+ship together. New internal arrangement APIs require their complete current
+contract: do not make fields optional or insert fallback values to accommodate
+mixed component versions. Reject malformed requests, results, and menu state
+at their receiving boundary. This does not remove defaults for missing data
+in persisted user preferences or optional fields that represent actual domain
+states, such as an instance without a plate assignment.
 
 ### Footprint geometry
 
@@ -409,9 +417,9 @@ every complex case.
 
 Orca uses libnest2d/NLopt optimization with accuracy and parallel-execution
 parameters. Cross-platform layout differences have not yet been measured;
-this criterion does not assert that native and WASM results will differ. Fixture
-selection and numerical tolerances remain to be defined during validation
-planning.
+this criterion does not assert that native and WASM results will differ. The
+implemented fixtures and numerical tolerances are recorded in the acceptance
+section below.
 
 ## Native Orca reference behavior
 
@@ -536,5 +544,82 @@ Resolve concrete interface, fixture, tolerance, and control details within
 these stages without weakening accepted behavior. Mobile input and mobile
 qualification remain deferred under the shared desktop application scope.
 
-This document is a peer of [Grand Plan](Grand%20Plan.md). Accepted design
-decisions do not mark arrangement as delivered or complete any roadmap item.
+This document is a peer of [Grand Plan](Grand%20Plan.md). Its arrangement item
+is delivered; cut, measure, and orientation tools remain separate work.
+
+## Implementation and acceptance record
+
+All commands below passed on the Windows acceptance host. The final workspace
+suite contains 1,345 passing tests, and all workspace typechecks pass. Parent
+acceptance independently reran the native core/adapter executables, the serial
+bridge smoke, and the real dual-host journey and reviewed the rendered output.
+
+The native adapter lives in
+[`HeadlessArrangement.cpp`](../packages/slicer-wasm/src/arrangement/HeadlessArrangement.cpp),
+with task ownership and atomic publication in
+[`bridge_arrangement.cpp`](../packages/slicer-wasm/src/bridge_arrangement.cpp).
+Only frozen polygons and configuration reach the background solver. Final
+publication updates transforms, plate membership, normalized estimated tower
+coordinates, input revisions, and history together. Existing tower positions
+remain fixed; failures restore the previous model, plate, and configuration
+state. Unaffected threaded slice jobs continue through that publication.
+
+The shared application exposes
+[`ArrangementControls.tsx`](../packages/slicer-app/src/components/workspace/arrangement/ArrangementControls.tsx),
+with host preference persistence in
+[`useArrangementStore.ts`](../packages/slicer-app/src/stores/useArrangementStore.ts).
+Editing is fenced at the rendered controls, menu, scene-interaction, project
+mutation, and Worker request boundaries. Camera navigation remains available.
+
+The reproducible acceptance commands, run from the repository root on Windows,
+are below. The standalone CMake target builds require `emsdk_env.bat` in the
+calling command environment; the acceptance host uses `D:\emsdk`.
+
+```powershell
+pnpm test
+pnpm typecheck
+cmd /c "call D:\emsdk\emsdk_env.bat >nul 2>&1 && cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_ARRANGEMENT_TEST=ON && cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice -j 6"
+node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/.work/serial/build/orca_slice.js --test-injection
+scripts\build-windows.bat quick --variant both -j 6
+cmd /c "call D:\emsdk\emsdk_env.bat >nul 2>&1 && cmake --build packages\slicer-wasm\.work\serial\build --target arrangement_core_test headless_arrangement_test -j 4"
+cmd /c "call D:\emsdk\emsdk_env.bat >nul 2>&1 && cmake --build packages\slicer-wasm\.work\threaded\build --target arrangement_core_test headless_arrangement_test -j 4"
+node packages/slicer-wasm/.work/serial/build/arrangement_core_test.cjs
+node packages/slicer-wasm/.work/serial/build/headless_arrangement_test.cjs
+node packages/slicer-wasm/.work/threaded/build/arrangement_core_test.cjs
+node packages/slicer-wasm/.work/threaded/build/headless_arrangement_test.cjs
+node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
+node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
+node scripts/run-arrangement-e2e.mjs
+git diff --check
+```
+
+The native fixtures cover shared-bed packing, overflow, unusable inputs,
+material subsets, current-plate scope, locks, the 36-plate budget, print
+sequence, exclusions, tower estimation, and cancellation. The bridge fixture
+adds rollback, one-step Undo/Redo including added plates and tower coordinates,
+stale result rejection, and affected versus unaffected slicing.
+
+`NEO_ARRANGEMENT_TEST` defaults to OFF and compiles fault-injection state and
+execution paths only into the arrangement implementation file when enabled.
+The explicit serial test build above exercises publication rollback; normal
+smoke runs require the injection sentinel to be absent from the WASM binary
+and clearly skip injected-failure assertions. CI tests the enabled build-tree
+artifact separately and uploads only the production `out/serial` artifact.
+Normal full and quick build drivers explicitly reset the gate to OFF before
+building and staging, including when the same CMake cache previously enabled it.
+
+The real Electron serial journey covers settings, reset, saved preferences,
+both entry points, packing, Undo/Redo, and absence of Cancel during computation.
+The real Web threaded journey covers completed packing, disabled editing,
+responsive camera zoom, and cancellation with unchanged transforms/history.
+Both use freshly staged artifacts; the runner verifies their hashes. The
+20 mm cube checks allow 0.01 mm at bed/non-overlap boundaries and compare
+restored transforms to five decimal places. Native polygon union checks use a
+relative area tolerance of `1e-9`.
+
+Functional parity evidence uses the pinned native Arrange implementation and
+source-traced GUI preparation rules. Separate desktop-Orca GUI differential
+testing, cross-platform layout comparison, mobile qualification, and native
+performance profiling are not part of the recorded checks. The Linux CI
+dependency-cache path is configured but requires execution by remote CI.

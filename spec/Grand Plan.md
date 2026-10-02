@@ -13,8 +13,8 @@ performance fixtures; Python/plugin functionality remains unimplemented.
 
 The peer [Model Arrangement](Model%20Arrangement.md) records the accepted
 Orca-core reuse direction, accepted arrangement behavior, and staged delivery
-gates. The specification is approved for implementation; work is in progress
-and arrangement has not yet been delivered.
+gates. Arrangement is delivered with atomic Undo/Redo, shared Electron/Web
+controls, and verified serial/threaded WASM behavior.
 
 Verification frequency follows the accepted
 [`testing guidelines`](../doc/testing_guidelines.md):
@@ -561,7 +561,10 @@ loading remain future increments.
 - [ ] Project save/load (`.3mf` / `bbs_3mf`) — tracked in Milestone 15;
       release verification remains pending
 - [ ] Full settings surface + search (from metadata)
-- [ ] Gizmos: cut/measure/arrange/orient (move/rotate/scale delivered in
+- [x] [Model arrangement](Model%20Arrangement.md) — delivered 2026-10-02;
+      Arrange all/current plate, native constraints, settings, atomic history,
+      progress/cancellation, and affected-plate slicing coordination
+- [ ] Gizmos: cut/measure/orient (move/rotate/scale delivered in
       Milestones 5 + 11)
 - [x] Parallelism: upstream oneTBB + pthreads + COOP/COEP (design:
       `doc/2026-08-18-wasm-parallelism-design.md`) — delivered with M9
