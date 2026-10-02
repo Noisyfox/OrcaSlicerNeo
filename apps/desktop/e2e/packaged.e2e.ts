@@ -1,13 +1,10 @@
-// apps/desktop/e2e/packaged.e2e.ts — probes the REAL wasm URL path in the
-// PACKAGED app: verifies T2's relative worker URL, the loopback-http
-// renderer origin (main serves out/renderer — file:// and custom schemes
-// cannot spawn out-of-process workers), and that the worker loads its
-// module (presets rendered) without renderer errors.
+// Packaged utility-host probes: preserve the loopback renderer origin and
+// public resources while loading the slicer module inside the utility process.
 //
 // Requires (run in order; public/wasm is gitignored so this never ships):
 //   node scripts/stage-stub-wasm.mjs    # plain-JS stub module → public/wasm/
 //   pnpm --filter @orca/desktop package:dir   # release/win-unpacked/ (no-mock build)
-//   npx playwright test e2e/packaged.e2e.ts
+//   pnpm exec playwright test e2e/packaged.e2e.ts
 // CI e2e-real covers the same path with the real module in the dev build.
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync } from 'node:fs';
@@ -26,7 +23,7 @@ const UNPACKED_PROFILES = resolve(
 const CORE_PACKAGE = resolve(UNPACKED_PROFILES, 'core.upstream.zip');
 // darwin: release/mac/OrcaSlicerNeo.app/Contents/MacOS/OrcaSlicerNeo
 
-test('packaged app loads loopback Worker, threaded capability, WASM and profiles', async () => {
+test('packaged app loads utility runtime, threaded capability, WASM and profiles', async () => {
   expect(existsSync(EXE), `packaged app missing — run package:dir first (${EXE})`).toBe(true);
   const rendererErrors: string[] = [];
   const env = { ...process.env } as Record<string, string>;
@@ -51,7 +48,9 @@ test('packaged app loads loopback Worker, threaded capability, WASM and profiles
     expect(probe.manifest).toMatchObject({ ok: true, type: 'application/json' });
     expect(probe.core.ok).toBe(true);
     expect(probe.core.type).toBe('application/octet-stream');
-    expect(probe.workers.length).toBeGreaterThan(0);
+    expect(probe.workers).toHaveLength(0);
+    expect(await app.evaluate(({ app }) => app.getAppMetrics()
+      .filter((metric) => metric.name === 'Orca Slicer Runtime'))).toHaveLength(1);
     expect(rendererErrors).toEqual([]);
   } finally {
     await app.close();

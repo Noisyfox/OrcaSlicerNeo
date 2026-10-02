@@ -448,12 +448,11 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   await page.getByTestId('menu-file-trigger').hover();
   await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await expect(page.getByTestId('file-export-gcode')).toBeEnabled();
-  if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-    await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-    await page.getByTestId('titlebar-menu-trigger').click();
-  }
-  await page.getByTestId('menu-file-trigger').hover();
-  await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
+  // Leave both the submenu and hamburger before interacting with Preview.
+  // Its modal backdrop otherwise correctly intercepts the later tab click.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('titlebar-menu-trigger')).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('viewport')).toBeVisible();
   const scrubber = page.getByTestId('layer-scrubber');
   await expect(scrubber).toBeAttached({ timeout: 30_000 });

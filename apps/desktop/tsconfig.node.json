@@ -3,10 +3,15 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node"],
+    "types": ["node", "vite/client"],
+    "lib": ["ES2022", "DOM", "WebWorker"],
+    "paths": {
+      "@slicer/client": ["../../packages/slicer-wasm/src/client/index.ts"],
+      "@slicer/testing": ["../../packages/slicer-wasm/src/client/testing/mock-module.ts"]
+    },
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["electron.vite.config.ts", "playwright.config.ts", "e2e/**/*", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"]
+  "include": ["electron.vite.config.ts", "playwright.config.ts", "e2e/**/*", "src/main/**/*", "src/preload/**/*", "src/shared/**/*", "src/utility/**/*"]
 }

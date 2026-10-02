@@ -7,8 +7,9 @@ details and status live in [`doc/high_level_dev_plan.md`](../doc/high_level_dev_
 
 The peer [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md)
 records the Electron-only native Python plugin design discussion, the selected
-Plan B direction, and open architecture decisions. It is not an implemented
-milestone or an approval of the proposed runtime relocation.
+Plan B direction, and open architecture decisions. Its first authorized step
+validates the Electron utility runtime using existing functionality and
+performance fixtures; Python/plugin functionality remains unimplemented.
 
 Verification frequency follows the accepted
 [`testing guidelines`](../doc/testing_guidelines.md):

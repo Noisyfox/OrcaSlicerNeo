@@ -41,6 +41,32 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('rejects pending and future operations after the runtime process is lost', async () => {
+    const transport = new RecordingTransport();
+    const client = createWorkerClient(transport);
+    const first = client.init();
+    const second = client.getPlateSessionSnapshot();
+    const outcomes = Promise.allSettled([first, second]);
+    transport.emit({ type: 'fatal', error: 'utility exited' });
+    expect(await outcomes).toEqual([
+      { status: 'rejected', reason: new Error('utility exited') },
+      { status: 'rejected', reason: new Error('utility exited') },
+    ]);
+    await expect(client.init()).rejects.toThrow('utility exited');
+    expect(transport.posted).toHaveLength(2);
+  });
+
+  it('does not leave the serial slice gate locked when posting fails', async () => {
+    let attempts = 0;
+    const client = createWorkerClient({
+      onMessage() {},
+      post() { attempts++; throw new Error('port closed'); },
+    });
+    await expect(client.slice({})).rejects.toThrow('port closed');
+    await expect(client.slice({})).rejects.toThrow('port closed');
+    expect(attempts).toBe(2);
+  });
+
   it('round-trips the scalar Prime Tower performance profile without plate identifiers', async () => {
     const module = createMockModule({ nativePerformanceProfile: {
       version: 1,

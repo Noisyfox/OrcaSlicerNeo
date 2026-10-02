@@ -2,7 +2,7 @@
 
 **日期：** 2026-10-02
 
-**状态：** 重大架构 spec；讨论基线，尚未实施。已确认目标与待审阅方案分别记录。
+**状态：** 重大架构 spec；Electron utility 迁移已获准进行实现验证，Python 尚未实施。
 
 **范围：** Electron 原生 Python 插件、libslic3r 桥接、运行时数据传输及 Web 兼容。
 
@@ -12,8 +12,8 @@
 
 本文按用户要求直接落在 `spec/`，作为与 Grand Plan 同级的持续维护架构记录，
 不另建并行阶段文档。记录截至本日期的讨论；文档落地不代表授权实现，也不代表
-所有备选设计已获批准。现行共享应用架构仍然有效；本文提出的 Electron Worker
-部署位置调整，需要在后续讨论中确定后再实施。
+所有备选设计已获批准。后续用户已授权先验证 Electron utility 部署，范围见第 12 节；
+Python 桥接和其他备选设计仍待确认。
 
 已确认的目标与方向：
 
@@ -22,9 +22,10 @@
 - 尽量减少运行时数据复制，特别是插件遍历、读取和修改几何的热路径。
 - 选择方案 B（兼容对象代理与操作桥接）继续细化。
 - 保持 Web 版可用，共享应用不能被迫依赖 Electron、Node 或 CPython。
-- 当前仅进行设计和文档工作，不修改功能代码或 submodule。
+- 已授权第一步 Electron utility 宿主迁移与验证；Python 和插件能力仍处于设计阶段，
+  不修改 pinned submodule。
 
-尚未确认的设计：B1/B2 部署选择、原生共享内存视图的具体实现、serial 回退策略、
+尚未确认的设计：B2 验证后是否成为最终插件部署、原生共享内存视图的具体实现、Python serial 回退策略、
 插件能力交付顺序，以及 Web 打开依赖插件项目时的最终交互规则。
 
 ## 2. 方案比较与 B 的定位
@@ -250,8 +251,8 @@ Electron 的往返，防止 Web 丢失 capability 身份、manifest 或配置覆
 5. **宿主集成：** 验证项目/历史/多盘、预览、资源加载、打包后的依赖和崩溃恢复。
    Web 覆盖两种现有 WASM 变体、普通流程及插件项目往返，不包含原生模块依赖。
 
-检查频率遵循 [testing guidelines](../doc/testing_guidelines.md)。本文只记录设计，
-未执行上述原型或功能测试。后续继续在本文更新确定的选择，避免把候选方案误记为交付状态。
+检查频率遵循 [testing guidelines](../doc/testing_guidelines.md)。上述 Python 原型和插件
+功能测试尚未实施；已授权的 utility 宿主迁移与实测结果见第 12 节。
 
 ## 11. 下一轮讨论待定项
 
@@ -260,3 +261,110 @@ Electron 的往返，防止 Web 丢失 capability 身份、manifest 或配置覆
 - 首轮必须兼容的插件集合，以及非切片宿主服务的范围和顺序。
 - Web 对插件依赖项目的阻止切片、显式禁用与往返保存规则。
 - 原生视图的寿命保障、同步协议和缓存失效的具体实现。
+
+## 12. 已授权的第一步：utility 宿主可行性验证
+
+本步只迁移 Electron 现有切片运行时，不增加 Python、插件 API 或其他产品功能。
+使用现有真实项目与夹具，比较迁移前后性能；不能只凭启动成功认定可行。
+
+- main 管理每个窗口文档的 utility 生命周期，并将 MessagePort 分别交给 renderer
+  和 utility。请求/结果直连，不经 main 或 contextBridge 逐条转发。
+- utility 的 Node Worker 运行原有 typed client 和 WASM，utility 事件循环维持通信。
+  Worker 间转移独立 ArrayBuffer，避免跨 Electron IPC 后再次克隆大块输入。
+- 浏览器与 Node 宿主共用模块选择、mock 夹具、profile 安装、串行/线程模式和业务协议。
+  只替换模块/资源加载与消息收发；Electron 使用本地资源，Web 保留浏览器 Worker。
+- 重载/关闭终止旧 utility；异常退出拒绝等待中的请求及后续操作，不自动重放编辑。
+  显式重载建立新会话；本步不新增工程自动恢复功能。
+- 原生打包验证包含 asar/unpacked 资源读取，不能只测开发目录。
+
+验证包含现有 Electron mock 回归、真实导入/切片/导出、多盘大项目、历史与交互性能，
+新增进程重载/退出检查，以及 Web 的 threaded/serial 兼容检查。性能采用仓库既有预算，
+记录同机 A/B 启动、导入、切片到预览、导出、进程工作集；工作集求和不等同于独占或峰值内存。
+不在测试失败时放宽原有预算。首次测量的历史投影读取时序差异及复测结果见 12.1 节。
+
+测试构建可同时设置 `VITE_E2E=1`、`VITE_RUNTIME_BASELINE=1` 运行原浏览器 Worker 基线；
+生产构建不提供该回退。新增
+[runtime-performance.e2e.ts](../apps/desktop/e2e/runtime-performance.e2e.ts) 使用原有 cube 夹具，
+[utility-runtime.e2e.ts](../apps/desktop/e2e/utility-runtime.e2e.ts) 验证进程归属与重载。
+
+### 12.1 本机测量与验收范围（2026-10-02）
+
+环境为 Windows x64、Electron 43.4.0、Node 24.18.1。两个宿主使用相同的现有 WASM
+产物和 cube，分别启动三个独立会话，以下为中位数。性能测试期间未同时运行其他
+测试套件；未控制操作系统后台负载或做统计显著性分析，不能将小幅差异解释为加速。
+端到端状态以 20 ms 轮询，另在 renderer 端观测原协议请求往返以区分测试等待成本。
+
+| 指标 | 浏览器 Worker 基线 | utility | 解读 |
+| --- | ---: | ---: | --- |
+| 进程启动到 Ready | 8928 ms | 8469 ms | 未观察到启动延迟劣化，不据此承诺加速 |
+| Add Model 到可切片 | 237 ms | 218 ms | 保持相近量级 |
+| 点击切片到 GPU 预览可用 | 1193 ms | 1195 ms | 基本一致 |
+| 点击导出到文件存在 | 75 ms | 49 ms | 包含 UI 与文件系统调度 |
+| `slicePlate` 请求往返 | 956 ms | 988 ms | 包含核心计算，不是纯 IPC 延迟 |
+| `getSliceResult` 请求往返 | 68 ms | 55 ms | 本夹具二进制响应为 1,771,608 字节 |
+| Ready 时进程工作集总和 | 1165 MiB | 1329 MiB | 增加约 164 MiB |
+| 预览时进程工作集总和 | 1539 MiB | 1691 MiB | 增加约 152 MiB |
+
+这些内存数字是 Electron 进程工作集求和，不是独占内存、提交量或全过程峰值。
+大块跨进程结果仍有复制成本；本轮没有实施原生共享内存优化。
+
+真实大项目使用原有 `big-proj.3mf`（44,473,498 字节，51 对象，11 盘），由现有
+runner 验证源文件身份及 staged 产物。盘切换首轮 utility 为 111/91/85/86/86 ms，
+最终全套为 140/116/116/114/119 ms；基线为 101/86/81/82/81 ms。
+均满足既有首次 500 ms、后续 250 ms 预算。不同全套运行存在系统负载差异，
+不把全套耗时当成纯 IPC 对比。首盘切片、导出、Prime Tower、加盘和对象移动均纳入真实验收。
+
+已完成检查：
+
+- `pnpm typecheck`：全部 workspace 通过。
+- `pnpm test`：1399 项通过。
+- `pnpm --filter @orca/desktop test:e2e`：45 项通过，11 项按宿主/fixture 条件跳过；
+  不把这些跳过项记为覆盖。新增 utility 的重载、进程终止与会话替换检查通过。
+- `pnpm --filter @orca/desktop test:e2e:real`：最终 10 项全部通过。
+- 强制 serial 产物下，Electron 真实 DRC、STEP 导入/切片/导出共 2 项通过。
+- `pnpm --filter @orca/desktop test:e2e:painted-facet:real`：fixture 自检、CSS 检查、
+  Electron 与 Web 真实多色面片预览均通过。
+- 真实 serial 六种涂色工具长流程通过，覆盖原生编辑、颜色更新、历史、相机与关闭/重开。
+  修正测试中已过时的颜色 badge 选择器以匹配现有 label；原有行为断言保持不变。
+- Web threaded 的 STEP、DRC 全流程及 profile 启动失败路径共 3 项通过；
+  Web serial 的 STEP、DRC 全流程共 2 项通过。DRC 测试补上退出菜单的步骤，
+  避免菜单遮罩拦截后续 Preview 点击；未更改 Web 产品行为。
+- Windows x64 packaged 真实切片/导出、utility 加载、核心 profile 缺失和损坏共 4 项通过。
+  网络下载 Electron 时遇到 TLS 连接失败，使用已安装的同版本发行文件完成打包；
+  没有更换 Electron 版本，也没有跳过 asar/unpacked 验证。
+
+早期 Prime Tower 历史测试两次报告撤销窗口内投影读取数为 2 而非 1。诊断代码已移除，
+原断言未放宽，之后连续 3 次和最终完整真实套件均通过；尚未定位早期时序差异的确定根因，
+保留为后续稳定性观察项，不将其描述为已修复的产品缺陷。
+
+本轮结果支持在已测 Windows 环境继续研究 B2，现有交互预算通过，主要已知性能代价是
+新增进程内存。未验证 macOS/Linux 打包、长时间压力运行或任意超大工程；不宣称这些范围
+已经通过，也不将 utility 的成功解释为原生 Python/NumPy 共享视图已经可行。
+
+### 12.2 可重复执行的入口
+
+在已具备当前 WASM 产物后，先运行 `pnpm stage:assets`。从仓库根目录运行以下
+PowerShell 命令测量 utility；环境变量只用于该测试 shell，结束后关闭该 shell：
+
+```powershell
+$env:VITE_USE_MOCK = '0'
+$env:VITE_E2E = '1'
+$env:ORCA_E2E_REAL = '1'
+pnpm --filter @orca/desktop exec electron-vite build
+pnpm --filter @orca/desktop exec playwright test e2e/runtime-performance.e2e.ts --repeat-each 3
+```
+
+测量基线时，额外设置 `$env:VITE_RUNTIME_BASELINE = '1'` 后重新 build，再运行同一测试。
+切回 utility 时删除该环境变量并重新 build；该变量在运行时修改不会改变已经构建的宿主。
+串行验证使用现有 `VITE_SCOPED_CONFIGURATION_GATE=1` 和
+`VITE_SCOPED_CONFIGURATION_GATE_VARIANT=serial` 构建选择器，不增加用户可见开关。
+
+本机缓存发行文件打包的等价命令为：
+
+```powershell
+pnpm --filter @orca/desktop exec electron-builder --dir --publish never --config.electronDist=node_modules/electron/dist
+$env:ORCA_E2E_PACKAGED_ROOT = 'release/win-unpacked'
+pnpm --filter @orca/desktop exec playwright test e2e/packaged-real.e2e.ts e2e/packaged.e2e.ts
+```
+
+打包前需要按上面的真实 WASM 方式 build；正式构建不设置测试基线变量。

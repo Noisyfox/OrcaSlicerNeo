@@ -15,7 +15,7 @@ const PACKAGED_ROOT = resolve(DESKTOP_ROOT, process.env.ORCA_E2E_PACKAGED_ROOT ?
 const EXE = process.platform === 'win32' ? resolve(PACKAGED_ROOT, 'OrcaSlicerNeo.exe') : resolve(PACKAGED_ROOT, 'OrcaSlicerNeo');
 const MODEL = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
-test('real packaged threaded runtime loads dual artifacts and completes slice/export', async () => {
+test('real packaged utility runtime loads dual artifacts and completes slice/export', async () => {
   expect(existsSync(EXE), `real packaged app missing — stage real WASM and run package:dir (${EXE})`).toBe(true);
   expect(existsSync(MODEL)).toBe(true);
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-packaged-real-'));
@@ -25,17 +25,19 @@ test('real packaged threaded runtime loads dual artifacts and completes slice/ex
   const app = await _electron.launch({ executablePath: EXE, env });
   try {
     const page = await app.firstWindow();
-    const requests: string[] = [];
-    page.on('request', (request) => requests.push(request.url()));
     await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\/index\.html$/);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 300_000 });
-    const resourceUrls = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name));
-    const threaded = [...requests, ...resourceUrls].filter((url) => url.includes('/wasm/threaded/'));
-    expect(threaded.some((url) => url.endsWith('/orca_slice.js'))).toBe(true);
-    expect(threaded.some((url) => url.endsWith('/orca_slice.wasm'))).toBe(true);
-    expect(threaded.some((url) => url.endsWith('/orca_slice.data'))).toBe(true);
+    // Native asset reads no longer appear in renderer HTTP resource timing.
+    expect(await app.evaluate(({ app }) => app.getAppMetrics()
+      .filter((metric) => metric.name === 'Orca Slicer Runtime'))).toHaveLength(1);
+    expect(page.workers()).toHaveLength(0);
+    for (const variant of ['threaded', 'serial']) {
+      for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
+        expect(existsSync(resolve(PACKAGED_ROOT, 'resources/app.asar.unpacked/out/renderer/wasm', variant, file))).toBe(true);
+      }
+    }
     await expect(page.getByTestId('btn-add-model')).toBeVisible();
     await page.getByTestId('btn-add-model').click();
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
