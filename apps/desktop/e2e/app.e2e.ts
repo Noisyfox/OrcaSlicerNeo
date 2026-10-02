@@ -439,7 +439,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     expect(selectorBox).not.toBeNull();
     expect(statsBox).not.toBeNull();
     expect(actionBox!.width).toBe(150);
-    expect(actionBox!.x - viewportBox!.x).toBeCloseTo(6, 0);
+    expect(actionBox!.x - viewportBox!.x).toBeCloseTo(4, 0);
     expect(actionBox!.y - viewportBox!.y).toBeCloseTo(4, 0);
     expect(selectorBox!.width).toBeCloseTo(28, 3);
     expect(selectorBox!.height).toBeCloseTo(28, 3);

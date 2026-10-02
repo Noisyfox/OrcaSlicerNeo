@@ -565,7 +565,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         {previewTab && toolpath && <LayerScrubber data={toolpath} />}
         {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
         {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
-        {actionControls && <div className="pointer-events-auto absolute top-0 left-0 z-20 max-w-full" data-testid="viewport-actions">{actionControls}</div>}
+        {actionControls && <div className="pointer-events-auto absolute top-0 -left-0.5 z-40 max-w-full" data-testid="viewport-actions">{actionControls}</div>}
         {prepareTab && !paintingActive && plateSession && <PlateControls
           plateSession={plateSession}
           pending={plateActionPending}

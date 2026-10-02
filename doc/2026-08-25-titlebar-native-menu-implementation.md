@@ -72,7 +72,8 @@ Electron custom/native surfaces.
   keeps its transparent 6px hit area over the canvas without hover/focus fill.
   Floating controls share a frame inset by 4px at the top/right and 6px at
   the left, preserving their previous screen positions as the canvas expands.
-  Empty frame space passes input through to the scene. The orientation gizmo
+  The Slice button shifts 2px left within that frame, leaving 4px between it
+  and the sidebar. Empty frame space passes input through to the scene. The orientation gizmo
   compensates for the 6px extension. The viewport container has no card border,
   rounded corners or card background.
   This follow-up layout was verified in the 2026-10-02 test round below.
