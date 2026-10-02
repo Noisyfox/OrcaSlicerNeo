@@ -11,6 +11,13 @@ import { syncModelTransforms } from './syncModelTransforms';
 import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 
+// Scene commands own these coordinates; cached Settings values must never
+// override the current native position when composing a slice request.
+const SLICE_CONFIG_BLACKLIST: ReadonlySet<string> = new Set([
+  'wipe_tower_x',
+  'wipe_tower_y',
+]);
+
 let activeCancellation: { requested: boolean } | null = null;
 
 /** Request cancellation while retaining the active job until its terminal reply. */
@@ -49,7 +56,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   const meta = state.metadata ?? {};
   const values = Object.fromEntries(
     Object.entries(state.values).filter(([key]) =>
-      meta[key] !== undefined && key !== 'wipe_tower_x' && key !== 'wipe_tower_y'),
+      meta[key] !== undefined && !SLICE_CONFIG_BLACKLIST.has(key)),
   );
   const setFailure = (message: string) => {
     useSlicerStore.getState().setActiveSliceTarget(null);
