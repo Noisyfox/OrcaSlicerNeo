@@ -13,6 +13,29 @@ describe('slice result publication', () => {
     useSlicerStore.getState().invalidateSliceResult();
   });
 
+  it.each(['15', '15,25'])('leaves scene-owned tower coordinates out of Slice (cached X=%s)', async (x) => {
+    useSettingsStore.setState({
+      metadata: { wipe_tower_x: { type: 'floats' }, wipe_tower_y: { type: 'floats' },
+        prime_tower_width: { type: 'float' } },
+      values: { wipe_tower_x: x, wipe_tower_y: '220', prime_tower_width: '25', modelPath: 'cube.stl' },
+    });
+    const runtime = {
+      getPlateSessionSnapshot: vi.fn(async () => ({
+        instances: [], ok: true, currentPlateId: 'plate-1',
+        plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], instanceIds: [1] }],
+        inputRevisions: { 'plate-1': 7 },
+      })),
+      slicePlate: vi.fn(async () => ({ ok: false, error: 'fixture terminal' })),
+    };
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await sliceModel({ runtime } as never);
+      expect(runtime.slicePlate).toHaveBeenCalledWith(
+        { plateId: 'plate-1', inputRevision: 7 }, { prime_tower_width: '25' }, expect.any(Function),
+      );
+    } finally { errorLog.mockRestore(); }
+  });
+
   it('suppresses a late cancelled terminal after history withdraws the active target', async () => {
     let resolveSlice!: (result: { ok: false; error: string }) => void;
     const sliceTerminal = new Promise<{ ok: false; error: string }>((resolve) => {
