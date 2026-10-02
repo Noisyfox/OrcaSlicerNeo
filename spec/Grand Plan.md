@@ -5,6 +5,11 @@ GUI rewrite of OrcaSlicer. The approved design is
 [`doc/2026-08-12-electron-gui-rewrite-design.md`](../doc/2026-08-12-electron-gui-rewrite-design.md);
 details and status live in [`doc/high_level_dev_plan.md`](../doc/high_level_dev_plan.md).
 
+The peer [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md)
+records the Electron-only native Python plugin design discussion, the selected
+Plan B direction, and open architecture decisions. It is not an implemented
+milestone or an approval of the proposed runtime relocation.
+
 Verification frequency follows the accepted
 [`testing guidelines`](../doc/testing_guidelines.md):
 focused, risk-based checks during implementation; root regression and affected
