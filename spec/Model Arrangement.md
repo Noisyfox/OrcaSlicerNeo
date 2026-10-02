@@ -3,8 +3,9 @@
 **Date:** 2026-10-02
 
 **Status:** Partially approved — operation scope, capacity, plate rules, instance
-eligibility, material/printing constraints, and parameter/persistence rules
-accepted. Interaction, execution, and acceptance decisions remain under
+eligibility, material/printing constraints, parameter/persistence rules, UI
+entry points, editing restrictions, history, cancellation, and failure behavior
+accepted. Remaining task coordination and acceptance decisions are under
 discussion. Implementation has not started.
 
 **Scope:** Orca-compatible model arrangement in the shared Electron and Web
@@ -144,8 +145,8 @@ parked, but arrangement must preserve their different printable flags.
   [multi-plate contract](Multi-Plate%20Support.md).
 
 These decisions concern completed arrangement with unsuccessful placements.
-Cancellation, geometry-processing exceptions, stale results, and commit
-failures require a separate task/transaction policy and are not defined by this
+Cancellation, geometry-processing exceptions, invalid results, and commit
+failures follow the separate execution policy below. They do not use the
 partial-success rule.
 
 ## Accepted material and printing constraints
@@ -293,6 +294,78 @@ Provide Reset with the native scope:
 
 Reset does not reset both printing modes' independent preferences at once.
 
+## Accepted interaction and execution behavior
+
+### Entry points
+
+The toolbar Arrange action opens the arrangement settings popup. Its Arrange
+button executes Arrange all, and its Reset button uses the scope defined above.
+Provide Arrange current plate through a separate plate-operation entry.
+This follows Orca's entry-point organization.
+
+Do not add the native `A` / `Shift+A` arrangement shortcuts in the initial scope.
+Both operations remain available through their buttons.
+
+### Progress and editing restrictions
+
+Display progress while computing, without showing intermediate model layouts.
+Apply the completed result once.
+
+Disable all editing functions for the duration of the operation, including
+model and plate edits, printing-configuration changes, arrangement-parameter
+changes, and Undo/Redo. Do not admit another arrangement concurrently. Keep
+camera orbit, pan, and zoom available for viewing the scene.
+
+This is a uniform Neo editing restriction. Native Orca instead checks job
+activity in individual actions and cancels jobs from some editing paths.
+Coordination with already-running slicing and other non-editing operations
+remains to be resolved.
+
+### Atomic application and Undo
+
+Apply model transforms, plate membership, automatically added plates, and
+outside-plate parking as one atomic project change. A completed arrangement
+that changes the project is one Undo step; Undo restores the project state
+before that arrangement, including removal of plates created by it.
+
+The accepted partial-success cases are completed arrangements and use the same
+single application and Undo boundary. Do not publish an intermediate state
+containing only some of their changes.
+
+### Cancellation
+
+Follow the existing runtime-variant cancellation policy in
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md):
+
+- Threaded WASM supports cancellation. A canceled arrangement discards its
+  computed results and preserves the project state before arrangement.
+- Serial WASM exposes no Cancel action in the initial scope. Wait for normal
+  completion or failure; do not terminate the state-owning Worker to cancel.
+- Cancellation does not add an Undo entry.
+
+Native Orca supports cooperative cancellation through its background worker
+and the arrangement stop callback. In Neo's serial runtime, synchronous native
+computation occupies the sole stateful Worker, so a queued cancel call cannot
+interrupt it. This scope does not introduce a separate arrangement Worker or a
+yielding execution mechanism to provide serial cancellation.
+
+### Failures
+
+An algorithm exception, result-validation failure, or failure while applying
+results abandons the entire arrangement. Preserve or restore the project state
+before arrangement, report the failure, and do not add an Undo entry. Never
+retain newly created plates or partially applied transforms from a failed
+operation.
+
+This includes geometry-processing exceptions. Native Orca reports its special
+geometry exception and clears the exception marker before continuing through
+finalization; Neo deliberately uses the uniform failure rule instead.
+
+An oversized model, excessive height, an unusable footprint classified as an
+unsuccessful placement, or exhaustion of the plate budget remains a normal
+partial-success outcome as defined above. Distinguish those outcomes from an
+exception that prevents the operation from producing a valid result.
+
 ## Native Orca reference behavior
 
 The source reference is the repository's pinned Orca core. Product behavior is
@@ -350,13 +423,27 @@ helper functions.
   Reset scope. Printer-preset selection in
   [Plater.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp) re-derives
   Y alignment from the printer structure.
+- `_render_arrange_menu()` supplies the Arrange and Reset buttons; the toolbar
+  opens that menu. `Plater::select_plate_by_hover_id()` handles the separate
+  current-plate arrangement entry. Native `A` / `Shift+A` shortcuts are deferred
+  in Neo.
+- `Plater::arrange()` takes an Arrange snapshot before starting the job.
+  `ArrangeJob::process()` reports progress and checks the cancellation callback;
+  `finalize()` applies the resulting arrangement after computation.
+- Native `can_arrange()`, instance-count actions, and `can_undo()` / `can_redo()`
+  require an idle UI worker. `Plater::priv::remove()` cancels jobs before deleting
+  an object. Neo instead disables all editing during arrangement.
+- `ArrangeJob::finalize()` skips application when canceled or when an exception
+  remains. Its special `libnest2d::GeometryException` handler reports the error
+  and clears the exception marker. Neo's uniform failure rule does not retain
+  that special continuation behavior.
 
 ## Remaining design decisions
 
 Resolve each related group before updating this specification again:
 
-1. Shared UI entry points and controls, progress, cancellation, concurrent
-   operations, and failure/commit semantics for both WASM variants.
+1. Coordination with slicing and other non-editing operations, remaining
+   control details, and runtime result-validation boundaries.
 2. Native parity targets, effective-configuration mapping, acceptance fixtures,
    performance expectations, and independently verifiable implementation stages.
 
