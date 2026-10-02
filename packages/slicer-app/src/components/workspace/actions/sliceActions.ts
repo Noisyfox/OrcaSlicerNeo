@@ -11,6 +11,13 @@ import { syncModelTransforms } from './syncModelTransforms';
 import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 
+// Scene commands own these coordinates; cached Settings values must never
+// override the current native position when composing a slice request.
+const SLICE_CONFIG_BLACKLIST: ReadonlySet<string> = new Set([
+  'wipe_tower_x',
+  'wipe_tower_y',
+]);
+
 let activeCancellation: { requested: boolean } | null = null;
 
 /** Request cancellation while retaining the active job until its terminal reply. */
@@ -42,13 +49,14 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   // or starting native slicing.
   await waitForConfigurationMutations();
 
-  // Only send keys the metadata declares — UI-only keys (printer, print,
-  // filament, modelPath) are not print options and would land in the
-  // bridge's unrecognized_keys warning.
+  // Only send declared settings. Tower coordinates belong to the native scene
+  // move command: the settings projection can still contain the pre-drag
+  // values, which must not override the authoritative position at Slice.
   const state = useSettingsStore.getState();
   const meta = state.metadata ?? {};
   const values = Object.fromEntries(
-    Object.entries(state.values).filter(([key]) => meta[key] !== undefined),
+    Object.entries(state.values).filter(([key]) =>
+      meta[key] !== undefined && !SLICE_CONFIG_BLACKLIST.has(key)),
   );
   const setFailure = (message: string) => {
     useSlicerStore.getState().setActiveSliceTarget(null);

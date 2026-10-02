@@ -120,6 +120,17 @@ are intentionally not recorded here.
   tower position. A tower always remains assigned to its own plate: dragging
   across another plate never moves it there, changes the current plate, or
   changes another plate's coordinates.
+- Slice consumes the current native tower coordinates. Cached Settings values
+  for `wipe_tower_x` and `wipe_tower_y` are excluded through a centralized
+  slice-request blacklist so they cannot restore a pre-drag position. This
+  also applies after Undo/Redo and plate navigation. The 2026-10-02 correction retains the existing
+  rectangular bounding-box clamping; polygon-aware automatic placement is
+  outside this fix.
+- The move-then-slice regression compares actual extruding Prime Tower XY
+  paths in exported G-code with the pre-slice Prepare position, including its
+  brim margin. A second move must translate every tower path endpoint by the
+  same displayed X/Y delta; exported configuration values alone are
+  insufficient evidence. Prepare dimensions remain pre-slice estimates.
 - A legal placement is constrained to that plate's printable area, including
   the effective footprint margin. Automatic clamping during project/profile
   loading is silent and does not create history or dirty the project. If the
