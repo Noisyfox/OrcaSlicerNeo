@@ -64,7 +64,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
       /layer|height|invalid|value/i, { timeout: 10_000 });
     await expect(page.locator('.text-destructive')).not.toHaveText(/^Error: Errors$/);
     // Export stays gated after a failed slice.
-    await expect(page.getByTestId('btn-export')).toBeDisabled();
+    await expect(page.getByTestId('btn-export')).toHaveCount(0);
 
     // The guard rejects before entering the worker, so a retry is immediate;
     // it must remain a recoverable, descriptive error and never abort WASM.

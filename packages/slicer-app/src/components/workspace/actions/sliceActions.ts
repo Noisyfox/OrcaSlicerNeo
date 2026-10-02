@@ -11,8 +11,26 @@ import { syncModelTransforms } from './syncModelTransforms';
 import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
 
+let activeCancellation: { requested: boolean } | null = null;
+
+/** Request cancellation while retaining the active job until its terminal reply. */
+export async function cancelSlice(platform: PlatformCapabilities): Promise<boolean> {
+  const cancellation = activeCancellation;
+  if (!cancellation || cancellation.requested) return false;
+  cancellation.requested = true;
+  try {
+    const result = await platform.runtime.cancel();
+    if (!result.ok) throw new Error(result.error ?? 'Slice cancellation failed');
+    return true;
+  } catch (error) {
+    cancellation.requested = false;
+    if (activeCancellation === cancellation) useSlicerStore.getState().setError(errorText(error));
+    return false;
+  }
+}
+
 /**
- * Run the shared slice flow. Toolbar buttons and menu commands must use this
+ * Run the shared slice flow. SliceButton and menu commands must use this
  * function so validation, transform persistence, and result state cannot drift.
  */
 export async function sliceModel(platform: PlatformCapabilities): Promise<void> {
@@ -92,10 +110,20 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   // The Worker registry keeps its native Print/result cache for incremental
   // processing and publishes a new task-addressed receipt on success.
   slicer.invalidatePlateResults([target.plateId]);
+  slicer.setProgress(0);
   slicer.setStatus('slicing');
   slicer.setActiveSliceTarget(target);
   slicer.setResultExported(false);
   slicer.setError(null);
+  const cancellation = { requested: false };
+  activeCancellation = cancellation;
+  const finishCancelled = () => {
+    const live = useSlicerStore.getState();
+    live.setActiveSliceTarget(null);
+    live.setStatus('idle');
+    live.setProgress(0);
+    live.setError(null);
+  };
   try {
     const result = await platform.runtime.slicePlate(
       target,
@@ -106,6 +134,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
         live.activeSliceTarget.inputRevision !== target.inputRevision) return;
     if (!result.ok) {
+      if (cancellation.requested) { finishCancelled(); return; }
       setFailure(result.error ?? 'slice failed');
       console.error('slice failed:', result.error);
       return;
@@ -132,9 +161,12 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
         live.activeSliceTarget.inputRevision !== target.inputRevision) return;
+    if (cancellation.requested) { finishCancelled(); return; }
     useSlicerStore.getState().setActiveSliceTarget(null);
     setFailure(errorText(err));
     console.error('slice failed:', err);
+  } finally {
+    if (activeCancellation === cancellation) activeCancellation = null;
   }
 }
 

@@ -421,9 +421,27 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // change. The profile can be overridden for real-model regression runs.
     await selectStableRealPrinter(page);
 
+    // The shared split action sits 8px from the viewport top-left; the selector
+    // stays square and the FPS overlay uses the opposite corner.
+    const viewportBox = await page.getByTestId('viewport').boundingBox();
+    const actionBox = await page.getByTestId('btn-slice').boundingBox();
+    const selectorBox = await page.getByTestId('output-mode-select').boundingBox();
+    const statsBox = await page.locator('.scene-stats').boundingBox();
+    expect(viewportBox).not.toBeNull();
+    expect(actionBox).not.toBeNull();
+    expect(selectorBox).not.toBeNull();
+    expect(statsBox).not.toBeNull();
+    expect(actionBox!.width).toBe(150);
+    expect(actionBox!.x - viewportBox!.x).toBeCloseTo(8, 0);
+    expect(actionBox!.y - viewportBox!.y).toBeCloseTo(8, 0);
+    expect(selectorBox!.width).toBeCloseTo(28, 3);
+    expect(selectorBox!.height).toBeCloseTo(28, 3);
+    expect(statsBox!.x + statsBox!.width).toBeCloseTo(viewportBox!.x + viewportBox!.width, 0);
+    expect(statsBox!.y).toBeCloseTo(viewportBox!.y, 0);
+
     // Slice gated until a model is loaded.
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
-    await expect(page.getByTestId('btn-export')).toBeDisabled();
+    await expect(page.getByTestId('btn-export')).toHaveCount(0);
 
     // Add model(s). ORCA_E2E returns MODEL_PATH for every dialog request;
     // MODEL_COUNT makes a local multi-model regression reproducible without
@@ -549,7 +567,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // Clear Scene now lives in the scene context menu: right-click empty
     // space is suppressed in Preview, so switch back to Prepare first. It
     // resets the model and invalidates the finished export.
-    const emptySpace = { x: box.x + box.width - 40, y: box.y + 40 };
+    const emptySpace = { x: box.x + box.width - 40, y: box.y + 80 };
     await page.mouse.click(emptySpace.x, emptySpace.y, { button: 'right' });
     await expect(page.getByTestId('ctx-menu')).toBeHidden();
     await page.locator('#app-tab-prepare').click();
@@ -558,7 +576,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await expect(page.getByTestId('ctx-menu')).toBeVisible();
     await page.getByTestId('btn-clear-scene').click();
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
-    await expect(page.getByTestId('btn-export')).toBeDisabled();
+    await expect(page.getByTestId('btn-export')).toHaveCount(0);
     } catch (err) {
       await diag.dump();
       throw err;
@@ -1505,7 +1523,7 @@ test('scene context menu: Add Model imports through the host picker', async () =
       const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
       const box = await canvas.boundingBox();
       if (!box) throw new Error('viewport canvas has no bounding box');
-      const emptySpace = { x: box.x + box.width - 40, y: box.y + 40 };
+      const emptySpace = { x: box.x + box.width - 40, y: box.y + 80 };
       await page.mouse.click(emptySpace.x, emptySpace.y, { button: 'right' });
       await expect(page.getByTestId('ctx-menu')).toBeVisible();
       await expect(page.getByTestId('btn-ctx-add-model')).toBeEnabled();

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useShallow } from 'zustand/react/shallow';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
-import { Toolbar } from './components/layout/Toolbar';
+import { SliceButton } from './components/workspace/SliceButton';
 import { isPrepareTab, isWorkspaceTab, type AppTab } from './components/layout/appTabs';
 import { Workspace, type PreviewRenderTransition } from './components/workspace/Workspace';
 import { DevicePanel } from './components/device/DevicePanel';
@@ -571,11 +571,10 @@ function AppContent() {
       {appE2eProbe}
       <AppShell
         titleBar={titleBar}
-        toolbar={<Toolbar activeTab={activeTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}
-        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        workspace={<Workspace actionControls={<SliceButton activeTab={activeTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
       />

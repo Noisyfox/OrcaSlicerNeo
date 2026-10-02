@@ -551,7 +551,7 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   if (await layerHeight.count()) {
     await layerHeight.fill('0.2');
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
-    await expect(page.getByTestId('btn-export')).toBeDisabled();
+    await expect(page.getByTestId('btn-export')).toHaveCount(0);
     // The invalidated G-code preview is cleared as well: the toolpath leaves
     // the scene and the scrubber unmounts with it (spec §8).
     await expect(scrubber).toBeAttached({ attached: false });

@@ -58,7 +58,7 @@ test('persists shared profile/sidebar preferences but not session work', async (
     const layerHeight = first.page.locator('#layer_height');
     if (await layerHeight.count()) await layerHeight.fill('0.21');
     await first.page.getByTestId('btn-slice').click();
-    await expect(first.page.getByText('Sliced')).toBeVisible({ timeout: 10_000 });
+    await expect(first.page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 10_000 });
     await first.page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(firstExport)).toBe(true);
   } finally {
@@ -71,7 +71,7 @@ test('persists shared profile/sidebar preferences but not session work', async (
     await expect(second.page.getByTestId('sidebar-resizer')).toHaveAttribute('aria-valuenow', '320');
     await expect(second.page.getByTestId('btn-add-model')).toBeEnabled();
     await expect(second.page.getByTestId('btn-slice')).toBeDisabled();
-    await expect(second.page.getByTestId('btn-export')).toBeDisabled();
+    await expect(second.page.getByTestId('btn-export')).toHaveCount(0);
     if (await second.page.locator('#layer_height').count()) {
       await expect(second.page.locator('#layer_height')).not.toHaveValue('0.21');
     }

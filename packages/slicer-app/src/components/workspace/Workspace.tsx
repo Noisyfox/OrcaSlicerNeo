@@ -1,13 +1,14 @@
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 // The sidebar/scene split: owns the resizable divider between the settings
 // sidebar and the 3D scene, and the scene interaction controller the two
-// halves share. AppShell stacks this between the toolbar and status rows.
+// halves share. AppShell stacks this between the titlebar and status rows.
 import {
   useCallback,
   useEffect,
   useRef,
   useMemo,
   useState,
+  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -131,8 +132,10 @@ export function Workspace({
   onModelAdded,
   onPreviewRenderReady,
   onPreviewTransitionChange,
+  actionControls,
 }: {
   activeTab?: AppTab;
+  actionControls?: ReactNode;
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
@@ -761,7 +764,7 @@ export function Workspace({
     {import.meta.env.VITE_SCOPED_CONFIGURATION_GATE === '1' && (
       <ScopedConfigurationGateProbe platform={platform} coordinator={historyRestore} />
     )}
-    <div className="flex flex-1 min-h-0" inert={serialSliceBusy} aria-busy={serialSliceBusy}>
+    <div className="mt-1 flex flex-1 min-h-0" inert={serialSliceBusy} aria-busy={serialSliceBusy}>
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"
         style={{
@@ -817,6 +820,7 @@ export function Workspace({
           projectionStatus={sliceResult.projectionStatus}
           previewFrameRequest={previewFrameRequest}
           onModelAdded={onModelAdded}
+          actionControls={actionControls}
           onSceneFrameRendered={handleSceneFrameRendered}
         />
       </main>

@@ -23,7 +23,6 @@ describe('AppShell top-level pages', () => {
       root?.render(
         <AppShell
           titleBar={<div />}
-          toolbar={<div />}
           activeTab={activeTab}
           prewarmWorkspace={prewarmWorkspace}
           home={<StatefulPage label="home" />}

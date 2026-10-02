@@ -462,7 +462,7 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       timeout: 300_000,
       intervals: [20],
     }).toBe(0);
-    await expect(page.getByTestId('btn-export')).toBeDisabled();
+    await expect(page.getByTestId('btn-export')).toHaveCount(0);
     await expect(page.getByTestId('slicer-status')).not.toHaveText('Sliced');
     await expect(page.getByTestId('slicer-status')).not.toContainText('slice_busy');
     expect(activeMoveNative.samples.map((sample) => sample.operation).filter((operation) =>

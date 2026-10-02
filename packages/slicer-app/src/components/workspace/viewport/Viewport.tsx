@@ -78,8 +78,9 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'needs-slicing', sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onModelAdded, onSceneFrameRendered }: {
+export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'needs-slicing', sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onModelAdded, onSceneFrameRendered, actionControls }: {
   activeTab: 'prepare' | 'preview';
+  actionControls?: ReactNode;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   projectionStatus?: PreviewProjectionStatus;
@@ -482,12 +483,12 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             }}
           >
             <color attach="background" args={['#54545A']} />
-            {/* Perf overlay (fps/ms/memory), top-left corner of the scene.
+            {/* Perf overlay (fps/ms/memory), top-right corner of the scene.
                 drei appends the DOM to document.body unless given a `parent`
                 ref. stats.js pins it inline as fixed with z-index: 10000, so
                 override both inline values to keep it in the scene layer and
                 below modal dialogs. Click a panel to switch. */}
-            <Stats parent={viewportRef} className="scene-stats absolute! z-0!" />
+            <Stats parent={viewportRef} className="scene-stats absolute! top-0! right-0! left-auto! z-0!" />
             <Scene
               activeTab={activeTab}
               controller={sceneInteraction}
@@ -560,6 +561,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
+      {actionControls && <div className="pointer-events-auto absolute top-2 left-2 z-20 max-w-[calc(100%-1rem)]" data-testid="viewport-actions">{actionControls}</div>}
       {prepareTab && !paintingActive && plateSession && <PlateControls
         plateSession={plateSession}
         pending={plateActionPending}

@@ -1,7 +1,7 @@
 # Titlebar and Native Menu Implementation
 
 **Date:** 2026-08-25  
-**Status:** Implemented; 2026-10-01 layout verified by unit/typecheck and focused mock Electron E2E.
+**Status:** Implemented; 2026-10-02 split action and viewport layout verified by unit/typecheck and focused mock Electron E2E.
 **Scope:** Shared titlebar branding and File/Help menu behavior for Web and
 Electron custom/native surfaces.
 
@@ -48,7 +48,25 @@ Electron custom/native surfaces.
 - Undo/Redo left-click performs one operation; right-click opens the directional
   history list on the same icon. No separate dropdown buttons or visible action
   labels remain. Prepare-only availability and existing restore/painting/runtime
-  guards are preserved. Slice/Export/Send actions remain in the toolbar.
+  guards are preserved. A single teal split button sits 8px from the viewport
+  top-left corner, implemented by `components/workspace/SliceButton.tsx`
+  (renamed from the former layout Toolbar), with a wide, left-aligned text action and a narrow chevron
+  selector, separately rounded and separated by a 2px gap. There is no outer
+  panel or action icon. Before a completed result exists, the main action is
+  Slice; afterwards it executes the selected Export, Send, or Send & Print
+  operation. The selector chooses the output mode without executing it,
+  defaults to Export, and opens downward. During slicing, the 150px main
+  action becomes a blue percentage progress bar and the 28px square selector
+  becomes a spinner. Hover or keyboard focus turns the entire square red and replaces the
+  spinner with a white X; clicking requests runtime cancellation and waits for the terminal reply.
+  Cancellation returns to Slice without publishing a result. The current
+  progress callback has no layer counts, so only the real percentage is shown.
+  Normal actions are unavailable during history restore or export. Slice requires a loaded model; output
+  requires a completed result. Send modes retain their dialog and Device
+  navigation. The plate panel remains at the viewport bottom-right, and the
+  FPS/MS/memory overlay at the top-right. Workspace and Device retain a 4px
+  gap below the titlebar; no separate top toolbar row remains.
+  This follow-up layout was verified in the 2026-10-02 test round below.
 - Desktop native window controls follow the 32px titlebar height; macOS traffic
   lights use y=9. Windows/Linux reserve the native overlay area. All shared
   interactive titlebar controls are no-drag.
@@ -98,6 +116,38 @@ The pre-existing dirty
 `packages/slicer-wasm/cpp` submodule state is unrelated and was not changed.
 
 ## Verification
+
+### 2026-10-02 — viewport split action
+
+- `pnpm --filter @orca/slicer-app exec vitest run src/components/workspace/SliceButton.test.tsx src/components/workspace/actions/sliceActions.test.ts src/components/layout/AppShell.test.tsx src/history/historyBoundary.test.ts`:
+  passed, 4 files / 18 tests. Covers mode selection, Slice/Export execution,
+  live progress, cancellation acceptance/rejection and terminal cleanup.
+- `pnpm test`: passed, 138 files / 1291 tests across all eight packages;
+  slicer-app contributed 102 files / 880 tests.
+- `pnpm typecheck`: passed across the workspace.
+- `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` and
+  `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs`:
+  passed with the mock runtime.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts e2e/preferences-persistence.e2e.ts --grep 'full v1 flow|starts on blank Home|Prepare plate controls|Send and Send|keyless|profile|preferences'`:
+  six cases passed. The preferences case initially had an ambiguous `Sliced`
+  locator; it now targets `slicer-status`, and the explicit rerun below passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/preferences-persistence.e2e.ts`:
+  passed, 1 test. Together these runs prove seven focused scenarios, including
+  the 150px main action, 28px square selector, 8px top-left inset, right-side FPS,
+  import/slice/export, both Send modes, profile switching and session lifetime.
+- The intermediate `e2e/app.e2e.ts e2e/slice-error.e2e.ts e2e/profile-compatibility.e2e.ts --grep 'full v1 flow|slice|changing printer'`
+  run additionally passed object-list slicing and scene transform/slice-sync.
+  Its three real-WASM-only cases were skipped. Full-flow geometry assertions
+  now tolerate floating-point bounds, and the scene context-menu click avoids
+  the moved FPS overlay; the final full flow passed after those test fixes.
+- `git diff --check`: passed.
+
+Actual mid-slice cancellation is covered with a deferred runtime in unit tests.
+The mock native slice completes synchronously, so these Electron runs do not
+prove live WASM cancellation timing. No bridge/runtime implementation changed;
+real Web/WASM, serial/threaded builds and the full release matrix were not run.
+
+### 2026-10-01 — titlebar
 
 For the 2026-10-01 layout update:
 

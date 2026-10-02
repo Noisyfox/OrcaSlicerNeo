@@ -31,11 +31,10 @@ export function AppPagePanel({ active, prewarming = false, id, labelledBy, child
   );
 }
 
-export function AppShell({ titleBar, home, workspace, device, activeTab = 'home', toolbar, status, prewarmWorkspace = false }: {
+export function AppShell({ titleBar, home, workspace, device, activeTab = 'home', status, prewarmWorkspace = false }: {
   titleBar: ReactNode;
-  toolbar: ReactNode;
   home: ReactNode;
-  // Fills the row between the toolbar and the status bar, so it has to
+  // Fills the row between the titlebar and the status bar, so it has to
   // stretch itself (`flex-1 min-h-0`) — see Workspace.
   workspace: ReactNode;
   device: ReactNode;
@@ -46,7 +45,6 @@ export function AppShell({ titleBar, home, workspace, device, activeTab = 'home'
   return (
     <div className="flex h-full flex-col">
       {titleBar}
-      {isWorkspaceTab(activeTab) && <div className="flex h-6 items-center gap-2 px-1 mb-0.5 bg-tabbar">{toolbar}</div>}
       <div className="relative flex min-h-0 flex-1">
         <AppPagePanel active={activeTab === 'home'} id="app-panel-home" labelledBy="app-tab-home">
           {home}
@@ -55,7 +53,7 @@ export function AppShell({ titleBar, home, workspace, device, activeTab = 'home'
           {workspace}
         </AppPagePanel>
         <AppPagePanel active={activeTab === 'device'} id="app-panel-device" labelledBy="app-tab-device">
-          {device}
+          <div className="mt-1 flex min-h-0 flex-1">{device}</div>
         </AppPagePanel>
       </div>
       <footer className="h-6 flex items-center px-1 text-xs text-muted-foreground">{status}</footer>

@@ -89,7 +89,7 @@ test('printer transitions atomically replace the Process picker while the Filame
     await expect(page.getByTestId('filament-preset-1')).toContainText('Generic PLA @System');
 
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
-    await expect(page.getByTestId('btn-export')).toBeDisabled();
+    await expect(page.getByTestId('btn-export')).toHaveCount(0);
     await expect(page.getByTestId('layer-scrubber')).toHaveCount(0);
   } finally {
     await app.close();

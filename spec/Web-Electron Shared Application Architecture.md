@@ -113,6 +113,13 @@ bottom edge. Undo/Redo history opens by right-clicking the corresponding icon.
 Electron supplies drag-region styling and native-window control clearance;
 Web renders the shared bar without window controls or drag regions.
 
+A single teal split button floats at the viewport top-left with an 8px inset.
+Its text-only main action slices when no completed result exists, then executes
+Export, Send, or Send & Print according to the right-side Select. The selector
+initially selects Export and opens downward. The two rounded halves have a 2px
+gap, with no outer panel. Prepare plate controls remain at the viewport
+bottom-right with an 8px inset. No separate top toolbar row remains.
+
 The first-release Web layout is a desktop layout that adapts fluidly to the
 viewport size: it retains the complete layout at any window size, shrinking
 the settings panel and 3D viewport to fit (each scrolls internally when
