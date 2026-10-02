@@ -708,3 +708,15 @@ it('reconciles logical MMU choice through merge/delete while seam parameters rem
   expect(c.getSnapshot().settings).toMatchObject({state:2,radius:7,vertical:true});
   await c.open(1,2,'mmu'); await frame(); expect(c.getSnapshot()).toMatchObject({tool:'height',settings:{state:1,height:9}});
 });
+
+it('keeps delivered MMU/Seam tools strict and excludes support-only settings from their native requests',async()=> {
+  const {controller:c,ports:p,frame}=fixture();await c.open(1,2,'mmu');await frame();
+  c.setTool('smartFill');expect(c.getSnapshot().tool).toBe('circle');
+  c.setSettings({overhangAngle:45,restrictToOverhangs:true});expect(c.getSnapshot().settings.overhangAngle).toBe(0);
+  await c.press(event(1));c.release();await tick();
+  const settings=vi.mocked(p.api.beginPaintingStroke).mock.calls[0][0].settings;
+  expect(settings).not.toHaveProperty('overhangAngle');expect(settings).not.toHaveProperty('restrictToOverhangs');
+  await c.open(1,2,'seam');await frame();c.setTool('smartFill');expect(c.getSnapshot().tool).toBe('circle');
+  await c.press(event(1));c.release();await tick();
+  expect(vi.mocked(p.api.beginPaintingStroke).mock.calls.at(-1)![0].settings).not.toHaveProperty('overhangAngle');
+});

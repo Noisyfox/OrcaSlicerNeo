@@ -189,7 +189,7 @@ export function triangleContourMaterial(): THREE.LineBasicMaterial {
 }
 function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[]; targetName: string }) {
   const triangle = resource.source.kind === 'triangle';
-  const region = resource.source.kind === 'region', overlay = resource.source.kind !== 'draft';
+  const region = (resource.source.kind === 'region' || resource.source.kind === 'smartFill' || resource.source.kind === 'overhang'), overlay = resource.source.kind !== 'draft';
   const materials = useMemo(() => triangle ? [] : colors.map((color) => new THREE.MeshStandardMaterial({ color: region ? '#ffffff' : color, side: THREE.DoubleSide, transparent: region, opacity: region ? 0.35 : 1, polygonOffset: overlay, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })), [colors.join(','), triangle, region, overlay]);
   const contourMaterial = useMemo(() => triangle ? triangleContourMaterial() : new THREE.LineBasicMaterial({ color: 'white', depthTest: false }), [triangle]);
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);

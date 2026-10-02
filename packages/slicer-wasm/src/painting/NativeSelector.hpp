@@ -1,5 +1,6 @@
 #pragma once
 #include "libslic3r/TriangleSelector.hpp"
+#include "libslic3r/Geometry.hpp"
 #include <memory>
 #include <queue>
 #include <set>
@@ -74,6 +75,21 @@ public:
     void apply_gaps(const std::vector<GapPatch>& patches) {
         for (const auto& patch : patches)
             for (int facet : patch.facets) m_triangles[facet].set_state(*patch.neighbors.begin());
+    }
+    // Same inverse-transpose, normalized Z and strict angular boundary as the
+    // pinned select_patch/seed_fill_select_triangles. A zero angle disables the
+    // native filter; no determinant flip is applied to mirrored normals.
+    std::set<int> overhang_facets(const Transform3d& transform, double angle) const {
+        const Matrix3f normal_matrix = transform.linear().inverse().transpose().cast<float>();
+        const float native_angle = float(angle);
+        const float limit = -cos(Geometry::deg2rad(native_angle));
+        std::set<int> result;
+        for (int i = 0; i < int(m_triangles.size()); ++i) {
+            const auto& tr = m_triangles[i];
+            if (tr.valid() && !tr.is_split() && (native_angle == 0.f ||
+                (normal_matrix * m_face_normals[tr.source_triangle]).normalized().z() < limit)) result.insert(i);
+        }
+        return result;
     }
     // Display uses the native leaf topology and selection flags, independently
     // from the prospective state. Contours use the pinned selector's T-joints.

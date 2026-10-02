@@ -51,7 +51,7 @@ void channel_tests() {
         Settings settings; settings.state = max_state(channel) + 1;
         THROWS(f.begin(Tool::Circle, settings, top(3, 4)));
         settings.state = 1;
-        for (const auto tool : {Tool::Height, Tool::Region, Tool::Gap}) THROWS(f.begin(tool, settings, tool == Tool::Gap ? std::optional<PointerEvent>{} : top(3, 4)));
+        for (const auto tool : {Tool::Height, Tool::Region}) THROWS(f.begin(tool, settings, tool == Tool::Gap ? std::optional<PointerEvent>{} : top(3, 4)));
         if (channel != Channel::Fuzzy) THROWS(f.begin(Tool::Triangle, settings, top(3, 4)));
         f.begin(Tool::Sphere, settings, top(3, 4));
         settings.state = max_state(channel); f.sample(settings, top(4, 4));
@@ -76,6 +76,154 @@ void channel_tests() {
         annotation(*f.part, channel).set(illegal);
         THROWS(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, channel, 1, 1));
     }
+}
+void smart_gap_overhang_tests() {
+    // The adjacent coplanar facets deliberately have different native states.
+    indexed_triangle_set plane;
+    plane.vertices = {Vec3f(0,0,0),Vec3f(2,0,0),Vec3f(2,2,0),Vec3f(0,2,0)};
+    plane.indices = {Vec3i32(0,1,2),Vec3i32(0,2,3)};
+    for (const auto channel : {Channel::Mmu, Channel::Support, Channel::Fuzzy}) {
+        Model model; auto* object = model.add_object();
+        auto* volume = object->add_volume(TriangleMesh(plane)); auto* instance = object->add_instance();
+        NativeSelector initial(volume->mesh());
+        initial.set_facet(0, EnforcerBlockerType::ENFORCER);
+        initial.set_facet(1, channel == Channel::Fuzzy ? EnforcerBlockerType::NONE : EnforcerBlockerType::BLOCKER);
+        annotation(*volume, channel).set(initial);
+        std::array<TriangleSelector::TriangleSplittingData,4> original;
+        for (const auto c : {Channel::Mmu,Channel::Support,Channel::Seam,Channel::Fuzzy}) original[int(c)] = annotation(*volume,c).get_data();
+        Sessions sessions; sessions.publish(sessions.prepare_open(model, object->id().id, instance->id().id, channel, 2, 1));
+        const Tool tool = channel == Channel::Mmu ? Tool::Region : Tool::SmartFill;
+        Settings settings; settings.state = 0; settings.angle = 0.;
+        auto preview = sessions.prepare_preview(sessions.current()->id, sessions.current()->revision, tool, settings, top(1.5,.5));
+        CHECK(preview->preview->facet_selection->selected_facet_count() == (channel == Channel::Mmu ? 1 : 2));
+        auto prospective = preview->preview->selectors[0]->serialize();
+        sessions.publish(std::move(preview));
+        auto changed = settings; changed.angle = 1.;
+        if (channel == Channel::Support) {
+            changed=settings;changed.overhang_angle=45.;changed.restrict_to_overhangs=true;
+            THROWS(sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,tool,changed,top(1.5,.5),sessions.current()->revision));
+            changed=settings;changed.angle=1.;
+        }
+        THROWS(sessions.prepare_begin(sessions.current()->id, sessions.current()->revision, tool, changed, top(1.5,.5), sessions.current()->revision));
+        THROWS(sessions.prepare_begin(sessions.current()->id, sessions.current()->revision, tool, settings, top(1.5,.5), sessions.current()->revision-1));
+        if (channel != Channel::Mmu) {
+            changed.angle.reset(); THROWS(sessions.prepare_preview(sessions.current()->id,sessions.current()->revision,tool,changed,top(1.5,.5)));
+            THROWS(sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,Tool::Region,settings,top(1.5,.5)));
+        } else THROWS(sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,Tool::SmartFill,settings,top(1.5,.5)));
+        auto begun = sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,tool,settings,top(1.5,.5),sessions.current()->revision);
+        CHECK(begun->parts[0].selector->serialize() == prospective);
+        for (const auto c : {Channel::Mmu,Channel::Support,Channel::Seam,Channel::Fuzzy}) CHECK(annotation(*volume,c).get_data() == original[int(c)]);
+    }
+    // Smart Fill's edge angle uses local source normals even under nonuniform
+    // mirrored transforms. At the exact 45-degree edge native EPSILON admits it.
+    indexed_triangle_set bent;
+    bent.vertices={Vec3f(0,0,0),Vec3f(2,0,0),Vec3f(0,2,0),Vec3f(0,-2,2)};
+    bent.indices={Vec3i32(0,1,2),Vec3i32(1,0,3)};
+    TriangleMesh bent_mesh(bent);
+    for(bool transformed:{false,true}) {
+        Transform3d transform=Transform3d::Identity();
+        if(transformed) transform.linear()=Eigen::AngleAxisd(.4,Vec3d::UnitX()).toRotationMatrix()*Vec3d(-2,.5,3).asDiagonal();
+        NativeSelector selector(bent_mesh);
+        for(double angle:{44.99,45.,45.01}) {
+            selector.seed_fill_select_triangles(Vec3f(.5,.5,0),0,transform,{},float(angle),0.f,true);
+            CHECK(selector.selected_facet_count()==(angle<45.?1:2));
+        }
+    }
+    // All native destination states: 1 beats 2 in an ordered neighbor set;
+    // isolated state0 merges to2 when no lower adjacent state exists.
+    TriangleMesh gap_mesh(its_make_cube(2.,2.,2.));
+    for(int destination:{1,2}) {
+        NativeSelector selector(gap_mesh);
+        for(int i=0;i<12;++i) selector.set_facet(i,static_cast<EnforcerBlockerType>(destination));
+        selector.set_facet(0,EnforcerBlockerType::NONE);
+        if(destination==1) selector.set_facet(1,EnforcerBlockerType::BLOCKER);
+        const auto patches=selector.gap_candidates(3.);
+        const auto found=std::find_if(patches.begin(),patches.end(),[](const auto& patch){return std::find(patch.facets.begin(),patch.facets.end(),0)!=patch.facets.end();});
+        CHECK(found!=patches.end() && int(*found->neighbors.begin())==destination);
+        if(destination==1) CHECK(found->neighbors.count(EnforcerBlockerType::BLOCKER));
+        selector.apply_gaps(patches);
+        const std::set<int> facet_zero{0};
+        CHECK(selector.display(&facet_zero).groups[0][0]==std::size_t(destination));
+    }
+    // Object-wide Support Gap, original-state destinations (0 wins), including
+    // a second solid part with a separate transform and annotation tree.
+    Model model; auto* object = model.add_object(); auto* instance = object->add_instance();
+    for (int i=0;i<2;++i) {
+        auto* volume = object->add_volume(TriangleMesh(its_make_cube(2.,2.,2.)));
+        volume->set_offset(Vec3d(i*4,0,0));
+        NativeSelector initial(volume->mesh()); initial.set_facet(0,EnforcerBlockerType::BLOCKER);
+        annotation(*volume,Channel::Support).set(initial);
+    }
+    Sessions sessions; sessions.publish(sessions.prepare_open(model,object->id().id,instance->id().id,Channel::Support,1,1));
+    Settings settings; settings.gap_area=3.;
+    sessions.publish(sessions.prepare_preview(sessions.current()->id,sessions.current()->revision,Tool::Gap,settings,{}));
+    CHECK(sessions.current()->preview->gap_regions.size()==2);
+    for(const auto& patches:sessions.current()->preview->gap_regions) { CHECK(patches.size()==1); CHECK(*patches[0].neighbors.begin()==EnforcerBlockerType::NONE); }
+    auto gap = sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,Tool::Gap,settings,{},sessions.current()->revision);
+    CHECK(gap->changed_parts.size()==2 && gap->phase==Phase::Finished);
+    for(int i=0;i<2;++i) CHECK(gap->parts[i].selector->serialize()==sessions.current()->preview->selectors[i]->serialize());
+    // Highlights use native transformed normals; all planes at zero, floors
+    // only at positive thresholds. At 90 the pinned float-radian cosine admits
+    // exactly vertical side normals (the same boundary as native restriction).
+    for(auto mirror : {Vec3d(1,1,1),Vec3d(-1,1,1),Vec3d(1,1,-1)}) {
+        Transform3d transform=Transform3d::Identity(); transform.linear()=mirror.asDiagonal();
+        transform.linear()=transform.linear()*Vec3d(2.,.5,3.).asDiagonal();
+        NativeSelector selector(object->volumes[0]->mesh());
+        CHECK(selector.overhang_facets(transform,0).size()==12);
+        CHECK(selector.overhang_facets(transform,45).size()==2);
+        CHECK(selector.overhang_facets(transform,90).size()==10);
+        const auto normals=transform.linear().inverse().transpose().cast<float>().eval();
+        CHECK(normals.allFinite());
+    }
+    // Exact transformed angular-boundary agreement with the pinned native
+    // restriction, including tilted faces and mirror/nonuniform normal matrices.
+    NativeSelector transformed_selector(object->volumes[0]->mesh());
+    for(double rotation:{0.,M_PI/4.,M_PI/4.+.0001}) {
+        Transform3d transform=Transform3d::Identity();
+        transform.linear()=Eigen::AngleAxisd(rotation,Vec3d::UnitY()).toRotationMatrix()*Vec3d(-2.,.5,3.).asDiagonal();
+        for(double angle:{44.99,45.,45.01,89.99,90.}) {
+            const auto membership=transformed_selector.overhang_facets(transform,angle);
+            for(int facet=0;facet<12;++facet) {
+                const auto& indices=object->volumes[0]->mesh().its.indices[facet];
+                const auto& vertices=object->volumes[0]->mesh().its.vertices;
+                const Vec3f center=(vertices[indices[0]]+vertices[indices[1]]+vertices[indices[2]])/3.f;
+                transformed_selector.seed_fill_select_triangles(center,facet,transform,{},0.f,float(angle),true);
+                CHECK((transformed_selector.selected_facet_count()>0)==bool(membership.count(facet)));
+            }
+        }
+    }
+    settings.overhang_angle=45.;
+    auto highlight=sessions.prepare_preview(sessions.current()->id,sessions.current()->revision,Tool::Overhang,settings,{});
+    CHECK(highlight->highlight_angle == 45. && highlight->preview->tool == Tool::Gap);
+    for(int i=0;i<2;++i) { CHECK(highlight->parts[i].selector->overhang_facets(highlight->instance_transform * highlight->parts[i].volume_transform, *highlight->highlight_angle).size()==2); CHECK(highlight->parts[i].selector->serialize()==annotation(*object->volumes[i],Channel::Support).get_data()); }
+    sessions.publish(std::move(highlight));
+    THROWS(sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,Tool::Overhang,settings,{}));
+    // The camera hits an upward face: every restricted actual tool must be a
+    // no-op, whereas zero explicitly disables the native restriction.
+    settings.restrict_to_overhangs=true; settings.radius=50.; settings.angle=30.;
+    for(const auto tool:{Tool::Circle,Tool::Sphere,Tool::SmartFill}) {
+        auto stroke=sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,tool,settings,top(.5,.25));
+        CHECK(!stroke->effective);
+        settings.overhang_angle=0.;
+        auto unrestricted=sessions.prepare_begin(sessions.current()->id,sessions.current()->revision,tool,settings,top(.5,.25));
+        if (!unrestricted->effective) throw std::runtime_error("zero-angle restriction tool " + std::to_string(int(tool))); settings.overhang_angle=45.;
+    }
+    // Highlight survives completion/cancellation and follows transformed native
+    // normals on reconcile while local draft buffer identity remains stable.
+    auto old_geometry = sessions.current()->parts[0].geometry_revision;
+    auto old_highlight = sessions.current()->highlight_revision;
+    auto before_membership = sessions.current()->parts[0].selector->overhang_facets(
+        sessions.current()->instance_transform * sessions.current()->parts[0].volume_transform,45.);
+    instance->set_rotation(Vec3d(M_PI,0,0));
+    auto reconciled=sessions.prepare_reconcile(model);
+    CHECK(reconciled->highlight_angle==45. && reconciled->highlight_revision!=old_highlight);
+    CHECK(reconciled->parts[0].geometry_revision==old_geometry);
+    CHECK(reconciled->parts[0].selector->overhang_facets(reconciled->instance_transform * reconciled->parts[0].volume_transform,45.)!=before_membership);
+    sessions.publish(std::move(reconciled));
+    auto rebound=sessions.prepare_target(model,sessions.current()->id,sessions.current()->revision,object->id().id,instance->id().id);
+    CHECK(rebound->highlight_angle==45.);
+    Sessions::complete(*rebound);CHECK(rebound->highlight_angle==45.);
+    std::cout << "Smart Fill/state barriers, Support Gap multipart parity and native overhang restriction passed\n";
 }
 void seam_vertical_tests() {
     for (const auto tool : {Tool::Circle, Tool::Sphere}) {
@@ -506,6 +654,7 @@ int main() {
     try {
     channel_tests();
     seam_vertical_tests();
+    smart_gap_overhang_tests();
     triangle_preview_tests();
     engine_tests();
     Model model;

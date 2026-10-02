@@ -10,7 +10,7 @@ vi.mock('./PaintingProvider', () => ({usePaintingState:()=>mocked.state,usePaint
 let root:Root,container:HTMLDivElement;
 beforeEach(()=>{
   vi.clearAllMocks();vi.stubGlobal('PointerEvent',MouseEvent);
-  mocked.state={phase:'idle',channel:'seam',session:null,tool:'circle',settings:{state:1,erase:false,vertical:false,radius:2,height:1,angle:30,gapArea:0},error:null,display:null,epoch:0};
+  mocked.state={phase:'idle',channel:'seam',session:null,tool:'circle',settings:{state:1,erase:false,vertical:false,radius:2,height:1,angle:30,gapArea:0,overhangAngle:0,restrictToOverhangs:false},error:null,display:null,epoch:0};
   container=document.createElement('div');document.body.append(container);root=createRoot(container);
 });
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();vi.unstubAllGlobals();});

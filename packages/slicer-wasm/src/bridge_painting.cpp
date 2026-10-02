@@ -125,7 +125,7 @@ double number(const json& value) {
     return out;
 }
 Settings settings(const json& value, Channel channel) {
-    fields(value, {"state", "erase", "radius", "height", "angle", "gapArea", "vertical"});
+    fields(value, {"state", "erase", "radius", "height", "angle", "gapArea", "vertical", "overhangAngle", "restrictToOverhangs"});
     Settings out;
     if (value.contains("state")) {
         const double state = number(value["state"]);
@@ -144,6 +144,14 @@ Settings settings(const json& value, Channel channel) {
     if (value.contains("height")) out.height = number(value["height"]);
     if (value.contains("angle")) out.angle = value["angle"].is_null() ? std::optional<double>{} : number(value["angle"]);
     if (value.contains("gapArea")) out.gap_area = number(value["gapArea"]);
+    if (value.contains("overhangAngle")) {
+        if (channel != Channel::Support) throw std::invalid_argument("overhang settings are support-only");
+        out.overhang_angle = value["overhangAngle"].is_null() ? std::optional<double>{} : number(value["overhangAngle"]);
+    }
+    if (value.contains("restrictToOverhangs")) {
+        if (!value["restrictToOverhangs"].is_boolean()) throw std::invalid_argument("invalid overhang restriction");
+        out.restrict_to_overhangs = value["restrictToOverhangs"].get<bool>();
+    }
     out.validate(channel);
     return out;
 }
@@ -154,6 +162,8 @@ Tool tool(const json& value) {
     if (name == "sphere") return Tool::Sphere;
     if (name == "triangle") return Tool::Triangle;
     if (name == "height") return Tool::Height;
+    if (name == "smartFill") return Tool::SmartFill;
+    if (name == "overhang") return Tool::Overhang;
     if (name == "region") return Tool::Region;
     if (name == "gap") return Tool::Gap;
     if (name == "eraseAll") return Tool::EraseAll;
@@ -207,9 +217,11 @@ const Session& engine_session(const json& value) {
     state().painting.validate_target(state().model, session);
     return session;
 }
-const char* publish(std::unique_ptr<Session> candidate) {
+const char* publish(std::unique_ptr<Session> candidate, bool selection_receipt = true) {
     state().painting.update_geometry_revisions(*candidate);
-    auto out = response(receipt(*candidate));
+    auto result = receipt(*candidate);
+    if (!selection_receipt) result["candidateRevision"] = nullptr;
+    auto out = response(result);
     state().painting.publish(std::move(candidate));
     return out.release();
 }
@@ -334,7 +346,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_preview(const char* text) {
     return invoke([&]() -> const char* {
         const auto value = request(text, {"version", "channel", "sessionId", "revision", "tool", "settings", "event"});
         const auto& session = engine_session(value);
-        return publish(state().painting.prepare_preview(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings"), session.channel), event(value)));
+        const auto selected_tool = tool(value.at("tool"));
+        if (selected_tool == Tool::Overhang && !value.at("settings").contains("overhangAngle")) throw std::invalid_argument("highlight preview requires overhangAngle or null");
+        return publish(state().painting.prepare_preview(session.id, session.revision, selected_tool, settings(value.at("settings"), session.channel), event(value)), selected_tool != Tool::Overhang);
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_begin(const char* text) {
@@ -389,10 +403,18 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
             const auto key = resource_id(session, part);
             parts.push_back({{"volumeId", part.volume_id}, {"resourceId", key}});
             if (!known.count(key)) resources.push_back(geometry(buffers, part.selector->display(), {}, part.volume_id, key, "draft"));
+            if (session.highlight_angle) {
+                const auto highlight_key = "ph-support-" + std::to_string(session.id) + "-" + std::to_string(part.geometry_revision) + "-" + std::to_string(part.volume_id) + "-" + std::to_string(session.highlight_revision);
+                candidates.push_back({{"volumeId", part.volume_id}, {"resourceId", highlight_key}, {"kind", "overhang"}});
+                if (!known.count(highlight_key)) {
+                    const auto membership = part.selector->overhang_facets(session.instance_transform * part.volume_transform, *session.highlight_angle);
+                    resources.push_back(geometry(buffers, part.selector->display(&membership), {}, part.volume_id, highlight_key, "overhang"));
+                }
+            }
             if (!session.preview) continue;
             const auto prefix = "pc-" + std::string(channel_name(session.channel)) + "-" + std::to_string(session.id) + "-" + std::to_string(session.revision) + "-" + std::to_string(part.volume_id);
             if (session.preview->facet_selection && session.preview->hit && session.preview->hit->part == i) {
-                const char* kind = session.preview->tool == Tool::Triangle ? "triangle" : "region";
+                const char* kind = session.preview->tool == Tool::Triangle ? "triangle" : session.preview->tool == Tool::SmartFill ? "smartFill" : "region";
                 candidates.push_back({{"volumeId", part.volume_id}, {"resourceId", prefix}, {"kind", kind}});
                 if (!known.count(prefix)) resources.push_back(geometry(buffers, session.preview->facet_selection->display(nullptr, true),
                     session.preview->facet_selection->contour(), part.volume_id, prefix, kind));

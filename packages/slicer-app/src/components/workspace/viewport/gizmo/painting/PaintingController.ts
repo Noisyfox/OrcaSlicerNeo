@@ -47,10 +47,10 @@ type Sample = { event: PaintingPointerEvent; settings: PaintingSettings };
 type Terminal = { kind: 'commit'; sample?: Sample; generation?: number } | { kind: 'cancel' };
 /** Tool policy supplies input; result ownership is shared by every candidate tool. */
 function previewInput(tool: PaintTool): 'pointer' | 'static' | null {
-  if (tool === 'triangle' || tool === 'region') return 'pointer';
+  if (tool === 'triangle' || tool === 'region' || tool === 'smartFill') return 'pointer';
   return tool === 'gap' ? 'static' : null;
 }
-const defaults: Required<PaintingSettings> = { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0 };
+const defaults: Required<PaintingSettings> = { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false };
 
 /** One RPC lane, shared by input and display. Moves are never retained. Only
  * a press (behind a display read) and a reliable terminal may wait for the lane.
@@ -172,14 +172,21 @@ export class PaintingController {
   }
   setTool(tool: PaintTool): void {
     if (this.unfinished || !['idle', 'closed'].includes(this.state.phase)) return;
-    if (this.state.channel === 'seam' && tool !== 'circle' && tool !== 'sphere') return;
+    const allowed = this.state.channel === 'mmu' ? ['circle','sphere','triangle','height','region','gap']
+      : this.state.channel === 'support' ? ['circle','sphere','smartFill','gap']
+      : this.state.channel === 'fuzzy' ? ['circle','sphere','triangle','smartFill'] : ['circle','sphere'];
+    if (!allowed.includes(tool)) return;
     this.update({ tool, display: this.withoutCandidates() });
     this.previewDirty = !!previewInput(tool); this.advancePreview(); this.scheduleDisplay();
   }
   setSettings(value: Partial<Required<PaintingSettings>>): void {
     const next = { ...this.state.settings, ...value };
-    if (!Number.isInteger(next.state) || next.state < 1 || next.state > (this.state.channel === 'mmu' ? 16 : 2) ||
+    if (!Number.isInteger(next.state) || next.state < 1 || next.state > (this.state.channel === 'mmu' ? 16 : this.state.channel === 'fuzzy' ? 1 : 2) ||
       (next.vertical && this.state.channel !== 'seam') ||
+      ((value.overhangAngle !== undefined || value.restrictToOverhangs !== undefined) && this.state.channel !== 'support') ||
+      (next.overhangAngle !== null && (!Number.isFinite(next.overhangAngle) || next.overhangAngle < 0 || next.overhangAngle > 90)) ||
+      (next.restrictToOverhangs && next.overhangAngle === null) ||
+      (this.state.tool === 'smartFill' && next.angle === null) ||
       !Number.isFinite(next.radius) || next.radius <= 0 || !Number.isFinite(next.height) || next.height <= 0 ||
       !Number.isFinite(next.gapArea) || next.gapArea < 0 || next.gapArea > 5 ||
       (next.angle !== null && (!Number.isFinite(next.angle) || next.angle < 0 || next.angle > 90))) return;
@@ -222,12 +229,15 @@ export class PaintingController {
     this.candidateOwner = null;
     return ++this.previewGeneration;
   }
-  private previewReady(tool: PaintTool = this.state.tool): tool is 'triangle' | 'region' | 'gap' {
+  private previewReady(tool: PaintTool = this.state.tool): tool is 'triangle' | 'region' | 'gap' | 'smartFill' {
     const input = previewInput(tool);
     return input === 'static' || (input === 'pointer' && !!this.hover);
   }
-  private settings(erase: boolean): PaintingSettings { return { ...this.state.settings, erase: erase || this.state.settings.erase }; }
-  private withoutCandidates() { return this.state.display?.candidates.length ? { ...this.state.display, candidates: [] } : this.state.display; }
+  private settings(erase: boolean): PaintingSettings {
+    const { overhangAngle, restrictToOverhangs, ...shared } = this.state.settings;
+    return { ...shared, ...(this.state.channel === 'support' ? { overhangAngle, restrictToOverhangs } : {}), erase: erase || shared.erase };
+  }
+  private withoutCandidates() { return this.state.display?.candidates.length ? { ...this.state.display, candidates: this.state.display.candidates.filter(c => c.kind === 'overhang') } : this.state.display; }
   hoverAt(event?: PaintingPointerEvent): void {
     // Gap is a static fragment selection, independent of pointer/camera state.
     if (previewInput(this.state.tool) === 'static') return;
@@ -438,7 +448,7 @@ export class PaintingController {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
-              const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? result.candidates.filter((c) => c.kind === this.state.tool) : [];
+              const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? result.candidates.filter((c) => c.kind === this.state.tool || c.kind === 'overhang') : result.candidates.filter(c => c.kind === 'overhang');
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
               for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
               const session = this.state.session;

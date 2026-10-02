@@ -210,6 +210,22 @@ neighbour choice and non-mutating preview, using support states instead of
 material slots. Overhang highlighting/restriction uses native transformed
 surface/angle semantics; highlighting alone never commits annotations.
 
+Smart Fill requires a numeric 0–90 degree edge angle. The `null` edge-angle
+option remains specific to MMU Region Fill. Support overhang membership uses
+inverse-transpose normalized normals and the pinned native strict cosine
+comparison, without an additional determinant flip for mirrored transforms.
+Numeric zero disables the native restriction and highlights every eligible leaf;
+an explicit `null` highlight angle clears the overlay. The pinned float-radian
+comparison at 90 degrees admits exactly vertical side normals. Highlight and
+restricted-stroke membership must agree at these boundaries.
+
+Overhang highlighting is independent of the current selection candidate. It
+survives candidate replacement, strokes, target changes and history
+reconciliation, and grants no Apply ownership. Reuse unchanged highlight
+resources across hover; invalidate their identity after threshold, tree or
+transform changes while retaining unchanged local-space draft buffers. The
+dedicated highlight wire request requires an explicit angle or `null`.
+
 Each adapter has its own dedicated toolbar entry, following Orca’s independent
 support, seam, fuzzy-skin and MMU gizmo entries. Do not hide the adapters behind
 a shared channel picker. Expose each entry only when its complete boundary passes

@@ -34,7 +34,7 @@ struct PartDraft {
     std::array<std::size_t, 17> facet_counts() const;
 };
 
-enum class Tool { Circle, Sphere, Triangle, Height, Region, Gap, EraseAll };
+enum class Tool { Circle, Sphere, Triangle, Height, Region, SmartFill, Gap, EraseAll, Overhang };
 enum class Phase { Idle, Drawing, Finished };
 struct Settings {
     int state = 1;
@@ -44,6 +44,8 @@ struct Settings {
     double height = 1.;
     std::optional<double> angle = 30.; // nullopt disables geometry edge detection.
     double gap_area = 0.;
+    std::optional<double> overhang_angle;
+    bool restrict_to_overhangs = false;
     void validate(Channel channel) const;
 };
 // Matrices are OpenGL column-major, pointer and viewport use the same CSS-pixel
@@ -74,6 +76,7 @@ struct Preview {
     // Leaf IDs refer to the unchanged Session::parts selectors, not the
     // prospective selectors above. Gap fragments remain separately inspectable.
     std::vector<std::vector<NativeSelector::GapPatch>> gap_regions;
+
 };
 
 struct Session {
@@ -95,6 +98,8 @@ struct Session {
     std::optional<PointerEvent> last_event;
     std::optional<Hit> last_hit;
     std::optional<Preview> preview;
+    std::uint64_t highlight_revision = 0;
+    std::optional<double> highlight_angle; // Independent of selection candidates and strokes.
     bool effective = false;
     std::vector<std::size_t> changed_parts;
 };

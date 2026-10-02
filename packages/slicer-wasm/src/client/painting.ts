@@ -56,7 +56,7 @@ export type PaintingSessionResult = { readonly ok: true; readonly version: 1; re
   | { readonly error: string };
 export type PaintingSessionCloseResult = { readonly ok: true; readonly version: 1; readonly channel: PaintingChannel } | { readonly error: string };
 
-export type PaintingTool = 'circle' | 'sphere' | 'triangle' | 'height' | 'region' | 'gap' | 'eraseAll';
+export type PaintingTool = 'circle' | 'sphere' | 'triangle' | 'height' | 'region' | 'smartFill' | 'gap' | 'eraseAll';
 /** Present only in a dedicated NEO_PAINTING_PROFILE WASM build. Cumulative Worker-thread counters. */
 export interface PaintingProfileCounters {
   readonly nativeHitUs: number; readonly nativeHitCalls: number;
@@ -73,10 +73,14 @@ export interface PaintingSettings {
   readonly radius?: number;
   /** World-Z band height in millimetres, default 1. */
   readonly height?: number;
-  /** 0..90 degrees, default 30; null disables geometry-edge detection. */
+  /** 0..90 degrees, default 30; null disables MMU Region geometry-edge detection; Smart Fill requires a numeric angle. */
   readonly angle?: number | null;
   /** Pinned Orca mesh-space patch area threshold, 0..5 mm², default 0. */
   readonly gapArea?: number;
+  /** Support-only, 0..90 degrees. Zero disables the pinned native filter; null clears highlighting. */
+  readonly overhangAngle?: number | null;
+  /** Requires overhangAngle; enforced in circle/sphere/Smart Fill selection. */
+  readonly restrictToOverhangs?: boolean;
 }
 export interface PaintingPointerEvent {
   /** Same CSS-pixel coordinate system as viewport, top-left origin. */
@@ -87,7 +91,7 @@ export interface PaintingPointerEvent {
   readonly view: readonly number[];
 }
 export interface PaintingPreviewRequest extends PaintingSessionRequest {
-  readonly tool: 'triangle' | 'region' | 'gap';
+  readonly tool: 'triangle' | 'region' | 'smartFill' | 'gap' | 'overhang';
   readonly settings: PaintingSettings;
   readonly event?: PaintingPointerEvent;
 }
@@ -140,7 +144,7 @@ export interface PaintingGeometryRequest extends PaintingSessionRequest { readon
 export interface PaintingGeometry {
   readonly volumeId: number;
   readonly resourceId: string;
-  readonly kind: 'draft' | 'triangle' | 'region' | 'gap';
+  readonly kind: 'draft' | 'triangle' | 'region' | 'smartFill' | 'gap' | 'overhang';
   /** Nonindexed local-space P3N3 triangle vertices. */
   readonly vertices: Float32Array;
   readonly groups: readonly (readonly [state: number, firstVertex: number, vertexCount: number])[];
@@ -149,7 +153,8 @@ export interface PaintingGeometry {
 }
 export type PaintingGeometryResult = { readonly ok: true; readonly version: 1; readonly channel: PaintingChannel; readonly sessionId: string;
   readonly revision: number; readonly parts: readonly { volumeId: number; resourceId: string }[];
-  readonly candidates: readonly { volumeId: number; resourceId: string; kind: 'triangle' | 'region' | 'gap' }[];
+  /** Selection overlays plus independent support overhang geometry; overhang never grants Apply ownership. */
+  readonly candidates: readonly { volumeId: number; resourceId: string; kind: 'triangle' | 'region' | 'smartFill' | 'gap' | 'overhang' }[];
   readonly resources: readonly PaintingGeometry[]; readonly paintingProfile?: PaintingProfileCounters } | { readonly error: string };
 export type PaintingSettlementResult = { readonly ok: true; readonly version: 1; readonly settledVersion: number;
   readonly projections: unknown } | { readonly error: string };

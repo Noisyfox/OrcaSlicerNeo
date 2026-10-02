@@ -6,7 +6,12 @@ const record = (value: unknown): value is Record<string, unknown> => !!value && 
 const integer = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
 const channels = ['mmu', 'support', 'seam', 'fuzzy'] as const;
 const channel = (value: unknown): value is PaintingChannel => channels.includes(value as PaintingChannel);
-const validTool = (c: PaintingChannel, tool: unknown): boolean => c === 'mmu' || tool === 'circle' || tool === 'sphere' || tool === 'eraseAll' || (c === 'fuzzy' && tool === 'triangle');
+const validTool = (c: PaintingChannel, tool: unknown): boolean => {
+  const shared = ['circle', 'sphere', 'eraseAll'];
+  const specific = c === 'mmu' ? ['triangle', 'height', 'region', 'gap']
+    : c === 'support' ? ['smartFill', 'gap', 'overhang'] : c === 'fuzzy' ? ['triangle', 'smartFill'] : [];
+  return [...shared, ...specific].includes(String(tool));
+};
 const maxState = (value: PaintingChannel): number => value === 'mmu' ? 16 : value === 'fuzzy' ? 1 : 2;
 function envelope(value: unknown): asserts value is Record<string, unknown> {
   if (!record(value) || (typeof value.error !== 'string' && (value.ok !== true || value.version !== 1)))
@@ -37,20 +42,26 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
     const parts = raw.parts.map((part: unknown) => {
       if (!record(part) || !integer(part.volumeId, 1) || volumeIds.has(part.volumeId) || typeof part.resourceId !== 'string' ||
           !new RegExp(`^pd-${request.channel}-${request.sessionId.slice(3)}-[1-9]\\d*-${part.volumeId}$`).test(part.resourceId) || ids.has(part.resourceId)) throw new Error('invalid painting part');
+      const geometryRevision = Number(part.resourceId.split('-')[3]);
+      if (!integer(geometryRevision, 1) || geometryRevision > request.revision) throw new Error('invalid painting part revision');
       ids.add(part.resourceId); volumeIds.add(part.volumeId);
       return { volumeId: part.volumeId, resourceId: part.resourceId };
     });
     const candidates = raw.candidates.map((candidate: unknown) => {
       if (!record(candidate) || !integer(candidate.volumeId, 1) || !parts.some(p => p.volumeId === candidate.volumeId) ||
-          !validTool(request.channel, candidate.kind) || (candidate.kind !== 'triangle' && candidate.kind !== 'region' && candidate.kind !== 'gap') || typeof candidate.resourceId !== 'string' ||
-          !new RegExp(`^pc-${request.channel}-${request.sessionId.slice(3)}-${request.revision}-${candidate.volumeId}${candidate.kind === 'gap' ? '-[0-9]+' : ''}$`).test(candidate.resourceId) || ids.has(candidate.resourceId))
+          !validTool(request.channel, candidate.kind) || (candidate.kind !== 'triangle' && candidate.kind !== 'region' && candidate.kind !== 'gap' && candidate.kind !== 'smartFill' && candidate.kind !== 'overhang') || typeof candidate.resourceId !== 'string' ||
+          !(candidate.kind === 'overhang' ? new RegExp(`^${parts.find(p => p.volumeId === candidate.volumeId)!.resourceId.replace(/^pd-/, 'ph-')}-[1-9]\\d*$`) : new RegExp(`^pc-${request.channel}-${request.sessionId.slice(3)}-${request.revision}-${candidate.volumeId}${candidate.kind === 'gap' ? '-[0-9]+' : ''}$`)).test(candidate.resourceId) || ids.has(candidate.resourceId))
         throw new Error('invalid painting candidate manifest');
+      if (candidate.kind === 'overhang') {
+        const highlightRevision = Number(candidate.resourceId.split('-').at(-1));
+        if (!integer(highlightRevision, 1) || highlightRevision > request.revision) throw new Error('invalid painting highlight revision');
+      }
       ids.add(candidate.resourceId);
-      return { volumeId: candidate.volumeId, resourceId: candidate.resourceId, kind: candidate.kind as 'triangle' | 'region' | 'gap' };
+      return { volumeId: candidate.volumeId, resourceId: candidate.resourceId, kind: candidate.kind as 'triangle' | 'region' | 'gap' | 'smartFill' | 'overhang' };
     });
     const resources = raw.resources.map((entry: unknown) => {
       if (!record(entry) || !integer(entry.volumeId, 1) || !parts.some(p => p.volumeId === entry.volumeId) ||
-          typeof entry.resourceId !== 'string' || (entry.kind !== 'draft' && entry.kind !== 'triangle' && entry.kind !== 'region' && entry.kind !== 'gap') || !Array.isArray(entry.groups) || !integer(entry.vertexCount) || !integer(entry.contourVertexCount))
+          typeof entry.resourceId !== 'string' || (entry.kind !== 'draft' && entry.kind !== 'triangle' && entry.kind !== 'region' && entry.kind !== 'gap' && entry.kind !== 'smartFill' && entry.kind !== 'overhang') || !Array.isArray(entry.groups) || !integer(entry.vertexCount) || !integer(entry.contourVertexCount))
         throw new Error('invalid painting geometry');
       if (entry.kind === 'draft' ? !parts.some(p => p.resourceId === entry.resourceId && p.volumeId === entry.volumeId)
           : !candidates.some(candidate => candidate.resourceId === entry.resourceId && candidate.kind === entry.kind && candidate.volumeId === entry.volumeId)) throw new Error('invalid painting resource identity');
@@ -65,7 +76,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
         states.add(group[0]); end += group[2];
       }
       if (end !== entry.vertexCount) throw new Error('invalid painting group coverage');
-      return { volumeId: entry.volumeId, resourceId: entry.resourceId, kind: entry.kind as 'draft' | 'triangle' | 'region' | 'gap', vertices, contour, groups: entry.groups as [number, number, number][] };
+      return { volumeId: entry.volumeId, resourceId: entry.resourceId, kind: entry.kind as 'draft' | 'triangle' | 'region' | 'gap' | 'smartFill' | 'overhang', vertices, contour, groups: entry.groups as [number, number, number][] };
     });
     if (new Set(resources.map(resource => resource.resourceId)).size !== resources.length) throw new Error('duplicate painting resource');
     for (const part of [...parts, ...candidates]) if (!resources.some(resource => resource.resourceId === part.resourceId) && !request.knownResourceIds?.includes(part.resourceId))

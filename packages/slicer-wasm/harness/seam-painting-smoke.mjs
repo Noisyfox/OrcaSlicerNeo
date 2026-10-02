@@ -10,8 +10,8 @@ import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 
 const modulePath = process.argv[2];
-if (!modulePath) throw new Error('usage: seam-painting-smoke.mjs <orca_slice.js>');
-const output = resolve('packages/slicer-wasm/.work/step15-seam');
+if (!modulePath) throw new Error('usage: seam-painting-smoke.mjs <orca_slice.js> [output-directory]');
+const output = resolve(process.argv[3] ?? 'packages/slicer-wasm/.work/step15-seam');
 await mkdir(output, { recursive: true });
 const Module = await (await loadModuleFactory(modulePath))({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(resolve(import.meta.dirname, '../../profile-resources/dist')));

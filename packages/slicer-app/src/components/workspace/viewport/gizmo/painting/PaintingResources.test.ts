@@ -63,3 +63,20 @@ describe('borrowed painting cursor geometry and transform identity', () => {
     expect(geometry.getAttribute('position').count).toBe(3); geometry.dispose(); replacement.dispose(); material.dispose();
   });
 });
+
+it('retains highlights beside SmartFill, reuses hover buffers, and disposes clear/re-enable resources',()=> {
+  const cache=new PaintingResources();const support={...session,channel:'support' as const};
+  const native=(revision:number,highlight:boolean,smartFill:boolean,resources:PaintingGeometry[])=>({
+    ...display(resources,'a',[],revision),channel:'support' as const,
+    candidates:[...(highlight?[{volumeId:3,resourceId:'h',kind:'overhang' as const}]:[]),...(smartFill?[{volumeId:3,resourceId:'c',kind:'smartFill' as const}]:[])]
+  });
+  const h={...resource('h'),kind:'overhang' as const},c={...resource('c'),kind:'smartFill' as const};
+  cache.update(native(1,true,false,[resource('a'),h]),support);
+  const retained=cache.resources.get('h')!;const dispose=vi.spyOn(retained.geometry,'dispose');
+  cache.update(native(2,true,true,[c]),{...support,revision:2});
+  expect(cache.resources.get('h')).toBe(retained);
+  cache.update(native(3,true,false,[]),{...support,revision:3});
+  expect(cache.resources.get('h')).toBe(retained);expect(dispose).not.toHaveBeenCalled();
+  cache.update(native(4,false,false,[]),{...support,revision:4});expect(dispose).toHaveBeenCalledTimes(1);
+  cache.update(native(5,true,false,[h]),{...support,revision:5});expect(cache.resources.get('h')).not.toBe(retained);cache.dispose();
+});

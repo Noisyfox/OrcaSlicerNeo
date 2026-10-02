@@ -210,3 +210,37 @@ it.each(['support', 'seam', 'fuzzy'] as const)('rejects illegal %s imported/cand
     await expect(client.readPaintingSession({ version: 1, channel: c, sessionId: opened.session.id, revision: 1 })).rejects.toThrow();
   }
 });
+
+it.each(['support','fuzzy'] as const)('decodes %s SmartFill with exact channel candidate identity', channel => {
+  const {m,raw}=geometry(); raw.channel=channel;raw.parts[0].resourceId=`pd-${channel}-1-1-3`;raw.resources[0].resourceId=raw.parts[0].resourceId;
+  raw.candidates=[{volumeId:3,resourceId:`pc-${channel}-1-1-3`,kind:'smartFill'}];
+  const req={...request,channel,knownResourceIds:[raw.candidates[0].resourceId]};
+  expect(decodePaintingGeometry(m,raw,req)).toMatchObject({candidates:[{kind:'smartFill'}]});
+});
+it('retains support highlight identity independently of candidate revision and rejects stale/cross-channel resources',()=> {
+  const {m,raw,freed,a}=geometry();raw.channel='support';raw.revision=8;
+  raw.parts[0].resourceId='pd-support-1-1-3';raw.resources[0].resourceId=raw.parts[0].resourceId;
+  raw.candidates=[{volumeId:3,resourceId:'ph-support-1-1-3-2',kind:'overhang'}];
+  const req={...request,channel:'support' as const,revision:8,knownResourceIds:['ph-support-1-1-3-2']};
+  expect(decodePaintingGeometry(m,raw,req)).toMatchObject({candidates:[{kind:'overhang'}]});
+  expect(freed).toHaveBeenCalledWith(a);
+  for(const key of ['ph-mmu-1-1-3-2','ph-support-1-7-3-2','pc-support-1-8-3','ph-support-1-1-3-9','ph-support-1-1-3-9007199254740992']) {
+    raw.candidates[0].resourceId=key;expect(()=>decodePaintingGeometry(m,raw,{...req,knownResourceIds:[key]})).toThrow();
+  }
+});
+
+it.each(['9','9007199254740992'])('rejects impossible draft revision %s even with a consistent highlight prefix and releases its lease',revision=> {
+  const {m,raw,a,freed}=geometry();raw.channel='support';raw.revision=8;
+  raw.parts[0].resourceId=`pd-support-1-${revision}-3`;raw.resources[0].resourceId=raw.parts[0].resourceId;
+  raw.candidates=[{volumeId:3,resourceId:`ph-support-1-${revision}-3-2`,kind:'overhang'}];
+  expect(()=>decodePaintingGeometry(m,raw,{...request,channel:'support',revision:8})).toThrow('part revision');
+  expect(freed).toHaveBeenCalledWith(a);
+});
+
+it('releases a fresh native lease when a highlight revision is in the future',()=> {
+  const {m,raw,a,freed}=geometry();raw.channel='support';raw.revision=8;
+  raw.parts[0].resourceId='pd-support-1-1-3';raw.resources[0].resourceId=raw.parts[0].resourceId;
+  raw.candidates=[{volumeId:3,resourceId:'ph-support-1-1-3-9',kind:'overhang'}];
+  expect(()=>decodePaintingGeometry(m,raw,{...request,channel:'support',revision:8})).toThrow('highlight revision');
+  expect(freed).toHaveBeenCalledWith(a);
+});

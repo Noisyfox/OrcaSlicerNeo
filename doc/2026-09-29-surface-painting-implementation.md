@@ -7,8 +7,8 @@ adapter work; historical MMU work used `dev/surface-painting-spec`.
 
 **Status:** Steps 01–12 implemented and independently accepted; MMU functional
 delivery qualified 2026-09-30. Scheme B support/seam/fuzzy adapters approved and
-implementation authorized 2026-10-02; steps 13–15 independently accepted,
-steps 16–19 pending. Quantitative
+implementation authorized 2026-10-02; steps 13–16 independently accepted,
+steps 17–19 pending. Quantitative
 performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
@@ -257,7 +257,9 @@ a toolbar entry appears only when its complete channel stage is accepted.
 - Step 14: independently accepted by the parent on 2026-10-02; four-channel
   history/cache restoration is implemented.
 - Step 15: independently accepted by the parent on 2026-10-02; complete Seam
-  editor, persistence and native downstream slicing are implemented. Steps 16–19
+  editor, persistence and native downstream slicing are implemented.
+- Step 16: independently accepted by the parent on 2026-10-02; native Smart Fill,
+  Support Gap and independent overhang foundations are implemented. Steps 17–19
   remain pending.
 - Existing serial/threaded build trees and pnpm/native tools were verified by the
   parent as available for this checkout. Children must still verify configured
@@ -678,7 +680,7 @@ status and are not reclassified by this acceptance.
 
 ### 16. Native Smart Fill and support Gap/overhang foundations
 
-**Status:** Pending. **Depends on:** 15 accepted/committed.
+**Status:** Accepted by parent. **Depends on:** 15 accepted/committed.
 **Model:** gpt-6.1-sol / medium. **Verification:** W+T+A.
 
 **Allowed scope:** Non-GUI native selection/preview/Apply adapters, typed settings
@@ -705,6 +707,130 @@ All-six MMU and seam regressions remain passing.
 state/tree ownership, candidate resource revisions and Apply atomicity; rerun real
 native membership/annotation assertions and affected checks. No unfinished
 support/fuzzy consumer is exposed and existing Region Fill semantics are retained.
+
+**Step 16 accepted implementation:** Native `smartFill` is a
+separate support/fuzzy tool. It calls pinned `seed_fill_select_triangles`, follows
+local source-normal edge angles across original facets and their subdivision
+children, and ignores existing paint states. MMU `region` retains its state-barrier
+bucket fill. Smart Fill requires a numeric 0–90 degree angle; `null` remains an
+MMU Region-only way to disable geometry edge detection. Preview and actual stroke
+share the native parameters and channel revision; candidate admission checks the
+complete settings, including overhang threshold/restriction and brush dimensions.
+Support `gap` uses the existing object-wide native patch algorithm and ordered
+lowest adjacent state (0 before 1 before 2), with preview-only calculation and
+one Apply transaction over all solid parts.
+
+Support overhang geometry is an independent, native-owned overlay. It survives
+Smart Fill/Gap candidate replacement, drawing, cancellation, commit, target
+changes and history reconciliation. Its `ph-support` identity depends on the
+active draft geometry revision and highlight-setting revision; unchanged hover
+reuses its buffers. Transform/target changes invalidate the highlight identity
+without invalidating unchanged local-space draft buffers. Native inverse-transpose
+normalized surface normals and the pinned strict cosine comparison determine
+membership. A numeric zero disables the native filter and includes every eligible
+leaf; `null` clears the overlay. Restricted painting requires a numeric angle.
+The 90-degree pinned float-radian boundary admits exactly vertical side normals;
+the adapter intentionally matches that native behavior. Circle, sphere and Smart
+Fill pass the same restriction into native selection. Highlight requests grant
+no Apply candidate receipt and never write annotations, dirty state or history.
+Typed resource validation rejects cross-channel, stale/future and unsafe revision
+identities; native leases and shared buffers are disposed on clear/replacement.
+
+Support/fuzzy toolbar entries and their consumer controls remain hidden. The
+existing shared overlay renderer/resources can retain highlights concurrently
+with selection candidates. MMU and Seam continue to reject Smart Fill and omit
+support-only settings from native requests. No support generation preview,
+horizontal restriction, angle batch operation or later editor step is included.
+
+The [foundation harness](../packages/slicer-wasm/harness/painting-foundations-smoke.mjs)
+compares actual native preview/edit membership, annotations, project/history and
+plate snapshots, retained/cleared highlights, restrictions, gap destinations and
+unchanged channel streams. Focused C++ fixtures additionally cover multipart Gap,
+all destinations, adjacent different-state selection, mirrored/nonuniform/tilted
+transforms and below/at/above angular boundaries. Child self-verification passed:
+
+- Focused native C++ test: configure with
+  `emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=ON -DNEO_PAINTING_PROFILE=OFF`,
+  build with `ninja -C packages/slicer-wasm/.work/serial/build painting_session_test -j 8`,
+  and run the preserved executable with
+  `pnpm exec node packages/slicer-wasm/.work/step16-native/painting_session_test.cjs`.
+  It covers the new native fixtures plus six-tool, seam and lifecycle regressions.
+- Restore production with the same configure command using
+  `-DNEO_PROJECT_HISTORY_TEST=OFF -DNEO_PAINTING_PROFILE=OFF`, then
+  `bash scripts/build.sh quick --variant serial -j 8`; final flags are OFF/OFF
+  and `WASM_THREADING=0`. The driver requires `-j 8`, not `-j8`.
+- `pnpm exec node packages/slicer-wasm/harness/painting-foundations-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`:
+  all new foundation assertions pass, including committed support/fuzzy tree
+  independence and unchanged preview-only history/plate/project observations.
+- `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --expect-production`:
+  comprehensive production publication/geometry/history/remapping/3MF/slicing
+  checks pass, with actual MMU downstream output of 47,012 segments. Injected
+  rollback hooks are compiled out of this ordinary artifact.
+- `pnpm exec node packages/slicer-wasm/harness/painting-engine-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  and the equivalent `painting-session-smoke.mjs` command: six-tool and native
+  lifecycle regressions pass.
+- `pnpm exec node packages/slicer-wasm/harness/seam-painting-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/.work/step16-seam`:
+  native 0/1/2, tree round-trip and actual seam placement pass (0 baseline,
+  53 enforced and 0 blocked). The optional evidence directory preserves the
+  prior accepted step's artifacts.
+- Root `NODE_OPTIONS=--no-experimental-webstorage pnpm test` and the equivalent
+  `pnpm typecheck`: pass on Node 26.7.0: 1,328 tests, including app 893 and client 266. Node 24.19.0 remains the repository pin.
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`:
+  current-artifact real Electron utility-worker painting journey passes 1/1
+  (35.9 seconds), including MMU and Seam. Source/staged module hashes match.
+- Sequential `NODE_OPTIONS=--no-experimental-webstorage pnpm --filter @orca/desktop build`
+  and `pnpm --filter @orca/web build`, then
+  `pnpm exec node scripts/check-painting-profile-elision.mjs`: pass; instrumentation
+  is absent from all 24 inspected ordinary production artifacts.
+- `git diff --check` and changed local-link/command checks pass.
+
+Final production serial SHA256 values: JS
+`bfd296e2107ab85196b4fc72146fd387e3e55e20f99a7ebeea7a179ebba69e65`, WASM
+`d5271e3c9e818d6c3c583c56575c8492e286d1f5ffba3cb6fff03b1cf82e2d44`, data
+`6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+Desktop staged JS/WASM/data match the native artifact byte-for-byte. Web
+WASM/data also match; its ordinary web-only JS loader exactly matches the
+existing `apps/web/vite.config.ts` Node-import/process removal transform and has
+SHA256 `1a9943cc5a33b6af3d53f50f2b10ff96b36bdd7725376ee1443286e076e99c91`.
+Logs, preserved gated native executable/cache/source manifest, seam/Electron
+evidence, all changed-source hashes and artifact hashes are listed in
+`packages/slicer-wasm/.work/step16-handoff.json`. Pinned C++ remains
+`489cbe91840ff97aaf4d8029009d5db410f32893`, with no submodule modifications.
+
+Full Web/dual-variant/release/performance qualification remains step 19. Complete
+support/fuzzy editor and slicing-effect acceptance remain steps 18/17. Existing
+optional multi-filament command and nullable preset-draft smoke limitations from
+step 14 were not rerun or relabeled as passing.
+
+**Independent parent acceptance (2026-10-02):** The parent read every changed
+production/test file and the new harness, including native selection and
+candidate admission, bridge publication/resource leases, strict client manifests,
+mock parity, controller tool/settings/display ownership and renderer resource
+retention. Graph change detection was used first, but its index was still built
+at `dbee028`; the review used current source and executable tests for coverage.
+Review repairs completed by this step's same child included independent highlight
+lifetime, transform-specific highlight invalidation without draft rebuilding,
+Support-only settings stripping, exact pinned angular boundaries, all Gap
+destinations, committed Fuzzy tree isolation and safe/future resource revisions.
+The parent folded the resulting accepted semantics into section 2.4 of the spec.
+
+Parent independently passed the same root test command (1,328 tests) and
+`pnpm typecheck`, the serial quick command, preserved native C++ executable,
+foundation/backend/engine/session harnesses, and seam harness with the separate
+output directory `packages/slicer-wasm/.work/step16-parent-seam`. The native
+backend again produced 47,012 MMU segments; seam remained 0/53/0 with exact
+erase/history/save-reopen checks. The current-artifact Electron runner passed
+1/1 (40.9 seconds), and the parent inspected its rotated-camera Seam screenshot.
+Evidence is preserved in `packages/slicer-wasm/.work/step16-parent-electron-evidence`.
+Sequential ordinary Desktop then Web builds and the elision command passed on
+24 artifacts. All 21 child source hashes and 11 artifact hashes were verified;
+after parent rebuilds, artifact hashes still match the receipt. The actual serial
+JS/WASM omit all three native history/painting test exports, with OFF/OFF/0 flags.
+The parent also verified the pinned submodule is clean, re-fetched `origin/main`
+at `86ce9f7` and confirmed it is already an ancestor of this branch. Parent logs
+are `/tmp/painting-step16-parent-*.log`. Changed documentation links/anchors and
+commands and `git diff --check` passed. The stated step-17/18/19 qualification
+limits remain; no later child was launched before this acceptance. Step 16 accepted.
 
 ### 17. Complete fuzzy-skin editor and explicit configuration action
 
@@ -805,7 +931,7 @@ comparison remain explicit limitations, separate from functional qualification.
 - [x] 13 strict channel/native/transport boundary and all-six MMU regression accepted.
 - [x] 14 all-channel history, affected plates and support-derived invalidation accepted.
 - [x] 15 complete seam editor/save/slice accepted before entrypoint exposure.
-- [ ] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
+- [x] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
 - [ ] 17 complete fuzzy editor and explicit independent configuration action accepted.
 - [ ] 18 complete support editor and derived settlement accepted.
 - [ ] 19 both-host/variant interoperability, cleanup and functional qualification accepted.

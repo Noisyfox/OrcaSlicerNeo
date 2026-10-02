@@ -56,8 +56,10 @@ const char* history_name(Channel channel) {
 }
 namespace {
 void validate_tool(Channel channel, Tool tool) {
-    if (channel == Channel::Mmu || tool == Tool::Circle || tool == Tool::Sphere || tool == Tool::EraseAll ||
-        (channel == Channel::Fuzzy && tool == Tool::Triangle)) return;
+    if ((channel == Channel::Mmu && tool != Tool::SmartFill && tool != Tool::Overhang) ||
+        tool == Tool::Circle || tool == Tool::Sphere || tool == Tool::EraseAll ||
+        (channel == Channel::Fuzzy && (tool == Tool::Triangle || tool == Tool::SmartFill)) ||
+        (channel == Channel::Support && (tool == Tool::SmartFill || tool == Tool::Gap || tool == Tool::Overhang))) return;
     throw std::invalid_argument("painting tool is unavailable for channel");
 }
 }
@@ -132,6 +134,11 @@ void Settings::validate(Channel channel) const
         throw std::invalid_argument("painting size is outside native selector precision");
     if (angle && (!std::isfinite(*angle) || *angle < 0 || *angle > 90))
         throw std::invalid_argument("painting angle must be 0..90 or null");
+    if ((overhang_angle || restrict_to_overhangs) && channel != Channel::Support)
+        throw std::invalid_argument("overhang settings are support-only");
+    if (overhang_angle && (!std::isfinite(*overhang_angle) || *overhang_angle < 0 || *overhang_angle > 90))
+        throw std::invalid_argument("overhang angle must be 0..90");
+    if (restrict_to_overhangs && !overhang_angle) throw std::invalid_argument("overhang restriction requires an angle");
     if (!std::isfinite(gap_area) || gap_area < 0 || gap_area > 5)
         throw std::invalid_argument("painting gap area must be 0..5");
 }
@@ -244,8 +251,12 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
         // Near-plane ray origin, rather than camera position, also supplies the
         // correct parallel direction for an orthographic camera.
         const Vec3f source = (inverse * hit.ray_origin).cast<float>();
-        if (session.tool == Tool::Triangle || session.tool == Tool::Region) {
-            part.selector->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet,
+        if (session.tool == Tool::Triangle || session.tool == Tool::Region || session.tool == Tool::SmartFill) {
+            if (session.tool == Tool::SmartFill) {
+                if (!settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
+                part.selector->seed_fill_select_triangles(hit.local.cast<float>(), hit.original_facet, linear,
+                    clipping, float(*settings.angle), settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f, true);
+            } else part.selector->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet,
                 clipping, session.tool == Tool::Region && settings.angle ? float(*settings.angle) : -1.f,
                 session.tool == Tool::Region, true);
             part.selector->seed_fill_apply_on_triangles(state);
@@ -261,7 +272,8 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
                     hit.local.cast<float>(), source, float(settings.radius), type, transform, clipping);
             else cursor = TriangleSelector::SinglePointCursor::cursor_factory(hit.local.cast<float>(), source,
                 float(settings.radius), type, transform, clipping);
-            part.selector->select_patch(hit.original_facet, std::move(cursor), state, linear, true);
+            part.selector->select_patch(hit.original_facet, std::move(cursor), state, linear, true,
+                settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f);
         }
     }
 }
@@ -333,13 +345,17 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
     const auto& current = require(id, revision);
     settings.validate(current.channel);
     validate_tool(current.channel, tool);
+    if (tool == Tool::Overhang) throw std::invalid_argument("overhang highlighting is preview-only");
+    if (tool == Tool::SmartFill && !settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
     if ((tool == Tool::Gap || tool == Tool::EraseAll) == bool(event)) throw std::invalid_argument("painting tool event mismatch");
     if (candidate_revision && (*candidate_revision != revision || !current.preview || current.preview->tool != tool))
         throw std::invalid_argument("painting candidate is stale");
     if (tool == Tool::Gap && !candidate_revision) throw std::invalid_argument("gap Apply requires a current candidate");
     if (candidate_revision) {
         const auto& saved = current.preview->settings;
-        if (saved.state != settings.state || saved.erase != settings.erase || saved.angle != settings.angle || saved.gap_area != settings.gap_area)
+        if (saved.state != settings.state || saved.erase != settings.erase || saved.angle != settings.angle || saved.gap_area != settings.gap_area ||
+            saved.radius != settings.radius || saved.height != settings.height || saved.vertical != settings.vertical ||
+            saved.overhang_angle != settings.overhang_angle || saved.restrict_to_overhangs != settings.restrict_to_overhangs)
             throw std::invalid_argument("painting candidate settings changed");
         if (event) {
             const auto hit = pick(current, *event);
@@ -419,8 +435,9 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     const auto& current = require(id, revision);
     settings.validate(current.channel);
     validate_tool(current.channel, tool);
-    if (tool != Tool::Triangle && tool != Tool::Region && tool != Tool::Gap) throw std::invalid_argument("painting tool has no candidate preview");
-    if ((tool != Tool::Gap) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
+    if (tool != Tool::Triangle && tool != Tool::Region && tool != Tool::SmartFill && tool != Tool::Gap && tool != Tool::Overhang) throw std::invalid_argument("painting tool has no candidate preview");
+    if (tool == Tool::SmartFill && !settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
+    if ((tool != Tool::Gap && tool != Tool::Overhang) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
     auto next = stage(current);
     const auto hit = event ? pick(current, *event) : std::optional<Hit>{};
     // Candidate selectors are isolated from the authoritative draft as well as
@@ -428,6 +445,12 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     Session work = current;
     work.tool = tool;
     Preview preview{tool, settings, hit, {}, {}, {}};
+    if (tool == Tool::Overhang) {
+        for (const auto& part : current.parts) inverse_checked((current.instance_transform * part.volume_transform).matrix());
+        if (current.highlight_angle != settings.overhang_angle) next->highlight_revision = next->revision;
+        next->highlight_angle = settings.overhang_angle;
+        return next;
+    }
     if (tool == Tool::Gap) for (auto& part : work.parts) {
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_selector(Profile::selector);
@@ -447,12 +470,17 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_region(Profile::selector);
 #endif
-        selected->bucket_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, {},
+        if (tool == Tool::SmartFill) {
+            Transform3d transform = current.instance_transform * current.parts[hit->part].volume_transform;
+            transform.translation().setZero();
+            selected->seed_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, transform, {},
+                float(*settings.angle), settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f, true);
+        } else selected->bucket_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, {},
             tool == Tool::Region && settings.angle ? float(*settings.angle) : -1.f, tool == Tool::Region, true);
         }
         preview.facet_selection = std::move(selected);
         std::vector<bool> touched(work.parts.size(), false);
-        if (tool == Tool::Region) apply_hit(work, settings, *hit, {}, touched);
+        if (tool == Tool::Region || tool == Tool::SmartFill) apply_hit(work, settings, *hit, {}, touched);
     }
     for (auto& part : work.parts) preview.selectors.push_back(std::move(part.selector));
     next->preview = std::move(preview);
@@ -470,6 +498,8 @@ std::unique_ptr<Session> Sessions::prepare_target(const Model& model, std::uint6
     candidate->history_session_id = previous.history_session_id;
     candidate->revision = revision + 1;
     candidate->next_stroke_id = previous.next_stroke_id;
+    candidate->highlight_angle = previous.highlight_angle;
+    candidate->highlight_revision = previous.highlight_angle ? candidate->revision : 0;
     bind(*candidate, model, object_id, instance_id);
     return candidate;
 }

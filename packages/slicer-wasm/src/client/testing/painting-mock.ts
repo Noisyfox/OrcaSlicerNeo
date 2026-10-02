@@ -20,7 +20,10 @@ export function paintingMock(hooks: {
     switch (channel) { case 'mmu': return 'paintState'; case 'support': return 'supportState'; case 'seam': return 'seamState'; case 'fuzzy': return 'fuzzyState'; default: throw new Error('invalid painting channel'); }
   };
   const validateTool = (tool: string) => {
-    if (session.channel !== 'mmu' && !['circle', 'sphere', 'eraseAll', ...(session.channel === 'fuzzy' ? ['triangle'] : [])].includes(tool)) throw new Error('painting tool unavailable for channel');
+    const tools = session.channel === 'mmu' ? ['circle','sphere','triangle','height','region','gap','eraseAll']
+      : session.channel === 'support' ? ['circle','sphere','smartFill','gap','eraseAll','overhang']
+      : session.channel === 'fuzzy' ? ['circle','sphere','triangle','smartFill','eraseAll'] : ['circle','sphere','eraseAll'];
+    if (!tools.includes(tool)) throw new Error('painting tool unavailable for channel');
   };
   const require = (request: any, idle = false) => {
     if (!session || session.historySessionId !== hooks.historySession() || request.channel !== session.channel || request.sessionId !== session.id || request.revision !== session.revision) throw new Error('painting session is stale');
@@ -46,6 +49,12 @@ export function paintingMock(hooks: {
     changedPartIds: session.parts.filter((_: any, i: number) => session.states[i] !== before[i]).map((part: any) => part.volumeId),
     hit: null, candidateRevision: session.candidate ? session.revision : null });
   const validateSettings = (request: any) => {
+    const settings = request.settings ?? {};
+    if ((settings.overhangAngle !== undefined || settings.restrictToOverhangs) && session.channel !== 'support') throw new Error('overhang settings are support-only');
+    if (settings.overhangAngle !== undefined && settings.overhangAngle !== null && (!Number.isFinite(settings.overhangAngle) || settings.overhangAngle < 0 || settings.overhangAngle > 90)) throw new Error('invalid overhang angle');
+    if (settings.restrictToOverhangs !== undefined && typeof settings.restrictToOverhangs !== 'boolean') throw new Error('invalid overhang restriction');
+    if (settings.restrictToOverhangs && (settings.overhangAngle === undefined || settings.overhangAngle === null)) throw new Error('missing overhang angle');
+    if (request.tool === 'smartFill' && settings.angle === null) throw new Error('Smart Fill requires an angle');
     const state = request.settings?.state ?? 1;
     if (!Number.isInteger(state) || state < 0 || state > maxState()) throw new Error('invalid painting state');
   };
@@ -72,13 +81,13 @@ export function paintingMock(hooks: {
     orc_painting_session_target(request) {
       require(request, true); const previous = session; session = null;
       try { const result: any = functions.orc_painting_session_open({ ...request, historySessionId: previous.historySessionId });
-        session.id = previous.id; session.revision = previous.revision + 1; session.parts.forEach((part: any) => part.generation = session.revision); return metadata();
+        session.id = previous.id; session.revision = previous.revision + 1; session.highlightRevision = previous.highlightRevision ? session.revision : 0; session.parts.forEach((part: any) => part.generation = session.revision); return metadata();
       } catch (error) { session = previous; throw error; }
     },
     orc_painting_session_close(request) { require(request, true); session = null; return { ok: true, version: 1, channel: request.channel }; },
-    orc_painting_preview(request) { require(request, true); validateTool(request.tool); validateSettings(request); session.candidate = request.tool; session.revision++; return receipt(); },
+    orc_painting_preview(request) { require(request, true); validateTool(request.tool); validateSettings(request); if (request.tool === 'overhang') { if (request.settings.overhangAngle === undefined) throw new Error('missing overhang angle'); session.highlightRevision = request.settings.overhangAngle === null ? 0 : session.revision + 1; } else session.candidate = request.tool; session.revision++; return { ...receipt(), ...(request.tool === 'overhang' ? { candidateRevision: null } : {}) }; },
     orc_painting_stroke_begin(request) {
-      sync(); require(request, true); validateTool(request.tool); validateSettings(request); before = [...session.states]; session.strokeId = `pst-${session.id.slice(3)}-${nextStroke++}`;
+      sync(); require(request, true); validateTool(request.tool); validateSettings(request); if (request.tool === 'overhang') throw new Error('overhang is preview-only'); before = [...session.states]; session.strokeId = `pst-${session.id.slice(3)}-${nextStroke++}`;
       session.candidate = false; session.phase = ['gap', 'eraseAll'].includes(request.tool) ? 'finished' : 'drawing'; apply(request); session.revision++; return receipt();
     },
     orc_painting_stroke_sample(request) { require(request); if (session.phase !== 'drawing' || request.strokeId !== session.strokeId) throw new Error('painting stroke stale'); apply(request); session.revision++; return receipt(); },
@@ -100,6 +109,7 @@ export function paintingMock(hooks: {
       require(request); const parts = metadata().session.parts.map((p: any) => ({ volumeId: p.volumeId, resourceId: p.draftResourceId }));
       const candidates = session.candidate ? [{ volumeId: parts[0].volumeId,
         resourceId: `pc-${session.channel}-${session.id.slice(3)}-${session.revision}-${parts[0].volumeId}${session.candidate === 'gap' ? '-0' : ''}`, kind: session.candidate }] : [];
+      if (session.highlightRevision) candidates.push(...parts.map((part: any) => ({ volumeId: part.volumeId, resourceId: `${part.resourceId.replace(/^pd-/, 'ph-')}-${session.highlightRevision}`, kind: 'overhang' })));
       const resources = [...parts.map((part: any) => ({ ...part, kind: 'draft' })), ...candidates]
         .flatMap((part: any, i: number) => request.knownResourceIds?.includes(part.resourceId) ? [] : [{ ...part,
           vertex_ptr: hooks.allocate([0,0,0,0,0,1,1,0,0,0,0,1,0,1,0,0,0,1]), vertexCount: 3,

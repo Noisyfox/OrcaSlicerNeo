@@ -431,7 +431,7 @@ for (const channel of ['support', 'seam', 'fuzzy']) {
   const validMax = channel === 'fuzzy' ? 1 : 2;
   for (const settings of [{ state: validMax + 1 }, { state: validMax + 1, erase: true }, { state: -1 }])
     error(command('orc_painting_stroke_begin', { ...handle(), tool: 'circle', settings, event: top() }));
-  for (const tool of ['region', 'height', 'gap', ...(channel === 'fuzzy' ? [] : ['triangle'])]) {
+  for (const tool of ['region', 'height', ...(channel === 'support' ? [] : ['gap']), ...(channel === 'fuzzy' ? [] : ['triangle'])]) {
     error(command('orc_painting_stroke_begin', { ...handle(), tool, settings: {}, ...(tool === 'gap' ? {} : { event: top() }) }));
     error(command('orc_painting_preview', { ...handle(), tool, settings: {}, ...(tool === 'gap' ? {} : { event: top() }) }));
   }

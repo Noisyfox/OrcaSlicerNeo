@@ -14,7 +14,7 @@ let root: Root, container: HTMLDivElement;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('PointerEvent', MouseEvent);
-  mocked.state = { phase: 'idle', channel: 'mmu', session: null, tool: 'circle', settings: { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0 }, error: null, display: null, epoch: 0 };
+  mocked.state = { phase: 'idle', channel: 'mmu', session: null, tool: 'circle', settings: { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false }, error: null, display: null, epoch: 0 };
   useFilamentSessionStore.setState({ snapshot: { slots: Array.from({ length: 18 }, (_, i) => ({ slot: i + 1, preset: { name: 'PLA', id: `${i}` }, colour: { effective: '#ff0000', provenance: 'explicit' } })) } as unknown as FilamentSessionSnapshot });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
