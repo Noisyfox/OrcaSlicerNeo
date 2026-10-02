@@ -148,11 +148,14 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
   `window.orca`, Electron, Node.js, or a host persistence/asset API directly.
   Electron: `contextIsolation: true`, `nodeIntegration: false`, renderer talks
   to the OS only through the preload `contextBridge` API.
-- **Process model**: WASM runs in a Web Worker; binary data transfers to the
-  viewport via transferable ArrayBuffers (no IPC hops). The runtime
-  (`packages/slicer-runtime`) selects the `threaded` artifact only when the
-  host is cross-origin isolated, otherwise the `serial` fallback (shown as a
-  non-blocking status).
+- **Process model**: Web runs WASM in a browser Worker and transfers binary
+  ArrayBuffers to the viewport. Electron's utility-host migration runs WASM
+  in a Node Worker inside a window-owned utility process, with a direct
+  renderer MessagePort and explicit IPC copying costs. Runtime orchestration
+  stays in `packages/slicer-runtime`; Web threading requires cross-origin
+  isolation, while Node detects its own threading capability. Both retain
+  the serial artifact. See `spec/Native Python Plugin Architecture.md` for
+  the validation scope and measurements.
 - **Settings UI**: rendered generically from `orc_get_option_metadata()` JSON —
   never duplicate option definitions in TS.
 - **Top-level page lifetime**: every application tab/page remains mounted for

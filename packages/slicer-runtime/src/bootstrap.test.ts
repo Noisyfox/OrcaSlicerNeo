@@ -4,6 +4,22 @@ import { createMockModule } from '../../slicer-wasm/src/client/testing/mock-modu
 import { createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
 
 describe('portable runtime bootstrap', () => {
+  it('does not resurrect readiness when initialization finishes after a fatal transport error', async () => {
+    let receive!: (message: WorkerMessage) => void;
+    let initialized!: () => void;
+    const runtime = createRuntimeBootstrap({
+      transport: { post() {}, onMessage(listener) { receive = listener; } },
+      capabilities: { webgl2: true, wasm64: true, threadedWasm: true },
+      initialize: () => new Promise<void>((resolve) => { initialized = resolve; }),
+    });
+    receive({ type: 'fatal', error: 'utility exited during startup' });
+    await expect(runtime.ready).rejects.toThrow('utility exited during startup');
+    initialized();
+    await Promise.resolve();
+    expect(runtime.status.phase).toBe('failed');
+    await expect(runtime.init()).rejects.toThrow('utility exited during startup');
+  });
+
   it('carries native history session identity, floor and reset through the shared runtime', async () => {
     const listeners: Array<(message: WorkerMessage) => void> = [];
     const transport: WorkerTransport = {

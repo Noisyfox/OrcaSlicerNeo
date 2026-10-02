@@ -18,6 +18,7 @@ import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocumen
 // The renderer's only window to native features (design §Electron App).
 // All IO goes through main; no node builtins leak into the renderer.
 const bridge: ElectronBridge = {
+  connectSlicerRuntime: () => ipcRenderer.send(Ipc.slicerConnect),
   version: '0.0.0-m2-shell',
 
   openFileDialog: (filters: FileDialogFilter[]) =>
@@ -125,3 +126,10 @@ const bridge: ElectronBridge = {
 };
 
 contextBridge.exposeInMainWorld('orca', bridge);
+
+ipcRenderer.on(Ipc.slicerPort, (event) => {
+  window.postMessage({ channel: 'orca:slicer-port' }, window.location.origin, event.ports);
+});
+ipcRenderer.on(Ipc.slicerFailed, (_event, error: string) => {
+  window.postMessage({ channel: 'orca:slicer-failed', error }, window.location.origin);
+});

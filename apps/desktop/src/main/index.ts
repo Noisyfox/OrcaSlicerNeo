@@ -19,6 +19,7 @@ import {
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 import { writeFileAtomically } from './atomicFile';
 import { summarizeElectronMemory } from './memoryIpc';
+import { attachSlicerUtility } from './slicerUtility';
 
 // Chromium documents this as a preference for a discrete GPU when multiple
 // adapters are available. It does not name or require a particular GPU; the
@@ -152,6 +153,7 @@ function createWindow(): void {
     },
   });
   mainWindow = win;
+  attachSlicerUtility(win);
   win.on('close', (event) => {
     if (allowWindowClose) return;
     event.preventDefault();

@@ -2,6 +2,12 @@
 
 ## Context
 
+- Current architecture validation: Electron utility-host migration, without
+  Python or new product features, is tracked in
+  [Native Python Plugin Architecture](../spec/Native%20Python%20Plugin%20Architecture.md).
+  Existing functional suites and real-project performance fixtures are the
+  acceptance basis; Web retains its browser Worker.
+
 - Scope: next-generation OrcaSlicer application on Electron and a conventional
   static Web host, sharing React + TypeScript + Vite + shadcn/ui features and
   a local WASM slicing core (`libslic3r`). Electron continues to target Windows

@@ -20,10 +20,12 @@ import type {
   RestoreResult,
 } from './history';
 import { createClient, dispatchClientRequest } from './client';
+import { collectTransferables } from './transfer';
 
 const REAL_PROJECT_PROFILE_BUILD = import.meta.env.VITE_REAL_PROJECT_PROFILE === '1';
 
 export type WorkerMessage =
+  | { type: 'fatal'; error: string }
   | { type: 'request'; id: number; op: string; args: unknown[]; serialTerminalEpoch?: string }
   | { type: 'response'; id: number; ok: boolean; result: unknown; error?: string }
   | { type: 'history-diagnostic'; diagnostic: HistoryWorkerDiagnostic }
@@ -136,25 +138,6 @@ function copyLayer(layer: HistoryDiagnosticLayer): HistoryDiagnosticLayer {
 
 function copyDiagnostics(diagnostics: HistoryTransportDiagnostics): HistoryTransportDiagnostics {
   return { worker: copyLayer(diagnostics.worker), client: copyLayer(diagnostics.client) };
-}
-
-function collectTransferables(value: unknown): Transferable[] {
-  const buffers = new Set<ArrayBuffer>();
-  const visit = (item: unknown): void => {
-    if (ArrayBuffer.isView(item)) {
-      const buffer = item.buffer;
-      // SharedArrayBuffer cannot be transferred; preview result arrays are
-      // ordinary copied ArrayBuffers, while progress mailbox is only sent in
-      // its dedicated message and is intentionally shared.
-      if (buffer instanceof ArrayBuffer) buffers.add(buffer);
-      return;
-    }
-    if (Array.isArray(item)) { item.forEach(visit); return; }
-    if (item && typeof item === 'object')
-      Object.values(item as Record<string, unknown>).forEach(visit);
-  };
-  visit(value);
-  return [...buffers];
 }
 
 export function startWorker(
@@ -286,6 +269,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   const progressListeners = new Set<(pct: number, text: string) => void>();
   const projectClosedListeners = new Set<ProjectClosedCallback>();
   let runtimeThreaded: boolean | undefined;
+  let fatalError: Error | undefined;
   let activeSliceRequests = 0;
   let serialSliceActive = false;
   let serialTerminalEpoch = '0';
@@ -310,6 +294,14 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   }
 
   transport.onMessage((msg) => {
+    if (msg.type === 'fatal') {
+      fatalError = new Error(msg.error);
+      for (const request of pending.values()) request.reject(fatalError);
+      pending.clear();
+      activeSliceRequests = 0;
+      serialSliceActive = false;
+      return;
+    }
     if (msg.type === 'history-diagnostic') {
       recordLayer('worker', msg.diagnostic);
       return;
@@ -352,6 +344,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   });
 
   function call(op: string, args: unknown[]): Promise<unknown> {
+    if (fatalError) return Promise.reject(fatalError);
     const id = nextId++;
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
       if (op === 'openHistorySession' || op === 'closeHistorySession') return Promise.reject(new Error('slice_busy'));
@@ -363,7 +356,16 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     }
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, op, startedAt: historyNow() });
-      transport.post({ type: 'request', id, op, args, serialTerminalEpoch });
+      try {
+        transport.post({ type: 'request', id, op, args, serialTerminalEpoch });
+      } catch (error) {
+        pending.delete(id);
+        if (op === 'slice' || op === 'slicePlate') {
+          activeSliceRequests -= 1;
+          serialSliceActive = false;
+        }
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
