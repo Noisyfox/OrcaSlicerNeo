@@ -58,6 +58,8 @@ Start each feature or design change with one dated, living task document in
 do not create phase-by-phase notes. When approved, promote that same document
 to `spec/` and remove superseded task notes.
 
+Write all repository documentation in English.
+
 ## Working rules
 
 1. Work on a dedicated development branch. Before starting a new issue, commit

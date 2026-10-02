@@ -224,7 +224,7 @@ same contract with browser `window.open` semantics for the fixed source URL.
 ## 5. Runtime and WASM Loading
 
 Electron's utility-host feasibility migration is authorized under
-[Native Python Plugin Architecture, section 12](Native%20Python%20Plugin%20Architecture.md#12-已授权的第一步utility-宿主可行性验证).
+[Native Python Plugin Architecture, section 12](Native%20Python%20Plugin%20Architecture.md#12-authorized-first-step-utility-host-feasibility-validation).
 Electron runs its existing WASM session in a Node Worker inside a window-owned
 utility process, connected directly to the renderer by MessagePort. Web keeps
 its browser Worker. This migration adds no Python/plugin capability.
