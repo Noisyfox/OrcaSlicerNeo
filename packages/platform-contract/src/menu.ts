@@ -74,6 +74,7 @@ export interface MenuStateSnapshot {
   };
   scene: {
     hasModel: boolean;
+    arranging: boolean;
   };
   result: {
     hasResult: boolean;

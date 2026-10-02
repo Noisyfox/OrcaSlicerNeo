@@ -32,7 +32,7 @@ function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapsh
     activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
-    scene: { hasModel: false },
+    scene: { hasModel: false, arranging: false },
     result: { hasResult: false, exported: false },
     project: { hasContent: true, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: false, menuMode: 'browser' },
@@ -68,7 +68,7 @@ describe('shared titlebar menu integration projection', () => {
   });
 
   it('projects startup, model, result, failed, and slicing states consistently', () => {
-    const raw = input({ host: { isElectron: true, menuMode: 'custom' }, scene: { hasModel: true } });
+    const raw = input({ host: { isElectron: true, menuMode: 'custom' }, scene: { hasModel: true, arranging: false } });
     const startup = items(windows, { ...raw, boot: { phase: 'starting', error: null } }).state;
     expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((command) => enabled(startup, command as MenuCommandId))).toEqual([
       false, false, false, false,

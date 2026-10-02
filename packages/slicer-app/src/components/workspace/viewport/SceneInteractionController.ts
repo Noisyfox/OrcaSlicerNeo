@@ -122,6 +122,9 @@ export class SceneInteractionController {
     return () => this.listeners.delete(listener);
   }
 
+  /** Publish authoritative transforms without changing selection or opening a gizmo. */
+  notifyTransformsChanged(): void { this.emit(); }
+
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }

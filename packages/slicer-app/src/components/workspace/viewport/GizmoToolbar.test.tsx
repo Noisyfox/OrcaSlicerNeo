@@ -11,7 +11,8 @@ const mocked = vi.hoisted(() => ({
   close: vi.fn(), open: vi.fn(),
   runtime: { getRuntimeExecutionState: () => ({ serialSliceActive: false }) },
 }));
-vi.mock('@orca/platform-contract', () => ({ usePlatform: () => ({ runtime: mocked.runtime }) }));
+vi.mock('@orca/platform-contract', async (importOriginal) => ({ ...await importOriginal<typeof import('@orca/platform-contract')>(), usePlatform: () => ({ runtime: mocked.runtime }) }));
+vi.mock('../arrangement/ArrangementControls', () => ({ ArrangementMenu: () => null }));
 vi.mock('./gizmo/painting/PaintingProvider', () => ({
   usePaintingState: () => ({ phase: mocked.phase }),
   usePaintingController: () => ({
