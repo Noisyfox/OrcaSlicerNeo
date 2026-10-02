@@ -118,13 +118,22 @@ if (JSON.stringify(snapshot()) !== JSON.stringify(beforeFailureSnapshot) ||
     JSON.stringify(status()) !== JSON.stringify(beforeFailureStatus))
   throw new Error('failed multi-target mutation changed native state, revisions, or history');
 
-const clamped = setProject('preferred_orientation', '1000');
+// Native preset metadata cannot become a Project override or history entry.
+const beforeMetadataSnapshot = snapshot();
+const beforeMetadataSession = session();
+const beforeMetadataStatus = status();
+const metadataOverride = setProject('preferred_orientation', '1000');
+if (metadataOverride.ok || metadataOverride.error_code !== 'unsupported_reference')
+  throw new Error(`preset metadata override was accepted: ${JSON.stringify(metadataOverride)}`);
+if (JSON.stringify(snapshot()) !== JSON.stringify(beforeMetadataSnapshot) ||
+    JSON.stringify(session()) !== JSON.stringify(beforeMetadataSession) ||
+    JSON.stringify(status()) !== JSON.stringify(beforeMetadataStatus))
+  throw new Error('rejected preset metadata changed configuration, revisions, or history');
+
+const clamped = setProject('sparse_infill_density', '1000%');
 requireOk('native clamp', clamped);
-// preferred_orientation is an edited-Print-preset option, not a native
-// project_config key; inspect the native full effective config for its result.
-const clampedValue = Number(requireOk('effective preset snapshot', callJson('orc_get_preset_snapshot'))
-  .project_config?.preferred_orientation);
-if (!Number.isFinite(clampedValue) || clampedValue >= 1000 ||
+const clampedValue = Number.parseFloat(snapshot().project?.sparse_infill_density);
+if (clampedValue !== 100 ||
     clamped.configuration_status?.corrections?.length !== 1)
   throw new Error(`native bound clamp was not reported: ${JSON.stringify(clamped)}`);
 
@@ -160,14 +169,23 @@ if (Object.hasOwn(snapshot().project ?? {}, 'wall_loops')) throw new Error('Redo
 requireOk('set category fixture', setProject('wall_loops', '6'));
 requireOk('reset Strength category', mutate('reset-category', [projectTarget], { category: 'Strength' }));
 if (Object.hasOwn(snapshot().project ?? {}, 'wall_loops')) throw new Error('category reset did not erase Quality key');
-requireOk('set extruder exclusion', setProject('extruder', '1'));
+const beforeExcluded = requireOk('effective excluded values', callJson('orc_get_preset_snapshot')).project_config ?? {};
+for (const [key, value] of [['extruder', '1']]) {
+  const before = { config: snapshot(), session: session(), history: status() };
+  const excluded = setProject(key, value);
+  if (excluded.ok || excluded.error_code !== 'unsupported_reference')
+    throw new Error(`excluded authority was accepted: ${JSON.stringify(excluded)}`);
+  if (JSON.stringify({ config: snapshot(), session: session(), history: status() }) !== JSON.stringify(before))
+    throw new Error(`rejected ${key} override changed native state`);
+}
 const filamentColour = snapshot().project?.filament_colour;
-if (typeof filamentColour === 'string') requireOk('materialize filament exclusion', setProject('filament_colour', filamentColour));
+if (typeof filamentColour === 'string')
+  requireOk('materialize filament exclusion', setProject('filament_colour', filamentColour));
 requireOk('reset all eligible keys', mutate('reset-all', [projectTarget]));
 const afterAll = snapshot().project ?? {};
 const afterAllEffective = requireOk('effective preset snapshot after reset all', callJson('orc_get_preset_snapshot'))
   .project_config ?? {};
-if (afterAllEffective.extruder !== '1' ||
+if (afterAllEffective.extruder !== beforeExcluded.extruder ||
     (typeof filamentColour === 'string' && afterAll.filament_colour !== filamentColour))
   throw new Error(`Reset All erased an excluded key: ${JSON.stringify(afterAll)}`);
 

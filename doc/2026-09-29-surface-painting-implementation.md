@@ -7,7 +7,8 @@ adapter work; historical MMU work used `dev/surface-painting-spec`.
 
 **Status:** Steps 01–12 implemented and independently accepted; MMU functional
 delivery qualified 2026-09-30. Scheme B support/seam/fuzzy adapters approved and
-implementation authorized 2026-10-02; steps 13–19 are pending. Quantitative
+implementation authorized 2026-10-02; steps 13–14 independently accepted,
+steps 15–19 pending. Quantitative
 performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
@@ -252,7 +253,9 @@ a toolbar entry appears only when its complete channel stage is accepted.
   source/diff review, local links/anchors, command references, native driver help
   and `git diff --check` passed. No adapter code is delivered by this piece.
 - Step 13: independently accepted by the parent on 2026-10-02; hidden native
-  adapters and strict transport are implemented. Steps 14–19 remain pending.
+  adapters and strict transport are implemented.
+- Step 14: independently accepted by the parent on 2026-10-02; four-channel
+  history/cache restoration is implemented. Steps 15–19 remain pending.
 - Existing serial/threaded build trees and pnpm/native tools were verified by the
   parent as available for this checkout. Children must still verify configured
   source roots, build flags and current artifact identity before running evidence.
@@ -382,7 +385,7 @@ support/seam/fuzzy slicing qualification.
 
 ### 14. Four-channel history restoration and slice invalidation
 
-**Status:** Pending. **Depends on:** 13 accepted/committed.
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** 13 accepted/committed.
 **Model:** gpt-6.1-sol / medium. **Verification:** N+W+T+A.
 
 **Allowed scope:** Native history/painting/plate cache and derived-use/Prime Tower
@@ -410,6 +413,87 @@ model/history/cache publication. Repeat mixed config/paint close and MMU history
 usage dependencies, deferred settlement and staged rollback. Independently rerun
 core and real plate/history scenarios plus affected package checks. Observe cache
 and slice outcomes, not only annotation equality; all new entries remain hidden.
+
+**Execution / acceptance (2026-10-02):** Fresh child
+`/root/painting_step14`, `gpt-6.1-sol` / medium, implemented and self-verified;
+parent independently reviewed the complete native/history/cache and harness diff.
+All four annotation fields now participate in affected before/after instance plate
+restoration. MMU/support evict implicated usage summaries and advance deferred
+settlement; seam/fuzzy preserve summaries and ordinary MMU renderer resources.
+Undo/Redo/Jump stage a transient native navigation owner that rolls back lazy
+live-top capture, saved markers, Redo, budget eviction and exact history accounting
+when reconciliation or response publication fails. No additional history authority
+or channel toolbar entry was introduced.
+
+The fault fixture exposed three native restoration defects: replay of an unchanged
+parentless Print owner, mutation of history accounting before failed publication,
+and unchanged Project/Print root replay invalidating an unrelated plate. Bounded
+repairs retain genuine owner/configuration restoration. Existing config fixtures
+were updated to the authoritative `renderables` field and current native override
+admission: rejected metadata remains atomic, density clamping and reset exclusion
+remain asserted.
+
+Parent verification passed (gated module below is the child's preserved final
+Release serial test build, not the ordinary production artifact):
+
+```sh
+pnpm exec node packages/slicer-wasm/.work/step14-history-test/timestamped_history_core_test.cjs
+pnpm exec node packages/slicer-wasm/.work/step14-history-test/painting_session_test.cjs
+pnpm exec node packages/slicer-wasm/harness/painting-history-plate-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/config-scope-invalidation-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/native-project-preset-history-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/native-scoped-config-mutation-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/transform-plate-invalidation-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/history-editing-session-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/prime-tower-cache-validity-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+bash scripts/build.sh quick --variant serial -j 8
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production
+NODE_OPTIONS=--no-experimental-webstorage pnpm test
+pnpm typecheck
+git diff --check
+```
+
+The new real-WASM fixture passed **48 fresh slices and 20 fault rollbacks** across
+all channels, shared instances on two plates and an independent third plate.
+It checks actual preview/export eligibility, unchanged unrelated results, retained
+ordinary scene resources, support FullScan versus seam/fuzzy Hit, deferred
+settlement and membership-changing Jump. Core tests cover exact failed-navigation
+accounting, saved marker, editing-session floor and successful navigation. The
+child also passed `history-smoke.mjs` against its gated module. Existing imported
+fixture parent-config diagnostics remain visible; all assertions passed.
+
+At the user's request, fetched and merged latest `origin/main` (`69f13cd`) in
+merge commit `0ff3a06` before proceeding. The unaccepted step-14 changes were
+stashed, merged without conflicts and restored byte-for-byte. Parent reran root
+checks after the merge: **1,303 tests passed**, plus typecheck. The new upstream
+regression also passed:
+
+```sh
+pnpm exec node packages/slicer-wasm/harness/prime-tower-slice-settings-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+```
+
+It confirms the DeltaMaker negative-coordinate bed and exported Prime Tower
+motion follow Prepare after a native tower move. The merge changes no native
+source; parent verified every source/artifact hash in the retained production
+receipt still matches. Production serial WASM SHA256 is
+`3e59fbf9ab4cee367c62dee48e7673625ca1c747a83d5ca98cb5bf4e6e180de8`;
+gated WASM is
+`e83626b953c4ea4e44b970bf875516bfbae469566b44d1703d83b870cb6e8308`.
+Production is Release, threading 0, painting profiling OFF, history hooks OFF.
+Parent confirmed commit-failure, restore-failure and cache-snapshot hooks are
+absent from production JS/WASM. The pinned C++ submodule remains unchanged.
+
+Two optional exploratory child checks remain **failing**, not accepted evidence:
+`multi-filament-command-smoke.mjs --module <gated module>` stops at imported
+scenario-reset identity equality (`filament-259` versus `filament-3`), before its
+history navigation cases; `preset-draft-registry-smoke.mjs --module <gated module>`
+stops at a nullable source vector assertion (`nil,nil,nil,nil,nil,nil` versus
+`nil`). Parent inspected those assertions and call paths; their current failures
+do not exercise the new painting restore paths. They must be reconciled at step
+19 if part of the applicable qualification gate. Host E2E, threaded build and full
+release qualification are intentionally deferred: this native foundation keeps
+new editors hidden. No downstream seam/fuzzy/support effects are claimed here.
 
 ### 15. Complete seam editor, native persistence and downstream slicing
 
@@ -567,7 +651,7 @@ comparison remain explicit limitations, separate from functional qualification.
 
 - [x] Documentation piece independently reviewed and verified; committed before step 13.
 - [x] 13 strict channel/native/transport boundary and all-six MMU regression accepted.
-- [ ] 14 all-channel history, affected plates and support-derived invalidation accepted.
+- [x] 14 all-channel history, affected plates and support-derived invalidation accepted.
 - [ ] 15 complete seam editor/save/slice accepted before entrypoint exposure.
 - [ ] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
 - [ ] 17 complete fuzzy editor and explicit independent configuration action accepted.

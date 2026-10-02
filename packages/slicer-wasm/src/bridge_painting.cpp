@@ -500,7 +500,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                 state().plate_runtime_registry.invalidate_presentations(affected);
                 context["plateSession"]["input_revisions"] = PlateSession::plate_revisions_json();
                 auto after = HistoryMetadata::capture_history_roots(state(), context);
-                PrimeTower::invalidate_projection_cache_and_usage_summaries(affected);
                 Sessions::complete(*candidate);
                 if (!state().history.commit_operation(after, nullptr, [&](const auto& history) {
                     auto result = receipt(*candidate);
@@ -515,7 +514,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                 started = false;
                 state().history_live_context.swap(context);
                 HistoryMetadata::advance_history_epoch(state());
-                ++state().painting_derived_version;
+                // MMU and support painting affect material/support use. Seam
+                // and fuzzy alter slicing but retain material-use summaries.
+                // Evict only after the history response has been prepared, so
+                // failed publication leaves warm caches and settlement intact.
+                if (candidate->channel == Channel::Mmu || candidate->channel == Channel::Support) {
+                    PrimeTower::invalidate_projection_cache_and_usage_summaries(affected);
+                    ++state().painting_derived_version;
+                } else {
+                    PrimeTower::invalidate_projection_cache(affected);
+                }
                 // Only noexcept publication work follows the history swap.
             } else {
                 Sessions::complete(*candidate);

@@ -90,7 +90,7 @@ if (!originA || !originB) throw new Error(`missing plate origins: ${JSON.stringi
 
 requireOk('add shared instance', callJson('orc_add_instance', ['number'], [sharedObjectId]));
 const sharedMesh = requireOk('shared mesh', callJson('orc_get_model_mesh'));
-const firstInstance = sharedMesh.objects?.find((entry) => entry.object_idx === 0 && entry.instance_idx === 0);
+const firstInstance = sharedMesh.renderables?.find((entry) => entry.object_idx === 0 && entry.instance_idx === 0);
 if (!firstInstance) throw new Error(`missing shared instance transform: ${JSON.stringify(sharedMesh)}`);
 const offset = firstInstance.instance_transform.offset;
 requireOk('place shared instance on B', callJson('orc_set_instance_offset',

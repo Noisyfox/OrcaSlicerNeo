@@ -71,6 +71,15 @@ using Neo::History::Codec::capture_model_state;
 namespace {
 
 constexpr int kMaxPlateCount = 36;
+#ifdef NEO_PROJECT_HISTORY_TEST
+int fail_next_restore_stage = 0;
+void restore_test_checkpoint(int stage) {
+    if (fail_next_restore_stage == stage) {
+        fail_next_restore_stage = 0;
+        throw std::runtime_error(stage == 1 ? "injected history reconciliation failure" : "injected history publication failure");
+    }
+}
+#endif
 
 bool history_operation_active(const BridgeState& bridge_state)
 {
@@ -380,7 +389,9 @@ void validate_filament_history_candidate(
 // A history archive includes configuration and painting state in addition to
 // renderer geometry. Compare the live native graphs for this one restore;
 // configuration-only and transform edits do not require retransferring unchanged
-// meshes. Authoritative transforms arrive in the same committed response.
+// meshes. Ordinary Prepare displays only MMU painting; other channels reconcile
+// their active editor without replacing ordinary scene resources. Authoritative
+// transforms arrive in the same committed response.
 bool renderer_object_unchanged(const ModelObject& before, const ModelObject& after)
 {
     if (before.id() != after.id() || before.name != after.name || before.printable != after.printable ||
@@ -391,9 +402,7 @@ bool renderer_object_unchanged(const ModelObject& before, const ModelObject& aft
         const auto& right = *after.volumes[i];
         if (left.id() != right.id() || left.name != right.name || left.type() != right.type() ||
             left.get_mesh_shared_ptr() != right.get_mesh_shared_ptr() || left.extruder_id() != right.extruder_id() ||
-            !left.mmu_segmentation_facets.equals(right.mmu_segmentation_facets) ||
-            !left.supported_facets.equals(right.supported_facets) ||
-            !left.seam_facets.equals(right.seam_facets) || !left.fuzzy_skin_facets.equals(right.fuzzy_skin_facets))
+            !left.mmu_segmentation_facets.equals(right.mmu_segmentation_facets))
             return false;
     }
     for (std::size_t i = 0; i < before.instances.size(); ++i)
@@ -405,7 +414,8 @@ bool renderer_object_unchanged(const ModelObject& before, const ModelObject& aft
 
 json restore_timestamped_result(const Runtime& runtime,
                                 const Neo::History::TimestampedRestore& restored,
-                                const std::uint64_t entry_id)
+                                const std::uint64_t entry_id,
+                                OwnedJsonResponse* publication = nullptr)
 {
     const double restore_started_at = Neo::Bridge::Performance::now_ms();
     Neo::History::Codec::RestoreTimings restore_timings;
@@ -452,6 +462,7 @@ json restore_timestamped_result(const Runtime& runtime,
     const auto before_current_plate = state().current_plate_id;
     const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
     const auto before_live_context = state().history_live_context;
+    const auto before_history_revision = state().history_revision;
     const auto before_preset_drafts = state().preset_drafts;
     const auto before_preset_draft_revision = state().preset_draft_revision;
     const auto before_native_scoped_config = native_scoped_config_snapshot();
@@ -488,8 +499,15 @@ json restore_timestamped_result(const Runtime& runtime,
         // The Project history root is an exact owner-aware replacement:
         // native project options restore to project_config, while ordinary
         // Print options restore as edited-preset differences from its parent.
-        Neo::Bridge::ScopedConfig::apply_project_scoped_config_snapshot(
-            staged_snapshot.value("project", json::object()));
+        // Replaying an unchanged scoped root is unnecessary and can normalize
+        // a parentless imported Print preset into different effective inputs.
+        // Annotation-only navigation must preserve that exact native owner.
+        // Owner changes still apply the historical overrides to their new base.
+        if (printer_selection_changed || print_preset_changed || preset_drafts_changed ||
+            before_native_scoped_config.value("project", json::object()) !=
+                staged_snapshot.value("project", json::object()))
+            Neo::Bridge::ScopedConfig::apply_project_scoped_config_snapshot(
+                staged_snapshot.value("project", json::object()));
         Neo::Bridge::PlateSession::normalize_coordinate_arrays(
             state().presets.project_config, state().plate_session_plates.size());
         validate_filament_history_candidate(
@@ -559,7 +577,10 @@ json restore_timestamped_result(const Runtime& runtime,
                 const auto found = after_volumes.find(volume_id);
                 if (found == after_volumes.end() ||
                     before_volume->get_transformation() != found->second->get_transformation() ||
-                    !before_volume->mmu_segmentation_facets.equals(found->second->mmu_segmentation_facets)) {
+                    !before_volume->mmu_segmentation_facets.equals(found->second->mmu_segmentation_facets) ||
+                    !before_volume->supported_facets.equals(found->second->supported_facets) ||
+                    !before_volume->seam_facets.equals(found->second->seam_facets) ||
+                    !before_volume->fuzzy_skin_facets.equals(found->second->fuzzy_skin_facets)) {
                     object_geometry_changed = true;
                     break;
                 }
@@ -670,6 +691,160 @@ json restore_timestamped_result(const Runtime& runtime,
         reconciled_painting = state().painting.prepare_reconcile(state().model);
         restore_timings.plate_session_native_config_restore_ms =
             Neo::Bridge::Performance::now_ms() - roots_restore_started_at;
+#ifdef NEO_PROJECT_HISTORY_TEST
+        restore_test_checkpoint(1);
+#endif
+        // Keep the existing pointer-free usage summaries when their actual native
+        // inputs are unchanged. A different object archive may change only layer
+        // height or wall count; it does not necessarily change painted filament use.
+        // Membership and effective global configuration are checked by the reader.
+        bool usage_unchanged = live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size();
+        for (std::size_t index = 0; usage_unchanged && index < live_model_state.mutable_objects.size(); ++index) {
+            const auto& before = live_model_state.mutable_objects[index];
+            const auto& after = restored.roots.model.mutable_objects[index];
+            usage_unchanged = before.id == after.id &&
+                before.volume_ids == after.volume_ids && before.instance_ids == after.instance_ids;
+            if (!usage_unchanged || before.data == after.data) continue;
+            const auto& old_object = *before_model.objects[index];
+            const auto& new_object = *state().model.objects[index];
+            for (const char* key : {"extruder", "support_interface_filament", "support_filament", "enable_support",
+                                   "raft_layers", "outer_wall_filament_id", "inner_wall_filament_id",
+                                   "sparse_infill_filament_id", "internal_solid_filament_id",
+                                   "top_surface_filament_id", "bottom_surface_filament_id"}) {
+                const auto* old_value = old_object.config.option(key);
+                const auto* new_value = new_object.config.option(key);
+                if (bool(old_value) != bool(new_value) ||
+                    (old_value && old_value->serialize() != new_value->serialize())) usage_unchanged = false;
+            }
+            if (old_object.layer_config_ranges.size() != new_object.layer_config_ranges.size()) usage_unchanged = false;
+            auto old_range = old_object.layer_config_ranges.begin();
+            auto new_range = new_object.layer_config_ranges.begin();
+            for (; usage_unchanged && old_range != old_object.layer_config_ranges.end(); ++old_range, ++new_range)
+                if (old_range->first != new_range->first || old_range->second.get() != new_range->second.get())
+                    usage_unchanged = false;
+            for (std::size_t volume_index = 0; usage_unchanged && volume_index < old_object.volumes.size(); ++volume_index) {
+                const auto& old_volume = *old_object.volumes[volume_index];
+                const auto& new_volume = *new_object.volumes[volume_index];
+                usage_unchanged = old_volume.type() == new_volume.type() &&
+                    old_volume.get_mesh_shared_ptr() == new_volume.get_mesh_shared_ptr() &&
+                    old_volume.extruder_id() == new_volume.extruder_id() &&
+                    // ObjectWithTimestamp's archive stores the content timestamp,
+                    // not its incidental ObjectBase ID. Volume identity above is
+                    // authoritative; compare painting content as well as timestamp.
+                    old_volume.mmu_segmentation_facets.equals(new_volume.mmu_segmentation_facets) &&
+                    old_volume.mmu_segmentation_facets.timestamp() == new_volume.mmu_segmentation_facets.timestamp() &&
+                    old_volume.supported_facets.equals(new_volume.supported_facets) &&
+                    old_volume.supported_facets.timestamp() == new_volume.supported_facets.timestamp();
+            }
+        }
+        HistoryMetadata::advance_history_epoch(state());
+        json response_context = state().history_live_context;
+        json restored_instance_transforms = json::array();
+        for (const auto& ref : Neo::Bridge::PlateSession::plate_instance_refs())
+            restored_instance_transforms.push_back(Neo::Bridge::PlateSession::instance_transform_record(ref));
+        response_context["plateSession"]["instance_transforms"] = std::move(restored_instance_transforms);
+        std::vector<Neo::History::ObjectID> retained_renderer_object_ids;
+        json retained_volume_transforms = json::array();
+        std::map<std::size_t, const ModelObject*> renderer_after_objects;
+        for (const auto* object : state().model.objects) renderer_after_objects.emplace(object->id().id, object);
+        for (const auto id : restored.scene_delta.object_ids) {
+            const auto before = before_objects.find(id);
+            const auto after = renderer_after_objects.find(id);
+            if (before != before_objects.end() && after != renderer_after_objects.end() &&
+                renderer_object_unchanged(*before->second, *after->second)) {
+                retained_renderer_object_ids.push_back(id);
+                for (const auto* volume : after->second->volumes)
+                    retained_volume_transforms.push_back(json{{"volume_id", volume->id().id},
+                        {"transform", Neo::Bridge::PlateSession::session_transform_json(volume->get_transformation())}});
+            }
+        }
+        // Rack contents and per-entity material assignment are separate native
+        // roots, but both change the renderer's filament-session projection.
+        const auto material_assignments = [](const json& snapshot) {
+            json result = json::object();
+            // Exact project inputs read by filament_session_snapshot_json:
+            // slot colours, mappings, flushing and inherited routing.
+            const auto project = snapshot.value("project", json::object());
+            for (const char* key : {"filament_colour", "filament_map", "filament_volume_map", "filament_nozzle_map",
+                                   "filament_map_2", "flush_volumes_matrix", "flush_volumes_vector",
+                                   "support_filament", "support_interface_filament", "outer_wall_filament_id",
+                                   "inner_wall_filament_id", "sparse_infill_filament_id", "internal_solid_filament_id",
+                                   "top_surface_filament_id", "bottom_surface_filament_id"})
+                if (project.contains(key)) result["project"][key] = project[key];
+            for (const auto* scope : {"objects", "parts"}) {
+                const auto found = snapshot.find(scope);
+                if (found == snapshot.end() || !found->is_object()) continue;
+                for (const auto& [id, values] : found->items()) {
+                    for (const char* key : {"extruder", "support_filament", "support_interface_filament",
+                                           "outer_wall_filament_id", "inner_wall_filament_id", "sparse_infill_filament_id",
+                                           "internal_solid_filament_id", "top_surface_filament_id", "bottom_surface_filament_id"})
+                        if (values.contains(key)) result[scope][id][key] = values[key];
+                }
+            }
+            return result;
+        };
+        // Support use can change while the ordinary MMU scene is retained.
+        // Refresh material projections independently of renderer resource work.
+        const bool filament_projection_changed = !usage_unchanged || filament_changed || preset_drafts_changed ||
+            retained_renderer_object_ids.size() != restored.scene_delta.object_ids.size() ||
+            material_assignments(before_native_scoped_config) != material_assignments(staged_snapshot);
+        json scene_delta{{"version", 1},
+                         {"object_ids", restored.scene_delta.object_ids},
+                         {"retained_renderer_object_ids", retained_renderer_object_ids},
+                         {"retained_volume_transforms", retained_volume_transforms},
+                         {"volume_ids", restored.scene_delta.volume_ids},
+                         {"instance_ids", restored.scene_delta.instance_ids},
+                         {"plate_ids", restored.scene_delta.plate_ids}};
+        if (restored.scene_delta.object_order.empty()) {
+            scene_delta["object_order"] = json::array();
+            for (const auto& object : restored.roots.model.mutable_objects)
+                scene_delta["object_order"].push_back(object.id);
+        } else {
+            scene_delta["object_order"] = restored.scene_delta.object_order;
+        }
+        json result{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
+                    {"native_scoped_config", Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
+                        state().history_revision,
+                        native_scoped_config_removed_targets(
+                            before_native_scoped_config, native_scoped_config_snapshot()))},
+                    {"entryId", history_entry_id(entry_id)},
+                    {"affected_plate_ids", Neo::Bridge::PlateSession::plate_id_array(affected_plates)},
+                    {"scene_delta", std::move(scene_delta)},
+                    {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
+                                {"filamentRack", filament_projection_changed}, {"nativeScopedConfig", true}, {"selectionContext", true},
+                                {"presetDrafts", preset_drafts_changed},
+                                {"profileSelection", profile_selection_changed},
+                                {"primeTower", true}, {"preview", "all"}}}};
+        if (profile_selection_changed)
+            result["profile_snapshot"] = std::move(restored_profile_snapshot);
+        Neo::Bridge::Performance::record("history_restore", {
+            {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},
+            {"immutable_mesh_reconnect", restore_timings.immutable_mesh_reconnect_ms},
+            {"plate_session_native_config_restore", restore_timings.plate_session_native_config_restore_ms},
+            {"total", Neo::Bridge::Performance::now_ms() - restore_started_at},
+        });
+        // Build and serialize the publication while roots/lifecycle still have a
+        // rollback owner. Cache eviction and editor publication are the final,
+        // non-allocating effects of a successful restore.
+        OwnedJsonResponse prepared(nullptr, &std::free);
+        if (publication) prepared = prepare_json_response(result);
+#ifdef NEO_PROJECT_HISTORY_TEST
+        restore_test_checkpoint(2);
+#endif
+        // `affected_plates` above is the single source of invalidation truth for
+        // the Worker cache, presentation registry, input stamps, and renderer.
+        // Structural Add/Delete changes retain their delta-capable usage summaries;
+        // material-affecting edits with stable object topology discard only the
+        // affected summaries before their next projection.
+        if (!usage_unchanged &&
+            live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size())
+            Neo::Bridge::PrimeTower::invalidate_projection_cache_and_usage_summaries(affected_plates);
+        else
+            Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_plates);
+        if (reconciled_painting) state().painting.publish(std::move(reconciled_painting));
+        if (!usage_unchanged) ++state().painting_derived_version;
+        if (publication) publication->swap(prepared);
+        return result;
     } catch (...) {
         state().preset_drafts = before_preset_drafts;
         state().preset_draft_revision = before_preset_draft_revision;
@@ -677,7 +852,11 @@ json restore_timestamped_result(const Runtime& runtime,
         if (!before_printer_name.empty()) bundle.printers.select_preset_by_name(before_printer_name, true);
         bundle.printers.get_edited_preset() = before_edited_printer;
         bundle.printers.update_dirty();
-        Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(before_native_print_preset);
+        // Annotation-only restores never replaced the native Print preset
+        // registry/selection. Retain that owner exactly; only undo a preset
+        // root replacement when this restore actually attempted one.
+        if (print_preset_changed)
+            Neo::Bridge::ScopedConfig::restore_native_print_preset_history_state(before_native_print_preset);
         if (before_filament_state) apply_mutable(state(), bundle, std::move(*before_filament_state));
         state().model = std::move(before_model);
         state().plate_session_plates = before_plates;
@@ -692,147 +871,10 @@ json restore_timestamped_result(const Runtime& runtime,
         state().current_plate_id = before_current_plate;
         state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         state().history_live_context = before_live_context;
+        state().history_revision = before_history_revision;
         state().mutable_object_capture_cache.clear();
         throw;
     }
-    // Keep the existing pointer-free usage summaries when their actual native
-    // inputs are unchanged. A different object archive may change only layer
-    // height or wall count; it does not necessarily change painted filament use.
-    // Membership and effective global configuration are checked by the reader.
-    bool usage_unchanged = live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size();
-    for (std::size_t index = 0; usage_unchanged && index < live_model_state.mutable_objects.size(); ++index) {
-        const auto& before = live_model_state.mutable_objects[index];
-        const auto& after = restored.roots.model.mutable_objects[index];
-        usage_unchanged = before.id == after.id &&
-            before.volume_ids == after.volume_ids && before.instance_ids == after.instance_ids;
-        if (!usage_unchanged || before.data == after.data) continue;
-        const auto& old_object = *before_model.objects[index];
-        const auto& new_object = *state().model.objects[index];
-        for (const char* key : {"extruder", "support_interface_filament", "support_filament", "enable_support",
-                               "raft_layers", "outer_wall_filament_id", "inner_wall_filament_id",
-                               "sparse_infill_filament_id", "internal_solid_filament_id",
-                               "top_surface_filament_id", "bottom_surface_filament_id"}) {
-            const auto* old_value = old_object.config.option(key);
-            const auto* new_value = new_object.config.option(key);
-            if (bool(old_value) != bool(new_value) ||
-                (old_value && old_value->serialize() != new_value->serialize())) usage_unchanged = false;
-        }
-        if (old_object.layer_config_ranges.size() != new_object.layer_config_ranges.size()) usage_unchanged = false;
-        auto old_range = old_object.layer_config_ranges.begin();
-        auto new_range = new_object.layer_config_ranges.begin();
-        for (; usage_unchanged && old_range != old_object.layer_config_ranges.end(); ++old_range, ++new_range)
-            if (old_range->first != new_range->first || old_range->second.get() != new_range->second.get())
-                usage_unchanged = false;
-        for (std::size_t volume_index = 0; usage_unchanged && volume_index < old_object.volumes.size(); ++volume_index) {
-            const auto& old_volume = *old_object.volumes[volume_index];
-            const auto& new_volume = *new_object.volumes[volume_index];
-            usage_unchanged = old_volume.type() == new_volume.type() &&
-                old_volume.get_mesh_shared_ptr() == new_volume.get_mesh_shared_ptr() &&
-                old_volume.extruder_id() == new_volume.extruder_id() &&
-                // ObjectWithTimestamp's archive stores the content timestamp,
-                // not its incidental ObjectBase ID. Volume identity above is
-                // authoritative; compare painting content as well as timestamp.
-                old_volume.mmu_segmentation_facets.equals(new_volume.mmu_segmentation_facets) &&
-                old_volume.mmu_segmentation_facets.timestamp() == new_volume.mmu_segmentation_facets.timestamp();
-        }
-    }
-    // `affected_plates` above is the single source of invalidation truth for
-    // the Worker cache, presentation registry, input stamps, and renderer.
-    // Structural Add/Delete changes retain their delta-capable usage summaries;
-    // material-affecting edits with stable object topology discard only the
-    // affected summaries before their next projection.
-    if (!usage_unchanged &&
-        live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size())
-        Neo::Bridge::PrimeTower::invalidate_projection_cache_and_usage_summaries(affected_plates);
-    else
-        Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_plates);
-    if (reconciled_painting) state().painting.publish(std::move(reconciled_painting));
-    if (!usage_unchanged) ++state().painting_derived_version;
-    HistoryMetadata::advance_history_epoch(state());
-    json response_context = state().history_live_context;
-    json restored_instance_transforms = json::array();
-    for (const auto& ref : Neo::Bridge::PlateSession::plate_instance_refs())
-        restored_instance_transforms.push_back(Neo::Bridge::PlateSession::instance_transform_record(ref));
-    response_context["plateSession"]["instance_transforms"] = std::move(restored_instance_transforms);
-    std::vector<Neo::History::ObjectID> retained_renderer_object_ids;
-    json retained_volume_transforms = json::array();
-    std::map<std::size_t, const ModelObject*> after_objects;
-    for (const auto* object : state().model.objects) after_objects.emplace(object->id().id, object);
-    for (const auto id : restored.scene_delta.object_ids) {
-        const auto before = before_objects.find(id);
-        const auto after = after_objects.find(id);
-        if (before != before_objects.end() && after != after_objects.end() &&
-            renderer_object_unchanged(*before->second, *after->second)) {
-            retained_renderer_object_ids.push_back(id);
-            for (const auto* volume : after->second->volumes)
-                retained_volume_transforms.push_back(json{{"volume_id", volume->id().id},
-                    {"transform", Neo::Bridge::PlateSession::session_transform_json(volume->get_transformation())}});
-        }
-    }
-    // Rack contents and per-entity material assignment are separate native
-    // roots, but both change the renderer's filament-session projection.
-    const auto material_assignments = [](const json& snapshot) {
-        json result = json::object();
-        // Exact project inputs read by filament_session_snapshot_json:
-        // slot colours, mappings, flushing and inherited routing.
-        const auto project = snapshot.value("project", json::object());
-        for (const char* key : {"filament_colour", "filament_map", "filament_volume_map", "filament_nozzle_map",
-                               "filament_map_2", "flush_volumes_matrix", "flush_volumes_vector",
-                               "support_filament", "support_interface_filament", "outer_wall_filament_id",
-                               "inner_wall_filament_id", "sparse_infill_filament_id", "internal_solid_filament_id",
-                               "top_surface_filament_id", "bottom_surface_filament_id"})
-            if (project.contains(key)) result["project"][key] = project[key];
-        for (const auto* scope : {"objects", "parts"}) {
-            const auto found = snapshot.find(scope);
-            if (found == snapshot.end() || !found->is_object()) continue;
-            for (const auto& [id, values] : found->items()) {
-                for (const char* key : {"extruder", "support_filament", "support_interface_filament",
-                                       "outer_wall_filament_id", "inner_wall_filament_id", "sparse_infill_filament_id",
-                                       "internal_solid_filament_id", "top_surface_filament_id", "bottom_surface_filament_id"})
-                    if (values.contains(key)) result[scope][id][key] = values[key];
-            }
-        }
-        return result;
-    };
-    const bool filament_projection_changed = filament_changed || preset_drafts_changed ||
-        retained_renderer_object_ids.size() != restored.scene_delta.object_ids.size() ||
-        material_assignments(before_native_scoped_config) != material_assignments(staged_snapshot);
-    json scene_delta{{"version", 1},
-                     {"object_ids", restored.scene_delta.object_ids},
-                     {"retained_renderer_object_ids", retained_renderer_object_ids},
-                     {"retained_volume_transforms", retained_volume_transforms},
-                     {"volume_ids", restored.scene_delta.volume_ids},
-                     {"instance_ids", restored.scene_delta.instance_ids},
-                     {"plate_ids", restored.scene_delta.plate_ids}};
-    if (restored.scene_delta.object_order.empty()) {
-        scene_delta["object_order"] = json::array();
-        for (const auto& object : restored.roots.model.mutable_objects)
-            scene_delta["object_order"].push_back(object.id);
-    } else {
-        scene_delta["object_order"] = restored.scene_delta.object_order;
-    }
-    json result{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
-                {"native_scoped_config", Neo::Bridge::ScopedConfig::native_scoped_config_full_transport(
-                    state().history_revision,
-                    native_scoped_config_removed_targets(
-                        before_native_scoped_config, native_scoped_config_snapshot()))},
-                {"entryId", history_entry_id(entry_id)},
-                {"affected_plate_ids", Neo::Bridge::PlateSession::plate_id_array(affected_plates)},
-                {"scene_delta", std::move(scene_delta)},
-                {"impact", {{"version", 1}, {"model", "delta"}, {"plateSession", true},
-                            {"filamentRack", filament_projection_changed}, {"nativeScopedConfig", true}, {"selectionContext", true},
-                            {"presetDrafts", preset_drafts_changed},
-                            {"profileSelection", profile_selection_changed},
-                            {"primeTower", true}, {"preview", "all"}}}};
-    if (profile_selection_changed)
-        result["profile_snapshot"] = std::move(restored_profile_snapshot);
-    Neo::Bridge::Performance::record("history_restore", {
-        {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},
-        {"immutable_mesh_reconnect", restore_timings.immutable_mesh_reconnect_ms},
-        {"plate_session_native_config_restore", restore_timings.plate_session_native_config_restore_ms},
-        {"total", Neo::Bridge::Performance::now_ms() - restore_started_at},
-    });
-    return result;
 }
 
 const char* restore_failure(const std::string& message)
@@ -1951,6 +1993,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
     }
 }
 
+#ifdef NEO_PROJECT_HISTORY_TEST
+EMSCRIPTEN_KEEPALIVE void orc_history_test_fail_next_restore(int stage)
+{
+    fail_next_restore_stage = stage;
+}
+#endif
+
 EMSCRIPTEN_KEEPALIVE const char* orc_history_undo()
 {
     try {
@@ -1966,14 +2015,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_undo()
         const std::uint64_t entry_id = entry->id;
         const auto live_roots = HistoryMetadata::capture_history_roots(state(), current_context(runtime));
         Neo::History::TimestampedRestore restored;
+        auto navigation = state().history.stage_navigation();
         if (!state().history.undo(live_roots, restored)) return error_json("no undo history");
-        try {
-            return duplicate_json(restore_timestamped_result(runtime, restored, entry_id).dump());
-        } catch (...) {
-            Neo::History::TimestampedRestore ignored;
-            if (!state().history.restore(original_timestamp, nullptr, ignored)) state().history_disabled = true;
-            throw;
-        }
+        OwnedJsonResponse publication(nullptr, &std::free);
+        (void)restore_timestamped_result(runtime, restored, entry_id, &publication);
+        navigation.commit();
+        return publication.release();
     } catch (const std::exception& e) { return restore_failure(e.what()); }
     catch (...) { return restore_failure("unknown C++ exception"); }
 }
@@ -1991,14 +2038,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_redo()
         if (entry == state().history.entries().end()) return error_json("no redo history");
         const std::uint64_t entry_id = entry->id;
         Neo::History::TimestampedRestore restored;
+        auto navigation = state().history.stage_navigation();
         if (!state().history.redo(restored)) return error_json("no redo history");
-        try {
-            return duplicate_json(restore_timestamped_result(runtime, restored, entry_id).dump());
-        } catch (...) {
-            Neo::History::TimestampedRestore ignored;
-            if (!state().history.restore(original_timestamp, nullptr, ignored)) state().history_disabled = true;
-            throw;
-        }
+        OwnedJsonResponse publication(nullptr, &std::free);
+        (void)restore_timestamped_result(runtime, restored, entry_id, &publication);
+        navigation.commit();
+        return publication.release();
     } catch (const std::exception& e) { return restore_failure(e.what()); }
     catch (...) { return restore_failure("unknown C++ exception"); }
 }
@@ -2021,21 +2066,18 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
                 return item.value("id", "") == encoded_id;
             }))
             return error_json("history entry is stale, unavailable, or outside the requested direction");
-        const auto original_timestamp = state().history.current_timestamp();
         const auto live_roots = HistoryMetadata::capture_history_roots(state(), current_context(runtime));
         Neo::History::TimestampedRestore restored;
+        auto navigation = state().history.stage_navigation();
         const bool prepared = direction == Neo::History::JumpDirection::Undo
             ? state().history.restore_before(entry_id, &live_roots, restored)
             : state().history.restore_after(entry_id, &live_roots, restored);
         if (!prepared)
             return error_json("history entry is stale, unavailable, or outside the requested direction");
-        try {
-            return duplicate_json(restore_timestamped_result(runtime, restored, entry_id).dump());
-        } catch (...) {
-            Neo::History::TimestampedRestore ignored;
-            if (!state().history.restore(original_timestamp, nullptr, ignored)) state().history_disabled = true;
-            throw;
-        }
+        OwnedJsonResponse publication(nullptr, &std::free);
+        (void)restore_timestamped_result(runtime, restored, entry_id, &publication);
+        navigation.commit();
+        return publication.release();
     } catch (const std::exception& e) { return restore_failure(e.what()); }
     catch (...) { return restore_failure("unknown C++ exception"); }
 }

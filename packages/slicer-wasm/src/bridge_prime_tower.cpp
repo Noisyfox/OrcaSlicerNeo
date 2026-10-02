@@ -365,6 +365,13 @@ struct UsedSlotSummary {
 enum class UsedSlotLookupKind { Hit, Delta, FullScan };
 
 std::map<std::string, UsedSlotSummary> g_used_slot_summaries;
+#ifdef NEO_PROJECT_HISTORY_TEST
+// Exact path witnesses for cache invalidation tests, independent of wall time.
+std::map<std::string, std::array<std::uint64_t, 3>> g_used_slot_lookups;
+void record_used_slot_lookup(const std::string& id, UsedSlotLookupKind kind) {
+    ++g_used_slot_lookups[id][static_cast<std::size_t>(kind)];
+}
+#endif
 
 std::string used_slot_config_signature(const DynamicPrintConfig& config, int plate_index)
 {
@@ -455,6 +462,9 @@ std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& pl
     const bool signature_matches = summary.valid && summary.config_signature == signature;
     if (!objects_known || !signature_matches) {
         kind = UsedSlotLookupKind::FullScan;
+#ifdef NEO_PROJECT_HISTORY_TEST
+        record_used_slot_lookup(plate.id, kind);
+#endif
         summary = {};
         summary.config_signature = signature;
         summary.object_ids = object_ids;
@@ -471,10 +481,16 @@ std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& pl
     const UsedSlotContext context(config, slot_count);
     if (summary.object_ids == object_ids) {
         kind = UsedSlotLookupKind::Hit;
+#ifdef NEO_PROJECT_HISTORY_TEST
+        record_used_slot_lookup(plate.id, kind);
+#endif
         return summary.slots;
     }
 
     kind = UsedSlotLookupKind::Delta;
+#ifdef NEO_PROJECT_HISTORY_TEST
+    record_used_slot_lookup(plate.id, kind);
+#endif
     for (auto it = summary.object_slots.begin(); it != summary.object_slots.end();) {
         if (object_ids.find(it->first) == object_ids.end()) it = summary.object_slots.erase(it);
         else ++it;
@@ -909,13 +925,13 @@ void invalidate_projection_cache()
     g_used_slot_summaries.clear();
 }
 
-void invalidate_projection_cache(const std::set<std::string>& plate_ids)
+void invalidate_projection_cache(const std::set<std::string>& plate_ids) noexcept
 {
     for (const auto& plate_id : plate_ids)
         state().prime_tower_projection_cache.erase(plate_id);
 }
 
-void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids)
+void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids) noexcept
 {
     invalidate_projection_cache(plate_ids);
     for (const auto& plate_id : plate_ids)
@@ -1274,6 +1290,27 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
             nlohmann::json{{"ok", false}, {"version", 1}, {"error", "unknown C++ exception"}}.dump());
     }
 }
+
+#ifdef NEO_PROJECT_HISTORY_TEST
+EMSCRIPTEN_KEEPALIVE const char* orc_painting_test_cache_snapshot()
+{
+    using namespace Slic3r::Neo::Bridge;
+    using namespace PrimeTower;
+    json caches = json::object(), summaries = json::object(), lookups = json::object();
+    for (const auto& [id, entry] : state().prime_tower_projection_cache)
+        caches[id] = {{"stamp", entry.input_stamp}, {"projection", entry.projection}};
+    for (const auto& [id, summary] : g_used_slot_summaries)
+        summaries[id] = {{"valid", summary.valid}, {"config", summary.config_signature},
+                         {"objects", summary.object_ids}, {"slots", summary.slots}};
+    for (const auto& [id, count] : g_used_slot_lookups)
+        lookups[id] = {{"hit", count[0]}, {"delta", count[1]}, {"full", count[2]}};
+    return duplicate_json(json{{"ok", true}, {"projections", caches}, {"summaries", summaries},
+        {"lookups", lookups}, {"derivedVersion", state().painting_derived_version},
+        {"settledVersion", state().painting_settled_version},
+        {"settlementKey", state().painting_settlement_key},
+        {"settlement", state().painting_settlement}}.dump());
+}
+#endif
 
 EMSCRIPTEN_KEEPALIVE const char* orc_move_prime_tower(const char* request_cstr)
 {
