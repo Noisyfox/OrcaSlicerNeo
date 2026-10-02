@@ -10,7 +10,7 @@ test.setTimeout(480_000);
 type Evidence = { channel: string; cursor: number[] | null; phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number; vertical: boolean; state: number; erase: boolean }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
-  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
+  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[]; color: string; opacity: number; depthWrite: boolean; polygonOffsetFactor: number }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
@@ -200,6 +200,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       const fill = frame.draws.filter((d) => d.kind === 'painting-candidate');
       const contour = frame.draws.filter((d) => d.kind === 'painting-contour');
       expect(fill, 'every continuous Region hover frame draws one native fill').toHaveLength(1);
+      expect(fill[0].candidate).toMatchObject({color:'ffffff',opacity:0.35,depthWrite:false,polygonOffsetFactor:-2});
       expect(contour, 'every continuous Region hover frame draws one native contour').toHaveLength(1);
       expect(regions.some((r) => JSON.stringify(r.vertices!.filter((_, i) => i % 6 < 3)) === JSON.stringify(fill[0].candidate!.positions)
         && JSON.stringify(r.contour) === JSON.stringify(contour[0].contour!.positions)), 'fill and contour belong to one complete native region').toBe(true);
@@ -678,7 +679,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await test.info().attach('painting-toolbar-active', { path: toolbarPath, contentType: 'application/json' });
     // Dedicated seam entry: all controls use the real shared controller/Worker.
     const seamButton = page.getByTestId('gizmo-btn-seam');
-    expect(await page.getByTestId('gizmo-btn-support').count()).toBe(0);
+    expect(await page.getByTestId('gizmo-btn-support').count()).toBe(1);
     expect(await page.getByTestId('gizmo-btn-fuzzy').count()).toBe(1);
     const mmuParameters = {tool:(await read())!.tool,settings:(await read())!.settings};
     const seamEvidence: Record<string, unknown> = {};
@@ -791,6 +792,46 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     expect(ordinaryAfterFuzzy.every(frame=>frame.painting.length===0&&frame.ordinary.length>0)).toBe(true);
     expect(ordinaryAfterFuzzy.some(frame=>frame.colors.includes('80ff80'))).toBe(false);
     const fuzzyPath=test.info().outputPath('fuzzy-editor-evidence.json');writeFileSync(fuzzyPath,JSON.stringify(fuzzyEvidence,null,2));await test.info().attach('fuzzy-editor-evidence',{path:fuzzyPath,contentType:'application/json'});
+    // Support's independent native overlay survives candidate/tool/stroke changes.
+    const supportButton=page.getByTestId('gizmo-btn-support');await supportButton.click();await idle();
+    expect((await read())!.channel).toBe('support');await expect(supportButton).toHaveAttribute('aria-pressed','true');
+    const supportCounts=()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    const supportEvidence:Record<string,unknown>={};
+    const beforeHighlight=await history();
+    await page.getByRole('checkbox',{name:'Highlight overhangs',exact:true}).check();
+    await expect.poll(async()=> (await read())!.resources.filter(r=>r.kind==='overhang').length).toBeGreaterThan(0);
+    const initialHighlight=await read();expect((await history()).undoEntries.length).toBe(beforeHighlight.undoEntries.length);
+    await page.getByTestId('painting-tool-smartFill').click();await page.getByRole('spinbutton',{name:'Edge angle (degrees)',exact:true}).fill('90');
+    let supportCenter=(await read())!.center;await page.mouse.move(supportCenter.x,supportCenter.y);
+    await expect.poll(async()=> (await read())!.resources.filter(r=>r.kind==='smartFill').length).toBeGreaterThan(0);
+    expect((await read())!.resources.filter(r=>r.kind==='overhang')).toEqual(initialHighlight!.resources.filter(r=>r.kind==='overhang'));
+    await startFrames();await settleFrames();const supportOverlayFrames=await stopFrames();
+    await page.screenshot({path:test.info().outputPath('support-smart-fill-overhang-editor.png')});
+    expect(supportOverlayFrames.some(f=>f.draws.some(d=>d.candidate?.color==='ffb347')&&f.draws.some(d=>d.candidate?.color==='ffffff'))).toBe(true);
+    for(const frame of supportOverlayFrames){const overlays=frame.draws.filter(d=>d.candidate);expect(overlays.every(d=>d.candidate!.depthWrite===false)).toBe(true);const highlight=overlays.find(d=>d.candidate!.color==='ffb347'),candidate=overlays.find(d=>d.candidate!.color==='ffffff');if(highlight&&candidate){expect(highlight.renderOrder).toBeLessThan(candidate.renderOrder);expect(highlight.candidate!.polygonOffsetFactor).toBeGreaterThan(candidate.candidate!.polygonOffsetFactor);}}
+    await page.mouse.click(supportCenter.x,supportCenter.y);await idle();expect((await supportCounts())[0].facetCounts[1]).toBeGreaterThan(0);
+    expect((await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
+    await page.getByTestId('painting-tool-sphere').click();await page.getByRole('radio',{name:'Block',exact:true}).click();
+    await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');supportCenter=(await read())!.center;
+    await page.mouse.click(supportCenter.x,supportCenter.y);await idle();const supportBlocked=await supportCounts();expect(supportBlocked[0].facetCounts[2]).toBeGreaterThan(0);
+    await page.getByRole('radio',{name:'Erase',exact:true}).click();await page.mouse.click(supportCenter.x,supportCenter.y);await idle();const supportErased=await supportCounts();expect(supportErased[0].facetCounts[2]).toBeLessThan(supportBlocked[0].facetCounts[2]);
+    await page.getByTestId('history-undo').click();await idle();expect(annotationParts(await supportCounts())).toEqual(annotationParts(supportBlocked));
+    await page.getByTestId('history-redo').click();await idle();expect(annotationParts(await supportCounts())).toEqual(annotationParts(supportErased));
+    await page.getByTestId('painting-tool-gap').click();await idle();
+    await expect(page.getByRole('checkbox',{name:'Restrict to overhangs',exact:true})).toBeDisabled();
+    const beforeGap=await history();await page.getByRole('spinbutton',{name:'Gap area (mm²)',exact:true}).fill('0');await page.getByRole('button',{name:'Apply gaps',exact:true}).click();await idle();
+    expect((await history()).undoEntries.length).toBe(beforeGap.undoEntries.length);
+    await page.getByTestId('painting-tool-circle').click();await page.getByRole('spinbutton',{name:'Overhang angle (degrees)',exact:true}).fill('90');await page.getByRole('checkbox',{name:'Restrict to overhangs',exact:true}).check();
+    await expect.poll(async()=> (await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
+    await page.getByRole('checkbox',{name:'Highlight overhangs',exact:true}).uncheck();await expect.poll(async()=> (await read())!.resources.some(r=>r.kind==='overhang')).toBe(false);
+    const supportParameters={tool:(await read())!.tool,settings:(await read())!.settings};supportEvidence.parameters=supportParameters;supportEvidence.blocked=supportBlocked;supportEvidence.erased=supportErased;supportEvidence.overlayFrames=supportOverlayFrames;
+    await fuzzyButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(fuzzyParameters);
+    await supportButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(supportParameters);
+    await supportButton.click();await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await startFrames();await settleFrames();const ordinaryAfterSupport=await stopFrames();await completeFrames('support-close-ordinary-MMU',ordinaryAfterSupport);
+    expect(ordinaryAfterSupport.every(frame=>frame.painting.length===0&&frame.ordinary.length>0)).toBe(true);
+    expect(ordinaryAfterSupport.some(frame=>frame.colors.includes('80ff80')||frame.colors.includes('ff8080')||frame.colors.includes('ffb347'))).toBe(false);
+    const supportPath=test.info().outputPath('support-editor-evidence.json');writeFileSync(supportPath,JSON.stringify(supportEvidence,null,2));await test.info().attach('support-editor-evidence',{path:supportPath,contentType:'application/json'});
     await paintButton.click(); await idle();
     const hiddenSession = (await read())!.sessionId;
     for (const tab of ['home', 'device']) {

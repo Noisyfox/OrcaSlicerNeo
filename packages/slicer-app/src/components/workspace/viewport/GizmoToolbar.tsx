@@ -4,7 +4,7 @@
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
-import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush, Scissors, Sparkles } from 'lucide-react';
+import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush, Scissors, Sparkles, Blocks } from 'lucide-react';
 import { useCallback, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
@@ -102,6 +102,16 @@ export function GizmoToolbar({
           </TooltipFor>
         );
       })}
+      <TooltipFor content="Support painting">
+        <Button size="icon" variant="gizmo" aria-label="Support painting" aria-pressed={paintActive && paintState?.channel === 'support'} data-testid="gizmo-btn-support"
+          disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
+          onClick={() => {
+            if (!painting) return;
+            if (painting.active && paintState?.channel === 'support') { void painting.close(); return; }
+            const target = paintingTarget(sceneInteraction);
+            if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'support'); }
+          }}><Blocks /></Button>
+      </TooltipFor>
       <TooltipFor content="Seam painting">
         <Button size="icon" variant="gizmo" aria-label="Seam painting" aria-pressed={paintActive && paintState?.channel === 'seam'} data-testid="gizmo-btn-seam"
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}

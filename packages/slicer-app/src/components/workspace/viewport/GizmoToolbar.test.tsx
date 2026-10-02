@@ -7,7 +7,7 @@ import type { PaintingPhase } from './gizmo/painting/PaintingController';
 import { GizmoToolbar } from './GizmoToolbar';
 
 const mocked = vi.hoisted(() => ({
-  phase: 'closed' as PaintingPhase, channel: 'mmu' as 'mmu' | 'seam' | 'fuzzy', slotCount: 2,
+  phase: 'closed' as PaintingPhase, channel: 'mmu' as 'mmu' | 'seam' | 'fuzzy' | 'support', slotCount: 2,
   close: vi.fn(), open: vi.fn(),
   runtime: { getRuntimeExecutionState: () => ({ serialSliceActive: false }) },
 }));
@@ -79,10 +79,11 @@ describe('gizmo toolbar session state', () => {
   });
 });
 
-it('exposes independent seam entry with one filament and no unfinished support entry', async () => {
+it('exposes independent seam entry with one filament and independent support entry', async () => {
   mocked.slotCount = 1; await render();
   expect(button('paint').disabled).toBe(true); expect(button('seam').disabled).toBe(false);
-  expect(container.querySelector('[data-testid="gizmo-btn-support"]')).toBeNull();
+  expect(button('support').disabled).toBe(false);
+  await act(async()=>button('support').click()); expect(mocked.open).toHaveBeenCalledWith(1,2,'support');
   expect(button('fuzzy').disabled).toBe(false);
   await act(async()=>button('seam').click()); expect(mocked.open).toHaveBeenCalledWith(1,2,'seam');
   mocked.phase = 'idle'; mocked.channel = 'seam'; await render();
@@ -98,10 +99,10 @@ it('uses the distinct entries to switch an idle channel and ignores busy clicks'
   const admitted = mocked.open.mock.calls.length; await act(async()=>button('paint').click()); expect(mocked.open).toHaveBeenCalledTimes(admitted);
 });
 
-it('orders independent seam/fuzzy/MMU entries and routes Fuzzy with one filament',async()=>{
+it('orders independent support/seam/fuzzy/MMU entries and routes Fuzzy with one filament',async()=>{
   mocked.slotCount=1;await render();
   const ids=[...container.querySelectorAll('[data-testid^="gizmo-btn-"]')].map(node=>node.getAttribute('data-testid'));
-  expect(ids.slice(-3)).toEqual(['gizmo-btn-seam','gizmo-btn-fuzzy','gizmo-btn-paint']);
+  expect(ids.slice(-4)).toEqual(['gizmo-btn-support','gizmo-btn-seam','gizmo-btn-fuzzy','gizmo-btn-paint']);
   await act(async()=>button('fuzzy').click());expect(mocked.open).toHaveBeenCalledWith(1,2,'fuzzy');
   mocked.phase='idle';mocked.channel='fuzzy';await render();expect(button('fuzzy').getAttribute('aria-pressed')).toBe('true');expect(button('paint').getAttribute('aria-pressed')).toBe('false');expect(button('paint').disabled).toBe(true);
   await act(async()=>button('fuzzy').click());expect(mocked.close).toHaveBeenCalledOnce();

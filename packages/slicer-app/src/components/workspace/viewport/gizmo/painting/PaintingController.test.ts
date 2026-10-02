@@ -731,3 +731,49 @@ it('fuzzy has its own four tools, legal state1/erase and strict Smart Fill angle
   await c.open(1,2,'fuzzy');await frame();expect(c.getSnapshot()).toMatchObject({tool:'smartFill',settings:{angle:90,radius:5,erase:true}});
   await c.press(event(1));expect(await c.open(1,2,'mmu')).toBe(false);c.release();await tick();expect(p.api.openPaintingSession).toHaveBeenLastCalledWith(expect.objectContaining({channel:'fuzzy'}));
 });
+
+describe('support independent highlight lane',()=>{
+  it('schedules explicit angle/null without candidate ownership or commits and retains parameters across channels',async()=>{
+    const {controller:c,ports:p,frame}=fixture();await c.open(1,2,'support');await frame();
+    expect(p.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({tool:'overhang',settings:{overhangAngle:null}}));
+    c.setSettings({overhangAngle:90,restrictToOverhangs:true});c.setHighlight(true);await frame();
+    expect(p.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({tool:'overhang',settings:{overhangAngle:90}}));
+    c.setTool('smartFill');c.setSettings({angle:0});c.hoverAt(event(1));await frame();
+    expect(p.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({tool:'smartFill',settings:expect.objectContaining({angle:0,overhangAngle:90,restrictToOverhangs:true})}));
+    expect(p.api.commitPaintingStroke).not.toHaveBeenCalled();
+    await c.open(1,2,'seam');await frame();c.setSettings({radius:7});await c.open(1,2,'support');await frame();
+    expect(c.getSnapshot()).toMatchObject({tool:'smartFill',highlightEnabled:true,settings:{radius:2,angle:0,overhangAngle:90,restrictToOverhangs:true}});
+    c.setHighlight(false);await frame();expect(p.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({tool:'overhang',settings:{overhangAngle:null}}));
+  });
+  it('coalesces threshold changes on the existing lane and never admits busy moves/switches',async()=>{
+    const {controller:c,ports:p,frames,frame,receipt}=fixture();await c.open(1,2,'support');await frame();
+    const pending=deferred<PaintingDraftResult>();vi.mocked(p.api.previewPainting).mockReturnValueOnce(pending.promise);
+    c.setHighlight(true);frames.shift()?.();c.setSettings({overhangAngle:20});c.setSettings({overhangAngle:45});
+    const press=c.press(event(2));expect(c.move(event(3))).toBe(false);expect(await c.open(1,2,'seam')).toBe(false);c.release();
+    pending.resolve(receipt('idle'));await press;await tick();await frame();
+    expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(p.api.previewPainting).mock.calls.filter(([r])=>r.tool==='overhang').map(([r])=>r.settings.overhangAngle)).toEqual([null,0,45]);
+  });
+});
+
+it('defers live highlight threshold until terminal without empty drawing frames',async()=>{
+  const {controller:c,ports:p,frames,frame}=fixture();await c.open(1,2,'support');await frame();c.setHighlight(true);await frame();
+  await c.press(event(1));c.setSettings({overhangAngle:45});await frame();
+  expect(frames).toHaveLength(0);expect(p.api.previewPainting).toHaveBeenCalledTimes(2);
+  c.release();await tick();await frame();
+  expect(p.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({tool:'overhang',settings:{overhangAngle:45}}));
+  expect(frames).toHaveLength(0);
+});
+
+it('support refreshes highlight preference after target/history and fails close before switching',async()=>{
+  const {controller:c,ports:p,frame}=fixture();await c.open(1,2,'support');await frame();c.setHighlight(true);c.setSettings({overhangAngle:45});await frame();
+  await c.target(4,5);await frame();expect(p.api.previewPainting).toHaveBeenLastCalledWith(expect.objectContaining({tool:'overhang',settings:{overhangAngle:45}}));
+  await c.betweenStrokes(async()=>true);await frame();expect(p.api.readPaintingSession).toHaveBeenCalledWith(expect.objectContaining({latest:true}));
+  vi.mocked(p.api.closeHistorySession).mockRejectedValueOnce(new Error('support close failed'));expect(await c.open(4,5,'seam')).toBe(false);expect(c.getSnapshot().channel).toBe('support');
+  expect(await c.open(4,5,'seam')).toBe(true);
+});
+it('failed highlight RPC cannot publish candidates or cause an unbounded retry loop',async()=>{
+  const {controller:c,ports:p,frames,frame}=fixture();await c.open(1,2,'support');await frame();
+  vi.mocked(p.api.previewPainting).mockResolvedValueOnce({error:'native highlight failed'});c.setHighlight(true);await frame();
+  expect(c.getSnapshot().error).toBe('native highlight failed');expect(frames).toHaveLength(0);expect(p.api.beginPaintingStroke).not.toHaveBeenCalled();expect(p.api.commitPaintingStroke).not.toHaveBeenCalled();
+});

@@ -28,7 +28,7 @@ export function PaintingVisualProbe() {
   useEffect(() => {
     type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
       draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
-        candidate?: { positions: number[] };
+        candidate?: { positions: number[]; color: string; opacity: number; depthWrite: boolean; polygonOffsetFactor: number };
         contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] };
         cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] } }> };
     let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
@@ -77,7 +77,7 @@ export function PaintingVisualProbe() {
             if (ancestor instanceof THREE.Group) { groupOrder = ancestor.renderOrder; break; }
           }
           frame.draws.push({ kind, geometry: object.geometry.uuid, renderOrder: object.renderOrder, groupOrder,
-            ...(kind === 'painting-candidate' ? { candidate: { positions: Array.from({ length: object.geometry.getAttribute('position').count }, (_, i) => { const position = object.geometry.getAttribute('position'); return [position.getX(i), position.getY(i), position.getZ(i)]; }).flat() } } : {}),
+            ...(kind === 'painting-candidate' ? { candidate: { color: material.color.getHexString(), opacity: material.opacity, depthWrite: material.depthWrite, polygonOffsetFactor: material.polygonOffsetFactor, positions: Array.from({ length: object.geometry.getAttribute('position').count }, (_, i) => { const position = object.geometry.getAttribute('position'); return [position.getX(i), position.getY(i), position.getZ(i)]; }).flat() } } : {}),
             ...(kind === 'painting-contour-triangle' || kind === 'painting-contour' ? { contour: { color: material.color.getHexString(), depthTest: material.depthTest, depthWrite: material.depthWrite, positions: Array.from(object.geometry.getAttribute('position').array) } } : {}),
             ...(kind.startsWith('painting-cursor-') ? { cursor: { uuid: object.uuid,
               radius: object.geometry instanceof THREE.SphereGeometry ? object.geometry.parameters.radius * object.getWorldScale(new THREE.Vector3()).x : null,

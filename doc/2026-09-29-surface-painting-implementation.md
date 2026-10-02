@@ -7,8 +7,8 @@ adapter work; historical MMU work used `dev/surface-painting-spec`.
 
 **Status:** Steps 01–12 implemented and independently accepted; MMU functional
 delivery qualified 2026-09-30. Scheme B support/seam/fuzzy adapters approved and
-implementation authorized 2026-10-02; steps 13–17 independently accepted,
-steps 18–19 pending. Quantitative
+implementation authorized 2026-10-02; steps 13–18 independently accepted,
+step 19 pending. Quantitative
 performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
@@ -262,7 +262,10 @@ a toolbar entry appears only when its complete channel stage is accepted.
   Support Gap and independent overhang foundations are implemented.
 - Step 17: independently accepted by the parent on 2026-10-02; complete Fuzzy
   editor, explicit scoped configuration and native downstream slicing are
-  implemented. Steps 18–19 remain pending.
+  implemented.
+- Step 18: independently accepted by the parent on 2026-10-02; complete Support
+  editor, independent highlight scheduling and actual native support/derived
+  integration are implemented. Step 19 remains pending.
 - Existing serial/threaded build trees and pnpm/native tools were verified by the
   parent as available for this checkout. Children must still verify configured
   source roots, build flags and current artifact identity before running evidence.
@@ -975,7 +978,7 @@ milestone or quantitative performance threshold is claimed by this acceptance.
 
 ### 18. Complete support editor and derived projection integration
 
-**Status:** Pending. **Depends on:** 17 accepted/committed.
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** 17 accepted/committed.
 **Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
 
 **Allowed scope:** Shared support adapter/panel/controller and native consumers
@@ -1001,6 +1004,132 @@ and no-op preview paths; production probe elision.
 downstream support/derived dependencies and UI resources. Rerun real native
 support outcomes and settlement assertions plus app/transport checks and journey.
 No support-generation preview or deferred auxiliary control is exposed.
+
+**Step 18 implementation (accepted by parent 2026-10-02):** The dedicated Support
+entry precedes Seam, Fuzzy and MMU. Its own panel/wrapper uses native 0
+Auto/Default, 1 Enforce and 2 Block, with explicit Enforce/Block/Erase and
+Circle/Sphere/Smart Fill/Gap Fill. Smart Fill requires a numeric 0–90 local-normal
+edge angle. Gap uses object-wide native preview and one Apply transaction; it
+retains lowest-neighbor destination states including zero, and never uses a
+clicked region. The panel disables the brush-only overhang restriction control
+for Gap and explains that Gap remains unrestricted.
+
+The shared controller schedules independent overhang angle/null RPCs on its
+existing single lane. Threshold changes coalesce; highlight-only work is admitted
+only while idle, so a held stroke cannot create repeated empty display reads.
+Highlight preference is retained separately per channel and grants no candidate
+or Apply ownership. Native geometry revision/transform/history reconciliation
+owns highlight identities while unchanged local-space draft buffers and hover
+highlights remain reusable. Candidate and highlight resources render together:
+amber transparent highlights precede white selection fills, use distinct depth
+bias, and neither overlay writes depth. Existing ordinary Prepare rendering
+remains MMU-only. No native ABI, Worker architecture, generation-preview control,
+or implicit support-configuration mutation is introduced. Existing stage-14
+commit invalidation and close/history settlement publish support-use/Prime Tower
+projections at the existing lifecycle boundary.
+
+**Step 18 child self-check:** `NODE_OPTIONS=--no-experimental-webstorage pnpm test`
+passed 144 files / 1345 tests, and the same environment with `pnpm typecheck`
+passed every workspace package. Focused Support panel/controller/toolbar tests
+cover single-slot entry, independent parameters, explicit native angle/null,
+live-threshold bounded scheduling, preview nonmutation, failure/close admission
+and target/history reconciliation. `bash scripts/build.sh quick --variant serial
+-j 8` passed against the current production source; Ninja reported no work
+because no native source changed. Release cache retains history/profile hooks
+OFF. `pnpm exec node packages/slicer-wasm/.work/serial/build/painting_session_test.cjs`
+and the current serial `painting-foundations-smoke.mjs` harness passed native
+Smart Fill, transformed restriction/0/90 boundaries, Gap state-zero parity,
+candidate staleness and four-field independence. The current
+[support native harness](../packages/slicer-wasm/harness/support-painting-smoke.mjs)
+proves native single-filament editing, independent split-tree save/reopen,
+Enforce/Block/Erase, cancellation,
+Undo/Redo, actual native support generation and unchanged support configuration.
+The grounded mushroom fixture explicitly selects manual/automatic support
+configuration rather than enabling support through painting. Manual support
+extrusion counts are 0 baseline, 1937 Enforce, 0 Block, 1937 Undo, 0 Redo, 0 Erase,
+and 1937 after save/reopen; automatic Erase restores generated support rather
+than forcing no-support. Actual support extrusion uses native configured slot 2.
+Native config-driven Prime Tower usage remains slots 1/2 and eligible; settlement
+refreshes native material/plate/history revisions; stale affected receipts are
+rejected while unrelated plate receipts and tower projections remain reusable.
+It does so without inventing
+annotation-driven slot removal. The imported project material routing projection
+continues to report its existing project/object support default 0; actual native
+Print configuration, tower slot usage and support G-code independently prove
+configured slot 2 consumption. This existing projection distinction is retained.
+
+`NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`
+passed the final current-serial Electron journey (37.6 seconds): all six MMU
+operations plus Seam, Fuzzy and Support, simultaneous retained native highlight
+and Smart Fill draws, MMU region depth behavior, Support state edits/Undo/Redo,
+Gap no-op, explicit clearing, independent editor parameters and ordinary MMU-only
+rendering after close. The actual Support editor screenshot was visually checked
+with simultaneous Smart Fill/overhang state and all panel controls visible.
+Test evidence is retained under
+`packages/slicer-wasm/.work/step18-*`; sequential ordinary Desktop and Web builds
+and painting-profile elision in 24 production artifacts passed, as did
+`git diff --check`. The current serial Fuzzy downstream/MMU/XY-warning/modifier
+harness also passed. The handoff manifest records exact commands,
+source/artifact/evidence hashes and repaired attempts. Full Web, dual-variant,
+release/performance qualification and previously recorded optional stage-14
+logical-ID/scalar/vector probes remain stage-19 work. No parent acceptance or
+milestone status is claimed here.
+
+**Independent parent acceptance (2026-10-02):** Reviewed all 14 final changed
+source files and the existing native restriction/Gap/usage/settlement boundaries.
+Graph change detection/flow review reported 26 flows but still used the earlier
+`dbee028` graph, so current source/tests and direct native evidence supplied the
+coverage review. Confirmed dedicated toolbar order Support/Seam/Fuzzy/MMU,
+single-slot admission, idle close/settle/switch, stable native state identity,
+channel-only settings, explicit angle/null highlight transport and candidate
+ownership separation. Required and accepted the bounded held-stroke scheduling
+repair, exact four BBS attributes with nonempty independent witnesses, automatic
+support default restoration, effective T1 support use and actual unaffected-plate
+receipt reuse. Reviewed the independent highlight/selection render ordering and
+no-depth-write overlays; inspected the actual parent-run screenshot with all
+Support controls visible. The specification now states the native restriction's
+three-tool scope and the final independent toolbar order explicitly.
+
+Parent independently verified **14 source, 51 native-source, 15 artifact and 328
+evidence hashes**, plus the four affected native object identities. No native
+source changed in this step. Actual parent checks:
+
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: **144 files / 1,345 tests passed**;
+  `pnpm typecheck`: all workspace packages passed.
+- `bash scripts/build.sh quick --variant serial -j 8`: current Release production
+  serial build validated/staged, Ninja no work; history/profile hooks OFF.
+- Current serial `support-painting-smoke.mjs` with separate
+  `.work/step18-parent-support` output: independent native fields, single-slot
+  editing, cancel/erase/history/save/reopen, unchanged support configuration,
+  actual manual generation **0 / Enforce 1,937 / Block 0 / Undo 1,937 / Redo 0 /
+  Erase 0 / reopen 1,937** passed. Automatic generation **1,937 / Block 0 /
+  Erase 1,937** passed. Support uses T1; native tower used slots remain [1,2].
+  Affected stale receipt rejection, unaffected receipt reuse/tower equality,
+  native material/history/plate revision settlement all passed. The recorded
+  default-zero material routing projection distinction remains unchanged.
+- Current serial `painting-foundations-smoke.mjs` and `fuzzy-painting-smoke.mjs`
+  (separate `.work/step18-parent-foundations` / `.work/step18-parent-fuzzy`), plus
+  full `painting-backend-smoke.mjs --expect-production`: passed. Native transformed
+  overhang/Gap parity and Fuzzy configuration/XY-warning/modifier behavior remain
+  intact; MMU downstream retained 47,012 segments.
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`:
+  current Electron utility-process/Node Worker all-channel journey **1/1 passed,
+  52.7 s**. Preserved and inspected the screenshot and 78 evidence files in
+  `.work/step18-parent-electron-evidence` before restoring ordinary builds.
+- Ordinary Desktop then Web builds passed sequentially;
+  `check-painting-profile-elision.mjs` passed **24 artifacts**. All 15 normal
+  serial build/out/staged/Desktop/Web artifact hashes match the handoff after
+  restoration. Pinned submodule is clean at
+  `489cbe91840ff97aaf4d8029009d5db410f32893`.
+- Changed local links/anchors, actual command paths and `git diff --check`: passed.
+
+Parent logs are `/tmp/painting-step18-parent-*.log`; native/host outputs use the
+separate directories above. Production serial JS/WASM/data retain stage 17's
+accepted identities. Node 26.7.0 differs from the pinned 24.19.0 and jsdom used
+the stated Web Storage switch. Full current threaded/Web/release gates,
+textured-hole Fuzzy evidence, measurements and the recorded optional probes
+remain step 19; this acceptance claims no full adapter milestone or numeric
+performance threshold.
 
 ### 19. Interoperability, both hosts/variants and measured qualification
 
@@ -1044,7 +1173,7 @@ comparison remain explicit limitations, separate from functional qualification.
 - [x] 15 complete seam editor/save/slice accepted before entrypoint exposure.
 - [x] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
 - [x] 17 complete fuzzy editor and explicit independent configuration action accepted.
-- [ ] 18 complete support editor and derived settlement accepted.
+- [x] 18 complete support editor and derived settlement accepted.
 - [ ] 19 both-host/variant interoperability, cleanup and functional qualification accepted.
 - [ ] Quantitative performance thresholds separately reviewed and approved.
 

@@ -23,6 +23,7 @@ import { GizmoPivotProbe, SceneE2eProbe } from '@/e2e/SceneProbe';
 import { usePaintingState } from './gizmo/painting/PaintingProvider';
 import { FuzzyPaintingGizmo } from './gizmo/painting/FuzzyPaintingGizmo';
 import { SeamPaintingGizmo } from './gizmo/painting/SeamPaintingGizmo';
+import { SupportPaintingGizmo } from './gizmo/painting/SupportPaintingGizmo';
 import { MmuPaintingGizmo } from './gizmo/painting/MmuPaintingGizmo';
 import { glVolumeCollection } from './GLVolume';
 import { PaintingVisualProbe } from '@/e2e/PaintingProbe';
@@ -92,7 +93,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
     else if (glVolumes.length === glVolumeCollection.volumes.length && glVolumes.every((v, i) => v === glVolumeCollection.volumes[i])) previouslyPainting.current = false;
   }, [glVolumes, sceneInteraction, wipeTowerVolumes, paintingActive]);
 
-  const PaintingGizmo = painting?.channel === 'seam' ? SeamPaintingGizmo : painting?.channel === 'fuzzy' ? FuzzyPaintingGizmo : MmuPaintingGizmo;
+  const PaintingGizmo = painting?.channel === 'support' ? SupportPaintingGizmo : painting?.channel === 'seam' ? SeamPaintingGizmo : painting?.channel === 'fuzzy' ? FuzzyPaintingGizmo : MmuPaintingGizmo;
   if (paintingActive) return <PaintingGizmo volumes={glVolumes} openingVisual={<>
     {plateSession?.plates?.length ? plateSession.plates.map((plate) => <BedPlate bedModel={bedModel} bedTexture={bedTexture} key={plate.plateId} plate={plate} current={plate.plateId === plateSession.currentPlateId} />) : <BedPlate bedModel={bedModel} bedTexture={bedTexture} />}
     <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive={false} structure={structure} plateSession={plateSession}

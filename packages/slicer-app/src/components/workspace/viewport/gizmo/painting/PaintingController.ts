@@ -32,6 +32,8 @@ export interface PaintingState {
   display: PaintingDisplay | null;
   /** Native metadata generation for rejecting obsolete geometry receipts. */
   epoch: number;
+  /** Independent memory-only overlay preference; never an Apply candidate. */
+  highlightEnabled?: boolean;
 }
 export interface PaintingPorts {
   coordinate<T>(operation: () => Promise<T>): Promise<T>;
@@ -58,7 +60,7 @@ const defaults: Required<PaintingSettings> = { state: 1, erase: false, vertical:
 export class PaintingController {
   private state: PaintingState = { phase: 'closed', channel: 'mmu', session: null, tool: 'circle', settings: defaults, error: null, display: null, epoch: 0 };
   private switching = false;
-  private parameters = new Map<PaintingChannel, { tool: PaintTool; settings: Required<PaintingSettings> }>();
+  private parameters = new Map<PaintingChannel, { tool: PaintTool; settings: Required<PaintingSettings>; highlightEnabled?: boolean }>();
   private listeners = new Set<() => void>();
   private lane: Promise<unknown> | null = null;
   private terminal: Terminal | null = null;
@@ -69,6 +71,8 @@ export class PaintingController {
   private known = new Set<string>();
   private hover: PaintingPointerEvent | undefined;
   private previewDirty = false;
+  private highlightDirty = false;
+  private highlightGeneration = 0;
   private previewGeneration = 0;
   /** Only a successful native preview or admitted stroke result owns candidates.
    * Geometry/model recovery and pointer presence cannot grant ownership. */
@@ -122,7 +126,7 @@ export class PaintingController {
     if (previewInput(this.state.tool)) { this.invalidatePreview(); }
     this.update({ error: error instanceof Error ? error.message : String(error), ...(previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
   }
-  async open(objectId: number, instanceId: number, channel: 'mmu' | 'seam' | 'fuzzy'): Promise<boolean> {
+  async open(objectId: number, instanceId: number, channel: PaintingChannel): Promise<boolean> {
     if (this.switching) return false;
     // Reserve closing synchronously. Busy switches are discarded, never queued.
     if (this.active) {
@@ -133,8 +137,8 @@ export class PaintingController {
       this.switching = false;
       if (!closed) return false;
     }
-    this.parameters.set(this.state.channel, { tool: this.state.tool, settings: this.state.settings });
-    const parameters = this.parameters.get(channel) ?? { tool: 'circle' as const, settings: { ...defaults } };
+    this.parameters.set(this.state.channel, { tool: this.state.tool, settings: this.state.settings, highlightEnabled: this.state.highlightEnabled });
+    const parameters = this.parameters.get(channel) ?? { tool: 'circle' as const, settings: { ...defaults }, highlightEnabled: false };
     this.update({ channel, ...parameters, phase: 'opening', error: null });
     return this.exclusive(async () => {
       try {
@@ -143,6 +147,7 @@ export class PaintingController {
         const result = await this.ports.api.openPaintingSession({ version: 1, channel, historySessionId: history.sessionId, objectId, instanceId });
         if ('error' in result) throw new Error(result.error);
         this.update({ session: result.session, phase: 'idle', epoch: this.state.epoch + 1 });
+        this.highlightDirty = this.state.channel === 'support';
         this.displayDirty = true; this.previewDirty = previewInput(this.state.tool) === 'static';
         return true;
       } catch (error) {
@@ -166,6 +171,7 @@ export class PaintingController {
         if ('error' in result) throw new Error(result.error);
         this.known.clear(); this.hover = undefined;
         this.update({ session: result.session, epoch: this.state.epoch + 1, phase: 'idle' });
+        this.highlightDirty = this.state.channel === 'support';
         this.displayDirty = true; this.previewDirty = previewInput(this.state.tool) === 'static'; return true;
       } catch (error) { this.fail(error); this.update({ phase: 'idle' }); return false; }
     });
@@ -190,9 +196,19 @@ export class PaintingController {
       !Number.isFinite(next.radius) || next.radius <= 0 || !Number.isFinite(next.height) || next.height <= 0 ||
       !Number.isFinite(next.gapArea) || next.gapArea < 0 || next.gapArea > 5 ||
       (next.angle !== null && (!Number.isFinite(next.angle) || next.angle < 0 || next.angle > 90))) return;
+    if (next.overhangAngle !== this.state.settings.overhangAngle) this.invalidateHighlight();
     this.advancePreview(); this.update({ settings: next, ...(!previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
     if (value.state !== undefined && this.state.channel === 'mmu') this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
     this.previewDirty = true; this.scheduleDisplay();
+  }
+  setHighlight(enabled: boolean): void {
+    if (this.state.channel !== 'support' || this.state.phase !== 'idle') return;
+    this.invalidateHighlight();
+    this.update({ highlightEnabled: enabled }); this.scheduleDisplay();
+  }
+  private invalidateHighlight(): void {
+    this.highlightDirty = this.state.channel === 'support'; ++this.highlightGeneration;
+    if (this.state.display) this.update({ display: { ...this.state.display, candidates: this.state.display.candidates.filter(c => c.kind !== 'overhang') } });
   }
   private mmuParameters() {
     return this.state.channel === 'mmu' ? { tool: this.state.tool, settings: this.state.settings }
@@ -379,6 +395,7 @@ export class PaintingController {
         const latest = await this.ports.api.readPaintingSession({ ...this.identity(), latest: true });
         if ('error' in latest) throw new Error(latest.error);
         this.update({ session: latest.session, epoch: this.state.epoch + 1 });
+        this.highlightDirty = this.state.channel === 'support';
         this.displayDirty = true; this.previewDirty = this.previewReady(); return result;
       } catch (error) { await this.recover(error); throw error; }
     }); } finally {
@@ -415,17 +432,22 @@ export class PaintingController {
     await this.ports.prepareClosed([...this.paintedObjectIds]);
     this.paintedObjectIds.clear();
     this.known.clear(); this.cancelFrame?.(); this.cancelFrame = null;
-    this.displayDirty = false; this.previewDirty = false; this.advancePreview(); this.hover = undefined;
+    this.displayDirty = false; this.previewDirty = false; this.highlightDirty = false; ++this.highlightGeneration; this.advancePreview(); this.hover = undefined;
     this.update({ phase: 'closed', session: null, display: null, error: null, epoch: this.state.epoch + 1 });
   }
   private scheduleDisplay(): void {
-    if (this.lane || this.cancelFrame || !this.state.session || !['idle', 'drawing'].includes(this.state.phase) || (!this.displayDirty && !(this.previewDirty && this.state.phase === 'idle'))) return;
+    if (this.lane || this.cancelFrame || !this.state.session || !['idle', 'drawing'].includes(this.state.phase) || (!this.displayDirty && !((this.previewDirty || this.highlightDirty) && this.state.phase === 'idle'))) return;
     this.cancelFrame = this.ports.schedule(() => {
       this.cancelFrame = null;
       if (this.lane || !['idle', 'drawing'].includes(this.state.phase)) return;
       void this.exclusive(async () => {
         try {
           const previewVersion = this.previewGeneration, previewTool = this.state.tool;
+          const highlightVersion = this.highlightGeneration;
+          if (this.state.phase === 'idle' && this.highlightDirty) {
+            this.highlightDirty = false;
+            this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool: 'overhang', settings: { overhangAngle: this.state.highlightEnabled ? this.state.settings.overhangAngle : null } }));
+          }
           if (this.state.phase === 'idle' && this.previewDirty) {
             this.previewDirty = false;
             const tool = this.state.tool;
@@ -448,7 +470,8 @@ export class PaintingController {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
-              const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? result.candidates.filter((c) => c.kind === this.state.tool || c.kind === 'overhang') : result.candidates.filter(c => c.kind === 'overhang');
+              const eligible = result.candidates.filter(c => c.kind !== 'overhang' || (highlightVersion === this.highlightGeneration && this.state.highlightEnabled));
+              const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? eligible.filter((c) => c.kind === this.state.tool || c.kind === 'overhang') : eligible.filter(c => c.kind === 'overhang');
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
               for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
               const session = this.state.session;

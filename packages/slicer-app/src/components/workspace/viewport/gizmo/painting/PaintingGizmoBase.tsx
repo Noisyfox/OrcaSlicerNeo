@@ -174,7 +174,7 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     {visual ? visual.resources.filter((r) => r.source.kind === 'draft' || activeCandidates.has(r.source.resourceId)).map((r) => {
       return <PaintResourceMesh key={r.source.resourceId} resource={r} targetName={__ORCA_E2E__ ? `painting-model-${visual.display.session.objectId}-${visual.display.session.instanceId}` : ''} matrix={paintingPartMatrix(visual.display.session, r.source.volumeId)} colors={r.source.groups.map(([state]) => resolveColor(visual.display, r.source.volumeId, state))} />;
     }) : openingVisual}
-    {cursor && visual && (state.tool === 'circle' || state.tool === 'sphere' || state.tool === 'height') && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} meshes={cursorMeshes} color={resolveCursorColor(visual.display, state.channel === 'seam' && state.settings.erase ? 0 : state.settings.state)} />}
+    {cursor && visual && (state.tool === 'circle' || state.tool === 'sphere' || state.tool === 'height') && <PaintingCursor tool={state.tool} settings={state.settings} position={cursor} cameraQuaternion={camera.quaternion} bounds={bounds} meshes={cursorMeshes} color={resolveCursorColor(visual.display, (state.channel === 'seam' || state.channel === 'support') && state.settings.erase ? 0 : state.settings.state)} />}
   </>;
 }
 export function triangleContourMaterial(): THREE.LineBasicMaterial {
@@ -189,13 +189,14 @@ export function triangleContourMaterial(): THREE.LineBasicMaterial {
 }
 function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource: PaintingResource; matrix: THREE.Matrix4; colors: string[]; targetName: string }) {
   const triangle = resource.source.kind === 'triangle';
+  const overhang = resource.source.kind === 'overhang';
   const region = (resource.source.kind === 'region' || resource.source.kind === 'smartFill' || resource.source.kind === 'overhang'), overlay = resource.source.kind !== 'draft';
-  const materials = useMemo(() => triangle ? [] : colors.map((color) => new THREE.MeshStandardMaterial({ color: region ? '#ffffff' : color, side: THREE.DoubleSide, transparent: region, opacity: region ? 0.35 : 1, polygonOffset: overlay, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })), [colors.join(','), triangle, region, overlay]);
+  const materials = useMemo(() => triangle ? [] : colors.map((color) => new THREE.MeshStandardMaterial({ color: overhang ? '#ffb347' : region ? '#ffffff' : color, side: THREE.DoubleSide, transparent: region, opacity: overhang ? 0.25 : region ? 0.35 : 1, depthWrite: !overlay, polygonOffset: overlay, polygonOffsetFactor: overhang ? -1 : -2, polygonOffsetUnits: overhang ? -1 : -2 })), [colors.join(','), triangle, region, overlay, overhang]);
   const contourMaterial = useMemo(() => triangle ? triangleContourMaterial() : new THREE.LineBasicMaterial({ color: 'white', depthTest: false }), [triangle]);
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
   useEffect(() => () => contourMaterial.dispose(), [contourMaterial]);
   return <group matrix={matrix} matrixAutoUpdate={false} dispose={null}>
-    {!triangle && <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overlay ? PAINTING_RENDER_ORDER.candidate : PAINTING_RENDER_ORDER.draft} />}
+    {!triangle && <mesh name={__ORCA_E2E__ ? overlay ? 'painting-candidate' : targetName : undefined} geometry={resource.geometry} material={materials} renderOrder={overhang ? PAINTING_RENDER_ORDER.candidate - 1 : overlay ? PAINTING_RENDER_ORDER.candidate : PAINTING_RENDER_ORDER.draft} />}
     {resource.source.contour.length > 0 && <lineSegments name={__ORCA_E2E__ ? triangle ? 'painting-contour-triangle' : 'painting-contour' : undefined} geometry={resource.contour} material={contourMaterial} renderOrder={PAINTING_RENDER_ORDER.contour} />}
   </group>;
 }

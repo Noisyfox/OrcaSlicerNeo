@@ -209,6 +209,9 @@ Support Gap Fill retains section 2.3's object-wide Apply-only behavior, native
 neighbour choice and non-mutating preview, using support states instead of
 material slots. Overhang highlighting/restriction uses native transformed
 surface/angle semantics; highlighting alone never commits annotations.
+Restriction applies to Circle, Sphere and Smart Fill. Gap Fill remains object-wide
+and unrestricted; its panel disables the brush-only restriction control while
+preserving the preference for those tools. Highlighting remains independent.
 
 Smart Fill requires a numeric 0–90 degree edge angle. The `null` edge-angle
 option remains specific to MMU Region Fill. Support overhang membership uses
@@ -228,7 +231,8 @@ dedicated highlight wire request requires an explicit angle or `null`.
 
 Each adapter has its own dedicated toolbar entry, following Orca’s independent
 support, seam, fuzzy-skin and MMU gizmo entries. Do not hide the adapters behind
-a shared channel picker. Expose each entry only when its complete boundary passes
+a shared channel picker. Keep that painting-entry order: Support, Seam, Fuzzy,
+MMU. Expose each entry only when its complete boundary passes
 acceptance.
 
 All three new channels permit single-filament projects. MMU retains its
