@@ -478,7 +478,11 @@ history entries.
       slicing, both WASM variants, real Electron/Web and packaged verification.
 - [x] Reproducible dual-host performance baseline with raw evidence and resource
       cleanup checks; pinned native comparison remains unavailable.
-- [ ] Support, seam and fuzzy-skin painting adapters (future work).
+- [ ] Scheme B support, seam and fuzzy-skin painting adapters: approved and
+      implementation authorized 2026-10-02; sequential steps 13–19 remain pending.
+      MMU delivery remains accepted; adapter design approval is not delivery.
+      Pinned native performance comparison remains unavailable; quantitative
+      performance thresholds remain pending and timings are not universal guarantees.
 
 ## G-code preview GPU streaming renderer
 

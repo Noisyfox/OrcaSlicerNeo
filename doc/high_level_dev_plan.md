@@ -574,8 +574,11 @@ preferences, full 3MF archives, and derived slice/preview output remain excluded
       edits; coherent slots, project commands, lifecycle, 3MF and real MMU slices.
 - [x] Both production WASM variants, real Electron/Web and packaged-app gates,
       plus a reproducible 36-sample performance baseline and resource cleanup.
-- [ ] Support, seam and fuzzy-skin adapters. Pinned native performance comparison
-      remains unavailable; measured timings are not universal guarantees.
+- [ ] Scheme B support, seam and fuzzy-skin painting adapters: approved and
+      implementation authorized 2026-10-02; sequential steps 13–19 remain pending.
+      MMU delivery remains accepted; adapter design approval is not delivery.
+      Pinned native performance comparison remains unavailable; quantitative
+      performance thresholds remain pending and timings are not universal guarantees.
 
 ## G-code preview GPU streaming renderer (2026-09-02)
 

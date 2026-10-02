@@ -5,6 +5,8 @@
 **Status:** Implemented and functionally qualified on 2026-09-30. All six MMU
 tools and the reusable painting foundation are delivered. Quantitative performance
 thresholds remain to be confirmed from the recorded reference measurements.
+Support, seam and fuzzy-skin adapters under scheme B are approved and authorized
+for sequential implementation on 2026-10-02; their acceptance remains pending.
 
 **Scope:** A shared surface-painting architecture for OrcaSlicerNeo, with
 multi-material painting as its first gizmo and reusable foundations for support,
@@ -32,8 +34,8 @@ behavior of the pinned Orca source as a reference.
   [Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md) continue to
   govern material slots and committed slicing inputs.
 
-No delivered milestone is claimed by this design record. Implementation and
-verification must follow the [testing guidelines](../doc/testing_guidelines.md).
+The delivered MMU scope and pending adapter scope are distinguished in section 10.
+Implementation and verification must follow the [testing guidelines](../doc/testing_guidelines.md).
 
 ## 2. Accepted direction and reusable boundaries
 
@@ -68,10 +70,10 @@ The reusable architecture separates:
 
 | Feature | Native annotation | State semantics |
 | --- | --- | --- |
-| Multi-material | `mmu_segmentation_facets` | Default and explicit material slots |
-| Support | `supported_facets` | Default, enforce, block |
-| Seam | `seam_facets` | Default, enforce, block |
-| Fuzzy skin | `fuzzy_skin_facets` | Default and enabled |
+| Multi-material | `mmu_segmentation_facets` | 0 default; 1–16 explicit material slots |
+| Support | `supported_facets` | 0 default; 1 enforce; 2 block |
+| Seam | `seam_facets` | 0 default; 1 enforce; 2 block |
+| Fuzzy skin | `fuzzy_skin_facets` | 0 unpainted; 1 enabled; no blocker state |
 
 Each annotation retains its own subdivision tree and state. Shared numeric
 values do not imply shared business meaning. Specialized operations such as
@@ -179,6 +181,111 @@ ones. Follow Orca's neighbour-choice rule: choose the numerically smallest
 adjacent facet state from the ordered set of neighbouring states. State zero
 (unpainted) takes precedence when present. Do not substitute a largest-area or
 longest-shared-boundary heuristic. Preview and Apply use this same rule.
+
+### 2.4 Approved support, seam and fuzzy-skin adapters — scheme B
+
+These adapters reuse the delivered Worker/WASM, `TriangleSelector`,
+`FacetsAnnotation`, shared gizmo, session and history foundation. They do not
+introduce a second annotation authority. Each channel loads, edits and commits
+only its independent native field and subdivision tree. Local erase and Erase
+all restore state 0 in the active channel, preserving the other three fields.
+Erasing support returns to automatic/default support policy; it does not force
+no-support. Erasing fuzzy skin removes painted enablement; it does not suppress
+fuzzy skin selected by a whole-surface configuration mode.
+
+| Adapter | Complete initial tool set and auxiliary controls |
+| --- | --- |
+| Support | Circle, sphere, Smart Fill, Gap Fill; overhang highlighting and painting restricted to the highlighted overhang region. |
+| Seam | Circle, sphere; Vertical constraint holds pointer screen X during dragging, using the camera snapshot and native projected trajectory. It is not a world-Z band or a surface-normal filter. |
+| Fuzzy skin | Circle, sphere, triangle, Smart Fill. |
+
+Support and fuzzy Smart Fill follow native `seed_fill_select_triangles` geometry/
+angle selection. They must not alias the delivered MMU Region Fill, whose
+`bucket_fill_select_triangles` propagation is constrained by existing facet
+state. Fixtures must distinguish these algorithms across adjacent different
+paint states. Native owns preview membership and actual edits with identical
+parameters, transforms and channel revision; stale candidates cannot be applied.
+Support Gap Fill retains section 2.3's object-wide Apply-only behavior, native
+neighbour choice and non-mutating preview, using support states instead of
+material slots. Overhang highlighting/restriction uses native transformed
+surface/angle semantics; highlighting alone never commits annotations.
+
+All three new channels permit single-filament projects. MMU retains its
+at-least-two-slot entry gate and 1–16 explicit palette. Support and seam panels
+provide explicit Enforce, Block and Erase choices; fuzzy provides Enable and
+Erase. Left-button painting applies that choice; Shift plus left locally erases.
+Retain Neo middle/right-drag pan and Ctrl/Cmd plus wheel controls. Do not import
+Orca's right-button blocker mapping. Live state/erase/brush parameters follow
+section 2.1; tool switches and project/configuration mutations follow the existing
+unfinished-stroke gate. Tool parameters are memory-only and retained separately
+per channel across object switches and closure; they are neither project settings
+nor history entries. They reset on application restart.
+
+Channel switching is an idle-only gizmo switch: normally close the old channel,
+complete its history/resource/derived settlement, then open the next. Closure
+failure keeps the next channel closed; busy switch commands are ignored without
+queuing. All channels inherit sections 3–7's target scope, mounted session lifetime,
+command gates, save/close, failure atomicity, serial slice admission and threaded
+slice cancellation policies. No channel bypasses those policies.
+
+Ordinary Prepare/Preview remains governed by MMU material colours. In dedicated
+editing mode display only the active channel's draft states and candidates. Do
+not combine channel overlays or reinterpret support/seam/fuzzy numeric states as
+filament IDs. Ordinary committed paint geometry remains MMU-only; a new channel
+edit must not recolour it or force unrelated source geometry/BVH reconstruction.
+
+The initial adapter scope defers clipping/section view/caps/wireframe, support's
+horizontal constraint, actual support-generation preview, angle-batch marking,
+and touch/stylus/pressure. Desktop mouse/trackpad is supported in both Electron
+and desktop Web. No additional triangle cutoff or quantitative performance
+promise is introduced; existing measurement decisions remain pending.
+
+### 2.5 Fuzzy configuration and explicit enablement
+
+In the current pinned native configuration, `disabled_fuzzy` means Disabled;
+`none` means Painted only. Do not infer meaning from the enum spelling. Resolve
+the effective configuration including applicable inherited scoped settings,
+rather than reading only a global preset or a directly present object key.
+
+Allow editing while fuzzy skin is effectively disabled, with a clear warning
+that the annotations will have no slicing effect. Provide an explicit action
+that sets the selected object's `fuzzy_skin` to Painted only (`none`) through
+the existing scoped-configuration mutation path. That action is a separate
+non-paint history operation and is subject to the usual command gate; brushing
+never silently enables configuration. The warning reflects any still-applicable
+more-specific override. Undo/Redo independently restores configuration and
+painting. Preserve existing whole-surface modes and their inherited values;
+erase does not override them. Preserve native fuzzy-plus-MMU behavior and the
+native warning for XY compensation with fuzzy skin.
+
+### 2.6 Required channel integration boundary
+
+The current `Session`/`Settings`, open/commit/reconcile paths and typed contract
+hardwire MMU and material-slot validation. Extend those actual paths for a
+required channel discriminant and channel-specific legal state/tool validation,
+loading, timestamps, resource identities, publication, rollback and history
+names. Update every internal caller, Worker transfer, runtime export and mock
+in the same contract step. There are no cross-version internal callers: do not
+add an omitted-channel MMU default, old-signature overload or compatibility alias.
+External native 3MF compatibility remains a separate requirement.
+
+History already captures all four facet fields, but capture alone is insufficient.
+The current affected-plate comparison in `bridge_history.cpp` around line 562
+and material-usage comparison around line 735 examine MMU only. Every new channel
+commit and Undo/Redo must invalidate the affected before/after instance plates,
+input/result stamps, Worker caches and published previews. Support changes must
+also invalidate support-related material-use summaries and Prime Tower
+projections where implicated. Retain atomic restoration/reconciliation/publication
+and versioned deferred settlement; determine channel dependencies rather than
+reusing MMU-only equality or indiscriminately rebuilding the scene.
+
+Native 3MF uses existing BBS attributes `paint_supports`, `paint_seam`, and
+`paint_fuzzy_skin`, alongside MMU painting. No private project format or duplicated
+annotation metadata is introduced. `PrintApply` already transfers the four native
+fields; support annotations feed support processing, seam annotations feed G-code
+seam placement, and fuzzy annotations feed region segmentation. Acceptance must
+prove those downstream effects after edits and history restoration, not merely
+that the selector or mesh changes colour.
 
 ## 3. Dedicated painting mode
 
@@ -859,9 +966,12 @@ the stroke. This policy adds no export formats or command entry points.
 
 ## 8. Native Orca reference and Neo differences
 
-The research baseline is the pinned Orca submodule commit
+The historical MMU research baseline is Orca submodule commit
 `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`, inspected with Neo at `f3d3e040`.
-Reference behavior is source-derived, not an assertion about a newer release.
+The scheme B adapter research baseline (2026-10-02) is the current pinned commit
+`489cbe91840ff97aaf4d8029009d5db410f32893`. Preserve that pin; upstream changes
+require patches or an intentional documented update. Reference behavior is
+source-derived, not an assertion about a newer release.
 
 - [TriangleSelector](../packages/slicer-wasm/cpp/src/libslic3r/TriangleSelector.hpp)
   owns facet subdivision, brush/fill selection, and compact serialization.
@@ -870,6 +980,14 @@ Reference behavior is source-derived, not an assertion about a newer release.
   ordinary-picking suppression in painting mode.
 - [Multi-material gizmo](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoMmuSegmentation.cpp)
   initializes selectors and writes their results to native annotations.
+- [Support gizmo](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoFdmSupports.cpp),
+  [seam gizmo](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoSeam.cpp),
+  and [fuzzy gizmo](../packages/slicer-wasm/cpp/src/slic3r/GUI/Gizmos/GLGizmoFuzzySkin.cpp)
+  supply channel loading/commit, tools and native input references.
+- [PrintConfig](../packages/slicer-wasm/cpp/src/libslic3r/PrintConfig.cpp)
+  defines the fuzzy enum labels; [BBS 3MF](../packages/slicer-wasm/cpp/src/libslic3r/Format/bbs_3mf.cpp)
+  preserves native annotation attributes; [PrintApply](../packages/slicer-wasm/cpp/src/libslic3r/PrintApply.cpp)
+  copies the fields into native slicing state.
 - [Plater history](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp)
   calls `reduce_noisy_snapshots` when leaving a gizmo with an action; its comment
   explicitly describes reducing consecutive gizmo-action runs.
@@ -1082,6 +1200,41 @@ working-set sums are not exclusive peak memory. A comparable pinned native Orca
 measurement and GPU execution timing remain unavailable. Numeric acceptance
 thresholds are still awaiting user review.
 
+### 9.2 Required adapter editing and interoperability acceptance
+
+These checks are pending until the sequential adapter stages are accepted:
+
+- Edit each new channel in a single-filament multipart/transformed project and
+  MMU in a multi-filament project; serialize,
+  save, reopen and compare the native annotation state and subdivision data for
+  all four channels. The three untouched fields must remain identical. Repeat
+  erase, cancelled strokes, failed commits and history restoration. No private
+  attribute or MMU material reinterpretation is permitted.
+- Prove support/seam 0/1/2 and fuzzy 0/1 validation, cross-channel state/tool
+  rejection, required channel identity and stale-resource/revision rejection.
+  Re-run all six delivered MMU tools, slot gates/remapping and rendering.
+- Distinguish geometry-angle Smart Fill from same-state MMU Region Fill with
+  adjacent differently painted facets. Prove transformed/native preview/edit
+  parity, Gap preview/Apply parity and no preview-only dirty/history changes.
+- Assert seam Vertical screen-X trajectory while the camera/object is rotated;
+  assert support overhang highlighting and restricted native edits. Check panel
+  Enforce/Block/Erase, Shift erasing and right/middle pan in both desktop hosts.
+- Restore edits with Undo/Redo and mixed configuration separators across objects,
+  instances and plates. Observe actual result invalidation and recomputation;
+  verify support material-use/Prime Tower updates and atomic failed restoration.
+- Save from an idle editor, switch channel normally and recover from close or
+  publication failure without losing committed state. Exercise busy command gates,
+  mounted hidden viewport lifetime, serial slicing admission and threaded cancel.
+- Slice controlled fixtures before/after commit, erase and Undo/Redo. Observe
+  support output, seam placement and fuzzy segmentation/toolpath effects, with
+  pinned native interoperability evidence. Cover fuzzy disabled/explicit Painted
+  only/inherited and more-specific overrides/whole-surface modes, fuzzy-plus-MMU
+  and XY-compensation warning retention. Ordinary scene colours stay MMU-only.
+- Qualify current Electron/Web and threaded/serial artifacts with identity receipts,
+  native-format round trips, resource cleanup and production instrumentation
+  elision. Record representative channel performance/memory measurements under
+  section 9.1's methodology; do not imply thresholds have been approved.
+
 ## 10. Decision status and remaining validation
 
 The grouped clarification of first-release product behavior and architectural
@@ -1094,6 +1247,7 @@ sections rather than as a discussion transcript.
 | B. History and external edits | Accepted; sections 5-7 define per-stroke commits, nested navigation/compaction, eviction, Redo cleanup, and interleaved project changes. |
 | C. Multi-material tools | Accepted; sections 2-4 define all six tools, their parameters and lifetime, desktop input, native authority, and reliable event completion. |
 | D. Runtime and acceptance | Runtime policies and functional verification are accepted; sections 4-6 and 9 define event admission, cancellation, memory policy, reference environment, and fixtures. The measured baseline is recorded; numeric performance thresholds await user review. |
+| E. Scheme B adapters | Approved and implementation authorized 2026-10-02; sections 2.4–2.6 and 9.2 define pending support/seam/fuzzy acceptance. |
 
 The [typed painting contract](../packages/slicer-wasm/src/client/painting.ts)
 implements the session/stroke/revision and camera-snapshot transport. Native
@@ -1109,9 +1263,11 @@ Implementation was authorized on 2026-09-29 on the current development branch.
 The [living implementation plan](../doc/2026-09-29-surface-painting-implementation.md)
 defines bounded sequential steps, each implemented and self-verified by a fresh
 subagent and independently accepted by the parent before the next step starts.
-All implementation stages passed parent code review and independent verification.
+All MMU implementation stages 01–12 passed parent code review and independent verification.
 The final record includes root tests/typechecks, both production WASM variants,
 Electron/Web real journeys, packaged-app checks, 3MF/profile compatibility and
-the measured performance baseline. Support, seam and fuzzy-skin painting remain
-future adapters; this delivery contains only MMU painting. Functional delivery
-does not close the remaining quantitative performance decision.
+the measured performance baseline. This delivered scope contains only MMU painting.
+Scheme B support, seam and fuzzy-skin adapters were approved and implementation
+authorized on 2026-10-02 under pending sequential stages 13–19 in the same living
+plan. Design approval is not adapter delivery or passed acceptance. Functional
+delivery does not close the remaining quantitative performance decision.

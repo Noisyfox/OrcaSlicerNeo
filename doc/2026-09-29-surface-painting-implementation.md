@@ -2,15 +2,19 @@
 
 **Date:** 2026-09-29
 
-**Branch:** `dev/surface-painting-spec` (continue in the current checkout).
+**Branch:** `dev/support-seam-fuzzy-painting` for the authorized 2026-10-02
+adapter work; historical MMU work used `dev/surface-painting-spec`.
 
-**Status:** Steps 01-12 implemented and independently accepted; functional delivery qualified 2026-09-30. Quantitative performance thresholds remain awaiting user review.
+**Status:** Steps 01–12 implemented and independently accepted; MMU functional
+delivery qualified 2026-09-30. Scheme B support/seam/fuzzy adapters approved and
+implementation authorized 2026-10-02; steps 13–19 are pending. Quantitative
+performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
 ## Execution contract
 
-- All newly started subagents use **gpt-6.1-sol / high**, per the latest user instruction; this overrides the skill default. Already-running agents finish their assigned work on their existing model. Earlier stage 10 onward and the two follow-up children used **gpt-6-sol / high**; stage 09 continued on **gpt-6-astra / medium**.
+- From the 2026-10-02 authorization, every new step uses a fresh **gpt-6.1-sol / medium** child. This supersedes the earlier new-child **gpt-6.1-sol / high** policy. Historical executions and their recorded models remain unchanged; stage 10 onward and two earlier follow-up children used **gpt-6-sol / high**, and stage 09 continued on **gpt-6-astra / medium**.
 - Execute numbered steps strictly in order. Start a fresh implementation subagent for every new step. Do not start the next step until the parent has independently accepted the previous one.
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
@@ -26,7 +30,7 @@
 - Commands use session/stroke/revision identities. Camera input is a per-admitted-event viewport/pointer/camera-matrix snapshot; native reconstructs rays and uses authoritative object/instance transforms. Exact typed schemas are fixed by the relevant transport step and reused thereafter.
 - Reuse one Worker and WASM module. No wx GUI compilation, extra native worker, session-long exclusive transaction, movement queue, pending-latest move, or new history authority.
 - One painting event in flight; busy moves discarded; reliable terminal state; normal release paints its retained endpoint once before commit; Escape restores after the in-flight call and does not paint an endpoint.
-- Preserve all six tools and every accepted lifecycle/history/slot policy. Support/seam/fuzzy remain adapter extension points, not extra delivered tools.
+- Preserve all six MMU tools and every accepted lifecycle/history/slot policy. Scheme B support/seam/fuzzy adapters are now authorized under sections 2.4–2.6 and 9.2 of the specification; they remain pending rather than extra delivered tools.
 - Follow the user's implementation reference: pinned Orca `TriangleSelectorGUI` and `TriangleSelectorPatch` in `GLGizmoPainterBase.{hpp,cpp}`, alongside base `TriangleSelector`. Reuse their selection/neighbor/update semantics through non-GUI adapters; separate candidate selection, paint-state change and render invalidation. Native owns candidate membership/contours even for same-color hover. OpenGL/wx resources stay outside WASM; NEO transports geometry to the dedicated React renderer.
 
 ## Verification profiles
@@ -224,6 +228,286 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 **Functional boundary:** Reconcile delivered behavior with every accepted spec requirement, resolve remaining defects, and run repository/release gates appropriate to claiming all six tools delivered. Record precise remaining limitations and update roadmap only for actual delivery.
 
 **Acceptance boundary:** Root tests/typechecks, both WASM quick/smoke, required real desktop/Web and compatibility/performance evidence, and applicable milestone matrix from testing guidelines. No feature-complete claim with required gates failing/unrun. Parent independent acceptance remains mandatory.
+
+## Adapter stages — authorized 2026-10-02
+
+The user accepted scheme B and authorized implementation immediately after the
+documentation piece is independently accepted and committed. Continue in this
+same living record, with one fresh **gpt-6.1-sol / medium** child per numbered
+step. No overlapping stages; child self-verification precedes substantive parent
+review and independently rerun acceptance. The parent commits each accepted
+piece before launching the next. Existing steps and evidence below are historical
+MMU delivery, not evidence for these new channels.
+
+The research baseline is the pinned submodule
+`489cbe91840ff97aaf4d8029009d5db410f32893`; preserve it. Scheme B's complete
+accepted semantics live in the [surface specification](../spec/Surface%20Painting%20Architecture.md#24-approved-support-seam-and-fuzzy-skin-adapters--scheme-b).
+The native/transport first steps are independently testable hidden foundations;
+a toolbar entry appears only when its complete channel stage is accepted.
+
+### Current execution and verification scope
+
+- Documentation piece: independently accepted by the parent on 2026-10-02;
+  scheme B and stages 13–19 are recorded before code implementation. Parent
+  source/diff review, local links/anchors, command references, native driver help
+  and `git diff --check` passed. No adapter code is delivered by this piece.
+- Steps 13–19: pending, with no product checks yet claimed for their implementation.
+- Existing serial/threaded build trees and pnpm/native tools were verified by the
+  parent as available for this checkout. Children must still verify configured
+  source roots, build flags and current artifact identity before running evidence.
+- Profiles N/W/T/A/E/P/R above continue to apply. Native quick commands on this
+  macOS/Linux checkout are `bash scripts/build.sh quick --variant serial` and
+  `bash scripts/build.sh quick --variant both`; Windows uses the existing
+  `scripts\build-windows.bat` equivalents. Smoke is
+  `bash scripts/build.sh smoke --variant serial` or `--variant both`.
+- For each affected package run its `pnpm --filter @orca/slicer-wasm test` /
+  `typecheck`, `@orca/slicer-runtime` equivalents and/or A's app commands.
+  Each child reports the exact invocations and actual fixture/assertion scope;
+  a profile name by itself is not verification evidence.
+- Extend the existing real-WASM `painting-session-smoke.mjs`,
+  `painting-engine-smoke.mjs`, `painting-backend-smoke.mjs` and
+  `history-plate-runtime-smoke.mjs` as appropriate, rather than relying on mock
+  receipts. Invoke them with the current variant module path; comprehensive
+  failure cases require the appropriate compile-gated native test build, while
+  production interoperability uses the harness's production mode. Record build
+  configuration and restore ordinary artifacts before production/elision checks.
+- Current ordinary-production backend command is
+  `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production`.
+  Expand its assertions per step; the old passing harness cannot establish a
+  new channel. Host runner is `pnpm exec node scripts/run-painting-e2e.mjs`;
+  extend its real journey for each enabled adapter and verify artifact receipts.
+  New probes must compile out of ordinary builds, checked with
+  `pnpm exec node scripts/check-painting-profile-elision.mjs` after ordinary
+  `pnpm --filter @orca/desktop build` and `pnpm --filter @orca/web build`.
+
+### 13. Channel-aware native sessions and strict typed transport
+
+**Status:** Pending. **Depends on:** documentation piece accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+T+A (MMU regression).
+
+**Allowed scope:** Native painting Session/Settings/open/commit/reconcile and
+channel adapters under `packages/slicer-wasm/src/`; client, Worker and runtime
+contracts; all internal callers/mocks needed for the required schema; focused
+native harnesses and protocol tests. No new channel toolbar entry.
+
+**Functional output:** Required channel discriminant selects exactly one native
+field/tree. Channel-specific state/tool validation, deserialize/writeback,
+serialization, timestamps, resource identities, revision checks, cancellation,
+staged publication/rollback and history names work for all four fields. Carry
+the discriminant through responses and transfers; update every current caller
+with no omitted-channel MMU default or old-contract aliases. MMU palette/rack
+validation is specific to MMU; new channels work on single-filament projects.
+Implement the reusable circle/sphere/triangle paths only where the approved
+channel tool table allows them; reject unavailable tool paths. Smart Fill and
+support auxiliary operations remain inaccessible until their later stages.
+Ordinary committed mesh resources remain MMU-only.
+
+**Child self-check:** Affected full package suites/typechecks, serial quick build,
+focused real-WASM session/backend tests and all-six-tool MMU regression. Assert
+missing/invalid channel, cross-channel illegal states/tools, stale receipt,
+independent imported trees, changed/untouched annotation bytes and failed commit
+rollback; exercise live stroke state changes and cancellation. Use a configured
+native failure-test artifact for atomicity evidence, with production elision.
+
+**Parent acceptance:** Read the native field adapter, transaction/publication and
+all transport consumers; rerun affected suites/typechecks plus current serial
+native harness with per-channel state/bytes/timestamps/resource assertions.
+Independently rerun existing real MMU journey. No new channel is exposed.
+
+### 14. Four-channel history restoration and slice invalidation
+
+**Status:** Pending. **Depends on:** 13 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** N+W+T+A.
+
+**Allowed scope:** Native history/painting/plate cache and derived-use/Prime Tower
+integration, client/runtime restore projection, affected app restore coordinator,
+real history/plate harness and behavior tests. No new toolbar entry.
+
+**Functional output:** Close the MMU-only restore gaps in affected-plate comparison
+(`bridge_history.cpp` around line 562) and usage comparison (around line 735).
+Commit/Undo/Redo restores all channels and invalidates all affected before/after
+instance plates, input/result stamps, Worker caches and published previews.
+Support changes invalidate implicated support usage summaries and Prime Tower
+projections; preserve channel-specific dependency handling and deferred versioned
+settlement. Native snapshot capture already holds four fields; do not introduce
+another history authority. Retain compaction, non-paint separators, floors,
+saved markers, Redo rules and atomic failed restore/reconciliation/publication.
+
+**Child self-check:** History-core executable in the configured N test build,
+affected suites/typechecks, serial quick build and real history/plate harness.
+Use multiple instances on different plates and all three new channels to prove
+stale results after commit and Undo/Redo, actual fresh slicing, support-use/Prime
+Tower invalidation, unaffected plate reuse, and fault rollback with unchanged
+model/history/cache publication. Repeat mixed config/paint close and MMU history.
+
+**Parent acceptance:** Review restored roots, before/after plate calculation,
+usage dependencies, deferred settlement and staged rollback. Independently rerun
+core and real plate/history scenarios plus affected package checks. Observe cache
+and slice outcomes, not only annotation equality; all new entries remain hidden.
+
+### 15. Complete seam editor, native persistence and downstream slicing
+
+**Status:** Pending. **Depends on:** 14 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
+
+**Allowed scope:** Shared painting adapter/provider/controller/panel/toolbar,
+native seam screen-X constraint and channel reconciliation; native-format fixtures,
+seam save/slice harness, actual-draw/interaction E2E and gated probes.
+
+**Functional output:** A complete seam editor with circle/sphere and
+Enforce/Block/Erase; Vertical constrains native drag screen X using the current
+camera snapshot. Per-channel memory-only tool parameters, single-filament entry,
+active-channel colours and normal MMU scene return work. Idle switching normally
+closes the old channel before opening the new one; failed closure prevents entry.
+All existing mounted lifetime, command/terminal/history/save/slice policies apply.
+Expose seam only when this complete boundary passes acceptance.
+
+**Child self-check:** Serial quick and real seam annotation/save/reopen/slice
+cases, A, affected transport typechecks and extended real Electron journey.
+Prove transformed/camera-rotated screen-X behavior; 0/1/2 independent persistence;
+erase/cancel/Undo/Redo and actual native seam placement effects; busy ignored
+switches, close failure/retry, normal pan/erase shortcuts and ordinary MMU colours.
+Production builds and elision are required for new probe paths.
+
+**Parent acceptance:** Review input projection, native constraint, adapter/UI
+availability, resource lifetime and failure paths. Rerun real seam fixture and
+current-artifact journey plus app checks; inspect actual seam/state and viewport
+evidence. Verify no world-Z substitution, other-channel changes or MMU regression.
+
+### 16. Native Smart Fill and support Gap/overhang foundations
+
+**Status:** Pending. **Depends on:** 15 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+T+A.
+
+**Allowed scope:** Non-GUI native selection/preview/Apply adapters, typed settings
+and draft resource transport, affected shared preview controls not yet exposed,
+transformed/generated fixtures and real engine/backend harnesses.
+
+**Functional output:** Support/fuzzy Smart Fill uses `seed_fill_select_triangles`
+with native geometry/angle membership, not MMU `bucket_fill_select_triangles`
+same-state Region Fill. Candidate preview and committed selection use identical
+settings and revision. Support Gap Fill calculates object-wide native destinations
+and preview/Apply parity with 0/1/2 states; overhang highlighting/restricted
+painting uses transformed native surface/angle semantics. No support generation
+preview, horizontal restriction or angle-batch marking. Support/fuzzy entrypoints
+and consumer controls remain hidden until their complete editor stages.
+
+**Child self-check:** Serial quick, real engine/backend selection fixtures,
+affected full suites/typechecks. Prove differently painted adjacent facets
+separate native Smart Fill from MMU Region Fill; transformed/multipart and
+boundary-angle membership, stale preview rejection, restriction enforcement,
+Gap destination-state/Apply parity and preview-only no dirty/history writes.
+All-six MMU and seam regressions remain passing.
+
+**Parent acceptance:** Read algorithm dispatch, transformed normals/camera/angles,
+state/tree ownership, candidate resource revisions and Apply atomicity; rerun real
+native membership/annotation assertions and affected checks. No unfinished
+support/fuzzy consumer is exposed and existing Region Fill semantics are retained.
+
+### 17. Complete fuzzy-skin editor and explicit configuration action
+
+**Status:** Pending. **Depends on:** 16 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
+
+**Allowed scope:** Shared fuzzy adapter/panel/provider and existing scoped-config
+mutation/read projection, native downstream fixtures/save/slice harnesses,
+focused inherited-configuration tests and real journey extension.
+
+**Functional output:** Circle/sphere/triangle/Smart Fill, Enable/Erase and exactly
+0/1 native states, single-filament entry and channel colours. Resolve effective
+fuzzy settings with applicable inherited scopes. Editing while `disabled_fuzzy`
+is allowed with a clear warning. Explicit object-scoped enable sets `none`
+(Painted only) through the existing config path as an independent non-paint
+history operation; no brush silently enables it. Warning reflects still-applicable
+more-specific overrides. Erase does not override whole-surface modes. Preserve
+fuzzy-plus-MMU and native XY-compensation warnings. Expose only after acceptance.
+
+**Child self-check:** A and affected config/transport tests/typechecks, serial quick
+if native changes, current real fuzzy save/reopen and slice harness/journey.
+Observe native fuzzy segmentation/toolpath effects, disabled annotations with no
+slice effect, explicit enable and separate config Undo/Redo, inherited/object/part
+settings, whole-surface erase, mixed channels and warnings. Prove other channel
+bytes and ordinary MMU material rendering unchanged; production probe elision.
+
+**Parent acceptance:** Review scope resolution and mutation/history boundaries,
+Smart Fill integration, resources and controls. Independently rerun native effects,
+configuration/history behavior and current journey plus affected checks. A stored
+fuzzy annotation alone does not establish downstream acceptance.
+
+### 18. Complete support editor and derived projection integration
+
+**Status:** Pending. **Depends on:** 17 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
+
+**Allowed scope:** Shared support adapter/panel/controller and native consumers
+of accepted fill/overhang/Gap paths, support-use/Prime Tower settlement where
+required, save/slice fixtures/harnesses and focused current-artifact E2E.
+
+**Functional output:** Circle/sphere/Smart Fill/Gap Fill and explicit
+Enforce/Block/Erase. Overhang highlight/restriction and object-wide Gap Apply work
+without preview-only edits. State 0 restores default automatic support policy;
+it does not force no-support. Single-filament projects remain eligible. Maintain
+independent native tree, memory-only parameters, normal close/switch, deferred
+support-use/Prime Tower settlement and MMU-only ordinary scene colours. Expose
+support only after the complete stage is accepted.
+
+**Child self-check:** A, affected native/client/runtime suites/typechecks, serial
+quick and actual support save/reopen/slice/Undo/Redo fixtures and journey. Observe
+support generation changes after enforce/block/erase, transformed overhang
+restriction and Gap parity, unchanged other fields, affected-plate freshness and
+support-filament usage/Prime Tower settlement. Include busy/failure/cancellation
+and no-op preview paths; production probe elision.
+
+**Parent acceptance:** Review restriction/Apply admission and atomic commits,
+downstream support/derived dependencies and UI resources. Rerun real native
+support outcomes and settlement assertions plus app/transport checks and journey.
+No support-generation preview or deferred auxiliary control is exposed.
+
+### 19. Interoperability, both hosts/variants and measured qualification
+
+**Status:** Pending. **Depends on:** 18 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** R+P and milestone gate if claiming delivery.
+
+**Allowed scope:** Channel fixtures, native compatibility/save/slice harnesses,
+Electron/Web journeys, gated benchmark corpus/instrumentation, bounded defects
+against accepted requirements. Parent updates this record, spec and both roadmaps.
+
+**Functional output:** Fulfil [adapter acceptance](../spec/Surface%20Painting%20Architecture.md#92-required-adapter-editing-and-interoperability-acceptance):
+four-channel editing/save/reopen and native BBS attributes, actual downstream
+slicing, strict contracts, all MMU regressions, history/cache/derived-use restore,
+channel switches, failures, lifecycle and cross-host desktop input. Both current
+WASM variants must be qualified; native interoperability and fuzzy-plus-MMU/
+XY-compensation behavior must be preserved. Record representative channel costs
+and memory under the existing methodology without inventing thresholds/cutoffs.
+
+**Child self-check:** `pnpm test`, `pnpm typecheck`, both quick builds and native
+smokes, comprehensive channel contract/roundtrip harness on one variant plus
+focused startup/channel/save/slice on the other (both comprehensive contracts
+when variant-dependent code warrants it). Real Electron and Web threaded/serial
+journeys verify current artifact identities, download/save/reopen and runtime
+admission/cancellation; production builds/elision and non-root deployment where
+affected. Run the full release matrix in the testing guide when claiming
+milestone delivery. Record reproducible measurements, environment/build/fixture
+identities and missing pinned-native comparison explicitly.
+
+**Parent acceptance:** Independently review affected flows, fixture independence,
+actual downstream assertions, production gates and measured evidence. Rerun root
+checks, both native builds/applicable smokes, required host/variant/interop gates
+and representative measurements. No delivered checkbox with required checks
+missing/failing. Numeric threshold approval and unavailable native performance
+comparison remain explicit limitations, separate from functional qualification.
+
+### Adapter acceptance checklist
+
+- [x] Documentation piece independently reviewed and verified; committed before step 13.
+- [ ] 13 strict channel/native/transport boundary and all-six MMU regression accepted.
+- [ ] 14 all-channel history, affected plates and support-derived invalidation accepted.
+- [ ] 15 complete seam editor/save/slice accepted before entrypoint exposure.
+- [ ] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
+- [ ] 17 complete fuzzy editor and explicit independent configuration action accepted.
+- [ ] 18 complete support editor and derived settlement accepted.
+- [ ] 19 both-host/variant interoperability, cleanup and functional qualification accepted.
+- [ ] Quantitative performance thresholds separately reviewed and approved.
 
 ## Execution ledger
 
