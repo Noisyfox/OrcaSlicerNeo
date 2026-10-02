@@ -22,11 +22,12 @@ add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
 if(WASM_THREADING)
-  set(_OCCT_DEFAULT_VARIANT threaded)
+  set(_DEPS_DEFAULT_VARIANT threaded)
 else()
-  set(_OCCT_DEFAULT_VARIANT serial)
+  set(_DEPS_DEFAULT_VARIANT serial)
 endif()
-set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_OCCT_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
+set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
+set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged NLopt wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
 option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 option(NEO_PAINTING_PROFILE "Build painting-only native timing counters" OFF)
@@ -235,39 +236,16 @@ target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
 # semver=Semver.hpp, qoi=thumbnail PNG). Keep in sync with upstream lists.
 enable_language(C)
 
-# Use exactly the NLopt release/checksum selected by the pinned Orca core.
-# Configure the dependency in its own scope so its legacy cache options do not
-# change the parent project's shared/static-library policy.
-include(FetchContent)
-function(neo_add_nlopt)
-  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-  set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-  set(BUILD_SHARED_LIBS OFF)
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -m64")
-  if(WASM_THREADING)
-    string(APPEND CMAKE_REQUIRED_FLAGS " -pthread")
+# Compiled independently by build-nlopt-wasm64 so CI can cache both variants.
+foreach(_nlopt_file include/nlopt.h include/nlopt.hpp lib/libnlopt.a)
+  if(NOT EXISTS "${NLOPT_ROOT}/${_nlopt_file}")
+    message(FATAL_ERROR "Missing NLopt dependency: ${NLOPT_ROOT}/${_nlopt_file}. Run build-nlopt-wasm64 for this variant first.")
   endif()
-  # Discard a stale wasm32 probe if this build tree previously configured the
-  # dependency without the memory64 compiler flag.
-  if(DEFINED SIZEOF_UNSIGNED_LONG AND NOT SIZEOF_UNSIGNED_LONG EQUAL 8)
-    unset(SIZEOF_UNSIGNED_LONG CACHE)
-    unset(HAVE_SIZEOF_UNSIGNED_LONG CACHE)
-  endif()
-  foreach(binding PYTHON OCTAVE MATLAB GUILE SWIG TESTS)
-    set(NLOPT_${binding} OFF)
-  endforeach()
-  if(POLICY CMP0135)
-    cmake_policy(SET CMP0135 NEW)
-  endif()
-  FetchContent_Declare(neo_nlopt
-    URL https://github.com/stevengj/nlopt/archive/v2.5.0.tar.gz
-    URL_HASH SHA256=c6dd7a5701fff8ad5ebb45a3dc8e757e61d52658de3918e38bab233e7fd3b4ae
-  )
-  FetchContent_MakeAvailable(neo_nlopt)
-  set_property(DIRECTORY "${neo_nlopt_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
-  target_compile_options(nlopt PRIVATE -O3 -fexceptions)
-endfunction()
-neo_add_nlopt()
+endforeach()
+add_library(nlopt STATIC IMPORTED)
+set_target_properties(nlopt PROPERTIES
+  IMPORTED_LOCATION "${NLOPT_ROOT}/lib/libnlopt.a"
+  INTERFACE_INCLUDE_DIRECTORIES "${NLOPT_ROOT}/include")
 target_link_libraries(slic3r_core PRIVATE nlopt)
 # Arrange.cpp instantiates libnest2d's templates directly. The TBB backend also
 # works with the serial shim; do not fall back to std::async in serial builds.

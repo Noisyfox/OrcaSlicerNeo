@@ -23,6 +23,8 @@ REM Versions match OrcaSlicer v2.4.2 deps/ recipes (cereal 1.3.x is API-compatib
 set "EIGEN_VER=5.0.1"
 set "BOOST_VER=1.84.0"
 set "CEREAL_VER=1.3.0"
+set "NLOPT_VER=2.5.0"
+set "NLOPT_SHA256=c6dd7a5701fff8ad5ebb45a3dc8e757e61d52658de3918e38bab233e7fd3b4ae"
 set "DRACO_VER=1.5.7"
 set "DRACO_SHA256=27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
 set "OCCT_VER=7.6.0"
@@ -165,6 +167,17 @@ if not exist "%DEPS%\draco-%DRACO_VER%\CMakeLists.txt" (
   )
 )
 
+REM ---- NLopt (pinned Orca release; built separately per wasm variant) ----
+if not exist "%DEPS%\nlopt-%NLOPT_VER%\CMakeLists.txt" (
+  echo [deps] Fetching NLopt %NLOPT_VER%
+  "%CURL%" -fsSL --retry 3 -o "%DEPS%\nlopt-%NLOPT_VER%.tar.gz" "https://github.com/stevengj/nlopt/archive/v%NLOPT_VER%.tar.gz"
+  if errorlevel 1 exit /b 1
+  call :verify_nlopt_hash "%DEPS%\nlopt-%NLOPT_VER%.tar.gz"
+  if errorlevel 1 exit /b 1
+  tar -xf "%DEPS%\nlopt-%NLOPT_VER%.tar.gz" -C "%DEPS%"
+  if errorlevel 1 exit /b 1
+)
+
 REM ---- OCCT (source; built separately per wasm variant) ----
 if not exist "%DEPS%\occt-%OCCT_VER%\CMakeLists.txt" (
   set "OCCT_ARCHIVE=%DEPS%\occt-%OCCT_VER%.zip"
@@ -237,6 +250,15 @@ set "DRACO_ACTUAL_SHA256="
 for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined DRACO_ACTUAL_SHA256 set "DRACO_ACTUAL_SHA256=%%H"
 if /i not "%DRACO_ACTUAL_SHA256%"=="%DRACO_SHA256%" (
   echo [deps] ERROR: Draco SHA-256 mismatch.
+  exit /b 1
+)
+exit /b 0
+
+:verify_nlopt_hash
+set "NLOPT_ACTUAL_SHA256="
+for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined NLOPT_ACTUAL_SHA256 set "NLOPT_ACTUAL_SHA256=%%H"
+if /i not "%NLOPT_ACTUAL_SHA256%"=="%NLOPT_SHA256%" (
+  echo [deps] ERROR: NLopt SHA-256 mismatch.
   exit /b 1
 )
 exit /b 0

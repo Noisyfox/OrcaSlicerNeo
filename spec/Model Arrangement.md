@@ -510,6 +510,12 @@ testable changes in separate commits and apply the repository's
 1. **Build feasibility:** integrate Arrange, libnest2d, and NLopt into the WASM
    scaffold. Build both threaded and serial variants and run a minimal real
    arrangement in each. Keep the pinned core protected and exclude GUI code.
+   Compile the pinned NLopt release as an independent dependency, with separate
+   serial and threaded wasm64 staging prefixes under `.work/deps`. The CI
+   dependency job builds and caches both prefixes before either core build;
+   the main CMake project only imports the staged headers and static archive.
+   Include the dependency fetch/build scripts in the cache key so source,
+   checksum, or build-option changes invalidate the cache.
 2. **Headless adapter:** prepare native geometry and effective configuration,
    collect eligible instances and plate constraints, and solve without mutating
    the project. Verify geometry, materials, plate rules, and partial-success

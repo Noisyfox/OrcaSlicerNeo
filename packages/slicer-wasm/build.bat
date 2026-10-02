@@ -65,6 +65,7 @@ if defined EIGEN_INCLUDE (set "EIGEN_INCLUDE=%EIGEN_INCLUDE%") else (set "EIGEN_
 if defined BOOST_INCLUDE (set "BOOST_INCLUDE=%BOOST_INCLUDE%") else (set "BOOST_INCLUDE=%WORK_DIR%\deps\boost-1.84.0")
 if defined CEREAL_INCLUDE (set "CEREAL_INCLUDE=%CEREAL_INCLUDE%") else (set "CEREAL_INCLUDE=%WORK_DIR%\deps\cereal-1.3.0\include")
 set "DRACO_ROOT=%WORK_DIR%\deps\draco-1.5.7\stage-wasm64-%ARTIFACT_VARIANT%"
+if not defined NLOPT_ROOT set "NLOPT_ROOT=%WORK_DIR%\deps\nlopt-2.5.0\stage-wasm64-%ARTIFACT_VARIANT%"
 if defined DRACO_INCLUDE (set "DRACO_INCLUDE=%DRACO_INCLUDE%") else (set "DRACO_INCLUDE=%DRACO_ROOT%\include")
 if defined DRACO_ARCHIVE (set "DRACO_ARCHIVE=%DRACO_ARCHIVE%") else (set "DRACO_ARCHIVE=%DRACO_ROOT%\lib\libdraco.a")
 if defined OCCT_ROOT (set "OCCT_ROOT=%OCCT_ROOT%") else (set "OCCT_ROOT=%WORK_DIR%\deps\occt-7.6.0\stage-wasm64-%ARTIFACT_VARIANT%")
@@ -190,6 +191,11 @@ if not "%WASM_THREADING%"=="0" if not exist "%TBB_ROOT%\lib\libtbb.a" (
   call "%PKG_DIR%\build-onetbb.bat"
   if errorlevel 1 exit /b 1
 )
+if not exist "%NLOPT_ROOT%\lib\libnlopt.a" (
+  echo [wasm] Building NLopt 2.5.0 ^(%ARTIFACT_VARIANT% wasm64^)
+  call "%PKG_DIR%\build-nlopt-wasm64.bat"
+  if errorlevel 1 exit /b 1
+)
 if not exist "%DRACO_ARCHIVE%" (
   echo [wasm] Building Draco 1.5.7 ^(%ARTIFACT_VARIANT% wasm64^)
   call "%PKG_DIR%\build-draco-wasm64.bat"
@@ -241,6 +247,7 @@ set "BOOST_CM=%BOOST_INCLUDE:\=/%"
 set "CEREAL_CM=%CEREAL_INCLUDE:\=/%"
 set "DRACO_INCLUDE_CM=%DRACO_INCLUDE:\=/%"
 set "DRACO_ARCHIVE_CM=%DRACO_ARCHIVE:\=/%"
+set "NLOPT_ROOT_CM=%NLOPT_ROOT:\=/%"
 set "OCCT_ROOT_CM=%OCCT_ROOT:\=/%"
 set "TBB_CM=%TBB_ROOT:\=/%"
 
@@ -260,6 +267,7 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DCEREAL_INCLUDE="%CEREAL_CM%" ^
   -DDRACO_INCLUDE="%DRACO_INCLUDE_CM%" ^
   -DDRACO_ARCHIVE="%DRACO_ARCHIVE_CM%" ^
+  -DNLOPT_ROOT="%NLOPT_ROOT_CM%" ^
   -DOCCT_ROOT="%OCCT_ROOT_CM%" ^
   -DWASM_THREADING=%WASM_THREADING% ^
   -DWASM_PTHREAD_POOL_SIZE=%WASM_PTHREAD_POOL_SIZE% ^

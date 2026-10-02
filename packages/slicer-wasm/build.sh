@@ -47,6 +47,7 @@ EIGEN_INCLUDE="${EIGEN_INCLUDE:-$WORK_DIR/deps/eigen-5.0.1}"
 BOOST_INCLUDE="${BOOST_INCLUDE:-$WORK_DIR/deps/boost-1.84.0}"
 CEREAL_INCLUDE="${CEREAL_INCLUDE:-$WORK_DIR/deps/cereal-1.3.0/include}"
 DRACO_ROOT="$WORK_DIR/deps/draco-1.5.7/stage-wasm64-$ARTIFACT_VARIANT"
+NLOPT_ROOT="${NLOPT_ROOT:-$WORK_DIR/deps/nlopt-2.5.0/stage-wasm64-$ARTIFACT_VARIANT}"
 DRACO_INCLUDE="${DRACO_INCLUDE:-$DRACO_ROOT/include}"
 DRACO_ARCHIVE="${DRACO_ARCHIVE:-$DRACO_ROOT/lib/libdraco.a}"
 OCCT_ROOT="${OCCT_ROOT:-$WORK_DIR/deps/occt-7.6.0/stage-wasm64-$ARTIFACT_VARIANT}"
@@ -170,6 +171,11 @@ if [[ "$WASM_THREADING" != "0" && ! -f "$TBB_ROOT/lib/libtbb.a" ]]; then
   log "Building pinned oneTBB (wasm64 + pthreads)"
   bash "$PKG_DIR/build-onetbb.sh"
 fi
+if [[ ! -f "$NLOPT_ROOT/lib/libnlopt.a" ]]; then
+  log "Building NLopt 2.5.0 ($ARTIFACT_VARIANT wasm64)"
+  WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
+    WORK_DIR="$WORK_DIR" NLOPT_ROOT="$NLOPT_ROOT" bash "$PKG_DIR/build-nlopt-wasm64.sh"
+fi
 if [[ ! -f "$DRACO_ARCHIVE" ]]; then
   log "Building Draco 1.5.7 ($ARTIFACT_VARIANT wasm64)"
   WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
@@ -233,6 +239,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
   -DDRACO_INCLUDE="$DRACO_INCLUDE" \
   -DDRACO_ARCHIVE="$DRACO_ARCHIVE" \
+  -DNLOPT_ROOT="$NLOPT_ROOT" \
   -DOCCT_ROOT="$OCCT_ROOT" \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
