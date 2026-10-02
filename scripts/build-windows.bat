@@ -111,7 +111,7 @@ echo             automatically if missing.
 echo   full      deps + boost + build - the complete cold-start path.
 echo   quick     INCREMENTAL: ninja in .work\threaded\build and
 echo             .work\serial\build + stage the 3 artifacts to out\^<variant^>.
-echo             The fast loop for bridge/CMake changes - no configure,
+echo             The fast loop for bridge/CMake changes - keeps cached settings,
 echo             reapplies build-time patches, seconds-to-minutes. Use
 echo             --variant to limit to one build tree.
 echo   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
@@ -290,9 +290,8 @@ if not exist "%QBUILD%" (
   echo [winbuild] ERROR: No build tree at %QBUILD% - run: build-windows.bat build
   exit /b 1
 )
-REM --debug is a configure-time decision: quick only re-runs ninja, so
-REM verify the tree was actually configured with WASM_DEBUG rather than
-REM silently staging a release module.
+REM --debug is a full-build configuration decision: quick preserves it, so
+REM verify the tree was actually configured with WASM_DEBUG.
 if "%DBG%"=="1" (
   findstr /C:"WASM_DEBUG:BOOL=ON" "%QBUILD%\CMakeCache.txt" >nul 2>nul
   if errorlevel 1 (
@@ -300,6 +299,9 @@ if "%DBG%"=="1" (
     exit /b 1
   )
 )
+REM Normal quick builds must not inherit fault injection from a test cache.
+cmake -S "%PKG%" -B "%QBUILD%" -DNEO_ARRANGEMENT_TEST=OFF
+if errorlevel 1 exit /b 1
 call :discard_invalid_link_outputs "%QBUILD%"
 if defined JOBS (
   emmake ninja -C "%QBUILD%" orca_slice -j %JOBS%
@@ -328,8 +330,8 @@ dir "%QOUT%"
 exit /b 0
 
 REM ---- apply build-time submodule patches for incremental builds ----
-REM build.bat applies patches during configure, but quick intentionally skips
-REM configure. Keep the pinned submodule source in the same patched state
+REM build.bat applies patches, but quick does not invoke that full-build driver.
+REM Keep the pinned submodule source in the same patched state
 REM before Ninja so an incremental build cannot silently compile upstream
 REM Backup Manager code.
 :apply_wasm_patches

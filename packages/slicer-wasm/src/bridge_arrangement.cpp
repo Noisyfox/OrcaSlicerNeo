@@ -1,4 +1,5 @@
 #include "bridge_arrangement.hpp"
+#include "arrangement/HeadlessArrangement.hpp"
 #include "bridge_state.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
@@ -19,6 +20,16 @@ namespace Slic3r::Neo::Bridge::Arrangement {
 using namespace PlateSession;
 namespace A = Neo::Arrangement;
 namespace {
+// Operation never crosses this translation unit, including its test-only state.
+struct Operation {
+    A::Prepared prepared;
+    json context;
+    json predecessor;
+    std::uint64_t revision = 0;
+#ifdef NEO_ARRANGEMENT_TEST
+    bool inject_failure = false;
+#endif
+};
 struct Task {
     std::uint64_t id;
     Operation operation;
@@ -52,22 +63,22 @@ const char* parking_name(A::ParkingReason reason) {
     default: return "none";
     }
 }
-}
 Operation prepare_operation(const json& request) {
     auto& s = state();
     ensure_plate_session_state();
     if (!request.is_object()) throw std::invalid_argument("Arrangement request must be an object");
     if (s.history_disabled || s.active_history_transaction || s.history.operation_active() || s.painting.current())
         throw std::runtime_error("Finish the current editing operation before arranging");
-    const auto scope = request.value("scope", "all");
+    const auto scope = request.at("scope").get<std::string>();
     if (scope != "all" && scope != "current") throw std::invalid_argument("Unknown arrangement scope");
     A::Settings settings;
     settings.scope = scope == "all" ? A::Scope::All : A::Scope::CurrentPlate;
-    settings.distance = request.value("distance", 0.);
-    settings.rotate = request.value("rotate", false);
-    settings.align_y = request.value("align_y", false);
-    settings.multiple_materials = request.value("multiple_materials", true);
-    settings.avoid_calibration = request.value("avoid_calibration", true);
+    settings.distance = request.at("distance").get<double>();
+    settings.rotate = request.at("rotate").get<bool>();
+    settings.align_y = request.at("align_y").get<bool>();
+    settings.multiple_materials = request.at("multiple_materials").get<bool>();
+    settings.avoid_calibration = request.at("avoid_calibration").get<bool>();
+    const auto context = HistoryMetadata::parse_history_context(request.at("context").dump().c_str());
     A::SceneInput scene;
     scene.config = PresetDrafts::effective_full_config();
     scene.bambu = s.presets.is_bbl_vendor();
@@ -77,17 +88,19 @@ Operation prepare_operation(const json& request) {
         if (plate.id == s.current_plate_id) scene.current_plate = scene.plates.size();
         scene.plates.push_back({plate.id, plate.origin, plate.locked, plate.settings});
     }
+    const auto bounds = selected_plate_bounds();
     for (const auto& ref : plate_instance_refs()) {
-        (void)instance_hull_box(ref);
+        const auto box = instance_hull_box(ref);
         const auto member = s.instance_plate_ids.find(ref.instance_id);
         scene.instances.push_back({ref.instance, member == s.instance_plate_ids.end() ? std::nullopt :
-            std::optional<std::size_t>(indices.at(member->second))});
+            std::optional<std::size_t>(indices.at(member->second)), member != s.instance_plate_ids.end() &&
+            box_fully_inside_plate(ref, box, s.plate_session_plates.at(indices.at(member->second)), bounds)});
     }
     // Neo's prepared Prime Tower is a fixed reservation. The projection uses
     // the same native configuration and includes the rotated body's brim.
     const auto towers = PrimeTower::projection_json();
     for (const auto& tower : towers.at("plates")) {
-        if (!tower.value("eligible", false)) continue;
+        if (!tower.at("eligible").get<bool>()) continue;
         const auto& box = tower.at("footprint");
         arrangement::ArrangePolygon polygon;
         polygon.poly.contour.points = {{scaled(box.at("min_x").get<double>()), scaled(box.at("min_y").get<double>())},
@@ -101,17 +114,19 @@ Operation prepare_operation(const json& request) {
     Operation op;
     op.prepared = A::prepare(scene, settings);
     const auto runtime = HistoryRuntime::runtime();
-    op.context = request.contains("context") ? HistoryRuntime::canonical_history_context(runtime, request.at("context")) :
-        HistoryRuntime::default_history_context(runtime);
+    op.context = HistoryRuntime::canonical_history_context(runtime, context);
     op.predecessor = predecessor();
     op.revision = s.history_revision;
+#ifdef NEO_ARRANGEMENT_TEST
     op.inject_failure = request.value("inject_failure_stage", "") == "before-publish";
+#endif
     return op;
 }
 
 json apply_result(const Operation& operation, const A::Result& result) {
     auto& s = state();
-    if (result.canceled) return {{"ok", true}, {"cancelled", true}, {"changed", false}};
+    if (result.canceled) return {{"ok", true}, {"cancelled", true}, {"changed", false},
+        {"placed", 0}, {"unplaced", json::array()}, {"plate_limit_reached", false}};
     if (s.history_revision != operation.revision || predecessor() != operation.predecessor)
         throw std::runtime_error("Arrangement input changed before result application");
     if (s.history_revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("History revision exhausted");
@@ -192,7 +207,21 @@ json apply_result(const Operation& operation, const A::Result& result) {
             if (new_member != next_members.end()) affected.insert(new_member->second);
         }
     }
-    json response{{"ok", true}, {"cancelled", false}, {"changed", !changed_ids.empty() || count != s.plate_session_plates.size()},
+    auto next_config = s.presets.project_config;
+    normalize_coordinate_arrays(next_config, count);
+    bool tower_positions_changed = false;
+    std::set<std::size_t> occupied_destinations;
+    for (const auto& item : result.placements) if (item.plate) occupied_destinations.insert(*item.plate);
+    for (const auto& [index, position] : operation.prepared.estimated_tower_positions) {
+        if (!occupied_destinations.count(index)) continue;
+        const double x = PrimeTower::coordinate_value(next_config, "wipe_tower_x", index, 15.);
+        const double y = PrimeTower::coordinate_value(next_config, "wipe_tower_y", index, 220.);
+        if (x == position.x() && y == position.y()) continue;
+        PrimeTower::set_coordinate_settings(next_config, index, position.x(), position.y(), x, y);
+        affected.insert(next_plates.at(index).id);
+        tower_positions_changed = true;
+    }
+    json response{{"ok", true}, {"cancelled", false}, {"changed", !changed_ids.empty() || count != s.plate_session_plates.size() || tower_positions_changed},
                   {"placed", placed}, {"unplaced", diagnostics}, {"plate_limit_reached", result.plate_limit_reached}};
     if (!response["changed"].get<bool>()) return response;
     auto old_plates = s.plate_session_plates;
@@ -214,7 +243,7 @@ json apply_result(const Operation& operation, const A::Result& result) {
             refs.at(id).object->config.touch();
             refs.at(id).object->invalidate_bounding_box();
         }
-        normalize_coordinate_arrays(s.presets.project_config, count);
+        s.presets.project_config = std::move(next_config);
         refresh_existing_plate_validity(bounds);
         reconcile_plate_runtime_registry();
         for (const auto& plate : s.plate_session_plates) s.plate_input_revisions.try_emplace(plate.id, 0);
@@ -222,8 +251,11 @@ json apply_result(const Operation& operation, const A::Result& result) {
         for (const auto id : changed_ids) transform_records.push_back(instance_transform_record(refs.at(id)));
         response["plate_session"] = plate_mutation_snapshot(affected, {"arrange"}, transform_records, &changed_ids, false);
         response["plate_session"]["native_scoped_config"]["revision"] = s.history_revision + 1;
+#ifdef NEO_ARRANGEMENT_TEST
         if (operation.inject_failure) throw std::runtime_error("Injected arrangement apply failure");
-        if (!HistoryMetadata::commit_timestamped_operation(s, operation.context)) throw std::runtime_error("Unable to commit arrangement history");
+#endif
+        const auto after_context = HistoryRuntime::canonical_history_context(HistoryRuntime::runtime(), operation.context);
+        if (!HistoryMetadata::commit_timestamped_operation(s, after_context)) throw std::runtime_error("Unable to commit arrangement history");
     } catch (...) {
         HistoryMetadata::abort_timestamped_operation(s);
         s.plate_session_plates = std::move(old_plates); s.instance_plate_ids = std::move(old_members);
@@ -239,6 +271,7 @@ json apply_result(const Operation& operation, const A::Result& result) {
     s.plate_runtime_registry.invalidate_presentations(affected);
     return response;
 }
+} // namespace
 
 bool active() { return bool(current); }
 
@@ -266,7 +299,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_cancel_arrangement(const char* t
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_arrange(const char* request) {
     try {
         if (active()) throw std::runtime_error("arrangement_busy");
-        auto operation = prepare_operation(json::parse(request ? request : "{}"));
+        if (!request) throw std::invalid_argument("Arrangement request is required");
+        auto operation = prepare_operation(json::parse(request));
         auto task = std::make_shared<Task>();
         task->id = SlicingPipeline::allocate_async_task_id();
         task->operation = std::move(operation);

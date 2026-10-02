@@ -13,7 +13,9 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
-  const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true };
+  const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,
+    context: { selection: { mode: 'object' as const, objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} } };
+  const arrangementCompletion = { ok: true, cancelled: false, changed: false, placed: 0, unplaced: [], plate_limit_reached: false };
   it.each([false, true])('decodes arrangement completion and its separate progress (threaded=%s)', async (threaded) => {
     const module = createMockModule({ threaded });
     const progress: number[] = [], otherProgress: number[] = [];
@@ -22,8 +24,58 @@ describe('SlicerClient bridge contract', () => {
     expect(progress).toEqual([50]); expect(otherProgress).toEqual([]);
   });
   it('rejects malformed placement diagnostics', async () => {
-    const client = createClient(async () => createMockModule({ arrangementResult: { ok: true, changed: false, placed: 1, unplaced: [{ instance_id: 2, reason: 'invented' }] } }));
+    const client = createClient(async () => createMockModule({ arrangementResult: { ...arrangementCompletion, placed: 1, unplaced: [{ instance_id: 2, reason: 'invented' }] } }));
     expect(await client.arrange(arrangement)).toMatchObject({ ok: false });
+  });
+  it.each(['cancelled', 'changed', 'placed', 'unplaced', 'plate_limit_reached'])('rejects missing arrangement %s', async (field) => {
+    const result: Record<string, unknown> = { ...arrangementCompletion };
+    delete result[field];
+    const client = createClient(async () => createMockModule({ arrangementResult: result }));
+    expect(await client.arrange(arrangement)).toMatchObject({ ok: false, error: 'Invalid arrangement diagnostics' });
+  });
+  it.each([
+    { cancelled: 0 }, { plate_limit_reached: 0 }, { changed: true },
+    { cancelled: true, changed: true }, { cancelled: true, placed: 1 },
+    { cancelled: true, unplaced: [{ instance_id: 2, reason: 'unfit' }] },
+    { cancelled: true, plate_limit_reached: true }, { plate_session: {} },
+  ])('rejects inconsistent arrangement completion %j', async (patch) => {
+    const client = createClient(async () => createMockModule({ arrangementResult: { ...arrangementCompletion, ...patch } }));
+    expect(await client.arrange(arrangement)).toMatchObject({ ok: false });
+  });
+  it('decodes complete cancellation diagnostics without synthesizing omitted fields', async () => {
+    const client = createClient(async () => createMockModule({ arrangementResult: { ...arrangementCompletion, cancelled: true } }));
+    expect(await client.arrange(arrangement)).toEqual({ ok: true, cancelled: true, changed: false, placed: 0, unplaced: [], plateLimitReached: false });
+  });
+  function arrangementPlateReceipt(): Record<string, unknown> {
+    const module = createMockModule();
+    const read = (name: string) => {
+      const pointer = Number(module.ccall(name, 'number', [], []));
+      try { return JSON.parse(module.UTF8ToString(pointer)); } finally { module._free(pointer); }
+    };
+    return { ...read('orc_mark_shared_configuration_mutation'),
+      native_scoped_config: read('orc_get_native_scoped_config').native_scoped_config };
+  }
+  it('decodes the complete receipt required to publish a changed arrangement', async () => {
+    const receipt = arrangementPlateReceipt();
+    const client = createClient(async () => createMockModule({ arrangementResult: { ...arrangementCompletion, changed: true, plate_session: receipt } }));
+    const result = await client.arrange(arrangement);
+    expect(result).toMatchObject({ ok: true, cancelled: false, changed: true });
+    if (!result.ok || !result.changed) throw new Error('expected changed arrangement');
+    expect(Object.keys(result.plateSession.inputRevisions)).toEqual(result.plateSession.plates.map(plate => plate.plateId));
+    expect(result.plateSession.nativeScopedConfig).toBeDefined();
+  });
+  it.each(['input_revisions', 'affected_plate_ids_before', 'affected_plate_ids_after', 'affected_plate_ids', 'dirty_reasons', 'native_scoped_config'])(
+    'rejects changed arrangement without %s', async (field) => {
+      const receipt = arrangementPlateReceipt();
+      delete receipt[field];
+      const client = createClient(async () => createMockModule({ arrangementResult: { ...arrangementCompletion, changed: true, plate_session: receipt } }));
+      expect(await client.arrange(arrangement)).toMatchObject({ ok: false, error: 'Incomplete arrangement plate receipt' });
+    },
+  );
+  it.each([{}, { invalid: -1 }])('rejects incomplete or malformed arrangement revisions %j', async (revisions) => {
+    const receipt = { ...arrangementPlateReceipt(), input_revisions: revisions };
+    const client = createClient(async () => createMockModule({ arrangementResult: { ...arrangementCompletion, changed: true, plate_session: receipt } }));
+    expect(await client.arrange(arrangement)).toMatchObject({ ok: false, error: 'Incomplete arrangement plate receipt' });
   });
   it('validates the native retained-geometry proof and its complete transform transport', () => {
     const transform = { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };

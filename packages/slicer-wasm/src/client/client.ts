@@ -792,18 +792,29 @@ function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult 
 
 function normalizeArrangementResult(raw: unknown): ArrangementResult {
   if (!isRecord(raw) || raw.ok !== true)
-    return { ok: false, error: isRecord(raw) && typeof raw.error === 'string' ? raw.error : 'Invalid arrangement response' };
-  if (raw.cancelled === true) return { ok: true, cancelled: true, changed: false, placed: 0, unplaced: [], plateLimitReached: false };
+    return { ok: false, error: isRecord(raw) && raw.ok === false && typeof raw.error === 'string' ? raw.error : 'Invalid arrangement response' };
   const reasons = new Set(['non-printable', 'degenerate', 'too-tall', 'unfit', 'plate-limit', 'current-plate-overflow']);
-  if (typeof raw.changed !== 'boolean' || normalizeCount(raw.placed) === null || !Array.isArray(raw.unplaced) ||
-      !raw.unplaced.every(item => isRecord(item) && normalizeCount(item.instance_id) !== null && reasons.has(String(item.reason))))
+  if (typeof raw.cancelled !== 'boolean' || typeof raw.changed !== 'boolean' || typeof raw.plate_limit_reached !== 'boolean' ||
+      normalizeCount(raw.placed) === null || !Array.isArray(raw.unplaced) ||
+      !raw.unplaced.every(item => isRecord(item) && normalizeCount(item.instance_id) !== null && typeof item.reason === 'string' && reasons.has(item.reason)) ||
+      (raw.cancelled && (raw.changed || raw.placed !== 0 || raw.unplaced.length !== 0 || raw.plate_limit_reached)) ||
+      (!raw.changed && 'plate_session' in raw))
     return { ok: false, error: 'Invalid arrangement diagnostics' };
-  const plateSession = raw.changed ? normalizePlateMutationResult(raw.plate_session) : undefined;
-  if (plateSession && !plateSession.ok) return { ok: false, error: plateSession.error ?? 'Invalid arrangement plate receipt' };
-  return { ok: true, cancelled: false, changed: raw.changed, placed: Number(raw.placed),
+  const diagnostics = { ok: true as const, placed: raw.placed as number,
     unplaced: raw.unplaced.map(item => ({ instanceId: item.instance_id, reason: item.reason as ArrangementParkingReason })),
-    plateLimitReached: raw.plate_limit_reached === true,
-    ...(plateSession?.ok ? { plateSession } : {}) };
+    plateLimitReached: raw.plate_limit_reached };
+  if (!raw.changed) return { ...diagnostics, cancelled: raw.cancelled, changed: false };
+  const plateSession = normalizePlateMutationResult(raw.plate_session);
+  if (!plateSession.ok) return { ok: false, error: plateSession.error ?? 'Invalid arrangement plate receipt' };
+  const { inputRevisions, affectedPlateIdsBefore, affectedPlateIdsAfter, affectedPlateIds, dirtyReasons, nativeScopedConfig } = plateSession;
+  if (!inputRevisions || !affectedPlateIdsBefore || !affectedPlateIdsAfter || !affectedPlateIds || !dirtyReasons || !nativeScopedConfig ||
+      !isRecord(raw.plate_session) || !isRecord(raw.plate_session.input_revisions) ||
+      Object.values(raw.plate_session.input_revisions).some(revision => normalizeCount(revision) === null) ||
+      plateSession.plates.some(plate => !(plate.plateId in inputRevisions)))
+    return { ok: false, error: 'Incomplete arrangement plate receipt' };
+  return { ...diagnostics, cancelled: false, changed: true, plateSession: {
+    ...plateSession, inputRevisions, affectedPlateIdsBefore, affectedPlateIdsAfter, affectedPlateIds, dirtyReasons, nativeScopedConfig,
+  } };
 }
 
 function normalizeCount(raw: unknown): number | null {
@@ -2425,9 +2436,12 @@ export function createClient(
         const raw = callJson(m, 'orc_arrange', ['string'], [JSON.stringify({
           scope: request.scope, distance: request.distance, rotate: request.rotate, align_y: request.alignY,
           multiple_materials: request.multipleMaterials, avoid_calibration: request.avoidCalibration,
-          ...(request.context ? { context: request.context } : {}),
-        })]) as Record<string, unknown>;
-        if (raw.accepted !== true || typeof raw.task_id !== 'string') return normalizeArrangementResult(raw);
+          context: request.context,
+        })]);
+        if (isRecord(raw) && raw.ok === false) return normalizeArrangementResult(raw);
+        if (!isRecord(raw) || raw.accepted !== true || raw.kind !== 'arrange' ||
+            typeof raw.task_id !== 'string' || !/^[1-9]\d*$/.test(raw.task_id))
+          return { ok: false, error: 'Invalid arrangement acceptance' };
         arrangementTaskId = raw.task_id;
         arrangementAdmission = false;
         const early = earlyArrangementResults.get(raw.task_id);
@@ -2446,7 +2460,10 @@ export function createClient(
     async cancelArrangement() {
       const m = await module();
       if (!runtimeThreaded || !arrangementTaskId) return { ok: false, error: 'No cancellable arrangement' };
-      return callJson(m, 'orc_cancel_arrangement', ['string'], [arrangementTaskId]) as { ok: boolean; error?: string };
+      const raw = callJson(m, 'orc_cancel_arrangement', ['string'], [arrangementTaskId]);
+      if (isRecord(raw) && raw.ok === true) return { ok: true };
+      return { ok: false, error: isRecord(raw) && raw.ok === false && typeof raw.error === 'string'
+        ? raw.error : 'Invalid arrangement cancellation response' };
     },
 
     async slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {

@@ -1,9 +1,19 @@
 // Native arrangement publication, partial-success, rollback and single-step history.
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { awaitAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
+import { setNativeScopedConfig } from './native-scoped-command.mjs';
 const repo = resolve(import.meta.dirname, '../../..');
+const testInjection = process.argv[3] === '--test-injection';
+if (!process.argv[2] || (process.argv[3] && !testInjection) || process.argv.length > 4)
+  throw new Error('Usage: arrangement-smoke.mjs <orca_slice.js> [--test-injection]');
+const failureSentinel = 'Injected arrangement apply failure';
+const wasm = await readFile(resolve(process.argv[2]).replace(/\.(?:c|m)?js$/, '.wasm'));
+check(testInjection ? 'test artifact contains arrangement fault injection' : 'production artifact excludes arrangement fault injection',
+  wasm.includes(Buffer.from(failureSentinel)) === testInjection);
+if (!testInjection) console.log('arrange SKIP injected rollback checks: production build (use --test-injection with NEO_ARRANGEMENT_TEST=ON)');
 const module = await (await loadModuleFactory(process.argv[2]))({ noInitialRun: true, printErr: console.error });
 await installProfilePackages(module, createNodeProfileSource(resolve(repo, 'packages/profile-resources/dist')));
 function call(name, types = [], args = []) {
@@ -25,9 +35,14 @@ function observe() {
   }
   return { model: mesh.renderables, plates: call('orc_get_plate_session_snapshot') };
 }
+const arrangementRequest = (options = {}) => ({ scope: 'all', distance: 0, rotate: false, align_y: false,
+  multiple_materials: true, avoid_calibration: true, context, ...options });
+function startArrangement(options = {}) {
+  return call('orc_arrange', ['string'], [JSON.stringify(arrangementRequest(options))]);
+}
 async function arrange(options = {}) {
-  const accepted = call('orc_arrange', ['string'], [JSON.stringify(options)]);
-  return accepted.task_id ? await awaitAsyncTask(call, accepted) : accepted;
+  const accepted = startArrangement(options);
+  return accepted.accepted === true ? await awaitAsyncTask(call, accepted) : accepted;
 }
 ok('initialize', call('orc_init', ['string'], ['{"log_level":"error"}']));
 ok('clear model', call('orc_clear_model'));
@@ -35,16 +50,29 @@ for (let i = 0; i < 2; ++i) ok('create cube', call('orc_add_shape', ['string', '
 call('orc_history_reset', ['string'], [JSON.stringify(context)]);
 let before = observe();
 let beforeHistory = history();
+for (const field of Object.keys(arrangementRequest())) {
+  const request = arrangementRequest();
+  delete request[field];
+  check(`reject missing arrangement ${field}`, call('orc_arrange', ['string'], [JSON.stringify(request)]).ok === false);
+}
+for (const [field, value] of [['scope', null], ['distance', '0'], ['rotate', 0], ['align_y', null],
+  ['multiple_materials', 'true'], ['avoid_calibration', 1], ['context', null], ['context', {}]]) {
+  check(`reject malformed arrangement ${field}`, startArrangement({ [field]: value }).ok === false);
+}
+check('invalid requests preserve project and history', JSON.stringify(observe()) === JSON.stringify(before) &&
+  history().undoEntries.length === beforeHistory.undoEntries.length);
 if (call('orc_get_threading_info').threaded) {
-  const task = call('orc_arrange', ['string'], ['{}']);
+  const task = startArrangement();
   check('threaded operation returns acceptance', task.accepted, task);
-  check('second arrangement rejected', call('orc_arrange', ['string'], ['{}']).ok === false);
+  check('second arrangement rejected', startArrangement().ok === false);
   check('stale cancellation rejected', call('orc_cancel_arrangement', ['string'], ['0']).ok === false);
   ok('cancel correct task', call('orc_cancel_arrangement', ['string'], [task.task_id]));
   const cancelled = await awaitAsyncTask(call, task);
   check('cancelled task has no changes', cancelled.cancelled && !cancelled.changed, cancelled);
+  check('cancelled task has complete diagnostics', cancelled.placed === 0 && Array.isArray(cancelled.unplaced) &&
+    cancelled.unplaced.length === 0 && cancelled.plate_limit_reached === false, cancelled);
   check('cancellation preserves transforms, plates, and undo', JSON.stringify(observe()) === JSON.stringify(before) && history().undoEntries.length === beforeHistory.undoEntries.length);
-  const stale = call('orc_arrange', ['string'], ['{}']);
+  const stale = startArrangement();
   ok('change input before stale completion', call('orc_add_shape', ['string', 'string'], ['Cube', 'Late instance']));
   const changed = observe();
   const rejected = await awaitAsyncTask(call, stale);
@@ -54,10 +82,12 @@ if (call('orc_get_threading_info').threaded) {
   ok('remove stale fixture', call('orc_delete_objects', ['string'], [JSON.stringify([structure.objects.at(-1).id])]));
   before = observe(); beforeHistory = history();
 }
-const failed = await arrange({ inject_failure_stage: 'before-publish' });
-check('injected application fails', failed.ok === false, failed);
-check('failed application preserves project', JSON.stringify(observe()) === JSON.stringify(before));
-check('failed application adds no history', history().undoEntries.length === beforeHistory.undoEntries.length);
+if (testInjection) {
+  const failed = await arrange({ inject_failure_stage: 'before-publish' });
+  check('injected application fails', failed.ok === false && failed.error === failureSentinel, failed);
+  check('failed application preserves project', JSON.stringify(observe()) === JSON.stringify(before));
+  check('failed application adds no history', history().undoEntries.length === beforeHistory.undoEntries.length);
+}
 const completed = ok('arrange all', await arrange());
 check('both instances placed', completed.placed === 2 && completed.unplaced.length === 0, completed);
 check('one undo step', history().undoEntries.length === beforeHistory.undoEntries.length + 1);
@@ -80,8 +110,12 @@ const local = ok('arrange current plate', await arrange({ scope: 'current' }));
 check('current operation parks overflow without adding plates', local.placed === 1 && local.unplaced.length === 1 && observe().plates.plates.length === 1, local);
 const redistributed = ok('retry parked instance with all plates', await arrange());
 check('all operation adds a real plate', redistributed.placed === 2 && observe().plates.plates.length === 2, redistributed);
+const redistributedState = observe();
 ok('undo added plate', call('orc_history_undo'));
 check('single undo removes added plate and restores parking', observe().plates.plates.length === 1 && observe().plates.instances.filter(i => i.parked).length === 1, observe().plates);
+ok('redo added plate', call('orc_history_redo'));
+check('redo restores plates and membership', JSON.stringify(observe().plates.plates) === JSON.stringify(redistributedState.plates.plates) &&
+  JSON.stringify(observe().plates.instances) === JSON.stringify(redistributedState.plates.instances), observe().plates);
 console.log('Arrangement bridge smoke passed');
 
 if (call('orc_get_threading_info').threaded) {
@@ -106,7 +140,7 @@ if (call('orc_get_threading_info').threaded) {
   const slicingA = startSlice(plateA);
   check('slice A accepted', slicingA.accepted, slicingA);
   ok('select B while A slices', call('orc_select_plate', ['string'], [plateB]));
-  const arrangingB = call('orc_arrange', ['string'], ['{"scope":"current"}']);
+  const arrangingB = startArrangement({ scope: 'current' });
   check('arrangement starts while slice active', arrangingB.accepted, arrangingB);
   const rejectedSlice = call('orc_slice_plate', ['string', 'string', 'number'], ['{}', plateB, observe().plates.input_revisions[plateB]]);
   check('new slice blocked while arranging', rejectedSlice.error === 'arrangement_busy', rejectedSlice);
@@ -122,3 +156,53 @@ if (call('orc_get_threading_info').threaded) {
   check('affected slice cannot remain authoritative after arrangement commit', obsoleteSlice.ok !== true || !getSliceResult(call, obsoleteSlice.receipt).ok, obsoleteSlice);
   console.log('Arrangement concurrent slicing smoke passed');
 }
+
+// Newly created plates need the exact normalized tower coordinates reserved
+// during packing, while the existing tower retains its original position.
+ok('clear tower fixture', call('orc_clear_model'));
+for (const [key, value] of Object.entries({ enable_prime_tower: '1', timelapse_type: '1',
+  prime_tower_width: '25', prime_tower_brim_width: '20', wipe_tower_rotation_angle: '0',
+  wipe_tower_wall_type: 'rectangle' }))
+  ok(`set tower ${key}`, setNativeScopedConfig(call, 'project', undefined, key, value));
+for (let i = 0; i < 2; ++i) {
+  ok('add tower fixture cube', call('orc_add_shape', ['string', 'string'], ['Cube', `Tower ${i}`]));
+  ok('enlarge tower fixture cube', call('orc_set_model_transform',
+    ['number', 'number', 'number', 'string', 'string'], [i, 0, 0,
+      JSON.stringify({ offset: [100,100,10], rotation: [0,0,0], scale: [9,9,1], mirror: [1,1,1] }),
+      JSON.stringify({ offset: [0,0,0], rotation: [0,0,0], scale: [1,1,1], mirror: [1,1,1] })]));
+}
+ok('recompute tower fixture membership', call('orc_recompute_plate_membership'));
+function towerCoordinates() {
+  const project = call('orc_get_native_scoped_config').native_scoped_config.snapshot.project;
+  return { x: project.wipe_tower_x, y: project.wipe_tower_y };
+}
+function towerProjection() { return call('orc_get_prime_tower_projection'); }
+const originalTower = towerProjection().plates[0];
+check('tower fixture has an existing fixed tower', originalTower.eligible && originalTower.outside_boundary_warning, originalTower);
+call('orc_history_reset', ['string'], [JSON.stringify(context)]);
+const towerBefore = { state: observe(), coordinates: towerCoordinates(), history: history() };
+if (testInjection) {
+  const towerFailed = await arrange({ inject_failure_stage: 'before-publish' });
+  check('estimated tower failure rolls back project and coordinates', !towerFailed.ok && towerFailed.error === failureSentinel &&
+    JSON.stringify(observe()) === JSON.stringify(towerBefore.state) &&
+    JSON.stringify(towerCoordinates()) === JSON.stringify(towerBefore.coordinates) &&
+    history().undoEntries.length === towerBefore.history.undoEntries.length, towerFailed);
+}
+const towerArranged = ok('arrange estimated towers', await arrange());
+check('tower fixture creates second occupied plate', towerArranged.placed === 2 && observe().plates.plates.length === 2, towerArranged);
+const towerAfter = { state: observe(), coordinates: towerCoordinates() };
+const towersAfter = towerProjection();
+check('existing tower keeps its original position', JSON.stringify(towersAfter.plates[0].position) === JSON.stringify(originalTower.position));
+check('new tower coordinates match usable reserved positions', towersAfter.plates[1].eligible &&
+  !towersAfter.plates[1].outside_boundary_warning && towersAfter.plates[1].position.x > originalTower.position.x, towersAfter);
+ok('undo estimated tower arrangement', call('orc_history_undo'));
+check('undo restores tower coordinates and plate collection', JSON.stringify(towerCoordinates()) === JSON.stringify(towerBefore.coordinates) &&
+  JSON.stringify(observe().plates.plates) === JSON.stringify(towerBefore.state.plates.plates));
+ok('redo estimated tower arrangement', call('orc_history_redo'));
+check('redo restores tower coordinates and complete membership', JSON.stringify(towerCoordinates()) === JSON.stringify(towerAfter.coordinates) &&
+  JSON.stringify(observe().plates.plates) === JSON.stringify(towerAfter.state.plates.plates) &&
+  JSON.stringify(observe().plates.instances) === JSON.stringify(towerAfter.state.plates.instances));
+const fixedCoordinates = towerCoordinates();
+ok('arrange around existing towers', await arrange());
+check('existing tower positions stay fixed', JSON.stringify(towerCoordinates()) === JSON.stringify(fixedCoordinates));
+console.log('Arrangement estimated tower and history smoke passed');

@@ -231,6 +231,7 @@ log "Configuring stripped libslic3r + bridge + CLI (emcmake)"
 emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DWASM_DEBUG="$DEBUG" \
+  -DNEO_ARRANGEMENT_TEST=OFF \
   -DORCA_SRC="$ORCA_SRC" \
   -DSHIM_INCLUDE="$SHIM_INCLUDE" \
   -DGEN_INCLUDE="$GEN_INCLUDE" \

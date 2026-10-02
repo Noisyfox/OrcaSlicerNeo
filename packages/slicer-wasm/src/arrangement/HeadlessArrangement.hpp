@@ -31,6 +31,9 @@ struct PlateInput {
 struct InstanceInput {
     ModelInstance* instance = nullptr;
     std::optional<std::size_t> plate;
+    // Native plate validity, distinct from membership or intersection. Tower
+    // estimates use only fully contained instances, as PartPlate does.
+    bool fully_inside_plate = true;
 };
 
 // Consumed only on the state-owning Worker. None of these model pointers are
@@ -61,6 +64,10 @@ struct Prepared {
     arrangement::ArrangePolygons fixed;
     Points bed;
     std::vector<std::size_t> destination_plates;
+    // Only towers without an existing projected footprint are normalized.
+    // Publish these plate-local coordinates for occupied destinations together
+    // with the model placements so the live tower matches the reserved area.
+    std::vector<std::pair<std::size_t, Vec2d>> estimated_tower_positions;
     // Movable itemid indexes these records, even if native packing reorders items.
     std::vector<Placement> instances;
     std::vector<Placement> parked;

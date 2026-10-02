@@ -221,6 +221,13 @@ jobs:
         run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - name: Smoke — serial fallback slices cube.stl
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
+      - name: Arrangement — explicit test build verifies publication rollback
+        run: |
+          cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_ARRANGEMENT_TEST=ON
+          cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice --parallel 2
+          node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/.work/serial/build/orca_slice.js --test-injection
+          # Keep the enabled test artifact in the build tree. Upload only the
+          # production out/serial artifact already checked by its smoke above.
       - name: Upload serial Web WASM artifact
         uses: actions/upload-artifact@v7
         with:

@@ -1542,7 +1542,7 @@ export interface SlicerClient extends PaintingApi {
     printer: string, rememberedRack: RememberedFilamentRackPreference | null,
   ): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
-  cancelArrangement(): Promise<{ ok: boolean; error?: string }>;
+  cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
@@ -1572,15 +1572,19 @@ export interface ArrangementRequest {
   alignY: boolean;
   multipleMaterials: boolean;
   avoidCalibration: boolean;
-  context?: import('./history').HistoryContext;
+  context: import('./history').HistoryContext;
 }
 export type ArrangementParkingReason = 'non-printable' | 'degenerate' | 'too-tall' | 'unfit' | 'plate-limit' | 'current-plate-overflow';
+/** Every changed arrangement publishes the full affected-plate and configuration receipt. */
+export type ArrangementPlateSessionMutation = PlateSessionMutation & Required<PlateMutationImpact> & {
+  nativeScopedConfig: NativeScopedConfigTransport;
+};
 export type ArrangementResult = { ok: false; error: string } | {
   ok: true;
-  cancelled: boolean;
-  changed: boolean;
   placed: number;
   unplaced: { instanceId: number; reason: ArrangementParkingReason }[];
   plateLimitReached: boolean;
-  plateSession?: PlateSessionMutation;
-};
+} & (
+  | { cancelled: false; changed: true; plateSession: ArrangementPlateSessionMutation }
+  | { cancelled: boolean; changed: false }
+);

@@ -29,6 +29,7 @@ endif()
 set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged NLopt wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
+option(NEO_ARRANGEMENT_TEST "Build arrangement publication fault injection for rollback tests" OFF)
 option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 option(NEO_PAINTING_PROFILE "Build painting-only native timing counters" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
@@ -401,6 +402,13 @@ set(ORCA_SLICE_SRC
   ${ORCA_BRIDGE_SRC}
 )
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+if(NEO_ARRANGEMENT_TEST)
+  # The test state and call sites are private to this TU; core/other bridge
+  # objects retain the same layout and need not rebuild when the gate changes.
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_arrangement.cpp"
+    APPEND PROPERTY COMPILE_DEFINITIONS NEO_ARRANGEMENT_TEST=1)
+  message(STATUS "Arrangement test: publication fault injection enabled")
+endif()
 if(NEO_REAL_PROJECT_PROFILE)
   target_compile_definitions(orca_slice PRIVATE NEO_REAL_PROJECT_PROFILE=1)
   message(STATUS "Real-project profile: dedicated profiling ABI enabled")

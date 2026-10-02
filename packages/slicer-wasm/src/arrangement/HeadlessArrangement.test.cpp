@@ -113,6 +113,27 @@ void tests() {
     auto towers = prepare(materials.scene, {});
     CHECK(towers.fixed.size() == 36);
     CHECK(towers.fixed.back().is_wipe_tower && !towers.fixed.back().setter);
+    CHECK(towers.estimated_tower_positions.size() == 36);
+    CHECK(towers.estimated_tower_positions.front().second.y() < 100);
+    CHECK(materials.scene.config.option<ConfigOptionFloats>("wipe_tower_y")->get_at(0) == 220);
+    // An out-of-bounds instance must not enlarge every estimated tower through
+    // its filament, height or layer-height override; Orca uses total containment.
+    auto* rejected_source = materials.add(20, 0, 120);
+    rejected_source->set_offset({95,95,0});
+    rejected_source->get_object()->config.set_key_value("extruder", new ConfigOptionInt(3));
+    rejected_source->get_object()->config.set_key_value("layer_height", new ConfigOptionFloat(.01));
+    materials.scene.instances.back().fully_inside_plate = false;
+    auto* parked_source = materials.add(20, std::nullopt);
+    parked_source->printable = false;
+    parked_source->get_object()->config.set_key_value("extruder", new ConfigOptionInt(4));
+    auto filtered_towers = prepare(materials.scene, {});
+    CHECK(filtered_towers.fixed.front().poly.contour.points == towers.fixed.front().poly.contour.points);
+    CHECK(filtered_towers.estimated_tower_positions.front().second == towers.estimated_tower_positions.front().second);
+    materials.scene.plates[0].tower = towers.fixed.front();
+    auto existing_tower = prepare(materials.scene, {});
+    CHECK(existing_tower.estimated_tower_positions.size() == 35);
+    CHECK(existing_tower.estimated_tower_positions.front().first == 1);
+    CHECK(existing_tower.fixed.front().poly.contour.points == towers.fixed.front().poly.contour.points);
     materials.scene.config.set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
     CHECK(prepare(materials.scene, {}).fixed.empty());
 

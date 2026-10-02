@@ -81,15 +81,14 @@ void exclusions(Prepared& out) {
     }
 }
 ArrangePolygon estimated_tower(const SceneInput& scene, const DynamicPrintConfig& config,
-                               std::size_t index, std::size_t filament_count, const BoundingBox& bed) {
+                               std::size_t index, std::size_t filament_count, const BoundingBox& bed,
+                               Vec2d& position) {
     const auto source_plate = std::min(index, scene.plates.size() - 1);
     std::set<int> extruders;
     double height = 0, layer = std::numeric_limits<double>::max();
     for (const auto& input : scene.instances) {
-        if (input.plate != source_plate) continue;
+        if (input.plate != source_plate || !input.fully_inside_plate) continue;
         auto* object = input.instance->get_object();
-        const auto box = object->instance_convex_hull_bounding_box(input.instance);
-        if (!intersects(box, scene.plates[source_plate], bed, config.opt_float("printable_height"))) continue;
         const auto p = get_instance_arrange_poly(input.instance, config);
         extruders.insert(p.extrude_ids.begin(), p.extrude_ids.end());
         height = std::max(height, p.height);
@@ -115,6 +114,7 @@ ArrangePolygon estimated_tower(const SceneInput& scene, const DynamicPrintConfig
     };
     const double x = clamp(config.option<ConfigOptionFloats>("wipe_tower_x")->get_at(index), unscaled(bed.size().x()), footprint.width);
     const double y = clamp(config.option<ConfigOptionFloats>("wipe_tower_y")->get_at(index), unscaled(bed.size().y()), footprint.depth);
+    position = Vec2d(x, y);
     auto p = rectangle(x - brim, y - brim, x + footprint.width + brim, y + footprint.depth + brim);
     p.is_wipe_tower = true; p.name = "Prime tower";
     return p;
@@ -202,8 +202,10 @@ Prepared prepare(const SceneInput& scene, const Settings& settings) {
         if (ids.size() > 1) need_tower = true;
         temperature_extruders[item.bed_temp].insert(ids.begin(), ids.end());
     }
-    // Orca estimates with the filament count across the entire project.
+    // Orca uses the union of real plates' fully contained objects, excluding
+    // parked and out-of-bounds instances from this estimation floor.
     for (const auto& input : scene.instances) {
+        if (!input.plate || !input.fully_inside_plate) continue;
         auto poly = get_instance_arrange_poly(input.instance, out.config);
         all_extruders.insert(poly.extrude_ids.begin(), poly.extrude_ids.end());
     }
@@ -214,7 +216,11 @@ Prepared prepare(const SceneInput& scene, const Settings& settings) {
         if (index < scene.plates.size()) tower = scene.plates[index].tower;
         if (settings.scope == Scope::All) {
             if (!out.config.opt_bool("enable_prime_tower") || p.is_seq_print) continue;
-            if (!tower && need_tower) tower = estimated_tower(scene, out.config, index, all_extruders.size(), bed);
+            if (!tower && need_tower) {
+                Vec2d position;
+                tower = estimated_tower(scene, out.config, index, all_extruders.size(), bed, position);
+                out.estimated_tower_positions.emplace_back(index, position);
+            }
         }
         if (tower) { tower->setter = nullptr; tower->bed_idx = int(i); out.fixed.push_back(std::move(*tower)); }
     }
