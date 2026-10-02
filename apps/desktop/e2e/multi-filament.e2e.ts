@@ -1,3 +1,5 @@
+import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
+import { newProjectMenu } from './project-menu';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
 
@@ -15,12 +17,17 @@ async function addPrimitive(page: Page, primitive: string): Promise<void> {
   const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
   const box = await canvas.boundingBox();
   if (!box) throw new Error('viewport canvas has no bounding box');
-  await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+  const fps = await page.locator('.scene-stats').boundingBox();
+  const y = Math.max(box.y + 40, fps ? fps.y + fps.height + 16 : box.y + 40);
+  await page.mouse.click(box.x + box.width - 40, y, { button: 'right' });
   await expect(page.getByTestId('ctx-menu')).toBeVisible();
   await page.getByTestId('btn-add-primitive').click();
   await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
+  const objectRows = page.getByTestId('object-list').locator('section[data-testid^="plate-group-"] > div[data-testid^="object-"]');
+  const before = await objectRows.count();
   await page.getByTestId(`btn-add-${primitive.toLowerCase()}`).click();
   await expect(page.getByTestId('ctx-menu')).toBeHidden();
+  await expect.poll(() => objectRows.count()).toBe(before + 1);
 }
 
 async function dragCubeOnce(page: Page): Promise<void> {
@@ -57,6 +64,7 @@ test('new project slots remain assignable from the ObjectList select and context
   const app = await launchApp();
   try {
     const page = await app.firstWindow();
+    await installSliceReceiptObserver(page, ['clearModel', 'resetHistory', 'addShape', 'assignFilament']);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible();
@@ -64,14 +72,7 @@ test('new project slots remain assignable from the ObjectList select and context
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
     await expect(page.getByTestId('filament-preset-select')).toHaveCount(0);
 
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
-    }
-
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-new-project').click();
+    await newProjectMenu(page, app);
     await expect(page.getByTestId('filament-rack')).toBeVisible();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
 
@@ -103,6 +104,8 @@ test('new project slots remain assignable from the ObjectList select and context
     await expect(page.getByTestId('filament-rejected')).toBeHidden();
     await expect(filamentSelect).toContainText('Slot 3');
   } finally {
+    const page = await app.firstWindow();
+    await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
     await app.close();
   }
 });
@@ -111,6 +114,7 @@ test('adds a filament after two cubes from the scene context menu', async () => 
   const app = await launchApp();
   try {
     const page = await app.firstWindow();
+    await installSliceReceiptObserver(page, ['clearModel', 'resetHistory', 'addShape', 'assignFilament']);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
@@ -127,6 +131,8 @@ test('adds a filament after two cubes from the scene context menu', async () => 
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();
     await expect(page.getByTestId('filament-rejected')).toBeHidden();
   } finally {
+    const page = await app.firstWindow();
+    await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
     await app.close();
   }
 });
@@ -135,6 +141,7 @@ test('adds a filament after a scene cube has been moved', async () => {
   const app = await launchApp();
   try {
     const page = await app.firstWindow();
+    await installSliceReceiptObserver(page, ['clearModel', 'resetHistory', 'addShape', 'assignFilament']);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
@@ -145,6 +152,8 @@ test('adds a filament after a scene cube has been moved', async () => {
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();
     await expect(page.getByTestId('filament-rejected')).toBeHidden();
   } finally {
+    const page = await app.firstWindow();
+    await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
     await app.close();
   }
 });
@@ -154,6 +163,7 @@ test('filament rack remains enabled during history restore', async () => {
   const app = await launchApp({ ORCA_E2E_MODEL: MODEL_PATH });
   try {
     const page = await app.firstWindow();
+    await installSliceReceiptObserver(page, ['clearModel', 'resetHistory', 'addShape', 'assignFilament']);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('filament-add')).toBeEnabled({ timeout: 30_000 });
@@ -193,6 +203,8 @@ test('filament rack remains enabled during history restore', async () => {
     await expect(undo).toBeEnabled({ timeout: 60_000 });
     expect((await readDisabledStates()).some(Boolean)).toBe(false);
   } finally {
+    const page = await app.firstWindow();
+    await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
     await app.close();
   }
 });
@@ -202,14 +214,9 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
   const app = await launchApp();
   try {
     const page = await app.firstWindow();
+    await installSliceReceiptObserver(page, ['clearModel', 'resetHistory', 'addShape', 'assignFilament']);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
-    }
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-new-project').click();
+    await newProjectMenu(page, app);
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
     await page.getByTestId('preset-select').click();
@@ -237,9 +244,11 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
       await expect(page.getByTestId(`filament-slot-${slot}`)).toHaveAttribute('aria-busy', 'false');
     }
 
+    await page.getByTestId('config-mode-scoped').click();
     const assignments = page.locator('[data-testid^="filament-cell-object-"]');
     await assignments.nth(0).click();
     await page.locator('[role="option"]:visible').filter({ hasText: /^Slot 1$/ }).first().click();
+    await expect(page.locator('[role="option"]:visible')).toHaveCount(0);
     await assignments.nth(1).click();
     await page.locator('[role="option"]:visible').filter({ hasText: /^Slot 2$/ }).last().click();
     await expect(assignments.nth(1)).toContainText('Slot 2');
@@ -275,6 +284,8 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
       ]),
     }));
   } finally {
+    const page = await app.firstWindow();
+    await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
     await app.close();
   }
 });

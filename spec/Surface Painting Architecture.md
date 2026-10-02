@@ -2,11 +2,10 @@
 
 **Date:** 2026-09-29
 
-**Status:** Implemented and functionally qualified on 2026-09-30. All six MMU
-tools and the reusable painting foundation are delivered. Quantitative performance
+**Status:** All six MMU tools and the reusable painting foundation were
+functionally qualified on 2026-09-30. Scheme B Support, Seam and Fuzzy adapters
+passed sequential independent acceptance on 2026-10-03. Quantitative performance
 thresholds remain to be confirmed from the recorded reference measurements.
-Support, seam and fuzzy-skin adapters under scheme B are approved and authorized
-for sequential implementation on 2026-10-02; their acceptance remains pending.
 
 **Scope:** A shared surface-painting architecture for OrcaSlicerNeo, with
 multi-material painting as its first gizmo and reusable foundations for support,
@@ -34,7 +33,7 @@ behavior of the pinned Orca source as a reference.
   [Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md) continue to
   govern material slots and committed slicing inputs.
 
-The delivered MMU scope and pending adapter scope are distinguished in section 10.
+The delivered MMU and adapter scopes are recorded in section 10.
 Implementation and verification must follow the [testing guidelines](../doc/testing_guidelines.md).
 
 ## 2. Accepted direction and reusable boundaries
@@ -1231,9 +1230,36 @@ working-set sums are not exclusive peak memory. A comparable pinned native Orca
 measurement and GPU execution timing remain unavailable. Numeric acceptance
 thresholds are still awaiting user review.
 
+The locally retained macOS four-channel reference
+adds 96 repeated samples: Electron/Web, MMU/Support/Seam/Fuzzy, four controlled
+and fixed-project cases, and three trials per group. It records Apple M1,
+16 GiB RAM, Darwin arm64 24.6.0, Node 26.7.0, Chrome 154.0.8037.93 and
+Electron 43.4.0. Every sample balances renderer resources and native geometry
+leases. All 96 Escape observations match a terminal and logical revision frame.
+Normal-release coverage includes 403 matches, 168 without geometry receipts,
+178 without terminal receipts, 14 duplicate physical inputs and five without a
+bounded revision frame; unmatched observations are excluded from latency
+aggregates and remain visible in the raw evidence.
+
+Generated measurement JSON and gzip archives remain ignored local test artifacts
+and are excluded from the feature branch and PR. The living implementation
+record identifies their local storage path and reproduction commands.
+
+This baseline retains source/native identities and the original Web bundle;
+the historical Electron bundle SHA was not captured. A later eight-sample
+current-source metadata pilot and eight independent parent samples on
+`cube-3072-4parts` record actual per-host disk HTML/assets/selected native hashes,
+positive native counters and cleanup. These supplement the baseline without
+rewriting its provenance. The installed Orca 2.4.2 format roundtrip is
+supplemental evidence, not a pinned native performance comparison. GPU execution
+timing and numerical thresholds remain unavailable or unapproved. The living
+record identifies failed attempts, unchanged-source retries and the unresolved
+supplemental invalid-layer-height test; none is relabeled as a passing check.
+
 ### 9.2 Required adapter editing and interoperability acceptance
 
-These checks are pending until the sequential adapter stages are accepted:
+These checks passed sequential adapter acceptance on 2026-10-03. They remain
+required regression themes for changes to the delivered adapters:
 
 - Edit each new channel in a single-filament multipart/transformed project and
   MMU in a multi-filament project; serialize,
@@ -1278,12 +1304,14 @@ sections rather than as a discussion transcript.
 | B. History and external edits | Accepted; sections 5-7 define per-stroke commits, nested navigation/compaction, eviction, Redo cleanup, and interleaved project changes. |
 | C. Multi-material tools | Accepted; sections 2-4 define all six tools, their parameters and lifetime, desktop input, native authority, and reliable event completion. |
 | D. Runtime and acceptance | Runtime policies and functional verification are accepted; sections 4-6 and 9 define event admission, cancellation, memory policy, reference environment, and fixtures. The measured baseline is recorded; numeric performance thresholds await user review. |
-| E. Scheme B adapters | Approved and implementation authorized 2026-10-02; sections 2.4–2.6 and 9.2 define pending support/seam/fuzzy acceptance. |
+| E. Scheme B adapters | Independently accepted and functionally delivered 2026-10-03; sections 2.4–2.6 and 9.2 define Support/Seam/Fuzzy behavior and required regression coverage. |
 
 The [typed painting contract](../packages/slicer-wasm/src/client/painting.ts)
 implements the session/stroke/revision and camera-snapshot transport. Native
 selectors and picking remain authoritative; the shared application renders
-through `viewport/gizmo/painting/PaintingGizmoBase` and `MmuPaintingGizmo`.
+through `viewport/gizmo/painting/PaintingGizmoBase` and the independent
+`MmuPaintingGizmo`, `SupportPaintingGizmo`, `SeamPaintingGizmo` and
+`FuzzyPaintingGizmo` adapters.
 The implementation record supplies reproducible fixture/benchmark commands.
 These engineering details do not authorize changing product semantics or claiming
 measurements that have not been made. If further
@@ -1297,8 +1325,11 @@ subagent and independently accepted by the parent before the next step starts.
 All MMU implementation stages 01–12 passed parent code review and independent verification.
 The final record includes root tests/typechecks, both production WASM variants,
 Electron/Web real journeys, packaged-app checks, 3MF/profile compatibility and
-the measured performance baseline. This delivered scope contains only MMU painting.
-Scheme B support, seam and fuzzy-skin adapters were approved and implementation
-authorized on 2026-10-02 under pending sequential stages 13–19 in the same living
-plan. Design approval is not adapter delivery or passed acceptance. Functional
-delivery does not close the remaining quantitative performance decision.
+the measured performance baseline. Scheme B Support, Seam and Fuzzy adapters
+were approved on 2026-10-02 and passed stages 13–19 on 2026-10-03. Each stage
+used a fresh gpt-6.1-sol / medium child, followed by independent parent review,
+verification and commit before the next began. Delivery includes separate
+Orca-style toolbar entries ordered Support, Seam, Fuzzy, MMU; native four-field
+3MF roundtrips, downstream slicing, history, host/variant qualification and
+resource cleanup. Functional delivery does not close the remaining quantitative
+performance decision or resolve the separately recorded supplemental failure.

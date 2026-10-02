@@ -473,6 +473,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
               updateRaycastingEnabled();
             }}
             onPointerMissed={(event) => {
+              if (event.button !== 0) return;
               if (!previewTab && !paintingActive) {
                 const rect = viewportRef.current.getBoundingClientRect();
                 const plateId = pickBuildPlateId(sceneStateRef.current, {

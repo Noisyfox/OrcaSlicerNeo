@@ -566,7 +566,7 @@ preferences, full 3MF archives, and derived slice/preview output remain excluded
 
 ### Milestone 20 — Surface and Multi-Material Painting
 
-> **Status: functionally delivered 2026-09-30.** The normative contract is
+> **Status: functionally delivered:** MMU 2026-09-30; Support/Seam/Fuzzy 2026-10-03. The normative contract is
 > [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md);
 > [the implementation record](2026-09-29-surface-painting-implementation.md)
 > contains sequential parent acceptance and exact verification scope.
@@ -580,9 +580,10 @@ preferences, full 3MF archives, and derived slice/preview output remain excluded
       edits; coherent slots, project commands, lifecycle, 3MF and real MMU slices.
 - [x] Both production WASM variants, real Electron/Web and packaged-app gates,
       plus a reproducible 36-sample performance baseline and resource cleanup.
-- [ ] Scheme B support, seam and fuzzy-skin painting adapters: approved and
-      implementation authorized 2026-10-02; sequential steps 13–19 remain pending.
-      MMU delivery remains accepted; adapter design approval is not delivery.
+- [x] Scheme B Support, Seam and Fuzzy painting adapters: stages 13–19 independently
+      accepted 2026-10-03. Separate Orca-style toolbar entries, native fields,
+      actual downstream slicing, history and both-host/variant qualification;
+      96 locally retained four-channel samples plus independent current-artifact checks.
       Pinned native performance comparison remains unavailable; quantitative
       performance thresholds remain pending and timings are not universal guarantees.
 

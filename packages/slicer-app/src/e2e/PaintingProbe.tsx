@@ -124,7 +124,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
   const rendered = useRef<{ revision: number; candidates: string[] }>({ revision: -1, candidates: [] });
   const input = useRef({ admittedMoves: 0, droppedMoves: 0 });
   const closeFailure = useRef(false);
-  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string; retainedVolumes?: number; volumeCount?: number; touchedVolumeCount?: number; sourceTriangles?: number; exportedSourceGeometries?: number; exportedPaintGeometries?: number; objectIds?: readonly number[] }>;
+  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string; settings?: Record<string, unknown>; retainedVolumes?: number; volumeCount?: number; touchedVolumeCount?: number; sourceTriangles?: number; exportedSourceGeometries?: number; exportedPaintGeometries?: number; objectIds?: readonly number[] }>;
     frames: Array<{ at: number; revision: number; candidates: number }>; phases: Array<{ at: number; phase: string; revision: number }>;
     inputs: Array<{ at: number; kind: string }>; glUploads: Array<{ at: number; method: string; ms: number; bytes: number }>;
     resources: Array<{ at: number; ms: number; created: number; released: number; live: number; bytes: number }>;
@@ -168,13 +168,14 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
       if (!original) continue;
       api[name] = async (...args) => {
         const start = performance.now();
+        const request = args[0] as { tool?: string; settings?: Record<string, unknown>; event?: { pointer: readonly number[] } };
+        const requestSettings = request?.settings ? { ...request.settings } : undefined;
         try {
           if (name === 'closeHistorySession' && closeFailure.current) {
             closeFailure.current = false; throw new Error('Injected painting close failure');
           }
           const result = await original(...args) as { paintingProfile?: unknown; resources?: Array<{ vertices: Float32Array; contour: Float32Array }> };
           const paint = result as { committed?: boolean; effective?: boolean; changedPartIds?: number[]; revision?: number; hit?: unknown };
-          const request = args[0] as { tool?: string; event?: { pointer: readonly number[] } };
           const patch = result as { geometries?: unknown[]; paintGeometries?: unknown[] };
           perf.current.calls.push({ name, at: start, ms: performance.now() - start,
             ...(name === 'getModelScenePatch' ? { objectIds: args[0] as number[],
@@ -187,6 +188,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
             ...('hit' in paint ? { hit: paint.hit } : {}),
             ...(request?.event ? { pointer: request.event.pointer } : {}),
             ...(request?.tool ? { tool: request.tool } : {}),
+            ...(requestSettings ? { settings: requestSettings } : {}),
             ...(paint.changedPartIds ? { changedPartIds: paint.changedPartIds } : {}) });
           return result;
         } catch (error) {
@@ -259,6 +261,16 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
   }, [owner]);
   useEffect(() => registerOrcaE2eOwner('painting', {
     paintingFailNextClose: () => { closeFailure.current = true; },
+    paintingBenchmarkState: () => {
+      const state=owner.getSnapshot(), rect=gl.domElement.getBoundingClientRect();
+      const source=volumes.find(volume=>volume.buffer.objectId===state.session?.objectId && volume.buffer.instanceId===state.session.instanceId);
+      const center=source?.getWorldBounds().getCenter(new THREE.Vector3()).project(camera);
+      return {phase:state.phase,channel:state.channel,tool:state.tool,settings:state.settings,sessionId:state.session?.id,
+        nativeTarget:state.session ? {objectId:state.session.objectId,revision:state.session.revision,strokeId:state.session.strokeId} : null,
+        resources:[...resources.resources.values()].map(resource=>({kind:resource.source.kind,resourceId:resource.source.resourceId})),
+        rendered:rendered.current,input:{...input.current},error:state.error,
+        center:center ? {x:rect.left+(center.x+1)*rect.width/2,y:rect.top+(1-center.y)*rect.height/2} : null};
+    },
     paintingEvidence: () => {
       const state = owner.getSnapshot(), rect = gl.domElement.getBoundingClientRect();
       const source = volumes.find((v) => v.buffer.objectId === state.session?.objectId && v.buffer.instanceId === state.session.instanceId);

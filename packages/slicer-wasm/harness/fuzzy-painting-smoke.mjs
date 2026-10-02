@@ -127,7 +127,7 @@ async function slice(label) {
   const exported=ok(exportGcode(call,result.receipt));
   const gcode=Module.FS.readFile(exported.path,{encoding:'utf8'}); if(exported.bytes_ptr)Module._free(exported.bytes_ptr);
   await writeFile(resolve(output,`${label}.gcode`),gcode);
-  const lines=extrusion(gcode); assert.ok(lines.length>10); return {lines,warnings:result.warnings??[],progress:messages.filter(m=>m.type==='task-progress').map(m=>m.text),receipt:result.receipt};
+  const lines=extrusion(gcode); assert.ok(lines.length>10); return {gcode,lines,warnings:result.warnings??[],progress:messages.filter(m=>m.type==='task-progress').map(m=>m.text),receipt:result.receipt};
 }
 const baseline=await slice('baseline-disabled');
 stroke('orc_painting_stroke_begin',{tool:'sphere',settings:{state:1,radius:50},event:event(100,100)}); commit();
@@ -190,3 +190,74 @@ ok(command('orc_mutate_native_scoped_config',{version:1,operation:'set',targets:
 configure('object','none');const modifierDisabled=await slice('modifier-disabled-retained');assert.ok(modifierDisabled.lines.length<modifierEnabled.lines.length/2,'more-specific coincident modifier disables jitter after object enable');
 const modifierSaved=savedBytes();await writeFile(resolve(output,'fuzzy-modifier-saved.3mf'),modifierSaved);ok(command('orc_history_session_close',{sessionId:hs}));load(modifierSaved);open();const modifierReloaded=await slice('modifier-disabled-reopened');assert.ok(modifierReloaded.lines.length<modifierEnabled.lines.length/2);
 await writeFile(resolve(output,'fuzzy-modifier-evidence.json'),JSON.stringify({sha256:createHash('sha256').update(modifierSaved).digest('hex'),enabledCount:modifierEnabled.lines.length,disabledCount:modifierDisabled.lines.length,reopenedCount:modifierReloaded.lines.length},null,2));ok(command('orc_history_session_close',{sessionId:hs}));console.log('native multipart/modifier inherited override PASS');
+
+
+// A closed square prism with a real through-hole separates Hole mode from the
+// solid-cube baseline. Winding is outward on exterior and inward on hole walls.
+const ringCorners = [[-10,-10],[10,-10],[10,10],[-10,10]];
+const holeCorners = [[-4,-4],[4,-4],[4,4],[-4,4]];
+const ringVertices = [-10,10].flatMap(z => [...ringCorners,...holeCorners].map(([x,y]) => [x,y,z]));
+const ringTriangles = [];
+const quad = (a,b,c,d) => ringTriangles.push([a,b,c],[a,c,d]);
+for (let i=0;i<4;i++) {
+  const n=(i+1)%4;
+  quad(i,n,n+8,i+8); // outer wall
+  quad(i+4,i+12,n+12,n+4); // hole wall
+  quad(i+8,n+8,n+12,i+12); // top ring
+  quad(i,i+4,n+4,n); // bottom ring
+}
+const ringMesh = `<mesh><vertices>${ringVertices.map(([x,y,z])=>`<vertex x="${x}" y="${y}" z="${z}"/>`).join('')}</vertices><triangles>${ringTriangles.map(([a,b,c])=>`<triangle v1="${a}" v2="${b}" v3="${c}"/>`).join('')}</triangles></mesh>`;
+const ringFixture = writeStoredZip(readZipEntries(sliceFixture).map(entry => entry.name === '3D/3dmodel.model'
+  ? {...entry,content:new TextEncoder().encode(modelXml(sliceFixture).replace(/<mesh>[\s\S]*?<\/mesh>/,ringMesh))} : entry));
+await writeFile(resolve(output,'fuzzy-through-hole-fixture.3mf'),ringFixture);
+load(ringFixture);open();
+const holeDisabled = await slice('through-hole-disabled');
+configure('object','hole');
+stroke('orc_painting_stroke_begin',{tool:'sphere',settings:{state:1,radius:50},event:event(106,100)});commit();
+assert.ok(refresh().parts[0].facetCounts[1]>0);
+const holePainted = await slice('through-hole-painted');
+stroke('orc_painting_stroke_begin',{tool:'eraseAll',settings:{}});commit();
+assert.equal(refresh().parts[0].facetCounts[1],0);
+const holeErased = await slice('through-hole-erased');
+assert.ok(holeErased.lines.length > holeDisabled.lines.length * 1.5,
+  'Hole mode still jitters real inner walls after all annotations are erased');
+assert.notDeepEqual(holeErased.lines,holeDisabled.lines);
+function innerSegments(gcode) {
+  let x=0,y=0,z=0,e=0,relativeE=false,relativeXYZ=false;
+  const selected=[];
+  for(const raw of gcode.split('\n')) {
+    const line=raw.split(';')[0].trim();
+    if(/^M83\b/.test(line)) {relativeE=true;continue;}
+    if(/^M82\b/.test(line)) {relativeE=false;continue;}
+    if(/^G91\b/.test(line)) {relativeXYZ=true;continue;}
+    if(/^G90\b/.test(line)) {relativeXYZ=false;continue;}
+    const values=Object.fromEntries([...line.matchAll(/([XYZE])(-?(?:\d+(?:\.\d*)?|\.\d+))/g)].map(([,k,v])=>[k,Number(v)]));
+    if(/^G92\b/.test(line)) {if(values.E!==undefined)e=values.E;continue;}
+    if(!/^G[01]\b/.test(line))continue;
+    const nx=values.X===undefined?x:values.X+(relativeXYZ?x:0),ny=values.Y===undefined?y:values.Y+(relativeXYZ?y:0),nz=values.Z===undefined?z:values.Z+(relativeXYZ?z:0);
+    const de=values.E===undefined?0:relativeE?values.E:values.E-e;
+    if(values.E!==undefined)e=relativeE?e+values.E:values.E;
+    const inHole=(px,py)=>px>=95.1&&px<=104.9&&py>=95.1&&py<=104.9&&Math.max(Math.abs(px-100),Math.abs(py-100))>=3.5;
+    if(de>0 && Math.hypot(nx-x,ny-y)>1e-6 && nz>0 && nz<=20.1 && inHole(x,y)&&inHole(nx,ny))
+      selected.push({from:[x,y,z],to:[nx,ny,nz],extrusion:de});
+    x=nx;y=ny;z=nz;
+  }
+  return selected;
+}
+const innerDisabled=innerSegments(holeDisabled.gcode),innerErased=innerSegments(holeErased.gcode);
+assert.ok(innerDisabled.length>100,'disabled baseline contains actual positive-extrusion inner perimeters');
+assert.ok(innerErased.length>innerDisabled.length*2,'Hole mode textures the same inner perimeter band after erasing annotations');
+const innerBounds=segments=>({min:[0,1].map(i=>Math.min(...segments.flatMap(s=>[s.from[i],s.to[i]]))),max:[0,1].map(i=>Math.max(...segments.flatMap(s=>[s.from[i],s.to[i]])))});
+const disabledBounds=innerBounds(innerDisabled),erasedBounds=innerBounds(innerErased);
+assert.ok(erasedBounds.min.every((v,i)=>Math.abs(v-disabledBounds.min[i])<0.5)&&erasedBounds.max.every((v,i)=>Math.abs(v-disabledBounds.max[i])<0.5),'textured segments retain actual through-hole bounds');
+configure('object','disabled_fuzzy');
+const holeDisabledAgain = await slice('through-hole-disabled-again');
+assert.deepEqual(holeDisabledAgain.lines,holeDisabled.lines,'disabling restores exact untextured through-hole paths');
+await writeFile(resolve(output,'fuzzy-through-hole-evidence.json'),JSON.stringify({
+  fixtureSha256:createHash('sha256').update(ringFixture).digest('hex'),vertices:ringVertices.length,triangles:ringTriangles.length,
+  disabledCount:holeDisabled.lines.length,paintedCount:holePainted.lines.length,erasedCount:holeErased.lines.length,
+  innerDisabled:innerDisabled.length,innerErased:innerErased.length,disabledBounds,erasedBounds,
+  semantics:'Modal G0/G1 XYZ/E with G90/G91, M82/M83 and G92 E; positive extrusion and nonzero XY moves whose endpoints lie in the actual inner-wall band, excluding travel, priming/retraction and exterior contours.',
+},null,2));
+ok(command('orc_history_session_close',{sessionId:hs}));
+console.log('native Hole mode real through-hole after erase PASS');

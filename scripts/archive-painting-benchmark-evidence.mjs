@@ -4,10 +4,12 @@ import { basename, dirname, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const root = resolve(import.meta.dirname, '..');
-const source = resolve(root, 'packages/slicer-wasm/.work/painting-benchmark/results/index.json');
-const destination = resolve(root, 'packages/slicer-wasm/benchmarks/painting/reference-2026-09-29');
+const source = resolve(root, process.argv[2] ?? 'packages/slicer-wasm/.work/painting-benchmark/results/index.json');
+const destination = resolve(root, process.argv[3] ?? 'packages/slicer-wasm/benchmarks/painting/reference-2026-09-29');
 const index = JSON.parse(await readFile(source, 'utf8'));
-if (index.samples.length !== 36) throw new Error(`expected 36 repeated samples, found ${index.samples.length}`);
+const expectedSamples = Number(process.argv[4] ?? 36);
+if (!Number.isInteger(expectedSamples) || expectedSamples < 1 || index.samples.length !== expectedSamples)
+  throw new Error(`expected ${expectedSamples} repeated samples, found ${index.samples.length}`);
 await mkdir(resolve(destination, 'raw'), { recursive: true });
 index.samples = await Promise.all(index.samples.map(async (sample) => {
   const name = basename(sample.file) + '.gz';

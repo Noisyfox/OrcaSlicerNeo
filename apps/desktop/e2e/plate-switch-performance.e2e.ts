@@ -1,3 +1,4 @@
+import { openProjectMenu } from './project-menu';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -25,13 +26,7 @@ test('switches several non-current plates within the interactive budget', async 
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
-    }
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-open-project').click();
+    await openProjectMenu(page, app);
     const choice = page.getByTestId('project-load-choice-dialog');
     await expect(choice).toBeVisible({ timeout: 300_000 });
     const projectChoice = page.getByTestId('project-load-project');

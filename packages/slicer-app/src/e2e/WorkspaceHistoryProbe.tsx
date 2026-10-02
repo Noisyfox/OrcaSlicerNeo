@@ -4,6 +4,23 @@ import { captureHistoryTransportDiagnostics, type HistoryObservabilitySnapshot, 
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
 import { registerOrcaE2eOwner } from './registerOrcaE2e';
 
+const pendingProjectionReads = new WeakMap<object, Set<Promise<void>>>();
+
+/** Count every outstanding read, including superseded reads whose diagnostics
+ * are recorded when their RPC completes. This observer changes no admission. */
+export function trackPrimeTowerProjectionRead(runtime: object, read: Promise<void>): void {
+  let pending = pendingProjectionReads.get(runtime);
+  if (!pending) pendingProjectionReads.set(runtime, pending = new Set());
+  pending.add(read);
+  const reads = pending;
+  const settled = () => { reads.delete(read); };
+  void read.then(settled, settled);
+}
+
+export function primeTowerProjectionPendingCount(runtime: object): number {
+  return pendingProjectionReads.get(runtime)?.size ?? 0;
+}
+
 export function WorkspaceHistoryProbe() {
   const { runtime } = usePlatform();
 
@@ -11,6 +28,7 @@ export function WorkspaceHistoryProbe() {
     // Painting open/commit/close and history navigation project their native
     // receipts here; an E2E read must not enqueue another project operation.
     historyNativeStatus: () => useHistoryNavigationStore.getState().status,
+    primeTowerProjectionPendingCount: () => primeTowerProjectionPendingCount(runtime),
     historyDiagnostics: (): HistoryObservabilitySnapshot => {
       captureHistoryTransportDiagnostics(runtime);
       const { recordMutation: _mutation, recordQueue: _queue, recordRestore: _restore,

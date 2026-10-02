@@ -12,15 +12,17 @@ const readTree = async (dir) => {
   return files;
 };
 
-const cache = await readFile(resolve(root, 'packages/slicer-wasm/.work/serial/build/CMakeCache.txt'), 'utf8');
-if (!/^NEO_PAINTING_PROFILE:BOOL=(?:OFF|FALSE|0)$/m.test(cache)) throw new Error('serial native build is not a normal production build');
-if (!/^NEO_PROJECT_HISTORY_TEST:BOOL=(?:OFF|FALSE|0)$/m.test(cache)) throw new Error('serial native build retains history test hooks');
+for (const variant of ['serial','threaded']) {
+  const cache = await readFile(resolve(root, `packages/slicer-wasm/.work/${variant}/build/CMakeCache.txt`), 'utf8');
+  if (!/^NEO_PAINTING_PROFILE:BOOL=(?:OFF|FALSE|0)$/m.test(cache)) throw new Error(`${variant} native build is not a normal production build`);
+  if (!/^NEO_PROJECT_HISTORY_TEST:BOOL=(?:OFF|FALSE|0)$/m.test(cache)) throw new Error(`${variant} native build retains history test hooks`);
+}
 const targets = [
-  resolve(root, 'packages/slicer-wasm/out/serial/orca_slice.wasm'),
+  ...['serial','threaded'].flatMap(variant => ['js','wasm'].map(extension => resolve(root, `packages/slicer-wasm/out/${variant}/orca_slice.${extension}`))),
   ...await readTree(resolve(root, 'apps/desktop/out')),
   ...await readTree(resolve(root, 'apps/web/dist')),
 ];
-const sentinels = ['paintingFailNextClose', 'Injected painting close failure', 'nativeHitUs', 'nativeSelectorUs', 'nativeGeometryUs', '__orcaPaintingBenchmarkFinal', 'paintingPerformanceEvidence', 'exportedSourceGeometries', 'paintingVisualStart', 'paintingVisualStop', 'paintingVisualFrames', 'painting-model-', 'painting-candidate', 'painting-contour', 'painting-cursor-'];
+const sentinels = ['paintingFailNextClose', 'Injected painting close failure', 'nativeHitUs', 'nativeSelectorUs', 'nativeGeometryUs', '__orcaPaintingBenchmarkFinal', 'paintingPerformanceEvidence', 'paintingBenchmarkState', 'primeTowerProjectionPendingCount', 'trackPrimeTowerProjectionRead', 'exportedSourceGeometries', 'paintingVisualStart', 'paintingVisualStop', 'paintingVisualFrames', 'painting-model-', 'painting-candidate', 'painting-contour', 'painting-cursor-'];
 for (const path of targets) {
   const bytes = await readFile(path);
   for (const sentinel of sentinels) if (bytes.includes(Buffer.from(sentinel)))
