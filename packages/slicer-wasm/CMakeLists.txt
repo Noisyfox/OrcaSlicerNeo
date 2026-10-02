@@ -110,7 +110,6 @@ set(DROP_PATTERNS
   "MeshBoolean"           # CGAL boolean ops
   "/Format/svg"           # SVG->mesh needs OpenCASCADE; load_svg stubbed in stubs/format-stubs.cpp
   "/Shape/TextShape"      # OCCT font->mesh; no kept callers
-  "/Arrange.cpp"          # libnest2d bed arrangement (nlopt + boost::geometry deps)
   "GCodeSender"           # serial/network host control; boost::asio signal_blocker
                           # supports only Windows/POSIX, and nothing kept calls it
   "VoronoiUtilsCgal"      # CGAL Voronoi planarity diagnostics; planarity checks
@@ -235,6 +234,45 @@ target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
 # clipper2=offset/rectclip, qhull=convex hull, glu-libtess=tesselation,
 # semver=Semver.hpp, qoi=thumbnail PNG). Keep in sync with upstream lists.
 enable_language(C)
+
+# Use exactly the NLopt release/checksum selected by the pinned Orca core.
+# Configure the dependency in its own scope so its legacy cache options do not
+# change the parent project's shared/static-library policy.
+include(FetchContent)
+function(neo_add_nlopt)
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+  set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+  set(BUILD_SHARED_LIBS OFF)
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -m64")
+  if(WASM_THREADING)
+    string(APPEND CMAKE_REQUIRED_FLAGS " -pthread")
+  endif()
+  # Discard a stale wasm32 probe if this build tree previously configured the
+  # dependency without the memory64 compiler flag.
+  if(DEFINED SIZEOF_UNSIGNED_LONG AND NOT SIZEOF_UNSIGNED_LONG EQUAL 8)
+    unset(SIZEOF_UNSIGNED_LONG CACHE)
+    unset(HAVE_SIZEOF_UNSIGNED_LONG CACHE)
+  endif()
+  foreach(binding PYTHON OCTAVE MATLAB GUILE SWIG TESTS)
+    set(NLOPT_${binding} OFF)
+  endforeach()
+  if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+  endif()
+  FetchContent_Declare(neo_nlopt
+    URL https://github.com/stevengj/nlopt/archive/v2.5.0.tar.gz
+    URL_HASH SHA256=c6dd7a5701fff8ad5ebb45a3dc8e757e61d52658de3918e38bab233e7fd3b4ae
+  )
+  FetchContent_MakeAvailable(neo_nlopt)
+  set_property(DIRECTORY "${neo_nlopt_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
+  target_compile_options(nlopt PRIVATE -O3 -fexceptions)
+endfunction()
+neo_add_nlopt()
+target_link_libraries(slic3r_core PRIVATE nlopt)
+# Arrange.cpp instantiates libnest2d's templates directly. The TBB backend also
+# works with the serial shim; do not fall back to std::async in serial builds.
+set_property(SOURCE "${LIBSLIC3R_ROOT}/Arrange.cpp" APPEND PROPERTY
+  COMPILE_DEFINITIONS LIBNEST2D_THREADING_tbb)
 
 set(DEPS_CORE_SRC
   "${ORCA_SRC}/deps_src/expat/xmlparse.c"
@@ -589,6 +627,21 @@ foreach(_pf IN LISTS PRELOAD_FILES)
     target_link_options(orca_slice PRIVATE "--preload-file=${_pf}")
   endif()
 endforeach()
+
+# A real algorithm/linkage probe, separate from the product ABI. Building the
+# scaffold's default target includes this executable; it can also be selected
+# explicitly for the fast arrange-only loop.
+add_executable(arrangement_core_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/ArrangementCore.test.cpp")
+target_compile_options(arrangement_core_test PRIVATE -fexceptions)
+get_target_property(_arrange_test_libraries orca_slice LINK_LIBRARIES)
+target_link_libraries(arrangement_core_test PRIVATE ${_arrange_test_libraries})
+target_link_options(arrangement_core_test PRIVATE -m64 -O2 -fexceptions
+  -sDISABLE_EXCEPTION_CATCHING=0 -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1
+  -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
+set_target_properties(arrangement_core_test PROPERTIES SUFFIX ".cjs")
+if(WASM_THREADING)
+  target_link_options(arrangement_core_test PRIVATE -pthread -sPTHREAD_POOL_SIZE=4)
+endif()
 if(NOT PRELOAD_FILES)
   if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
     target_link_options(orca_slice PRIVATE "--preload-file=${PRELOAD_FILE}")

@@ -3,8 +3,8 @@
 **Date:** 2026-10-02
 
 **Status:** Approved for implementation. The behavior and staged delivery plan
-below are accepted. Implementation is in progress; delivery gates have not yet
-passed.
+below are accepted. Build feasibility is verified for both WASM variants;
+headless project integration and the remaining delivery gates are in progress.
 
 **Scope:** Orca-compatible model arrangement in the shared Electron and Web
 application. This is the living feature specification, maintained in batches
