@@ -130,6 +130,27 @@ request to run the affected tests and commit:
 - `git diff --check` — passed. No native WASM build, real-WASM acceptance run,
   or Web-host e2e was run for this shared UI batch.
 
+The main-CI follow-up adapts the real-project Prime Tower regression to this
+layout: select Multi. before checking the tower option, and verify the Material
+heading count against rendered filament slots after history restoration. The
+Prime Tower history performance test uses the same slot-count check. Native
+slot-add capability remains independent of whether the rack is healthy.
+
+Follow-up validation on 2026-10-02:
+
+- `pnpm test` — 138 files, 1291 tests passed.
+- `pnpm typecheck` — all workspace packages passed; the desktop typecheck also
+  passed after updating both real-project assertions.
+- `CI=true pnpm --filter @orca/desktop test:e2e:real` — all six functional
+  real-WASM E2E tests passed, including the imported project's tower drag,
+  undo/redo, two-plate slicing, G-code exports, and retained-result isolation.
+  The runner verified that the canonical project fixture was unchanged.
+- `pnpm --filter @orca/desktop exec playwright test e2e/prime-tower-history-performance.e2e.ts`
+  with real WASM and a verified temporary fixture copy — 1 test passed;
+  canonical fixture identity remained unchanged.
+- `git diff --check` — passed. No native rebuild or Web-host E2E was needed
+  for these desktop test-only adaptations.
+
 The following historical results apply to the original workspace extraction:
 
 - `pnpm typecheck`, `pnpm test` (282 unit tests, incl. the slicer-app

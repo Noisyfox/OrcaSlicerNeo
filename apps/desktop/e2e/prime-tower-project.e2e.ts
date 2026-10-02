@@ -19,14 +19,14 @@ test.setTimeout(900_000);
 
 async function expectFilamentRackReady(page: Page): Promise<void> {
   await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
-  const capacity = page.getByTestId('filament-rack').locator('span').filter({ hasText: /^\d+\/\d+$/ }).first();
-  const text = await capacity.textContent();
-  const match = text?.trim().match(/^(\d+)\/(\d+)$/);
-  expect(match, `filament rack capacity must be visible, received ${text ?? '<none>'}`).not.toBeNull();
+  const heading = page.getByTestId('filament-rack').getByRole('heading');
+  await expect(heading).toHaveText(/^Material \(\d+\)$/);
+  const text = await heading.textContent();
+  const match = text?.trim().match(/^Material \((\d+)\)$/);
+  expect(match, `filament rack count must be visible, received ${text ?? '<none>'}`).not.toBeNull();
   const used = Number(match![1]);
-  const maximum = Number(match![2]);
   expect(used).toBeGreaterThan(0);
-  expect(maximum).toBeGreaterThanOrEqual(used);
+  await expect(page.getByTestId(/^filament-slot-\d+$/)).toHaveCount(used);
   // This imported printer may be a fixed-extruder profile, where native
   // `canAdd` is false even below the generic 64-slot ceiling. The history
   // contract here is a healthy rack projection, not permission to add slots.
@@ -144,6 +144,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     // plate and a valid session count; the later tower/history assertions
     // prove the multi-filament projection from the imported project.
     await expect(page.getByTestId('current-plate-label')).toBeVisible({ timeout: 300_000 });
+    await page.getByTestId('config-page-Multi.').click();
     await expect(page.getByTestId('config-field-enable_prime_tower').getByRole('checkbox')).toBeChecked();
     await expect(page.locator('#wipe_tower_x')).toHaveCount(0);
     await expect(page.locator('#wipe_tower_y')).toHaveCount(0);

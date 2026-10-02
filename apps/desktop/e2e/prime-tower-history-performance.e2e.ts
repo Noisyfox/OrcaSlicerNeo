@@ -53,14 +53,14 @@ test.skip(!REAL || !existsSync(PROJECT_PATH),
 
 async function expectFilamentRackReady(page: Page): Promise<void> {
   await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
-  const capacity = page.getByTestId('filament-rack').locator('span').filter({ hasText: /^\d+\/\d+$/ }).first();
-  const text = await capacity.textContent();
-  const match = text?.trim().match(/^(\d+)\/(\d+)$/);
-  expect(match, `filament rack capacity must be visible, received ${text ?? '<none>'}`).not.toBeNull();
+  const heading = page.getByTestId('filament-rack').getByRole('heading');
+  await expect(heading).toHaveText(/^Material \(\d+\)$/);
+  const text = await heading.textContent();
+  const match = text?.trim().match(/^Material \((\d+)\)$/);
+  expect(match, `filament rack count must be visible, received ${text ?? '<none>'}`).not.toBeNull();
   const used = Number(match![1]);
-  const maximum = Number(match![2]);
   expect(used).toBeGreaterThan(0);
-  expect(maximum).toBeGreaterThanOrEqual(used);
+  await expect(page.getByTestId(/^filament-slot-\d+$/)).toHaveCount(used);
   // A fixed-extruder imported profile can report native canAdd=false below
   // the generic slot ceiling. Require the rack projection and no rejection;
   // slot-add permission is not part of this history restore contract.
