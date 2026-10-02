@@ -39,6 +39,18 @@ json request(const char* text, std::initializer_list<const char*> fields) {
     if (!value.contains("version") || !value["version"].is_number_unsigned() || value["version"] != 1) throw std::invalid_argument("invalid painting protocol version");
     return value;
 }
+Channel channel(const json& value) {
+    if (!value.contains("channel") || !value["channel"].is_string()) throw std::invalid_argument("missing or invalid painting channel");
+    const auto name = value["channel"].get<std::string>();
+    if (name == "mmu") return Channel::Mmu;
+    if (name == "support") return Channel::Support;
+    if (name == "seam") return Channel::Seam;
+    if (name == "fuzzy") return Channel::Fuzzy;
+    throw std::invalid_argument("invalid painting channel");
+}
+void require_channel(const json& value, const Session& session) {
+    if (channel(value) != session.channel) throw std::invalid_argument("painting channel is stale");
+}
 std::uint64_t integer(const json& value, const char* key) {
     if (!value.contains(key) || !value[key].is_number_unsigned()) throw std::invalid_argument(std::string("invalid painting ") + key);
     const auto number = value[key].get<std::uint64_t>();
@@ -71,15 +83,15 @@ json metadata(const Slic3r::Neo::Painting::Session& session) {
     json parts = json::array();
     for (const auto& part : session.parts) {
         parts.push_back({{"volumeId", part.volume_id}, {"sourceTriangleCount", part.mesh->its.indices.size()},
-            {"facetCounts", part.facet_counts()},
+            {"annotationTimestamp", part.annotation_timestamp}, {"facetCounts", part.facet_counts()},
             {"volumeTransform", std::vector<double>(part.volume_transform.data(), part.volume_transform.data() + 16)},
-            {"draftResourceId", "pd-" + std::to_string(session.id) + "-" + std::to_string(part.geometry_revision) + "-" + std::to_string(part.volume_id)}});
+            {"draftResourceId", "pd-" + std::string(channel_name(session.channel)) + "-" + std::to_string(session.id) + "-" + std::to_string(part.geometry_revision) + "-" + std::to_string(part.volume_id)}});
     }
     json out = {{"ok", true}, {"version", 1}, {"session", {
         {"id", "ps-" + std::to_string(session.id)},
         {"historySessionId", HistoryMetadata::history_editing_session_id(session.history_session_id)},
         {"revision", session.revision}, {"objectId", session.object_id}, {"instanceId", session.instance_id},
-        {"annotation", "mmu"}, {"instanceTransform", std::vector<double>(session.instance_transform.data(), session.instance_transform.data() + 16)}, {"phase", session.phase == Phase::Idle ? "idle" : session.phase == Phase::Drawing ? "drawing" : "finished"},
+        {"channel", channel_name(session.channel)}, {"instanceTransform", std::vector<double>(session.instance_transform.data(), session.instance_transform.data() + 16)}, {"phase", session.phase == Phase::Idle ? "idle" : session.phase == Phase::Drawing ? "drawing" : "finished"},
         {"strokeId", session.active_stroke_id ? json("pst-" + std::to_string(session.id) + "-" + std::to_string(session.active_stroke_id)) : json(nullptr)},
         {"parts", std::move(parts)} }}};
     if (session.preview) {
@@ -112,7 +124,7 @@ double number(const json& value) {
     if (!std::isfinite(out)) throw std::invalid_argument("painting value must be finite");
     return out;
 }
-Settings settings(const json& value) {
+Settings settings(const json& value, Channel channel) {
     fields(value, {"state", "erase", "radius", "height", "angle", "gapArea"});
     Settings out;
     if (value.contains("state")) {
@@ -128,7 +140,7 @@ Settings settings(const json& value) {
     if (value.contains("height")) out.height = number(value["height"]);
     if (value.contains("angle")) out.angle = value["angle"].is_null() ? std::optional<double>{} : number(value["angle"]);
     if (value.contains("gapArea")) out.gap_area = number(value["gapArea"]);
-    out.validate();
+    out.validate(channel);
     return out;
 }
 Tool tool(const json& value) {
@@ -172,7 +184,7 @@ json receipt(const Session& session) {
     const auto& selected = session.preview ? session.preview->hit : session.last_hit;
     if (selected) hit = {{"volumeId", session.parts[selected->part].volume_id}, {"originalFacet", selected->original_facet},
         {"world", {selected->world.x(), selected->world.y(), selected->world.z()}}};
-    json out = {{"ok", true}, {"version", 1}, {"sessionId", "ps-" + std::to_string(session.id)},
+    json out = {{"ok", true}, {"version", 1}, {"sessionId", "ps-" + std::to_string(session.id)}, {"channel", channel_name(session.channel)},
         {"revision", session.revision}, {"strokeId", session.active_stroke_id ? json("pst-" + std::to_string(session.id) + "-" + std::to_string(session.active_stroke_id)) : json(nullptr)},
         {"phase", session.phase == Phase::Idle ? "idle" : session.phase == Phase::Drawing ? "drawing" : "finished"},
         {"effective", session.effective}, {"changedPartIds", session.changed_parts}, {"hit", std::move(hit)},
@@ -186,6 +198,7 @@ json receipt(const Session& session) {
 }
 const Session& engine_session(const json& value) {
     const auto& session = state().painting.require(handle(value, "sessionId", "ps-"), integer(value, "revision"), false);
+    require_channel(value, session);
     require_history(session.history_session_id);
     state().painting.validate_target(state().model, session);
     return session;
@@ -218,7 +231,7 @@ json settle() {
             {"projections", bridge.painting_settlement}};
 }
 std::string resource_id(const Session& session, const PartDraft& part) {
-    return "pd-" + std::to_string(session.id) + "-" + std::to_string(part.geometry_revision) + "-" + std::to_string(part.volume_id);
+    return "pd-" + std::string(channel_name(session.channel)) + "-" + std::to_string(session.id) + "-" + std::to_string(part.geometry_revision) + "-" + std::to_string(part.volume_id);
 }
 struct Buffers {
     std::vector<std::unique_ptr<void, decltype(&std::free)>> allocations;
@@ -266,11 +279,11 @@ EMSCRIPTEN_KEEPALIVE void orc_painting_test_fail_next_commit() { fail_next_commi
 #endif
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_open(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "historySessionId", "objectId", "instanceId"});
+        const auto value = request(text, {"version", "channel", "historySessionId", "objectId", "instanceId"});
         const auto history_id = handle(value, "historySessionId", "hs-");
         require_history(history_id);
         auto candidate = state().painting.prepare_open(state().model, integer(value, "objectId"), integer(value, "instanceId"),
-            state().presets.filament_presets.size(), history_id);
+            channel(value), state().presets.filament_presets.size(), history_id);
         auto out = response(metadata(*candidate)); // Allocation precedes noexcept publication.
         state().painting.publish(std::move(candidate));
         return out.release();
@@ -278,8 +291,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_open(const char* text) {
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_target(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "objectId", "instanceId"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "objectId", "instanceId"});
         const auto& previous = state().painting.require(handle(value, "sessionId", "ps-"), integer(value, "revision"));
+        require_channel(value, previous);
         require_history(previous.history_session_id);
         auto candidate = state().painting.prepare_target(state().model, previous.id, previous.revision,
             integer(value, "objectId"), integer(value, "instanceId"));
@@ -290,10 +304,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_target(const char* text) {
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_read(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "latest"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "latest"});
         const auto requested_revision = integer(value, "revision");
         if (value.contains("latest") && !value["latest"].is_boolean()) throw std::invalid_argument("invalid latest read flag");
         const auto& session = state().painting.require(handle(value, "sessionId", "ps-"), value.value("latest", false) && state().painting.current() ? state().painting.current()->revision : requested_revision, false);
+        require_channel(value, session);
         require_history(session.history_session_id);
         state().painting.validate_target(state().model, session);
         return response(metadata(session)).release();
@@ -301,57 +316,58 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_read(const char* text) {
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_close(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision"});
         const auto& session = state().painting.require(handle(value, "sessionId", "ps-"), integer(value, "revision"));
+        require_channel(value, session);
         require_history(session.history_session_id);
         (void)settle();
-        auto out = response({{"ok", true}, {"version", 1}});
+        auto out = response({{"ok", true}, {"version", 1}, {"channel", channel_name(session.channel)}});
         state().painting.reset();
         return out.release();
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_preview(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "tool", "settings", "event"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "tool", "settings", "event"});
         const auto& session = engine_session(value);
-        return publish(state().painting.prepare_preview(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings")), event(value)));
+        return publish(state().painting.prepare_preview(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings"), session.channel), event(value)));
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_begin(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "tool", "settings", "event", "candidateRevision"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "tool", "settings", "event", "candidateRevision"});
         const auto& session = engine_session(value);
         std::optional<std::uint64_t> candidate;
         if (value.contains("candidateRevision")) candidate = integer(value, "candidateRevision");
-        return publish(state().painting.prepare_begin(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings")), event(value), candidate));
+        return publish(state().painting.prepare_begin(session.id, session.revision, tool(value.at("tool")), settings(value.at("settings"), session.channel), event(value), candidate));
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_sample(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "strokeId", "settings", "event"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "strokeId", "settings", "event"});
         const auto& session = engine_session(value);
         const auto input = event(value);
         if (!input) throw std::invalid_argument("painting sample requires an event");
-        return publish(state().painting.prepare_sample(session.id, session.revision, stroke(value, session.id), settings(value.at("settings")), *input));
+        return publish(state().painting.prepare_sample(session.id, session.revision, stroke(value, session.id), settings(value.at("settings"), session.channel), *input));
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_finish(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "strokeId"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "strokeId"});
         const auto& session = engine_session(value);
         return publish(state().painting.prepare_finish(session.id, session.revision, stroke(value, session.id)));
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_cancel(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "strokeId"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "strokeId"});
         const auto& session = engine_session(value);
         return publish(state().painting.prepare_cancel(session.id, session.revision, stroke(value, session.id)));
     });
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "knownResourceIds"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "knownResourceIds"});
         const auto& session = engine_session(value);
         std::set<std::string> known;
         if (value.contains("knownResourceIds")) {
@@ -370,7 +386,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
             parts.push_back({{"volumeId", part.volume_id}, {"resourceId", key}});
             if (!known.count(key)) resources.push_back(geometry(buffers, part.selector->display(), {}, part.volume_id, key, "draft"));
             if (!session.preview) continue;
-            const auto prefix = "pc-" + std::to_string(session.id) + "-" + std::to_string(session.revision) + "-" + std::to_string(part.volume_id);
+            const auto prefix = "pc-" + std::string(channel_name(session.channel)) + "-" + std::to_string(session.id) + "-" + std::to_string(session.revision) + "-" + std::to_string(part.volume_id);
             if (session.preview->facet_selection && session.preview->hit && session.preview->hit->part == i) {
                 const char* kind = session.preview->tool == Tool::Triangle ? "triangle" : "region";
                 candidates.push_back({{"volumeId", part.volume_id}, {"resourceId", prefix}, {"kind", kind}});
@@ -402,7 +418,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_geometry(const char* text) {
 #endif
         geometry_leases.emplace(lease, std::move(buffers));
         try {
-            json result = {{"ok", true}, {"version", 1}, {"leaseId", "pg-" + std::to_string(lease)}, {"sessionId", "ps-" + std::to_string(session.id)},
+            json result = {{"ok", true}, {"version", 1}, {"leaseId", "pg-" + std::to_string(lease)}, {"sessionId", "ps-" + std::to_string(session.id)}, {"channel", channel_name(session.channel)},
                 {"revision", session.revision}, {"parts", std::move(parts)}, {"candidates", std::move(candidates)}, {"resources", std::move(resources)}};
 #ifdef NEO_PAINTING_PROFILE
             result["paintingProfile"] = {{"nativeHitUs", Profile::hit.microseconds}, {"nativeHitCalls", Profile::hit.calls},
@@ -428,7 +444,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_settle(const char* text) {
 }
 EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
     return invoke([&]() -> const char* {
-        const auto value = request(text, {"version", "sessionId", "revision", "strokeId", "settings", "event"});
+        const auto value = request(text, {"version", "channel", "sessionId", "revision", "strokeId", "settings", "event"});
         const auto& session = engine_session(value);
         const auto stroke_id = stroke(value, session.id);
         if (session.phase == Phase::Idle || stroke_id != session.active_stroke_id) throw std::invalid_argument("painting stroke is stale");
@@ -451,7 +467,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
         auto old_context = state().history_live_context;
         try {
             std::optional<Settings> final_settings;
-            if (value.contains("settings")) final_settings = settings(value["settings"]);
+            if (value.contains("settings")) final_settings = settings(value["settings"], session.channel);
             auto candidate = state().painting.prepare_commit(session.id, session.revision, stroke_id, final_settings, event(value));
             const bool effective = candidate->effective;
             const auto changed = candidate->changed_parts;
@@ -462,7 +478,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                 if (!context.contains("plateSession")) context = HistoryMetadata::default_history_context(state(),
                     PlateSession::plate_session_snapshot_json(), Filament::State::history_state_json(state().presets));
                 auto before = HistoryMetadata::capture_history_roots(state(), context);
-                if (!state().history.begin_operation("Paint", before, Slic3r::Neo::History::TimestampedOperationKind::Paint))
+                if (!state().history.begin_operation(history_name(candidate->channel), before, Slic3r::Neo::History::TimestampedOperationKind::Paint))
                     throw std::logic_error("could not begin painting history");
                 started = true;
                 for (auto* object : state().model.objects) if (object->id().id == candidate->object_id) {
@@ -475,9 +491,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                         auto part = std::find_if(candidate->parts.begin(), candidate->parts.end(),
                             [&](const auto& part) { return part.volume_id == volume->id().id; });
                         for (auto used : Slic3r::TriangleSelector::extract_used_facet_states(part->selector->serialize()))
-                            if (std::size_t(used) > state().presets.filament_presets.size()) throw std::invalid_argument("painting state has no filament slot");
-                        volume->mmu_segmentation_facets.set(*part->selector);
-                        part->annotation_timestamp = volume->mmu_segmentation_facets.timestamp();
+                            if (candidate->channel == Channel::Mmu && std::size_t(used) > state().presets.filament_presets.size()) throw std::invalid_argument("painting state has no filament slot");
+                        annotation(*volume, candidate->channel).set(*part->selector);
+                        part->annotation_timestamp = annotation(*volume, candidate->channel).timestamp();
                     }
                 }
                 for (const auto& id : affected) state().plate_input_revisions[id] = allocate_plate_input_stamp(state());
@@ -512,7 +528,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
             return out.release();
         } catch (const std::exception& error) {
             if (started) HistoryMetadata::abort_timestamped_operation(state());
-            for (auto& [volume, backup] : backups) volume->mmu_segmentation_facets.assign(std::move(backup->mmu_segmentation_facets));
+            for (auto& [volume, backup] : backups) annotation(*volume, recovery->channel).assign(std::move(annotation(*backup, recovery->channel)));
             state().mutable_object_capture_cache.clear();
             state().plate_input_revisions.swap(old_revisions);
             state().plate_runtime_registry.restore_lifecycle(old_lifecycle);

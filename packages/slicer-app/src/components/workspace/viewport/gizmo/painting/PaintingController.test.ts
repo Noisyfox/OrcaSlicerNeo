@@ -12,10 +12,10 @@ const status = { revision: 1 } as HistoryStatus;
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (reason: unknown) => void; const promise = new Promise<T>((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; }
 const tick = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 function fixture() {
-  let session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, parts: [], phase: 'idle', strokeId: null, annotation: 'mmu' };
+  let session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, parts: [], phase: 'idle', strokeId: null, channel: 'mmu' };
   const receipt = (phase: 'idle' | 'drawing' | 'finished' = 'drawing'): Exclude<PaintingDraftResult, { error: string }> => {
     session = { ...session, revision: session.revision + 1, phase, strokeId: phase === 'idle' ? null : 'pst-1-1' };
-    return { ok: true, version: 1, sessionId: session.id, revision: session.revision, strokeId: session.strokeId, phase, effective: true, changedPartIds: [3], hit: { volumeId: 3, originalFacet: 9, world: [0, 0, 0] }, candidateRevision: session.revision };
+    return { ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: session.revision, strokeId: session.strokeId, phase, effective: true, changedPartIds: [3], hit: { volumeId: 3, originalFacet: 9, world: [0, 0, 0] }, candidateRevision: session.revision };
   };
   const frames: (() => void)[] = [];
   const ports: PaintingPorts = {
@@ -28,14 +28,14 @@ function fixture() {
       openPaintingSession: vi.fn(async () => ({ ok: true as const, version: 1 as const, session })),
       targetPaintingSession: vi.fn(async (r) => ({ ok: true as const, version: 1 as const, session: session = { ...session, objectId: r.objectId, instanceId: r.instanceId, revision: session.revision + 1 } })),
       readPaintingSession: vi.fn(async () => ({ ok: true as const, version: 1 as const, session })),
-      closePaintingSession: vi.fn(async () => ({ ok: true as const, version: 1 as const })),
+      closePaintingSession: vi.fn(async () => ({ ok: true as const, version: 1 as const, channel: 'mmu' as const })),
       previewPainting: vi.fn(async () => receipt('idle')),
       beginPaintingStroke: vi.fn(async (r) => receipt(r.tool === 'gap' || r.tool === 'eraseAll' ? 'finished' : 'drawing')),
       samplePaintingStroke: vi.fn(async () => receipt()),
       finishPaintingStroke: vi.fn(async () => receipt('finished')),
       cancelPaintingStroke: vi.fn(async () => receipt('idle')),
       commitPaintingStroke: vi.fn(async () => ({ ...receipt('idle'), committed: true, affectedPlateIds: ['plate1'], history: status })),
-      getPaintingGeometry: vi.fn(async () => ({ ok: true as const, version: 1 as const, sessionId: session.id, revision: session.revision, parts: [], candidates: [], resources: [] })),
+      getPaintingGeometry: vi.fn(async () => ({ ok: true as const, version: 1 as const, channel: 'mmu' as const, sessionId: session.id, revision: session.revision, parts: [], candidates: [], resources: [] })),
       settlePainting: vi.fn(async () => ({ ok: true as const, version: 1 as const, settledVersion: 1, projections: {} })),
     },
     schedule: (callback) => { frames.push(callback); return () => { const i = frames.indexOf(callback); if (i >= 0) frames.splice(i, 1); }; },
@@ -79,7 +79,7 @@ describe('painting event admission and reliable terminal', () => {
     vi.mocked(p.api.getPaintingGeometry).mockReturnValueOnce(pending.promise); frames.shift()?.();
     const press = c.press(event(1)); c.release(event(2));
     expect(p.api.beginPaintingStroke).not.toHaveBeenCalled();
-    pending.resolve({ ok: true, version: 1, sessionId: 'ps-1', revision: 1, parts: [], candidates: [], resources: [] }); await press;
+    pending.resolve({ ok: true, version: 1, channel: 'mmu' as const, sessionId: 'ps-1', revision: 1, parts: [], candidates: [], resources: [] }); await press;
     expect(p.api.beginPaintingStroke).toHaveBeenCalledTimes(1); expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1);
     expect(c.getSnapshot().phase).toBe('idle');
   });
@@ -87,7 +87,7 @@ describe('painting event admission and reliable terminal', () => {
     const { controller: c, ports: p, frames, frame } = fixture(); await c.open(1, 2); await frame(); await c.press(event(1));
     const pending = deferred<Awaited<ReturnType<typeof p.api.getPaintingGeometry>>>(); vi.mocked(p.api.getPaintingGeometry).mockReturnValueOnce(pending.promise); frames.shift()?.();
     expect(c.move(event(2))).toBe(false); c.release(event(3));
-    pending.resolve({ ok: true, version: 1, sessionId: 'ps-1', revision: 2, parts: [], candidates: [], resources: [] }); await tick();
+    pending.resolve({ ok: true, version: 1, channel: 'mmu' as const, sessionId: 'ps-1', revision: 2, parts: [], candidates: [], resources: [] }); await tick();
     expect(p.api.commitPaintingStroke).toHaveBeenCalledTimes(1); expect(c.getSnapshot().phase).toBe('idle');
   });
   it('keeps admitted settings immutable and blocks tool switches/history/close until terminal completes', async () => {
@@ -100,7 +100,7 @@ describe('painting event admission and reliable terminal', () => {
   });
   it('recoverable commit discards the failed draft and permits a fresh press', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame(); await c.press(event(1));
-    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, sessionId: 'ps-1', revision: 3 });
+    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, channel: 'mmu', sessionId: 'ps-1', revision: 3 });
     c.release(event(2)); await tick();
     expect(c.getSnapshot()).toMatchObject({ phase: 'idle', error: 'allocation failed' });
     expect(p.committed).not.toHaveBeenCalled(); expect(await c.press(event(3))).toBe('paint');
@@ -188,7 +188,7 @@ describe('painting session and display ownership', () => {
   });
   it('does not refresh Prepare after a recovered failed commit', async () => {
     const { controller: c, ports: p, frame } = fixture(); await c.open(1, 2); await frame();
-    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, sessionId: 'ps-1', revision: 3 });
+    vi.mocked(p.api.commitPaintingStroke).mockResolvedValueOnce({ error: 'allocation failed', recovered: true, channel: 'mmu', sessionId: 'ps-1', revision: 3 });
     expect(await c.apply('eraseAll')).toBe(false);
     expect(await c.close()).toBe(true); expect(p.prepareClosed).toHaveBeenCalledExactlyOnceWith([]);
   });
@@ -220,12 +220,12 @@ describe('painting session and display ownership', () => {
 
 function visualFixture() {
   const f = fixture();
-  let session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, draftResourceId: 'a', facetCounts: [] }], phase: 'idle', strokeId: null, annotation: 'mmu' };
+  let session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, annotationTimestamp: 0, draftResourceId: 'a', facetCounts: [] }], phase: 'idle', strokeId: null, channel: 'mmu' };
   let palette = { slots: [{ slot: 1, colour: { effective: '#112233' } }] } as unknown as FilamentSessionSnapshot;
   f.ports.palette = () => palette;
   vi.mocked(f.ports.api.openPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
   vi.mocked(f.ports.api.readPaintingSession).mockImplementation(async () => ({ ok: true, version: 1, session }));
-  const geometry = (resourceId = 'a', include = true): Extract<PaintingGeometryResult, { ok: true }> => ({ ok: true, version: 1, sessionId: session.id, revision: session.revision, parts: [{ volumeId: 3, resourceId }], candidates: [], resources: include ? [{ resourceId, volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] : [] });
+  const geometry = (resourceId = 'a', include = true): Extract<PaintingGeometryResult, { ok: true }> => ({ ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: session.revision, parts: [{ volumeId: 3, resourceId }], candidates: [], resources: include ? [{ resourceId, volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] : [] });
   vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => geometry());
   const cache = new PaintingResources();
   return { ...f, cache, geometry, setSession: (next: PaintingSessionMetadata) => { session = next; },
@@ -239,7 +239,7 @@ describe.each(['triangle', 'region'] as const)('%s native hover admission and se
     await c.open(1, 2); await f.frame(); c.setTool(tool); await f.frame();
     vi.mocked(f.ports.api.getPaintingGeometry).mockImplementation(async () => {
       const snapshot = c.getSnapshot(), result = f.geometry();
-      const resourceId = `pc-1-${snapshot.session!.revision}-3`;
+      const resourceId = `pc-mmu-1-${snapshot.session!.revision}-3`;
       return { ...result, revision: snapshot.session!.revision,
         candidates: [{ volumeId: 3, resourceId, kind: tool }],
         resources: [...result.resources, { resourceId, volumeId: 3, kind: tool, vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array(18) }] };

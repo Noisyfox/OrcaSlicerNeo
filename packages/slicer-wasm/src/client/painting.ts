@@ -1,5 +1,6 @@
 /** Version-one native lifecycle, tool, binary display and publication protocol. */
 import type { HistoryEditingSessionId, StableObjectId, StableInstanceId, StablePartId } from './history';
+export type PaintingChannel = 'mmu' | 'support' | 'seam' | 'fuzzy';
 /** Canonical ps-<positive uint64 decimal>, allocated for the WASM lifetime. */
 export type PaintingSessionId = string;
 /** pst-<session uint64>-<session-local positive uint64>. */
@@ -7,12 +8,14 @@ export type PaintingStrokeId = string;
 export type PaintingRevision = number;
 export interface PaintingSessionOpenRequest {
   readonly version: 1;
+  readonly channel: PaintingChannel;
   readonly historySessionId: HistoryEditingSessionId;
   readonly objectId: StableObjectId;
   readonly instanceId: StableInstanceId;
 }
 export interface PaintingSessionRequest {
   readonly version: 1;
+  readonly channel: PaintingChannel;
   readonly sessionId: PaintingSessionId;
   readonly revision: PaintingRevision;
 }
@@ -23,8 +26,10 @@ export interface PaintingTargetRequest extends PaintingSessionRequest {
 export interface PaintingPartMetadata {
   readonly volumeId: StablePartId;
   readonly sourceTriangleCount: number;
+  /** Committed timestamp of the active channel, independent of draft revision. */
+  readonly annotationTimestamp: number;
   readonly volumeTransform: readonly number[];
-  /** Counts indexed by annotation state 0..16; includes selector subdivisions. */
+  /** Counts indexed by state 0..16; states outside the channel domain are zero. Includes subdivisions. */
   readonly facetCounts: readonly number[];
   /** Draft-only identity, never a committed scene resource key. */
   readonly draftResourceId: string;
@@ -35,7 +40,7 @@ export interface PaintingSessionMetadata {
   readonly revision: PaintingRevision;
   readonly objectId: StableObjectId;
   readonly instanceId: StableInstanceId;
-  readonly annotation: 'mmu';
+  readonly channel: PaintingChannel;
   readonly instanceTransform: readonly number[];
   readonly phase: 'idle' | 'drawing' | 'finished';
   readonly strokeId: PaintingStrokeId | null;
@@ -49,7 +54,7 @@ export interface PaintingSessionMetadata {
 }
 export type PaintingSessionResult = { readonly ok: true; readonly version: 1; readonly session: PaintingSessionMetadata }
   | { readonly error: string };
-export type PaintingSessionCloseResult = { readonly ok: true; readonly version: 1 } | { readonly error: string };
+export type PaintingSessionCloseResult = { readonly ok: true; readonly version: 1; readonly channel: PaintingChannel } | { readonly error: string };
 
 export type PaintingTool = 'circle' | 'sphere' | 'triangle' | 'height' | 'region' | 'gap' | 'eraseAll';
 /** Present only in a dedicated NEO_PAINTING_PROFILE WASM build. Cumulative Worker-thread counters. */
@@ -105,6 +110,7 @@ export interface PaintingStrokeSampleRequest extends PaintingStrokeRequest {
 export type PaintingDraftResult = {
   readonly ok: true;
   readonly version: 1;
+  readonly channel: PaintingChannel;
   readonly sessionId: PaintingSessionId;
   readonly revision: PaintingRevision;
   readonly strokeId: PaintingStrokeId | null;
@@ -127,7 +133,7 @@ export type PaintingCommitResult = Exclude<PaintingDraftResult, { error: string 
   readonly affectedPlateIds: readonly string[];
   readonly history: import('./history').HistoryStatus;
 } | { readonly error: string; readonly recovered?: false }
-  | { readonly error: string; readonly recovered: true; readonly sessionId: PaintingSessionId; readonly revision: PaintingRevision };
+  | { readonly error: string; readonly recovered: true; readonly channel: PaintingChannel; readonly sessionId: PaintingSessionId; readonly revision: PaintingRevision };
 export interface PaintingGeometryRequest extends PaintingSessionRequest { readonly knownResourceIds?: readonly string[] }
 export interface PaintingGeometry {
   readonly volumeId: number;
@@ -139,7 +145,7 @@ export interface PaintingGeometry {
   /** Local-space xyz line segment endpoints from native seed-fill topology. */
   readonly contour: Float32Array;
 }
-export type PaintingGeometryResult = { readonly ok: true; readonly version: 1; readonly sessionId: string;
+export type PaintingGeometryResult = { readonly ok: true; readonly version: 1; readonly channel: PaintingChannel; readonly sessionId: string;
   readonly revision: number; readonly parts: readonly { volumeId: number; resourceId: string }[];
   readonly candidates: readonly { volumeId: number; resourceId: string; kind: 'triangle' | 'region' | 'gap' }[];
   readonly resources: readonly PaintingGeometry[]; readonly paintingProfile?: PaintingProfileCounters } | { readonly error: string };

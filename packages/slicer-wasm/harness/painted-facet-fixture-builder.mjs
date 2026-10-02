@@ -84,6 +84,31 @@ export async function buildPaintedFacetProject() {
   return result;
 }
 
+// Four independent native trees, including different two-child splits. The
+// active field must be loaded without borrowing another channel's topology.
+export async function buildPaintingChannelProject() {
+  const source = await buildPaintedFacetProject();
+  const trees = {
+    paint_color: ['401', '', '4'],
+    paint_supports: ['841', '4', '', '8'],
+    paint_seam: ['481', '', '8', '', '4'],
+    paint_fuzzy_skin: ['041', '4', '', '', '', '4'],
+  };
+  return writeStoredZip(readZipEntries(source).map(entry => {
+    if (entry.name !== '3D/3dmodel.model') return entry;
+    let index = 0;
+    const model = decoder.decode(entry.content).replace(/<triangle\b[^>]*\/>/g, triangle => {
+      let out = triangle.replace(/ paint_color="[^"]*"/g, '');
+      for (const [attr, states] of Object.entries(trees)) {
+        if (states[index]) out = out.replace('/>', ` ${attr}="${states[index]}"/>`);
+      }
+      index++;
+      return out;
+    });
+    return { ...entry, content: encoder.encode(model) };
+  }));
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
   const bytes = await buildPaintedFacetProject();
   await mkdir(resolve(fixturePath, '..'), { recursive: true });

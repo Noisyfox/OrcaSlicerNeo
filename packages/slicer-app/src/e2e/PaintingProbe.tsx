@@ -293,7 +293,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
         const session = owner.getSnapshot().session;
         if (!session) return false;
         const api = (owner as unknown as { ports: { api: { readPaintingSession(request: unknown): Promise<unknown> } } }).ports.api;
-        const response = await api.readPaintingSession({ version: 1, sessionId: session.id, revision: session.revision }) as
+        const response = await api.readPaintingSession({ version: 1, channel: session.channel, sessionId: session.id, revision: session.revision }) as
           { session?: { parts: Array<{ volumeId: number; sourceTriangleCount: number; facetCounts: number[] }> } };
         parts = response.session?.parts ?? null;
         return true;

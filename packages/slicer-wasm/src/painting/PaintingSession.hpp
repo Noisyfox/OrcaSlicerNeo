@@ -12,13 +12,14 @@
 
 namespace Slic3r::Neo::Painting {
 
-// Each annotation channel will supply its own state and publication rules.
-// MMU is the only implemented adapter; other channels never share its tree.
-struct MmuAnnotationAdapter {
-    static constexpr int max_state = 16;
-    static void validate_state(int state);
-    static void load(const ModelVolume& volume, TriangleSelector& selector);
-};
+enum class Channel { Mmu, Support, Seam, Fuzzy };
+const char* channel_name(Channel channel);
+int max_state(Channel channel);
+void validate_state(Channel channel, int state);
+FacetsAnnotation& annotation(ModelVolume& volume, Channel channel);
+const FacetsAnnotation& annotation(const ModelVolume& volume, Channel channel);
+void load_annotation(const ModelVolume& volume, Channel channel, TriangleSelector& selector);
+const char* history_name(Channel channel);
 
 struct PartDraft {
     std::size_t volume_id;
@@ -42,7 +43,7 @@ struct Settings {
     double height = 1.;
     std::optional<double> angle = 30.; // nullopt disables geometry edge detection.
     double gap_area = 0.;
-    void validate() const;
+    void validate(Channel channel) const;
 };
 // Matrices are OpenGL column-major, pointer and viewport use the same CSS-pixel
 // coordinate system, origin at top left; clip-space depth is [-1,1].
@@ -75,6 +76,7 @@ struct Preview {
 };
 
 struct Session {
+    Channel channel;
     std::uint64_t id;
     std::uint64_t history_session_id;
     std::uint64_t revision = 1;
@@ -98,7 +100,7 @@ struct Session {
 class Sessions {
 public:
     std::unique_ptr<Session> prepare_open(const Model& model, std::size_t object_id,
-        std::size_t instance_id, std::size_t filament_slots, std::uint64_t history_session_id);
+        std::size_t instance_id, Channel channel, std::size_t filament_slots, std::uint64_t history_session_id);
     std::unique_ptr<Session> prepare_target(const Model& model, std::uint64_t id,
         std::uint64_t revision, std::size_t object_id, std::size_t instance_id);
     const Session& require(std::uint64_t id, std::uint64_t revision, bool idle_only = true) const;

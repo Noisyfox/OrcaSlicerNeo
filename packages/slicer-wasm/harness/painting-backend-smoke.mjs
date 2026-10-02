@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
-import { buildPaintedFacetProject } from './painted-facet-fixture-builder.mjs';
+import { buildPaintedFacetProject, buildPaintingChannelProject } from './painted-facet-fixture-builder.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 
@@ -61,17 +61,18 @@ function load(bytes) {
   command('orc_history_reset', context);
 }
 let session, hs;
-const handle = () => ({ version: 1, sessionId: session.id, revision: session.revision });
+const handle = () => ({ version: 1, channel: session.channel, sessionId: session.id, revision: session.revision });
 const read = () => ok(command('orc_painting_session_read', handle())).session;
 function update(name, request) {
   const reply = ok(command(name, { ...handle(), ...request }));
+  assert.equal(reply.channel, session.channel, 'channel identity survives every native receipt');
   session = { ...session, revision: reply.revision, strokeId: reply.strokeId, phase: reply.phase };
   return reply;
 }
-function open() {
+function open(channel = 'mmu') {
   hs = ok(command('orc_history_session_open', {})).sessionId;
   const object = structure()[0];
-  session = ok(command('orc_painting_session_open', { version: 1, historySessionId: hs, objectId: object.id, instanceId: object.instances[0].id })).session;
+  session = ok(command('orc_painting_session_open', { version: 1, channel, historySessionId: hs, objectId: object.id, instanceId: object.instances[0].id })).session;
 }
 const begin = (tool, settings = {}, event = top(), extra = {}) => update('orc_painting_stroke_begin', { tool, settings, ...(event ? { event } : {}), ...extra });
 const sample = (settings, event) => update('orc_painting_stroke_sample', { strokeId: session.strokeId, settings, event });
@@ -392,4 +393,126 @@ assert.equal(structure()[0].instances.length, 2, 'saved 3MF lost the shared seco
 ok(command('orc_history_session_close', { sessionId: hs }));
 const paintedSlice = await sliceExtrusionTools();
 assert.deepEqual(paintedSlice.tools, [0, 1], 'actual extrusion did not consume both painted and inherited material');
+// Step 13: edit the actual independent native fields, preserving all other
+// annotations and ordinary MMU resources. This executes in production too;
+// only fault injection requires the existing compile-gated test artifact.
+const allAttrs = { mmu: 'paint_color', support: 'paint_supports', seam: 'paint_seam', fuzzy: 'paint_fuzzy_skin' };
+const annotationBytes = xml => Object.fromEntries(Object.entries(allAttrs).map(([channel, attr]) => [channel,
+  [...xml.matchAll(/<triangle\b[^>]*\/>/g)].map(match => match[0].match(new RegExp(`${attr}="([^"]*)"`))?.[1] ?? '')]));
+function preservesOtherFields(before, active) {
+  const after = annotationBytes(exportedPaint());
+  for (const channel of Object.keys(allAttrs)) if (channel !== active) assert.deepEqual(after[channel], before[channel], `${active} changed ${channel} native tree bytes`);
+}
+for (const channel of ['support', 'seam', 'fuzzy']) {
+  load(await buildPaintingChannelProject());
+  const rack = ok(call('orc_get_filament_session_snapshot'));
+  ok(command('orc_merge_filament_slots', { version: 1, revision: rack.revisions.session, source: 2, destination: 1 }));
+  ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Channel second solid']));
+  ok(call('orc_set_instance_offset', ['number','number','number','number','number'], [1,0,180,100,10]));
+  ok(call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(structure().map(o => o.id)), 'Channel multipart']));
+  ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Channel other target']));
+  command('orc_history_reset', context);
+  open(channel);
+  assert.equal(session.channel, channel);
+  assert.equal(ok(call('orc_get_filament_session_snapshot')).slots.length, 1);
+  const baseline = annotationBytes(exportedPaint());
+  const loaded = refresh();
+  const loadedCounts = loaded.parts.map(p => p.facetCounts);
+  const timestamps = loaded.parts.map(p => p.annotationTimestamp);
+  assert.equal(loaded.parts.length, 2);
+  assert.ok(loadedCounts[0].reduce((a,b) => a+b,0) > 12, `${channel} lost imported subdivision`);
+  const ordinary = mesh();
+  assert.ok(ordinary.renderables.every(r => Number.isSafeInteger(r.volume_id) && Object.hasOwn(r, 'paint_key')));
+  const originalResources = ordinary.renderables.map(r => [r.volume_id, r.paint_key]);
+  const firstGeometry = geometry();
+  assert.equal(firstGeometry.channel, channel);
+  assert.ok(firstGeometry.parts.every(p => p.resourceId.startsWith(`pd-${channel}-`)));
+  const beforeInvalid = observe();
+  const validMax = channel === 'fuzzy' ? 1 : 2;
+  for (const settings of [{ state: validMax + 1 }, { state: validMax + 1, erase: true }, { state: -1 }])
+    error(command('orc_painting_stroke_begin', { ...handle(), tool: 'circle', settings, event: top() }));
+  for (const tool of ['region', 'height', 'gap', ...(channel === 'fuzzy' ? [] : ['triangle'])]) {
+    error(command('orc_painting_stroke_begin', { ...handle(), tool, settings: {}, ...(tool === 'gap' ? {} : { event: top() }) }));
+    error(command('orc_painting_preview', { ...handle(), tool, settings: {}, ...(tool === 'gap' ? {} : { event: top() }) }));
+  }
+  const { channel: omitted, ...missingHandle } = handle();
+  for (const patch of [missingHandle, { ...handle(), channel: 'invalid' }, { ...handle(), channel: 'mmu' }]) {
+    error(command('orc_painting_geometry', patch));
+    error(command('orc_painting_stroke_begin', { ...patch, tool: 'circle', settings: {}, event: top() }));
+  }
+  assert.deepEqual(observe(), beforeInvalid);
+  assert.deepEqual(refresh().parts.map(p => p.annotationTimestamp), timestamps);
+  // Both brushes, live state/erase/radius changes and cancellation restore the
+  // exact selector bytes/resource generation without touching Model/history.
+  for (const tool of ['circle', 'sphere', ...(channel === 'fuzzy' ? ['triangle'] : [])]) {
+    begin(tool, { state: 1, radius: .75 }, top(92.013, 105.027));
+    sample({ state: validMax, radius: 2 }, top(97, 105));
+    sample({ erase: true, radius: 1 }, top(102, 105));
+    cancel();
+    assert.deepEqual(refresh().parts.map(p => p.facetCounts), loadedCounts);
+    assert.deepEqual(annotationBytes(exportedPaint()), baseline);
+    assert.deepEqual(refresh().parts.map(p => p.annotationTimestamp), timestamps);
+  }
+  assert.deepEqual(observe(), beforeInvalid);
+  begin('circle', { state: validMax, radius: 1 }, top(92.013, 105.027));
+  const stale = { ...handle(), revision: session.revision - 1 };
+  error(command('orc_painting_stroke_cancel', { ...stale, strokeId: session.strokeId }));
+  if (testHook) {
+    const beforeFailure = observe();
+    Module.ccall('orc_painting_test_fail_next_commit', null, [], []);
+    const failed = error(command('orc_painting_stroke_commit', { ...handle(), strokeId: session.strokeId, settings: { state: 1, radius: 2 }, event: top(108,95) }));
+    assert.equal(failed.recovered, true); assert.equal(failed.channel, channel); assert.equal(failed.phase, 'idle');
+    session.revision = failed.revision; session.strokeId = null; session.phase = 'idle';
+    assert.deepEqual(observe(), beforeFailure, `${channel} failed publication changed model/history/plates`);
+    assert.deepEqual(annotationBytes(exportedPaint()), baseline, `${channel} failed commit did not roll back annotation bytes`);
+    assert.deepEqual(refresh().parts.map(p => p.annotationTimestamp), timestamps, `${channel} failed commit did not restore timestamps`);
+    assert.deepEqual(refresh().parts.map(p => p.facetCounts), loadedCounts, `${channel} failed commit retained draft`);
+    assert.deepEqual(mesh().renderables.map(r => [r.volume_id, r.paint_key]), originalResources);
+    begin('circle', { state: validMax, radius: 1 }, top(92.013, 105.027));
+  }
+  const committed = commit({ settings: { state: validMax, radius: 2 }, event: top(108,95) });
+  assert.equal(committed.committed, true);
+  assert.equal(committed.history.undoEntries[0].label, channel === 'support' ? 'Paint Supports' : channel === 'seam' ? 'Paint Seam' : 'Paint Fuzzy Skin');
+  preservesOtherFields(baseline, channel);
+  const painted = refresh();
+  assert.notEqual(painted.parts[0].annotationTimestamp, timestamps[0]);
+  assert.equal(painted.parts[1].annotationTimestamp, timestamps[1]);
+  assert.notEqual(painted.parts[0].draftResourceId, loaded.parts[0].draftResourceId);
+  assert.equal(painted.parts[1].draftResourceId, loaded.parts[1].draftResourceId);
+  assert.deepEqual(mesh().renderables.map(r => [r.volume_id, r.paint_key]), originalResources, `${channel} changed ordinary MMU resources`);
+  const paintedBytes = annotationBytes(exportedPaint());
+  const paintedCounts = painted.parts.map(p => p.facetCounts);
+  const savedChannel = exportedBytes();
+  ok(call('orc_history_undo')); refresh();
+  assert.equal(session.channel, channel);
+  assert.deepEqual(annotationBytes(exportedPaint()), baseline);
+  assert.deepEqual(session.parts.map(p => p.facetCounts), loadedCounts);
+  ok(call('orc_history_redo')); refresh();
+  assert.deepEqual(annotationBytes(exportedPaint()), paintedBytes);
+  assert.deepEqual(session.parts.map(p => p.facetCounts), paintedCounts);
+  // Rebinding to another object preserves the discriminant and stale guard.
+  const other = structure()[1];
+  session = ok(command('orc_painting_session_target', { ...handle(), objectId: other.id, instanceId: other.instances[0].id })).session;
+  assert.equal(session.channel, channel);
+  const original = structure()[0];
+  session = ok(command('orc_painting_session_target', { ...handle(), objectId: original.id, instanceId: original.instances[0].id })).session;
+  assert.deepEqual(session.parts.map(p => p.facetCounts), paintedCounts);
+  begin('eraseAll', {}, null); cancel(); assert.deepEqual(annotationBytes(exportedPaint()), paintedBytes);
+  begin('eraseAll', {}, null); assert.equal(commit().committed, true);
+  assert.ok(refresh().parts.every(p => p.facetCounts.slice(1).every(n => n === 0)));
+  preservesOtherFields(baseline, channel);
+  const beforeNoop = observe();
+  const erasedTimestamps = session.parts.map(p => p.annotationTimestamp);
+  begin('eraseAll', {}, null); assert.equal(commit().committed, false);
+  assert.deepEqual(observe(), beforeNoop);
+  assert.deepEqual(refresh().parts.map(p => p.annotationTimestamp), erasedTimestamps);
+  ok(command('orc_history_session_close', { sessionId: hs, label: channel === 'support' ? 'Paint Supports' : channel === 'seam' ? 'Paint Seam' : 'Paint Fuzzy Skin' }));
+  const closed = history();
+  assert.ok(closed.undoEntries.some(e => e.label === (channel === 'support' ? 'Paint Supports' : channel === 'seam' ? 'Paint Seam' : 'Paint Fuzzy Skin')), `${channel} compacted history name`);
+  load(savedChannel); open(channel);
+  assert.deepEqual(annotationBytes(exportedPaint()), paintedBytes, `${channel} save/reload lost native tree`);
+  assert.deepEqual(refresh().parts.map(p => p.facetCounts), paintedCounts);
+  ok(command('orc_history_session_close', { sessionId: hs, label: channel === 'support' ? 'Paint Supports' : channel === 'seam' ? 'Paint Seam' : 'Paint Fuzzy Skin' }));
+  console.log(`${channel} native field/tree/state/tool/timestamp/resource/cancel/erase/no-op/target/reconcile/3MF checks passed; injected rollback ${testHook ? 'passed' : 'compiled out'}`);
+}
 console.log(`Painting backend real-WASM ${process.argv.includes('--interop-only') ? 'unpainted/painted interoperability' : 'publication/geometry/history/remap/3MF/slice'} smoke passed (unpainted tool ${unpaintedSlice.tools}, painted tools ${paintedSlice.tools}; ${paintedSlice.segmentCount} segments)`);

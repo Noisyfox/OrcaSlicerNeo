@@ -22,7 +22,7 @@ struct Fixture {
     ModelVolume* part = object->add_volume(TriangleMesh(its_make_cube(10., 10., 10.)));
     ModelInstance* instance = object->add_instance();
     Sessions sessions;
-    void open() { sessions.publish(sessions.prepare_open(model, object->id().id, instance->id().id, 2, 1)); }
+    void open() { sessions.publish(sessions.prepare_open(model, object->id().id, instance->id().id, Channel::Mmu, 2, 1)); }
     const Session& s() { return *sessions.current(); }
     void begin(Tool tool, const Settings& settings, std::optional<PointerEvent> event = {}) {
         sessions.publish(sessions.prepare_begin(s().id, s().revision, tool, settings, event));
@@ -36,6 +36,47 @@ struct Fixture {
         sessions.publish(sessions.prepare_preview(s().id, s().revision, tool, settings, event));
     }
 };
+void channel_tests() {
+    for (const auto channel : {Channel::Support, Channel::Seam, Channel::Fuzzy}) {
+        Fixture f;
+        for (const auto field : {Channel::Mmu, Channel::Support, Channel::Seam, Channel::Fuzzy}) {
+            NativeSelector selector(f.part->mesh());
+            selector.set_facet(int(field), static_cast<EnforcerBlockerType>(field == Channel::Fuzzy ? 1 : 2));
+            annotation(*f.part, field).set(selector);
+        }
+        f.sessions.publish(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, channel, 1, 1));
+        CHECK(f.s().channel == channel);
+        CHECK(f.s().parts[0].annotation_timestamp == annotation(*f.part, channel).timestamp());
+        CHECK(f.s().parts[0].selector->serialize() == annotation(*f.part, channel).get_data());
+        Settings settings; settings.state = max_state(channel) + 1;
+        THROWS(f.begin(Tool::Circle, settings, top(3, 4)));
+        settings.state = 1;
+        for (const auto tool : {Tool::Height, Tool::Region, Tool::Gap}) THROWS(f.begin(tool, settings, tool == Tool::Gap ? std::optional<PointerEvent>{} : top(3, 4)));
+        if (channel != Channel::Fuzzy) THROWS(f.begin(Tool::Triangle, settings, top(3, 4)));
+        f.begin(Tool::Sphere, settings, top(3, 4));
+        settings.state = max_state(channel); f.sample(settings, top(4, 4));
+        f.cancel();
+        CHECK(f.s().parts[0].selector->serialize() == annotation(*f.part, channel).get_data());
+        const auto mesh = f.s().parts[0].mesh;
+        auto unrelated = channel == Channel::Support ? Channel::Seam : Channel::Support;
+        annotation(*f.part, unrelated).reset();
+        f.sessions.validate_target(f.model, f.s()); // Independent channel timestamp is not our stale guard.
+        CHECK(!f.sessions.prepare_reconcile(f.model));
+        annotation(*f.part, channel).reset();
+        THROWS(f.sessions.validate_target(f.model, f.s()));
+        auto restored = f.sessions.prepare_reconcile(f.model);
+        CHECK(restored->channel == channel && restored->parts[0].annotation_timestamp == annotation(*f.part, channel).timestamp());
+        // The session still owns its original source mesh through a rebind.
+        CHECK(restored->parts[0].mesh == mesh);
+        f.sessions.publish(std::move(restored));
+        f.begin(Tool::EraseAll, settings); f.cancel();
+        f.sessions.reset();
+        NativeSelector illegal(f.part->mesh());
+        illegal.set_facet(0, static_cast<EnforcerBlockerType>(max_state(channel) + 1));
+        annotation(*f.part, channel).set(illegal);
+        THROWS(f.sessions.prepare_open(f.model, f.object->id().id, f.instance->id().id, channel, 1, 1));
+    }
+}
 void triangle_preview_tests() {
     for (bool subdivided : {false, true}) {
         Fixture f;
@@ -326,7 +367,7 @@ void engine_tests() {
     gap.begin(Tool::EraseAll, settings); CHECK(gap.s().changed_parts.size() == 2); gap.cancel();
     CHECK(gap.part->mmu_segmentation_facets.get_data() == painted.serialize());
     settings.gap_area = 5.01; THROWS(gap.sessions.prepare_preview(gap.s().id, gap.s().revision, Tool::Gap, settings, {}));
-    settings.gap_area = -1; THROWS(settings.validate());
+    settings.gap_area = -1; THROWS(settings.validate(Channel::Mmu));
     settings.gap_area = 0; gap.preview(Tool::Gap, settings);
     gap.sessions.publish(gap.sessions.prepare_begin(gap.s().id, gap.s().revision, Tool::Gap, settings, {}, gap.s().revision));
     CHECK(!gap.s().effective); gap.cancel();
@@ -420,6 +461,7 @@ void engine_tests() {
 
 int main() {
     try {
+    channel_tests();
     triangle_preview_tests();
     engine_tests();
     Model model;
@@ -440,10 +482,10 @@ int main() {
     const auto data = part->mmu_segmentation_facets.get_data();
     Sessions sessions;
     const auto object_id = object->id().id, instance_id = instance->id().id;
-    THROWS(sessions.prepare_open(model, object_id, instance_id, 1, 1));
-    THROWS(sessions.prepare_open(model, object_id, 999999, 2, 1));
-    THROWS(sessions.prepare_open(model, 999999, instance_id, 2, 1));
-    auto candidate = sessions.prepare_open(model, object_id, instance_id, 64, 1);
+    THROWS(sessions.prepare_open(model, object_id, instance_id, Channel::Mmu, 1, 1));
+    THROWS(sessions.prepare_open(model, object_id, 999999, Channel::Mmu, 2, 1));
+    THROWS(sessions.prepare_open(model, 999999, instance_id, Channel::Mmu, 2, 1));
+    auto candidate = sessions.prepare_open(model, object_id, instance_id, Channel::Mmu, 64, 1);
     CHECK(!sessions.current()); // Preparation does not publish on allocation failure.
     const auto id = candidate->id;
     CHECK(candidate->parts.size() == 2);
@@ -454,13 +496,13 @@ int main() {
     sessions.validate_target(model, sessions.require(id, 1));
     CHECK(part->mmu_segmentation_facets.timestamp() == annotation_time);
     CHECK(part->mmu_segmentation_facets.get_data() == data);
-    THROWS(sessions.prepare_open(model, object_id, instance_id, 2, 1));
+    THROWS(sessions.prepare_open(model, object_id, instance_id, Channel::Mmu, 2, 1));
     THROWS(sessions.require(id + 1, 1));
     THROWS(sessions.require(id, 2));
-    THROWS(MmuAnnotationAdapter::validate_state(-1));
-    THROWS(MmuAnnotationAdapter::validate_state(17));
-    MmuAnnotationAdapter::validate_state(0);
-    MmuAnnotationAdapter::validate_state(16);
+    THROWS(validate_state(Channel::Mmu, -1));
+    THROWS(validate_state(Channel::Mmu, 17));
+    validate_state(Channel::Mmu, 0);
+    validate_state(Channel::Mmu, 16);
     THROWS(sessions.prepare_target(model, id, 1, 999999, instance_id));
     CHECK(sessions.current()->revision == 1);
     auto rebound = sessions.prepare_target(model, id, 1, object_id, another_instance->id().id);
@@ -482,7 +524,7 @@ int main() {
     auto* fresh_object = model.add_object();
     fresh_object->add_volume(TriangleMesh(its_make_cube(2., 2., 2.)));
     const auto fresh_instance_id = fresh_object->add_instance()->id().id;
-    auto fresh = sessions.prepare_open(model, fresh_object->id().id, fresh_instance_id, 2, 2);
+    auto fresh = sessions.prepare_open(model, fresh_object->id().id, fresh_instance_id, Channel::Mmu, 2, 2);
     CHECK(fresh->id > id);
     sessions.publish(std::move(fresh));
     fresh_object->volumes.front()->mmu_segmentation_facets.reset();

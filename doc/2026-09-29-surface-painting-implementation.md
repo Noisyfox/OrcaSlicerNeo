@@ -251,7 +251,8 @@ a toolbar entry appears only when its complete channel stage is accepted.
   scheme B and stages 13–19 are recorded before code implementation. Parent
   source/diff review, local links/anchors, command references, native driver help
   and `git diff --check` passed. No adapter code is delivered by this piece.
-- Steps 13–19: pending, with no product checks yet claimed for their implementation.
+- Step 13: independently accepted by the parent on 2026-10-02; hidden native
+  adapters and strict transport are implemented. Steps 14–19 remain pending.
 - Existing serial/threaded build trees and pnpm/native tools were verified by the
   parent as available for this checkout. Children must still verify configured
   source roots, build flags and current artifact identity before running evidence.
@@ -282,7 +283,7 @@ a toolbar entry appears only when its complete channel stage is accepted.
 
 ### 13. Channel-aware native sessions and strict typed transport
 
-**Status:** Pending. **Depends on:** documentation piece accepted/committed.
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** documentation piece accepted/committed.
 **Model:** gpt-6.1-sol / medium. **Verification:** W+T+A (MMU regression).
 
 **Allowed scope:** Native painting Session/Settings/open/commit/reconcile and
@@ -313,6 +314,71 @@ native failure-test artifact for atomicity evidence, with production elision.
 all transport consumers; rerun affected suites/typechecks plus current serial
 native harness with per-channel state/bytes/timestamps/resource assertions.
 Independently rerun existing real MMU journey. No new channel is exposed.
+
+**Delivered and verified:** Required `channel` now crosses native sessions,
+receipts, strict client decoding, Worker transfer and application consumers.
+Support/seam/fuzzy load and publish independent native fields, validate their
+state/tool domains, retain committed timestamps and use channel-qualified draft
+and candidate resource identities. Native rollback restores the active field;
+ordinary geometry remains MMU-only. No new toolbar entry is exposed. Parent
+reviewed all 22 changed source/test/harness files, including staged publication,
+resource lease release, channel matching and current internal callers.
+
+Child self-verification passed before final parent acceptance. The parent
+independently ran:
+
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: passed all suites
+  (WASM 256, runtime 35, app 880, desktop 71, web 28; other workspace suites
+  also passed). `pnpm typecheck`: passed. After final caller/test adjustments,
+  `NODE_OPTIONS=--no-experimental-webstorage pnpm --filter @orca/slicer-app test`
+  and `pnpm --filter @orca/slicer-app typecheck` passed again.
+- `bash scripts/build.sh quick --variant serial`: passed. Current Release
+  configuration has history-test/profile gates OFF and threading 0. Final
+  JS/WASM/DATA SHA256 values exactly match the independently tested artifact:
+  `7c2d376880701217290f8b427e71edc39fa7b9560ffd87e546f185b6eac562db`,
+  `19f8f7f0bdd3df04f157225d7559ddd746a2162130693896a29f2d70bf1c47c9`,
+  `6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+- `pnpm exec node packages/slicer-wasm/harness/painting-session-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  and `pnpm exec node packages/slicer-wasm/harness/painting-engine-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`:
+  passed required/malformed channel identity, imported independent subdivisions,
+  invalid imported states, single-slot admission, all six MMU tools, new native
+  brushes/triangle, live settings and cancellation.
+- `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production`:
+  passed per-channel field bytes/timestamps/resources, untouched parts/fields,
+  target/reconcile/erase/no-op/3MF assertions and real MMU slicing (47,012
+  segments, tools 0 and 1).
+- `pnpm exec node packages/slicer-wasm/.work/step13-history-test/painting_session_test.cjs`
+  and `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step13-history-test/orca_slice.js --expect-test-hooks`:
+  passed native lifecycle/domain tests and comprehensive MMU plus all three
+  new-channel injected commit rollbacks. Parent verified all five preserved
+  artifact hashes against the build receipt. This test artifact was built
+  using `emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=ON`
+  and `cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice painting_session_test -j 8`;
+  ordinary production was restored with the same configure command using OFF,
+  then serial quick. Test-hook bytes are absent from production JS/WASM.
+- `pnpm exec node scripts/run-painting-e2e.mjs`: passed 1/1 independently
+  (39.5 seconds total), verifying current artifact hashes, actual six-tool MMU
+  input, native history and renderer/camera/material evidence.
+- `pnpm --filter @orca/desktop build`, `pnpm --filter @orca/web build`, then
+  `pnpm exec node scripts/check-painting-profile-elision.mjs`: passed; 21
+  ordinary production artifacts contain no painting probe/profile sentinels.
+  `git diff --check` and changed local-link/command review passed.
+
+The machine runs Node 26.7 rather than the repository's pinned Node 24.19.0.
+The child's initial root run failed 11 unchanged browser-adapter localStorage
+tests; disabling Node's experimental Web Storage explicitly made both child and
+parent runs pass, without repository configuration changes. The existing real
+MMU journey initially assumed a custom titlebar menu on macOS, an obsolete
+colour-badge span and synchronous colour-history publication. It now invokes
+the native macOS menu, locates the existing colour label and waits for the same
+required history label; all original behavior assertions remain. Both child
+and parent reruns passed. Native fixture loads still print missing-parent config
+diagnostics; the asserted operations and downstream slices passed.
+
+Threaded rebuild, second-host journeys and the full release matrix were
+intentionally deferred to step 19. This step does not establish all-channel
+affected-plate/usage restoration (step 14), complete editors or downstream
+support/seam/fuzzy slicing qualification.
 
 ### 14. Four-channel history restoration and slice invalidation
 
@@ -500,7 +566,7 @@ comparison remain explicit limitations, separate from functional qualification.
 ### Adapter acceptance checklist
 
 - [x] Documentation piece independently reviewed and verified; committed before step 13.
-- [ ] 13 strict channel/native/transport boundary and all-six MMU regression accepted.
+- [x] 13 strict channel/native/transport boundary and all-six MMU regression accepted.
 - [ ] 14 all-channel history, affected plates and support-derived invalidation accepted.
 - [ ] 15 complete seam editor/save/slice accepted before entrypoint exposure.
 - [ ] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.

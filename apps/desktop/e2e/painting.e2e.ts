@@ -24,12 +24,21 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1400, height: 900 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('file-open-project')?.enabled)).toBe(true);
+      await app.evaluate(({ Menu, BrowserWindow }) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('file-open-project');
+        if (!item?.enabled) throw new Error('Open Project native menu is unavailable');
+        item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as Electron.KeyboardEvent);
+      });
+    } else {
+      if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+        await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+        await page.getByTestId('titlebar-menu-trigger').click();
+      }
+      await page.getByTestId('menu-file-trigger').hover();
+      await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } }); await page.getByTestId('file-open-project').click();
     }
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } }); await page.getByTestId('file-open-project').click();
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-choice-dialog"], [data-testid="project-load-confirmation-dialog"], [data-testid="project-progress-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt)).toBe(true);
     if (await page.getByTestId('project-load-choice-dialog').isVisible()) { await page.getByTestId('project-load-project').click(); await page.getByTestId('project-load-confirm').click(); }
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-confirmation-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 120_000 }).toBe(true);
@@ -590,7 +599,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled(); await page.getByTestId('gizmo-btn-paint').click(); await idle();
     await assertPaintingArmed('reopened');
     expect((await read())!.sessionId).not.toBe(sessionId);
-    const slot2Badge = page.locator('[data-testid="filament-slot-2"] span[aria-label="Slot 2 colour"]');
+    const slot2Badge = page.getByTestId('filament-slot-2').locator('label').filter({ has: page.getByTestId('filament-colour-2') });
     const originalSlot2Colour = await slot2Badge.evaluate((element) => getComputedStyle(element).backgroundColor);
     const setSlot2Colour = async (colour: string, cssColour: string) => {
       await page.getByTestId('filament-colour-2').evaluate((element, value) => {
@@ -601,7 +610,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       }, colour);
       await expect(slot2Badge).toHaveCSS('background-color', cssColour);
       await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
-      expect((await history()).undoEntries[0].label).toBe('Edit Filament Colour');
+      await expect.poll(async () => (await history()).undoEntries[0]?.label).toBe('Edit Filament Colour');
     };
     const beforeRgb = (await read())!;
     await page.getByTestId('painting-tool-sphere').click(); await idle();

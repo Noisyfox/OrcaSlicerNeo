@@ -89,7 +89,7 @@ export class PaintingController {
   private identity() {
     const s = this.state.session;
     if (!s) throw new Error('Painting session is not open');
-    return { version: 1 as const, sessionId: s.id, revision: s.revision };
+    return { version: 1 as const, channel: s.channel, sessionId: s.id, revision: s.revision };
   }
   private stroke() {
     const strokeId = this.state.session?.strokeId;
@@ -99,7 +99,7 @@ export class PaintingController {
   private receipt(result: PaintingDraftResult, generation?: number): Exclude<PaintingDraftResult, { error: string }> {
     if ('error' in result) throw new Error(result.error);
     const session = this.state.session;
-    if (!session || result.sessionId !== session.id || result.revision < session.revision) throw new Error('Stale painting response');
+    if (!session || result.channel !== session.channel || result.sessionId !== session.id || result.revision < session.revision) throw new Error('Stale painting response');
     this.update({ session: { ...session, revision: result.revision, strokeId: result.strokeId, phase: result.phase } });
     if (generation !== undefined && generation === this.previewGeneration) this.candidateOwner = generation;
     this.displayDirty = true;
@@ -126,7 +126,7 @@ export class PaintingController {
       try {
         const history = await this.ports.api.openHistorySession();
         this.historyId = history.sessionId; this.ports.history(history.status);
-        const result = await this.ports.api.openPaintingSession({ version: 1, historySessionId: history.sessionId, objectId, instanceId });
+        const result = await this.ports.api.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: history.sessionId, objectId, instanceId });
         if ('error' in result) throw new Error(result.error);
         this.update({ session: result.session, phase: 'idle', epoch: this.state.epoch + 1 });
         this.displayDirty = true; this.previewDirty = previewInput(this.state.tool) === 'static';
@@ -272,7 +272,7 @@ export class PaintingController {
     else {
       const result = await this.ports.api.commitPaintingStroke({ ...this.stroke(), ...terminal.sample });
       if ('error' in result) {
-        if (result.recovered && this.state.session?.id === result.sessionId) {
+        if (result.recovered && result.channel === this.state.session?.channel && this.state.session?.id === result.sessionId) {
           this.update({ session: { ...this.state.session, phase: 'idle', strokeId: null, revision: result.revision } });
         }
         throw new Error(result.error);
@@ -369,7 +369,11 @@ export class PaintingController {
       this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
       this.terminal = null; this.terminalExecuting = false;
     }
-    if (this.historyId) { this.ports.history(await this.ports.api.closeHistorySession(this.historyId, 'Paint')); this.historyId = null; }
+    if (this.historyId) {
+      const labels = { mmu: 'Paint', support: 'Paint Supports', seam: 'Paint Seam', fuzzy: 'Paint Fuzzy Skin' };
+      const label = this.state.session ? labels[this.state.session.channel] : 'Paint';
+      this.ports.history(await this.ports.api.closeHistorySession(this.historyId, label)); this.historyId = null;
+    }
     await this.ports.prepareClosed([...this.paintedObjectIds]);
     this.paintedObjectIds.clear();
     this.known.clear(); this.cancelFrame?.(); this.cancelFrame = null;
@@ -402,7 +406,7 @@ export class PaintingController {
               // publishing this draft with an empty or retained old candidate
               // would either blink or mix resources from different revisions.
               this.displayDirty = true;
-            } else if (epoch === this.state.epoch && result.sessionId === this.state.session?.id && result.revision === this.state.session.revision) {
+            } else if (epoch === this.state.epoch && result.channel === this.state.session?.channel && result.sessionId === this.state.session?.id && result.revision === this.state.session.revision) {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));

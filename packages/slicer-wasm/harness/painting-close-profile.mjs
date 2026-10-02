@@ -43,7 +43,7 @@ function releaseMesh(result) {
 }
 for (let i = 0; i < 3; i++) {
   const hs = command('orc_history_session_open', {}).sessionId;
-  const session = command('orc_painting_session_open', { version: 1, historySessionId: hs,
+  const session = command('orc_painting_session_open', { version: 1, channel: 'mmu', historySessionId: hs,
     objectId: objects[0].id, instanceId: objects[0].instances[0].id }).session;
   const before = timings.length;
   command('orc_history_session_close', { sessionId: hs, label: 'Paint' });

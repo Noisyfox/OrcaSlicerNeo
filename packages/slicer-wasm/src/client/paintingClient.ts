@@ -1,9 +1,13 @@
 import type { OrcaModule } from './types';
-import type { PaintingApi, PaintingGeometryRequest, PaintingGeometryResult } from './painting';
+import type { PaintingChannel, PaintingApi, PaintingGeometryRequest, PaintingGeometryResult } from './painting';
 import { callJson } from './heap';
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const integer = (value: unknown, minimum = 0): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
+const channels = ['mmu', 'support', 'seam', 'fuzzy'] as const;
+const channel = (value: unknown): value is PaintingChannel => channels.includes(value as PaintingChannel);
+const validTool = (c: PaintingChannel, tool: unknown): boolean => c === 'mmu' || tool === 'circle' || tool === 'sphere' || tool === 'eraseAll' || (c === 'fuzzy' && tool === 'triangle');
+const maxState = (value: PaintingChannel): number => value === 'mmu' ? 16 : value === 'fuzzy' ? 1 : 2;
 function envelope(value: unknown): asserts value is Record<string, unknown> {
   if (!record(value) || (typeof value.error !== 'string' && (value.ok !== true || value.version !== 1)))
     throw new Error('invalid painting response');
@@ -14,7 +18,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
     envelope(raw);
     if (typeof raw.error === 'string') return { error: raw.error };
     if (!leaseId) throw new Error('invalid painting geometry lease');
-    if (raw.sessionId !== request.sessionId || raw.revision !== request.revision || !Array.isArray(raw.parts) || !Array.isArray(raw.resources) || !Array.isArray(raw.candidates))
+    if (raw.channel !== request.channel || !channel(raw.channel) || raw.sessionId !== request.sessionId || raw.revision !== request.revision || !Array.isArray(raw.parts) || !Array.isArray(raw.resources) || !Array.isArray(raw.candidates))
       throw new Error('stale or invalid painting geometry response');
     const used = new Set<number>();
     const ranges: [number, number][] = [];
@@ -32,14 +36,14 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
     const volumeIds = new Set<number>();
     const parts = raw.parts.map((part: unknown) => {
       if (!record(part) || !integer(part.volumeId, 1) || volumeIds.has(part.volumeId) || typeof part.resourceId !== 'string' ||
-          !new RegExp(`^pd-${request.sessionId.slice(3)}-[1-9]\\d*-${part.volumeId}$`).test(part.resourceId) || ids.has(part.resourceId)) throw new Error('invalid painting part');
+          !new RegExp(`^pd-${request.channel}-${request.sessionId.slice(3)}-[1-9]\\d*-${part.volumeId}$`).test(part.resourceId) || ids.has(part.resourceId)) throw new Error('invalid painting part');
       ids.add(part.resourceId); volumeIds.add(part.volumeId);
       return { volumeId: part.volumeId, resourceId: part.resourceId };
     });
     const candidates = raw.candidates.map((candidate: unknown) => {
       if (!record(candidate) || !integer(candidate.volumeId, 1) || !parts.some(p => p.volumeId === candidate.volumeId) ||
-          (candidate.kind !== 'triangle' && candidate.kind !== 'region' && candidate.kind !== 'gap') || typeof candidate.resourceId !== 'string' ||
-          !new RegExp(`^pc-${request.sessionId.slice(3)}-${request.revision}-${candidate.volumeId}${candidate.kind === 'gap' ? '-[0-9]+' : ''}$`).test(candidate.resourceId) || ids.has(candidate.resourceId))
+          !validTool(request.channel, candidate.kind) || (candidate.kind !== 'triangle' && candidate.kind !== 'region' && candidate.kind !== 'gap') || typeof candidate.resourceId !== 'string' ||
+          !new RegExp(`^pc-${request.channel}-${request.sessionId.slice(3)}-${request.revision}-${candidate.volumeId}${candidate.kind === 'gap' ? '-[0-9]+' : ''}$`).test(candidate.resourceId) || ids.has(candidate.resourceId))
         throw new Error('invalid painting candidate manifest');
       ids.add(candidate.resourceId);
       return { volumeId: candidate.volumeId, resourceId: candidate.resourceId, kind: candidate.kind as 'triangle' | 'region' | 'gap' };
@@ -56,7 +60,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
       let end = 0;
       const states = new Set<number>();
       for (const group of entry.groups) {
-        if (!Array.isArray(group) || group.length !== 3 || !integer(group[0]) || group[0] > 16 || states.has(group[0]) ||
+        if (!Array.isArray(group) || group.length !== 3 || !integer(group[0]) || group[0] > maxState(request.channel) || states.has(group[0]) ||
             group[1] !== end || !integer(group[2], 1) || group[2] % 3) throw new Error('invalid painting groups');
         states.add(group[0]); end += group[2];
       }
@@ -66,7 +70,7 @@ export function decodePaintingGeometry(module: OrcaModule, raw: unknown, request
     if (new Set(resources.map(resource => resource.resourceId)).size !== resources.length) throw new Error('duplicate painting resource');
     for (const part of [...parts, ...candidates]) if (!resources.some(resource => resource.resourceId === part.resourceId) && !request.knownResourceIds?.includes(part.resourceId))
       throw new Error('missing painting resource');
-    return { ok: true, version: 1, sessionId: raw.sessionId, revision: raw.revision, parts, candidates, resources,
+    return { ok: true, version: 1, channel: raw.channel, sessionId: raw.sessionId, revision: raw.revision, parts, candidates, resources,
       ...(import.meta.env.VITE_PAINTING_PROFILE === '1' && record(raw.paintingProfile)
         ? { paintingProfile: raw.paintingProfile as unknown as import('./painting').PaintingProfileCounters } : {}) };
   } finally {
@@ -88,9 +92,9 @@ function ids(value: unknown): value is number[] {
 function phase(value: unknown, stroke: unknown, id: string): boolean {
   return value === 'idle' ? stroke === null : (value === 'drawing' || value === 'finished') && canonical(stroke, `pst-${id.slice(3)}-`);
 }
-function counts(value: unknown): boolean { return Array.isArray(value) && value.length === 17 && value.every(n => integer(n)); }
+function counts(value: unknown, c: PaintingChannel): boolean { return Array.isArray(value) && value.length === 17 && value.every((n, state) => integer(n) && (state <= maxState(c) || n === 0)); }
 function checkReceipt(raw: Record<string, unknown>, request: Record<string, unknown>, operation: string): void {
-  if (!canonical(raw.sessionId, 'ps-') || raw.sessionId !== request.sessionId || !integer(raw.revision, 1) ||
+  if (!channel(raw.channel) || raw.channel !== request.channel || !canonical(raw.sessionId, 'ps-') || raw.sessionId !== request.sessionId || !integer(raw.revision, 1) ||
       !integer(request.revision, 1) || raw.revision !== request.revision + 1 || !phase(raw.phase, raw.strokeId, raw.sessionId) ||
       typeof raw.effective !== 'boolean' || !ids(raw.changedPartIds) ||
       (raw.candidateRevision !== null && raw.candidateRevision !== raw.revision)) throw new Error('invalid painting receipt');
@@ -106,7 +110,7 @@ function checkReceipt(raw: Record<string, unknown>, request: Record<string, unkn
 function checkSession(raw: Record<string, unknown>, request: Record<string, unknown>, operation: string): void {
   const s = raw.session;
   if (!record(s) || !canonical(s.id, 'ps-') || !canonical(s.historySessionId, 'hs-') || !integer(s.revision, 1) ||
-      !integer(s.objectId, 1) || !integer(s.instanceId, 1) || s.annotation !== 'mmu' || !vector(s.instanceTransform, 16) ||
+      !integer(s.objectId, 1) || !integer(s.instanceId, 1) || (!channel(s.channel) || s.channel !== request.channel) || !vector(s.instanceTransform, 16) ||
       !phase(s.phase, s.strokeId, s.id) || !Array.isArray(s.parts) || s.parts.length === 0) throw new Error('invalid painting session');
   if (operation === 'orc_painting_session_open') {
     if (s.historySessionId !== request.historySessionId || s.revision !== 1 || s.phase !== 'idle') throw new Error('invalid painting open receipt');
@@ -117,16 +121,16 @@ function checkSession(raw: Record<string, unknown>, request: Record<string, unkn
     throw new Error('invalid painting target receipt');
   const seen = new Set<number>();
   for (const p of s.parts) {
-    if (!record(p) || !integer(p.volumeId, 1) || seen.has(p.volumeId) || !integer(p.sourceTriangleCount, 1) ||
-        !vector(p.volumeTransform, 16) || !counts(p.facetCounts) || typeof p.draftResourceId !== 'string' ||
-        !new RegExp(`^pd-${s.id.slice(3)}-[1-9]\\d*-${p.volumeId}$`).test(p.draftResourceId)) throw new Error('invalid painting part metadata');
+    if (!record(p) || !integer(p.volumeId, 1) || seen.has(p.volumeId) || !integer(p.sourceTriangleCount, 1) || !integer(p.annotationTimestamp) ||
+        !vector(p.volumeTransform, 16) || !counts(p.facetCounts, s.channel as PaintingChannel) || typeof p.draftResourceId !== 'string' ||
+        !new RegExp(`^pd-${s.channel}-${s.id.slice(3)}-[1-9]\\d*-${p.volumeId}$`).test(p.draftResourceId)) throw new Error('invalid painting part metadata');
     seen.add(p.volumeId);
   }
   if (s.candidate !== undefined) {
     const c = s.candidate;
     if (!record(c) || c.revision !== s.revision || !integer(c.selectedFacetCount) || !integer(c.gapRegionCount) || !Array.isArray(c.parts) ||
         c.parts.length !== s.parts.length || !ids(c.parts.map(p => record(p) ? p.volumeId : null)) ||
-        !c.parts.every(p => record(p) && seen.has(p.volumeId as number) && counts(p.facetCounts))) throw new Error('invalid painting candidate metadata');
+        !c.parts.every(p => record(p) && seen.has(p.volumeId as number) && counts(p.facetCounts, s.channel as PaintingChannel))) throw new Error('invalid painting candidate metadata');
   }
 }
 export function createPaintingApi(module: () => Promise<OrcaModule>, normalizeHistory: (value: unknown) => import('./history').HistoryStatus): PaintingApi {
@@ -139,7 +143,7 @@ export function createPaintingApi(module: () => Promise<OrcaModule>, normalizeHi
         if (kind !== 'commit' || raw.recovered !== true) throw new Error('invalid painting recovery');
         checkReceipt(raw, input, name);
         if (raw.phase !== 'idle' || raw.effective !== false || (raw.changedPartIds as unknown[]).length !== 0) throw new Error('invalid painting recovery state');
-        return { error: raw.error, recovered: true, sessionId: raw.sessionId, revision: raw.revision } as T;
+        return { error: raw.error, recovered: true, channel: raw.channel, sessionId: raw.sessionId, revision: raw.revision } as T;
       }
       return { error: raw.error } as T;
     }
@@ -152,7 +156,8 @@ export function createPaintingApi(module: () => Promise<OrcaModule>, normalizeHi
             new Set(raw.affectedPlateIds).size !== raw.affectedPlateIds.length) throw new Error('invalid painting commit');
         raw.history = normalizeHistory(raw.history);
       }
-    } else if (kind === 'settle' && !integer(raw.settledVersion)) throw new Error('invalid painting settlement');
+    } else if (kind === 'close' && (!channel(raw.channel) || raw.channel !== input.channel)) throw new Error('invalid painting close receipt');
+    else if (kind === 'settle' && !integer(raw.settledVersion)) throw new Error('invalid painting settlement');
     return raw as T;
   };
   return {
