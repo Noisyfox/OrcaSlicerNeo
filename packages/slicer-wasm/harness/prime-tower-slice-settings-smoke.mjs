@@ -46,6 +46,58 @@ function move(id, x, y) {
     revision: session().input_revisions[id], x, y }));
 }
 
+function towerMotion(gcode) {
+  assert.ok(gcode.includes(';TYPE:Prime tower'), 'export contains the Prime Tower feature');
+  let x, y, e = 0;
+  let relativeExtrusion = true;
+  let feature = '';
+  const points = [];
+  for (const line of gcode.split(/\r?\n/)) {
+    if (line.startsWith(';TYPE:')) feature = line.slice(6).trim();
+    if (/^M83\b/.test(line)) relativeExtrusion = true;
+    if (/^M82\b/.test(line)) relativeExtrusion = false;
+    const eMatch = line.match(/\bE(-?(?:\d+(?:\.\d*)?|\.\d+))/);
+    if (/^G92\b/.test(line) && eMatch) e = Number(eMatch[1]);
+    if (!/^G[0123]\b/.test(line)) continue;
+    const xMatch = line.match(/\bX(-?\d+(?:\.\d+)?)/);
+    const yMatch = line.match(/\bY(-?\d+(?:\.\d+)?)/);
+    const previous = [x, y];
+    if (xMatch) x = Number(xMatch[1]);
+    if (yMatch) y = Number(yMatch[1]);
+    const nextE = eMatch ? Number(eMatch[1]) : e;
+    const extruding = eMatch && (relativeExtrusion ? nextE > 0 : nextE > e);
+    if (eMatch) e = nextE;
+    // Track modal XY across the whole file, but compare only actual deposited
+    // Prime Tower paths. Unload/retract moves and travel to models are excluded.
+    if (feature === 'Prime tower' && extruding && (xMatch || yMatch)) {
+      if (previous.every(value => value !== undefined)) points.push(previous);
+      if (x !== undefined && y !== undefined) points.push([x, y]);
+    }
+  }
+  assert.ok(points.length > 0, 'tower G-code contains extruding XY paths');
+  return {
+    points,
+    bounds: {
+      min_x: Math.min(...points.map(([x]) => x)), max_x: Math.max(...points.map(([x]) => x)),
+      min_y: Math.min(...points.map(([, y]) => y)), max_y: Math.max(...points.map(([, y]) => y)),
+    },
+  };
+}
+
+function assertMotionMatchesPreview(motion, projection) {
+  // This fixture has a rectangular tower at zero rotation. Its deposited brim
+  // starts at the displayed native anchor minus the brim margin, within nozzle
+  // width / G-code rounding. Prepare depth is a pre-slice estimate, so the
+  // positional assertion does not equate it with the generated purge depth.
+  assert.equal(projection.rotation, 0);
+  for (const axis of ['x', 'y']) {
+    const expected = projection.position[axis] - projection.brim_margin;
+    const actual = motion.bounds[`min_${axis}`];
+    assert.ok(Math.abs(actual - expected) <= 0.5,
+      `tower path origin ${axis} disagrees with Prepare: expected ${expected}, got ${actual}`);
+  }
+}
+
 must(callJson('orc_init', ['string'], ['']));
 must(request('orc_select_printer_with_remembered_rack', { printer: 'DeltaMaker 2 0.35 nozzle',
   remembered_rack: { version: 1, slots: [
@@ -85,6 +137,7 @@ must(callJson('orc_history_redo'));
 assert.deepEqual(tower(id).position, { x: -60, y: -50 }, 'Redo restores the native scene position');
 // Match the shared application's slice request: scene-owned X/Y are excluded.
 const { wipe_tower_x, wipe_tower_y, ...sliceSettings } = staleSettings;
+const firstPreview = tower(id);
 const sliced = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify(sliceSettings), id, session().input_revisions[id]]));
 assert.ok(!(sliced.warnings ?? []).some(warning => /outside the printable area/.test(warning)), JSON.stringify(sliced));
@@ -92,5 +145,37 @@ const exported = must(exportGcode(callJson, sliced.receipt));
 const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
 assert.match(gcode, /wipe_tower_x = -60\b/);
 assert.match(gcode, /wipe_tower_y = -50\b/);
+assert.deepEqual(tower(id).position, firstPreview.position, 'Slice preserves the pre-slice Prepare position');
+const firstMotion = towerMotion(gcode);
+assertMotionMatchesPreview(firstMotion, firstPreview);
 
-console.log(JSON.stringify({ ok: true, printer: 'DeltaMaker 2', multiFilamentSlice: true }));
+// Re-slice the same geometry after another scene move. The actual XY paths,
+// rather than just the exported config footer, must translate with the proxy.
+move(id, -40, -40);
+const secondPreview = tower(id);
+assertInside(secondPreview);
+const secondSlice = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  [JSON.stringify(sliceSettings), id, session().input_revisions[id]]));
+const secondExport = must(exportGcode(callJson, secondSlice.receipt));
+const secondMotion = towerMotion(Module.FS.readFile(secondExport.path, { encoding: 'utf8' }));
+assertMotionMatchesPreview(secondMotion, secondPreview);
+for (const axis of ['x', 'y']) {
+  const delta = secondPreview.position[axis] - firstPreview.position[axis];
+  for (const edge of ['min', 'max']) {
+    const actualDelta = secondMotion.bounds[`${edge}_${axis}`] - firstMotion.bounds[`${edge}_${axis}`];
+    assert.ok(Math.abs(actualDelta - delta) <= 0.002,
+      `${edge} ${axis} G-code motion must follow the preview move: expected ${delta}, got ${actualDelta}`);
+  }
+}
+
+assert.equal(secondMotion.points.length, firstMotion.points.length, 'the same tower has the same extrusion paths');
+for (let i = 0; i < firstMotion.points.length; i++)
+  for (const [index, axis] of ['x', 'y'].entries()) {
+    const delta = secondPreview.position[axis] - firstPreview.position[axis];
+    const actualDelta = secondMotion.points[i][index] - firstMotion.points[i][index];
+    assert.ok(Math.abs(actualDelta - delta) <= 0.002,
+      `tower extrusion endpoint ${i} ${axis} must translate with Prepare: expected ${delta}, got ${actualDelta}`);
+  }
+
+console.log(JSON.stringify({ ok: true, printer: 'DeltaMaker 2', multiFilamentSlice: true,
+  gcodeMotionMatchesPreview: true, motionDelta: { x: 20, y: 10 } }));
