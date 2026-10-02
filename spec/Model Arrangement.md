@@ -2,9 +2,10 @@
 
 **Date:** 2026-10-02
 
-**Status:** Partially approved — operation scope, capacity behavior, plate rules,
-and instance eligibility accepted; remaining design decisions under discussion.
-Implementation has not started.
+**Status:** Partially approved — operation scope, capacity, plate rules, instance
+eligibility, and material/printing constraints accepted. Parameter, interaction,
+execution, and acceptance decisions remain under discussion. Implementation has
+not started.
 
 **Scope:** Orca-compatible model arrangement in the shared Electron and Web
 application. This is the living feature specification, maintained in batches
@@ -147,6 +148,83 @@ Cancellation, geometry-processing exceptions, stale results, and commit
 failures require a separate task/transaction policy and are not defined by this
 partial-success rule.
 
+## Accepted material and printing constraints
+
+### Multiple materials on one plate
+
+Expose **Allow multiple materials on same plate**, enabled by default, and
+retain the native arrangement rules behind it.
+
+- When enabled, different materials may share a plate subject to the native
+  filament-temperature-category compatibility checks.
+- Disabling the option does not split a multi-material instance or require
+  exactly one filament slot per plate. Native packing accepts the first item
+  even when it is multi-material. For subsequent items, it permits the item
+  when its filament-slot set and the plate's already-packed aggregate set have
+  a subset relationship in either direction. For example, `{1, 2}` and `{1}`
+  may share a plate.
+- Preserve these native semantics rather than replacing them with material
+  name equality, slot-count limits, or a new compatibility rule in the UI.
+
+### Prime tower reservation
+
+Treat an existing prime tower as a fixed obstacle. Arrange moves models around
+it and does not automatically move the tower's plate-local position.
+
+For Arrange all, follow Orca's native tower-need detection and footprint
+estimation when a tower is needed but no existing tower footprint is available.
+This includes potential newly created plates. Reserve the estimated footprint
+before packing models; do not rely solely on already generated slice output.
+
+Orca's Arrange all tower preparation returns early when the prime tower is
+disabled or the operation uses sequential/by-object printing. Preserve these
+conditions rather than reserving speculative towers unconditionally.
+
+### Global and plate-local print sequence
+
+Support the native distinction between by-layer and by-object printing:
+
+- Arrange all uses the global print sequence. Temporarily exclude plates whose
+  effective print sequence differs from the global one, preserving their
+  plate-local model arrangement and excluding them as destinations.
+- This is operation-local exclusion. Do not change a plate's saved lock flag
+  to represent it, and do not leave an imported unlocked plate locked afterward.
+- Arrange current plate uses that plate's effective print sequence. If it
+  differs from the global sequence, use automatic spacing for this operation,
+  as Orca does; this does not overwrite the user's stored spacing preference.
+- Imported explicit locks remain authoritative: the current-plate operation
+  still refuses a locked plate.
+
+### Bed exclusions and extrusion calibration area
+
+Preserve the native distinction between mandatory exclusions and a preferred
+clear area:
+
+- Printer bed exclusion regions must be avoided.
+- Wrapping-detection regions must be avoided when the corresponding detection
+  feature is enabled.
+- The extrusion calibration region is preferentially avoided. When native
+  packing cannot place an item with that preference, its fallback may use the
+  calibration region while retaining the mandatory exclusions and tower
+  obstacles. Do not turn this preference into an unconditional no-placement
+  region.
+- Provide **Avoid extrusion calibration region** under Orca's applicability
+  condition: a Bambu vendor configuration with `scan_first_layer` enabled.
+  Keep the native conditional behavior of this option.
+
+These are arrangement constraints; they do not change the existing slice-time
+collision-warning policy in [Multi-Filament Support](Multi-Filament%20Support.md).
+
+### Configuration of automatically added plates
+
+Automatically created plates use an empty plate-local configuration override
+layer and inherit the global configuration. Do not copy overrides from the
+current plate or from a model's source plate, including bed type, print sequence,
+or spiral-vase settings.
+
+This matches native Orca and Neo's existing Add Plate contract in
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md).
+
 ## Native Orca reference behavior
 
 The source reference is the repository's pinned Orca core. Product behavior is
@@ -182,18 +260,32 @@ helper functions.
   locked plates, stops at an ordinary non-empty plate, and retains the first
   plate. The empty/non-printable check precedes the lock check, so native Orca
   can recycle an empty locked plate. Neo retains these plates instead.
+- [Arrange.cpp](../packages/slicer-wasm/cpp/src/libslic3r/Arrange.cpp) evaluates
+  filament compatibility and the filament-slot subset rule.
+  [GLCanvas3D](../packages/slicer-wasm/cpp/src/slic3r/GUI/GLCanvas3D.hpp) initializes
+  the multiple-materials option to enabled.
+- The free `get_wipetower_arrange_poly()` helper in the job source clears the
+  setter to keep the tower fixed. `ArrangeJob::prepare_wipe_tower()` handles
+  existing and estimated footprints and the disabled-tower/by-object early
+  return.
+- `ArrangeJob::prepare_all()` temporarily excludes plates with a different print
+  sequence. `init_arrange_params()` selects the current plate's sequence and
+  uses automatic spacing when it differs from the global sequence.
+- `PartPlateList::preprocess_exclude_areas()` prepares mandatory bed and enabled
+  wrapping-detection exclusions. `preprocess_nonprefered_areas()` prepares the
+  calibration region; the job gates it by vendor, first-layer scanning, and
+  the user's option. The libnest2d selection policy retries packing without
+  the preferential region while retaining mandatory regions and prime towers.
 
 ## Remaining design decisions
 
 Resolve each related group before updating this specification again:
 
-1. Material compatibility, prime-tower obstacles, and effective per-plate
-   configuration.
-2. Arrangement parameters and persistence, shared UI entry points, progress,
+1. Arrangement parameters and persistence, shared UI entry points, progress,
    cancellation, concurrent operations, and failure/commit semantics for both
    WASM variants.
-3. Native parity targets, acceptance fixtures, performance expectations, and
-   independently verifiable implementation stages.
+2. Native parity targets, effective-configuration mapping, acceptance fixtures,
+   performance expectations, and independently verifiable implementation stages.
 
 This document is a peer of [Grand Plan](Grand%20Plan.md). Accepted design
 decisions do not mark arrangement as delivered or complete any roadmap item.

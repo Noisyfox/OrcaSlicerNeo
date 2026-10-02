@@ -12,9 +12,9 @@ validates the Electron utility runtime using existing functionality and
 performance fixtures; Python/plugin functionality remains unimplemented.
 
 The peer [Model Arrangement](Model%20Arrangement.md) records the accepted
-Orca-core reuse direction, scope, capacity, plate rules, instance eligibility,
-and remaining arrangement design decisions. The specification is partially
-approved; arrangement implementation remains queued and unimplemented.
+Orca-core reuse direction, accepted arrangement behavior, and remaining design
+decisions. The specification is partially approved; arrangement implementation
+remains queued and unimplemented.
 
 Verification frequency follows the accepted
 [`testing guidelines`](../doc/testing_guidelines.md):
