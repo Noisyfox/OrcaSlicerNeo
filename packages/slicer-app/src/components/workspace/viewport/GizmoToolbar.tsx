@@ -63,7 +63,7 @@ export function GizmoToolbar({
   // ordinary toolbar to Move; Rotate and Scale remain unavailable.
   return (
     <div
-      className="absolute top-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
+      className="absolute top-0 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
       data-testid="gizmo-toolbar"
     >
       <TooltipFor content="Add Model" disabled={!presetsLoaded}>

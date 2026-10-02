@@ -31,7 +31,8 @@ Electron custom/native surfaces.
   to match that center. Navigation scrolling hides its scrollbar
   to avoid shifting the centerline.
 - Page tabs use a transparent titlebar background and a gray selected surface
-  (`#54545A`) with rounded top corners and a square bottom edge. Home is
+  (`#54545A`) with rounded top corners and a square bottom edge. The application
+  shell background uses the same `titlebar-tab` color token. Home is
   icon-only. Tabs use 12px horizontal padding and retain the 10px icon/text gap.
   Page-tab labels and the project name use 13px text with a 20px line height.
   In constrained widths the navigation scrolls within the titlebar.
@@ -48,7 +49,7 @@ Electron custom/native surfaces.
 - Undo/Redo left-click performs one operation; right-click opens the directional
   history list on the same icon. No separate dropdown buttons or visible action
   labels remain. Prepare-only availability and existing restore/painting/runtime
-  guards are preserved. A single teal split button sits 8px from the viewport
+  guards are preserved. A single teal split button sits flush with the control frame
   top-left corner, implemented by `components/workspace/SliceButton.tsx`
   (renamed from the former layout Toolbar), with a wide, left-aligned text action and a narrow chevron
   selector, separately rounded and separated by a 2px gap. There is no outer
@@ -64,8 +65,16 @@ Electron custom/native surfaces.
   Normal actions are unavailable during history restore or export. Slice requires a loaded model; output
   requires a completed result. Send modes retain their dialog and Device
   navigation. The plate panel remains at the viewport bottom-right, and the
-  FPS/MS/memory overlay at the top-right. Workspace and Device retain a 4px
-  gap below the titlebar; no separate top toolbar row remains.
+  FPS/MS/memory overlay at the top-right. Sidebar and Device retain a 4px
+  gap below the titlebar; no separate top toolbar row remains. The canvas
+  extends through the former 4px top/right gaps and the 6px sidebar-resizer
+  gap, meeting the titlebar, window edge, status bar and sidebar. The resizer
+  keeps its transparent 6px hit area over the canvas without hover/focus fill.
+  Floating controls share a frame inset by 4px at the top/right and 6px at
+  the left, preserving their previous screen positions as the canvas expands.
+  Empty frame space passes input through to the scene. The orientation gizmo
+  compensates for the 6px extension. The viewport container has no card border,
+  rounded corners or card background.
   This follow-up layout was verified in the 2026-10-02 test round below.
 - Desktop native window controls follow the 32px titlebar height; macOS traffic
   lights use y=9. Windows/Linux reserve the native overlay area. All shared
@@ -116,6 +125,29 @@ The pre-existing dirty
 `packages/slicer-wasm/cpp` submodule state is unrelated and was not changed.
 
 ## Verification
+
+### 2026-10-02 — edge-to-edge viewport follow-up
+
+- `pnpm test`: passed, 138 files / 1291 tests; slicer-app 102 files / 880 tests.
+- `pnpm typecheck`: passed across the workspace.
+- `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` and
+  `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs`:
+  passed with the mock runtime.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'full v1 flow|starts on blank Home|Prepare plate controls|preview overlay|unselected body keeps|multi-instance move|shift\+drag'`:
+  five scenarios passed initially. Two old assertions were updated: Undo now
+  uses its icon-button accessible label, and empty-space marquee gestures
+  start below the FPS panel.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'unselected body keeps|shift\+drag'`:
+  both corrected scenarios passed. Together the runs prove seven scenarios.
+  Assertions cover canvas contact with all four boundaries, absent card border
+  and radius, shared shell/tab background, preserved control-frame spacing,
+  transparent resizer hover/focus and keyboard resizing, import/slice/export,
+  plate controls, preview sliders/G-code window, body drag and box selection.
+- `git diff --check`: passed.
+
+This follow-up changed shared layout only. Real Web/WASM, real painting E2E,
+WASM variant builds and the full release matrix were not run.
+
 
 ### 2026-10-02 — viewport split action
 

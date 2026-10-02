@@ -111,10 +111,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
   const [showGcodeText, setShowGcodeText] = useState(false);
   const [plateActionPending, setPlateActionPending] = useState(false);
-  // Ref is only consumed as a prop target (drei Stats `parent`), never read
-  // by this component — so it can be typed without the null union, which
+  // The controls ref is consumed as a prop target (drei Stats `parent`),
+  // never read by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
   const viewportRef = useRef<HTMLDivElement>(null!);
+  const controlsRef = useRef<HTMLDivElement>(null!);
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
   const sceneStateRef = useRef<RootState | null>(null);
   const cameraGestureActiveRef = useRef(false);
@@ -488,7 +489,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
                 ref. stats.js pins it inline as fixed with z-index: 10000, so
                 override both inline values to keep it in the scene layer and
                 below modal dialogs. Click a panel to switch. */}
-            <Stats parent={viewportRef} className="scene-stats absolute! top-0! right-0! left-auto! z-0!" />
+            <Stats parent={controlsRef} className="scene-stats absolute! top-0! right-0! left-auto! z-0!" />
             <Scene
               activeTab={activeTab}
               controller={sceneInteraction}
@@ -538,36 +539,40 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
                 Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
                 viewcube's Y-up face names). See
                 doc/2026-08-17-viewcube-gizmo.md. */}
-            <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
+            <GizmoHelper alignment="bottom-left" margin={[86, 80]}>
               <GizmoViewport name={__ORCA_E2E__ ? 'viewport-navigator' : undefined} />
             </GizmoHelper>
           </Canvas>
         </SceneContextMenu>
       </ViewportErrorBoundary>
       {prepareTab && !paintingActive && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
-      {paintingActive && <MmuPaintingPanel />}
-      {!paintingActive && paintState?.error && <p role="alert" className="absolute top-14 right-3 rounded-md border bg-card p-3 text-sm text-destructive">{paintState.error}</p>}
-      {previewTab && !toolpath && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" aria-live="polite">
-          <p className="rounded-md bg-background/80 px-3 py-2 text-sm text-muted-foreground shadow-sm backdrop-blur-sm">
-            {projectionStatus === 'loading'
-              ? 'Loading preview…'
-              : projectionStatus === 'failed'
-                ? 'Preview unavailable'
-                : 'Needs slicing'}
-          </p>
-        </div>
-      )}
-      {previewTab && toolpath && <LayerScrubber data={toolpath} />}
-      {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
-      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
-      {actionControls && <div className="pointer-events-auto absolute top-2 left-2 z-20 max-w-[calc(100%-1rem)]" data-testid="viewport-actions">{actionControls}</div>}
-      {prepareTab && !paintingActive && plateSession && <PlateControls
-        plateSession={plateSession}
-        pending={plateActionPending}
-        onAdd={addPlate}
-        onDelete={deletePlate}
-      />}
+      {/* The canvas fills the removed chrome gaps; the control frame preserves
+          the previous screen positions and passes empty-space input through. */}
+      <div ref={controlsRef} className="pointer-events-none absolute top-1 right-1 bottom-0 left-1.5 [&>*:not([role=status])]:pointer-events-auto" data-testid="viewport-control-frame">
+        {paintingActive && <MmuPaintingPanel />}
+        {!paintingActive && paintState?.error && <p role="alert" className="absolute top-14 right-0 rounded-md border bg-card p-3 text-sm text-destructive">{paintState.error}</p>}
+        {previewTab && !toolpath && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" aria-live="polite">
+            <p className="rounded-md bg-background/80 px-3 py-2 text-sm text-muted-foreground shadow-sm backdrop-blur-sm">
+              {projectionStatus === 'loading'
+                ? 'Loading preview…'
+                : projectionStatus === 'failed'
+                  ? 'Preview unavailable'
+                  : 'Needs slicing'}
+            </p>
+          </div>
+        )}
+        {previewTab && toolpath && <LayerScrubber data={toolpath} />}
+        {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
+        {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
+        {actionControls && <div className="pointer-events-auto absolute top-0 left-0 z-20 max-w-full" data-testid="viewport-actions">{actionControls}</div>}
+        {prepareTab && !paintingActive && plateSession && <PlateControls
+          plateSession={plateSession}
+          pending={plateActionPending}
+          onAdd={addPlate}
+          onDelete={deletePlate}
+        />}
+      </div>
     </div>
   );
 }
@@ -585,7 +590,7 @@ function PlateControls({
 }) {
   const current = plateSession.plates.find((plate) => plate.plateId === plateSession.currentPlateId);
   return (
-    <div className="absolute bottom-2 right-2 z-20 flex items-center gap-2 rounded-md border bg-background/90 p-1.5 shadow-sm backdrop-blur" data-testid="plate-controls">
+    <div className="absolute bottom-0 right-0 z-20 flex items-center gap-2 rounded-md border bg-background/90 p-1.5 shadow-sm backdrop-blur" data-testid="plate-controls">
       <span className="px-1 text-xs text-muted-foreground" data-testid="current-plate-label">
         {current?.name ?? 'Plate'} ({plateSession.plates.length}/36)
       </span>

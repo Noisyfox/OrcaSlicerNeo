@@ -421,8 +421,8 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // change. The profile can be overridden for real-model regression runs.
     await selectStableRealPrinter(page);
 
-    // The shared split action sits 8px from the viewport top-left; the selector
-    // stays square and the FPS overlay uses the opposite corner.
+    // The canvas reaches the chrome edges; the inset control frame preserves
+    // floating-control positions and keeps the selector square.
     const viewportBox = await page.getByTestId('viewport').boundingBox();
     const actionBox = await page.getByTestId('btn-slice').boundingBox();
     const selectorBox = await page.getByTestId('output-mode-select').boundingBox();
@@ -432,12 +432,36 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     expect(selectorBox).not.toBeNull();
     expect(statsBox).not.toBeNull();
     expect(actionBox!.width).toBe(150);
-    expect(actionBox!.x - viewportBox!.x).toBeCloseTo(8, 0);
-    expect(actionBox!.y - viewportBox!.y).toBeCloseTo(8, 0);
+    expect(actionBox!.x - viewportBox!.x).toBeCloseTo(6, 0);
+    expect(actionBox!.y - viewportBox!.y).toBeCloseTo(4, 0);
     expect(selectorBox!.width).toBeCloseTo(28, 3);
     expect(selectorBox!.height).toBeCloseTo(28, 3);
-    expect(statsBox!.x + statsBox!.width).toBeCloseTo(viewportBox!.x + viewportBox!.width, 0);
-    expect(statsBox!.y).toBeCloseTo(viewportBox!.y, 0);
+    expect(statsBox!.x + statsBox!.width).toBeCloseTo(viewportBox!.x + viewportBox!.width - 4, 0);
+    expect(statsBox!.y).toBeCloseTo(viewportBox!.y + 4, 0);
+
+    const titlebarBox = await page.getByTestId('titlebar').boundingBox();
+    const sidebarBox = await page.locator('#app-panel-workspace aside').boundingBox();
+    const footerBox = await page.locator('footer').boundingBox();
+    expect(viewportBox!.y).toBeCloseTo(titlebarBox!.y + titlebarBox!.height, 0);
+    expect(viewportBox!.x).toBeCloseTo(sidebarBox!.x + sidebarBox!.width, 0);
+    expect(viewportBox!.x + viewportBox!.width).toBeCloseTo(await page.evaluate(() => innerWidth), 0);
+    expect(viewportBox!.y + viewportBox!.height).toBeCloseTo(footerBox!.y, 0);
+    const surfaces = await page.evaluate(() => {
+      const viewport = document.querySelector('[data-testid="viewport"]')!;
+      const style = getComputedStyle(viewport.parentElement!);
+      const shell = document.querySelector('[data-testid="titlebar"]')!.parentElement!;
+      return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, background: getComputedStyle(shell).backgroundColor };
+    });
+    expect(surfaces).toEqual({ border: '0px', radius: '0px', background: 'rgb(84, 84, 90)' });
+    const resizer = page.getByTestId('sidebar-resizer');
+    await resizer.hover();
+    expect(await resizer.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+    await resizer.focus();
+    expect(await resizer.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+    await resizer.press('ArrowRight');
+    const resizedSidebar = await page.locator('#app-panel-workspace aside').boundingBox();
+    expect(resizedSidebar!.width).toBeGreaterThan(sidebarBox!.width);
+    await resizer.press('ArrowLeft');
 
     // Slice gated until a model is loaded.
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
@@ -1717,9 +1741,9 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
     await expect.poll(() => page.getByTestId('history-undo').getAttribute('aria-label'))
       .not.toBe(historyBefore);
     const undo = page.getByTestId('history-undo');
-    await expect(undo).toHaveText('Undo');
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
     await undo.hover();
-    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText('Undo Move');
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Undo Move');
   } finally {
     await app.close();
   }
@@ -2376,9 +2400,9 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
 
       // Shift+drag over empty space clears the selection.
       await page.keyboard.down('Shift');
-      await page.mouse.move(box.x + box.width - 60, box.y + 40);
+      await page.mouse.move(box.x + box.width - 60, box.y + 90);
       await page.mouse.down();
-      await page.mouse.move(box.x + box.width - 100, box.y + 90, { steps: 6 });
+      await page.mouse.move(box.x + box.width - 100, box.y + 140, { steps: 6 });
       await page.mouse.up();
       await page.keyboard.up('Shift');
       await expect.poll(selectionCount).toBe(0);

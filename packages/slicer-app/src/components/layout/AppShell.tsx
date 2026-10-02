@@ -43,7 +43,7 @@ export function AppShell({ titleBar, home, workspace, device, activeTab = 'home'
   status: ReactNode;
 }) {
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-titlebar-tab">
       {titleBar}
       <div className="relative flex min-h-0 flex-1">
         <AppPagePanel active={activeTab === 'home'} id="app-panel-home" labelledBy="app-tab-home">

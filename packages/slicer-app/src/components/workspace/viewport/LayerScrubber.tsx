@@ -98,7 +98,7 @@ export const LayerScrubber = memo(function LayerScrubber({ data }: { data: Toolp
         onOpenChange={setPreviewExpanded}
         data-testid="preview-controls"
         aria-label="G-code preview controls"
-        className="pointer-events-auto absolute right-20 top-3 z-20 flex max-h-[calc(100%-6rem)] min-h-0 w-52 flex-col overflow-hidden rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur"
+        className="pointer-events-auto absolute right-20 top-0 z-20 flex max-h-[calc(100%-6rem)] min-h-0 w-52 flex-col overflow-hidden rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur"
       >
         <CollapsibleTrigger
           render={
@@ -154,7 +154,7 @@ export const LayerScrubber = memo(function LayerScrubber({ data }: { data: Toolp
           <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>
         </CollapsibleContent>
       </Collapsible>
-      <div ref={layerRangeFrameRef} data-testid="preview-layer-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
+      <div ref={layerRangeFrameRef} data-testid="preview-layer-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} className="pointer-events-auto absolute right-0 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
         <div data-testid="layer-scrubber" className="relative h-full w-6">
           <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart, layerEnd]} thumbTestIds={['layer-scrubber-start', 'layer-scrubber-end']} onValueChange={(value) => {
@@ -166,7 +166,7 @@ export const LayerScrubber = memo(function LayerScrubber({ data }: { data: Toolp
         </div>
         <span className="sr-only">Layers {layerStart + 1} through {layerEnd + 1}</span>
       </div>
-      <div ref={moveRangeFrameRef} data-testid="preview-move-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; setMoveEnd(moveEnd + step); }} className="pointer-events-auto absolute bottom-3 left-1/2 z-10 w-2/5 min-w-48 -translate-x-1/2 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
+      <div ref={moveRangeFrameRef} data-testid="preview-move-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; setMoveEnd(moveEnd + step); }} className="pointer-events-auto absolute bottom-0 left-1/2 z-10 w-2/5 min-w-48 -translate-x-1/2 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <div className="mb-1 flex justify-between text-[0.65rem] text-muted-foreground"><span>Move</span><span>{moveEnd + 1} / {maxMove + 1}</span></div>
         <div ref={moveSurfaceRef}>
           <Slider min={0} max={maxMove} step={1} value={[moveEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setMoveEnd(values[0] ?? 0); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; setMoveEnd(moveEnd + step); }} aria-label="Active layer move end" />
