@@ -11,6 +11,11 @@ Plan B direction, and open architecture decisions. Its first authorized step
 validates the Electron utility runtime using existing functionality and
 performance fixtures; Python/plugin functionality remains unimplemented.
 
+The peer [Model Arrangement](Model%20Arrangement.md) records the accepted
+Orca-core reuse direction, operation scope and capacity behavior, and remaining
+arrangement design decisions. The specification is partially approved;
+arrangement implementation remains queued and unimplemented.
+
 Verification frequency follows the accepted
 [`testing guidelines`](../doc/testing_guidelines.md):
 focused, risk-based checks during implementation; root regression and affected
