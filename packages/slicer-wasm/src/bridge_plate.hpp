@@ -91,7 +91,8 @@ json plate_mutation_snapshot(
     const std::set<std::string>& before,
     const std::vector<std::string>& dirty_reasons,
     const json& instance_transforms = json::array(),
-    const std::set<std::size_t>* affected_instances = nullptr);
+    const std::set<std::size_t>* affected_instances = nullptr,
+    bool invalidate_presentations = true);
 // Complete an Add Plate structure mutation without treating every member plate
 // as affected. The caller supplies exactly the plates whose physical origins
 // changed; a newly-created plate starts with its fresh zero revision.

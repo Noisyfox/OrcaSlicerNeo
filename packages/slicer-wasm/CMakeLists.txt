@@ -370,6 +370,7 @@ target_compile_options(deps_core PRIVATE
 # adapters remain Neo code.
 set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_arrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
