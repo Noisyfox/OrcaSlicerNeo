@@ -3,9 +3,9 @@
 **Date:** 2026-10-02
 
 **Status:** Partially approved — operation scope, capacity, plate rules, instance
-eligibility, and material/printing constraints accepted. Parameter, interaction,
-execution, and acceptance decisions remain under discussion. Implementation has
-not started.
+eligibility, material/printing constraints, and parameter/persistence rules
+accepted. Interaction, execution, and acceptance decisions remain under
+discussion. Implementation has not started.
 
 **Scope:** Orca-compatible model arrangement in the shared Electron and Web
 application. This is the living feature specification, maintained in batches
@@ -225,6 +225,74 @@ or spiral-vase settings.
 This matches native Orca and Neo's existing Add Plate contract in
 [Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md).
 
+## Accepted parameters and preferences
+
+### Parameter defaults
+
+| Parameter | Default | Persistence scope |
+| --- | --- | --- |
+| Spacing | `0`, meaning automatic spacing | Separate by-layer and by-object values |
+| Auto rotate for arrangement | Disabled | Separate by-layer and by-object values |
+| Allow multiple materials on same plate | Enabled | Shared across both printing modes |
+| Avoid extrusion calibration region | Enabled when the native applicability condition is met | Shared across both printing modes |
+| Align to Y axis | Enabled for `printer_structure = I3`, otherwise disabled, subject to auto-rotation exclusion | No independent persistent preference |
+
+### Spacing
+
+Support both native automatic spacing (`0`) and manually requested non-negative
+spacing in millimeters. Default to automatic spacing. Preserve the native
+algorithm's inflation, fitting, support-related spacing, and sequential-print
+clearance rules rather than interpreting the entered number as a replacement
+for all native constraints.
+
+Orca's spacing slider covers 0–100 mm, but its numeric input accepts larger
+values. Neo must not introduce a 100 mm hard maximum. The exact controls and
+layout remain part of the interaction design discussion.
+
+The earlier current-plate print-sequence rule still applies: if the plate's
+sequence differs from the global sequence, this operation uses automatic spacing
+without changing the saved preference.
+
+### Rotation and Y-axis alignment
+
+Expose Auto rotate for arrangement, disabled by default. When enabled, the
+native algorithm may change an instance's Z-axis rotation to improve packing;
+it does not change X/Y orientation or scale as part of this option.
+
+Also expose Align to Y axis. On printer selection/change and on Reset, derive
+its value from `printer_structure`: enabled for I3, disabled for other or
+unspecified structures. The user may adjust it during the session.
+
+The options are mutually exclusive. Enabling auto-rotation turns Y alignment
+off and disables its control. Y alignment can itself change Z-axis rotation
+while auto-rotation is off; it is not a promise to preserve the original angle.
+Preserve the native alignment algorithm's handling of shapes without a dominant
+axis.
+
+### Cross-session storage
+
+Use the existing host-neutral preference boundary for Electron and Web to
+persist spacing, auto-rotation, multiple-materials, and calibration-region
+preferences across sessions. Keep spacing and auto-rotation separate for the
+global by-layer and by-object printing modes; the other two use shared saved
+values.
+
+Do not persist the user's Y-alignment toggle independently. Printer changes and
+Reset re-derive its value as above, and the auto-rotation exclusion remains in
+force. These are application preferences, not new per-project printing settings.
+
+### Reset
+
+Provide Reset with the native scope:
+
+- Restore spacing and auto-rotation defaults for the current global printing
+  mode. Preserve the other mode's separately saved spacing and rotation.
+- Restore the shared multiple-materials and calibration-region defaults,
+  respecting the latter's applicability condition.
+- Re-derive Y alignment from the current printer structure.
+
+Reset does not reset both printing modes' independent preferences at once.
+
 ## Native Orca reference behavior
 
 The source reference is the repository's pinned Orca core. Product behavior is
@@ -276,14 +344,19 @@ helper functions.
   calibration region; the job gates it by vendor, first-layer scanning, and
   the user's option. The libnest2d selection policy retries packing without
   the preferential region while retaining mandatory regions and prime towers.
+- [GLCanvas3D.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/GLCanvas3D.cpp)
+  contains `_render_arrange_menu()` and `load_arrange_settings()`, which define
+  spacing input, parameter persistence keys, rotation/alignment exclusion, and
+  Reset scope. Printer-preset selection in
+  [Plater.cpp](../packages/slicer-wasm/cpp/src/slic3r/GUI/Plater.cpp) re-derives
+  Y alignment from the printer structure.
 
 ## Remaining design decisions
 
 Resolve each related group before updating this specification again:
 
-1. Arrangement parameters and persistence, shared UI entry points, progress,
-   cancellation, concurrent operations, and failure/commit semantics for both
-   WASM variants.
+1. Shared UI entry points and controls, progress, cancellation, concurrent
+   operations, and failure/commit semantics for both WASM variants.
 2. Native parity targets, effective-configuration mapping, acceptance fixtures,
    performance expectations, and independently verifiable implementation stages.
 
