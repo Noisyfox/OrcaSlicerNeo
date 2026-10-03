@@ -13,6 +13,7 @@ export interface OrcaE2eHooks extends Record<string, unknown> {
   } | null;
   gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'unavailable';
   gpuStreamingDiagnostic?: () => { reason: string; message: string } | null;
+  gpuStreamingMoveCounts?: () => Readonly<Record<number, number>>;
   gpuStreamingColorSamples?: () => readonly (readonly [number, number, number])[];
   previewEvidence?: () => Promise<{
     extrusionTools: readonly number[];

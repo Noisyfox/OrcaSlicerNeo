@@ -6,6 +6,7 @@ import type {
   GpuStreamingSelection,
 } from './gpuStreamingPlanner';
 import { resolvePreviewColor, TRAVEL_MOVE_TYPE } from './toolpathColors';
+import { isPreviewMarker, WIPE_MOVE_TYPE } from './previewMoveTypes';
 
 /** WebGL2 adapter for Orca/libvgcode's native SegmentTemplate renderer. */
 export interface GpuStreamingCapabilityLimits {
@@ -116,6 +117,45 @@ void main(){
  if(int(vertex_id)==2||int(vertex_id)==7){float ds=int(vertex_id)==2?-1.:1.; if(hwa.z==0.)pos+=ds*dir*hw; else {pos+=ds*dir*hw*sin(abs(hwa.z)*.5);pos+=sign(hwa.z)*horizontal*cos(abs(hwa.z)*.5);}}
  vec3 eye=(modelViewMatrix*vec4(pos,1.)).xyz; eye.z+=hwa.w; vec3 normal=(modelViewMatrix*vec4(normalize(pos-endpoint),0.)).xyz; vec4 base=colorAt(id); float dim=base.a<active_layer?earlier_layer_dim:1.; v_color=base.rgb*dim*light(eye,normal); gl_Position=projectionMatrix*vec4(eye,1.);
 }`;
+// libvgcode OptionTemplate: paired cones with sixteen sides (96 vertices).
+function createOptionTemplateGeometry(): THREE.BufferGeometry {
+  const positions: number[] = [], normals: number[] = [];
+  for (let i = 0; i < 16; i++) {
+    const a = i * Math.PI / 8, b = (i + 1) * Math.PI / 8;
+    const current = [0.5 * Math.cos(a), 0.5 * Math.sin(a), 0];
+    const next = [0.5 * Math.cos(b), 0.5 * Math.sin(b), 0];
+    positions.push(0, 0, 0.5, ...current, ...next, 0, 0, -0.5, ...next, ...current);
+    normals.push(0, 0, 1, Math.cos(a), Math.sin(a), 0, Math.cos(b), Math.sin(b), 0,
+      0, 0, -1, Math.cos(b), Math.sin(b), 0, Math.cos(a), Math.sin(a), 0);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  return geometry;
+}
+
+const OPTIONS_VERTEX_SHADER = `precision highp float; precision highp int; precision highp usampler2D;
+uniform sampler2D position_tex; uniform sampler2D height_width_angle_tex; uniform sampler2D color_tex;
+uniform usampler2D segment_index_tex;
+uniform ivec2 position_tex_size; uniform ivec2 shape_tex_size; uniform ivec2 color_tex_size; uniform ivec2 segment_index_tex_size;
+uniform int segment_base; uniform int index_offset;
+uniform float active_layer; uniform float earlier_layer_dim;
+out vec3 v_color;
+ivec2 coord(ivec2 s,int id){return ivec2(id%s.x,id/s.x);}
+void main(){
+ int local=int(texelFetch(segment_index_tex,coord(segment_index_tex_size,gl_InstanceID+index_offset),0).r);
+ int id=(local+segment_base)*2+1;
+ vec4 hwa=texelFetch(height_width_angle_tex,coord(shape_tex_size,id),0);
+ vec3 center=texelFetch(position_tex,coord(position_tex_size,id),0).xyz-vec3(0.,0.,.5*hwa.x);
+ vec3 pos=center+1.5*vec3(hwa.y,hwa.y,hwa.x)*position;
+ vec3 eye=(modelViewMatrix*vec4(pos,1.)).xyz; eye.z+=hwa.w;
+ vec3 n=normalize((modelViewMatrix*vec4(normal,0.)).xyz);
+ const vec3 top=vec3(-.4574957,.4574957,.7624929),front=vec3(.6985074,.1397015,.6985074);
+ float lighting=.3+.6*.8*max(dot(n,top),0.)+.6*.3*max(dot(n,front),0.)+.6*.125*pow(max(dot(-normalize(eye),reflect(-top,n)),0.),20.)+.25;
+ vec4 base=texelFetch(color_tex,coord(color_tex_size,id),0);
+ v_color=base.rgb*lighting*(base.a<active_layer?earlier_layer_dim:1.);
+ gl_Position=projectionMatrix*vec4(eye,1.);
+}`;
 const SEGMENTS_FRAGMENT_SHADER = `precision highp float; in vec3 v_color; out vec4 fragment_color; void main(){fragment_color=vec4(v_color,1.);}`;
 
 interface StaticTextures {
@@ -130,6 +170,7 @@ interface StaticTextures {
 interface PageState {
   readonly planPage: GpuStreamingPage;
   readonly mesh: THREE.InstancedMesh;
+  readonly markerMesh: THREE.InstancedMesh;
   readonly indexData: Uint32Array;
   readonly indexTexture: THREE.DataTexture;
 }
@@ -202,15 +243,17 @@ function buildStaticTextures(
       positions[o] = xyz[si] ?? 0;
       positions[o + 1] = xyz[si + 1] ?? 0;
       positions[o + 2] = xyz[si + 2] ?? 0;
-      const isTravel = source.moveTypes[i] === TRAVEL_MOVE_TYPE;
+      const moveType = source.moveTypes[i];
+      const isTravel = moveType === TRAVEL_MOVE_TYPE || moveType === WIPE_MOVE_TYPE;
+      const marker = isPreviewMarker(moveType ?? 0);
       shapes[o] = isTravel
         ? LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM
-        : Math.max(0, source.heights[i] ?? 0);
+        : (marker && !(source.heights[i] > 0) ? 0.2 : Math.max(0, source.heights[i] ?? 0));
       shapes[o + 1] = isTravel
         ? LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM
-        : Math.max(0, source.widths[i] ?? 0);
+        : (marker && !(source.widths[i] > 0) ? 0.4 : Math.max(0, source.widths[i] ?? 0));
       shapes[o + 2] = source.capAngles?.[i] ?? source.angles?.[i] ?? 0;
-      shapes[o + 3] = source.biases?.[i] ?? 0;
+      shapes[o + 3] = source.biases?.[i] ?? (marker ? 0.1 : moveType === WIPE_MOVE_TYPE ? 0.05 : 0);
       const c = resolvePreviewColor(source, i, scheme);
       colors[o] = c[0];
       colors[o + 1] = c[1];
@@ -256,6 +299,7 @@ function makeMaterial(
       color_tex_size: { value: staticTextures.colorSize },
       segment_index_tex_size: { value: size },
       segment_base: { value: segmentBase },
+      index_offset: { value: 0 },
       active_layer: { value: -1 },
       earlier_layer_dim: { value: 1 },
     },
@@ -318,6 +362,7 @@ export class GpuStreamingRenderer {
   readonly capabilities: GpuStreamingCapabilityProbe;
   readonly template: GpuStreamingSegmentTemplateResource;
   readonly pages: readonly PageState[];
+  private readonly optionGeometry: THREE.BufferGeometry;
   private readonly source: GpuStreamingPagePlan['source'];
   private readonly staticTextures: StaticTextures;
   private readonly contextElement?: GpuStreamingRendererHost;
@@ -330,8 +375,10 @@ export class GpuStreamingRenderer {
     template: GpuStreamingSegmentTemplateResource,
     staticTextures: StaticTextures,
     pages: readonly PageState[],
+    optionGeometry: THREE.BufferGeometry,
     renderer?: GpuStreamingRendererHost,
   ) {
+    this.optionGeometry = optionGeometry;
     this.source = plan.source;
     this.capabilities = capabilities;
     this.template = template;
@@ -351,11 +398,11 @@ export class GpuStreamingRenderer {
         : 'ready';
   }
   attachToScene(scene: THREE.Object3D) {
-    for (const p of this.pages) if (p.mesh.parent !== scene) scene.add(p.mesh);
+    for (const p of this.pages) for (const mesh of [p.mesh, p.markerMesh]) if (mesh.parent !== scene) scene.add(mesh);
   }
   detachFromScene(scene: THREE.Object3D) {
-    for (const p of this.pages)
-      if (p.mesh.parent === scene) scene.remove(p.mesh);
+    for (const p of this.pages) for (const mesh of [p.mesh, p.markerMesh])
+      if (mesh.parent === scene) scene.remove(mesh);
   }
   private readonly handleContextLost = (event?: Event) => {
     event?.preventDefault?.();
@@ -387,15 +434,24 @@ export class GpuStreamingRenderer {
             `selection page ${i} contains an out-of-range local index`,
           );
       page.indexData.fill(0);
-      page.indexData.set(selected.indices);
+      let segments = 0;
+      for (const local of selected.indices) {
+        if (!isPreviewMarker(this.source.moveTypes[page.planPage.firstSegment + local] ?? 0)) page.indexData[segments++] = local;
+      }
+      let markers = 0;
+      for (const local of selected.indices) {
+        if (isPreviewMarker(this.source.moveTypes[page.planPage.firstSegment + local] ?? 0)) page.indexData[segments + markers++] = local;
+      }
+      (page.markerMesh.material as THREE.ShaderMaterial).uniforms.index_offset.value = segments;
       page.indexTexture.needsUpdate = true;
-      page.mesh.count = selected.emittedCount;
+      page.mesh.count = segments;
+      page.markerMesh.count = markers;
     }
   }
   updateDimming(activeLayer: number, earlierLayerDim = 0.25) {
     if (this.disposed || this.contextLost) return;
-    for (const page of this.pages) {
-      const uniforms = (page.mesh.material as THREE.ShaderMaterial).uniforms;
+    for (const page of this.pages) for (const mesh of [page.mesh, page.markerMesh]) {
+      const uniforms = (mesh.material as THREE.ShaderMaterial).uniforms;
       uniforms.active_layer.value = activeLayer;
       uniforms.earlier_layer_dim.value = earlierLayerDim;
     }
@@ -443,11 +499,16 @@ export class GpuStreamingRenderer {
     this.gpuDisposed = true;
     for (const page of this.pages) {
       page.mesh.count = 0;
+      page.markerMesh.count = 0;
+      page.mesh.dispose();
+      page.markerMesh.dispose();
+      (page.markerMesh.material as THREE.Material).dispose();
       page.indexTexture.dispose();
       (page.mesh.material as THREE.Material).dispose();
     }
     this.staticTextures.dispose();
     this.template.dispose();
+    this.optionGeometry.dispose();
   }
   dispose() {
     if (this.disposed) return;
@@ -533,7 +594,9 @@ export function createGpuStreamingRenderer(
     };
   let template: GpuStreamingSegmentTemplateResource | undefined;
   let textures: StaticTextures | undefined;
+  let optionGeometry: THREE.BufferGeometry | undefined;
   const pages: PageState[] = [];
+  let backend: GpuStreamingRenderer | undefined;
   try {
     const facade = options.resourceFacade;
     const create = facade?.createSegmentTemplate ?? defaultTemplate;
@@ -549,6 +612,7 @@ export function createGpuStreamingRenderer(
       plan.source,
       capabilities.limits.maxTextureSize!,
     );
+    optionGeometry = createOptionTemplateGeometry();
     for (const page of plan.pages) {
       const index = indexTexture(
         new Uint32Array(page.segmentCount),
@@ -568,34 +632,55 @@ export function createGpuStreamingRenderer(
       mesh.count = 0;
       mesh.frustumCulled = false;
       mesh.renderOrder = 1000;
+      let markerCapacity = 0;
+      for (let i = page.firstSegment; i < page.firstSegment + page.segmentCount; i++) {
+        if (isPreviewMarker(plan.source.moveTypes[i] ?? 0)) markerCapacity++;
+      }
+      const markerMaterial = makeMaterial(textures, index.texture, index.size, page.firstSegment);
+      markerMaterial.vertexShader = OPTIONS_VERTEX_SHADER;
+      markerMaterial.side = THREE.FrontSide;
+      const markerMesh = new THREE.InstancedMesh(optionGeometry, markerMaterial, markerCapacity);
+      markerMesh.count = 0;
+      markerMesh.frustumCulled = false;
+      markerMesh.renderOrder = 1001;
       pages.push({
         planPage: page,
         mesh,
+        markerMesh,
         indexData: index.texture.image.data as Uint32Array,
         indexTexture: index.texture,
       });
     }
-    const backend = new GpuStreamingRenderer(
+    backend = new GpuStreamingRenderer(
       plan,
       capabilities,
       template,
       textures,
       pages,
+      optionGeometry,
       options.renderer,
     );
     if (options.compile !== false && options.renderer?.compile) {
       const scene = new THREE.Scene();
-      pages.forEach((p) => scene.add(p.mesh));
+      pages.forEach((p) => scene.add(p.mesh, p.markerMesh));
       options.renderer.compile(scene, new THREE.Camera());
     }
     return { ok: true, backend };
   } catch (error) {
-    for (const page of pages) {
-      page.indexTexture.dispose();
-      (page.mesh.material as THREE.Material).dispose();
+    if (backend) {
+      backend.dispose();
+    } else {
+      for (const page of pages) {
+        page.mesh.dispose();
+        page.markerMesh.dispose();
+        (page.markerMesh.material as THREE.Material).dispose();
+        page.indexTexture.dispose();
+        (page.mesh.material as THREE.Material).dispose();
+      }
+      textures?.dispose();
+      template?.dispose();
+      optionGeometry?.dispose();
     }
-    textures?.dispose();
-    template?.dispose();
     return {
       ok: false,
       diagnostics: {

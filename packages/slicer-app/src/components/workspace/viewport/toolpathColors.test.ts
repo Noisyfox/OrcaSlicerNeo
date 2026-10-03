@@ -38,6 +38,15 @@ function source(overrides: Partial<PreviewColorSource> = {}): PreviewColorSource
 }
 
 describe('Phase-C preview color schemes', () => {
+  it('uses independent native marker colours in every scheme and speed colouring for Wipe', () => {
+    const moves = source({ moveTypes: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 9]) });
+    const native = [[205,34,214],[73,173,207],[230,230,230],[193,190,99],[218,148,139],[82,240,131],[226,210,67],[255,255,0]];
+    for (const scheme of ['feature', 'filament', 'temperature'] as const) {
+      native.forEach((color, i) => expect(resolvePreviewColor(moves, i, scheme)).toEqual(color.map((v) => v / 255)));
+    }
+    expect(resolvePreviewColor(source({ moveTypes: Uint8Array.from([9, 10, 8]) }), 0, 'speed')).toEqual(ORCA_RANGE_COLORS[0]);
+  });
+
   it('uses the native 11-color ramp and active result ranges', () => {
     expect(colorForPreviewValue(0, 0, 10)).toEqual(ORCA_RANGE_COLORS[0]);
     expect(colorForPreviewValue(10, 0, 10)).toEqual(ORCA_RANGE_COLORS[10]);

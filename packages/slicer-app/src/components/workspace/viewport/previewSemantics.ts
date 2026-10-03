@@ -1,3 +1,4 @@
+import { isIndependentPreviewMove, type PreviewMoveVisibility } from './previewMoveTypes';
 import type { PreviewLayerRange } from '@slicer/client';
 import type { ToolpathGeometry } from './useSliceResult';
 import { TRAVEL_MOVE_TYPE } from './toolpathColors';
@@ -26,6 +27,7 @@ export interface PreviewVisibilityOptions {
   visibleLayerEnd: number;
   activeMoveEnd: number;
   showTravel: boolean;
+  moveVisibility?: PreviewMoveVisibility;
   dimPreviousLayers: boolean;
   visibility?: Readonly<Record<number, boolean>>;
   visibilityField?: 'feature' | 'filament';
@@ -286,9 +288,9 @@ export function buildPreviewVisibility(
     if (layer < layerStart || layer > layerEnd) continue;
     if (layer === layerEnd && (data.moveOrders[i] ?? 0) > moveEnd) continue;
     if (!options.showTravel && (data.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
-    // libvgcode keeps travel under the independent Travels option; a stale
-    // extrusion role on a travel vertex must not make a feature filter hide it.
-    if ((data.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE) {
+    if (options.moveVisibility?.[data.moveTypes[i] ?? 0] === false) continue;
+    // Native action visibility is independent of the last extrusion role.
+    if (!isIndependentPreviewMove(data.moveTypes[i] ?? 0)) {
       const id = options.visibilityField === 'filament' ? data.extruderIds[i] ?? 0 : data.features[i] ?? 0;
       if (options.visibility && options.visibility[id] === false) continue;
     }

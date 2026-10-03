@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -31,6 +32,20 @@ const data: ToolpathGeometry = {
 describe('LayerScrubber preview controls', () => {
   let root: Root | undefined;
   afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = ''; useSlicerStore.getState().resetPreviewState(); });
+
+  it('lists only present action types, toggles independently, and resets with the preview', async () => {
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => root?.render(<LayerScrubber data={{ ...data, moveTypes: Uint8Array.from([9, 1, 3, 4]) }} />));
+    for (const type of [9, 1, 3, 4]) expect(container.querySelector(`[data-testid="preview-move-visibility-${type}"]`)).toBeTruthy();
+    expect(container.querySelector('[data-testid="preview-move-visibility-2"]')).toBeNull();
+    await act(async () => { container.querySelector('[data-testid="preview-move-visibility-3"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(useSlicerStore.getState().preview.moveVisibility[3]).toBe(false);
+    expect(useSlicerStore.getState().preview.schemeVisibility).toEqual({});
+    await act(async () => useSlicerStore.getState().setPreviewColorScheme('speed'));
+    expect(container.querySelector('[data-testid="preview-move-visibility-3"]')?.getAttribute('aria-pressed')).toBe('false');
+    await act(async () => useSlicerStore.getState().resetPreviewState());
+    expect(useSlicerStore.getState().preview.moveVisibility).toEqual({});
+  });
 
   it('exposes feature, travel, dimming, single-layer controls and hide semantics', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);

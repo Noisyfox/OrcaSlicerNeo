@@ -1,3 +1,4 @@
+import { PREVIEW_MOVE_OPTIONS } from './previewMoveTypes';
 // packages/slicer-app/src/components/viewport/LayerScrubber.tsx
 import { memo, useEffect, useMemo, useRef, useState, type WheelEvent } from 'react';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,11 @@ export const LayerScrubber = memo(function LayerScrubber({ data }: { data: Toolp
   const setLayerRange = useSlicerStore((s) => s.setPreviewLayerRange);
   const setLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
   const setMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
+  const moveOptions = useMemo(() => {
+    const present = new Set(data.moveTypes);
+    return PREVIEW_MOVE_OPTIONS.filter((option) => present.has(option.type));
+  }, [data.moveTypes]);
+  const setMoveVisibility = useSlicerStore((s) => s.setPreviewMoveVisibility);
   const setShowTravel = useSlicerStore((s) => s.setPreviewShowTravel);
   const setDimPreviousLayers = useSlicerStore((s) => s.setPreviewDimPreviousLayers);
   const setSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
@@ -149,6 +155,16 @@ export const LayerScrubber = memo(function LayerScrubber({ data }: { data: Toolp
             {!descriptor && <div className="text-xs text-muted-foreground">No data for this scheme</div>}
             </div>
           </div>
+          {moveOptions.length > 0 && <div className="space-y-1" aria-label="Actions and markers">
+            <div className="px-1 py-1 text-[0.65rem] uppercase tracking-wide text-muted-foreground">Actions and markers</div>
+            {moveOptions.map((option) => {
+              const enabled = preview.moveVisibility[option.type] !== false;
+              return <button key={option.type} type="button" aria-pressed={enabled} data-testid={`preview-move-visibility-${option.type}`} onClick={() => setMoveVisibility(option.type, !enabled)} className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs ${enabled ? '' : 'opacity-40 line-through'}`}>
+                <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${option.color.join(',')})` }} />
+                <span>{option.label}</span>
+              </button>;
+            })}
+          </div>}
           <PreviewInspectionPanel data={data} />
           <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>
           <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>

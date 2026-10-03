@@ -1,3 +1,4 @@
+import { isIndependentPreviewMove, type PreviewMoveVisibility } from './previewMoveTypes';
 import type { ClientToolpath, PreviewAnalysis, PreviewMetadata, PreviewPaletteEntry, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
 import { TRAVEL_MOVE_TYPE } from './toolpathColors';
 
@@ -142,6 +143,7 @@ export interface GpuStreamingSelectionOptions {
   visibleLayerEnd: number;
   activeMoveEnd: number;
   showTravel: boolean;
+  moveVisibility?: PreviewMoveVisibility;
   visibility?: Readonly<Record<number, boolean>>;
   /** Selects the categorical id used by the scheme-scoped visibility map. */
   visibilityField?: 'feature' | 'filament';
@@ -610,10 +612,11 @@ export function rebuildGpuStreamingSelection(
       if (layer < layerStart || layer > layerEnd) continue;
       if (layer === layerEnd && (source.moveOrders[i] ?? 0) > moveEnd) continue;
       if (!options.showTravel && (source.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
+      if (options.moveVisibility?.[source.moveTypes[i] ?? 0] === false) continue;
       const visibilityId = options.visibilityField === 'filament'
         ? source.extruderIds[i] ?? 0
         : source.features[i] ?? 0;
-      if ((source.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE && !visibleFeature(options.visibility, visibilityId)) continue;
+      if (!isIndependentPreviewMove(source.moveTypes[i] ?? 0) && !visibleFeature(options.visibility, visibilityId)) continue;
       indices[emitted++] = i - page.firstSegment;
     }
     pages.push(Object.freeze({ firstSegment: page.firstSegment, indices: indices.subarray(0, emitted), emittedCount: emitted }));

@@ -14,7 +14,7 @@ interface GpuStreamingDiagnostic {
 }
 
 interface ToolpathLinesProbeProps {
-  activeRef: ProbeRef<{ backend: Pick<GpuStreamingRenderer, 'status' | 'debugColorSamples'> } | null>;
+  activeRef: ProbeRef<{ backend: Pick<GpuStreamingRenderer, 'status' | 'debugColorSamples' | 'pages'> } | null>;
   diagnosticRef: ProbeRef<GpuStreamingDiagnostic | null>;
   dataRef: ProbeRef<ToolpathGeometry>;
 }
@@ -27,6 +27,18 @@ export function ToolpathLinesProbe({ activeRef, diagnosticRef, dataRef }: Toolpa
     const unregister = registerOrcaE2eOwner('toolpath-lines', {
       gpuStreamingStatus: () => activeRef.current?.backend.status ?? 'unavailable',
       gpuStreamingDiagnostic: () => diagnosticRef.current,
+      gpuStreamingMoveCounts: () => {
+        const counts: Record<number, number> = {};
+        const data = dataRef.current;
+        for (const page of activeRef.current?.backend.pages ?? []) {
+          const count = page.mesh.count + page.markerMesh.count;
+          for (let i = 0; i < count; i++) {
+            const type = data.moveTypes[page.planPage.firstSegment + page.indexData[i]];
+            counts[type] = (counts[type] ?? 0) + 1;
+          }
+        }
+        return counts;
+      },
       gpuStreamingColorSamples: () => activeRef.current?.backend.debugColorSamples() ?? [],
       previewEvidence: async () => {
         const current = activeRef.current;
