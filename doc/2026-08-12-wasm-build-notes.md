@@ -13,7 +13,7 @@ hit, the bridge JSON contract, and the known M2 work. Companion to the approved 
 
 `packages/slicer-wasm` compiles the pinned C++ submodule
 (`cpp/` → `Noisyfox/OrcaSlicer`, branch `dev/orcaslicerneo-wasm`, based on
-upstream main `8a6377f087`, merged into the existing WASM branch) into Emscripten wasm64
+upstream main `a6dbf2502d`, merged into the existing WASM branch) into Emscripten wasm64
 modules: threaded and serial TBB variants, scaffold CMake with a denylist of
 dropped features, the OCCT/XCAF STEP closure, the extern "C" bridge API, and
 the CLI driver. The build machinery is inherited from the phase-0 spike and
@@ -115,8 +115,8 @@ The previous build-time patch files have been replaced by individual commits
 on the submodule branch `dev/orcaslicerneo-wasm`, originally based on upstream
 commit `b97ca3c0ac`. The table records those original patches in application
 order, ending at `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The branch now
-contains upstream main `8a6377f087` through merge `232ea2783d`; the current
-gitlink pins `9ac6431df4a382c160a02c4f01d09730ffdc7ca9`.
+contains upstream main `a6dbf2502d` through final merge `9d3118b7a4`; the current
+gitlink pins `9d3118b7a406a4e44d5344ae69c084f01d72e772`.
 Build scripts compile the pinned source directly. Publish the
 submodule branch before distributing a superproject commit that depends on it.
 
@@ -140,6 +140,13 @@ Upstream main `8a6377f087e3f422275cd788339e1fa64a280f50` is recorded
 separately as merge `232ea2783da4984b57c2321a2f03c336d88e33ee`. The sole
 merge conflict in `EdgeGrid.cpp` retains upstream's explicit geometry includes
 and the existing removal of the unavailable libpng include.
+
+The delivery-time refresh also includes upstream main
+`a6dbf2502d0e0d6d6fcd7aa7b9089c397f3493a0`, merged separately as
+`9d3118b7a406a4e44d5344ae69c084f01d72e772`. That last upstream increment
+changes the original GUI/WebView and plugin pages only; `src/libslic3r`,
+`deps_src`, and `resources/profiles` are identical to the previously qualified
+`9ac6431df4`. Both Release artifacts are rebuilt with the final commit metadata.
 
 The WASM scaffold follows upstream's Clipper2 2.0.1 migration: it removes the
 deleted Clipper1 source/include path and includes Clipper2 triangulation in
