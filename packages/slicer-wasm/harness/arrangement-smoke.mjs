@@ -206,3 +206,29 @@ const fixedCoordinates = towerCoordinates();
 ok('arrange around existing towers', await arrange());
 check('existing tower positions stay fixed', JSON.stringify(towerCoordinates()) === JSON.stringify(fixedCoordinates));
 console.log('Arrangement estimated tower and history smoke passed');
+
+// Native packing order must never replace source identity, including when an
+// unfit polygon retains an itemid reused by a successfully packed polygon.
+ok('clear identity regression fixture', call('orc_clear_model'));
+for (const [index, size] of [20, 400, 80].entries()) {
+  ok('create identity cube', call('orc_add_shape', ['string', 'string'], ['Cube', `Identity ${size}`]));
+  ok('resize identity cube', call('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'],
+    [index, 0, 0, JSON.stringify({ offset: [50,50,10], rotation: [0,0,0], scale: [size/20,size/20,1], mirror: [1,1,1] }),
+      JSON.stringify({ offset: [0,0,0], rotation: [0,0,0], scale: [1,1,1], mirror: [1,1,1] })]));
+}
+ok('recompute identity membership', call('orc_recompute_plate_membership'));
+call('orc_history_reset', ['string'], [JSON.stringify(context)]);
+const identityBefore = observe();
+const identityObjects = call('orc_get_model_structure').objects;
+const identityResult = ok('arrange differently sized instances with rotation', await arrange({ rotate: true }));
+check('only oversized source instance is parked', identityResult.placed === 2 && identityResult.unplaced.length === 1 &&
+  identityResult.unplaced[0].instance_id === identityObjects[1].instances[0].id && identityResult.unplaced[0].reason === 'unfit', identityResult);
+check('identity regression is one undo step', history().undoEntries.length === 1);
+const identityAfter = observe();
+ok('undo identity arrangement', call('orc_history_undo'));
+check('identity undo restores source transforms and membership', JSON.stringify(observe().model) === JSON.stringify(identityBefore.model) &&
+  JSON.stringify(observe().plates.instances) === JSON.stringify(identityBefore.plates.instances));
+ok('redo identity arrangement', call('orc_history_redo'));
+check('identity redo restores correct source assignments', JSON.stringify(observe().model) === JSON.stringify(identityAfter.model) &&
+  JSON.stringify(observe().plates.instances) === JSON.stringify(identityAfter.plates.instances));
+console.log('Arrangement source identity regression passed');

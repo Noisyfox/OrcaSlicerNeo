@@ -68,7 +68,8 @@ struct Prepared {
     // Publish these plate-local coordinates for occupied destinations together
     // with the model placements so the live tower matches the reserved area.
     std::vector<std::pair<std::size_t, Vec2d>> estimated_tower_positions;
-    // Movable itemid indexes these records, even if native packing reorders items.
+    // Records parallel the movable container. Native packing preserves that
+    // container order but rewrites itemid to the successful packing order.
     std::vector<Placement> instances;
     std::vector<Placement> parked;
 };

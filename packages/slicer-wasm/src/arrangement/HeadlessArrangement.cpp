@@ -245,10 +245,15 @@ Result solve(Prepared prepared, std::function<bool()> canceled, std::function<vo
         arrange(prepared.movable, prepared.fixed, prepared.bed, prepared.params);
     if (stopped()) { result.canceled = true; return result; }
     result.placements = std::move(prepared.parked);
-    for (const auto& poly : prepared.movable) {
-        if (poly.itemid < 0 || std::size_t(poly.itemid) >= prepared.instances.size() || !std::isfinite(poly.rotation))
+    if (prepared.movable.size() != prepared.instances.size())
+        throw std::runtime_error("Incomplete native arrangement input");
+    for (std::size_t index = 0; index < prepared.movable.size(); ++index) {
+        const auto& poly = prepared.movable[index];
+        if (!std::isfinite(poly.rotation))
             throw std::runtime_error("Invalid native arrangement result");
-        auto item = prepared.instances[poly.itemid];
+        // Orca writes results back into the original polygon slots. itemid is
+        // overwritten with packing order and is not an instance identity.
+        auto item = prepared.instances[index];
         if (prepared.destination_plates.empty() || (poly.bed_idx >= 0 && std::size_t(poly.bed_idx) >= prepared.destination_plates.size())) {
             item.parking = prepared.scope == Scope::All ? ParkingReason::PlateLimit : ParkingReason::CurrentPlateOverflow;
             result.plate_limit_reached |= prepared.scope == Scope::All;

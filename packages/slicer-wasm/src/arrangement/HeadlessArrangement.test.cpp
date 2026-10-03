@@ -41,6 +41,31 @@ void tests() {
     auto local = solve(prepare(f.scene, current));
     CHECK(std::count_if(local.placements.begin(), local.placements.end(), [](const auto& p) { return p.plate.has_value(); }) == 1);
     CHECK(!local.plate_limit_reached);
+
+    // Native itemid is packing order, not the source-instance index. Packing
+    // differently sized objects rewrites it; an unfit object retains its old
+    // value and can share that value with a successfully packed object.
+    Fixture identity;
+    auto* small = identity.add(10);
+    auto* unfit = identity.add(200);
+    auto* large = identity.add(40);
+    Settings rotated; rotated.rotate = true;
+    auto identity_prepared = prepare(identity.scene, rotated);
+    auto native_polygons = identity_prepared.movable;
+    arrangement::arrange(native_polygons, identity_prepared.fixed,
+                         identity_prepared.bed, identity_prepared.params);
+    CHECK(native_polygons[0].itemid != 0 || native_polygons[2].itemid != 2);
+    auto identities = solve(identity_prepared);
+    CHECK(identities.placements.size() == 3);
+    CHECK(identities.placements[0].instance_id == small->id().id);
+    CHECK(identities.placements[1].instance_id == unfit->id().id);
+    CHECK(identities.placements[2].instance_id == large->id().id);
+    CHECK(!identities.placements[1].plate);
+    for (std::size_t i : {std::size_t(0), std::size_t(2)}) {
+        CHECK(identities.placements[i].plate.has_value());
+        CHECK(identities.placements[i].position == unscale(native_polygons[i].translation));
+        CHECK(identities.placements[i].rotation == native_polygons[i].rotation);
+    }
     auto canceled = solve(prepared, [] { return true; });
     CHECK(canceled.canceled && canceled.placements.empty());
 

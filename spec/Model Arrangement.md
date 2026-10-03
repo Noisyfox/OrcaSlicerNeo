@@ -665,3 +665,32 @@ current-plate action, and saved preferences in both variants. It observes the
 editing guard during computation and expects Cancel only in threaded mode.
 The temporary-filesystem integration and its reproduction commands are defined
 in [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md).
+
+### Source-instance identity correction (2026-10-03)
+
+Orca's native Arrange preserves the input polygon container order when writing
+back translations, rotations, and destination bins. It rewrites each packed
+polygon's `itemid` to packing order; an unfit polygon can retain an old value
+that duplicates a packed polygon's order. The headless adapter must associate
+results with its parallel instance records by container index, never by the
+post-solve `itemid`. The atomic publication identity and finite-value checks
+remain enforced.
+
+A synthetic small/unfit/large fixture with rotation enabled failed against the
+previous adapter and passed after this correction. The native test verifies
+source identities and each source polygon's position/rotation. The production
+bridge smoke verifies the correct unfit instance, successful publication, and
+one-step Undo/Redo of transforms and membership.
+
+The reported external 14-part helmet project reproduced `Invalid arrangement
+instance result` with Arrange all, zero spacing, rotation enabled, and multiple
+materials allowed. Both serial and threaded post-fix runs placed 13 instances and
+parked the unfit `OdHelmetFull.stl_A_A` instance; Undo/Redo restored the complete
+source transforms and membership. The external project is used only for local
+validation and is not added to repository fixtures.
+
+Post-fix validation passed: `pnpm test` (1,370 tests), `pnpm typecheck`,
+`scripts\build-windows.bat quick --variant both -j 6`, the serial
+`headless_arrangement_test.cjs`, both production `arrangement-smoke.mjs`
+journeys, and `node scripts/run-arrangement-e2e.mjs` (real Electron serial and
+Web threaded, with current staged artifact hashes verified).
