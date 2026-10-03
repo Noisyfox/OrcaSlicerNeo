@@ -472,7 +472,7 @@ history entries.
 
 ## Milestone 20: Surface and Multi-Material Painting
 
-> **Functionally delivered 2026-09-30.** Major specification:
+> **Functionally delivered:** MMU 2026-09-30; Support/Seam/Fuzzy 2026-10-03. Major specification:
 > [Surface Painting Architecture](Surface%20Painting%20Architecture.md).
 > [Implementation and acceptance record](../doc/2026-09-29-surface-painting-implementation.md).
 > Quantitative performance thresholds remain awaiting user review; reference
@@ -489,7 +489,12 @@ history entries.
       slicing, both WASM variants, real Electron/Web and packaged verification.
 - [x] Reproducible dual-host performance baseline with raw evidence and resource
       cleanup checks; pinned native comparison remains unavailable.
-- [ ] Support, seam and fuzzy-skin painting adapters (future work).
+- [x] Scheme B Support, Seam and Fuzzy painting adapters: stages 13–19 independently
+      accepted 2026-10-03. Separate Orca-style toolbar entries, native fields,
+      actual downstream slicing, history and both-host/variant qualification;
+      96 locally retained four-channel samples plus independent current-artifact checks.
+      Pinned native performance comparison remains unavailable; quantitative
+      performance thresholds remain pending and timings are not universal guarantees.
 
 ## G-code preview GPU streaming renderer
 

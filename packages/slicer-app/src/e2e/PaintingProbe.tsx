@@ -28,7 +28,7 @@ export function PaintingVisualProbe() {
   useEffect(() => {
     type Frame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
       draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number;
-        candidate?: { positions: number[] };
+        candidate?: { positions: number[]; color: string; opacity: number; depthWrite: boolean; polygonOffsetFactor: number };
         contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] };
         cursor?: { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] } }> };
     let capture: { objectId: number; instanceId: number; frames: Frame[] } | null = null;
@@ -77,7 +77,7 @@ export function PaintingVisualProbe() {
             if (ancestor instanceof THREE.Group) { groupOrder = ancestor.renderOrder; break; }
           }
           frame.draws.push({ kind, geometry: object.geometry.uuid, renderOrder: object.renderOrder, groupOrder,
-            ...(kind === 'painting-candidate' ? { candidate: { positions: Array.from({ length: object.geometry.getAttribute('position').count }, (_, i) => { const position = object.geometry.getAttribute('position'); return [position.getX(i), position.getY(i), position.getZ(i)]; }).flat() } } : {}),
+            ...(kind === 'painting-candidate' ? { candidate: { color: material.color.getHexString(), opacity: material.opacity, depthWrite: material.depthWrite, polygonOffsetFactor: material.polygonOffsetFactor, positions: Array.from({ length: object.geometry.getAttribute('position').count }, (_, i) => { const position = object.geometry.getAttribute('position'); return [position.getX(i), position.getY(i), position.getZ(i)]; }).flat() } } : {}),
             ...(kind === 'painting-contour-triangle' || kind === 'painting-contour' ? { contour: { color: material.color.getHexString(), depthTest: material.depthTest, depthWrite: material.depthWrite, positions: Array.from(object.geometry.getAttribute('position').array) } } : {}),
             ...(kind.startsWith('painting-cursor-') ? { cursor: { uuid: object.uuid,
               radius: object.geometry instanceof THREE.SphereGeometry ? object.geometry.parameters.radius * object.getWorldScale(new THREE.Vector3()).x : null,
@@ -123,7 +123,8 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
   const interaction = useSceneInteraction();
   const rendered = useRef<{ revision: number; candidates: string[] }>({ revision: -1, candidates: [] });
   const input = useRef({ admittedMoves: 0, droppedMoves: 0 });
-  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string; retainedVolumes?: number; volumeCount?: number; touchedVolumeCount?: number; sourceTriangles?: number; exportedSourceGeometries?: number; exportedPaintGeometries?: number; objectIds?: readonly number[] }>;
+  const closeFailure = useRef(false);
+  const perf = useRef<{ calls: Array<{ name: string; ms: number; at: number; revision?: number; native?: unknown; resourceBytes?: number; committed?: boolean; effective?: boolean; changedPartIds?: number[]; hit?: unknown; pointer?: readonly number[]; tool?: string; settings?: Record<string, unknown>; retainedVolumes?: number; volumeCount?: number; touchedVolumeCount?: number; sourceTriangles?: number; exportedSourceGeometries?: number; exportedPaintGeometries?: number; objectIds?: readonly number[] }>;
     frames: Array<{ at: number; revision: number; candidates: number }>; phases: Array<{ at: number; phase: string; revision: number }>;
     inputs: Array<{ at: number; kind: string }>; glUploads: Array<{ at: number; method: string; ms: number; bytes: number }>;
     resources: Array<{ at: number; ms: number; created: number; released: number; live: number; bytes: number }>;
@@ -167,10 +168,14 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
       if (!original) continue;
       api[name] = async (...args) => {
         const start = performance.now();
+        const request = args[0] as { tool?: string; settings?: Record<string, unknown>; event?: { pointer: readonly number[] } };
+        const requestSettings = request?.settings ? { ...request.settings } : undefined;
         try {
+          if (name === 'closeHistorySession' && closeFailure.current) {
+            closeFailure.current = false; throw new Error('Injected painting close failure');
+          }
           const result = await original(...args) as { paintingProfile?: unknown; resources?: Array<{ vertices: Float32Array; contour: Float32Array }> };
           const paint = result as { committed?: boolean; effective?: boolean; changedPartIds?: number[]; revision?: number; hit?: unknown };
-          const request = args[0] as { tool?: string; event?: { pointer: readonly number[] } };
           const patch = result as { geometries?: unknown[]; paintGeometries?: unknown[] };
           perf.current.calls.push({ name, at: start, ms: performance.now() - start,
             ...(name === 'getModelScenePatch' ? { objectIds: args[0] as number[],
@@ -183,6 +188,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
             ...('hit' in paint ? { hit: paint.hit } : {}),
             ...(request?.event ? { pointer: request.event.pointer } : {}),
             ...(request?.tool ? { tool: request.tool } : {}),
+            ...(requestSettings ? { settings: requestSettings } : {}),
             ...(paint.changedPartIds ? { changedPartIds: paint.changedPartIds } : {}) });
           return result;
         } catch (error) {
@@ -254,12 +260,23 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
     return () => { owner.move = originalMove; };
   }, [owner]);
   useEffect(() => registerOrcaE2eOwner('painting', {
+    paintingFailNextClose: () => { closeFailure.current = true; },
+    paintingBenchmarkState: () => {
+      const state=owner.getSnapshot(), rect=gl.domElement.getBoundingClientRect();
+      const source=volumes.find(volume=>volume.buffer.objectId===state.session?.objectId && volume.buffer.instanceId===state.session.instanceId);
+      const center=source?.getWorldBounds().getCenter(new THREE.Vector3()).project(camera);
+      return {phase:state.phase,channel:state.channel,tool:state.tool,settings:state.settings,sessionId:state.session?.id,
+        nativeTarget:state.session ? {objectId:state.session.objectId,revision:state.session.revision,strokeId:state.session.strokeId} : null,
+        resources:[...resources.resources.values()].map(resource=>({kind:resource.source.kind,resourceId:resource.source.resourceId})),
+        rendered:rendered.current,input:{...input.current},error:state.error,
+        center:center ? {x:rect.left+(center.x+1)*rect.width/2,y:rect.top+(1-center.y)*rect.height/2} : null};
+    },
     paintingEvidence: () => {
       const state = owner.getSnapshot(), rect = gl.domElement.getBoundingClientRect();
       const source = volumes.find((v) => v.buffer.objectId === state.session?.objectId && v.buffer.instanceId === state.session.instanceId);
       const center = source?.getWorldBounds().getCenter(new THREE.Vector3()).project(camera);
       let ordinaryModels = 0; scene.traverse((o) => { if (o.userData.orcaVolume) ordinaryModels++; });
-      return { phase: state.phase, tool: state.tool, sessionId: state.session?.id, settings: state.settings, selection: [...interaction.selection.ids],
+      return { phase: state.phase, channel: state.channel, tool: state.tool, sessionId: state.session?.id, settings: state.settings, selection: [...interaction.selection.ids],
         camera: [...camera.position.toArray(), ...camera.quaternion.toArray()], target: (controls as unknown as { target?: THREE.Vector3 } | null)?.target?.toArray() ?? [0, 0, 0], cursor: cursor?.toArray() ?? null,
         pivot: pivot?.toArray() ?? null, pivotCamera: pivot?.clone().applyMatrix4(camera.matrixWorldInverse).toArray() ?? null,
         center: center ? { x: rect.left + (center.x + 1) * rect.width / 2, y: rect.top + (1 - center.y) * rect.height / 2 } : null,
@@ -293,7 +310,7 @@ export function PaintingProbe({ owner, resources, volumes, cursor, pivot }: { ow
         const session = owner.getSnapshot().session;
         if (!session) return false;
         const api = (owner as unknown as { ports: { api: { readPaintingSession(request: unknown): Promise<unknown> } } }).ports.api;
-        const response = await api.readPaintingSession({ version: 1, sessionId: session.id, revision: session.revision }) as
+        const response = await api.readPaintingSession({ version: 1, channel: session.channel, sessionId: session.id, revision: session.revision }) as
           { session?: { parts: Array<{ volumeId: number; sourceTriangleCount: number; facetCounts: number[] }> } };
         parts = response.session?.parts ?? null;
         return true;

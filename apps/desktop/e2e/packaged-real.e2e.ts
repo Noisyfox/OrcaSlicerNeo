@@ -12,7 +12,8 @@ test.describe.configure({ timeout: 300_000 });
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const PACKAGED_ROOT = resolve(DESKTOP_ROOT, process.env.ORCA_E2E_PACKAGED_ROOT ?? 'release/step8-real/win-unpacked');
-const EXE = process.platform === 'win32' ? resolve(PACKAGED_ROOT, 'OrcaSlicerNeo.exe') : resolve(PACKAGED_ROOT, 'OrcaSlicerNeo');
+const EXE = process.platform === 'win32' ? resolve(PACKAGED_ROOT, 'OrcaSlicerNeo.exe') : process.platform === 'darwin' ? resolve(PACKAGED_ROOT, 'Contents/MacOS/OrcaSlicerNeo')
+  : resolve(PACKAGED_ROOT, 'OrcaSlicerNeo');
 const MODEL = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
 test('real packaged utility runtime loads dual artifacts and completes slice/export', async () => {
@@ -35,7 +36,7 @@ test('real packaged utility runtime loads dual artifacts and completes slice/exp
     expect(page.workers()).toHaveLength(0);
     for (const variant of ['threaded', 'serial']) {
       for (const file of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
-        expect(existsSync(resolve(PACKAGED_ROOT, 'resources/app.asar.unpacked/out/renderer/wasm', variant, file))).toBe(true);
+        expect(existsSync(resolve(PACKAGED_ROOT, process.platform === 'darwin' ? 'Contents/Resources/app.asar.unpacked/out/renderer/wasm' : 'resources/app.asar.unpacked/out/renderer/wasm', variant, file))).toBe(true);
       }
     }
     await expect(page.getByTestId('btn-add-model')).toBeVisible();

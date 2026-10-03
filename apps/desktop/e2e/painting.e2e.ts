@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os';
 const project = process.env.ORCA_E2E_PAINTED_FACET_PROJECT;
 test.skip(process.env.ORCA_E2E_REAL !== '1' || !project, 'run scripts/run-painting-e2e.mjs with current serial artifacts');
 test.setTimeout(480_000);
-type Evidence = { phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
+type Evidence = { channel: string; cursor: number[] | null; phase: string; tool: string; sessionId: string; camera: number[]; target: number[]; pivot: number[]; pivotCamera: number[]; center: { x: number; y: number }; settings: { radius: number; vertical: boolean; state: number; erase: boolean }; resources: { kind: string; groups: number[][]; hasBvh: boolean; vertices?: number[]; contour?: number[]; contourGeometry?: string; matchesDraftLeaf?: boolean }[]; rendered: { revision: number; candidates: string[] }; input: { admittedMoves: number; droppedMoves: number }; ordinaryModels: number; runtime: { threaded: boolean }; error: string | null };
 type CursorDraw = { uuid: string; radius: number | null; color: string; encodedRgb: number[]; linearRgb: number[]; wireframe: boolean; transparent: boolean; opacity: number; depthTest: boolean; depthWrite: boolean; side: number; primitive: string; positions: number[]; heightPlanes?: number[]; heightBounds?: number[]; lineWidth?: number; worldUnits?: boolean; resolution?: number[]; circleSegments?: number[][] };
 type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors: string[]; navigatorDraws: number;
-  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[] }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
+  draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[]; color: string; opacity: number; depthWrite: boolean; polygonOffsetFactor: number }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
 test('real painting history jump to empty then Cube Redo removes Prime Tower', async () => {
@@ -24,10 +24,19 @@ test('real painting history jump to empty then Cube Redo removes Prime Tower', a
     await page.setViewportSize({ width: 1400, height: 900 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
-    await page.getByTestId('titlebar-menu-trigger').click();
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot="menubar-sub-content"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-open-project').click();
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('file-open-project')?.enabled)).toBe(true);
+      await app.evaluate(({ Menu, BrowserWindow }) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('file-open-project');
+        if (!item?.enabled) throw new Error('Open Project native menu is unavailable');
+        item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as Electron.KeyboardEvent);
+      });
+    } else {
+      await page.getByTestId('titlebar-menu-trigger').click();
+      await page.getByTestId('menu-file-trigger').hover();
+      await page.locator('[data-slot="menubar-sub-content"]').hover({ position: { x: 8, y: 8 } });
+      await page.getByTestId('file-open-project').click();
+    }
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-choice-dialog"], [data-testid="project-load-confirmation-dialog"], [data-testid="project-progress-dialog"]') || !!(window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt)).toBe(true);
     if (await page.getByTestId('project-load-choice-dialog').isVisible()) {
       await page.getByTestId('project-load-project').click(); await page.getByTestId('project-load-confirm').click();
@@ -96,12 +105,21 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1400, height: 900 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('file-open-project')?.enabled)).toBe(true);
+      await app.evaluate(({ Menu, BrowserWindow }) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('file-open-project');
+        if (!item?.enabled) throw new Error('Open Project native menu is unavailable');
+        item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as Electron.KeyboardEvent);
+      });
+    } else {
+      if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
+        await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+        await page.getByTestId('titlebar-menu-trigger').click();
+      }
+      await page.getByTestId('menu-file-trigger').hover();
+      await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } }); await page.getByTestId('file-open-project').click();
     }
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } }); await page.getByTestId('file-open-project').click();
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-choice-dialog"], [data-testid="project-load-confirmation-dialog"], [data-testid="project-progress-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt)).toBe(true);
     if (await page.getByTestId('project-load-choice-dialog').isVisible()) { await page.getByTestId('project-load-project').click(); await page.getByTestId('project-load-confirm').click(); }
     await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-confirmation-dialog"]') || !!(window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 120_000 }).toBe(true);
@@ -176,6 +194,27 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await assertPaintingArmed('idle'); await assertPaintingArmed('idle-hover', true);
     await page.screenshot({ path: test.info().outputPath('painting-toolbar-active.png') });
     const near = (actual: number[], expected: number[]) => actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 8));
+    const assertBlankStart = async (channel: string) => {
+      await idle(); await settleFrames();
+      const before = (await read())!, h = await history(), viewport = await page.locator('canvas').first().boundingBox();
+      expect(before.channel).toBe(channel);
+      const origin = { x: viewport!.x + 10, y: before.center.y };
+      await page.mouse.move(origin.x, origin.y); await settleFrames();
+      const strokeCalls = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingPerformanceEvidence().calls.filter((call: { name: string }) =>
+        ['beginPaintingStroke', 'samplePaintingStroke', 'commitPaintingStroke', 'cancelPaintingStroke'].includes(call.name)));
+      const nativeBefore = await strokeCalls();
+      await page.mouse.down(); await settleFrames();
+      expect((await read())!.phase, `${channel}: blank press stays idle`).toBe('idle');
+      expect(await strokeCalls(), `${channel}: blank press bypasses native begin`).toEqual(nativeBefore);
+      await page.mouse.move(before.center.x, origin.y, { steps: 5 }); await settleFrames();
+      expect((await read())!.camera).not.toEqual(before.camera);
+      expect((await read())!.phase).toBe('idle');
+      // Reverse the same horizontal orbit before releasing to retain framing.
+      await page.mouse.move(origin.x, origin.y, { steps: 5 }); await page.mouse.up(); await settleFrames();
+      expect(await strokeCalls(), `${channel}: crossing the model never starts or ends a stroke`).toEqual(nativeBefore);
+      near((await read())!.camera, before.camera); near((await read())!.target, before.target);
+      expect(await history()).toEqual(h);
+    };
     const afterOpen = (await read())!;
     const afterOpenCamera = { position: afterOpen.camera.slice(0, 3), quaternion: afterOpen.camera.slice(3), target: afterOpen.target };
     for (const key of ['position', 'quaternion', 'target'] as const) near(afterOpenCamera[key], beforeOpenCamera[key]);
@@ -185,6 +224,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     near((await read())!.pivot, [100, 100, 10]);
     const entryFrames = await stopFrames(); await completeFrames('painting-entry-render-frames', entryFrames);
     expect(entryFrames.some((f) => f.ordinary.length > 0)).toBe(true); expect(entryFrames.some((f) => f.painting.length > 0)).toBe(true);
+    await assertBlankStart('mmu');
     const initialPoint = (await read())!.center;
     await page.mouse.move(initialPoint.x, initialPoint.y); await page.mouse.wheel(0, -700); await page.mouse.wheel(0, -700);
     expect((await read())!.runtime.threaded).toBe(false);
@@ -263,6 +303,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       const fill = frame.draws.filter((d) => d.kind === 'painting-candidate');
       const contour = frame.draws.filter((d) => d.kind === 'painting-contour');
       expect(fill, 'every continuous Region hover frame draws one native fill').toHaveLength(1);
+      expect(fill[0].candidate).toMatchObject({color:'ffffff',opacity:0.35,depthWrite:false,polygonOffsetFactor:-2});
       expect(contour, 'every continuous Region hover frame draws one native contour').toHaveLength(1);
       expect(regions.some((r) => JSON.stringify(r.vertices!.filter((_, i) => i % 6 < 3)) === JSON.stringify(fill[0].candidate!.positions)
         && JSON.stringify(r.contour) === JSON.stringify(contour[0].contour!.positions)), 'fill and contour belong to one complete native region').toBe(true);
@@ -673,7 +714,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
       }, colour);
       await expect(slot2Badge).toHaveCSS('background-color', cssColour);
       await expect(page.getByTestId('filament-rejected')).toHaveCount(0);
-      expect((await history()).undoEntries[0].label).toBe('Edit Filament Colour');
+      await expect.poll(async () => (await history()).undoEntries[0]?.label).toBe('Edit Filament Colour');
     };
     const beforeRgb = (await read())!;
     await page.getByTestId('painting-tool-sphere').click(); await idle();
@@ -739,6 +780,165 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const toolbarPath = test.info().outputPath('painting-toolbar-active.json');
     writeFileSync(toolbarPath, JSON.stringify(toolbarEvidence, null, 2));
     await test.info().attach('painting-toolbar-active', { path: toolbarPath, contentType: 'application/json' });
+    // Dedicated seam entry: all controls use the real shared controller/Worker.
+    const seamButton = page.getByTestId('gizmo-btn-seam');
+    expect(await page.getByTestId('gizmo-btn-support').count()).toBe(1);
+    expect(await page.getByTestId('gizmo-btn-fuzzy').count()).toBe(1);
+    const mmuParameters = {tool:(await read())!.tool,settings:(await read())!.settings};
+    const seamEvidence: Record<string, unknown> = {};
+    await seamButton.click(); await idle();
+    await expect(seamButton).toHaveAttribute('aria-pressed','true'); await expect(paintButton).toHaveAttribute('aria-pressed','false');
+    expect((await read())!.channel).toBe('seam');
+    await assertBlankStart('seam'); expect((await read())!.resources.flatMap(r=>r.groups.map(g=>g[0]))).toEqual([0]);
+    await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');
+    await page.getByRole('checkbox',{name:'Vertical',exact:true}).check();
+    // Rotate the camera by actual navigation before the constrained stroke.
+    let seamCenter = (await read())!.center;
+    await page.mouse.move(seamCenter.x,seamCenter.y); await page.keyboard.down('Control'); await page.mouse.down();
+    await page.mouse.move(seamCenter.x+35,seamCenter.y+15,{steps:5}); await page.mouse.up(); await page.keyboard.up('Control');
+    seamCenter = (await read())!.center;
+    const seamBefore = await history(); await startFrames();
+    await page.mouse.move(seamCenter.x,seamCenter.y); await page.mouse.down(); await expect.poll(async()=> (await read())?.phase).toBe('drawing');
+    const drawingSession = (await read())!.sessionId;
+    await expect(paintButton).toBeDisabled(); await expect(seamButton).toBeDisabled();
+    await paintButton.evaluate(button=>(button as HTMLButtonElement).click());
+    await page.mouse.move(seamCenter.x+25,seamCenter.y+8,{steps:4});
+    await expect.poll(async()=> (await read())?.cursor).not.toBeNull();
+    const projectedCursor = await page.evaluate(() => { const hooks=(window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e; return hooks.paintingWorldToScreen(hooks.paintingEvidence().cursor); });
+    expect(projectedCursor.x).toBeCloseTo(seamCenter.x,3); expect(projectedCursor.y).toBeCloseTo(seamCenter.y+8,3);
+    expect((await read())!.sessionId).toBe(drawingSession);
+    await page.screenshot({path:test.info().outputPath('seam-vertical-rotated-camera.png')});
+    await page.mouse.up(); await idle();
+    const enforcedCounts = await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(enforcedCounts[0].facetCounts[1]).toBeGreaterThan(0); expect((await history()).undoEntries.length).toBe(seamBefore.undoEntries.length+1);
+    await settleFrames(); const seamFrames=await stopFrames(); await completeFrames('seam-enforce-actual-draw',seamFrames);
+    expect(seamFrames.some(f=>f.colors.includes('80ff80'))).toBe(true);
+    seamEvidence.enforce={counts:enforcedCounts,cursor:projectedCursor,screenAnchor:seamCenter,frames:seamFrames};
+    // Block with sphere, then local Shift erase. Right/middle retain pan semantics.
+    await page.getByTestId('painting-tool-sphere').click(); await page.getByRole('radio',{name:'Block',exact:true}).click();
+    seamCenter=(await read())!.center; await page.mouse.click(seamCenter.x,seamCenter.y); await idle();
+    const blockedCounts=await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(blockedCounts[0].facetCounts[2]).toBeGreaterThan(0);
+    await page.keyboard.down('Shift'); await page.mouse.click(seamCenter.x,seamCenter.y); await page.keyboard.up('Shift'); await idle();
+    const erasedCounts=await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(erasedCounts[0].facetCounts[2]).toBeLessThan(blockedCounts[0].facetCounts[2]);
+    // History restores annotations/transforms; draft keys advance monotonically.
+    const annotationParts=(parts: Array<Record<string,unknown>>) => parts.map(({draftResourceId,...part})=>part);
+    await page.getByTestId('history-undo').click(); await idle();
+    expect(annotationParts(await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts()))).toEqual(annotationParts(blockedCounts));
+    await page.getByTestId('history-redo').click(); await idle();
+    expect(annotationParts(await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts()))).toEqual(annotationParts(erasedCounts));
+    const seamRadius=(await read())!.settings.radius; await page.mouse.move(seamCenter.x,seamCenter.y); await page.keyboard.down('Control'); await page.mouse.wheel(0,-1); await page.keyboard.up('Control');
+    await expect.poll(async()=> (await read())!.settings.radius).toBeCloseTo(seamRadius+.2,6);
+    const beforeCancel=await history(); await page.mouse.move(seamCenter.x,seamCenter.y); await page.mouse.down();
+    await expect.poll(async()=> (await read())?.phase).toBe('drawing'); await page.keyboard.press('Escape'); await page.mouse.up(); await idle();
+    expect((await history()).undoEntries.length).toBe(beforeCancel.undoEntries.length);
+    for (const button of ['middle','right'] as const) {
+      const before=(await read())!; const h=await history(); await page.mouse.move(seamCenter.x,seamCenter.y); await page.mouse.down({button});
+      await page.mouse.move(seamCenter.x+10,seamCenter.y+5,{steps:3}); await page.mouse.up({button});
+      expect((await read())!.camera).not.toEqual(before.camera); expect((await history()).undoEntries.length).toBe(h.undoEntries.length);
+    }
+    // Close failure leaves seam active and prevents MMU opening; an explicit retry succeeds.
+    const seamParameters={tool:(await read())!.tool,settings:(await read())!.settings};
+    await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingFailNextClose());
+    await paintButton.click(); await expect(page.getByRole('alert')).toContainText('Injected painting close failure');
+    expect((await read())!.channel).toBe('seam'); await expect(seamButton).toHaveAttribute('aria-pressed','true');
+    await paintButton.click(); await idle(); expect((await read())!.channel).toBe('mmu');
+    expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(mmuParameters);
+    await seamButton.click(); await idle(); expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(seamParameters);
+    await seamButton.click(); await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await startFrames(); await settleFrames(); const ordinaryAfterSeam=await stopFrames();
+    await completeFrames('seam-close-ordinary-MMU',ordinaryAfterSeam);
+    expect(ordinaryAfterSeam.every(frame=>frame.painting.length===0 && frame.ordinary.length>0)).toBe(true);
+    expect(ordinaryAfterSeam.some(frame=>frame.colors.includes('80ff80') || frame.colors.includes('ff8080'))).toBe(false);
+    const seamPath=test.info().outputPath('seam-editor-evidence.json'); writeFileSync(seamPath,JSON.stringify(seamEvidence,null,2));
+    await test.info().attach('seam-editor-evidence',{path:seamPath,contentType:'application/json'});
+    // Fuzzy is a separate, single-filament-capable editor sharing the mounted
+    // controller. Brushing remains independent from scoped configuration.
+    const fuzzyButton=page.getByTestId('gizmo-btn-fuzzy');
+    await fuzzyButton.click();await idle();
+    await expect(fuzzyButton).toHaveAttribute('aria-pressed','true');await expect(paintButton).toHaveAttribute('aria-pressed','false');
+    expect((await read())!.channel).toBe('fuzzy');
+    await assertBlankStart('fuzzy');
+    await expect(page.getByTestId('fuzzy-disabled-warning')).toBeVisible();
+    const fuzzyEvidence:Record<string,unknown>={};
+    await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');
+    let fuzzyCenter=(await read())!.center;
+    await startFrames();await page.mouse.click(fuzzyCenter.x,fuzzyCenter.y);await idle();
+    await expect(page.getByTestId('fuzzy-disabled-warning')).toBeVisible();
+    const fuzzyCircle=await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(fuzzyCircle[0].facetCounts[1]).toBeGreaterThan(0);expect(fuzzyCircle[0].facetCounts.slice(2).every((count:number)=>count===0)).toBe(true);
+    await settleFrames();const fuzzyFrames=await stopFrames();await completeFrames('fuzzy-enable-actual-draw',fuzzyFrames);expect(fuzzyFrames.some(f=>f.colors.includes('80ff80'))).toBe(true);
+    const beforeEnable=await history();
+    await page.getByRole('button',{name:'Enable painted fuzzy skin',exact:true}).click();await idle();
+    await expect(page.getByTestId('fuzzy-disabled-warning')).toHaveCount(0);await expect(page.getByTestId('fuzzy-effective-configuration')).toContainText('Painted only (object)');
+    expect((await history()).undoEntries.length).toBe(beforeEnable.undoEntries.length+1);
+    expect((await history()).undoEntries[0].label).toBe('Change Scoped Configuration');
+    const fuzzyCounts=()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    expect(annotationParts(await fuzzyCounts())).toEqual(annotationParts(fuzzyCircle));
+    await page.getByTestId('history-undo').click();await idle();await expect(page.getByTestId('fuzzy-disabled-warning')).toBeVisible();expect(annotationParts(await fuzzyCounts())).toEqual(annotationParts(fuzzyCircle));
+    await page.getByTestId('history-redo').click();await idle();await expect(page.getByTestId('fuzzy-disabled-warning')).toHaveCount(0);
+    for(const tool of ['sphere','triangle','smartFill']){
+      await page.getByRole('button',{name:'Erase all',exact:true}).click();await idle();expect((await fuzzyCounts())[0].facetCounts[1]).toBe(0);
+      await page.getByTestId(`painting-tool-${tool}`).click();await idle();
+      if(tool==='smartFill')await page.getByRole('spinbutton',{name:'Edge angle (degrees)',exact:true}).fill('90');
+      fuzzyCenter=(await read())!.center;await page.mouse.move(fuzzyCenter.x,fuzzyCenter.y);
+      if(tool!=='sphere')await expect.poll(async()=> (await read())!.rendered.candidates.length).toBeGreaterThan(0);
+      await page.mouse.click(fuzzyCenter.x,fuzzyCenter.y);await idle();expect((await fuzzyCounts())[0].facetCounts[1]).toBeGreaterThan(0);
+    }
+    await page.getByTestId('painting-tool-circle').click();await idle();await page.getByRole('radio',{name:'Erase',exact:true}).click();
+    fuzzyCenter=(await read())!.center;await page.mouse.click(fuzzyCenter.x,fuzzyCenter.y);await idle();
+    const fuzzyParameters={tool:(await read())!.tool,settings:(await read())!.settings};
+    fuzzyEvidence.parameters=fuzzyParameters;fuzzyEvidence.facets=await fuzzyCounts();fuzzyEvidence.frames=fuzzyFrames;
+    await seamButton.click();await idle();expect((await read())!.channel).toBe('seam');expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(seamParameters);
+    await fuzzyButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(fuzzyParameters);
+    await fuzzyButton.click();await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await startFrames();await settleFrames();const ordinaryAfterFuzzy=await stopFrames();await completeFrames('fuzzy-close-ordinary-MMU',ordinaryAfterFuzzy);
+    expect(ordinaryAfterFuzzy.every(frame=>frame.painting.length===0&&frame.ordinary.length>0)).toBe(true);
+    expect(ordinaryAfterFuzzy.some(frame=>frame.colors.includes('80ff80'))).toBe(false);
+    const fuzzyPath=test.info().outputPath('fuzzy-editor-evidence.json');writeFileSync(fuzzyPath,JSON.stringify(fuzzyEvidence,null,2));await test.info().attach('fuzzy-editor-evidence',{path:fuzzyPath,contentType:'application/json'});
+    // Support's independent native overlay survives candidate/tool/stroke changes.
+    const supportButton=page.getByTestId('gizmo-btn-support');await supportButton.click();await idle();
+    await assertBlankStart('support');
+    expect((await read())!.channel).toBe('support');await expect(supportButton).toHaveAttribute('aria-pressed','true');
+    const supportCounts=()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
+    const supportEvidence:Record<string,unknown>={};
+    const beforeHighlight=await history();
+    await page.getByRole('checkbox',{name:'Highlight overhangs',exact:true}).check();
+    await expect.poll(async()=> (await read())!.resources.filter(r=>r.kind==='overhang').length).toBeGreaterThan(0);
+    const initialHighlight=await read();expect((await history()).undoEntries.length).toBe(beforeHighlight.undoEntries.length);
+    await page.getByTestId('painting-tool-smartFill').click();await page.getByRole('spinbutton',{name:'Edge angle (degrees)',exact:true}).fill('90');
+    let supportCenter=(await read())!.center;await page.mouse.move(supportCenter.x,supportCenter.y);
+    await expect.poll(async()=> (await read())!.resources.filter(r=>r.kind==='smartFill').length).toBeGreaterThan(0);
+    expect((await read())!.resources.filter(r=>r.kind==='overhang')).toEqual(initialHighlight!.resources.filter(r=>r.kind==='overhang'));
+    await startFrames();await settleFrames();const supportOverlayFrames=await stopFrames();
+    await page.screenshot({path:test.info().outputPath('support-smart-fill-overhang-editor.png')});
+    expect(supportOverlayFrames.some(f=>f.draws.some(d=>d.candidate?.color==='ffb347')&&f.draws.some(d=>d.candidate?.color==='ffffff'))).toBe(true);
+    for(const frame of supportOverlayFrames){const overlays=frame.draws.filter(d=>d.candidate);expect(overlays.every(d=>d.candidate!.depthWrite===false)).toBe(true);const highlight=overlays.find(d=>d.candidate!.color==='ffb347'),candidate=overlays.find(d=>d.candidate!.color==='ffffff');if(highlight&&candidate){expect(highlight.renderOrder).toBeLessThan(candidate.renderOrder);expect(highlight.candidate!.polygonOffsetFactor).toBeGreaterThan(candidate.candidate!.polygonOffsetFactor);}}
+    await page.mouse.click(supportCenter.x,supportCenter.y);await idle();expect((await supportCounts())[0].facetCounts[1]).toBeGreaterThan(0);
+    expect((await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
+    await page.getByTestId('painting-tool-sphere').click();await page.getByRole('radio',{name:'Block',exact:true}).click();
+    await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');supportCenter=(await read())!.center;
+    await page.mouse.click(supportCenter.x,supportCenter.y);await idle();const supportBlocked=await supportCounts();expect(supportBlocked[0].facetCounts[2]).toBeGreaterThan(0);
+    await page.getByRole('radio',{name:'Erase',exact:true}).click();await page.mouse.click(supportCenter.x,supportCenter.y);await idle();const supportErased=await supportCounts();expect(supportErased[0].facetCounts[2]).toBeLessThan(supportBlocked[0].facetCounts[2]);
+    await page.getByTestId('history-undo').click();await idle();expect(annotationParts(await supportCounts())).toEqual(annotationParts(supportBlocked));
+    await page.getByTestId('history-redo').click();await idle();expect(annotationParts(await supportCounts())).toEqual(annotationParts(supportErased));
+    await page.getByTestId('painting-tool-gap').click();await idle();
+    await expect(page.getByRole('checkbox',{name:'Restrict to overhangs',exact:true})).toBeDisabled();
+    const beforeGap=await history();await page.getByRole('spinbutton',{name:'Gap area (mm²)',exact:true}).fill('0');await page.getByRole('button',{name:'Apply gaps',exact:true}).click();await idle();
+    expect((await history()).undoEntries.length).toBe(beforeGap.undoEntries.length);
+    await page.getByTestId('painting-tool-circle').click();await page.getByRole('spinbutton',{name:'Overhang angle (degrees)',exact:true}).fill('90');await page.getByRole('checkbox',{name:'Restrict to overhangs',exact:true}).check();
+    await expect.poll(async()=> (await read())!.resources.some(r=>r.kind==='overhang')).toBe(true);
+    await page.getByRole('checkbox',{name:'Highlight overhangs',exact:true}).uncheck();await expect.poll(async()=> (await read())!.resources.some(r=>r.kind==='overhang')).toBe(false);
+    const supportParameters={tool:(await read())!.tool,settings:(await read())!.settings};supportEvidence.parameters=supportParameters;supportEvidence.blocked=supportBlocked;supportEvidence.erased=supportErased;supportEvidence.overlayFrames=supportOverlayFrames;
+    await fuzzyButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(fuzzyParameters);
+    await supportButton.click();await idle();expect({tool:(await read())!.tool,settings:(await read())!.settings}).toEqual(supportParameters);
+    await supportButton.click();await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await startFrames();await settleFrames();const ordinaryAfterSupport=await stopFrames();await completeFrames('support-close-ordinary-MMU',ordinaryAfterSupport);
+    expect(ordinaryAfterSupport.every(frame=>frame.painting.length===0&&frame.ordinary.length>0)).toBe(true);
+    expect(ordinaryAfterSupport.some(frame=>frame.colors.includes('80ff80')||frame.colors.includes('ff8080')||frame.colors.includes('ffb347'))).toBe(false);
+    const supportPath=test.info().outputPath('support-editor-evidence.json');writeFileSync(supportPath,JSON.stringify(supportEvidence,null,2));await test.info().attach('support-editor-evidence',{path:supportPath,contentType:'application/json'});
+    await paintButton.click(); await idle();
     const hiddenSession = (await read())!.sessionId;
     for (const tab of ['home', 'device']) {
       await page.locator(`#app-tab-${tab}`).click();

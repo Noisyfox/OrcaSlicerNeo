@@ -5,9 +5,9 @@ import { paintingCursorMeshes } from './PaintingGizmoBase';
 import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
 import * as THREE from 'three';
 const identity = new THREE.Matrix4().toArray();
-const session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, phase: 'idle', strokeId: null, annotation: 'mmu', instanceTransform: identity, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, draftResourceId: 'a', facetCounts: [] }] };
+const session: PaintingSessionMetadata = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, phase: 'idle', strokeId: null, channel: 'mmu', instanceTransform: identity, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, annotationTimestamp: 0, draftResourceId: 'a', facetCounts: [] }] };
 function resource(id: string, kind: 'draft' | 'region' | 'gap' = 'draft'): PaintingGeometry { return { resourceId: id, volumeId: 3, kind, vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array(kind === 'region' ? 6 : 0) }; }
-function display(resources: PaintingGeometry[], draft: string, candidates: string[] = [], revision = 1): Extract<PaintingGeometryResult, { ok: true }> { return { ok: true, version: 1, sessionId: 'ps-1', revision, parts: [{ volumeId: 3, resourceId: draft }], candidates: candidates.map((id) => ({ volumeId: 3, resourceId: id, kind: 'region' })), resources }; }
+function display(resources: PaintingGeometry[], draft: string, candidates: string[] = [], revision = 1): Extract<PaintingGeometryResult, { ok: true }> { return { ok: true, version: 1, channel: 'mmu' as const, sessionId: 'ps-1', revision, parts: [{ volumeId: 3, resourceId: draft }], candidates: candidates.map((id) => ({ volumeId: 3, resourceId: id, kind: 'region' })), resources }; }
 describe('painting display resources', () => {
   it('reuses unchanged geometry, replaces changed parts in full and disposes dropped candidate buffers', () => {
     const cache = new PaintingResources(); cache.update(display([resource('a'), resource('c', 'region')], 'a', ['c']), session);
@@ -20,10 +20,11 @@ describe('painting display resources', () => {
     expect(cache.resources.get('b')!.geometry).not.toHaveProperty('boundsTree');
     const final = vi.spyOn(cache.resources.get('b')!.geometry, 'dispose'); cache.dispose(); cache.dispose(); expect(final).toHaveBeenCalledTimes(1);
   });
-  it('rejects wrong session/revision and missing resource atomically', () => {
+  it('rejects wrong channel/session/revision and missing resource atomically', () => {
     const cache = new PaintingResources(); cache.update(display([resource('a')], 'a'), session); const original = cache.resources.get('a');
     expect(cache.update(display([resource('b')], 'b', [], 2), session)).toBe(false);
     expect(cache.update({ ...display([resource('b')], 'b'), sessionId: 'ps-2' }, session)).toBe(false);
+    expect(cache.update({ ...display([resource('b')], 'b'), channel: 'support' }, session)).toBe(false);
     expect(() => cache.update(display([], 'missing'), session)).toThrow('Missing painting resource'); expect(cache.resources.get('a')).toBe(original); cache.dispose();
   });
   it('retains native NONE/same-color candidate membership independently of groups', () => {
@@ -61,4 +62,21 @@ describe('borrowed painting cursor geometry and transform identity', () => {
     expect(paintingCursorMeshes(changed, [], undefined, material)).toEqual([]);
     expect(geometry.getAttribute('position').count).toBe(3); geometry.dispose(); replacement.dispose(); material.dispose();
   });
+});
+
+it('retains highlights beside SmartFill, reuses hover buffers, and disposes clear/re-enable resources',()=> {
+  const cache=new PaintingResources();const support={...session,channel:'support' as const};
+  const native=(revision:number,highlight:boolean,smartFill:boolean,resources:PaintingGeometry[])=>({
+    ...display(resources,'a',[],revision),channel:'support' as const,
+    candidates:[...(highlight?[{volumeId:3,resourceId:'h',kind:'overhang' as const}]:[]),...(smartFill?[{volumeId:3,resourceId:'c',kind:'smartFill' as const}]:[])]
+  });
+  const h={...resource('h'),kind:'overhang' as const},c={...resource('c'),kind:'smartFill' as const};
+  cache.update(native(1,true,false,[resource('a'),h]),support);
+  const retained=cache.resources.get('h')!;const dispose=vi.spyOn(retained.geometry,'dispose');
+  cache.update(native(2,true,true,[c]),{...support,revision:2});
+  expect(cache.resources.get('h')).toBe(retained);
+  cache.update(native(3,true,false,[]),{...support,revision:3});
+  expect(cache.resources.get('h')).toBe(retained);expect(dispose).not.toHaveBeenCalled();
+  cache.update(native(4,false,false,[]),{...support,revision:4});expect(dispose).toHaveBeenCalledTimes(1);
+  cache.update(native(5,true,false,[h]),{...support,revision:5});expect(cache.resources.get('h')).not.toBe(retained);cache.dispose();
 });

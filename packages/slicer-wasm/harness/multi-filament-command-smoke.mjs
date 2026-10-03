@@ -132,7 +132,16 @@ function resetFlexibleScenario() {
   // about six times faster. This is deliberately not a mock/reset seam.
   const loaded = loadProject(baselineProject, 'command-smoke-baseline.3mf');
   assert.equal(loaded.ok, true, JSON.stringify(loaded));
-  assert.deepEqual(scenarioState(), baselineState,
+  const actual = scenarioState();
+  // Native 3MF has no private runtime identity field. New loads allocate fresh
+  // logical IDs; Undo/Redo below still compares the exact original IDs.
+  const freshIds = actual.session.slots.map(slot => slot.logical_id);
+  assert.equal(new Set(freshIds).size, freshIds.length);
+  assert.ok(freshIds.every(id => /^filament-[1-9]\d*$/.test(id)));
+  assert.ok(freshIds.every(id => !baselineState.session.slots.some(slot => slot.logical_id === id)),
+    'project replacement must not reuse stale runtime slot identities');
+  actual.session.slots.forEach((slot, index) => { slot.logical_id = baselineState.session.slots[index].logical_id; });
+  assert.deepEqual(actual, baselineState,
     'scenario reset must restore every non-revision session, plate, preset, native scoped config, and model value');
   return callJson('orc_get_filament_session_snapshot');
 }

@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
-import { setNativeScopedConfig } from './native-scoped-command.mjs';
+import { resetNativeScopedConfig, setNativeScopedConfig } from './native-scoped-command.mjs';
 import { readZipEntries, replaceEntry } from './native-3mf-parser.mjs';
 
 const [moduleArg] = argv.slice(2);
@@ -74,11 +74,19 @@ check('failed Project Print mutation rolls back native materialization',
   failedSnapshot.print?.name === parentName && failedNative.project?.layer_height === undefined,
   JSON.stringify({ failedAfterMaterialization, failedSnapshot, failedNative }));
 
+// The metadata catalogue must expose region defaults at Project scope, and
+// the same real Project mutation path must retain their native Print ownership.
+const fuzzyValues = { fuzzy_skin: 'all', fuzzy_skin_thickness: '0.42', fuzzy_skin_point_distance: '1.1' };
 const tx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Project Print override', 'project', JSON.stringify(historyContext), '']);
 requireOk('begin Project Print history transaction', tx);
 const changed = setNativeScopedConfig(callJson, 'project', undefined, 'layer_height', '0.24');
 requireOk('set ordinary Project Print value', changed);
+for (const [key, value] of Object.entries(fuzzyValues))
+  requireOk(`set Project ${key}`, setNativeScopedConfig(callJson, 'project', undefined, key, value));
+for (const [key, value] of Object.entries(fuzzyValues))
+  check(`Project ${key} is stored and effective`, nativeSnapshot().project[key] === value &&
+    presetSnapshot().project_config[key] === value);
 const afterMutation = presetSnapshot();
 const childName = afterMutation.print?.name;
 check('first real ordinary Project mutation selects a project-embedded child',
@@ -93,6 +101,8 @@ const undo = requireOk('undo Project Print history', callJson('orc_history_undo'
 const afterUndo = presetSnapshot();
 check('Undo restores the parent Print selection', afterUndo.print?.name === parentName,
   JSON.stringify({ expected: parentName, actual: afterUndo.print?.name, undo }));
+for (const key of Object.keys(fuzzyValues))
+  check(`Undo removes Project ${key}`, !Object.hasOwn(nativeSnapshot().project, key));
 check('Undo removes the project Print diff', !Object.hasOwn(nativeSnapshot().project, 'layer_height'),
   JSON.stringify(nativeSnapshot()));
 check('Undo context records no project-embedded Print child',
@@ -110,6 +120,28 @@ check('Redo recreates and selects the native project Print child',
     nativePrintPreset: redo.context?.nativePrintPreset }));
 check('Redo restores the ordinary Project Print diff', nativeSnapshot().project.layer_height === '0.24',
   JSON.stringify(nativeSnapshot()));
+
+for (const [key, value] of Object.entries(fuzzyValues))
+  check(`Redo restores Project ${key}`, nativeSnapshot().project[key] === value &&
+    presetSnapshot().project_config[key] === value);
+
+// Field reset restores inheritance, and its history root restores/erases the
+// region default through the same edited native Print preset.
+const resetTx = requireOk('begin Fuzzy reset', callJson('orc_history_begin',
+  ['string', 'string', 'string', 'string'], ['Reset Fuzzy', 'project', JSON.stringify(historyContext), '']));
+requireOk('reset Project fuzzy thickness', resetNativeScopedConfig(callJson, 'project', undefined, 'fuzzy_skin_thickness'));
+check('Fuzzy reset removes local diff', !Object.hasOwn(nativeSnapshot().project, 'fuzzy_skin_thickness'));
+check('Fuzzy reset restores inherited effective value', presetSnapshot().project_config.fuzzy_skin_thickness ===
+  before.project_config.fuzzy_skin_thickness);
+const resetCommit = callJson('orc_history_commit', ['string', 'string'],
+  [resetTx.transactionId, JSON.stringify(historyContext)]).status;
+check('Fuzzy reset commits to history', resetCommit?.canUndo === true && resetCommit?.activeTransactionId === null);
+requireOk('undo Fuzzy reset', callJson('orc_history_undo'));
+check('Undo restores reset Fuzzy value', nativeSnapshot().project.fuzzy_skin_thickness === fuzzyValues.fuzzy_skin_thickness);
+requireOk('redo Fuzzy reset', callJson('orc_history_redo'));
+check('Redo removes reset Fuzzy value', !Object.hasOwn(nativeSnapshot().project, 'fuzzy_skin_thickness'));
+requireOk('restore Fuzzy thickness for save', setNativeScopedConfig(callJson, 'project', undefined,
+  'fuzzy_skin_thickness', fuzzyValues.fuzzy_skin_thickness));
 
 // A native Process child is ordinary project data, not a printer/filament
 // G-code warning. Exercise the writer and reader rather than mocking flags.
@@ -142,6 +174,12 @@ check('Process-only save/reopen needs no compatibility confirmation',
 check('Process-only save/reopen preserves the edited value',
   reloaded.preset_snapshot.project_config.layer_height === '0.24',
   JSON.stringify(reloaded.preset_snapshot.project_config.layer_height));
+
+for (const [key, value] of Object.entries(fuzzyValues)) {
+  check(`3MF Process diff records ${key}`, String(Array.isArray(processDiffs) ? processDiffs[0] : processDiffs).includes(key));
+  check(`3MF reopen preserves Project ${key}`, reloaded.preset_snapshot.project_config[key] === value &&
+    nativeSnapshot().project[key] === value);
+}
 
 function withProjectConfig(changes) {
   return replaceEntry(projectBytes, 'Metadata/project_settings.config',

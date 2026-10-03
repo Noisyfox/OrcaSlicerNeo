@@ -11,7 +11,7 @@ test.skip(process.env.ORCA_E2E_REAL !== '1' || process.env.ORCA_WEB_NO_ISOLATION
 test.setTimeout(480_000);
 
 function cylinderInstances() {
-  // Real convex geometry and 96 overlapping instances keep the native solver
+  // Real convex geometry and 192 overlapping instances keep the native solver
   // occupied long enough to exercise cancellation without pausing or mocking it.
   const sides = 24, vertices: string[] = [], triangles: string[] = [];
   for (const z of [0, 10]) for (let i = 0; i < sides; i++) {
@@ -26,7 +26,7 @@ function cylinderInstances() {
   for (let i = 1; i < sides - 1; i++) triangles.push(
     `<triangle v1="0" v2="${i + 1}" v3="${i}"/>`,
     `<triangle v1="${sides}" v2="${sides + i}" v3="${sides + i + 1}"/>`);
-  const model = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model" name="Arrangement cylinders"><mesh><vertices>${vertices.join('')}</vertices><triangles>${triangles.join('')}</triangles></mesh></object></resources><build>${Array.from({ length: 96 }, () => '<item objectid="1" transform="1 0 0 0 1 0 0 0 1 110 110 0"/>').join('')}</build></model>`;
+  const model = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model" name="Arrangement cylinders"><mesh><vertices>${vertices.join('')}</vertices><triangles>${triangles.join('')}</triangles></mesh></object></resources><build>${Array.from({ length: 192 }, () => '<item objectid="1" transform="1 0 0 0 1 0 0 0 1 110 110 0"/>').join('')}</build></model>`;
   const path = join(mkdtempSync(join(tmpdir(), 'orca-arrangement-web-')), 'arrangement-cylinders.3mf');
   writeFileSync(path, writeStoredZip([
     { name: '[Content_Types].xml', content: '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>' },
@@ -59,16 +59,23 @@ test('real threaded Web arrangement, editing guards, camera and cancellation', a
   await page.getByTestId('btn-add-model').click(); await (await chooser).setFiles(cylinderInstances());
   // Add Model imports this standard geometry-only 3MF through the real browser
   // file picker. No project configuration or synthetic runtime calls are used.
-  await expect.poll(async () => (await centers(page)).length, { timeout: 60_000 }).toBe(100);
+  await expect.poll(async () => (await centers(page)).length, { timeout: 60_000 }).toBe(196);
   const before = await centers(page), beforeHistory = await history(page), cameraBefore = await camera(page);
   await page.getByTestId('arrange-menu').click();
   await page.getByTestId('arrange-rotate').check();
   await page.getByTestId('arrange-all').click();
   await expect(page.getByTestId('arrange-cancel')).toBeVisible();
-  await expect(page.getByTestId('arrangement-edit-boundary')).toHaveJSProperty('disabled', true);
-  for (const id of ['btn-add-model', 'btn-slice', 'add-plate', 'preset-select', 'history-undo', 'history-redo', 'arrange-menu']) {
-    await expect(page.getByTestId(id), `${id} is blocked while arranging`).toBeDisabled();
-  }
+  // Observe the busy boundary and every editing control in one browser turn:
+  // the real solver can finish between separate cross-process assertions.
+  const editingControls = ['btn-add-model', 'btn-slice', 'add-plate', 'preset-select', 'history-undo', 'history-redo', 'arrange-menu'];
+  await expect.poll(() => page.evaluate(ids => ({
+    active: (document.querySelector('[data-testid="arrangement-edit-boundary"]') as HTMLFieldSetElement).disabled,
+    disabled: Object.fromEntries(ids.map(id => [id,
+      document.querySelector(`[data-testid="${id}"]`)?.matches(':disabled') ?? false])),
+  }), editingControls), { message: 'every editing control is blocked in the same active arrangement' }).toEqual({
+    active: true,
+    disabled: Object.fromEntries(editingControls.map(id => [id, true])),
+  });
   // The global history shortcut must obey the same gate as its disabled button.
   await page.keyboard.press('Control+z');
   expect(await centers(page), 'the renderer never publishes intermediate packing').toEqual(before);
@@ -78,9 +85,10 @@ test('real threaded Web arrangement, editing guards, camera and cancellation', a
   expect(box!.width).toBeGreaterThan(300); expect(box!.height).toBeGreaterThan(300);
   await page.mouse.move(box!.x + box!.width * 0.7, box!.y + box!.height * 0.5);
   await page.mouse.wheel(0, -300);
+  // Cancel immediately after the real gesture; camera polling and screenshots
+  // must not spend the remaining lifetime of the native computation.
+  await page.getByTestId('arrange-cancel').click({ timeout: 5_000 });
   await expect.poll(async () => (await camera(page)).position).not.toEqual(cameraBefore.position);
-  await page.screenshot({ path: test.info().outputPath('threaded-arrangement-busy.png') });
-  await page.getByTestId('arrange-cancel').click();
   await expect(page.getByTestId('arrangement-status')).toContainText(/cancel/i, { timeout: 30_000 });
   await expect(page.getByTestId('arrangement-edit-boundary')).toHaveJSProperty('disabled', false);
   await expect(page.getByTestId('btn-add-model')).toBeEnabled();

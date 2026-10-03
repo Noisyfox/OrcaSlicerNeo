@@ -3,9 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 import { PaintingController, type PaintingPorts, type PaintingState } from './PaintingController';
 import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
-import { PaintingGizmoBase, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
+import { PaintingGizmoBase, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
 
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
 vi.mock('./PaintingProvider', () => ({ usePaintingState: () => mocked.state, usePaintingController: () => mocked.owner }));
@@ -30,9 +31,9 @@ beforeEach(() => {
   canvas.setPointerCapture = (id) => { captures.add(id); };
   canvas.hasPointerCapture = (id) => captures.has(id);
   canvas.releasePointerCapture = vi.fn((id) => { captures.delete(id); });
-  const session = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, phase: 'idle' as const, strokeId: null, annotation: 'mmu' as const, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, draftResourceId: 'a', facetCounts: [] }] };
-  mocked.state = { phase: 'idle', session, tool: 'triangle', settings: { state: 1, erase: false, radius: 2, height: 1, angle: 30, gapArea: 0 }, error: null, epoch: 1,
-    display: { ok: true, version: 1, sessionId: session.id, revision: 1, session, palette: null, parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [], resources: [{ resourceId: 'a', volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] } };
+  const session = { id: 'ps-1', historySessionId: 'hs-1', revision: 1, objectId: 1, instanceId: 2, instanceTransform: identity, phase: 'idle' as const, strokeId: null, channel: 'mmu' as const, parts: [{ volumeId: 3, volumeTransform: identity, sourceTriangleCount: 1, annotationTimestamp: 0, draftResourceId: 'a', facetCounts: [] }] };
+  mocked.state = { phase: 'idle', channel: 'mmu', session, tool: 'triangle', settings: { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false }, error: null, epoch: 1,
+    display: { ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: 1, session, palette: null, parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [], resources: [{ resourceId: 'a', volumeId: 3, kind: 'draft', vertices: new Float32Array(18), groups: [[0, 0, 3]], contour: new Float32Array() }] } };
   mocked.owner = { getSnapshot: () => mocked.state, get unfinished() { return mocked.state?.phase === 'drawing'; },
     press: vi.fn(async () => { mocked.state = { ...mocked.state!, phase: 'drawing' }; return 'paint'; }),
     release: vi.fn(), hoverAt: vi.fn(), reportDisplayError: vi.fn(), move: vi.fn(), cancel: vi.fn(), close: vi.fn() };
@@ -40,6 +41,7 @@ beforeEach(() => {
   const target = new THREE.Vector3(20, 30, 0); camera.lookAt(target); camera.updateMatrixWorld();
   mocked.three = { camera, size: { height: 600 }, gl: { domElement: canvas }, invalidate: vi.fn(), controls: { target, enableDamping: true, update: vi.fn(() => { camera.lookAt(target); camera.updateMatrixWorld(); }) } };
   Object.defineProperty(canvas, 'clientHeight', { value: 600 });
+  canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 600 } as DOMRect);
   source = { geometry: new THREE.BoxGeometry(), buffer: { objectId: 1, instanceId: 2, volumeId: 3 } } as unknown as LoadedObject;
   replacement = new THREE.BoxGeometry(2, 2, 2);
 });
@@ -48,6 +50,113 @@ afterEach(async () => {
 });
 const resolveCursorColor = vi.fn(() => new THREE.Color('#abcdef'));
 const render = (volumes: LoadedObject[]) => act(async () => root.render(<PaintingGizmoBase volumes={volumes} resolveColor={() => '#abcdef'} resolveCursorColor={resolveCursorColor} openingVisual={<span>Prepare</span>} />));
+function readyBvh() {
+  const session = { ...mocked.state!.session!, parts: mocked.state!.session!.parts.map((part) => ({ ...part, sourceTriangleCount: 12 })) };
+  mocked.state = { ...mocked.state!, session, display: { ...mocked.state!.display!, session } };
+  source.geometry.boundsTree = new MeshBVH(source.geometry);
+  const camera = mocked.three.camera as THREE.PerspectiveCamera;
+  camera.position.set(0, 0, 5); camera.up.set(0, 1, 0); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
+  mocked.three.controls.target.set(0, 0, 0);
+}
+
+it.each(['mmu', 'support', 'seam', 'fuzzy'] as const)('skips native press on a real BVH blank start in %s and retains camera ownership across the model', async (channel) => {
+  readyBvh(); mocked.state = { ...mocked.state!, channel, tool: 'circle' };
+  await render([source]);
+  const before = pose();
+  await act(async () => canvas.dispatchEvent(pointer('pointerdown', { clientX: 10, clientY: 10 })));
+  expect(mocked.owner.press).not.toHaveBeenCalled(); expect(canvas.hasPointerCapture(1)).toBe(true);
+  await act(async () => canvas.dispatchEvent(pointer('pointermove', { clientX: 300, clientY: 300 })));
+  expect(pose()).not.toEqual(before); expect(mocked.owner.move).not.toHaveBeenCalled();
+  await act(async () => canvas.dispatchEvent(pointer('pointerup', { clientX: 300, clientY: 300 })));
+  expect(mocked.owner.release).not.toHaveBeenCalled(); expect(canvas.hasPointerCapture(1)).toBe(false);
+});
+
+it.each(['mmu', 'support', 'seam', 'fuzzy'] as const)('preserves native press and terminals on real BVH surface hits in %s', async (channel) => {
+  readyBvh(); mocked.state = { ...mocked.state!, channel, tool: 'circle' };
+  await render([source]);
+  await act(async () => canvas.dispatchEvent(pointer('pointerdown', { clientX: 300, clientY: 300, shiftKey: true })));
+  expect(mocked.owner.press).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ pointer: [300, 300] }), true);
+  await act(async () => canvas.dispatchEvent(pointer('pointermove', { clientX: 10, clientY: 10 })));
+  expect(mocked.owner.move).toHaveBeenCalledTimes(1);
+  await act(async () => canvas.dispatchEvent(pointer('pointerup', { clientX: 10, clientY: 10 })));
+  expect(mocked.owner.release).toHaveBeenCalledTimes(1);
+});
+
+it('uses refreshed source geometry and displayed transforms without reinstalling input effects', async () => {
+  readyBvh(); await render([source]);
+  // The next geometry is wider, so this previously blank ray now hits.
+  replacement.dispose(); replacement = new THREE.BoxGeometry(10, 10, 1); replacement.boundsTree = new MeshBVH(replacement);
+  await render([{ ...source, geometry: replacement } as LoadedObject]);
+  await act(async () => canvas.dispatchEvent(pointer('pointerdown')));
+  expect(mocked.owner.press).toHaveBeenCalledTimes(1);
+  await act(async () => canvas.dispatchEvent(pointer('pointerup')));
+  mocked.owner.press.mockClear(); mocked.state = { ...mocked.state!, phase: 'idle' };
+  const session = { ...mocked.state!.session!, instanceTransform: new THREE.Matrix4().makeTranslation(100, 0, 0).toArray() };
+  mocked.state = { ...mocked.state!, session, display: { ...mocked.state!.display!, session, resources: [] } };
+  await render([source]);
+  await act(async () => canvas.dispatchEvent(pointer('pointerdown', { clientX: 300, clientY: 300 })));
+  expect(mocked.owner.press).not.toHaveBeenCalled();
+});
+
+it.each(['missing-bvh', 'incomplete-parts', 'outdated-transform', 'invalid-viewport', 'singular-camera', 'unsupported-camera', 'outdated-source'] as const)('falls back to native when the initial negative check has %s', async (kind) => {
+  readyBvh();
+  if (kind === 'outdated-source') {
+    const session = { ...mocked.state!.session!, parts: mocked.state!.session!.parts.map((part) => ({ ...part, sourceTriangleCount: 24 })) };
+    mocked.state = { ...mocked.state!, session };
+  }
+  if (kind === 'missing-bvh') source.geometry.boundsTree = undefined;
+  if (kind === 'incomplete-parts') {
+    const session = { ...mocked.state!.session!, parts: [...mocked.state!.session!.parts, { ...mocked.state!.session!.parts[0], volumeId: 4 }] };
+    mocked.state = { ...mocked.state!, session, display: { ...mocked.state!.display!, session } };
+  }
+  if (kind === 'outdated-transform') mocked.state = { ...mocked.state!, session: { ...mocked.state!.session!, instanceTransform: new THREE.Matrix4().makeTranslation(100, 0, 0).toArray() } };
+  if (kind === 'singular-camera') mocked.three.camera.scale.set(0, 0, 0);
+  if (kind === 'unsupported-camera') mocked.three.camera = new THREE.Camera();
+  if (kind === 'invalid-viewport') canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 } as DOMRect);
+  await render([source]); await act(async () => canvas.dispatchEvent(pointer('pointerdown')));
+  expect(mocked.owner.press).toHaveBeenCalledTimes(1);
+});
+
+it.each([{ ctrlKey: true }, { metaKey: true }, { button: 1 }, { button: 2 }])('preserves modified camera input without running the start preflight: %j', async (options) => {
+  readyBvh(); const raycast = vi.spyOn(THREE.Raycaster.prototype, 'intersectObjects');
+  await render([source]); await act(async () => canvas.dispatchEvent(pointer('pointerdown', options)));
+  expect(raycast).not.toHaveBeenCalled(); expect(mocked.owner.press).not.toHaveBeenCalled();
+});
+
+it('rejects busy input before preflight and preserves static Gap controller routing', async () => {
+  readyBvh(); const raycast = vi.spyOn(THREE.Raycaster.prototype, 'intersectObjects');
+  mocked.state = { ...mocked.state!, phase: 'ending' }; await render([source]);
+  await act(async () => canvas.dispatchEvent(pointer('pointerdown')));
+  expect(raycast).not.toHaveBeenCalled(); expect(mocked.owner.press).not.toHaveBeenCalled();
+  mocked.state = { ...mocked.state!, phase: 'idle', tool: 'gap' }; await render([source]);
+  await act(async () => canvas.dispatchEvent(pointer('pointerdown')));
+  expect(raycast).not.toHaveBeenCalled(); expect(mocked.owner.press).toHaveBeenCalledTimes(1);
+});
+
+it('updates parent camera matrices before testing transformed original geometry', () => {
+  readyBvh(); const parent = new THREE.Group(); parent.add(mocked.three.camera);
+  parent.position.set(10, 0, 0); // Deliberately leave parent/world matrices stale.
+  const session = { ...mocked.state!.session!, instanceTransform: new THREE.Matrix4().makeTranslation(10, 0, 0).toArray() };
+  const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  const meshes = paintingCursorMeshes([], [source], session, material), raycaster = new THREE.Raycaster();
+  expect(paintingStartMiss({ clientX: 300, clientY: 300 }, canvas, mocked.three.camera, meshes, session, session, raycaster)).toBe(false);
+  expect(paintingStartMiss({ clientX: 10, clientY: 10 }, canvas, mocked.three.camera, meshes, session, session, raycaster)).toBe(true);
+  material.dispose();
+});
+
+it('checks each solid independently of source order and falls back for duplicate source part IDs', () => {
+  readyBvh();
+  const session = { ...mocked.state!.session!, parts: [mocked.state!.session!.parts[0], { ...mocked.state!.session!.parts[0], volumeId: 4, volumeTransform: new THREE.Matrix4().makeTranslation(10, 0, 0).toArray() }] };
+  const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  const second = { ...source, buffer: { ...source.buffer, volumeId: 4 } } as LoadedObject;
+  const meshes = paintingCursorMeshes([], [second, source], session, material), raycaster = new THREE.Raycaster();
+  expect(paintingStartMiss({ clientX: 300, clientY: 300 }, canvas, mocked.three.camera, meshes, session, session, raycaster)).toBe(false);
+  expect(paintingStartMiss({ clientX: 10, clientY: 10 }, canvas, mocked.three.camera, meshes, session, session, raycaster)).toBe(true);
+  const duplicate = paintingCursorMeshes([], [source, source], session, material);
+  expect(paintingStartMiss({ clientX: 10, clientY: 10 }, canvas, mocked.three.camera, duplicate, session, session, raycaster)).toBe(false);
+  material.dispose();
+});
+
 it('matches Orca triangle contour depth offset without changing face materials', () => {
   const material = triangleContourMaterial();
   expect(material.color.getHexString()).toBe('ffffff');
@@ -115,14 +224,14 @@ it.each(['outside', 'surface'])('routes a real idle Gap controller press from %s
   const api = {
     openHistorySession: vi.fn(async () => ({ sessionId: 'hs-1', status: {} })),
     openPaintingSession: vi.fn(async () => ({ ok: true, version: 1, session })),
-    previewPainting: vi.fn(async () => ({ ok: true, version: 1, sessionId: session.id, revision: 1, phase: 'idle', strokeId: null, effective: false, changedPartIds: [], hit: null })),
+    previewPainting: vi.fn(async () => ({ ok: true, version: 1, channel: 'mmu' as const, sessionId: session.id, revision: 1, phase: 'idle', strokeId: null, effective: false, changedPartIds: [], hit: null })),
     getPaintingGeometry: vi.fn(async () => ({ ...mocked.state!.display!, sessionId: session.id, parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [{ resourceId: 'gap', volumeId: 3, kind: 'gap' }], resources: [draft, candidate] })),
     beginPaintingStroke: vi.fn(), samplePaintingStroke: vi.fn(), finishPaintingStroke: vi.fn(), cancelPaintingStroke: vi.fn(), commitPaintingStroke: vi.fn(),
   };
   const frames: Array<() => void> = [], history = vi.fn(), committed = vi.fn();
   const owner = new PaintingController({ api: api as unknown as PaintingPorts['api'], coordinate: async (operation) => operation(), palette: () => null, targetAvailable: () => true,
     history, committed, prepareClosed: async () => {}, schedule: (callback) => { frames.push(callback); return () => {}; } });
-  owner.setTool('gap'); await owner.open(1, 2); frames.shift()?.();
+  owner.setTool('gap'); await owner.open(1, 2, 'mmu'); frames.shift()?.();
   for (let i = 0; i < 20; i++) await Promise.resolve();
   mocked.owner = owner; mocked.state = owner.getSnapshot();
   expect(mocked.state.display?.candidates).toHaveLength(1);
@@ -211,7 +320,7 @@ it('opens without reframing, holds the displayed pivot during delayed transform 
   mocked.state = { ...mocked.state!, display: null };
   await render([source]); near(pose(), beforeOpen); await rotate(); near(pose(), beforeOpen);
   const oldSession = { ...mocked.state!.session!, instanceTransform: new THREE.Matrix4().makeTranslation(100, 40, 20).toArray() };
-  const display = { ok: true as const, version: 1 as const, sessionId: oldSession.id, revision: 1, session: oldSession, palette: null,
+  const display = { ok: true as const, version: 1 as const, channel: 'mmu' as const, sessionId: oldSession.id, revision: 1, session: oldSession, palette: null,
     parts: [{ volumeId: 3, resourceId: 'a' }], candidates: [], resources: [{ resourceId: 'a', volumeId: 3, kind: 'draft' as const, vertices: new Float32Array(18), groups: [[0, 0, 3]] as [number, number, number][], contour: new Float32Array() }] };
   mocked.state = { ...mocked.state!, session: oldSession, display }; await render([source]); near(pose(), beforeOpen);
   const oldPivot = new THREE.Vector3(100, 40, 20), oldPoint = cameraPoint(oldPivot);
@@ -254,4 +363,19 @@ it('retains pivot and cached bounds across RGB/stroke refreshes and prevents cam
   });
   near(pose(), drawing); expect(mocked.owner.release).not.toHaveBeenCalled();
   await act(async () => canvas.dispatchEvent(pointer('pointerup'))); expect(mocked.owner.release).toHaveBeenCalledTimes(1);
+});
+
+it('seam Vertical mirrors native screen-X in the cursor while sending raw camera-relative input', async () => {
+  mocked.state = {...mocked.state!,channel:'seam',tool:'circle',settings:{...mocked.state!.settings,vertical:true}};
+  canvas.getBoundingClientRect = () => ({left:5,top:7,width:200,height:100} as DOMRect);
+  const rays = vi.spyOn(THREE.Raycaster.prototype,'setFromCamera');
+  await render([source]);
+  await act(async()=>canvas.dispatchEvent(pointer('pointerdown',{clientX:65,clientY:40})));
+  await act(async()=>canvas.dispatchEvent(pointer('pointermove',{clientX:125,clientY:70})));
+  expect(rays.mock.calls.at(-1)![0].x).toBeCloseTo(-.4);
+  expect(rays.mock.calls.at(-1)![0].y).toBeCloseTo(-.26);
+  expect(mocked.owner.move).toHaveBeenLastCalledWith(expect.objectContaining({pointer:[125,70],view:mocked.three.camera.matrixWorldInverse.toArray()}),false);
+  mocked.state!.settings = {...mocked.state!.settings,vertical:false};
+  await act(async()=>canvas.dispatchEvent(pointer('pointermove',{clientX:125,clientY:70})));
+  expect(rays.mock.calls.at(-1)![0].x).toBeCloseTo(.2);
 });

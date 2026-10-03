@@ -36,6 +36,10 @@ bool is_editable_plate_override_key(const std::string& key);
 // when they differ from that preset's parent.
 bool is_native_project_config_key(const std::string& key);
 
+// Project process catalogue and mutation share native Print-preset ownership,
+// including object/region defaults, while excluding preset bookkeeping.
+bool is_project_print_override_key(const std::string& key);
+
 // Existing native filament-routing slots are Project-owned for slicing and
 // history, but remain outside the generic Project/Scoped editing catalogue;
 // dedicated filament commands are their only mutation authority.

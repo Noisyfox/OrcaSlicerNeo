@@ -1401,6 +1401,72 @@ int main()
     CHECK(publish_close.abort_operation());
     CHECK(publish_close.can_redo() && publish_close.current_timestamp() == publish_close_cursor);
 
+    // A failed model publication after navigation must undo lazy capture of
+    // the live top as well as cursor/budget effects. Keep the original Impl,
+    // rather than navigating back through the already-mutated candidate.
+    TimestampedHistory navigation_history(100000);
+    const auto navigation_before = roots(1, {object(71, 1, 1, 4096)}, 1, 1, 1);
+    auto navigation_live = roots(2, {object(71, 2, 2, 4096)}, 1, 2, 2);
+    const auto navigation_session = navigation_history.begin_editing_session();
+    CHECK(navigation_session);
+    CHECK(navigation_history.begin_operation("Paint support", navigation_before, TimestampedOperationKind::Paint));
+    CHECK(navigation_history.commit_operation(navigation_live));
+    navigation_history.mark_current_as_saved();
+    navigation_live.session.history_context = bytes(99, 16384);
+    const auto navigation_entries = navigation_history.entries();
+    const auto navigation_intervals = navigation_history.object_intervals();
+    const auto navigation_resources = navigation_history.resource_diagnostics();
+    const auto navigation_snapshots = navigation_history.snapshot_count();
+    const auto navigation_archives = navigation_history.object_archive_count();
+    const auto navigation_cursor = navigation_history.current_timestamp();
+    const auto navigation_saved = navigation_history.saved_timestamp();
+    CHECK(!navigation_history.can_redo() && !navigation_history.project_modified());
+    bool navigation_threw = false;
+    try {
+        auto publication = navigation_history.stage_navigation();
+        TimestampedRestore candidate;
+        CHECK(navigation_history.undo(navigation_live, candidate));
+        CHECK(navigation_history.snapshot_count() > navigation_snapshots);
+        navigation_history.set_byte_budget(1);
+        CHECK(navigation_history.byte_budget() == 1 && navigation_history.can_redo());
+        throw std::runtime_error("failed native navigation publication");
+    } catch (const std::runtime_error&) { navigation_threw = true; }
+    CHECK(navigation_threw);
+    CHECK(navigation_history.current_timestamp() == navigation_cursor && navigation_history.can_undo() && !navigation_history.can_redo());
+    CHECK(navigation_history.snapshot_count() == navigation_snapshots && navigation_history.object_archive_count() == navigation_archives);
+    CHECK(navigation_history.bytes_used() == navigation_resources.bytes_used && navigation_history.byte_budget() == navigation_resources.byte_budget);
+    CHECK(navigation_history.resource_diagnostics().evicted_timestamp_count == navigation_resources.evicted_timestamp_count &&
+          navigation_history.resource_diagnostics().last_evicted_timestamp == navigation_resources.last_evicted_timestamp &&
+          navigation_history.resource_diagnostics().oversized_nearest_history_retained == navigation_resources.oversized_nearest_history_retained);
+    CHECK(entries_are_equal(navigation_history.entries(), navigation_entries) && intervals_are_equal(navigation_history.object_intervals(), navigation_intervals));
+    CHECK(navigation_history.saved_timestamp() == navigation_saved && !navigation_history.project_modified() && !navigation_history.saved_checkpoint_evicted());
+    CHECK(navigation_history.navigation_floor() == navigation_session->entry_timestamp &&
+          navigation_history.editing_session_status()->id == navigation_session->id && navigation_history.editing_session_status()->has_effective_commit);
+    TimestampedRestore navigation_result;
+    {
+        auto publication = navigation_history.stage_navigation();
+        CHECK(navigation_history.undo(navigation_live, navigation_result));
+        publication.commit();
+    }
+    CHECK(navigation_history.can_redo() && navigation_history.project_modified());
+    const auto redo_bytes = navigation_history.bytes_used();
+    const auto redo_cursor = navigation_history.current_timestamp();
+    {
+        auto failed_redo = navigation_history.stage_navigation();
+        CHECK(navigation_history.redo(navigation_result));
+        CHECK(navigation_result.roots.session.history_context == bytes(99, 16384));
+        CHECK(!navigation_history.project_modified());
+        // Destruction without commit simulates rejected Redo publication.
+    }
+    CHECK(navigation_history.current_timestamp() == redo_cursor && navigation_history.can_redo() &&
+          navigation_history.bytes_used() == redo_bytes && navigation_history.project_modified());
+    {
+        auto publication = navigation_history.stage_navigation();
+        CHECK(navigation_history.redo(navigation_result));
+        publication.commit();
+    }
+    CHECK(navigation_history.current_timestamp() == navigation_cursor && !navigation_history.project_modified());
+
     std::cout << "TimestampedHistory tests passed\n";
     return EXIT_SUCCESS;
 }

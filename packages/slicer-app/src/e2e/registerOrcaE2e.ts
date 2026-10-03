@@ -26,6 +26,7 @@ export interface OrcaE2eHooks extends Record<string, unknown> {
   primeTowerCommitBusy?: () => boolean;
   primeTowerProxyIds?: () => string[];
   historyDiagnostics?: () => HistoryObservabilitySnapshot;
+  primeTowerProjectionPendingCount?: () => number;
   modelMeshResponse?: () => unknown;
   previewFirstCommitPaintMaterialsByVolume?: Record<string, unknown[]>;
   projectLoadEvidence?: () => {

@@ -36,7 +36,7 @@ async function nativeMenuSnapshot(app: ElectronApplication): Promise<Record<stri
   });
 }
 
-testMac('native menu re-enables Slice/Export after slice completes', async () => {
+testMac('native menu enables Export after slice and re-enables Slice after mutation', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'orca-native-menu-e2e-'));
   const app = await _electron.launch({
     args: ['.'],
@@ -68,9 +68,13 @@ testMac('native menu re-enables Slice/Export after slice completes', async () =>
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
 
-    const after = await nativeMenuSnapshot(app);
-    expect(after['file-slice']?.enabled).toBe(true);
-    expect(after['file-export-gcode']?.enabled).toBe(true);
+    // Renderer completion precedes asynchronous menu-state IPC delivery.
+    await expect.poll(async () => (await nativeMenuSnapshot(app))['file-slice']?.enabled).toBe(false);
+    await expect.poll(async () => (await nativeMenuSnapshot(app))['file-export-gcode']?.enabled).toBe(true);
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('btn-add-model').click();
+    await expect.poll(async () => (await nativeMenuSnapshot(app))['file-slice']?.enabled).toBe(true);
+    await expect.poll(async () => (await nativeMenuSnapshot(app))['file-export-gcode']?.enabled).toBe(false);
   } finally {
     await app.close();
   }

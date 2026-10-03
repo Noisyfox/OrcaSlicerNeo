@@ -14,7 +14,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import { WorkspaceHistoryProbe } from '@/e2e/WorkspaceHistoryProbe';
+import { WorkspaceHistoryProbe, trackPrimeTowerProjectionRead } from '@/e2e/WorkspaceHistoryProbe';
 import { ScopedConfigurationGateProbe } from '@/e2e/ScopedConfigurationGateProbe';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { Viewport } from './viewport/Viewport';
@@ -384,6 +384,7 @@ export function Workspace({
       }
     })();
     primeTowerProjectionReadRef.current = { inputs, promise: read };
+    if (__ORCA_E2E__ && platform.runtime) trackPrimeTowerProjectionRead(platform.runtime, read);
     void read.then(
       () => {
         if (primeTowerProjectionReadRef.current?.promise === read) primeTowerProjectionReadRef.current = null;

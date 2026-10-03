@@ -1,3 +1,4 @@
+import { openProjectMenu } from './project-menu';
 // End-to-end profile for the exact user-visible boundary: clicking Add Plate
 // until the matching Undo entry is enabled. This is intentionally real-WASM
 // only: mock timings cannot establish the cost of history model snapshots.
@@ -46,13 +47,7 @@ test('profiles Add Plate click through its visible Undo entry on the real projec
     // Opening through the app route is intentional: it proves the supplied
     // real file reaches the native project loader instead of measuring the
     // startup fixture or a merely configured path.
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
-    }
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-open-project').click();
+    await openProjectMenu(page, app);
     const choice = page.getByTestId('project-load-choice-dialog');
     if (await choice.isVisible({ timeout: 30_000 }).catch(() => false)) {
       await page.getByTestId('project-load-project').click();

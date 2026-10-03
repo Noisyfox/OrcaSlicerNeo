@@ -130,7 +130,12 @@
 - The application preserves, on a best-effort basis through the upstream model
   and BBS 3MF reader/writer, model semantics that the first-release UI may not
   edit: multipart and modifier relationships, printable state, object and part
-  names, instance transforms, and support, seam, and multi-material painting.
+  names, instance transforms, and support, seam, fuzzy-skin, and multi-material
+  painting. Editing and the stronger four-channel edit/save/reopen/Undo/Redo
+  acceptance are governed by
+  [Surface Painting Architecture](Surface%20Painting%20Architecture.md#92-required-adapter-editing-and-interoperability-acceptance).
+  Adapter implementation is pending; this does not broaden the historical
+  first-release persistence boundaries below.
 
 ## First-release boundaries
 

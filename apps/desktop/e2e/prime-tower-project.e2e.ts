@@ -1,3 +1,4 @@
+import { openProjectMenu } from './project-menu';
 // Real threaded regression for an imported multi-plate project whose native
 // Process config enables a prime tower without a Neo overlay entry.
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -90,14 +91,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
 
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
-    }
-
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-open-project').click();
+    await openProjectMenu(page, app);
     // With an empty startup scene the configured load policy opens directly;
     // a dirty scene instead presents the explicit geometry/project choice.
     const choice = page.getByTestId('project-load-choice-dialog');

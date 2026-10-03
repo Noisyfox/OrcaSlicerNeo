@@ -1,7 +1,7 @@
 import type {
   PaintingApi, PaintingSessionMetadata, PaintingDraftResult, PaintingPointerEvent,
   PaintingSettings, PaintingTool, PaintingGeometryResult, HistoryStatus, SlicerClient,
-  FilamentSessionSnapshot, FilamentMutationSummary,
+  FilamentSessionSnapshot, FilamentMutationSummary, PaintingChannel,
 } from '@slicer/client';
 
 export type PaintTool = Exclude<PaintingTool, 'eraseAll'>;
@@ -24,6 +24,7 @@ function paintingDisplayMatchesTarget(display: PaintingDisplay | null, session: 
 }
 export interface PaintingState {
   phase: PaintingPhase;
+  channel: PaintingChannel;
   session: PaintingSessionMetadata | null;
   tool: PaintTool;
   settings: Required<PaintingSettings>;
@@ -31,6 +32,8 @@ export interface PaintingState {
   display: PaintingDisplay | null;
   /** Native metadata generation for rejecting obsolete geometry receipts. */
   epoch: number;
+  /** Independent memory-only overlay preference; never an Apply candidate. */
+  highlightEnabled?: boolean;
 }
 export interface PaintingPorts {
   coordinate<T>(operation: () => Promise<T>): Promise<T>;
@@ -46,16 +49,18 @@ type Sample = { event: PaintingPointerEvent; settings: PaintingSettings };
 type Terminal = { kind: 'commit'; sample?: Sample; generation?: number } | { kind: 'cancel' };
 /** Tool policy supplies input; result ownership is shared by every candidate tool. */
 function previewInput(tool: PaintTool): 'pointer' | 'static' | null {
-  if (tool === 'triangle' || tool === 'region') return 'pointer';
+  if (tool === 'triangle' || tool === 'region' || tool === 'smartFill') return 'pointer';
   return tool === 'gap' ? 'static' : null;
 }
-const defaults: Required<PaintingSettings> = { state: 1, erase: false, radius: 2, height: 1, angle: 30, gapArea: 0 };
+const defaults: Required<PaintingSettings> = { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false };
 
 /** One RPC lane, shared by input and display. Moves are never retained. Only
  * a press (behind a display read) and a reliable terminal may wait for the lane.
  * The scheduler coalesces display opportunities, not admitted painting input. */
 export class PaintingController {
-  private state: PaintingState = { phase: 'closed', session: null, tool: 'circle', settings: defaults, error: null, display: null, epoch: 0 };
+  private state: PaintingState = { phase: 'closed', channel: 'mmu', session: null, tool: 'circle', settings: defaults, error: null, display: null, epoch: 0 };
+  private switching = false;
+  private parameters = new Map<PaintingChannel, { tool: PaintTool; settings: Required<PaintingSettings>; highlightEnabled?: boolean }>();
   private listeners = new Set<() => void>();
   private lane: Promise<unknown> | null = null;
   private terminal: Terminal | null = null;
@@ -66,6 +71,8 @@ export class PaintingController {
   private known = new Set<string>();
   private hover: PaintingPointerEvent | undefined;
   private previewDirty = false;
+  private highlightDirty = false;
+  private highlightGeneration = 0;
   private previewGeneration = 0;
   /** Only a successful native preview or admitted stroke result owns candidates.
    * Geometry/model recovery and pointer presence cannot grant ownership. */
@@ -89,7 +96,7 @@ export class PaintingController {
   private identity() {
     const s = this.state.session;
     if (!s) throw new Error('Painting session is not open');
-    return { version: 1 as const, sessionId: s.id, revision: s.revision };
+    return { version: 1 as const, channel: s.channel, sessionId: s.id, revision: s.revision };
   }
   private stroke() {
     const strokeId = this.state.session?.strokeId;
@@ -99,7 +106,7 @@ export class PaintingController {
   private receipt(result: PaintingDraftResult, generation?: number): Exclude<PaintingDraftResult, { error: string }> {
     if ('error' in result) throw new Error(result.error);
     const session = this.state.session;
-    if (!session || result.sessionId !== session.id || result.revision < session.revision) throw new Error('Stale painting response');
+    if (!session || result.channel !== session.channel || result.sessionId !== session.id || result.revision < session.revision) throw new Error('Stale painting response');
     this.update({ session: { ...session, revision: result.revision, strokeId: result.strokeId, phase: result.phase } });
     if (generation !== undefined && generation === this.previewGeneration) this.candidateOwner = generation;
     this.displayDirty = true;
@@ -119,16 +126,28 @@ export class PaintingController {
     if (previewInput(this.state.tool)) { this.invalidatePreview(); }
     this.update({ error: error instanceof Error ? error.message : String(error), ...(previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
   }
-  async open(objectId: number, instanceId: number): Promise<boolean> {
-    if (this.active) return false;
-    this.update({ phase: 'opening', error: null });
+  async open(objectId: number, instanceId: number, channel: PaintingChannel): Promise<boolean> {
+    if (this.switching) return false;
+    // Reserve closing synchronously. Busy switches are discarded, never queued.
+    if (this.active) {
+      if (this.state.phase !== 'idle') return false;
+      if (this.state.channel === channel) return this.target(objectId, instanceId);
+      this.switching = true;
+      const closed = await this.close();
+      this.switching = false;
+      if (!closed) return false;
+    }
+    this.parameters.set(this.state.channel, { tool: this.state.tool, settings: this.state.settings, highlightEnabled: this.state.highlightEnabled });
+    const parameters = this.parameters.get(channel) ?? { tool: 'circle' as const, settings: { ...defaults }, highlightEnabled: false };
+    this.update({ channel, ...parameters, phase: 'opening', error: null });
     return this.exclusive(async () => {
       try {
         const history = await this.ports.api.openHistorySession();
         this.historyId = history.sessionId; this.ports.history(history.status);
-        const result = await this.ports.api.openPaintingSession({ version: 1, historySessionId: history.sessionId, objectId, instanceId });
+        const result = await this.ports.api.openPaintingSession({ version: 1, channel, historySessionId: history.sessionId, objectId, instanceId });
         if ('error' in result) throw new Error(result.error);
         this.update({ session: result.session, phase: 'idle', epoch: this.state.epoch + 1 });
+        this.highlightDirty = this.state.channel === 'support';
         this.displayDirty = true; this.previewDirty = previewInput(this.state.tool) === 'static';
         return true;
       } catch (error) {
@@ -152,39 +171,71 @@ export class PaintingController {
         if ('error' in result) throw new Error(result.error);
         this.known.clear(); this.hover = undefined;
         this.update({ session: result.session, epoch: this.state.epoch + 1, phase: 'idle' });
+        this.highlightDirty = this.state.channel === 'support';
         this.displayDirty = true; this.previewDirty = previewInput(this.state.tool) === 'static'; return true;
       } catch (error) { this.fail(error); this.update({ phase: 'idle' }); return false; }
     });
   }
   setTool(tool: PaintTool): void {
     if (this.unfinished || !['idle', 'closed'].includes(this.state.phase)) return;
+    const allowed = this.state.channel === 'mmu' ? ['circle','sphere','triangle','height','region','gap']
+      : this.state.channel === 'support' ? ['circle','sphere','smartFill','gap']
+      : this.state.channel === 'fuzzy' ? ['circle','sphere','triangle','smartFill'] : ['circle','sphere'];
+    if (!allowed.includes(tool)) return;
     this.update({ tool, display: this.withoutCandidates() });
     this.previewDirty = !!previewInput(tool); this.advancePreview(); this.scheduleDisplay();
   }
   setSettings(value: Partial<Required<PaintingSettings>>): void {
     const next = { ...this.state.settings, ...value };
-    if (!Number.isInteger(next.state) || next.state < 1 || next.state > 16 ||
+    if (!Number.isInteger(next.state) || next.state < 1 || next.state > (this.state.channel === 'mmu' ? 16 : this.state.channel === 'fuzzy' ? 1 : 2) ||
+      (next.vertical && this.state.channel !== 'seam') ||
+      ((value.overhangAngle !== undefined || value.restrictToOverhangs !== undefined) && this.state.channel !== 'support') ||
+      (next.overhangAngle !== null && (!Number.isFinite(next.overhangAngle) || next.overhangAngle < 0 || next.overhangAngle > 90)) ||
+      (next.restrictToOverhangs && next.overhangAngle === null) ||
+      (this.state.tool === 'smartFill' && next.angle === null) ||
       !Number.isFinite(next.radius) || next.radius <= 0 || !Number.isFinite(next.height) || next.height <= 0 ||
       !Number.isFinite(next.gapArea) || next.gapArea < 0 || next.gapArea > 5 ||
       (next.angle !== null && (!Number.isFinite(next.angle) || next.angle < 0 || next.angle > 90))) return;
+    if (next.overhangAngle !== this.state.settings.overhangAngle) this.invalidateHighlight();
     this.advancePreview(); this.update({ settings: next, ...(!previewInput(this.state.tool) ? { display: this.withoutCandidates() } : {}) });
-    if (value.state !== undefined) this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
+    if (value.state !== undefined && this.state.channel === 'mmu') this.selectedFilamentId = this.ports.palette()?.slots.find((slot) => slot.slot === next.state)?.logicalId ?? null;
     this.previewDirty = true; this.scheduleDisplay();
   }
-  remapPalette(mapping: Readonly<Record<number, number>>, count: number): void {
-    const state = mapping[this.state.settings.state] ?? this.state.settings.state;
-    this.setSettings({ state: state >= 1 && state <= Math.min(16, count) ? state : 1 });
+  setHighlight(enabled: boolean): void {
+    if (this.state.channel !== 'support' || this.state.phase !== 'idle') return;
+    this.invalidateHighlight();
+    this.update({ highlightEnabled: enabled }); this.scheduleDisplay();
   }
-  resetProjectPalette(): void { this.setSettings({ state: 1 }); }
+  private invalidateHighlight(): void {
+    this.highlightDirty = this.state.channel === 'support'; ++this.highlightGeneration;
+    if (this.state.display) this.update({ display: { ...this.state.display, candidates: this.state.display.candidates.filter(c => c.kind !== 'overhang') } });
+  }
+  private mmuParameters() {
+    return this.state.channel === 'mmu' ? { tool: this.state.tool, settings: this.state.settings }
+      : this.parameters.get('mmu') ?? { tool: 'circle' as const, settings: { ...defaults } };
+  }
+  private setMmuState(state: number): void {
+    if (this.state.channel === 'mmu') this.setSettings({ state });
+    else {
+      const parameters = this.mmuParameters();
+      this.parameters.set('mmu', { ...parameters, settings: { ...parameters.settings, state } });
+    }
+  }
+  remapPalette(mapping: Readonly<Record<number, number>>, count: number): void {
+    const state = mapping[this.mmuParameters().settings.state] ?? this.mmuParameters().settings.state;
+    this.setMmuState(state >= 1 && state <= Math.min(16, count) ? state : 1);
+  }
+  resetProjectPalette(): void { this.selectedFilamentId = null; this.setMmuState(1); }
   reconcilePalette(snapshot: FilamentSessionSnapshot, mutation?: FilamentMutationSummary): void {
-    if (mutation?.kind === 'merge' && mutation.source === this.state.settings.state && mutation.destination) {
+    const state = this.mmuParameters().settings.state;
+    if (mutation?.kind === 'merge' && mutation.source === state && mutation.destination) {
       this.selectedFilamentId = snapshot.slots.find((slot) => slot.slot === mutation.destination)?.logicalId ?? null;
     }
     const selected = this.selectedFilamentId
       ? snapshot.slots.find((slot) => slot.logicalId === this.selectedFilamentId)
-      : snapshot.slots.find((slot) => slot.slot === this.state.settings.state);
+      : snapshot.slots.find((slot) => slot.slot === state);
     const slot = selected && selected.slot <= 16 ? selected : snapshot.slots[0];
-    this.setSettings({ state: slot?.slot ?? 1 });
+    this.setMmuState(slot?.slot ?? 1);
     this.selectedFilamentId = slot?.logicalId ?? null;
   }
   private invalidatePreview(): void {
@@ -194,12 +245,15 @@ export class PaintingController {
     this.candidateOwner = null;
     return ++this.previewGeneration;
   }
-  private previewReady(tool: PaintTool = this.state.tool): tool is 'triangle' | 'region' | 'gap' {
+  private previewReady(tool: PaintTool = this.state.tool): tool is 'triangle' | 'region' | 'gap' | 'smartFill' {
     const input = previewInput(tool);
     return input === 'static' || (input === 'pointer' && !!this.hover);
   }
-  private settings(erase: boolean): PaintingSettings { return { ...this.state.settings, erase: erase || this.state.settings.erase }; }
-  private withoutCandidates() { return this.state.display?.candidates.length ? { ...this.state.display, candidates: [] } : this.state.display; }
+  private settings(erase: boolean): PaintingSettings {
+    const { overhangAngle, restrictToOverhangs, ...shared } = this.state.settings;
+    return { ...shared, ...(this.state.channel === 'support' ? { overhangAngle, restrictToOverhangs } : {}), erase: erase || shared.erase };
+  }
+  private withoutCandidates() { return this.state.display?.candidates.length ? { ...this.state.display, candidates: this.state.display.candidates.filter(c => c.kind === 'overhang') } : this.state.display; }
   hoverAt(event?: PaintingPointerEvent): void {
     // Gap is a static fragment selection, independent of pointer/camera state.
     if (previewInput(this.state.tool) === 'static') return;
@@ -272,12 +326,12 @@ export class PaintingController {
     else {
       const result = await this.ports.api.commitPaintingStroke({ ...this.stroke(), ...terminal.sample });
       if ('error' in result) {
-        if (result.recovered && this.state.session?.id === result.sessionId) {
+        if (result.recovered && result.channel === this.state.session?.channel && this.state.session?.id === result.sessionId) {
           this.update({ session: { ...this.state.session, phase: 'idle', strokeId: null, revision: result.revision } });
         }
         throw new Error(result.error);
       }
-      if (result.committed && this.state.session) this.paintedObjectIds.add(this.state.session.objectId);
+      if (result.committed && this.state.session?.channel === 'mmu') this.paintedObjectIds.add(this.state.session.objectId);
       this.receipt(result, terminal.generation); this.ports.history(result.history);
       if (result.committed) this.ports.committed(result.affectedPlateIds);
     }
@@ -341,6 +395,7 @@ export class PaintingController {
         const latest = await this.ports.api.readPaintingSession({ ...this.identity(), latest: true });
         if ('error' in latest) throw new Error(latest.error);
         this.update({ session: latest.session, epoch: this.state.epoch + 1 });
+        this.highlightDirty = this.state.channel === 'support';
         this.displayDirty = true; this.previewDirty = this.previewReady(); return result;
       } catch (error) { await this.recover(error); throw error; }
     }); } finally {
@@ -369,21 +424,30 @@ export class PaintingController {
       this.receipt(await this.ports.api.cancelPaintingStroke(this.stroke()));
       this.terminal = null; this.terminalExecuting = false;
     }
-    if (this.historyId) { this.ports.history(await this.ports.api.closeHistorySession(this.historyId, 'Paint')); this.historyId = null; }
+    if (this.historyId) {
+      const labels = { mmu: 'Paint', support: 'Paint Supports', seam: 'Paint Seam', fuzzy: 'Paint Fuzzy Skin' };
+      const label = this.state.session ? labels[this.state.session.channel] : 'Paint';
+      this.ports.history(await this.ports.api.closeHistorySession(this.historyId, label)); this.historyId = null;
+    }
     await this.ports.prepareClosed([...this.paintedObjectIds]);
     this.paintedObjectIds.clear();
     this.known.clear(); this.cancelFrame?.(); this.cancelFrame = null;
-    this.displayDirty = false; this.previewDirty = false; this.advancePreview(); this.hover = undefined;
+    this.displayDirty = false; this.previewDirty = false; this.highlightDirty = false; ++this.highlightGeneration; this.advancePreview(); this.hover = undefined;
     this.update({ phase: 'closed', session: null, display: null, error: null, epoch: this.state.epoch + 1 });
   }
   private scheduleDisplay(): void {
-    if (this.lane || this.cancelFrame || !this.state.session || !['idle', 'drawing'].includes(this.state.phase) || (!this.displayDirty && !(this.previewDirty && this.state.phase === 'idle'))) return;
+    if (this.lane || this.cancelFrame || !this.state.session || !['idle', 'drawing'].includes(this.state.phase) || (!this.displayDirty && !((this.previewDirty || this.highlightDirty) && this.state.phase === 'idle'))) return;
     this.cancelFrame = this.ports.schedule(() => {
       this.cancelFrame = null;
       if (this.lane || !['idle', 'drawing'].includes(this.state.phase)) return;
       void this.exclusive(async () => {
         try {
           const previewVersion = this.previewGeneration, previewTool = this.state.tool;
+          const highlightVersion = this.highlightGeneration;
+          if (this.state.phase === 'idle' && this.highlightDirty) {
+            this.highlightDirty = false;
+            this.receipt(await this.ports.api.previewPainting({ ...this.identity(), tool: 'overhang', settings: { overhangAngle: this.state.highlightEnabled ? this.state.settings.overhangAngle : null } }));
+          }
           if (this.state.phase === 'idle' && this.previewDirty) {
             this.previewDirty = false;
             const tool = this.state.tool;
@@ -402,11 +466,12 @@ export class PaintingController {
               // publishing this draft with an empty or retained old candidate
               // would either blink or mix resources from different revisions.
               this.displayDirty = true;
-            } else if (epoch === this.state.epoch && result.sessionId === this.state.session?.id && result.revision === this.state.session.revision) {
+            } else if (epoch === this.state.epoch && result.channel === this.state.session?.channel && result.sessionId === this.state.session?.id && result.revision === this.state.session.revision) {
               // Retain CPU resources referenced by a reused native manifest only.
               const resources = new Map(this.state.display?.resources.map((r) => [r.resourceId, r]));
               result.resources.forEach((r) => resources.set(r.resourceId, r));
-              const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? result.candidates.filter((c) => c.kind === this.state.tool) : [];
+              const eligible = result.candidates.filter(c => c.kind !== 'overhang' || (highlightVersion === this.highlightGeneration && this.state.highlightEnabled));
+              const candidates = this.candidateOwner === previewVersion && !!previewInput(this.state.tool) ? eligible.filter((c) => c.kind === this.state.tool || c.kind === 'overhang') : eligible.filter(c => c.kind === 'overhang');
               const active = new Set([...result.parts, ...candidates].map((r) => r.resourceId));
               for (const id of active) if (!resources.has(id)) throw new Error(`Missing painting resource ${id}`);
               const session = this.state.session;
