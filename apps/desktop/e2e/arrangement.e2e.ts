@@ -7,7 +7,11 @@ import { assertCubePacking, centers, completed, expectSameCenters, history, read
 test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires freshly staged real WASM; run scripts/run-arrangement-e2e.mjs');
 test.setTimeout(480_000);
 
-test('real serial arrangement settings, atomic layout, history and current-plate entry', async () => {
+const expectedVariant = process.env.ORCA_E2E_ARRANGEMENT_EXPECT_VARIANT ?? 'serial';
+if (expectedVariant !== 'serial' && expectedVariant !== 'threaded') throw new Error('Unknown arrangement runtime expectation');
+const expectedCancelCount = expectedVariant === 'threaded' ? 1 : 0;
+
+test(`real ${expectedVariant} arrangement settings, atomic layout, history and current-plate entry`, async () => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-arrangement-')), 'preferences.json');
   writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: {} }));
   const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_PREFERENCES: preferences,
@@ -52,21 +56,21 @@ test('real serial arrangement settings, atomic layout, history and current-plate
           disabled: (document.querySelector('[data-testid="arrangement-edit-boundary"]') as HTMLFieldSetElement)?.disabled });
       });
       observer.observe(document.body, { childList: true, subtree: true, attributes: true });
-      (window as unknown as { serialArrangementObservation: () => typeof observations }).serialArrangementObservation = () => {
+      (window as unknown as { arrangementObservation: () => typeof observations }).arrangementObservation = () => {
         observer.disconnect(); return observations;
       };
     });
     await page.getByTestId('arrange-all').click();
-    await expect(page.getByTestId('arrange-cancel')).toHaveCount(0);
+    if (expectedVariant === 'serial') await expect(page.getByTestId('arrange-cancel')).toHaveCount(0);
     await completed(page);
     const busyObservations = await page.evaluate(() => (window as unknown as {
-      serialArrangementObservation(): Array<{ cancelCount: number; disabled: boolean }>;
-    }).serialArrangementObservation());
-    expect(busyObservations.length, 'observe the real serial operation while it is running').toBeGreaterThan(0);
-    expect(busyObservations.every(sample => sample.cancelCount === 0 && sample.disabled)).toBe(true);
+      arrangementObservation(): Array<{ cancelCount: number; disabled: boolean }>;
+    }).arrangementObservation());
+    expect(busyObservations.length, 'observe the real operation while it is running').toBeGreaterThan(0);
+    expect(busyObservations.every(sample => sample.cancelCount === expectedCancelCount && sample.disabled)).toBe(true);
     const after = await assertCubePacking(page, before);
     await expect.poll(async () => (await history(page)).undoEntries.length).toBe(beforeHistory.undoEntries.length + 1);
-    await page.screenshot({ path: test.info().outputPath('serial-arranged.png') });
+    await page.screenshot({ path: test.info().outputPath(`${expectedVariant}-arranged.png`) });
     await page.getByTestId('history-undo').click();
     await expect.poll(() => centers(page)).toEqual(before);
     expectSameCenters(await centers(page), before);

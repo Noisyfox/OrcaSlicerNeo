@@ -23,10 +23,12 @@ async function verifyArtifacts(host, variant, names) {
 
 pnpm(['stage:assets']);
 if (!process.argv.includes('--web-only')) {
-  const env = { ...base, VITE_SCOPED_CONFIGURATION_GATE: '1', VITE_SCOPED_CONFIGURATION_GATE_VARIANT: 'serial' };
+  const variant = process.argv.includes('--desktop-threaded') ? 'threaded' : 'serial';
+  const env = { ...base, VITE_SCOPED_CONFIGURATION_GATE: '1', VITE_SCOPED_CONFIGURATION_GATE_VARIANT: variant,
+    ORCA_E2E_ARRANGEMENT_EXPECT_VARIANT: variant };
   pnpm(['exec', 'electron-vite', 'build', '--mode', 'e2e'], env, desktop);
   await cp(resolve(desktop, 'src/renderer/public'), resolve(desktop, 'out/renderer'), { recursive: true, force: true });
-  await verifyArtifacts('apps/desktop/out/renderer', 'serial', ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']);
+  await verifyArtifacts('apps/desktop/out/renderer', variant, ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']);
   pnpm(['exec', 'playwright', 'test', 'e2e/arrangement.e2e.ts'], env, desktop);
 }
 if (!process.argv.includes('--desktop-only')) {

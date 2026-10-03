@@ -549,7 +549,7 @@ is delivered; cut, measure, and orientation tools remain separate work.
 
 ## Implementation and acceptance record
 
-All commands below passed on the Windows acceptance host. The final workspace
+All commands below passed on the Windows acceptance host. The initial delivery workspace
 suite contains 1,345 passing tests, and all workspace typechecks pass. Parent
 acceptance independently reran the native core/adapter executables, the serial
 bridge smoke, and the real dual-host journey and reviewed the rendered output.
@@ -623,3 +623,45 @@ source-traced GUI preparation rules. Separate desktop-Orca GUI differential
 testing, cross-platform layout comparison, mobile qualification, and native
 performance profiling are not part of the recorded checks. The Linux CI
 dependency-cache path is configured but requires execution by remote CI.
+
+### Latest main integration (2026-10-03)
+
+The remote default branch is `main`; there is no remote `master`. Merge commit
+`fec2c857d72bd7fed7ff9310d385fadfa0858910` integrates main commit
+`2f25b0fe00cd66c1b2361c62c2c64042f8f7649f` without conflicts. The merge preserves
+the pinned Orca submodule and incorporates Electron's threaded NODEFS temporary
+filesystem. No production arrangement adaptation was required.
+
+After the merge, `pnpm test` passed all 1,370 tests and `pnpm typecheck` passed
+across the workspace. The dual-variant quick build and both production
+arrangement bridge smokes passed, including history, tower placement, threaded
+cancellation, stale-result rejection, and affected/unaffected concurrent slicing.
+The NODEFS bridge smoke passed against the freshly built threaded artifact.
+
+The real Electron serial and Web threaded journeys passed with the existing
+runner. The runner now also supports the following focused Electron threaded
+journey, which passed with staged artifact hashes verified:
+
+```powershell
+node scripts/run-arrangement-e2e.mjs --desktop-only --desktop-threaded
+node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs
+```
+
+Using that freshly built threaded Electron host, the NODEFS lifecycle E2E also
+passed: Unicode/space-containing temporary paths, native G-code bytes and
+preview, replacement results, project export/reopen, and session cleanup after
+reload, utility-process failure, and normal quit.
+
+```powershell
+$env:ORCA_E2E_REAL='1'
+$env:ORCA_E2E_NODEFS_EXPECT_VARIANT='threaded'
+$env:ORCA_E2E_VISIBLE='1'
+$env:CI='1'
+pnpm --filter @orca/desktop exec playwright test e2e/nodefs-runtime.e2e.ts
+```
+
+The Electron journey verifies the same settings, packing, atomic history,
+current-plate action, and saved preferences in both variants. It observes the
+editing guard during computation and expects Cancel only in threaded mode.
+The temporary-filesystem integration and its reproduction commands are defined
+in [Native Python Plugin Architecture](Native%20Python%20Plugin%20Architecture.md).
