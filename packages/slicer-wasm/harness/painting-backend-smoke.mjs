@@ -393,3 +393,67 @@ ok(command('orc_history_session_close', { sessionId: hs }));
 const paintedSlice = await sliceExtrusionTools();
 assert.deepEqual(paintedSlice.tools, [0, 1], 'actual extrusion did not consume both painted and inherited material');
 console.log(`Painting backend real-WASM ${process.argv.includes('--interop-only') ? 'unpainted/painted interoperability' : 'publication/geometry/history/remap/3MF/slice'} smoke passed (unpainted tool ${unpaintedSlice.tools}, painted tools ${paintedSlice.tools}; ${paintedSlice.segmentCount} segments)`);
+
+// A direct jump can remove both a painting edit and its object. Empty plates
+// never scan used slots, so Redo must not reuse the removed object's paint cache.
+load(writeStoredZip(readZipEntries(fixture()).map(entry => {
+  if (entry.name !== 'Metadata/project_settings.config') return entry;
+  const config = JSON.parse(new TextDecoder().decode(entry.content));
+  config.enable_prime_tower = '1';
+  return { ...entry, content: new TextEncoder().encode(JSON.stringify(config)) };
+})));
+ok(call('orc_clear_model'));
+command('orc_history_reset', context);
+const addCube = ok(call('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Cube', 'project', JSON.stringify(context), '']));
+ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'History tower Cube']));
+ok(call('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'], [0, 0, 100, 100, 10]));
+ok(call('orc_recompute_plate_membership'));
+const added = call('orc_history_commit', ['string', 'string'],
+  [addCube.transactionId, JSON.stringify(context)]);
+assert.equal(added.status.canUndo, true);
+const addEntry = added.status.undoEntries[0].id;
+const cubeId = structure()[0].id;
+const towers = () => ok(call('orc_get_prime_tower_projection')).plates;
+assert.equal(towers().some(plate => plate.eligible), false, 'unpainted Cube has no tower');
+open();
+begin('triangle', { state: 2 }, top(92, 105));
+commit({ settings: { state: 2 }, event: top(108, 95) });
+assert.ok(refresh().parts[0].facetCounts[2] > 0);
+ok(command('orc_history_session_close', { sessionId: hs }));
+assert.ok(towers().some(plate => plate.eligible && plate.used_slots.includes(2)), 'painted Cube has a tower');
+ok(call('orc_history_jump', ['string', 'string'], [addEntry, 'undo']));
+assert.equal(structure().length, 0);
+assert.equal(towers().some(plate => plate.eligible), false, 'empty scene has no tower');
+ok(call('orc_history_redo'));
+assert.equal(structure()[0].id, cubeId, 'Redo restores the same Cube identity');
+assert.equal(mesh().paint_geometries.length, 0, 'first Redo restores unpainted Cube');
+assert.equal(towers().some(plate => plate.eligible), false, 'first Redo has no stale painted tower');
+assert.deepEqual(towers().find(plate => !plate.empty).used_slots, [1]);
+ok(call('orc_history_redo'));
+assert.ok(mesh().paint_geometries.length > 0);
+assert.ok(towers().some(plate => plate.eligible && plate.used_slots.includes(2)), 'second Redo restores painted tower');
+ok(call('orc_history_undo'));
+assert.equal(towers().some(plate => plate.eligible), false, 'ordinary painting Undo removes tower');
+// A structural jump can also retain a Cube whose painting changes in the
+// same jump. Refresh touched object usage while keeping the plate delta cache.
+const secondCube = ok(call('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Cube', 'project', JSON.stringify(context), '']));
+ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Second history Cube']));
+ok(call('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'], [1, 0, 140, 100, 10]));
+ok(call('orc_recompute_plate_membership'));
+const secondAdded = call('orc_history_commit', ['string', 'string'],
+  [secondCube.transactionId, JSON.stringify(context)]);
+assert.equal(secondAdded.status.canUndo, true);
+const secondAddEntry = secondAdded.status.undoEntries[0].id;
+assert.equal(towers().some(plate => plate.eligible), false);
+open();
+begin('triangle', { state: 2 }, top(92, 105));
+commit({ settings: { state: 2 }, event: top(108, 95) });
+ok(command('orc_history_session_close', { sessionId: hs }));
+assert.ok(towers().some(plate => plate.eligible));
+ok(call('orc_history_jump', ['string', 'string'], [secondAddEntry, 'undo']));
+assert.equal(structure().length, 1);
+assert.equal(mesh().paint_geometries.length, 0);
+assert.equal(towers().some(plate => plate.eligible), false, 'mixed structural jump refreshes retained Cube usage');
+console.log('Painting history jump to empty / single-colour Cube Redo Prime Tower regression passed');
