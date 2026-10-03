@@ -2,6 +2,7 @@ import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 import { existsSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import { waitForProjectLoad } from '../../desktop/e2e/project-menu';
 
 const configuredProjectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
 const PROJECT_PATH = configuredProjectPath ? resolve(configuredProjectPath) : '';
@@ -49,6 +50,7 @@ test('renders native project progress before the real load result commits', asyn
       : `waiting:${evidence?.receipt === null}:${progress}:${message}`;
   }), { timeout: 120_000 }).toBe('native-progress-before-result');
 
+  await waitForProjectLoad(page);
   await expect.poll(() => page.evaluate(() =>
     (window as unknown as { __orcaE2e?: { projectLoadEvidence?: () => ProjectLoadEvidence } })
       .__orcaE2e?.projectLoadEvidence?.() ?? null,
