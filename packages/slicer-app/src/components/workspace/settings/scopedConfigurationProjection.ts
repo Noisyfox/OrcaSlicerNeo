@@ -8,7 +8,7 @@ import type {
 import type { ModelObjectStructure } from '@slicer/client';
 import type { SelectionKind } from '../viewport/SceneInteractionController';
 
-export type ConfigurationMode = 'project' | 'scoped';
+export type ConfigurationMode = 'project' | 'scoped' | 'plates';
 export type ScopedValueSource = 'preset' | NativeScopedConfigScope | 'mixed';
 
 export interface ScopedSelectionVolume {
@@ -106,6 +106,7 @@ export function resolveScopedConfigurationTarget(args: {
   activePlateLabel?: string;
   structure?: readonly ModelObjectStructure[];
   wipeTowerSelected?: boolean;
+  allowPlateTarget?: boolean;
 }): ScopedTargetResolution {
   const structure = args.structure ?? [];
   if (args.wipeTowerSelected)
@@ -114,6 +115,11 @@ export function resolveScopedConfigurationTarget(args: {
       disabledReason: 'Select an object or model volume to edit scoped configuration.',
     };
   if (args.selectedVolumes.length === 0) {
+    if (args.allowPlateTarget === false)
+      return {
+        scope: 'invalid', targets: [], label: 'No object selected', visibleScopes: ['preset', 'project'],
+        disabledReason: 'Select an object or model volume to edit its settings.',
+      };
     if (!args.activePlateId)
       return {
         scope: 'invalid', targets: [], label: 'No active plate', visibleScopes: ['preset', 'project'],

@@ -135,16 +135,16 @@ function ArrangementCheckbox({ id, label, checked, disabled, onChange }: {
   );
 }
 
-export function ArrangeCurrentPlateButton({ sceneInteraction, disabled = false }: {
-  sceneInteraction: SceneInteractionController; disabled?: boolean;
+export function ArrangeCurrentPlateButton({ sceneInteraction, disabled = false, compact = false }: {
+  sceneInteraction: SceneInteractionController; disabled?: boolean; compact?: boolean;
 }) {
   const controls = useArrangementControls(sceneInteraction);
   const current = usePlateSessionStore((state) => state.snapshot?.plates.find((plate) => plate.plateId === state.snapshot?.currentPlateId));
   return (
-    <Button size="xs" variant="secondary" data-testid="arrange-current-plate"
+    <Button size={compact ? 'sm' : 'xs'} variant="secondary" data-testid="arrange-current-plate" aria-label="Arrange current plate"
       disabled={disabled || controls.disabled || !current || current.locked}
       onClick={() => { void arrangeModels(controls.platform, sceneInteraction, 'current'); }}>
-      Arrange current plate
+      {compact ? 'Arrange' : 'Arrange current plate'}
     </Button>
   );
 }

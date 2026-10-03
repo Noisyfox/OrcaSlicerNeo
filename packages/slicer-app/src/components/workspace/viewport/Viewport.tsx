@@ -1,4 +1,3 @@
-import { paintingCommandAllowed, beforePaintingTopologyChange } from './gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/viewport/Viewport.tsx
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
@@ -19,20 +18,15 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { isSerialSliceBusy } from '@/runtimeExecution';
 import { useSettingsStore } from '@/stores/useSettingsStore';
-import { useProjectStore } from '@/stores/useProjectStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '@/components/layout/appTabs';
 import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
 import { GcodeTextWindow } from './GcodeTextWindow';
-import { Button } from '@/components/ui/button';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
-import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
-import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
-import { ArrangeCurrentPlateButton } from '../arrangement/ArrangementControls';
+import { selectPlateSessionAndClearSelection } from '../plateSessionActions';
 import { useArrangementStore } from '@/stores/useArrangementStore';
-import { runProjectHistoryMutation } from '../actions/historyMutation';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
 import { FuzzyPaintingPanel } from './gizmo/painting/FuzzyPaintingPanel';
@@ -274,45 +268,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       setPlateActionPending(false);
     }
   }, [plateActionPending, platform, plateSession?.currentPlateId, sceneInteraction]);
-
-  const addPlate = useCallback(async () => {
-    if (!paintingCommandAllowed() || plateActionPending || !canAddPlate(plateSession)) return;
-    setPlateActionPending(true);
-    try {
-      await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate(), null, {
-        contextReceipt: (result) => {
-          if (!result.ok) throw new Error(result.error);
-          // Adding a plate may reflow transforms, but cannot add/remove model IDs.
-          return { structure: 'preserved', activePlateId: result.currentPlateId };
-        },
-        publish: async (result) => {
-          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
-        },
-      });
-    } catch (error) {
-      useSlicerStore.getState().setError(String(error));
-    } finally {
-      setPlateActionPending(false);
-    }
-  }, [plateActionPending, platform, plateSession]);
-
-  const deletePlate = useCallback(async () => {
-    if (!paintingCommandAllowed() || plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
-    const targetPlate = plateSession.plates.find((plate) => plate.plateId === plateSession.currentPlateId);
-    if (!await beforePaintingTopologyChange({ instances: targetPlate?.instanceIds })) return;
-    setPlateActionPending(true);
-    try {
-      await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId), null, {
-        publish: async (result) => {
-          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
-        },
-      });
-    } catch (error) {
-      useSlicerStore.getState().setError(String(error));
-    } finally {
-      setPlateActionPending(false);
-    }
-  }, [plateActionPending, platform, plateSession]);
 
   const canStartBoxSelect = useCallback((event: PointerEvent, grabbedGizmo: boolean): boolean => {
     if (event.button !== 0 || !event.shiftKey || grabbedGizmo) return false;
@@ -575,44 +530,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
         {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
         {actionControls && <div className="pointer-events-auto absolute top-0 -left-0.5 z-40 max-w-full" data-testid="viewport-actions">{actionControls}</div>}
-        {prepareTab && !paintingActive && plateSession && <PlateControls
-          plateSession={plateSession}
-          pending={plateActionPending}
-          sceneInteraction={sceneInteraction}
-          onAdd={addPlate}
-          onDelete={deletePlate}
-        />}
       </div>
-    </div>
-  );
-}
-
-function PlateControls({
-  plateSession,
-  pending,
-  sceneInteraction,
-  onAdd,
-  onDelete,
-}: {
-  plateSession: PlateSessionSnapshot;
-  pending: boolean;
-  sceneInteraction: SceneInteractionController;
-  onAdd: () => void;
-  onDelete: () => void;
-}) {
-  const current = plateSession.plates.find((plate) => plate.plateId === plateSession.currentPlateId);
-  return (
-    <div className="absolute bottom-0 right-0 z-20 flex items-center gap-2 rounded-md border bg-background/90 p-1.5 shadow-sm backdrop-blur" data-testid="plate-controls">
-      <span className="px-1 text-xs text-muted-foreground" data-testid="current-plate-label">
-        {current?.name ?? 'Plate'} ({plateSession.plates.length}/36)
-      </span>
-      <Button size="xs" variant="secondary" onClick={onAdd} disabled={pending || !canAddPlate(plateSession)} data-testid="add-plate">
-        Add plate
-      </Button>
-      <ArrangeCurrentPlateButton sceneInteraction={sceneInteraction} disabled={pending} />
-      <Button size="xs" variant="outline" onClick={onDelete} disabled={pending || !canDeletePlate(plateSession)} data-testid="delete-plate">
-        Delete plate
-      </Button>
     </div>
   );
 }

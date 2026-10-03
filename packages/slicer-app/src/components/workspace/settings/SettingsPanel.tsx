@@ -2,6 +2,7 @@ import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectComman
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useState, type ReactNode } from 'react';
 import { ObjectList } from '../objectList/ObjectList';
+import { PlateToolbar } from '../PlateToolbar';
 import { unstable_batchedUpdates } from 'react-dom';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -35,9 +36,10 @@ import {
 
 type PresetKind = 'printer' | 'print';
 
-export function SettingsPanel({ sceneInteraction, onEditPrinter, renderLayout }: {
+export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, renderLayout }: {
   sceneInteraction: SceneInteractionController | null;
   onEditPrinter?: (canonicalName: string) => void;
+  platesContent?: ReactNode;
   renderLayout?: (panels: { printer: ReactNode; settings: ReactNode }) => ReactNode;
 }) {
   const platform = usePlatform();
@@ -173,6 +175,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, renderLayout }:
         sceneInteraction={sceneInteraction}
         projectContent={<PresetRow compact label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
+        platesContent={platesContent}
+        platesToolbar={sceneInteraction && <PlateToolbar sceneInteraction={sceneInteraction} />}
       />
     </div>
   );

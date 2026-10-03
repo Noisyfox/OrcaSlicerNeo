@@ -56,8 +56,9 @@ scrollbars use a 6px dark track, a rounded dark-gray thumb, and no arrow
 buttons, matching the reference sidebar. Chromium uses the custom scrollbar
 pseudo-elements; other browsers retain the thin standard-property fallback.
 The upper device/material card contains the Printer selector and the
-existing filament rack in both Prepare and Preview. The lower configuration card contains the
-settings and, in Preview, the plate list. The initial height split is 35% / 65%;
+existing filament rack in both Prepare and Preview. The lower configuration card
+contains the settings and the scope-specific object or plate list. The initial
+height split is 35% / 65%;
 the divider can be dragged or adjusted with the keyboard. Both panels retain a
 minimum height, and the vertical split is session-local.
 The upper card's maximum height tracks the natural height of its printer and
@@ -91,11 +92,14 @@ The scalar input and its step buttons share one surface; the inner input stays
 transparent in both light and dark CSS states. Focus rings remain visible.
 
 The lower configuration panel uses a full-width dark mode header without a
-top divider, with compact 20px tabs (12px regular text, 68px wide). The active
+top divider, with Project, Objects, and Plates tabs (20px high, 12px regular
+text, 68px wide). Objects is the renamed Scoped tab. The active
 tab has top-only rounding and joins the card surface below. The preset/search row is
 followed by horizontal Quality, Strength, Speed, Support, Multi., and Other
-page tabs. Tabs do not move down while pressed, and the category strip permits
-only horizontal scrolling when the sidebar is narrow. Selection is indicated
+page tabs. Tabs do not move down while pressed. Only scopes with multiple
+eligible pages display the category tabs. A scope
+with one page shows its configuration directly without a category strip. The
+strip permits only horizontal scrolling when the sidebar is narrow. Selection is indicated
 by an underline; orange text marks only
 local modifications. A shared TypeScript layout preserves the pinned Orca Print tab's
 page/group/option ordering without altering native scope eligibility. Eligible
@@ -109,8 +113,31 @@ reset is available by right-clicking a group heading; field and target-wide
 reset commands retain their original behavior.
 
 Immediately below the configuration scope toggle, Project displays the Process
-preset selector and Scoped displays the object list. The object list stays
-mounted while hidden so its model-structure and selection subscriptions remain
+preset selector and Objects displays the object list. Plates displays the plate
+list in both Prepare and Preview and edits the active plate's native settings,
+independent of any selected objects, parts, or tower. Selecting a plate updates
+the configuration target through the existing plate-selection command. Preview
+retains its plate-result activation and camera framing behavior.
+
+Objects filters options by the selected object's native scope (or part scope
+for a selected model volume). It never falls back to plate settings: an empty
+selection prompts the user to select an object or volume. Plate-only options
+are confined to Plates; project-level options retain their eligibility rules.
+Object and plate lists scroll independently and their bottom edge cannot extend
+past the combined list-and-settings panel's vertical midpoint. The height budget
+includes the scope header and spacing above the list. The reference area excludes
+the Move, Rotate, and Scale panels above it. Resize observations measure the
+panel and list offset to update the pixel cap as the panel changes size;
+configuration options retain their separate scroll area.
+The divider between a list and its settings belongs to the scroll viewport's
+border, so it remains fixed while the list contents scroll.
+The Plates tab starts with a fixed toolbar: a centered live plate count above
+a row containing New Plate, Arrange, and Delete Plate. These are the existing
+viewport plate actions, moved out of the bottom-right floating toolbar; native
+history receipts, plate limits, arrangement behavior, and painting guards are
+preserved. The action row remains outside the list's scrolling area. Send All
+and Print All are not introduced by this relocation.
+The object list stays mounted while hidden so its model-structure and selection subscriptions remain
 active. Printer and Process transitions share their existing state and native
 preset-selection flow. The horizontal sidebar-width resize and its persisted
 preference remain unchanged.

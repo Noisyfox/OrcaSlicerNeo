@@ -648,7 +648,7 @@ export function Workspace({
       // Preview navigation recenters only after a successful switch to a
       // different plate. Clicking the current plate still clears selection,
       // but must not disturb the user's camera.
-      if (selected && previousPlateId !== plateId) {
+      if (selected && previousPlateId !== plateId && isPreviewTab(activeTab)) {
         previewFrameTokenRef.current += 1;
         setPreviewFrameRequest({ plateId, token: previewFrameTokenRef.current });
       }
@@ -657,7 +657,7 @@ export function Workspace({
     } finally {
       setPreviewPlateSelectionPending(false);
     }
-  }, [platform, previewPlateSelectionPending, sceneInteraction]);
+  }, [activeTab, platform, previewPlateSelectionPending, sceneInteraction]);
 
   useEffect(() => {
     let active = true;
@@ -779,7 +779,7 @@ export function Workspace({
           printerExtras={(activeTab === 'prepare' || isPreviewTab(activeTab)) && <FilamentRack onEditPreset={(canonicalName) =>
             void openPresetEditor({ kind: 'filament', canonicalName })
           } />}
-          configurationExtras={isPreviewTab(activeTab) && plateSession && <PreviewPlateList
+          configurationExtras={plateSession && <PreviewPlateList
             snapshot={plateSession}
             pending={previewPlateSelectionPending}
             onSelect={selectPreviewPlate}

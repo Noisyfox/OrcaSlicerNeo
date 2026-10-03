@@ -42,7 +42,7 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
     return () => observer.disconnect();
   }, []);
 
-  return <SettingsPanel sceneInteraction={sceneInteraction} onEditPrinter={onEditPrinter}
+  return <SettingsPanel sceneInteraction={sceneInteraction} onEditPrinter={onEditPrinter} platesContent={configurationExtras}
     renderLayout={({ printer, settings }) => (
       <ResizablePanelGroup elementRef={groupRef} orientation="vertical" id="workspace-sidebar-panels" className="min-h-0">
         <ResizablePanel elementRef={devicePanelRef} id="device-material-panel" defaultSize="35%"
@@ -58,7 +58,6 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
         <ResizableHandle id="sidebar-panel-resizer" aria-label="Resize device and settings panels" data-testid="sidebar-panel-resizer" className="h-1.5! w-full! shrink-0 bg-transparent after:hidden" />
         <ResizablePanel id="configuration-panel" defaultSize="65%" minSize="20%" className="overflow-hidden rounded-md border bg-card">
           <div className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="sidebar-settings-panel">
-            {configurationExtras && <div className="shrink-0">{configurationExtras}</div>}
             {settings}
           </div>
         </ResizablePanel>

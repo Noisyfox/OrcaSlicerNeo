@@ -186,10 +186,12 @@ export const ScopedField = memo(function ScopedField({
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
 
-export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent }: {
+export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent, platesContent, platesToolbar }: {
   sceneInteraction: SceneInteractionController | null;
   projectContent?: ReactNode;
   scopedContent?: ReactNode;
+  platesContent?: ReactNode;
+  platesToolbar?: ReactNode;
 }) {
   const platform = usePlatform();
   const mode = useSettingsStore((state) => state.configurationMode);
@@ -204,14 +206,35 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const snapshot = useSettingsStore((state) => state.nativeScopedConfig);
   const setConfigurationMode = useSettingsStore((state) => state.setConfigurationMode);
   const structure = useObjectListStore((state) => mode === 'scoped' ? state.structure : undefined);
-  const activePlateId = usePlateSessionStore((state) => mode === 'scoped' ? state.snapshot?.currentPlateId : undefined);
-  const activePlateLabel = usePlateSessionStore((state) => mode === 'scoped'
+  const activePlateId = usePlateSessionStore((state) => mode !== 'project' ? state.snapshot?.currentPlateId : undefined);
+  const activePlateLabel = usePlateSessionStore((state) => mode !== 'project'
     ? state.snapshot?.plates.find((plate) => plate.plateId === state.snapshot?.currentPlateId)?.name : undefined);
   const setError = useSlicerStore((state) => state.setError);
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [activePage, setActivePage] = useState('Quality');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const panelRef = useRef<HTMLElement>(null);
+  const objectListRef = useRef<HTMLDivElement>(null);
+  const plateListRef = useRef<HTMLDivElement>(null);
+  const [listMaxHeight, setListMaxHeight] = useState(0);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const list = mode === 'scoped' ? objectListRef.current : mode === 'plates' ? plateListRef.current : null;
+    if (!panel || !list) return;
+    const measure = () => {
+      const bounds = panel.getBoundingClientRect();
+      // Include the scope header and spacing in the upper half's budget.
+      const listTop = list.getBoundingClientRect().top - bounds.top;
+      setListMaxHeight(Math.max(0, Math.floor(bounds.height / 2 - listTop)));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    if (panel.firstElementChild) observer.observe(panel.firstElementChild);
+    return () => observer.disconnect();
+  }, [mode]);
   const optionsScrollRef = useRef<HTMLDivElement>(null);
   const optionsContentRef = useRef<HTMLDivElement>(null);
   const [optionsOverflowing, setOptionsOverflowing] = useState(false);
@@ -230,12 +253,13 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   }, []);
 
   const resolution = useMemo(() => mode === 'project' ? PROJECT_RESOLUTION : resolveScopedConfigurationTarget({
-    selectionKind: sceneInteraction?.computeSelectionKind() ?? 'empty',
-    selectedVolumes: (sceneInteraction?.selectedVolumes() ?? []).map((volume) => ({ objectId: volume.buffer.objectId, volumeId: volume.buffer.volumeId })),
+    selectionKind: mode === 'plates' ? 'empty' : sceneInteraction?.computeSelectionKind() ?? 'empty',
+    selectedVolumes: mode === 'plates' ? [] : (sceneInteraction?.selectedVolumes() ?? []).map((volume) => ({ objectId: volume.buffer.objectId, volumeId: volume.buffer.volumeId })),
     activePlateId: activePlateId ?? null,
     activePlateLabel,
     structure: structure ?? [],
-    wipeTowerSelected: sceneInteraction?.hasWipeTowerSelection,
+    wipeTowerSelected: mode === 'plates' ? false : sceneInteraction?.hasWipeTowerSelection,
+    allowPlateTarget: mode === 'plates',
   }), [mode, activePlateId, activePlateLabel, sceneInteraction, selectionRevision, structure]);
   // Reset actions operate on the whole selected category/catalogue, not just
   // the subset currently visible through the search query.
@@ -276,7 +300,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const hasLocalOverrides = highlightedCategories.size > 0;
 
   const commitField = useCallback(async (field: ScopedConfigurationField, value: string) => {
-    if (mode === 'scoped' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
+    if (mode !== 'project' && resolution.scope === 'invalid') throw new Error(resolution.disabledReason ?? 'no scoped configuration target');
     const request: NativeScopedConfigMutationRequest = {
       version: 1, operation: 'set', targets: targetRequestTargets(mode === 'project'
         ? [{ scope: 'project', label: 'Project' }]
@@ -291,7 +315,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     return effective ? valueForField(effective) : value;
   }, [metadata, mode, platform, resolution]);
   const resetField = useCallback(async (field: ScopedConfigurationField) => {
-    if ((mode === 'scoped' && resolution.scope === 'invalid') || !field.local) return;
+    if ((mode !== 'project' && resolution.scope === 'invalid') || !field.local) return;
     const request: NativeScopedConfigMutationRequest = {
       version: 1, operation: 'reset', targets: targetRequestTargets(mode === 'project'
         ? [{ scope: 'project', label: 'Project' }]
@@ -301,7 +325,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
   }, [mode, platform, resolution]);
   const resetCategory = async (category: string) => {
-    if (mode === 'scoped' && resolution.scope === 'invalid') return;
+    if (mode !== 'project' && resolution.scope === 'invalid') return;
     const candidates = allFields.filter((field) => field.category === category && field.local);
     if (candidates.length === 0) return;
     const request: NativeScopedConfigMutationRequest = {
@@ -315,7 +339,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const resetAll = async () => {
-    if (mode === 'scoped' && resolution.scope === 'invalid') return;
+    if (mode !== 'project' && resolution.scope === 'invalid') return;
     const targets = mode === 'project' ? [{ scope: 'project', label: 'Project' } as const] : resolution.targets;
     const hasLocal = targets.some((target) => localKeysForTarget(snapshot, target).some((key) => allFields.some((field) => field.key === key && field.resettable)));
     if (!hasLocal) return;
@@ -327,23 +351,25 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   };
 
   return (
-    <section data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
+    <section ref={panelRef} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
       <div className="shrink-0 space-y-1 bg-card pb-1">
         <div data-testid="configuration-mode-header" className="bg-button-expanded">
           <div role="tablist" aria-label="Configuration mode" className="flex h-5 items-end justify-center">
-            {(['project', 'scoped'] as const).map((value) => <Button key={value} type="button" role="tab"
+            {(['project', 'scoped', 'plates'] as const).map((value) => <Button key={value} type="button" role="tab"
               aria-selected={mode === value} data-testid={`config-mode-${value}`} variant="ghost" size="xs"
               className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-xs leading-none font-normal',
                 mode === value ? 'bg-card text-foreground hover:bg-card' : 'text-muted-foreground')}
-              onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : 'Scoped'}</Button>)}
+              onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : value === 'scoped' ? 'Objects' : 'Plates'}</Button>)}
           </div>
         </div>
         <div className="space-y-1 px-2">
-        {scopedContent && <div hidden={mode !== 'scoped'}>{scopedContent}</div>}
+        {mode === 'plates' && platesToolbar}
+        {scopedContent && <div ref={objectListRef} hidden={mode !== 'scoped'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-object-list-scroll">{scopedContent}</div>}
+        {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
         <div className="flex min-w-0 items-center gap-1">
           <TooltipFor content="Reset all local overrides"><Button type="button" variant="ghost" size="icon-xs"
             className="size-5 shrink-0 text-config-override [&>svg]:size-3" aria-label="Reset All" data-testid="config-reset-all"
-            disabled={!hasLocalOverrides || (mode === 'scoped' && resolution.scope === 'invalid')} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
+            disabled={!hasLocalOverrides || (mode !== 'project' && resolution.scope === 'invalid')} onClick={() => void resetAll()}><RotateCcw /></Button></TooltipFor>
           {mode === 'project' ? <div className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
             <span data-testid="scoped-target-label" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{resolution.label}</span>}
           {mode === 'project' && <span data-testid="scoped-target-label" className="sr-only">Project</span>}
@@ -352,7 +378,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         </div>
         {searchOpen && <Input autoFocus data-testid="scoped-config-search" value={search} onChange={(event) => setSearch(event.target.value)}
           placeholder="Search settings…" className="h-6 rounded-sm border-0 bg-control-background" />}
-        {!search.trim() && <div role="tablist" aria-label="Settings category" className="flex overflow-x-auto overflow-y-hidden border-b border-border">
+        {!search.trim() && availablePages.length > 1 && <div role="tablist" aria-label="Settings category" className="flex overflow-x-auto overflow-y-hidden border-b border-border">
           {availablePages.map((page) => <Button key={page.title} role="tab" type="button" variant="ghost" size="xs"
             aria-selected={selectedPage === page.title} data-testid={`config-page-${page.title}`}
             className={cn('h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-[13px] font-normal',
@@ -376,7 +402,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         data-testid="configuration-options-scroll" data-overflow-y={optionsOverflowing}>
       <div ref={optionsContentRef}>
       {!metadata ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> :
-        mode === 'scoped' && resolution.scope === 'invalid' ? (
+        mode !== 'project' && resolution.scope === 'invalid' ? (
           <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
         ) : <>
           {categories.length === 0 && <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div>}
