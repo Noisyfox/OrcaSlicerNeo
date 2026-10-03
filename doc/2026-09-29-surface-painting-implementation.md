@@ -3064,3 +3064,91 @@ in `packages/slicer-wasm/.work/`. No native code changed or was rebuilt.
 Desktop/Web production builds, 21-artifact observer elision and
 `git diff --check` also passed. Build logs use
 `painting-circle-dashes-{desktop,web}-production.log` in the same directory.
+
+## Project process catalogue — 2026-10-03
+
+Project settings now use the same native ownership eligibility as Project
+mutation: native project options plus editable Print-preset options, including
+global object/region defaults. This restores Fuzzy skin and the other supported
+Quality, Strength, Speed and Support defaults while excluding printer,
+filament and preset-bookkeeping fields that the generic mutation API cannot
+edit. Dedicated routing and scene-coordinate exclusions remain intact.
+AMS exclusion now matches an underscore-delimited token, preserving the legal
+`staggered_inner_seams` setting and its resets. Boolean G-code output options
+remain visible; custom G-code scripts stay outside the generic settings editor.
+
+Child self-verification passed the serial quick build with the existing native
+test/profile gates OFF, all client tests (304), focused shared settings tests
+(15), client/app typechecks and `git diff --check`. Real serial mutation coverage
+checks every metadata key against native Project admission without committing
+probe changes, including routing/bookkeeping rejection and representative
+process, seam and output-flag edits/resets. The extended native Project history
+harness passed Fuzzy set/read/reset, inherited restoration, Undo/Redo and native
+3MF diff/reopen checks. Its first run failed because the new test expected an
+`ok` field on the history-commit response; the corrected test checks the existing
+`status` receipt and passed on retry. The existing scoped interoperability
+harness passed; its optional external Orca save stage was not run.
+
+Commands were `bash scripts/build.sh quick --variant serial -j 8`,
+`pnpm --filter @orca/slicer-wasm test`, client/app `typecheck`, the two focused
+settings Vitest files, and the `native-scoped-config-mutation-smoke.mjs`,
+`native-project-preset-history-smoke.mjs` and
+`scoped-config-interoperability.mjs` harnesses against `out/serial/orca_slice.js`.
+Logs use `packages/slicer-wasm/.work/project-catalogue-*`. A focused real Web
+Project-settings journey covers catalogue visibility and Fuzzy, seam and output
+flag edits/resets; parent independent dual-variant and host acceptance is
+recorded separately after execution. No pinned submodule or native ABI changed.
+
+The first independent real Web journey exposed a selected-enum label fallback:
+after the popup closed, Fuzzy skin displayed `allwalls` rather than the native
+`All walls` label. Scoped enum controls now render the label directly from
+`enum_values`/`enum_labels`, preserving it after popup disposal and field
+remount; committed values remain native enum keys. Child verification passed
+the focused `ScopedConfigurationPanel.test.tsx` suite (11 tests), app typecheck
+and `git diff --check`. The initial new component test used an incomplete
+synthetic click and did not select an option; it passed after using the existing
+pointerdown/click event convention. The real Web journey now checks the readable
+label, closes the popup, unmounts/remounts through search, and verifies the
+selected option after reopening. Logs use `project-catalogue-enum-label-*`.
+
+Parent independently compared the old and rebuilt real serial metadata across
+the complete native Print-preset catalogue. The generic Project UI restores
+289 fields: 285 omitted process defaults, `staggered_inner_seams`, and three
+G-code output booleans. It removes 197 incorrectly advertised printer/filament
+fields from this generic process editor; their dedicated editors retain their
+ownership. The Project catalogue now has 374 visible fields rather than 282.
+Restored types include booleans, enums, integer/float/percent values,
+float-or-percent values, strings and their supported list variants.
+
+| Affected configuration | Representative restored fields |
+| --- | --- |
+| Quality and seams | `layer_height`, `seam_position`, `staggered_inner_seams`, wall widths and ironing |
+| Strength | `wall_loops`, `sparse_infill_density`, top/bottom shells and infill patterns |
+| Speed | `inner_wall_speed`, wall/support/bridge speeds, acceleration and jerk |
+| Support | `enable_support`, support type/distances/interfaces and tree support |
+| Other process defaults | All 12 `fuzzy_skin*` fields, flow ratios, interlocking and flush options |
+| G-code output | `gcode_add_line_number`, `gcode_comments`, `gcode_label_objects` |
+
+Independent parent acceptance passed both production quick builds (all four
+native test/profile gates OFF), both variants' native scoped mutation and
+Project preset/history harnesses, and the threaded comprehensive bridge smoke
+(including slicing/export). The full workspace test run passed all packages
+except Web on its initial attempt: Node 26's global Web Storage behaviour made
+`localStorage.clear()` unavailable in the existing browser-adapter tests. Web
+passed all 28 tests with `NODE_OPTIONS=--no-experimental-webstorage`; no product
+or test code was changed for that environment issue. After the enum-label fix,
+the parent reran the complete app suite (926 tests) and app typecheck, plus the
+11-test focused component suite. Combined final workspace coverage is 1,420
+passing tests; root `pnpm typecheck` also passed.
+
+The real threaded Web Project-settings journey passed after the enum-label
+repair (one test, 28.1 seconds including build/startup). It covers representative
+categories, seam/output flag edits and resets, Fuzzy mode/thickness edits,
+thickness reset, selected-label remount, and excluded AMS/custom-script fields.
+The original host failure and successful retry are retained separately. The
+parent's first additional bridge-smoke invocation used the wrong argument
+format; the corrected positional module/STL invocation passed. No Electron
+host seam changed, so a duplicate Electron journey was intentionally skipped;
+external Orca UI save verification remains skipped. Parent evidence resides in
+`packages/slicer-wasm/.work/project-config-catalogue-audit/`; no audit output or
+benchmark artifact is committed. This correction passed parent acceptance.

@@ -57,6 +57,33 @@ for (const key of ['wipe_tower_filament', 'support_filament', 'support_interface
   if ((optionMetadata[key]?.scopes ?? []).length !== 0)
     throw new Error(`native routing key leaked into generic catalogue: ${key}: ${JSON.stringify(optionMetadata[key])}`);
 }
+// Every catalogue entry is checked against the real native Project admission
+// path. An invalid first object target rejects the command after key admission
+// but before committing any configuration; no second Print-preset key list is
+// invented in JavaScript.
+// Prime Tower coordinates deliberately remain scene-owned, even though native
+// project metadata retains them for persistence; the UI excludes them separately.
+const catalogueBefore = { config: snapshot(), session: session(), history: status() };
+for (const [key, metadata] of Object.entries(optionMetadata)) {
+  const admitted = mutate('reset', [{ scope: 'object', id: '999999999' }, projectTarget], { key });
+  const advertised = (metadata.scopes ?? []).includes('project');
+  const sceneOwned = key === 'wipe_tower_x' || key === 'wipe_tower_y';
+  const passedAdmission = !admitted.ok && admitted.error_code === 'unsupported_reference' && admitted.error === 'object not found';
+  if (passedAdmission !== (advertised && !sceneOwned))
+    throw new Error(`Project catalogue/admission mismatch for ${key}: ${JSON.stringify({ metadata, admitted })}`);
+}
+if (JSON.stringify({ config: snapshot(), session: session(), history: status() }) !== JSON.stringify(catalogueBefore))
+  throw new Error('catalogue admission audit changed native configuration, revisions, or history');
+for (const key of ['fuzzy_skin', 'fuzzy_skin_thickness', 'fuzzy_skin_point_distance']) {
+  if (JSON.stringify(optionMetadata[key]?.scopes) !== JSON.stringify(['project', 'object', 'part']))
+    throw new Error(`Fuzzy option missing a supported scope: ${key}: ${JSON.stringify(optionMetadata[key])}`);
+}
+
+for (const key of ['layer_height', 'wall_loops', 'sparse_infill_density', 'seam_position', 'enable_support', 'inner_wall_speed']) {
+  if (!(optionMetadata[key]?.scopes ?? []).includes('project'))
+    throw new Error(`Process option missing Project scope: ${key}`);
+}
+
 const routingBefore = snapshot();
 const routingRejected = setProject('support_filament', '1');
 if (routingRejected.ok || routingRejected.error_code !== 'unsupported_reference' ||
@@ -129,6 +156,30 @@ if (JSON.stringify(snapshot()) !== JSON.stringify(beforeMetadataSnapshot) ||
     JSON.stringify(session()) !== JSON.stringify(beforeMetadataSession) ||
     JSON.stringify(status()) !== JSON.stringify(beforeMetadataStatus))
   throw new Error('rejected preset metadata changed configuration, revisions, or history');
+
+// Representative object-owned Support and region-owned Speed defaults are
+// editable globally, using the same native Print preset path as Fuzzy skin.
+for (const [key, value] of [['enable_support', '1'], ['inner_wall_speed', '123']]) {
+  requireOk(`set global ${key}`, setProject(key, value));
+  if (snapshot().project[key] !== value) throw new Error(`global process override was not stored: ${key}`);
+  requireOk(`reset global ${key}`, resetProject(key));
+  if (Object.hasOwn(snapshot().project, key)) throw new Error(`global process override did not reset: ${key}`);
+}
+
+// Seam is not an AMS field: its key ends in the letters "ams", but is an
+// ordinary boolean Print-region option and participates in generic resets.
+requireOk('set staggered seams', setProject('staggered_inner_seams', '1'));
+if (snapshot().project.staggered_inner_seams !== '1') throw new Error('staggered seam override was not stored');
+requireOk('reset staggered seams', resetProject('staggered_inner_seams'));
+if (Object.hasOwn(snapshot().project, 'staggered_inner_seams')) throw new Error('AMS exclusion blocked seam reset');
+for (const key of ['gcode_add_line_number', 'gcode_comments', 'gcode_label_objects']) {
+  const inherited = requireOk('read output flag', callJson('orc_get_preset_snapshot')).project_config[key];
+  const value = inherited === '1' ? '0' : '1';
+  requireOk(`set ${key}`, setProject(key, value));
+  if (snapshot().project[key] !== value) throw new Error(`output flag was not stored: ${key}`);
+  requireOk(`reset ${key}`, resetProject(key));
+  if (Object.hasOwn(snapshot().project, key)) throw new Error(`output flag reset was excluded: ${key}`);
+}
 
 const clamped = setProject('sparse_infill_density', '1000%');
 requireOk('native clamp', clamped);

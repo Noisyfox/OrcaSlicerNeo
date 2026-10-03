@@ -110,6 +110,41 @@ bool is_bridge_owned_project_routing_key(const std::string& key)
     return keys.find(key) != keys.end();
 }
 
+bool is_project_print_override_key(const std::string& key)
+{
+    if (is_native_project_config_key(key)) return false;
+    // Preset identity, inheritance, compatibility, and aggregate full-config
+    // fields are native preset bookkeeping. They are not editable Print
+    // overrides and must never become scoped Project values or history roots.
+    static const std::set<std::string> profile_metadata_keys = {
+        "inherits",
+        "print_settings_id",
+        "filament_settings_id",
+        "printer_settings_id",
+        "sla_print_settings_id",
+        "sla_material_settings_id",
+        "compatible_printers",
+        "compatible_prints",
+        "compatible_printers_condition",
+        "compatible_prints_condition",
+        "compatible_machine_expression_group",
+        "compatible_process_expression_group",
+        "inherits_group",
+        "different_settings_to_system",
+        "print_compatible_printers",
+        "filament_ids",
+    };
+    // A Project Print override is stored in the edited Print preset.  Merely
+    // being present in the aggregate FFF config is not sufficient: printer
+    // and filament options are also present there, but the native full-config
+    // assembly applies those presets after the Print preset and would silently
+    // overwrite an incorrectly accepted override.  Keep the bridge boundary
+    // aligned with Orca's actual Print-preset ownership list.
+    const auto& print_options = Preset::print_options();
+    return profile_metadata_keys.find(key) == profile_metadata_keys.end() &&
+        std::find(print_options.begin(), print_options.end(), key) != print_options.end();
+}
+
 namespace {
 
 const char* duplicate_json(const std::string& value)
@@ -331,6 +366,17 @@ const ConfigOptionDef& require_definition(const std::string& key)
     return *definition;
 }
 
+bool is_ams_configuration_key(const std::string& key)
+{
+    for (std::size_t position = key.find("ams"); position != std::string::npos;
+         position = key.find("ams", position + 3)) {
+        if ((position == 0 || key[position - 1] == '_') &&
+            (position + 3 == key.size() || key[position + 3] == '_'))
+            return true;
+    }
+    return false;
+}
+
 bool resettable_key(const std::string& key)
 {
     const auto* definition = Slic3r::print_config_def.get(key);
@@ -338,7 +384,7 @@ bool resettable_key(const std::string& key)
     // Filament/rack values, layer ranges, and custom G-code are not scoped
     // print settings and must not be erased by category/reset-all requests.
     if (key.find("filament") != std::string::npos || key.find("rack") != std::string::npos ||
-        key.find("ams") != std::string::npos ||
+        is_ams_configuration_key(key) ||
         Slic3r::custom_gcode_specific_placeholders().find(key) !=
             Slic3r::custom_gcode_specific_placeholders().end())
         return false;
@@ -348,41 +394,6 @@ bool resettable_key(const std::string& key)
 const Preset* selected_print_parent()
 {
     return state().presets.prints.get_selected_preset_parent();
-}
-
-bool is_project_print_override_key(const std::string& key)
-{
-    if (is_native_project_config_key(key)) return false;
-    // Preset identity, inheritance, compatibility, and aggregate full-config
-    // fields are native preset bookkeeping. They are not editable Print
-    // overrides and must never become scoped Project values or history roots.
-    static const std::set<std::string> profile_metadata_keys = {
-        "inherits",
-        "print_settings_id",
-        "filament_settings_id",
-        "printer_settings_id",
-        "sla_print_settings_id",
-        "sla_material_settings_id",
-        "compatible_printers",
-        "compatible_prints",
-        "compatible_printers_condition",
-        "compatible_prints_condition",
-        "compatible_machine_expression_group",
-        "compatible_process_expression_group",
-        "inherits_group",
-        "different_settings_to_system",
-        "print_compatible_printers",
-        "filament_ids",
-    };
-    // A Project Print override is stored in the edited Print preset.  Merely
-    // being present in the aggregate FFF config is not sufficient: printer
-    // and filament options are also present there, but the native full-config
-    // assembly applies those presets after the Print preset and would silently
-    // overwrite an incorrectly accepted override.  Keep the bridge boundary
-    // aligned with Orca's actual Print-preset ownership list.
-    const auto& print_options = Preset::print_options();
-    return profile_metadata_keys.find(key) == profile_metadata_keys.end() &&
-        std::find(print_options.begin(), print_options.end(), key) != print_options.end();
 }
 
 std::vector<std::string> edited_print_override_keys()

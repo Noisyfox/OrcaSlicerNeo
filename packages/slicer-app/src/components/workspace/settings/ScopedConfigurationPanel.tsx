@@ -120,9 +120,11 @@ export const ScopedField = memo(function ScopedField({
       onCheckedChange={(checked) => onDiscrete(checked ? '1' : '0')}
     /></TooltipFor>;
   } else if (field.meta.type === 'enum' && field.meta.enum_values?.length && !field.mixed) {
+    const selectedIndex = field.meta.enum_values.indexOf(displayed);
+    const selectedLabel = field.meta.enum_labels?.[selectedIndex] ?? displayed;
     control = <Select value={displayed} onValueChange={(value) => value != null && onDiscrete(value)}>
       <TooltipFor content={tooltip}>
-        <SelectTrigger variant="sidebar" id={`scoped-${field.key}`} size="sm" className="w-full" data-testid={`config-input-${field.key}`}><SelectValue placeholder={displayed} /></SelectTrigger>
+        <SelectTrigger variant="sidebar" id={`scoped-${field.key}`} size="sm" className="w-full" data-testid={`config-input-${field.key}`}><SelectValue>{selectedLabel}</SelectValue></SelectTrigger>
       </TooltipFor>
       <SelectContent>{field.meta.enum_values.map((value, index) => <SelectItem key={value} value={value}>{field.meta.enum_labels?.[index] ?? value}</SelectItem>)}</SelectContent>
     </Select>;
