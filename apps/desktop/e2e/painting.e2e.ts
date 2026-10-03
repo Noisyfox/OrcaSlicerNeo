@@ -13,6 +13,87 @@ type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors:
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[]; color: string; opacity: number; depthWrite: boolean; polygonOffsetFactor: number }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
+test('real painting history jump to empty then Cube Redo removes Prime Tower', async () => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-painting-history-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_MODEL: project!, ORCA_E2E_PRIME_TOWER_PROJECT: project!, ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
+    await page.locator('#app-tab-prepare').click();
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('file-open-project')?.enabled)).toBe(true);
+      await app.evaluate(({ Menu, BrowserWindow }) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('file-open-project');
+        if (!item?.enabled) throw new Error('Open Project native menu is unavailable');
+        item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as Electron.KeyboardEvent);
+      });
+    } else {
+      await page.getByTestId('titlebar-menu-trigger').click();
+      await page.getByTestId('menu-file-trigger').hover();
+      await page.locator('[data-slot="menubar-sub-content"]').hover({ position: { x: 8, y: 8 } });
+      await page.getByTestId('file-open-project').click();
+    }
+    await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-choice-dialog"], [data-testid="project-load-confirmation-dialog"], [data-testid="project-progress-dialog"]') || !!(window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt)).toBe(true);
+    if (await page.getByTestId('project-load-choice-dialog').isVisible()) {
+      await page.getByTestId('project-load-project').click(); await page.getByTestId('project-load-confirm').click();
+    }
+    await expect.poll(() => page.evaluate(() => !!document.querySelector('[data-testid="project-load-confirmation-dialog"]') || !!(window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 120_000 }).toBe(true);
+    if (await page.getByTestId('project-load-confirmation-dialog').isVisible()) await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e?.projectLoadEvidence?.().receipt), { timeout: 60_000 }).toMatchObject({ sourceDisplayName: basename(project!), sourceByteLength: statSync(project!).size, nativeResult: { ok: true, objects: 1 } });
+    await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0);
+    await page.getByTestId('config-page-Multi.').click();
+    await page.getByTestId('config-field-enable_prime_tower').getByRole('checkbox').check();
+    await page.getByTestId('config-mode-scoped').click();
+    const rows = page.getByTestId('object-list').locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    const emptyContext = async () => {
+      const bounds = await page.getByTestId('viewport').boundingBox();
+      const stats = await page.locator('.scene-stats').boundingBox();
+      await page.mouse.click(bounds!.x + bounds!.width - 40, Math.max(bounds!.y + 40, stats ? stats.y + stats.height + 16 : bounds!.y + 40), { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+    };
+    await emptyContext(); await page.getByTestId('btn-clear-scene').click();
+    await expect(rows).toHaveCount(0);
+    await emptyContext(); await page.getByTestId('btn-add-primitive').click(); await page.getByTestId('btn-add-cube').click();
+    await expect(rows).toHaveCount(1);
+    const history = () => page.evaluate(() => ((window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e!.historyNativeStatus as () => { undoEntries: { id: string; label: string }[] })());
+    await expect.poll(async () => (await history()).undoEntries[0]?.label).toBe('Add Cube');
+    const addEntry = (await history()).undoEntries[0].id;
+    const towerIds = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e!.primeTowerProxyIds!());
+    await expect.poll(towerIds).toEqual([]);
+    await rows.first().click(); await page.getByTestId('gizmo-btn-paint').click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingEvidence().resources.length)).toBeGreaterThan(0);
+    await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
+    await page.getByTestId('painting-tool-triangle').click();
+    const point = await page.evaluate(() => ((window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e!.paintingEvidence as () => Evidence)().center);
+    await page.mouse.click(point.x, point.y);
+    await expect.poll(() => page.evaluate(async () => {
+      const result = await ((window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e!.paintingCommittedEvidence as () => Promise<Committed | null>)();
+      return result?.paint.some(part => part.groups.some(group => group.stateId === 2 && group.indexCount > 0)) ?? false;
+    })).toBe(true);
+    await page.getByTestId('gizmo-btn-paint').click();
+    await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    await expect.poll(towerIds).toHaveLength(1);
+    await page.screenshot({ path: test.info().outputPath('history-painted-cube-tower.png') });
+    await page.getByTestId('history-undo').click({ button: 'right' });
+    await page.getByTestId(`history-undo-entry-${addEntry}`).click();
+    await expect(rows).toHaveCount(0); await expect.poll(towerIds).toEqual([]);
+    await page.getByTestId('history-redo').click(); await expect(rows).toHaveCount(1);
+    await expect.poll(() => page.evaluate(() => ((window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.modelPaintResources as () => { paintGeometryUuid: string | null; visibleUsesOriginalGeometry: boolean }[])()
+      .map(volume => ({ paint: volume.paintGeometryUuid, original: volume.visibleUsesOriginalGeometry })))).toEqual([{ paint: null, original: true }]);
+    await expect.poll(towerIds).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath('history-redo-unpainted-cube-no-tower.png') });
+    await page.getByTestId('history-redo').click();
+    await expect.poll(towerIds).toHaveLength(1);
+    await page.screenshot({ path: test.info().outputPath('history-redo-painted-cube-tower.png') });
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+  } finally { await app.close(); }
+});
+
 test('real painting gizmo routes six tools, native edits, history, camera and close', async () => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-painting-')), 'preferences.json');
   const savedProject = join(resolve(preferences, '..'), 'painting-saved.3mf');

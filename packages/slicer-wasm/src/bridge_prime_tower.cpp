@@ -356,6 +356,7 @@ std::vector<int> used_slots(const Model& model, const DynamicPrintConfig& config
 
 struct UsedSlotSummary {
     bool valid = false;
+    bool slots_dirty = false;
     std::string config_signature;
     std::set<std::size_t> object_ids;
     std::map<std::size_t, std::set<int>> object_slots;
@@ -448,6 +449,7 @@ void refresh_summary_slots(UsedSlotSummary& summary, const UsedSlotContext& cont
                 context.append(slots, item.extruder);
     }
     summary.slots.assign(slots.begin(), slots.end());
+    summary.slots_dirty = false;
 }
 
 std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& plate,
@@ -479,7 +481,7 @@ std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& pl
     }
 
     const UsedSlotContext context(config, slot_count);
-    if (summary.object_ids == object_ids) {
+    if (summary.object_ids == object_ids && !summary.slots_dirty) {
         kind = UsedSlotLookupKind::Hit;
 #ifdef NEO_PROJECT_HISTORY_TEST
         record_used_slot_lookup(plate.id, kind);
@@ -936,6 +938,19 @@ void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>
     invalidate_projection_cache(plate_ids);
     for (const auto& plate_id : plate_ids)
         g_used_slot_summaries.erase(plate_id);
+}
+
+void invalidate_projection_cache_and_object_usage_summaries(
+    const std::set<std::string>& plate_ids, const std::vector<std::uint64_t>& object_ids) noexcept
+{
+    invalidate_projection_cache(plate_ids);
+    for (const auto& plate_id : plate_ids) {
+        const auto found = g_used_slot_summaries.find(plate_id);
+        if (found == g_used_slot_summaries.end()) continue;
+        auto& summary = found->second;
+        for (const auto object_id : object_ids)
+            if (summary.object_slots.erase(object_id) != 0) summary.slots_dirty = true;
+    }
 }
 
 bool normalize_coordinate_positions()

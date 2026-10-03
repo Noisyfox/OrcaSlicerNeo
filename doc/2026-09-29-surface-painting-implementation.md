@@ -3199,3 +3199,49 @@ was needed: the changed shared React input path is covered by real BVH unit
 tests and one real primary-host journey. Evidence is retained under
 `packages/slicer-wasm/.work/painting-start-preflight-parent/`; no benchmark or
 other generated evidence is committed. This step passed parent acceptance.
+
+## Latest main integration — 2026-10-03
+
+Merged `origin/main` at `bf37ca81726a2c4cf375897f5aaffa79ae46b3de`,
+including the structural history-jump painted-filament usage fix. Conflict
+resolution preserves this branch's transactional restore, rollback and
+serialize-before-publication ordering. The successful restore tail evicts
+touched objects' usage summaries for structural changes; dirty summaries cannot
+become cache hits when Redo restores the same IDs after an empty-plate read.
+The new invalidation helper remains `noexcept`. The incoming Electron regression
+uses the native Open Project menu on macOS and the custom menu elsewhere.
+
+A fresh GPT-6.1-sol medium child implemented the integration and self-verified
+the serial production quick build, complete production painting backend smoke,
+history editing-session and Project preset/history harnesses, WASM package tests
+(304), shared app tests (949), affected package/desktop typechecks and whitespace.
+All passed. The parent independently reviewed the conflict resolution and passed
+`NODE_OPTIONS=--no-experimental-webstorage pnpm test` (1,443 tests across 153
+files), `pnpm typecheck`, and the threaded production quick build.
+
+Parent real-WASM acceptance passed both variants' complete
+`painting-backend-smoke.mjs --expect-production`,
+`history-editing-session-smoke.mjs`, `native-project-preset-history-smoke.mjs`
+and `native-scoped-config-mutation-smoke.mjs`. These cover the incoming empty
+scene/single-colour Cube Redo Prime Tower regression, all four painting channels,
+history, remapping, 3MF and actual slicing, plus Project/Scoped configuration.
+The threaded comprehensive `bridge-smoke.mjs` also passed.
+
+Real serial Electron acceptance passed both painting journeys: the incoming
+structural history regression (18.3 seconds) and the six-tool/four-channel
+journey with blank-start BVH assertions (42.1 seconds; 1.0 minute overall).
+The runner checked freshly staged serial JS/WASM/DATA hashes. Real threaded Web
+Project-settings acceptance passed (one test, 23.6 seconds overall), including
+Fuzzy skin edits, reset, remount and catalogue exclusions. Ordinary Desktop and
+Web production builds, painting-profile elision and real-project-profile
+exclusion guards passed. Both native variants keep all four NEO test/profile
+gates OFF, and the pinned C++ submodule remains unchanged and clean.
+
+There were no build or test failures during this integration. The existing Node
+26 Web Storage workaround was applied to the root tests. Production artifacts
+intentionally omit injected rollback hooks, so the gated
+`painting-history-plate-smoke.mjs` was not run; external Orca UI save verification
+and the full release matrix were also skipped. Evidence stays under
+`packages/slicer-wasm/.work/main-merge-painted-usage-2026-10-03/` and
+`/tmp/neo-main-merge-*.log`; no benchmark or generated evidence is committed.
+This integration passed parent acceptance.

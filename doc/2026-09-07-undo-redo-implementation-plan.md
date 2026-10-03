@@ -1057,3 +1057,41 @@ It measured Add Plate to visible Undo at 38 ms and active-slice Move to visible
 Undo at 46.2 ms. The runner restored production artifacts and passed the
 profile-code exclusion check. These are root acceptance results, separate from
 the implementation agent's measurements above.
+
+### Painted Cube / Prime Tower history correction (2026-10-03)
+
+A direct Undo-history jump from a painted Cube to the empty scene must discard
+the affected plate's used-filament summary. Empty plates do not refresh that
+summary, and Redo restores the same stable object ID. Retaining it could therefore
+show a two-material Prime Tower after the first Redo restored an unpainted Cube.
+Structural history restoration now evicts the jump's touched object usage from
+affected plate summaries and marks their aggregate slots dirty. The next lookup
+uses the existing delta path even if the object IDs are unchanged. Other objects
+retain cached usage; unrelated plates and transform-only restores retain their
+existing caches. Stable-topology material edits retain their existing plate
+summary invalidation.
+
+The production-artifact regression in `painting-backend-smoke.mjs` first failed
+on the original serial artifact at the single-colour Redo assertion. It passes
+on both rebuilt variants, including subsequent painted Redo, ordinary Paint
+Undo, and a mixed structural jump which retains an unpainted Cube. The real
+Electron regression uses Add Cube, filament-2 painting, a direct
+Undo-menu jump, and both Redo steps; it checks actual rendered geometry and tower
+proxies, with screenshots confirming the pure-colour Cube has no tower. No new
+UI, mobile input policy, or history storage is introduced.
+
+Verification passed:
+
+- `pnpm test` (1,373 tests) and `pnpm typecheck`; desktop typecheck also rerun
+  after the final E2E assertion correction.
+- `scripts\build-windows.bat quick --variant serial` and `--variant threaded`.
+- `painting-backend-smoke.mjs <module> --interop-only --expect-production` and
+  `history-smoke.mjs <module>` for both variants; serial `bridge-smoke.mjs`.
+- `pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`
+  rebuilt/staged and hash-verified the current serial artifacts, then exercised
+  the original painting journey and new history-menu regression.
+- Serial `prime-tower-cache-validity-smoke.mjs` verifies that structural
+  restores keep the delta lookup and unrelated plate projection hits.
+- Real threaded Web `web.e2e.ts -g "shared history toolbar"` passed.
+- `git diff --check` passed. The full release and performance matrices were not
+  run for this focused correction.

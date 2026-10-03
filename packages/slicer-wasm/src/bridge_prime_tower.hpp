@@ -11,6 +11,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -60,6 +61,8 @@ json projection_json();
 void invalidate_projection_cache();
 void invalidate_projection_cache(const std::set<std::string>& plate_ids) noexcept;
 void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids) noexcept;
+void invalidate_projection_cache_and_object_usage_summaries(
+    const std::set<std::string>& plate_ids, const std::vector<std::uint64_t>& object_ids) noexcept;
 
 json move_position_json(const char* request_cstr);
 
