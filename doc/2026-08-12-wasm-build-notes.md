@@ -164,6 +164,14 @@ current, losing the painted Prime Tower on Redo. Submodule commit
 reserve as unreliable. The standalone identity test now checks restored and
 copied painted extruder use and includes Cereal's pair serializer explicitly.
 
+The multi-material 3MF roundtrip also exposed expanded project options in an
+embedded Filament preset. Neo's temporary inputs to
+`PresetBundle::construct_full_config` now use the native default Filament key
+set, matching `PresetBundle::full_config`, and retain native defaults for
+missing Filament fields. This prevents missing options in other rack slots
+from reaching the static assembler's vector merge; draft overrides are applied
+before the temporary configuration is restricted to Filament-owned fields.
+
 The earlier integration remains the basis for the retained adaptations:
 
 The merge of main `3384daa6bcbdfccea9797238fc7acb9f4144dae8` is recorded
