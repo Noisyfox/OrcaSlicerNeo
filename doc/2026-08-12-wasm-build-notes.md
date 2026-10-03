@@ -179,6 +179,35 @@ missing Filament fields. This prevents missing options in other rack slots
 from reaching the static assembler's vector merge; draft overrides are applied
 before the temporary configuration is restricted to Filament-owned fields.
 
+Acceptance also includes Neo main `3cec8a183a`, merged before qualification.
+The accepted Windows checks are recorded below; command definitions and scope
+remain in [README](../README.md) and [testing guidelines](testing_guidelines.md).
+
+| Check | Accepted result |
+| --- | --- |
+| `pnpm -r test`; `pnpm -r typecheck` | 1,443 tests in 153 files passed; every workspace typecheck passed. |
+| `scripts\build-windows.bat build --variant both -j 12`; `smoke --variant both` | Full threaded and serial Release reconfigure/build/link/stage and both smoke suites passed at final pin `9d3118b7a4`. Generated version is `v2.2.0-7301-g9d3118b7a4`. |
+| Profile resources and real fixtures | All 67 profile packages built; official project fixture sizes/hashes verified. |
+| Native WASM harnesses | All 55 applicable extended gates and all 20 real multi-filament checklist gates passed, covering profiles, history, mutation/invalidation, painting, Prime Tower, arrangement, geometry, and project interoperability. Serial NODEFS is inapplicable; serial uses MEMFS. |
+| Standalone C++ history and test-hook acceptance | Five direct runners passed: timestamped history, painting session, mesh capture, instance identity, and plate runtime. Both gated painting harnesses passed, including all four channels, Undo/Redo, unaffected-plate reuse, and injected rollback failures. These source-level results were obtained at `9ac6431df4` and retained after verifying the final GUI-only upstream increment leaves core/dependency/profile sources identical. |
+| Electron and Web host suites | Desktop mock/UI: 45 passed, 11 conditional skips. Desktop real: 10 passed, including large-project performance cases. Web threaded: 12 passed, 4 conditional skips; Web serial: 11 passed, 5 conditional skips. |
+| Dedicated real host proofs | Imported painted facets: Electron and Web passed. Four-channel painting: Electron and Web passed; the full suite passed three consecutive times, with the final run on `9d3118b7a4`. Arrangement: Desktop serial, Desktop threaded, and Web threaded passed. Native project-load progress: both Web variants passed. |
+| Production delivery | Web non-root deployment smoke passed. Standard `pnpm --filter @orca/desktop package:dir` passed on retry after a transient download TLS failure; all three fresh packaged runtime/missing-core/corrupt-core probes passed. Painting and real-project production-profile exclusion gates passed. |
+| Artifact identity | All six packaged JS/WASM/DATA hashes match the final dual-build outputs. All four Web WASM/DATA hashes match; Web JS has the intended Vite import rewrite. Both Release configurations have history test hooks and both profiling flags disabled. |
+
+All final-artifact functional gates were rerun after the final upstream refresh.
+The startup File Manager regression is fixed and covered on both Web variants;
+real project-load acceptance now handles delayed native confirmation, and
+painting acceptance waits for complete geometry evidence at unobstructed canvas
+targets without weakening the continuous-frame assertions.
+
+This is local Windows qualification. Remote CI and Linux/macOS packaging were
+not run here. The original wxWidgets GUI is outside the Neo WASM build; the
+optional native Orca GUI roundtrip fixture was unavailable, and native CLI
+output crosschecks remain deferred. Dedicated painting benchmarks and
+real-project profile collection were not run; the existing real-project
+performance cases and production exclusion gates passed.
+
 The earlier integration remains the basis for the retained adaptations:
 
 The merge of main `3384daa6bcbdfccea9797238fc7acb9f4144dae8` is recorded
