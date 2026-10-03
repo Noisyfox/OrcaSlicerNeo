@@ -5,8 +5,8 @@ import type {
   GpuStreamingPagePlan,
   GpuStreamingSelection,
 } from './gpuStreamingPlanner';
-import { resolvePreviewColor, TRAVEL_MOVE_TYPE } from './toolpathColors';
-import { isPreviewMarker, WIPE_MOVE_TYPE } from './previewMoveTypes';
+import { resolvePreviewColor } from './toolpathColors';
+import { isPreviewMarker, TRAVEL_MOVE_TYPE, WIPE_MOVE_TYPE } from './previewMoveTypes';
 
 /** WebGL2 adapter for Orca/libvgcode's native SegmentTemplate renderer. */
 export interface GpuStreamingCapabilityLimits {
@@ -33,7 +33,7 @@ export interface GpuStreamingSegmentTemplateResource {
   readonly dispose: () => void;
 }
 export interface GpuStreamingResourceFacade {
-  createSegmentTemplate?: () => GpuStreamingSegmentTemplateResource;
+  createSegmentTemplate: () => GpuStreamingSegmentTemplateResource;
 }
 export interface GpuStreamingRendererOptions {
   readonly renderer?: GpuStreamingRendererHost;
@@ -245,15 +245,15 @@ function buildStaticTextures(
       positions[o + 2] = xyz[si + 2] ?? 0;
       const moveType = source.moveTypes[i];
       const isTravel = moveType === TRAVEL_MOVE_TYPE || moveType === WIPE_MOVE_TYPE;
-      const marker = isPreviewMarker(moveType ?? 0);
+      const marker = isPreviewMarker(moveType);
       shapes[o] = isTravel
         ? LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM
-        : (marker && !(source.heights[i] > 0) ? 0.2 : Math.max(0, source.heights[i] ?? 0));
+        : (marker && !(source.heights[i] > 0) ? 0.2 : Math.max(0, source.heights[i]));
       shapes[o + 1] = isTravel
         ? LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM
-        : (marker && !(source.widths[i] > 0) ? 0.4 : Math.max(0, source.widths[i] ?? 0));
-      shapes[o + 2] = source.capAngles?.[i] ?? source.angles?.[i] ?? 0;
-      shapes[o + 3] = source.biases?.[i] ?? (marker ? 0.1 : moveType === WIPE_MOVE_TYPE ? 0.05 : 0);
+        : (marker && !(source.widths[i] > 0) ? 0.4 : Math.max(0, source.widths[i]));
+      shapes[o + 2] = 0;
+      shapes[o + 3] = marker ? 0.1 : moveType === WIPE_MOVE_TYPE ? 0.05 : 0;
       const c = resolvePreviewColor(source, i, scheme);
       colors[o] = c[0];
       colors[o + 1] = c[1];
@@ -436,11 +436,11 @@ export class GpuStreamingRenderer {
       page.indexData.fill(0);
       let segments = 0;
       for (const local of selected.indices) {
-        if (!isPreviewMarker(this.source.moveTypes[page.planPage.firstSegment + local] ?? 0)) page.indexData[segments++] = local;
+        if (!isPreviewMarker(this.source.moveTypes[page.planPage.firstSegment + local])) page.indexData[segments++] = local;
       }
       let markers = 0;
       for (const local of selected.indices) {
-        if (isPreviewMarker(this.source.moveTypes[page.planPage.firstSegment + local] ?? 0)) page.indexData[segments + markers++] = local;
+        if (isPreviewMarker(this.source.moveTypes[page.planPage.firstSegment + local])) page.indexData[segments + markers++] = local;
       }
       (page.markerMesh.material as THREE.ShaderMaterial).uniforms.index_offset.value = segments;
       page.indexTexture.needsUpdate = true;
@@ -598,16 +598,13 @@ export function createGpuStreamingRenderer(
   const pages: PageState[] = [];
   let backend: GpuStreamingRenderer | undefined;
   try {
-    const facade = options.resourceFacade;
-    const create = facade?.createSegmentTemplate ?? defaultTemplate;
+    const create = options.resourceFacade ? options.resourceFacade.createSegmentTemplate : defaultTemplate;
     const created = create();
     template = { ...created, dispose: onceDispose(created.dispose) };
-    if (template.geometry.getAttribute('vertex_id') === undefined)
-      template.geometry.setAttribute(
-        'vertex_id',
-        new THREE.Uint8BufferAttribute(SEGMENT_TEMPLATE_VERTEX_IDS, 1),
-      );
-    template.geometry.setDrawRange(0, SEGMENT_TEMPLATE_INVOCATION_COUNT);
+    const vertexIds = template.geometry.getAttribute('vertex_id');
+    if (!vertexIds || vertexIds.count !== SEGMENT_TEMPLATE_INVOCATION_COUNT) {
+      throw new RangeError('SegmentTemplate must provide the complete 24-invocation vertex_id attribute');
+    }
     textures = buildStaticTextures(
       plan.source,
       capabilities.limits.maxTextureSize!,
@@ -634,7 +631,7 @@ export function createGpuStreamingRenderer(
       mesh.renderOrder = 1000;
       let markerCapacity = 0;
       for (let i = page.firstSegment; i < page.firstSegment + page.segmentCount; i++) {
-        if (isPreviewMarker(plan.source.moveTypes[i] ?? 0)) markerCapacity++;
+        if (isPreviewMarker(plan.source.moveTypes[i])) markerCapacity++;
       }
       const markerMaterial = makeMaterial(textures, index.texture, index.size, page.firstSegment);
       markerMaterial.vertexShader = OPTIONS_VERTEX_SHADER;

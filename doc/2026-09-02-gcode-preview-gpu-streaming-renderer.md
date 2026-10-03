@@ -64,6 +64,15 @@ contents and draw counts. One shared 96-vertex marker geometry and a marker
 instance buffer sized to the page's event count supplement the segment path.
 Invalidation and context loss release both draw resources exactly once.
 
+The internal selection contract requires an action-visibility map, a category
+visibility map, and an explicit category field. Empty maps mean no overrides;
+callers must supply them rather than relying on omitted legacy arguments.
+Move-type constants are imported from their defining module. Renderer shape
+data comes from the current typed client contract; unsupported historical
+palette indexing and speculative angle/bias aliases are not accepted.
+An injected template factory must supply the complete current geometry; an
+incomplete template is rejected rather than repaired by the renderer.
+
 ## Verification scope
 
 Focused tests use small deterministic sources and cover page completeness,

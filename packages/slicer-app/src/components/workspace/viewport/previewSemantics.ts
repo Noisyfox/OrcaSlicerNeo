@@ -1,10 +1,6 @@
-import { isIndependentPreviewMove, type PreviewMoveVisibility } from './previewMoveTypes';
+import { TRAVEL_MOVE_TYPE, isIndependentPreviewMove, type PreviewMoveVisibility } from './previewMoveTypes';
 import type { PreviewLayerRange } from '@slicer/client';
 import type { ToolpathGeometry } from './useSliceResult';
-import { TRAVEL_MOVE_TYPE } from './toolpathColors';
-
-/** EMoveType::Travel in libslic3r/libvgcode (kept at the contract boundary). */
-export { TRAVEL_MOVE_TYPE };
 
 export function previewViewportOwnsKeyboardFocus(target: Element | null, viewport: Element | null, activeElement: Element | null): boolean {
   if (!viewport || !target || activeElement !== viewport || !viewport.contains(target)) return false;
@@ -27,10 +23,10 @@ export interface PreviewVisibilityOptions {
   visibleLayerEnd: number;
   activeMoveEnd: number;
   showTravel: boolean;
-  moveVisibility?: PreviewMoveVisibility;
+  moveVisibility: PreviewMoveVisibility;
   dimPreviousLayers: boolean;
-  visibility?: Readonly<Record<number, boolean>>;
-  visibilityField?: 'feature' | 'filament';
+  visibility: Readonly<Record<number, boolean>>;
+  visibilityField: 'feature' | 'filament';
 }
 
 export interface PreviewVisibility {
@@ -287,12 +283,12 @@ export function buildPreviewVisibility(
     const layer = data.layerIds[i] ?? 0;
     if (layer < layerStart || layer > layerEnd) continue;
     if (layer === layerEnd && (data.moveOrders[i] ?? 0) > moveEnd) continue;
-    if (!options.showTravel && (data.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
-    if (options.moveVisibility?.[data.moveTypes[i] ?? 0] === false) continue;
+    if (!options.showTravel && data.moveTypes[i] === TRAVEL_MOVE_TYPE) continue;
+    if (options.moveVisibility[data.moveTypes[i]] === false) continue;
     // Native action visibility is independent of the last extrusion role.
-    if (!isIndependentPreviewMove(data.moveTypes[i] ?? 0)) {
+    if (!isIndependentPreviewMove(data.moveTypes[i])) {
       const id = options.visibilityField === 'filament' ? data.extruderIds[i] ?? 0 : data.features[i] ?? 0;
-      if (options.visibility && options.visibility[id] === false) continue;
+      if (options.visibility[id] === false) continue;
     }
     visible[i] = 1;
     dimmed[i] = options.dimPreviousLayers && layer < layerEnd ? 1 : 0;

@@ -1,3 +1,4 @@
+import { TRAVEL_MOVE_TYPE } from './previewMoveTypes';
 import { describe, expect, it } from 'vitest';
 import type { PreviewColorSource } from './toolpathColors';
 import {
@@ -6,7 +7,6 @@ import {
   ORCA_RANGE_COLORS,
   previewSchemeAvailable,
   resolvePreviewColor,
-  TRAVEL_MOVE_TYPE,
 } from './toolpathColors';
 
 function source(overrides: Partial<PreviewColorSource> = {}): PreviewColorSource {

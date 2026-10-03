@@ -81,7 +81,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
     activeMoveEnd: preview.activeMoveEnd,
     showTravel: preview.showTravel,
     moveVisibility: preview.moveVisibility,
-    visibility: preview.schemeVisibility[preview.colorScheme],
+    visibility: preview.schemeVisibility[preview.colorScheme] ?? {},
     visibilityField: preview.colorScheme === 'filament' ? 'filament' : 'feature',
   }) : null, [plan, preview.activeMoveEnd, preview.colorScheme, preview.schemeVisibility, preview.moveVisibility, preview.showTravel, preview.visibleLayerEnd, preview.visibleLayerStart]);
 

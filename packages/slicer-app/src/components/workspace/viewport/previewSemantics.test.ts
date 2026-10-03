@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
+import { TRAVEL_MOVE_TYPE } from './previewMoveTypes';
 import { describe, expect, it } from 'vitest';
 import { useSlicerStore } from '@/stores/useSlicerStore';
-import { buildPreviewVisibility, createPreviewInspectionIndex, createPreviewSourceLineIndex, findPreviewMove, findPreviewMoveForSourceLine, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, sourceLineForPreviewMove, TRAVEL_MOVE_TYPE } from './previewSemantics';
+import { buildPreviewVisibility, createPreviewInspectionIndex, createPreviewSourceLineIndex, findPreviewMove, findPreviewMoveForSourceLine, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, sourceLineForPreviewMove } from './previewSemantics';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data = {
@@ -30,7 +31,7 @@ describe('preview inspection semantics', () => {
     expect(buildPreviewVisibility(data, {
       visibleLayerStart: 0, visibleLayerEnd: 1,
       activeMoveEnd: 1,
-      showTravel: true, dimPreviousLayers: true,
+      showTravel: true, moveVisibility: {}, visibility: {}, visibilityField: 'feature', dimPreviousLayers: true,
     })).toMatchObject({ visible: Uint8Array.from([1, 1, 1, 1, 0, 0]), dimmed: Uint8Array.from([1, 1, 0, 0, 0, 0]) });
   });
 
@@ -38,7 +39,7 @@ describe('preview inspection semantics', () => {
     const result = buildPreviewVisibility(data, {
       visibleLayerStart: 0, visibleLayerEnd: 2,
       activeMoveEnd: 10,
-      showTravel: false, dimPreviousLayers: false,
+      showTravel: false, moveVisibility: {}, visibilityField: 'feature' as const, dimPreviousLayers: false,
       visibility: { 1: false },
     });
     expect(Array.from(result.visible)).toEqual([1, 0, 1, 0, 0, 0]);
@@ -47,7 +48,7 @@ describe('preview inspection semantics', () => {
   it('keeps travel visible when its stale extrusion feature is hidden', () => {
     const result = buildPreviewVisibility(data, {
       visibleLayerStart: 0, visibleLayerEnd: 0,
-      activeMoveEnd: 10, showTravel: true, dimPreviousLayers: false,
+      activeMoveEnd: 10, showTravel: true, moveVisibility: {}, visibilityField: 'feature' as const, dimPreviousLayers: false,
       visibility: { 1: false },
     });
     expect(Array.from(result.visible)).toEqual([1, 1, 0, 0, 0, 0]);
