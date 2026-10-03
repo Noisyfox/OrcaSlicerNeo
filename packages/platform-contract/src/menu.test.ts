@@ -13,7 +13,7 @@ const snapshot: MenuStateSnapshot = {
   activeTab: 'home',
   boot: { phase: 'starting', error: null },
   slicer: { status: 'idle', progress: 0, error: null },
-  scene: { hasModel: false },
+  scene: { hasModel: false, arranging: false },
   result: { hasResult: false, exported: false },
   project: { hasContent: false, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
   host: { isElectron: false, menuMode: 'browser' },

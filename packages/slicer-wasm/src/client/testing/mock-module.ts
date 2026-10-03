@@ -87,6 +87,8 @@ export interface MockModuleOptions {
   splitParts?: number;
   /** Simulate the shared-memory mailbox transport used by the pthread build. */
   threaded?: boolean;
+  /** Protocol fixture only: geometry correctness is tested with real WASM. */
+  arrangementResult?: unknown;
   /** Warning metadata returned by the native BBS project-load bridge. */
   embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
   /** Optional wire snapshot override for malformed/unsupported-version tests. */
@@ -2816,6 +2818,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice(_config: string) {
       return runMockSlice(currentPlateId, plateInputRevisions[currentPlateId] ?? 0);
     },
+    orc_arrange(_request: string) {
+      const taskId = String(nextAsyncTaskId++);
+      publishTaskMessage(taskId, { type: 'progress', kind: 'arrange', percent: 50, text: 'Arranging' });
+      publishTaskMessage(taskId, { type: 'task-terminal', kind: 'arrange', terminal: 'completed',
+        result: opts.arrangementResult ?? { ok: true, cancelled: false, changed: false, placed: 0, unplaced: [], plate_limit_reached: false } });
+      return { accepted: true, kind: 'arrange', task_id: taskId };
+    },
+    orc_cancel_arrangement(_taskId: string) { return { ok: false, error: 'No cancellable mock arrangement' }; },
     orc_slice_plate(_config: string, plateId: string, revision: number) {
       return runMockSlice(plateId, revision);
     },
@@ -3132,6 +3142,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_drain_async_task_mailbox: { ret: 'number', args: [] },
     orc_check_serial_admission: { ret: 'number', args: ['string'] },
     orc_slice: { ret: 'number', args: ['string'] },
+    orc_arrange: { ret: 'number', args: ['string'] },
+    orc_cancel_arrangement: { ret: 'number', args: ['string'] },
     orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
     orc_get_slice_result: { ret: 'number', args: ['string', 'number', 'number'] },
     orc_export_gcode_plate: { ret: 'number', args: ['string', 'number', 'number'] },

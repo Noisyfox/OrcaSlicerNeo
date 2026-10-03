@@ -106,6 +106,7 @@ export interface GcodeTextWindowGeometry {
 
 export interface UserPreferences {
   version: 1;
+  arrangement?: ArrangementPreferences;
   /** Global project-open policy; project bytes and locations never belong here. */
   projectLoadBehaviour?: ProjectLoadBehaviour;
   selectedProfiles: {
@@ -127,6 +128,24 @@ export interface UserPreferences {
     /** Last usable G-code text overlay geometry. */
     gcodeTextWindow?: GcodeTextWindowGeometry;
   };
+}
+
+export interface ArrangementPreferences {
+  byLayer: { distance: number; rotate: boolean };
+  byObject: { distance: number; rotate: boolean };
+  multipleMaterials: boolean;
+  avoidCalibration: boolean;
+}
+
+export function normalizeArrangementPreferences(value: unknown): ArrangementPreferences {
+  const candidate = value && typeof value === 'object' ? value as Partial<ArrangementPreferences> : {};
+  const mode = (value: unknown) => {
+    const item = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    return { distance: typeof item.distance === 'number' && Number.isFinite(item.distance) && item.distance >= 0 ? item.distance : 0,
+      rotate: item.rotate === true };
+  };
+  return { byLayer: mode(candidate.byLayer), byObject: mode(candidate.byObject),
+    multipleMaterials: candidate.multipleMaterials !== false, avoidCalibration: candidate.avoidCalibration !== false };
 }
 
 export interface RememberedFilamentRack {
@@ -248,7 +267,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown };
+  const v = value as { arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown };
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
   const gcodeTextWindow = normalizeGcodeTextWindowGeometry(ui.gcodeTextWindow);
@@ -276,6 +295,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),
     },
     ...(Object.keys(rememberedFilamentRacks).length > 0 ? { rememberedFilamentRacks } : {}),
+    ...(v.arrangement ? { arrangement: normalizeArrangementPreferences(v.arrangement) } : {}),
     ui: {
       ...(typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)
         ? { sidebarWidth: ui.sidebarWidth } : {}),

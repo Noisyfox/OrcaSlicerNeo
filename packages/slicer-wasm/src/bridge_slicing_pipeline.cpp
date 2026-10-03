@@ -38,6 +38,7 @@
 #include "bridge_preset_drafts.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
+#include "bridge_arrangement.hpp"
 #include "bridge_state.hpp"
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/Exception.hpp"
@@ -566,6 +567,13 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_drain_async_task_mailbox()
     json drained = json::array();
     bool released_slice_job = false;
     for (auto& message : messages) {
+        if (message.payload.value("type", "") == "native-arrange-terminal") {
+            auto result = Arrangement::finalize(message.task_id);
+            const auto terminal = result.value("cancelled", false) ? "cancelled" : result.value("ok", false) ? "completed" : "failed";
+            message.payload = json{{"type", "task-terminal"}, {"kind", "arrange"},
+                {"terminal", terminal}, {"result", std::move(result)}, {"task_id", std::to_string(message.task_id)}};
+            released_slice_job = true;
+        }
         if (message.payload.value("type", "") == "native-task-terminal") {
 #ifdef ORCA_WASM_THREADING
             // The terminal message proves run_slice_process has finished all
@@ -629,6 +637,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
                             const std::optional<std::uint64_t> expected_incarnation = std::nullopt) {
     std::shared_ptr<SliceTask> task;
     try {
+        if (Arrangement::active()) return error_json("arrangement_busy");
 #ifdef ORCA_WASM_THREADING
         if (!reserved_task_id) {
             std::shared_ptr<SliceTask> active;
@@ -990,6 +999,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
 
 void start_pending_slice_if_any()
 {
+    if (Arrangement::active()) return;
 #ifdef ORCA_WASM_THREADING
     std::optional<PendingSliceRequest> pending;
     {

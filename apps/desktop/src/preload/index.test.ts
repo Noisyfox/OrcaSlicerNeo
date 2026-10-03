@@ -33,7 +33,7 @@ describe('Electron preload bridge', () => {
       activeTab: 'home' as const,
       boot: { phase: 'starting' as const, error: null },
       slicer: { status: 'idle' as const, progress: 0, error: null },
-      scene: { hasModel: false },
+      scene: { hasModel: false, arranging: false },
       result: { hasResult: false, exported: false },
       project: { hasContent: false, dirty: false, operation: { phase: 'idle' as const, progress: 0, cancellable: false } },
       host: { isElectron: true, menuMode: 'native' as const },

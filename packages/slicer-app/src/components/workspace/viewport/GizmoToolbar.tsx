@@ -14,6 +14,7 @@ import { addModel } from '../actions/sceneActions';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
 import { paintingTarget, usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { ArrangementMenu } from '../arrangement/ArrangementControls';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
   mode: Exclude<OpenGizmo, null>;
@@ -79,6 +80,7 @@ export function GizmoToolbar({
         </Button>
       </TooltipFor>
       <div className="mx-0.5 h-4 w-px bg-border/60" aria-hidden="true" />
+      <ArrangementMenu sceneInteraction={sceneInteraction} />
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;

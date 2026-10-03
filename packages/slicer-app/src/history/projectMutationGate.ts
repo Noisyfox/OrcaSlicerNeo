@@ -1,4 +1,5 @@
 import { useProjectStore } from '../stores/useProjectStore';
+import { useArrangementStore } from '../stores/useArrangementStore';
 import { coordinatePaintingProjectOperation } from '../components/workspace/viewport/gizmo/painting/projectCommands';
 
 /**
@@ -26,6 +27,7 @@ export function enqueueProjectMutationOperation<T>(operation: () => Promise<T>):
 /** Painting already owns admission and its own lane; it joins the same FIFO
  * without recursively requesting project-command admission. */
 export function enqueuePaintingOperation<T>(operation: () => Promise<T>): Promise<T> {
+  if (useArrangementStore.getState().active) return Promise.reject(new Error('arrangement_busy'));
   const task = new Promise<T>((resolve, reject) => {
     operationQueue.push({ operation: operation as () => Promise<unknown>, resolve: resolve as (value: unknown) => void, reject });
   });

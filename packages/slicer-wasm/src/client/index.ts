@@ -6,6 +6,7 @@ export { mountNativeTemporaryDirectory } from './temporaryFilesystem';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
+  ArrangementRequest, ArrangementResult, ArrangementParkingReason, ArrangementPlateSessionMutation,
   InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot,
   FilamentColourProvenance, FilamentSessionSlot, FilamentNativeMapping,
   FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,

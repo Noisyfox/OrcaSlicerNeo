@@ -609,7 +609,8 @@ json plate_revisions_json()
 json plate_mutation_snapshot(const std::set<std::string>& before,
                              const std::vector<std::string>& dirty_reasons,
                              const json& instance_transforms,
-                             const std::set<std::size_t>* affected_instances)
+                             const std::set<std::size_t>* affected_instances,
+                             bool invalidate_presentations)
 {
     const auto after = affected_instances == nullptr ? member_plate_ids()
                                                        : member_plate_ids_for_instances(*affected_instances);
@@ -636,7 +637,7 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     // Print/GCode allocation resident while withdrawing only the React/export
     // projection for plates containing the moved instance before or after the
     // transaction.
-    state().plate_runtime_registry.invalidate_presentations(live_affected);
+    if (invalidate_presentations) state().plate_runtime_registry.invalidate_presentations(live_affected);
     json result = plate_session_snapshot_json(instance_transforms);
     result["input_revisions"] = plate_revisions_json();
     result["affected_plate_ids_before"] = plate_id_array(before);

@@ -130,8 +130,8 @@ class ElectronWebViewPanel implements WebViewPanel {
   private readonly events: WebViewPanelEvents;
   private disposed = false;
   private attached = false;
-  private attachResolve: (() => void) | null = null;
-  private readonly attachReady: Promise<void>;
+  private guestReadyResolve: (() => void) | null = null;
+  private readonly guestReady: Promise<void>;
   private script: { id: string; source: string } | null = null;
   private hostApi: { name: string; source: string } | null = null;
   private installPromise: Promise<void> = Promise.resolve();
@@ -149,8 +149,9 @@ class ElectronWebViewPanel implements WebViewPanel {
     // Explicitly deny guest-created child windows. Main also installs a guest
     // setWindowOpenHandler so window.open is covered before renderer events.
     this.webview.setAttribute('allowpopups', 'false');
-    this.attachReady = new Promise((resolve) => { this.attachResolve = resolve; });
+    this.guestReady = new Promise((resolve) => { this.guestReadyResolve = resolve; });
     this.webview.addEventListener('did-attach', this.handleAttach);
+    this.webview.addEventListener('dom-ready', this.handleDomReady);
     this.webview.addEventListener('did-start-loading', this.handleStartLoading);
     this.webview.addEventListener('did-stop-loading', this.handleStopLoading);
     this.webview.addEventListener('did-finish-load', this.handleFinishLoad);
@@ -185,7 +186,7 @@ class ElectronWebViewPanel implements WebViewPanel {
   async executeJavaScript<T = unknown>(script: string): Promise<WebViewOperationResult<T>> {
     if (this.disposed) return unsupported() as WebViewOperationResult<T>;
     try {
-      await this.attachReady;
+      await this.guestReady;
       if (this.disposed || !this.attached) return unsupported() as WebViewOperationResult<T>;
       return { status: 'ok', value: await this.webview.executeJavaScript<T>(script, false) };
     } catch {
@@ -211,9 +212,10 @@ class ElectronWebViewPanel implements WebViewPanel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.attachResolve?.();
-    this.attachResolve = null;
+    this.guestReadyResolve?.();
+    this.guestReadyResolve = null;
     this.webview.removeEventListener('did-attach', this.handleAttach);
+    this.webview.removeEventListener('dom-ready', this.handleDomReady);
     this.webview.removeEventListener('did-start-loading', this.handleStartLoading);
     this.webview.removeEventListener('did-stop-loading', this.handleStopLoading);
     this.webview.removeEventListener('did-finish-load', this.handleFinishLoad);
@@ -234,8 +236,8 @@ class ElectronWebViewPanel implements WebViewPanel {
   private scheduleInstall(): Promise<void> {
     this.installPromise = this.installPromise.then(async () => {
       if (this.disposed) return;
-      await this.attachReady;
-      if (!this.attached) return;
+      await this.guestReady;
+      if (this.disposed || !this.attached) return;
       const scripts = [
         ...(this.script ? [{ name: this.script.id, source: this.script.source }] : []),
         ...(this.hostApi ? [{ name: this.hostApi.name, source: this.hostApi.source }] : []),
@@ -259,17 +261,21 @@ class ElectronWebViewPanel implements WebViewPanel {
 
   private readonly handleAttach = (): void => {
     this.attached = true;
-    this.attachResolve?.();
-    this.attachResolve = null;
+  };
+  private readonly handleDomReady = (): void => {
+    if (this.disposed) return;
+    // did-attach can precede the initial about:blank DOM. Electron webview
+    // methods are only safe after dom-ready, including the first loadURL.
+    this.guestReadyResolve?.();
+    this.guestReadyResolve = null;
+    // Without document-start registration, navigation-start injection can
+    // execute in the document being replaced. Each new DOM needs the fixed,
+    // idempotent wrappers, including guest-initiated reloads and navigations.
+    this.runFallbackScripts();
   };
   private readonly handleStartLoading = (): void => {
     if (this.disposed || !this.state.url) return;
     this.updateState({ status: 'loading', url: this.state.url, error: null });
-    // Electron 43's WebViewTag does not expose addContentScripts (newer
-    // Electron builds do). Run the reviewed fixed source as navigation starts
-    // so the guest has the wrapper before its load handler executes. The
-    // preferred document-start registration remains used whenever available.
-    this.runFallbackScripts();
   };
 
   private runFallbackScripts(): void {

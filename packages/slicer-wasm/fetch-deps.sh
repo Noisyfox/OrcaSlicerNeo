@@ -16,6 +16,8 @@ mkdir -p "$DEPS" "$GEN/openssl"
 EIGEN_VER="5.0.1"
 BOOST_VER="1.84.0"
 CEREAL_VER="1.3.0"
+NLOPT_VER="2.5.0"
+NLOPT_SHA256="c6dd7a5701fff8ad5ebb45a3dc8e757e61d52658de3918e38bab233e7fd3b4ae"
 DRACO_VER="1.5.7"
 DRACO_SHA256="27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
 OCCT_VER="7.6.0"
@@ -70,6 +72,16 @@ if [[ ! -f "$DEPS/draco-$DRACO_VER/CMakeLists.txt" ]]; then
     "https://github.com/google/draco/archive/refs/tags/$DRACO_VER.zip"
   verify_sha256 "$DRACO_ARCHIVE" "$DRACO_SHA256"
   unzip -q -o "$DRACO_ARCHIVE" -d "$DEPS"
+fi
+
+# ---- NLopt (pinned Orca release; built separately per wasm variant) ----
+if [[ ! -f "$DEPS/nlopt-$NLOPT_VER/CMakeLists.txt" ]]; then
+  NLOPT_ARCHIVE="$DEPS/nlopt-$NLOPT_VER.tar.gz"
+  log "Fetching NLopt $NLOPT_VER"
+  curl -fsSL --retry 3 -o "$NLOPT_ARCHIVE" \
+    "https://github.com/stevengj/nlopt/archive/v$NLOPT_VER.tar.gz"
+  verify_sha256 "$NLOPT_ARCHIVE" "$NLOPT_SHA256"
+  tar xzf "$NLOPT_ARCHIVE" -C "$DEPS"
 fi
 
 # ---- OCCT (source; built separately per wasm variant) ----

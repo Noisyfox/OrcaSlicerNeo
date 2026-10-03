@@ -30,6 +30,8 @@ import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client'
 import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
+import { ArrangeCurrentPlateButton } from '../arrangement/ArrangementControls';
+import { useArrangementStore } from '@/stores/useArrangementStore';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 import { usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
@@ -133,12 +135,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   const detachBoxSelectRef = useRef<(() => void) | null>(null);
   const updateRaycastingEnabled = useCallback(() => {
     sceneStateRef.current?.setEvents({
-      enabled: isViewportRaycastingEnabled(
+      enabled: !useArrangementStore.getState().active && isViewportRaycastingEnabled(
         cameraGestureActiveRef.current,
         sceneInteractionRef.current?.owner ?? 'none',
       ),
     });
   }, []);
+  useEffect(() => useArrangementStore.subscribe(updateRaycastingEnabled), [updateRaycastingEnabled]);
   const projectWorldToViewport = useCallback((world: THREE.Vector3) => {
     const state = sceneStateRef.current;
     if (!state) return null;
@@ -422,6 +425,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         if (previewTab || paintingActive) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
+        if (useArrangementStore.getState().active) return;
         if (paintingActive) return;
         if (previewTab) {
           if ((event.target as HTMLElement | null)?.closest('canvas')) viewportRef.current.focus();
@@ -474,6 +478,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             }}
             onPointerMissed={(event) => {
               if (event.button !== 0) return;
+              if (useArrangementStore.getState().active) return;
               if (!previewTab && !paintingActive) {
                 const rect = viewportRef.current.getBoundingClientRect();
                 const plateId = pickBuildPlateId(sceneStateRef.current, {
@@ -573,6 +578,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         {prepareTab && !paintingActive && plateSession && <PlateControls
           plateSession={plateSession}
           pending={plateActionPending}
+          sceneInteraction={sceneInteraction}
           onAdd={addPlate}
           onDelete={deletePlate}
         />}
@@ -584,11 +590,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
 function PlateControls({
   plateSession,
   pending,
+  sceneInteraction,
   onAdd,
   onDelete,
 }: {
   plateSession: PlateSessionSnapshot;
   pending: boolean;
+  sceneInteraction: SceneInteractionController;
   onAdd: () => void;
   onDelete: () => void;
 }) {
@@ -601,6 +609,7 @@ function PlateControls({
       <Button size="xs" variant="secondary" onClick={onAdd} disabled={pending || !canAddPlate(plateSession)} data-testid="add-plate">
         Add plate
       </Button>
+      <ArrangeCurrentPlateButton sceneInteraction={sceneInteraction} disabled={pending} />
       <Button size="xs" variant="outline" onClick={onDelete} disabled={pending || !canDeletePlate(plateSession)} data-testid="delete-plate">
         Delete plate
       </Button>

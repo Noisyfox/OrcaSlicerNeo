@@ -51,6 +51,9 @@ function fakeMenu() {
 describe('Electron native menu boundary', () => {
   it('requires the current project and complete command state', () => {
     const current = state();
+    expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true } })).toBeNull();
+    expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true, arranging: 'false' } })).toBeNull();
+    expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true, arranging: true } })?.scene.arranging).toBe(true);
     const { project: _project, ...oldProjectShape } = current;
     expect(validateMenuStateSnapshot(oldProjectShape)).toBeNull();
     const { 'new-project': _new, 'open-project': _open, 'save-project': _save,
@@ -115,7 +118,7 @@ describe('Electron native menu boundary', () => {
       activeTab: 'prepare',
       boot: { phase: 'ready', error: null },
       slicer: { status: 'done', progress: 1, error: null },
-      scene: { hasModel: true },
+      scene: { hasModel: true, arranging: false },
       result: { hasResult: true, exported: false },
       project: { hasContent: true, dirty: false, operation: { phase: 'idle' as const, progress: 0, cancellable: false } },
       host: { isElectron: true, menuMode: 'native' },

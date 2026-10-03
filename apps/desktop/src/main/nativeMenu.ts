@@ -81,7 +81,7 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
   activeTab: 'home',
   boot: { phase: 'starting', error: null },
   slicer: { status: 'idle', progress: 0, error: null },
-  scene: { hasModel: false },
+  scene: { hasModel: false, arranging: false },
   result: { hasResult: false, exported: false },
   project: {
     hasContent: false,
@@ -177,7 +177,7 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
   if (!isOneOf(APP_TABS, value.activeTab)) return null;
   if (!isRecord(value.boot) || !isOneOf(BOOT_PHASES, value.boot.phase) || (value.boot.error !== null && !isString(value.boot.error))) return null;
   if (!isRecord(value.slicer) || !isOneOf(SLICER_STATUSES, value.slicer.status) || typeof value.slicer.progress !== 'number' || !Number.isFinite(value.slicer.progress) || value.slicer.progress < 0 || value.slicer.progress > 1 || (value.slicer.error !== null && !isString(value.slicer.error))) return null;
-  if (!isRecord(value.scene) || typeof value.scene.hasModel !== 'boolean') return null;
+  if (!isRecord(value.scene) || typeof value.scene.hasModel !== 'boolean' || typeof value.scene.arranging !== 'boolean') return null;
   if (!isRecord(value.result) || typeof value.result.hasResult !== 'boolean' || typeof value.result.exported !== 'boolean') return null;
   if (!isRecord(value.host) || typeof value.host.isElectron !== 'boolean' || !isOneOf(MENU_MODES, value.host.menuMode)) return null;
   if (!isRecord(value.items)) return null;
@@ -221,7 +221,7 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
     activeTab: value.activeTab,
     boot: { phase: value.boot.phase, error: value.boot.error },
     slicer: { status: value.slicer.status, progress: value.slicer.progress, error: value.slicer.error },
-    scene: { hasModel: value.scene.hasModel },
+    scene: { hasModel: value.scene.hasModel, arranging: value.scene.arranging },
     result: { hasResult: value.result.hasResult, exported: value.result.exported },
     project,
     host: { isElectron: value.host.isElectron, menuMode: value.host.menuMode },

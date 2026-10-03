@@ -73,6 +73,13 @@ so the user does not need to enter it again each time. On Web, the console is
 shown in a normal iframe and keeps its own browser-managed login/session
 behavior; the application does not inject the API key into the iframe.
 
+The Electron adapter waits for the initial guest `dom-ready` event before
+calling webview methods; attachment alone does not establish readiness.
+Where document-start content-script registration is unavailable, the fixed
+API-key wrapper is installed on each guest `dom-ready` event, including
+guest-initiated reloads and navigations. This fallback cannot guarantee
+injection before the console's earliest page scripts run.
+
 Web embedding is best effort. Browser and printer policies, local-network
 access, HTTPS/mixed-content rules, CORS, or a console's own framing policy may
 prevent the console from displaying. The application reports the console

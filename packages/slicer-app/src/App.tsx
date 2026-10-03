@@ -44,6 +44,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppE2eProbe } from './e2e/AppE2eProbe';
 import { FileManagerWindow } from './components/fileManager/FileManagerWindow';
 import { PaintingProvider } from './components/workspace/viewport/gizmo/painting/PaintingProvider';
+import { useArrangementStore } from './stores/useArrangementStore';
+import { ArrangementEditBoundary } from './components/workspace/ArrangementEditBoundary';
+import { ArrangementStatus } from './components/workspace/arrangement/ArrangementControls';
 
 declare const __ORCA_E2E__: boolean;
 
@@ -68,6 +71,7 @@ export default function App() {
 }
 
 function AppContent() {
+  const arranging = useArrangementStore(state => state.active);
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
@@ -259,7 +263,7 @@ function AppContent() {
       status, progress, error: slicerError,
       threaded: platform.runtime.getRuntimeExecutionState?.().threaded ?? null,
     },
-    scene: { hasModel: modelLoaded },
+    scene: { hasModel: modelLoaded, arranging },
     result: { hasResult: status === 'done', exported: resultExported },
     project: {
       hasContent: projectState.hasContent,
@@ -286,6 +290,7 @@ function AppContent() {
     slicerError,
     status,
     projectState,
+    arranging,
   ]);
   const menuModel = useMemo(
     () => buildMenuModel(menuState, platform.chrome),
@@ -569,6 +574,7 @@ function AppContent() {
   return (
     <>
       {appE2eProbe}
+      <ArrangementEditBoundary>
       <AppShell
         titleBar={titleBar}
         activeTab={activeTab}
@@ -615,6 +621,8 @@ function AppContent() {
         operation={projectState.operation}
         onCancel={() => { void cancelProjectOperation(platform); }}
       />
+      </ArrangementEditBoundary>
+      <ArrangementStatus />
     </>
   );
 }

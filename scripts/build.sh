@@ -28,7 +28,7 @@
 #   full      deps + boost + build — the complete cold-start path.
 #   quick     INCREMENTAL: ninja in .work/threaded/build and
 #             .work/serial/build + stage the 3 artifacts to out/<variant>.
-#             The fast loop for bridge/CMake changes — no configure,
+#             The fast loop for bridge/CMake changes — keeps cached settings,
 #             reapplies build-time patches, seconds-to-minutes. Use --variant
 #             to limit to one build tree.
 #   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
@@ -149,7 +149,7 @@ discard_invalid_link_outputs() {
 
 # ---------------- per-variant helpers ----------------
 # Apply build-time patches before an incremental build. Full build.sh applies
-# patches during configure, but quick intentionally skips configure; without
+# patches in the full-build driver, which quick does not invoke; without
 # this guard a restored submodule would compile upstream Backup Manager code
 # and invalidate the incremental artifact.
 apply_wasm_patches() {
@@ -171,12 +171,13 @@ apply_wasm_patches() {
 quick_variant() {
   local v="$1" bd="$WORK/$1/build" outd="$PKG/out/$1"
   [[ -d "$bd" ]] || die "No build tree at $bd — run: bash scripts/build.sh build"
-  # --debug is a configure-time decision: quick only re-runs ninja, so verify
-  # the tree was actually configured with WASM_DEBUG rather than silently
-  # staging a release module.
+  # --debug is a full-build configuration decision: quick preserves it, so
+  # verify the tree was actually configured with WASM_DEBUG.
   if [[ "$DEBUG" == 1 ]] && ! grep -q '^WASM_DEBUG:BOOL=ON' "$bd/CMakeCache.txt"; then
     die "Tree $bd was configured without WASM_DEBUG — run: bash scripts/build.sh build --debug (reconfigures both variants)"
   fi
+  # Normal quick builds must not inherit fault injection from a test cache.
+  cmake -S "$PKG" -B "$bd" -DNEO_ARRANGEMENT_TEST=OFF
   discard_invalid_link_outputs "$bd"
   log "Incremental: emmake ninja -C $bd orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
   emmake ninja -C "$bd" orca_slice ${NINJA_JOBS[@]+"${NINJA_JOBS[@]}"}
