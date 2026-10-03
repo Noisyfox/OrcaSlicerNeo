@@ -1,3 +1,4 @@
+import { installSliceReceiptObserver, readSliceReceipts } from '../../desktop/e2e/runtime-receipts';
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -36,6 +37,7 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
     }));
   });
   await page.goto('/');
+  await installSliceReceiptObserver(page);
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 180_000 });
   await page.locator('#app-tab-prepare').click();
 
@@ -143,13 +145,29 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
   expect(prepareColours).toEqual(new Map([
     [0, '#00ff00'], [1, '#ff0000'], [2, '#00ff00'], [3, '#ff0000'], [4, '#ff0000'],
   ]));
-  const point = await page.evaluate(() => {
-    const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e;
-    return hooks.projectWorldToScreen(hooks.modelWorldCenters()[0]);
-  });
-  const viewport = await page.getByTestId('viewport').boundingBox();
-  await page.mouse.click(viewport!.x + point.x, viewport!.y + point.y);
-  await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled();
+  const readSelection = () => page.evaluate(() =>
+    (window.__orcaE2e?.modelSelectionIdentities as (() => unknown[]) | undefined)?.() ?? []);
+  const selectCurrentBody = async (singlePart = false) => {
+    const point = await page.evaluate(() => {
+      const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e;
+      return hooks.projectWorldToScreen(hooks.modelWorldCenters()[0]);
+    });
+    const viewport = await page.getByTestId('viewport').boundingBox();
+    if(singlePart)await page.keyboard.down('Alt');
+    try { await page.mouse.click(viewport!.x + point.x, viewport!.y + point.y); }
+    finally { if(singlePart)await page.keyboard.up('Alt'); }
+    await expect.poll(readSelection).not.toHaveLength(0);
+    const selected=await readSelection() as Array<{objectId:number;instanceId:number}>;
+    expect(new Set(selected.map(v=>v.objectId)).size).toBe(1);
+    expect(new Set(selected.map(v=>v.instanceId)).size).toBe(1);
+    const currentMesh = await readMeshResponse() as {objects:Array<{objectId:number;instanceId:number}>};
+    expect(selected.every(identity => currentMesh.objects.some(object =>
+      object.objectId === identity.objectId && object.instanceId === identity.instanceId))).toBe(true);
+    for (const channel of ['support', 'seam', 'fuzzy', 'paint'])
+      await expect(page.getByTestId(`gizmo-btn-${channel}`)).toBeEnabled();
+  };
+  await selectCurrentBody();
+  const beforeSliceSelection = await readSelection();
 
   // Preserve the imported five-state Preview contract before making any new
   // painting edits. The later phase proves the newly saved two-state result.
@@ -157,8 +175,23 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
   if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
     await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…');
     await page.locator('#app-tab-prepare').click();
-    await expect(page.getByTestId('gizmo-btn-paint')).toBeDisabled();
+    for (const channel of ['support','seam','fuzzy','paint']) await expect(page.getByTestId(`gizmo-btn-${channel}`)).toBeDisabled();
     await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+    expect(await readSelection()).toEqual(beforeSliceSelection);
+    await test.info().attach('serial-reactive-painting-admission',{body:JSON.stringify({beforeSliceSelection,whileSlicingSelection:await readSelection(),allFourEntriesDisabled:true}),contentType:'application/json'});
+  } else {
+    await expect(page.getByTestId('btn-cancel-slice')).toBeEnabled();
+    await page.getByTestId('btn-cancel-slice').click();
+    await expect.poll(()=>page.getByTestId('slicer-status').textContent(),{timeout:120_000}).toMatch(/^(Ready|Error)$/);
+    await test.info().attach('cancel-receipts',{body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await expect(page.getByTestId('slicer-error')).toHaveCount(0);
+    await page.locator('#app-tab-prepare').click();
+    const afterCancelSelection = await readSelection();
+    await selectCurrentBody();
+    for(const channel of ['support','seam','fuzzy','paint'])await expect(page.getByTestId(`gizmo-btn-${channel}`)).toBeEnabled();
+    await test.info().attach('threaded-native-cancel',{body:JSON.stringify({status:'Ready',beforeSliceSelection,afterCancelSelection,selectedAfterReselection:await readSelection(),allFourEntriesEnabled:true}),contentType:'application/json'});
+    await page.getByTestId('btn-slice').click();
   }
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 240_000 });
   await page.locator('#app-tab-preview').click();
@@ -172,11 +205,10 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
   await expect.poll(readMaterials).toHaveLength(10);
 
   // Web host shares the app-owned painting lifecycle, including download Save.
-  await page.mouse.click(viewport!.x + point.x, viewport!.y + point.y);
+  await selectCurrentBody();
   await page.getByTestId('gizmo-btn-paint').click();
   await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
   const painting = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingEvidence());
-  const paintSession = (await painting()).sessionId;
   const nativePoint = (await painting()).center;
   await page.mouse.move(nativePoint.x, nativePoint.y); await page.mouse.down();
   await expect.poll(async () => (await painting()).phase).toBe('drawing');
@@ -186,14 +218,63 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
   await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
   await page.getByRole('button', { name: 'Erase all', exact: true }).click();
   const committed = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingCommittedEvidence());
-  await expect.poll(async () => (await committed()).paint.length).toBe(0);
+  await expect.poll(async () => (await committed())?.paint?.length ?? -1).toBe(0);
   await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
   await page.getByTestId('painting-tool-triangle').click();
   const paintPoint = (await painting()).center;
   await page.mouse.click(paintPoint.x, paintPoint.y);
   await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
-  await expect.poll(async () => (await committed()).paint.some((part: { groups: { stateId: number }[] }) =>
+  await expect.poll(async () => (await committed())?.paint?.some((part: { groups: { stateId: number }[] }) =>
     part.groups.some((group) => group.stateId === 2))).toBe(true);
+  const annotations = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingNativeFacetCounts());
+  const adapterEvidence: Record<string, unknown> = {};
+  for (const channel of ['support','seam','fuzzy']) {
+    await page.getByTestId(`gizmo-btn-${channel}`).click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    expect((await painting()).channel).toBe(channel);
+    await page.getByRole('button',{name:'Erase all',exact:true}).click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    await page.getByRole('radio',{name:channel==='fuzzy'?'Enable':'Enforce',exact:true}).click();
+    await page.getByTestId('painting-tool-circle').click();
+    const p=(await painting()).center;
+    const q=(await painting()).center;await page.mouse.click(q.x,q.y);
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    const enabled=await annotations();expect(enabled[0].facetCounts[1]).toBeGreaterThan(0);
+    if(channel!=='fuzzy') {
+      await page.getByRole('radio',{name:'Block',exact:true}).click();await page.mouse.click(p.x,p.y);
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+      const blocked=await annotations();expect(blocked[0].facetCounts[2]).toBeGreaterThan(0);
+      await page.getByTestId('history-undo').click();
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+      expect((await annotations()).map((v:any)=>v.facetCounts)).toEqual(enabled.map((v:any)=>v.facetCounts));
+      adapterEvidence[`${channel}-block`]=blocked;
+    }
+    await page.getByRole('radio',{name:'Erase',exact:true}).click();const erasePoint=(await painting()).center;await page.mouse.click(erasePoint.x,erasePoint.y);
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    expect((await annotations())[0].facetCounts[1]).toBeLessThan(enabled[0].facetCounts[1]);
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    expect((await annotations()).map((v:any)=>v.facetCounts)).toEqual(enabled.map((v:any)=>v.facetCounts));
+    await page.getByRole('radio',{name:channel==='fuzzy'?'Enable':'Enforce',exact:true}).click();
+    const shiftPoint=(await painting()).center;await page.keyboard.down('Shift');await page.mouse.click(shiftPoint.x,shiftPoint.y);await page.keyboard.up('Shift');
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    const erased=await annotations();expect(erased[0].facetCounts[1]).toBeLessThan(enabled[0].facetCounts[1]);
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    expect((await annotations()).map((v:any)=>v.facetCounts)).toEqual(enabled.map((v:any)=>v.facetCounts));
+    for (const button of ['middle','right'] as const) {
+      const before=await annotations();
+      await page.mouse.move(p.x,p.y);await page.mouse.down({button});await page.mouse.move(p.x+10,p.y+5,{steps:3});await page.mouse.up({button});
+      expect((await painting()).phase).toBe('idle');expect(await annotations()).toEqual(before);
+    }
+    const id=(await painting()).sessionId;
+    await page.locator('#app-tab-home').click();await page.locator('#app-tab-prepare').click();
+    expect((await painting()).sessionId).toBe(id);
+    adapterEvidence[channel]={enabled,erased,sessionId:id};
+  }
+  await test.info().attach('four-channel-web-editing',{body:JSON.stringify(adapterEvidence,null,2),contentType:'application/json'});
+  await page.getByTestId('gizmo-btn-paint').click();
+  await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
   const download = page.waitForEvent('download');
   await page.keyboard.press('Control+Shift+s');
   const saved = await download;
@@ -202,15 +283,15 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
     .find((entry) => entry.name === '3D/3dmodel.model');
   expect(savedModel).toBeDefined();
   const savedXml = new TextDecoder().decode(savedModel!.content);
-  expect((savedXml.match(/paint_color=/g) ?? []).length).toBeGreaterThan(0);
+  for (const field of ['paint_color','paint_supports','paint_seam','paint_fuzzy_skin']) expect(savedXml).toContain(`${field}=`);
   expect((savedXml.match(/paint_color=/g) ?? []).length).toBeLessThan(12);
   const paintedColours = new Map([[0, '#00ff00'], [2, '#00ff00']]);
   await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
-  expect((await painting()).sessionId).toBe(paintSession);
+  expect((await painting()).channel).toBe('mmu');
   await page.locator('#app-tab-home').click();
   await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
-  expect((await painting()).sessionId).toBe(paintSession);
+  expect((await painting()).channel).toBe('mmu');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('painting-panel')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => ({
@@ -246,4 +327,44 @@ test('real Web loads the imported painted project and keeps its Preview shell tr
     && resource.visibleGeometryUuid === resource.paintGeometryUuid
     && resource.paintDisplayRaycastDisabled
     && resource.originalPickVisible === null)).toBe(true);
+  // Reopen the actual browser download through the real chooser, then compare
+  // exact canonical native streams from a second standard 3MF download.
+  const downloadedBytes=readFileSync(await saved.path());
+  const reopenChooser=page.waitForEvent('filechooser');
+  await page.getByTestId('titlebar-menu-trigger').click();
+  await page.getByTestId('menu-file-trigger').hover();
+  await page.locator('[data-slot="menubar-sub-content"]').hover({position:{x:8,y:8}});
+  await page.getByTestId('file-open-project').click();
+  await (await reopenChooser).setFiles({name:saved.suggestedFilename(),mimeType:'application/octet-stream',buffer:downloadedBytes});
+  await expect.poll(readLoadStage,{timeout:180_000}).toMatch(/^(choice|confirmation|progress:|receipt)$/);
+  if(await page.getByTestId('project-load-choice-dialog').isVisible().catch(()=>false)) {
+    await page.getByTestId('project-load-project').click();await page.getByTestId('project-load-confirm').click();
+  }
+  await expect.poll(async()=>await page.getByTestId('project-load-confirmation-dialog').isVisible().catch(()=>false) ||
+    (await page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.projectLoadEvidence().receipt))?.sourceByteLength===downloadedBytes.length,{timeout:180_000}).toBe(true);
+  if(await page.getByTestId('project-load-confirmation-dialog').isVisible().catch(()=>false))await page.getByTestId('project-load-confirmation-dialog-continue').click();
+  await expect.poll(()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.projectLoadEvidence().receipt),{timeout:180_000})
+    .toMatchObject({sourceDisplayName:saved.suggestedFilename(),sourceByteLength:downloadedBytes.length,nativeResult:{ok:true,objects:1,instances:2}});
+  await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0);
+  await page.locator('#app-tab-prepare').click();
+  await expect.poll(readResources,{timeout:120_000}).toHaveLength(2);
+  expect(colourByState(await readMaterials())).toEqual(paintedColours);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  // Reload restores the native object selection mode. Alt uses the existing
+  // single-instance part pick rather than selecting both shared instances.
+  await selectCurrentBody(true);
+  await test.info().attach('reopened-painting-target',{body:JSON.stringify(await readSelection()),contentType:'application/json'});
+  for(const channel of ['support','seam','fuzzy','paint']) {
+    await page.getByTestId(`gizmo-btn-${channel}`).click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    const counts=await annotations();expect(counts[0].facetCounts[channel==='paint'?2:1]).toBeGreaterThan(0);
+  }
+  const redownload=page.waitForEvent('download');await page.keyboard.press('Control+Shift+s');
+  const reopenedSaved=await redownload;
+  const reopenedXml=new TextDecoder().decode(readZipEntries(readFileSync(await reopenedSaved.path())).find(e=>e.name==='3D/3dmodel.model')!.content);
+  const fields=(xml:string)=>[...xml.matchAll(/<triangle\b[^>]*\/>/g)].map(([triangle])=>Object.fromEntries(
+    ['paint_color','paint_supports','paint_seam','paint_fuzzy_skin'].map(field=>[field,triangle.match(new RegExp(`${field}="([^"]*)"`))?.[1]??''])));
+  expect(fields(reopenedXml)).toEqual(fields(savedXml));
+  await test.info().attach('four-channel-download-reopen',{body:JSON.stringify({bytes:downloadedBytes.length,fields:fields(reopenedXml)},null,2),contentType:'application/json'});
+
 });

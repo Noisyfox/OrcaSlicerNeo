@@ -7,23 +7,67 @@
 
 namespace Slic3r::Neo::Painting {
 
-void MmuAnnotationAdapter::validate_state(int state)
-{
-    if (state < 0 || state > max_state) throw std::invalid_argument("painting state must be in 0..16");
+const char* channel_name(Channel channel) {
+    switch (channel) {
+    case Channel::Mmu: return "mmu";
+    case Channel::Support: return "support";
+    case Channel::Seam: return "seam";
+    case Channel::Fuzzy: return "fuzzy";
+    }
+    throw std::invalid_argument("invalid painting channel");
 }
-
-void MmuAnnotationAdapter::load(const ModelVolume& volume, TriangleSelector& selector)
-{
-    const auto& data = volume.mmu_segmentation_facets.get_data();
-    for (const auto state : TriangleSelector::extract_used_facet_states(data))
-        validate_state(static_cast<int>(state));
-    selector.deserialize(data, true, EnforcerBlockerType::ExtruderMax);
+int max_state(Channel channel) {
+    switch (channel) {
+    case Channel::Mmu: return 16;
+    case Channel::Support: case Channel::Seam: return 2;
+    case Channel::Fuzzy: return 1;
+    }
+    throw std::invalid_argument("invalid painting channel");
+}
+void validate_state(Channel channel, int state) {
+    if (state < 0 || state > max_state(channel)) throw std::invalid_argument("painting state is invalid for channel");
+}
+namespace {
+template<class Volume> decltype(auto) annotation_field(Volume& volume, Channel channel) {
+    switch (channel) {
+    case Channel::Mmu: return (volume.mmu_segmentation_facets);
+    case Channel::Support: return (volume.supported_facets);
+    case Channel::Seam: return (volume.seam_facets);
+    case Channel::Fuzzy: return (volume.fuzzy_skin_facets);
+    }
+    throw std::invalid_argument("invalid painting channel");
+}
+}
+FacetsAnnotation& annotation(ModelVolume& volume, Channel channel) { return annotation_field(volume, channel); }
+const FacetsAnnotation& annotation(const ModelVolume& volume, Channel channel) { return annotation_field(volume, channel); }
+void load_annotation(const ModelVolume& volume, Channel channel, TriangleSelector& selector) {
+    const auto& data = annotation(volume, channel).get_data();
+    for (const auto state : TriangleSelector::extract_used_facet_states(data)) validate_state(channel, static_cast<int>(state));
+    selector.deserialize(data, true, static_cast<EnforcerBlockerType>(max_state(channel)));
+}
+const char* history_name(Channel channel) {
+    switch (channel) {
+    case Channel::Mmu: return "Paint";
+    case Channel::Support: return "Paint Supports";
+    case Channel::Seam: return "Paint Seam";
+    case Channel::Fuzzy: return "Paint Fuzzy Skin";
+    }
+    throw std::invalid_argument("invalid painting channel");
+}
+namespace {
+void validate_tool(Channel channel, Tool tool) {
+    if ((channel == Channel::Mmu && tool != Tool::SmartFill && tool != Tool::Overhang) ||
+        tool == Tool::Circle || tool == Tool::Sphere || tool == Tool::EraseAll ||
+        (channel == Channel::Fuzzy && (tool == Tool::Triangle || tool == Tool::SmartFill)) ||
+        (channel == Channel::Support && (tool == Tool::SmartFill || tool == Tool::Gap || tool == Tool::Overhang))) return;
+    throw std::invalid_argument("painting tool is unavailable for channel");
+}
 }
 
 std::array<std::size_t, 17> PartDraft::facet_counts() const
 {
     std::array<std::size_t, 17> counts{};
-    for (int state = 0; state <= MmuAnnotationAdapter::max_state; ++state)
+    for (int state = 0; state <= 16; ++state)
         counts[state] = selector->num_facets(static_cast<EnforcerBlockerType>(state));
     return counts;
 }
@@ -46,22 +90,24 @@ void Sessions::bind(Session& session, const Model& model, std::size_t object_id,
         auto mesh = volume->mesh_ptr();
         if (!mesh || mesh->its.indices.empty()) continue;
         auto selector = std::make_shared<NativeSelector>(*mesh);
-        MmuAnnotationAdapter::load(*volume, *selector);
+        load_annotation(*volume, session.channel, *selector);
         auto acceleration = std::make_shared<AABBMesh>(*mesh);
         session.parts.push_back({volume->id().id, std::move(mesh), std::move(selector),
-            volume->get_matrix(), volume->mmu_segmentation_facets.timestamp(), std::move(acceleration), session.revision});
+            volume->get_matrix(), annotation(*volume, session.channel).timestamp(), std::move(acceleration), session.revision});
     }
     if (session.parts.empty()) throw std::invalid_argument("painting object has no solid mesh parts");
 }
 
 std::unique_ptr<Session> Sessions::prepare_open(const Model& model, std::size_t object_id,
-    std::size_t instance_id, std::size_t filament_slots, std::uint64_t history_session_id)
+    std::size_t instance_id, Channel channel, std::size_t filament_slots, std::uint64_t history_session_id)
 {
     if (m_session) throw std::logic_error("painting session is already active");
-    if (filament_slots < 2) throw std::invalid_argument("painting activation requires at least two filament slots");
+    max_state(channel); // Validate the discriminant before constructing a draft.
+    if (channel == Channel::Mmu && filament_slots < 2) throw std::invalid_argument("painting activation requires at least two filament slots");
     if (!history_session_id) throw std::invalid_argument("painting requires an active history session");
     if (m_next_id == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("painting session IDs exhausted");
     auto candidate = std::make_unique<Session>();
+    candidate->channel = channel;
     candidate->id = m_next_id++;
     candidate->history_session_id = history_session_id;
     bind(*candidate, model, object_id, instance_id);
@@ -76,9 +122,10 @@ const Session& Sessions::require(std::uint64_t id, std::uint64_t revision, bool 
     return *m_session;
 }
 
-void Settings::validate() const
+void Settings::validate(Channel channel) const
 {
-    MmuAnnotationAdapter::validate_state(state);
+    validate_state(channel, state);
+    if (vertical && channel != Channel::Seam) throw std::invalid_argument("vertical constraint is seam-only");
     if (!std::isfinite(radius) || radius <= 0 || radius > std::numeric_limits<float>::max() ||
         !std::isfinite(height) || height <= 0 || height > std::numeric_limits<float>::max())
         throw std::invalid_argument("painting radius and height must be positive finite millimetres");
@@ -87,6 +134,11 @@ void Settings::validate() const
         throw std::invalid_argument("painting size is outside native selector precision");
     if (angle && (!std::isfinite(*angle) || *angle < 0 || *angle > 90))
         throw std::invalid_argument("painting angle must be 0..90 or null");
+    if ((overhang_angle || restrict_to_overhangs) && channel != Channel::Support)
+        throw std::invalid_argument("overhang settings are support-only");
+    if (overhang_angle && (!std::isfinite(*overhang_angle) || *overhang_angle < 0 || *overhang_angle > 90))
+        throw std::invalid_argument("overhang angle must be 0..90");
+    if (restrict_to_overhangs && !overhang_angle) throw std::invalid_argument("overhang restriction requires an angle");
     if (!std::isfinite(gap_area) || gap_area < 0 || gap_area > 5)
         throw std::invalid_argument("painting gap area must be 0..5");
 }
@@ -199,8 +251,12 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
         // Near-plane ray origin, rather than camera position, also supplies the
         // correct parallel direction for an orthographic camera.
         const Vec3f source = (inverse * hit.ray_origin).cast<float>();
-        if (session.tool == Tool::Triangle || session.tool == Tool::Region) {
-            part.selector->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet,
+        if (session.tool == Tool::Triangle || session.tool == Tool::Region || session.tool == Tool::SmartFill) {
+            if (session.tool == Tool::SmartFill) {
+                if (!settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
+                part.selector->seed_fill_select_triangles(hit.local.cast<float>(), hit.original_facet, linear,
+                    clipping, float(*settings.angle), settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f, true);
+            } else part.selector->bucket_fill_select_triangles(hit.local.cast<float>(), hit.original_facet,
                 clipping, session.tool == Tool::Region && settings.angle ? float(*settings.angle) : -1.f,
                 session.tool == Tool::Region, true);
             part.selector->seed_fill_apply_on_triangles(state);
@@ -216,14 +272,20 @@ void Sessions::apply_hit(Session& session, const Settings& settings, const Hit& 
                     hit.local.cast<float>(), source, float(settings.radius), type, transform, clipping);
             else cursor = TriangleSelector::SinglePointCursor::cursor_factory(hit.local.cast<float>(), source,
                 float(settings.radius), type, transform, clipping);
-            part.selector->select_patch(hit.original_facet, std::move(cursor), state, linear, true);
+            part.selector->select_patch(hit.original_facet, std::move(cursor), state, linear, true,
+                settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f);
         }
     }
 }
 
-void Sessions::sample(Session& session, const Settings& settings, const PointerEvent& event)
+void Sessions::sample(Session& session, const Settings& settings, const PointerEvent& input)
 {
-    settings.validate();
+    settings.validate(session.channel);
+    // Match Orca drag projection: constrain CSS screen X before native picking
+    // and trajectory interpolation, never a world-space axis or mesh normal.
+    if (!input.pointer.allFinite()) throw std::invalid_argument("invalid painting pointer");
+    auto event = input;
+    if (session.channel == Channel::Seam && settings.vertical) event.pointer.x() = session.stroke_screen_x;
     const auto endpoint = pick(session, event); // Reject malformed inputs before any staged work.
     if (session.last_event && (session.last_event->view != event.view || session.last_event->projection != event.projection ||
         session.last_event->viewport != event.viewport)) throw std::invalid_argument("painting camera changed during stroke");
@@ -281,14 +343,19 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
     const Settings& settings, const std::optional<PointerEvent>& event, std::optional<std::uint64_t> candidate_revision)
 {
     const auto& current = require(id, revision);
-    settings.validate();
+    settings.validate(current.channel);
+    validate_tool(current.channel, tool);
+    if (tool == Tool::Overhang) throw std::invalid_argument("overhang highlighting is preview-only");
+    if (tool == Tool::SmartFill && !settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
     if ((tool == Tool::Gap || tool == Tool::EraseAll) == bool(event)) throw std::invalid_argument("painting tool event mismatch");
     if (candidate_revision && (*candidate_revision != revision || !current.preview || current.preview->tool != tool))
         throw std::invalid_argument("painting candidate is stale");
     if (tool == Tool::Gap && !candidate_revision) throw std::invalid_argument("gap Apply requires a current candidate");
     if (candidate_revision) {
         const auto& saved = current.preview->settings;
-        if (saved.state != settings.state || saved.erase != settings.erase || saved.angle != settings.angle || saved.gap_area != settings.gap_area)
+        if (saved.state != settings.state || saved.erase != settings.erase || saved.angle != settings.angle || saved.gap_area != settings.gap_area ||
+            saved.radius != settings.radius || saved.height != settings.height || saved.vertical != settings.vertical ||
+            saved.overhang_angle != settings.overhang_angle || saved.restrict_to_overhangs != settings.restrict_to_overhangs)
             throw std::invalid_argument("painting candidate settings changed");
         if (event) {
             const auto hit = pick(current, *event);
@@ -312,6 +379,7 @@ std::unique_ptr<Session> Sessions::prepare_begin(std::uint64_t id, std::uint64_t
     }
     next->before_data = std::move(before_data);
     next->last_event.reset(); next->last_hit.reset();
+    if (event) next->stroke_screen_x = event->pointer.x();
     if (tool == Tool::Gap) {
         for (std::size_t i = 0; i < next->parts.size(); ++i) next->parts[i].selector = current.preview->selectors[i];
         next->phase = Phase::Finished;
@@ -365,9 +433,11 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     const Settings& settings, const std::optional<PointerEvent>& event)
 {
     const auto& current = require(id, revision);
-    settings.validate();
-    if (tool != Tool::Triangle && tool != Tool::Region && tool != Tool::Gap) throw std::invalid_argument("painting tool has no candidate preview");
-    if ((tool != Tool::Gap) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
+    settings.validate(current.channel);
+    validate_tool(current.channel, tool);
+    if (tool != Tool::Triangle && tool != Tool::Region && tool != Tool::SmartFill && tool != Tool::Gap && tool != Tool::Overhang) throw std::invalid_argument("painting tool has no candidate preview");
+    if (tool == Tool::SmartFill && !settings.angle) throw std::invalid_argument("Smart Fill requires an angle");
+    if ((tool != Tool::Gap && tool != Tool::Overhang) != bool(event)) throw std::invalid_argument("painting preview event mismatch");
     auto next = stage(current);
     const auto hit = event ? pick(current, *event) : std::optional<Hit>{};
     // Candidate selectors are isolated from the authoritative draft as well as
@@ -375,6 +445,12 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
     Session work = current;
     work.tool = tool;
     Preview preview{tool, settings, hit, {}, {}, {}};
+    if (tool == Tool::Overhang) {
+        for (const auto& part : current.parts) inverse_checked((current.instance_transform * part.volume_transform).matrix());
+        if (current.highlight_angle != settings.overhang_angle) next->highlight_revision = next->revision;
+        next->highlight_angle = settings.overhang_angle;
+        return next;
+    }
     if (tool == Tool::Gap) for (auto& part : work.parts) {
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_selector(Profile::selector);
@@ -394,12 +470,17 @@ std::unique_ptr<Session> Sessions::prepare_preview(std::uint64_t id, std::uint64
 #ifdef NEO_PAINTING_PROFILE
         Profile::Scope profile_region(Profile::selector);
 #endif
-        selected->bucket_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, {},
+        if (tool == Tool::SmartFill) {
+            Transform3d transform = current.instance_transform * current.parts[hit->part].volume_transform;
+            transform.translation().setZero();
+            selected->seed_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, transform, {},
+                float(*settings.angle), settings.restrict_to_overhangs ? float(*settings.overhang_angle) : 0.f, true);
+        } else selected->bucket_fill_select_triangles(hit->local.cast<float>(), hit->original_facet, {},
             tool == Tool::Region && settings.angle ? float(*settings.angle) : -1.f, tool == Tool::Region, true);
         }
         preview.facet_selection = std::move(selected);
         std::vector<bool> touched(work.parts.size(), false);
-        if (tool == Tool::Region) apply_hit(work, settings, *hit, {}, touched);
+        if (tool == Tool::Region || tool == Tool::SmartFill) apply_hit(work, settings, *hit, {}, touched);
     }
     for (auto& part : work.parts) preview.selectors.push_back(std::move(part.selector));
     next->preview = std::move(preview);
@@ -412,10 +493,13 @@ std::unique_ptr<Session> Sessions::prepare_target(const Model& model, std::uint6
     const auto& previous = require(id, revision);
     if (revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("painting revision exhausted");
     auto candidate = std::make_unique<Session>();
+    candidate->channel = previous.channel;
     candidate->id = previous.id;
     candidate->history_session_id = previous.history_session_id;
     candidate->revision = revision + 1;
     candidate->next_stroke_id = previous.next_stroke_id;
+    candidate->highlight_angle = previous.highlight_angle;
+    candidate->highlight_revision = previous.highlight_angle ? candidate->revision : 0;
     bind(*candidate, model, object_id, instance_id);
     return candidate;
 }
@@ -437,7 +521,7 @@ void Sessions::validate_target(const Model& model, const Session& session) const
         if (index >= session.parts.size()) throw std::invalid_argument("painting parts are stale");
         const auto& part = session.parts[index++];
         if (volume->id().id != part.volume_id || volume->mesh_ptr() != part.mesh ||
-            volume->mmu_segmentation_facets.timestamp() != part.annotation_timestamp ||
+            annotation(*volume, session.channel).timestamp() != part.annotation_timestamp ||
             volume->get_matrix().matrix() != part.volume_transform.matrix())
             throw std::invalid_argument("painting part is stale");
     }

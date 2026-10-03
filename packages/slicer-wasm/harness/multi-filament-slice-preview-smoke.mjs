@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { callAsyncTask, exportGcode, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
+import { readZipEntries } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const options = {};
@@ -64,15 +65,29 @@ for (const [slot, colour] of [[1, '#FF0000'], [alternate.slot, '#0000FF']]) {
   assert.equal(coloured.ok, true, JSON.stringify(coloured));
   session = coloured.result.snapshot;
 }
-// Deliberately make the two slots' recommended temperature ranges disjoint.
-// The first slice still uses only slot 1 and must pass; after the second
-// object is assigned slot 2, native Print::validate must reject the same
-// inputs with its existing mixed-temperature error.
+// The pinned native Print expands multi-variant filament vectors by their
+// standard BBS self-index/variant metadata. Keep each slot's complete native
+// span: two naked scalar values can instead describe two variants of slot 1.
+const configArchive = callJson('orc_export_project');
+assert.equal(configArchive.ok, true, JSON.stringify(configArchive));
+const configEntry = readZipEntries(readBytes(configArchive.bytes_ptr, configArchive.bytes_length))
+  .find(entry => entry.name === 'Metadata/project_settings.config');
+assert.ok(configEntry, 'native project config metadata is required');
+const nativeConfig = JSON.parse(new TextDecoder().decode(configEntry.content));
+const variantSlots = nativeConfig.filament_self_index.map(Number);
+assert.equal(variantSlots.length, nativeConfig.filament_extruder_variant.length);
+assert.ok(variantSlots.includes(1) && variantSlots.includes(alternate.slot));
+const bySlot = (primaryValue, alternateValue) => variantSlots.map(slot => slot === 1 ? primaryValue : alternateValue);
+// The first slice uses only slot 1 and passes; after assigning the second
+// object, the identical inputs must trigger native Print::validate's exact
+// mixed-temperature restriction. No compatibility preference is overridden.
 const mixedTemperatureConfig = {
-  nozzle_temperature: [200, 300],
-  nozzle_temperature_initial_layer: [200, 300],
-  nozzle_temperature_range_low: [190, 290],
-  nozzle_temperature_range_high: [210, 310],
+  filament_self_index: variantSlots,
+  filament_extruder_variant: nativeConfig.filament_extruder_variant,
+  nozzle_temperature: bySlot(200, 300),
+  nozzle_temperature_initial_layer: bySlot(200, 300),
+  nozzle_temperature_range_low: bySlot(190, 290),
+  nozzle_temperature_range_high: bySlot(210, 310),
   filament_type: ['PLA', 'ABS'],
 };
 const unusedIncompatible = await callAsyncTask(callJson, 'orc_slice', ['string'],
@@ -145,6 +160,8 @@ assert.match(gcode, /(?:wipe tower|prime tower|flush)/i, 'flushing/prime-tower s
 console.log(JSON.stringify({
   printer: printer.name,
   slots: session.slots.length,
+  mixedTemperatureConfig,
+  incompatibleTemperatureRejected: true,
   layers: preview.layers,
   segments: count,
   oneSlot: { segments: oneSlotCount, tools: oneSlotTools },

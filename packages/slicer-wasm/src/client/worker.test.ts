@@ -209,11 +209,11 @@ describe('worker protocol', () => {
       resultGeneration: '1', sliceTaskId: '1' })).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cancel()).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.openHistorySession()).rejects.toThrow('slice_busy');
-    await expect(workerClient.openPaintingSession({ version: 1, historySessionId: 'h1', objectId: 1, instanceId: 2 }))
+    await expect(workerClient.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: 'h1', objectId: 1, instanceId: 2 }))
       .resolves.toMatchObject({ error: 'slice_busy' });
-    await expect(workerClient.beginPaintingStroke({ version: 1, sessionId: 'p1', revision: 0, tool: 'eraseAll', settings: {} }))
+    await expect(workerClient.beginPaintingStroke({ version: 1, channel: 'mmu', sessionId: 'p1', revision: 0, tool: 'eraseAll', settings: {} }))
       .resolves.toMatchObject({ error: 'slice_busy' });
-    await expect(workerClient.commitPaintingStroke({ version: 1, sessionId: 'p1', revision: 0, strokeId: 's1' }))
+    await expect(workerClient.commitPaintingStroke({ version: 1, channel: 'mmu', sessionId: 'p1', revision: 0, strokeId: 's1' }))
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.settlePainting()).resolves.toMatchObject({ error: 'slice_busy' });
 

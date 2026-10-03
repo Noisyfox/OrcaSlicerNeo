@@ -2,15 +2,20 @@
 
 **Date:** 2026-09-29
 
-**Branch:** `dev/surface-painting-spec` (continue in the current checkout).
+**Branch:** `dev/support-seam-fuzzy-painting` for the authorized 2026-10-02
+adapter work; historical MMU work used `dev/surface-painting-spec`.
 
-**Status:** Steps 01-12 implemented and independently accepted; functional delivery qualified 2026-09-30. Quantitative performance thresholds remain awaiting user review.
+**Status:** Steps 01–12 implemented and independently accepted; MMU functional
+delivery qualified 2026-09-30. Scheme B support/seam/fuzzy adapters approved and
+implementation authorized 2026-10-02; steps 13–19 independently accepted,
+adapter functional delivery qualified 2026-10-03. Quantitative
+performance thresholds remain awaiting user review.
 
 **Authority:** [Surface Painting Architecture](../spec/Surface%20Painting%20Architecture.md), [shared architecture](../spec/Web-Electron%20Shared%20Application%20Architecture.md), [Undo and Redo](../spec/Undo%20and%20Redo.md), and [testing guidelines](testing_guidelines.md). This is the one living implementation task document. No parallel phase notes.
 
 ## Execution contract
 
-- All newly started subagents use **gpt-6.1-sol / high**, per the latest user instruction; this overrides the skill default. Already-running agents finish their assigned work on their existing model. Earlier stage 10 onward and the two follow-up children used **gpt-6-sol / high**; stage 09 continued on **gpt-6-astra / medium**.
+- From the 2026-10-02 authorization, every new step uses a fresh **gpt-6.1-sol / medium** child. This supersedes the earlier new-child **gpt-6.1-sol / high** policy. Historical executions and their recorded models remain unchanged; stage 10 onward and two earlier follow-up children used **gpt-6-sol / high**, and stage 09 continued on **gpt-6-astra / medium**.
 - Execute numbered steps strictly in order. Start a fresh implementation subagent for every new step. Do not start the next step until the parent has independently accepted the previous one.
 - Each child reads the designated spec, this step, repository guidance, and relevant ownership documents; implements only its bounded outcome; runs the required self-verification; reports exact commands/results and limitations. Children must not commit, change branches, edit the pinned submodule, launch other agents, or implement later steps.
 - The parent reviews the actual diff, inspects affected flows/tests, reruns meaningful acceptance independently, requests repairs from the same step's child where needed, records evidence here, and commits the accepted piece narrowly. A green child report is not parent acceptance.
@@ -22,11 +27,11 @@
 
 ## Fixed integration decisions
 
-- Native owns annotations, selectors, authoritative picking, per-stroke commits and history. The renderer owns presentation/cursor-only BVH. Client/Worker/runtime boundaries remain as specified.
+- Native owns annotations, selectors, authoritative picking, per-stroke commits and history. The renderer owns presentation/original-mesh BVH, with a negative initial-press preflight as specified in section 4. Client/Worker/runtime boundaries remain as specified.
 - Commands use session/stroke/revision identities. Camera input is a per-admitted-event viewport/pointer/camera-matrix snapshot; native reconstructs rays and uses authoritative object/instance transforms. Exact typed schemas are fixed by the relevant transport step and reused thereafter.
 - Reuse one Worker and WASM module. No wx GUI compilation, extra native worker, session-long exclusive transaction, movement queue, pending-latest move, or new history authority.
 - One painting event in flight; busy moves discarded; reliable terminal state; normal release paints its retained endpoint once before commit; Escape restores after the in-flight call and does not paint an endpoint.
-- Preserve all six tools and every accepted lifecycle/history/slot policy. Support/seam/fuzzy remain adapter extension points, not extra delivered tools.
+- Preserve all six MMU tools and every accepted lifecycle/history/slot policy. Scheme B support/seam/fuzzy adapters under sections 2.4–2.6 and 9.2 of the specification passed sequential acceptance on 2026-10-03.
 - Follow the user's implementation reference: pinned Orca `TriangleSelectorGUI` and `TriangleSelectorPatch` in `GLGizmoPainterBase.{hpp,cpp}`, alongside base `TriangleSelector`. Reuse their selection/neighbor/update semantics through non-GUI adapters; separate candidate selection, paint-state change and render invalidation. Native owns candidate membership/contours even for same-color hover. OpenGL/wx resources stay outside WASM; NEO transports geometry to the dedicated React renderer.
 
 ## Verification profiles
@@ -168,7 +173,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 1. Implement a pure single-event-in-flight input controller: discard busy moves without a queue/latest cache; preserve reliable terminal actions. Normal release retains endpoint/settings; Escape waits for the active call then restores; unexpected focus/capture loss commits once. Reject presses while ending/cancelling until a fresh press.
 2. Own painting session above viewport lifetime, with idle/drawing/ending/cancelling/closing/error states and short per-command transactions. Eligible target switches preserve session; hidden pages can retain ownership.
 3. Render only the active editing instance's solid parts in dedicated painting mode, suppressing ordinary rendering/body dragging. Use separate draft geometry/materials, changed-part replacement, stale-response guards and disposal. Refresh opportunistically with one display request in flight and no fixed 30-Hz cap.
-4. Frontend BVH draws cursor only. Route idle left-on-model to paint, empty/modifier-left to rotate, middle/right to pan, wheel to zoom; lock camera during a stroke and preserve gesture ownership.
+4. Frontend original-mesh BVH draws the cursor and rejects reliable blank initial presses before native picking. Route idle left-on-model to paint, empty/modifier-left to rotate, middle/right to pan, wheel to zoom; lock camera during a stroke and preserve gesture ownership.
 5. Provide all six tools, first-16 palette, radius/height/edge-angle/gap controls, Erase/Erase all, Shift erase and modifier-wheel. No letter/digit tool shortcuts. Numeric settings persist for the run; selected filament follows project identity.
 6. Enforce one gizmo at a time, including numeric panels; close painting before another activates. History buttons/menu use native floor and retained entries. Failed close keeps painting active.
 
@@ -224,6 +229,1264 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 **Functional boundary:** Reconcile delivered behavior with every accepted spec requirement, resolve remaining defects, and run repository/release gates appropriate to claiming all six tools delivered. Record precise remaining limitations and update roadmap only for actual delivery.
 
 **Acceptance boundary:** Root tests/typechecks, both WASM quick/smoke, required real desktop/Web and compatibility/performance evidence, and applicable milestone matrix from testing guidelines. No feature-complete claim with required gates failing/unrun. Parent independent acceptance remains mandatory.
+
+## Adapter stages — authorized 2026-10-02
+
+The user accepted scheme B and authorized implementation immediately after the
+documentation piece is independently accepted and committed. Continue in this
+same living record, with one fresh **gpt-6.1-sol / medium** child per numbered
+step. No overlapping stages; child self-verification precedes substantive parent
+review and independently rerun acceptance. The parent commits each accepted
+piece before launching the next. Existing steps and evidence below are historical
+MMU delivery, not evidence for these new channels.
+
+The research baseline is the pinned submodule
+`489cbe91840ff97aaf4d8029009d5db410f32893`; preserve it. Scheme B's complete
+accepted semantics live in the [surface specification](../spec/Surface%20Painting%20Architecture.md#24-approved-support-seam-and-fuzzy-skin-adapters--scheme-b).
+The native/transport first steps are independently testable hidden foundations;
+a toolbar entry appears only when its complete channel stage is accepted.
+
+### Current execution and verification scope
+
+- Documentation piece: independently accepted by the parent on 2026-10-02;
+  scheme B and stages 13–19 are recorded before code implementation. Parent
+  source/diff review, local links/anchors, command references, native driver help
+  and `git diff --check` passed. No adapter code is delivered by this piece.
+- Step 13: independently accepted by the parent on 2026-10-02; hidden native
+  adapters and strict transport are implemented.
+- Step 14: independently accepted by the parent on 2026-10-02; four-channel
+  history/cache restoration is implemented.
+- Step 15: independently accepted by the parent on 2026-10-02; complete Seam
+  editor, persistence and native downstream slicing are implemented.
+- Step 16: independently accepted by the parent on 2026-10-02; native Smart Fill,
+  Support Gap and independent overhang foundations are implemented.
+- Step 17: independently accepted by the parent on 2026-10-02; complete Fuzzy
+  editor, explicit scoped configuration and native downstream slicing are
+  implemented.
+- Step 18: independently accepted by the parent on 2026-10-02; complete Support
+  editor, independent highlight scheduling and actual native support/derived
+  integration are implemented.
+- Step 19: independently accepted by the parent on 2026-10-03; both-host/variant
+  functional qualification, native-format interoperability and measured resource
+  cleanup are complete. Quantitative performance thresholds remain pending.
+- Existing serial/threaded build trees and pnpm/native tools were verified by the
+  parent as available for this checkout. Children must still verify configured
+  source roots, build flags and current artifact identity before running evidence.
+- Profiles N/W/T/A/E/P/R above continue to apply. Native quick commands on this
+  macOS/Linux checkout are `bash scripts/build.sh quick --variant serial` and
+  `bash scripts/build.sh quick --variant both`; Windows uses the existing
+  `scripts\build-windows.bat` equivalents. Smoke is
+  `bash scripts/build.sh smoke --variant serial` or `--variant both`.
+- For each affected package run its `pnpm --filter @orca/slicer-wasm test` /
+  `typecheck`, `@orca/slicer-runtime` equivalents and/or A's app commands.
+  Each child reports the exact invocations and actual fixture/assertion scope;
+  a profile name by itself is not verification evidence.
+- Extend the existing real-WASM `painting-session-smoke.mjs`,
+  `painting-engine-smoke.mjs`, `painting-backend-smoke.mjs` and
+  `history-plate-runtime-smoke.mjs` as appropriate, rather than relying on mock
+  receipts. Invoke them with the current variant module path; comprehensive
+  failure cases require the appropriate compile-gated native test build, while
+  production interoperability uses the harness's production mode. Record build
+  configuration and restore ordinary artifacts before production/elision checks.
+- Current ordinary-production backend command is
+  `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production`.
+  Expand its assertions per step; the old passing harness cannot establish a
+  new channel. Host runner is `pnpm exec node scripts/run-painting-e2e.mjs`;
+  extend its real journey for each enabled adapter and verify artifact receipts.
+  New probes must compile out of ordinary builds, checked with
+  `pnpm exec node scripts/check-painting-profile-elision.mjs` after ordinary
+  `pnpm --filter @orca/desktop build` and `pnpm --filter @orca/web build`.
+
+### 13. Channel-aware native sessions and strict typed transport
+
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** documentation piece accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+T+A (MMU regression).
+
+**Allowed scope:** Native painting Session/Settings/open/commit/reconcile and
+channel adapters under `packages/slicer-wasm/src/`; client, Worker and runtime
+contracts; all internal callers/mocks needed for the required schema; focused
+native harnesses and protocol tests. No new channel toolbar entry.
+
+**Functional output:** Required channel discriminant selects exactly one native
+field/tree. Channel-specific state/tool validation, deserialize/writeback,
+serialization, timestamps, resource identities, revision checks, cancellation,
+staged publication/rollback and history names work for all four fields. Carry
+the discriminant through responses and transfers; update every current caller
+with no omitted-channel MMU default or old-contract aliases. MMU palette/rack
+validation is specific to MMU; new channels work on single-filament projects.
+Implement the reusable circle/sphere/triangle paths only where the approved
+channel tool table allows them; reject unavailable tool paths. Smart Fill and
+support auxiliary operations remain inaccessible until their later stages.
+Ordinary committed mesh resources remain MMU-only.
+
+**Child self-check:** Affected full package suites/typechecks, serial quick build,
+focused real-WASM session/backend tests and all-six-tool MMU regression. Assert
+missing/invalid channel, cross-channel illegal states/tools, stale receipt,
+independent imported trees, changed/untouched annotation bytes and failed commit
+rollback; exercise live stroke state changes and cancellation. Use a configured
+native failure-test artifact for atomicity evidence, with production elision.
+
+**Parent acceptance:** Read the native field adapter, transaction/publication and
+all transport consumers; rerun affected suites/typechecks plus current serial
+native harness with per-channel state/bytes/timestamps/resource assertions.
+Independently rerun existing real MMU journey. No new channel is exposed.
+
+**Delivered and verified:** Required `channel` now crosses native sessions,
+receipts, strict client decoding, Worker transfer and application consumers.
+Support/seam/fuzzy load and publish independent native fields, validate their
+state/tool domains, retain committed timestamps and use channel-qualified draft
+and candidate resource identities. Native rollback restores the active field;
+ordinary geometry remains MMU-only. No new toolbar entry is exposed. Parent
+reviewed all 22 changed source/test/harness files, including staged publication,
+resource lease release, channel matching and current internal callers.
+
+Child self-verification passed before final parent acceptance. The parent
+independently ran:
+
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: passed all suites
+  (WASM 256, runtime 35, app 880, desktop 71, web 28; other workspace suites
+  also passed). `pnpm typecheck`: passed. After final caller/test adjustments,
+  `NODE_OPTIONS=--no-experimental-webstorage pnpm --filter @orca/slicer-app test`
+  and `pnpm --filter @orca/slicer-app typecheck` passed again.
+- `bash scripts/build.sh quick --variant serial`: passed. Current Release
+  configuration has history-test/profile gates OFF and threading 0. Final
+  JS/WASM/DATA SHA256 values exactly match the independently tested artifact:
+  `7c2d376880701217290f8b427e71edc39fa7b9560ffd87e546f185b6eac562db`,
+  `19f8f7f0bdd3df04f157225d7559ddd746a2162130693896a29f2d70bf1c47c9`,
+  `6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+- `pnpm exec node packages/slicer-wasm/harness/painting-session-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  and `pnpm exec node packages/slicer-wasm/harness/painting-engine-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`:
+  passed required/malformed channel identity, imported independent subdivisions,
+  invalid imported states, single-slot admission, all six MMU tools, new native
+  brushes/triangle, live settings and cancellation.
+- `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production`:
+  passed per-channel field bytes/timestamps/resources, untouched parts/fields,
+  target/reconcile/erase/no-op/3MF assertions and real MMU slicing (47,012
+  segments, tools 0 and 1).
+- `pnpm exec node packages/slicer-wasm/.work/step13-history-test/painting_session_test.cjs`
+  and `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step13-history-test/orca_slice.js --expect-test-hooks`:
+  passed native lifecycle/domain tests and comprehensive MMU plus all three
+  new-channel injected commit rollbacks. Parent verified all five preserved
+  artifact hashes against the build receipt. This test artifact was built
+  using `emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=ON`
+  and `cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice painting_session_test -j 8`;
+  ordinary production was restored with the same configure command using OFF,
+  then serial quick. Test-hook bytes are absent from production JS/WASM.
+- `pnpm exec node scripts/run-painting-e2e.mjs`: passed 1/1 independently
+  (39.5 seconds total), verifying current artifact hashes, actual six-tool MMU
+  input, native history and renderer/camera/material evidence.
+- `pnpm --filter @orca/desktop build`, `pnpm --filter @orca/web build`, then
+  `pnpm exec node scripts/check-painting-profile-elision.mjs`: passed; 21
+  ordinary production artifacts contain no painting probe/profile sentinels.
+  `git diff --check` and changed local-link/command review passed.
+
+The machine runs Node 26.7 rather than the repository's pinned Node 24.19.0.
+The child's initial root run failed 11 unchanged browser-adapter localStorage
+tests; disabling Node's experimental Web Storage explicitly made both child and
+parent runs pass, without repository configuration changes. The existing real
+MMU journey initially assumed a custom titlebar menu on macOS, an obsolete
+colour-badge span and synchronous colour-history publication. It now invokes
+the native macOS menu, locates the existing colour label and waits for the same
+required history label; all original behavior assertions remain. Both child
+and parent reruns passed. Native fixture loads still print missing-parent config
+diagnostics; the asserted operations and downstream slices passed.
+
+Threaded rebuild, second-host journeys and the full release matrix were
+intentionally deferred to step 19. This step does not establish all-channel
+affected-plate/usage restoration (step 14), complete editors or downstream
+support/seam/fuzzy slicing qualification.
+
+### 14. Four-channel history restoration and slice invalidation
+
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** 13 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** N+W+T+A.
+
+**Allowed scope:** Native history/painting/plate cache and derived-use/Prime Tower
+integration, client/runtime restore projection, affected app restore coordinator,
+real history/plate harness and behavior tests. No new toolbar entry.
+
+**Functional output:** Close the MMU-only restore gaps in affected-plate comparison
+(`bridge_history.cpp` around line 562) and usage comparison (around line 735).
+Commit/Undo/Redo restores all channels and invalidates all affected before/after
+instance plates, input/result stamps, Worker caches and published previews.
+Support changes invalidate implicated support usage summaries and Prime Tower
+projections; preserve channel-specific dependency handling and deferred versioned
+settlement. Native snapshot capture already holds four fields; do not introduce
+another history authority. Retain compaction, non-paint separators, floors,
+saved markers, Redo rules and atomic failed restore/reconciliation/publication.
+
+**Child self-check:** History-core executable in the configured N test build,
+affected suites/typechecks, serial quick build and real history/plate harness.
+Use multiple instances on different plates and all three new channels to prove
+stale results after commit and Undo/Redo, actual fresh slicing, support-use/Prime
+Tower invalidation, unaffected plate reuse, and fault rollback with unchanged
+model/history/cache publication. Repeat mixed config/paint close and MMU history.
+
+**Parent acceptance:** Review restored roots, before/after plate calculation,
+usage dependencies, deferred settlement and staged rollback. Independently rerun
+core and real plate/history scenarios plus affected package checks. Observe cache
+and slice outcomes, not only annotation equality; all new entries remain hidden.
+
+**Execution / acceptance (2026-10-02):** Fresh child
+`/root/painting_step14`, `gpt-6.1-sol` / medium, implemented and self-verified;
+parent independently reviewed the complete native/history/cache and harness diff.
+All four annotation fields now participate in affected before/after instance plate
+restoration. MMU/support evict implicated usage summaries and advance deferred
+settlement; seam/fuzzy preserve summaries and ordinary MMU renderer resources.
+Undo/Redo/Jump stage a transient native navigation owner that rolls back lazy
+live-top capture, saved markers, Redo, budget eviction and exact history accounting
+when reconciliation or response publication fails. No additional history authority
+or channel toolbar entry was introduced.
+
+The fault fixture exposed three native restoration defects: replay of an unchanged
+parentless Print owner, mutation of history accounting before failed publication,
+and unchanged Project/Print root replay invalidating an unrelated plate. Bounded
+repairs retain genuine owner/configuration restoration. Existing config fixtures
+were updated to the authoritative `renderables` field and current native override
+admission: rejected metadata remains atomic, density clamping and reset exclusion
+remain asserted.
+
+Parent verification passed (gated module below is the child's preserved final
+Release serial test build, not the ordinary production artifact):
+
+```sh
+pnpm exec node packages/slicer-wasm/.work/step14-history-test/timestamped_history_core_test.cjs
+pnpm exec node packages/slicer-wasm/.work/step14-history-test/painting_session_test.cjs
+pnpm exec node packages/slicer-wasm/harness/painting-history-plate-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/config-scope-invalidation-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/native-project-preset-history-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/native-scoped-config-mutation-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/transform-plate-invalidation-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/history-editing-session-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/prime-tower-cache-validity-smoke.mjs packages/slicer-wasm/.work/step14-history-test/orca_slice.js
+bash scripts/build.sh quick --variant serial -j 8
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production
+NODE_OPTIONS=--no-experimental-webstorage pnpm test
+pnpm typecheck
+git diff --check
+```
+
+The new real-WASM fixture passed **48 fresh slices and 20 fault rollbacks** across
+all channels, shared instances on two plates and an independent third plate.
+It checks actual preview/export eligibility, unchanged unrelated results, retained
+ordinary scene resources, support FullScan versus seam/fuzzy Hit, deferred
+settlement and membership-changing Jump. Core tests cover exact failed-navigation
+accounting, saved marker, editing-session floor and successful navigation. The
+child also passed `history-smoke.mjs` against its gated module. Existing imported
+fixture parent-config diagnostics remain visible; all assertions passed.
+
+At the user's request, fetched and merged latest `origin/main` (`69f13cd`) in
+merge commit `0ff3a06` before proceeding. The unaccepted step-14 changes were
+stashed, merged without conflicts and restored byte-for-byte. Parent reran root
+checks after the merge: **1,303 tests passed**, plus typecheck. The new upstream
+regression also passed:
+
+```sh
+pnpm exec node packages/slicer-wasm/harness/prime-tower-slice-settings-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+```
+
+It confirms the DeltaMaker negative-coordinate bed and exported Prime Tower
+motion follow Prepare after a native tower move. The merge changes no native
+source; parent verified every source/artifact hash in the retained production
+receipt still matches. Production serial WASM SHA256 is
+`3e59fbf9ab4cee367c62dee48e7673625ca1c747a83d5ca98cb5bf4e6e180de8`;
+gated WASM is
+`e83626b953c4ea4e44b970bf875516bfbae469566b44d1703d83b870cb6e8308`.
+Production is Release, threading 0, painting profiling OFF, history hooks OFF.
+Parent confirmed commit-failure, restore-failure and cache-snapshot hooks are
+absent from production JS/WASM. The pinned C++ submodule remains unchanged.
+
+Two optional exploratory child checks remain **failing**, not accepted evidence:
+`multi-filament-command-smoke.mjs --module <gated module>` stops at imported
+scenario-reset identity equality (`filament-259` versus `filament-3`), before its
+history navigation cases; `preset-draft-registry-smoke.mjs --module <gated module>`
+stops at a nullable source vector assertion (`nil,nil,nil,nil,nil,nil` versus
+`nil`). Parent inspected those assertions and call paths; their current failures
+do not exercise the new painting restore paths. They must be reconciled at step
+19 if part of the applicable qualification gate. Host E2E, threaded build and full
+release qualification are intentionally deferred: this native foundation keeps
+new editors hidden. No downstream seam/fuzzy/support effects are claimed here.
+
+### 15. Complete seam editor, native persistence and downstream slicing
+
+**Status:** Accepted by parent (2026-10-02). **Depends on:** 14 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
+
+**Allowed scope:** Shared painting adapter/provider/controller/panel/toolbar,
+native seam screen-X constraint and channel reconciliation; native-format fixtures,
+seam save/slice harness, actual-draw/interaction E2E and gated probes.
+
+**Functional output:** A complete seam editor with circle/sphere and
+Enforce/Block/Erase; Vertical constrains native drag screen X using the current
+camera snapshot. Per-channel memory-only tool parameters, single-filament entry,
+active-channel colours and normal MMU scene return work. Idle switching normally
+closes the old channel before opening the new one; failed closure prevents entry.
+All existing mounted lifetime, command/terminal/history/save/slice policies apply.
+Provide a separate seam toolbar entry following Orca’s independent gizmo entries;
+support/fuzzy entries remain hidden until their complete steps. Expose seam only
+when this complete boundary passes acceptance.
+
+**Child self-check:** Serial quick and real seam annotation/save/reopen/slice
+cases, A, affected transport typechecks and extended real Electron journey.
+Prove transformed/camera-rotated screen-X behavior; 0/1/2 independent persistence;
+erase/cancel/Undo/Redo and actual native seam placement effects; busy ignored
+switches, close failure/retry, normal pan/erase shortcuts and ordinary MMU colours.
+Production builds and elision are required for new probe paths.
+
+**Accepted implementation and child self-verification (2026-10-02):**
+
+The separate Seam painting toolbar entry opens the shared mounted controller with
+single-filament admission; MMU retains its entry-only two-filament gate. The seam
+panel exposes only Circle/Sphere, Enforce/Block/Erase, Vertical, radius and Erase
+all. Support/fuzzy entries remain absent. Idle switches close/settle the previous
+history session before entry; busy switches are discarded and close failure
+requires a successful retry. Each channel retains its own memory-only tool and
+settings, including inactive MMU choice reconciliation after slot deletion/merge.
+Seam commits invalidate plate results while retaining ordinary MMU geometry/BVH.
+
+Native Vertical substitutes the stroke's initial CSS screen X before hit testing
+and one-pixel trajectory projection using the supplied camera matrices. Turning
+Vertical off uses the actual pointer; turning it on retains the stroke anchor.
+The visual cursor mirrors that projection while raw input remains native-owned.
+Native tests exercise Circle/Sphere on a rotated, mirrored, non-uniformly scaled
+part and a rotated camera; the real renderer records projected cursor agreement.
+
+Self-check commands and results:
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm test
+pnpm typecheck
+emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=ON -DNEO_PAINTING_PROFILE=OFF
+cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice painting_session_test timestamped_history_core_test -j 8
+pnpm exec node packages/slicer-wasm/.work/serial/build/painting_session_test.cjs
+pnpm exec node packages/slicer-wasm/.work/serial/build/timestamped_history_core_test.cjs
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-history-plate-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/history-editing-session-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js
+emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=OFF -DNEO_PAINTING_PROFILE=OFF
+bash scripts/build.sh quick --variant serial -j 8
+pnpm exec node packages/slicer-wasm/harness/painting-session-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/painting-engine-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/seam-painting-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production
+pnpm exec node scripts/run-painting-e2e.mjs
+pnpm --filter @orca/desktop build
+pnpm --filter @orca/web build
+pnpm exec node scripts/check-painting-profile-elision.mjs
+git diff --check
+```
+
+Workspace tests pass **1,312** tests (app 891, client 256, runtime 35); typecheck
+passes. Gated native lifecycle/history tests and comprehensive backend/session/
+history regressions pass; four-channel plate coverage includes 48 fresh slices
+and 20 rollback injections. Serial production is restored with test/profile
+gates OFF and threading 0. Imported fixtures still emit the previously recorded
+missing-parent diagnostics while all assertions pass.
+
+The generated native-format seam fixture proves all four exact per-triangle
+annotation streams survive save/reopen, independent seam 0/1/2, split trees,
+local erase, cancel, Undo/Redo and unchanged ordinary MMU resource keys. A
+single-filament controlled cube proves actual outer-wall seam starts: baseline
+0 starts in the front-face strip, Enforce 53, Block 0; Erase all exactly restores
+the baseline. Undo/Redo, undo-erase and saved/reopened Enforce reproduce exact
+seam-start coordinates. G-code, two saved native 3MFs and JSON evidence are in
+`packages/slicer-wasm/.work/step15-seam/`; gated artifacts and SHA256SUMS are in
+`packages/slicer-wasm/.work/step15-history-test/`.
+
+The extended actual Electron journey exercises the distinct toolbar entries,
+real green seam draw frames, rotated-camera screen-X cursor, Block, Shift erase,
+Undo/Redo, cancel, middle/right pan, Ctrl-wheel, busy ignored switches, injected
+RPC close failure/retry, exact per-channel parameter restoration and ordinary
+MMU draw return. Its close-failure probe is gated in the existing painting probe;
+production elision checks its new unique sentinels. Source/artifact hashes and
+preserved renderer evidence are recorded in the child's final handoff receipt.
+
+The full threaded/dual-host release matrix and quantitative performance remain
+Step 19 qualification; no acceptance for those deferred checks is claimed here.
+The pinned submodule remains unchanged. Independent parent acceptance follows.
+
+**Parent acceptance:** Review input projection, native constraint, adapter/UI
+availability, resource lifetime and failure paths. Rerun real seam fixture and
+current-artifact journey plus app checks; inspect actual seam/state and viewport
+evidence. Verify no world-Z substitution, other-channel changes or MMU regression.
+
+**Independent parent acceptance (2026-10-02):**
+
+The parent read every changed production path, focused regression and new native
+harness, using graph change/flow analysis as a locator. The graph was built at
+`dbee028` and could not establish current coverage; actual source and executed
+native/renderer assertions supplied that evidence. Reviewed boundaries included
+native screen-X projection before picking/interpolation, transformed geometry,
+strict seam-only settings, mounted renderer ownership, per-channel parameter
+memory, inactive MMU logical-slot reconciliation, exclusive input/close lanes,
+failed closure/retry, reliable cancellation, resource retention and production
+probe removal. The same child repaired findings about close/reopen parameter
+retention, inactive MMU merge/delete reconciliation and constrained visual-cursor
+agreement before final handoff. No unresolved acceptance defect remains.
+
+At the user's renewed request, the parent fetched and merged main `86ce9f7` as
+`c2c375a` before completing acceptance. The only merge conflict concerned an
+existing colour-label test locator; main's exact label locator was retained.
+The child's 25 source hashes were verified before merge, and all except that
+expected locator delta matched afterward. Native sources/artifacts were unchanged
+by the merge. Electron now runs the same typed painting session in a Node Worker
+inside its utility process; Web retains its browser Worker. No Python capability
+is introduced by this feature.
+
+Independent commands and results:
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm test
+pnpm typecheck
+bash scripts/build.sh quick --variant serial -j 8
+pnpm exec node packages/slicer-wasm/.work/step15-history-test/painting_session_test.cjs
+pnpm exec node packages/slicer-wasm/.work/step15-history-test/timestamped_history_core_test.cjs
+pnpm exec node packages/slicer-wasm/harness/seam-painting-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-history-plate-smoke.mjs packages/slicer-wasm/.work/step15-history-test/orca_slice.js --expect-test-hooks
+pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --interop-only --expect-production
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs
+pnpm --filter @orca/desktop build
+pnpm --filter @orca/web build
+pnpm exec node scripts/check-painting-profile-elision.mjs
+git diff --check
+```
+
+All passed. Before merge the workspace passed 1,312 tests; after merge the parent
+reran tests and typechecks: **1,320** tests across eight projects (app 891, client
+260, runtime 36), with all typechecks passing. Serial quick and both native test
+executables passed. The comprehensive backend retained all six MMU tools,
+four-channel exact native annotations and fault rollback; plate/history tests
+passed 48 fresh slices and 20 restore-failure injections. Production interop
+observed 47,012 actual toolpath segments and MMU tools 0/1. The parent independently
+reproduced Seam's 0/53/0 placement witness and exact erase/history/reopen positions.
+The final Electron journey passed **1/1 in 36.5 seconds** on the merged utility
+runtime, with source/staged serial artifact hashes checked by the runner. The
+parent inspected its rotated-camera screenshot and draw evidence: separate armed
+Seam entry/panel, constrained cursor, green seam draw and ordinary MMU return.
+
+Final production desktop/Web builds passed; elision checked **24** production
+artifacts including utility bundles. Native history/painting test hooks were
+absent from production JS/WASM; the serial cache has history/profile gates OFF,
+threading 0. Production SHA256s are JS
+`2ddb6c4816bd1ceb2d8d14af9308f5f37cb6d6433fd2bc32a69ff7d685017889`, WASM
+`57b894d7a3ab6877cd9db83924d1286a4a75a5f2e742231b2cc6fbb462667be7` and data
+`6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+All preserved gated/native artifacts also matched the child's manifest. Parent
+renderer evidence is preserved in `.work/step15-parent-electron-evidence/` under
+slicer-wasm; child receipt remains `.work/step15-handoff.json`. Changed local
+link targets and command paths were verified against authoritative sources.
+
+Node 26.7.0 differs from the pinned 24.19.0, so browser/jsdom checks used the stated
+Node flag. Previously recorded missing-parent fixture diagnostics and Web chunk
+warnings remain non-failing. Threaded/full-host release qualification and
+quantitative performance are intentionally not run in this piece; they remain
+step 19 gates. Earlier optional step-14 harness failures retain their recorded
+status and are not reclassified by this acceptance.
+
+### 16. Native Smart Fill and support Gap/overhang foundations
+
+**Status:** Accepted by parent. **Depends on:** 15 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+T+A.
+
+**Allowed scope:** Non-GUI native selection/preview/Apply adapters, typed settings
+and draft resource transport, affected shared preview controls not yet exposed,
+transformed/generated fixtures and real engine/backend harnesses.
+
+**Functional output:** Support/fuzzy Smart Fill uses `seed_fill_select_triangles`
+with native geometry/angle membership, not MMU `bucket_fill_select_triangles`
+same-state Region Fill. Candidate preview and committed selection use identical
+settings and revision. Support Gap Fill calculates object-wide native destinations
+and preview/Apply parity with 0/1/2 states; overhang highlighting/restricted
+painting uses transformed native surface/angle semantics. No support generation
+preview, horizontal restriction or angle-batch marking. Support/fuzzy entrypoints
+and consumer controls remain hidden until their complete editor stages.
+
+**Child self-check:** Serial quick, real engine/backend selection fixtures,
+affected full suites/typechecks. Prove differently painted adjacent facets
+separate native Smart Fill from MMU Region Fill; transformed/multipart and
+boundary-angle membership, stale preview rejection, restriction enforcement,
+Gap destination-state/Apply parity and preview-only no dirty/history writes.
+All-six MMU and seam regressions remain passing.
+
+**Parent acceptance:** Read algorithm dispatch, transformed normals/camera/angles,
+state/tree ownership, candidate resource revisions and Apply atomicity; rerun real
+native membership/annotation assertions and affected checks. No unfinished
+support/fuzzy consumer is exposed and existing Region Fill semantics are retained.
+
+**Step 16 accepted implementation:** Native `smartFill` is a
+separate support/fuzzy tool. It calls pinned `seed_fill_select_triangles`, follows
+local source-normal edge angles across original facets and their subdivision
+children, and ignores existing paint states. MMU `region` retains its state-barrier
+bucket fill. Smart Fill requires a numeric 0–90 degree angle; `null` remains an
+MMU Region-only way to disable geometry edge detection. Preview and actual stroke
+share the native parameters and channel revision; candidate admission checks the
+complete settings, including overhang threshold/restriction and brush dimensions.
+Support `gap` uses the existing object-wide native patch algorithm and ordered
+lowest adjacent state (0 before 1 before 2), with preview-only calculation and
+one Apply transaction over all solid parts.
+
+Support overhang geometry is an independent, native-owned overlay. It survives
+Smart Fill/Gap candidate replacement, drawing, cancellation, commit, target
+changes and history reconciliation. Its `ph-support` identity depends on the
+active draft geometry revision and highlight-setting revision; unchanged hover
+reuses its buffers. Transform/target changes invalidate the highlight identity
+without invalidating unchanged local-space draft buffers. Native inverse-transpose
+normalized surface normals and the pinned strict cosine comparison determine
+membership. A numeric zero disables the native filter and includes every eligible
+leaf; `null` clears the overlay. Restricted painting requires a numeric angle.
+The 90-degree pinned float-radian boundary admits exactly vertical side normals;
+the adapter intentionally matches that native behavior. Circle, sphere and Smart
+Fill pass the same restriction into native selection. Highlight requests grant
+no Apply candidate receipt and never write annotations, dirty state or history.
+Typed resource validation rejects cross-channel, stale/future and unsafe revision
+identities; native leases and shared buffers are disposed on clear/replacement.
+
+Support/fuzzy toolbar entries and their consumer controls remain hidden. The
+existing shared overlay renderer/resources can retain highlights concurrently
+with selection candidates. MMU and Seam continue to reject Smart Fill and omit
+support-only settings from native requests. No support generation preview,
+horizontal restriction, angle batch operation or later editor step is included.
+
+The [foundation harness](../packages/slicer-wasm/harness/painting-foundations-smoke.mjs)
+compares actual native preview/edit membership, annotations, project/history and
+plate snapshots, retained/cleared highlights, restrictions, gap destinations and
+unchanged channel streams. Focused C++ fixtures additionally cover multipart Gap,
+all destinations, adjacent different-state selection, mirrored/nonuniform/tilted
+transforms and below/at/above angular boundaries. Child self-verification passed:
+
+- Focused native C++ test: configure with
+  `emcmake cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_PROJECT_HISTORY_TEST=ON -DNEO_PAINTING_PROFILE=OFF`,
+  build with `ninja -C packages/slicer-wasm/.work/serial/build painting_session_test -j 8`,
+  and run the preserved executable with
+  `pnpm exec node packages/slicer-wasm/.work/step16-native/painting_session_test.cjs`.
+  It covers the new native fixtures plus six-tool, seam and lifecycle regressions.
+- Restore production with the same configure command using
+  `-DNEO_PROJECT_HISTORY_TEST=OFF -DNEO_PAINTING_PROFILE=OFF`, then
+  `bash scripts/build.sh quick --variant serial -j 8`; final flags are OFF/OFF
+  and `WASM_THREADING=0`. The driver requires `-j 8`, not `-j8`.
+- `pnpm exec node packages/slicer-wasm/harness/painting-foundations-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`:
+  all new foundation assertions pass, including committed support/fuzzy tree
+  independence and unchanged preview-only history/plate/project observations.
+- `pnpm exec node packages/slicer-wasm/harness/painting-backend-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js --expect-production`:
+  comprehensive production publication/geometry/history/remapping/3MF/slicing
+  checks pass, with actual MMU downstream output of 47,012 segments. Injected
+  rollback hooks are compiled out of this ordinary artifact.
+- `pnpm exec node packages/slicer-wasm/harness/painting-engine-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  and the equivalent `painting-session-smoke.mjs` command: six-tool and native
+  lifecycle regressions pass.
+- `pnpm exec node packages/slicer-wasm/harness/seam-painting-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/.work/step16-seam`:
+  native 0/1/2, tree round-trip and actual seam placement pass (0 baseline,
+  53 enforced and 0 blocked). The optional evidence directory preserves the
+  prior accepted step's artifacts.
+- Root `NODE_OPTIONS=--no-experimental-webstorage pnpm test` and the equivalent
+  `pnpm typecheck`: pass on Node 26.7.0: 1,328 tests, including app 893 and client 266. Node 24.19.0 remains the repository pin.
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`:
+  current-artifact real Electron utility-worker painting journey passes 1/1
+  (35.9 seconds), including MMU and Seam. Source/staged module hashes match.
+- Sequential `NODE_OPTIONS=--no-experimental-webstorage pnpm --filter @orca/desktop build`
+  and `pnpm --filter @orca/web build`, then
+  `pnpm exec node scripts/check-painting-profile-elision.mjs`: pass; instrumentation
+  is absent from all 24 inspected ordinary production artifacts.
+- `git diff --check` and changed local-link/command checks pass.
+
+Final production serial SHA256 values: JS
+`bfd296e2107ab85196b4fc72146fd387e3e55e20f99a7ebeea7a179ebba69e65`, WASM
+`d5271e3c9e818d6c3c583c56575c8492e286d1f5ffba3cb6fff03b1cf82e2d44`, data
+`6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+Desktop staged JS/WASM/data match the native artifact byte-for-byte. Web
+WASM/data also match; its ordinary web-only JS loader exactly matches the
+existing `apps/web/vite.config.ts` Node-import/process removal transform and has
+SHA256 `1a9943cc5a33b6af3d53f50f2b10ff96b36bdd7725376ee1443286e076e99c91`.
+Logs, preserved gated native executable/cache/source manifest, seam/Electron
+evidence, all changed-source hashes and artifact hashes are listed in
+`packages/slicer-wasm/.work/step16-handoff.json`. Pinned C++ remains
+`489cbe91840ff97aaf4d8029009d5db410f32893`, with no submodule modifications.
+
+Full Web/dual-variant/release/performance qualification remains step 19. Complete
+support/fuzzy editor and slicing-effect acceptance remain steps 18/17. Existing
+optional multi-filament command and nullable preset-draft smoke limitations from
+step 14 were not rerun or relabeled as passing.
+
+**Independent parent acceptance (2026-10-02):** The parent read every changed
+production/test file and the new harness, including native selection and
+candidate admission, bridge publication/resource leases, strict client manifests,
+mock parity, controller tool/settings/display ownership and renderer resource
+retention. Graph change detection was used first, but its index was still built
+at `dbee028`; the review used current source and executable tests for coverage.
+Review repairs completed by this step's same child included independent highlight
+lifetime, transform-specific highlight invalidation without draft rebuilding,
+Support-only settings stripping, exact pinned angular boundaries, all Gap
+destinations, committed Fuzzy tree isolation and safe/future resource revisions.
+The parent folded the resulting accepted semantics into section 2.4 of the spec.
+
+Parent independently passed the same root test command (1,328 tests) and
+`pnpm typecheck`, the serial quick command, preserved native C++ executable,
+foundation/backend/engine/session harnesses, and seam harness with the separate
+output directory `packages/slicer-wasm/.work/step16-parent-seam`. The native
+backend again produced 47,012 MMU segments; seam remained 0/53/0 with exact
+erase/history/save-reopen checks. The current-artifact Electron runner passed
+1/1 (40.9 seconds), and the parent inspected its rotated-camera Seam screenshot.
+Evidence is preserved in `packages/slicer-wasm/.work/step16-parent-electron-evidence`.
+Sequential ordinary Desktop then Web builds and the elision command passed on
+24 artifacts. All 21 child source hashes and 11 artifact hashes were verified;
+after parent rebuilds, artifact hashes still match the receipt. The actual serial
+JS/WASM omit all three native history/painting test exports, with OFF/OFF/0 flags.
+The parent also verified the pinned submodule is clean, re-fetched `origin/main`
+at `86ce9f7` and confirmed it is already an ancestor of this branch. Parent logs
+are `/tmp/painting-step16-parent-*.log`. Changed documentation links/anchors and
+commands and `git diff --check` passed. The stated step-17/18/19 qualification
+limits remain; no later child was launched before this acceptance. Step 16 accepted.
+
+### 17. Complete fuzzy-skin editor and explicit configuration action
+
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** 16 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
+
+**Allowed scope:** Shared fuzzy adapter/panel/provider and existing scoped-config
+mutation/read projection, native downstream fixtures/save/slice harnesses,
+focused inherited-configuration tests and real journey extension.
+
+**Functional output:** Circle/sphere/triangle/Smart Fill, Enable/Erase and exactly
+0/1 native states, single-filament entry and channel colours. Resolve effective
+fuzzy settings with applicable inherited scopes. Editing while `disabled_fuzzy`
+is allowed with a clear warning. Explicit object-scoped enable sets `none`
+(Painted only) through the existing config path as an independent non-paint
+history operation; no brush silently enables it. Warning reflects still-applicable
+more-specific overrides. Erase does not override whole-surface modes. Preserve
+fuzzy-plus-MMU and native XY-compensation warnings. Expose only after acceptance.
+
+**Child self-check:** A and affected config/transport tests/typechecks, serial quick
+if native changes, current real fuzzy save/reopen and slice harness/journey.
+Observe native fuzzy segmentation/toolpath effects, disabled annotations with no
+fuzzy texture, explicit enable and separate config Undo/Redo, inherited/object/part
+settings, whole-surface erase, mixed channels and warnings. Prove other channel
+bytes and ordinary MMU material rendering unchanged; production probe elision.
+
+**Parent acceptance:** Review scope resolution and mutation/history boundaries,
+Smart Fill integration, resources and controls. Independently rerun native effects,
+configuration/history behavior and current journey plus affected checks. A stored
+fuzzy annotation alone does not establish downstream acceptance.
+
+**Implementation / child self-check (2026-10-02):** The dedicated Fuzzy toolbar
+entry is ordered between Seam and MMU; Support remains hidden. Its shared mounted
+controller, own wrapper and panel expose Circle, Sphere, Triangle and native Smart
+Fill with Enable/Erase, independent memory-only parameters and native neutral/green
+colours. MMU toolbar matching is explicitly `channel === 'mmu'`. Effective fuzzy
+modes reuse the existing native scoped projection for each solid part and parameter
+modifier; native names/enum labels and provenance identify surviving overrides.
+Missing, unknown or refresh-required projections remain unavailable. Explicit
+object enable captures the stable object ID and uses the existing scoped mutation
+coordinator, creating an independent configuration history separator. Brushing never
+enables configuration; busy actions are ignored and failures remain retryable.
+
+The [native fuzzy harness](../packages/slicer-wasm/harness/fuzzy-painting-smoke.mjs)
+proves all four tools make effective 0→1 edits, exact four-field native split-tree
+save/reopen, unchanged other-channel trees and ordinary MMU resource keys,
+erase/cancel/Undo/Redo, disabled/no-jitter versus Painted only/jitter, independent
+configuration and paint Undo/Redo, Project/object/part inheritance, retained part
+and coincident modifier overrides, all whole-surface modes after erase, and actual
+MMU+fuzzy dual-tool G-code. Baseline/disabled/independent history-disabled paths
+produce 290 extrusion commands; Painted only produces 10,620. A modifier override
+reduces 10,587 inherited commands to 290 and retains that result after reopen.
+The solid cube has no holes: Hole mode proves native configuration/painted effect
+and erased contour baseline, not textured hole-surface geometry.
+
+A required warning-retention repair in `bridge_slicing_pipeline.cpp` projects
+current native Print/PrintObject step warnings into the existing durable string
+array before completed-result publication, within its existing exception boundary.
+This preserves native XY-compensation messages/object names through serial progress
+coalescing. Durable enabled/disabled warnings, erased/cached warning removal and a
+live unrelated object on another plate all pass. The ABI and pinned submodule
+remain unchanged.
+
+Checks run: focused app/controller/panel/scoped-projection/toolbar checks (131 tests),
+`NODE_OPTIONS=--no-experimental-webstorage pnpm test` (143 files, 1,337 tests),
+`NODE_OPTIONS=--no-experimental-webstorage pnpm typecheck`, production
+`bash scripts/build.sh quick --variant serial -j 8` (Release, history-test OFF,
+painting-profile OFF, threading 0), the current serial fuzzy harness and accepted
+Smart Fill/overhang foundation harness, the existing Prime Tower slice-settings
+warning/result regression, and the current real Electron painting
+journey (one test, 36.7 seconds) all pass. The journey retains all six MMU tools,
+Seam controls and adds real Fuzzy control routing, effective edits, configuration
+history, independent channel parameters and ordinary MMU rendering after close.
+Production Desktop then Web builds ran sequentially; production probe elision
+passes across 24 artifacts. Source/build/out/staged serial artifacts and the exact
+existing transformed Web loader are checked by the handoff receipt. Build warnings
+are the existing macro redefinitions and Vite chunk-size advisory.
+
+Evidence and exact command logs are retained in ignored
+`packages/slicer-wasm/.work/step17-native/` and
+`packages/slicer-wasm/.work/step17-electron-final/`; the source/artifact/fixture receipts
+are in `packages/slicer-wasm/.work/step17-handoff.json`. Repaired development
+attempts are recorded in `step17-native/attempts.txt`; no failing attempt is claimed
+as passing. Code-review-graph tools were unavailable to the child, so focused
+source review was used. Full Web/dual-variant/release/performance qualification,
+textured hole geometry and the previously recorded unrelated multi-filament
+logical-ID/preset-draft optional probes remain stage 19 work. No parent acceptance,
+roadmap milestone change or commit is claimed here.
+
+**Independent parent acceptance (2026-10-02):** Reviewed all 15 handed-off
+source files, including the native warning publication and its failure boundary,
+scoped inheritance and stable-target mutation, mounted controller admission,
+resource colours, toolbar order and actual journey assertions. Graph change
+analysis reported 41 affected flows but was built at `dbee028`; its missing test
+edges were checked against current source/tests rather than treated as coverage
+results. Accepted the repaired unavailable/stale configuration handling, separate
+configuration history, effective tool-edit assertions and durable current warnings.
+Clarified the specification: disabled annotations produce no fuzzy texture but
+still trigger the pinned native XY-compensation behavior.
+
+Independently verified every handoff source/artifact/evidence hash, deleted only
+the derived slicing-pipeline object, and forced the current serial quick rebuild.
+The rebuilt object and JS/WASM/data hashes match the child receipt. Parent checks:
+
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: **143 files / 1,337 tests passed**.
+- `pnpm typecheck`: all workspace packages passed.
+- `bash scripts/build.sh quick --variant serial -j 8`: current Release, history-test
+  OFF, painting-profile OFF, threading 0 build passed.
+- Current serial `fuzzy-painting-smoke.mjs` with separate
+  `.work/step17-parent-fuzzy` output: all four effective tool edits, exact native
+  fields/save/reopen, disabled/explicit-enable and independent configuration/paint
+  history, scoped part/modifier inheritance, whole-mode effects, actual dual-tool
+  MMU+Fuzzy G-code and durable XY warnings passed. Baseline/disabled 290 versus
+  enabled 10,620 extrusion commands; modifier Disabled restored 290.
+- Current serial `painting-foundations-smoke.mjs`,
+  `painting-backend-smoke.mjs --expect-production`, `seam-painting-smoke.mjs`
+  (separate `.work/step17-parent-seam`) and
+  `prime-tower-slice-settings-smoke.mjs`: passed. Backend retained 47,012 MMU
+  segments; Seam placement remained baseline 0 / Enforce 53 / Block 0.
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`:
+  actual current Electron utility-process/Node Worker journey passed **1/1, 49.4 s**.
+  Preserved 73 evidence files in `.work/step17-parent-electron-evidence` before
+  restoring production builds.
+- Production Desktop then Web builds ran sequentially and passed;
+  `check-painting-profile-elision.mjs` passed **24 artifacts**. Actual serial and
+  existing threaded export tables contain none of the three native test hooks;
+  this is not a current threaded stage-17 build qualification.
+- Changed local links/anchors, command paths and `git diff --check`: passed.
+  Pinned `cpp` remains clean at `489cbe91840ff97aaf4d8029009d5db410f32893`.
+
+Parent logs are `/tmp/painting-step17-parent-*.log`; preserved native fixtures,
+G-code and host evidence use the directories above. Accepted production hashes:
+JS `bfd296e2107ab85196b4fc72146fd387e3e55e20f99a7ebeea7a179ebba69e65`,
+WASM `37d350870f93eca8e4756b5443ef9b34fc2bee1df0dbe3fd7921b7709e5019c0`,
+data `6c5376312b22d659cf8e77c1e3596fe5b914c80121c51b0537b1b04d8983b12e`.
+Node 26.7.0 differs from pinned 24.19.0; the stated Web Storage switch was used
+for jsdom. Current dual-variant/Web/release gates, textured hole-surface evidence,
+performance and the two recorded optional probes remain step 19. No full adapter
+milestone or quantitative performance threshold is claimed by this acceptance.
+
+### 18. Complete support editor and derived projection integration
+
+**Status:** Accepted by parent on 2026-10-02. **Depends on:** 17 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** W+A+E.
+
+**Allowed scope:** Shared support adapter/panel/controller and native consumers
+of accepted fill/overhang/Gap paths, support-use/Prime Tower settlement where
+required, save/slice fixtures/harnesses and focused current-artifact E2E.
+
+**Functional output:** Circle/sphere/Smart Fill/Gap Fill and explicit
+Enforce/Block/Erase. Overhang highlight/restriction and object-wide Gap Apply work
+without preview-only edits. State 0 restores default automatic support policy;
+it does not force no-support. Single-filament projects remain eligible. Maintain
+independent native tree, memory-only parameters, normal close/switch, deferred
+support-use/Prime Tower settlement and MMU-only ordinary scene colours. Expose
+support only after the complete stage is accepted.
+
+**Child self-check:** A, affected native/client/runtime suites/typechecks, serial
+quick and actual support save/reopen/slice/Undo/Redo fixtures and journey. Observe
+support generation changes after enforce/block/erase, transformed overhang
+restriction and Gap parity, unchanged other fields, affected-plate freshness and
+support-filament usage/Prime Tower settlement. Include busy/failure/cancellation
+and no-op preview paths; production probe elision.
+
+**Parent acceptance:** Review restriction/Apply admission and atomic commits,
+downstream support/derived dependencies and UI resources. Rerun real native
+support outcomes and settlement assertions plus app/transport checks and journey.
+No support-generation preview or deferred auxiliary control is exposed.
+
+**Step 18 implementation (accepted by parent 2026-10-02):** The dedicated Support
+entry precedes Seam, Fuzzy and MMU. Its own panel/wrapper uses native 0
+Auto/Default, 1 Enforce and 2 Block, with explicit Enforce/Block/Erase and
+Circle/Sphere/Smart Fill/Gap Fill. Smart Fill requires a numeric 0–90 local-normal
+edge angle. Gap uses object-wide native preview and one Apply transaction; it
+retains lowest-neighbor destination states including zero, and never uses a
+clicked region. The panel disables the brush-only overhang restriction control
+for Gap and explains that Gap remains unrestricted.
+
+The shared controller schedules independent overhang angle/null RPCs on its
+existing single lane. Threshold changes coalesce; highlight-only work is admitted
+only while idle, so a held stroke cannot create repeated empty display reads.
+Highlight preference is retained separately per channel and grants no candidate
+or Apply ownership. Native geometry revision/transform/history reconciliation
+owns highlight identities while unchanged local-space draft buffers and hover
+highlights remain reusable. Candidate and highlight resources render together:
+amber transparent highlights precede white selection fills, use distinct depth
+bias, and neither overlay writes depth. Existing ordinary Prepare rendering
+remains MMU-only. No native ABI, Worker architecture, generation-preview control,
+or implicit support-configuration mutation is introduced. Existing stage-14
+commit invalidation and close/history settlement publish support-use/Prime Tower
+projections at the existing lifecycle boundary.
+
+**Step 18 child self-check:** `NODE_OPTIONS=--no-experimental-webstorage pnpm test`
+passed 144 files / 1345 tests, and the same environment with `pnpm typecheck`
+passed every workspace package. Focused Support panel/controller/toolbar tests
+cover single-slot entry, independent parameters, explicit native angle/null,
+live-threshold bounded scheduling, preview nonmutation, failure/close admission
+and target/history reconciliation. `bash scripts/build.sh quick --variant serial
+-j 8` passed against the current production source; Ninja reported no work
+because no native source changed. Release cache retains history/profile hooks
+OFF. `pnpm exec node packages/slicer-wasm/.work/serial/build/painting_session_test.cjs`
+and the current serial `painting-foundations-smoke.mjs` harness passed native
+Smart Fill, transformed restriction/0/90 boundaries, Gap state-zero parity,
+candidate staleness and four-field independence. The current
+[support native harness](../packages/slicer-wasm/harness/support-painting-smoke.mjs)
+proves native single-filament editing, independent split-tree save/reopen,
+Enforce/Block/Erase, cancellation,
+Undo/Redo, actual native support generation and unchanged support configuration.
+The grounded mushroom fixture explicitly selects manual/automatic support
+configuration rather than enabling support through painting. Manual support
+extrusion counts are 0 baseline, 1937 Enforce, 0 Block, 1937 Undo, 0 Redo, 0 Erase,
+and 1937 after save/reopen; automatic Erase restores generated support rather
+than forcing no-support. Actual support extrusion uses native configured slot 2.
+Native config-driven Prime Tower usage remains slots 1/2 and eligible; settlement
+refreshes native material/plate/history revisions; stale affected receipts are
+rejected while unrelated plate receipts and tower projections remain reusable.
+It does so without inventing
+annotation-driven slot removal. The imported project material routing projection
+continues to report its existing project/object support default 0; actual native
+Print configuration, tower slot usage and support G-code independently prove
+configured slot 2 consumption. This existing projection distinction is retained.
+
+`NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`
+passed the final current-serial Electron journey (37.6 seconds): all six MMU
+operations plus Seam, Fuzzy and Support, simultaneous retained native highlight
+and Smart Fill draws, MMU region depth behavior, Support state edits/Undo/Redo,
+Gap no-op, explicit clearing, independent editor parameters and ordinary MMU-only
+rendering after close. The actual Support editor screenshot was visually checked
+with simultaneous Smart Fill/overhang state and all panel controls visible.
+Test evidence is retained under
+`packages/slicer-wasm/.work/step18-*`; sequential ordinary Desktop and Web builds
+and painting-profile elision in 24 production artifacts passed, as did
+`git diff --check`. The current serial Fuzzy downstream/MMU/XY-warning/modifier
+harness also passed. The handoff manifest records exact commands,
+source/artifact/evidence hashes and repaired attempts. Full Web, dual-variant,
+release/performance qualification and previously recorded optional stage-14
+logical-ID/scalar/vector probes remain stage-19 work. No parent acceptance or
+milestone status is claimed here.
+
+**Independent parent acceptance (2026-10-02):** Reviewed all 14 final changed
+source files and the existing native restriction/Gap/usage/settlement boundaries.
+Graph change detection/flow review reported 26 flows but still used the earlier
+`dbee028` graph, so current source/tests and direct native evidence supplied the
+coverage review. Confirmed dedicated toolbar order Support/Seam/Fuzzy/MMU,
+single-slot admission, idle close/settle/switch, stable native state identity,
+channel-only settings, explicit angle/null highlight transport and candidate
+ownership separation. Required and accepted the bounded held-stroke scheduling
+repair, exact four BBS attributes with nonempty independent witnesses, automatic
+support default restoration, effective T1 support use and actual unaffected-plate
+receipt reuse. Reviewed the independent highlight/selection render ordering and
+no-depth-write overlays; inspected the actual parent-run screenshot with all
+Support controls visible. The specification now states the native restriction's
+three-tool scope and the final independent toolbar order explicitly.
+
+Parent independently verified **14 source, 51 native-source, 15 artifact and 328
+evidence hashes**, plus the four affected native object identities. No native
+source changed in this step. Actual parent checks:
+
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: **144 files / 1,345 tests passed**;
+  `pnpm typecheck`: all workspace packages passed.
+- `bash scripts/build.sh quick --variant serial -j 8`: current Release production
+  serial build validated/staged, Ninja no work; history/profile hooks OFF.
+- Current serial `support-painting-smoke.mjs` with separate
+  `.work/step18-parent-support` output: independent native fields, single-slot
+  editing, cancel/erase/history/save/reopen, unchanged support configuration,
+  actual manual generation **0 / Enforce 1,937 / Block 0 / Undo 1,937 / Redo 0 /
+  Erase 0 / reopen 1,937** passed. Automatic generation **1,937 / Block 0 /
+  Erase 1,937** passed. Support uses T1; native tower used slots remain [1,2].
+  Affected stale receipt rejection, unaffected receipt reuse/tower equality,
+  native material/history/plate revision settlement all passed. The recorded
+  default-zero material routing projection distinction remains unchanged.
+- Current serial `painting-foundations-smoke.mjs` and `fuzzy-painting-smoke.mjs`
+  (separate `.work/step18-parent-foundations` / `.work/step18-parent-fuzzy`), plus
+  full `painting-backend-smoke.mjs --expect-production`: passed. Native transformed
+  overhang/Gap parity and Fuzzy configuration/XY-warning/modifier behavior remain
+  intact; MMU downstream retained 47,012 segments.
+- `NODE_OPTIONS=--no-experimental-webstorage pnpm exec node scripts/run-painting-e2e.mjs`:
+  current Electron utility-process/Node Worker all-channel journey **1/1 passed,
+  52.7 s**. Preserved and inspected the screenshot and 78 evidence files in
+  `.work/step18-parent-electron-evidence` before restoring ordinary builds.
+- Ordinary Desktop then Web builds passed sequentially;
+  `check-painting-profile-elision.mjs` passed **24 artifacts**. All 15 normal
+  serial build/out/staged/Desktop/Web artifact hashes match the handoff after
+  restoration. Pinned submodule is clean at
+  `489cbe91840ff97aaf4d8029009d5db410f32893`.
+- Changed local links/anchors, actual command paths and `git diff --check`: passed.
+
+Parent logs are `/tmp/painting-step18-parent-*.log`; native/host outputs use the
+separate directories above. Production serial JS/WASM/data retain stage 17's
+accepted identities. Node 26.7.0 differs from the pinned 24.19.0 and jsdom used
+the stated Web Storage switch. Full current threaded/Web/release gates,
+textured-hole Fuzzy evidence, measurements and the recorded optional probes
+remain step 19; this acceptance claims no full adapter milestone or numeric
+performance threshold.
+
+### 19. Interoperability, both hosts/variants and measured qualification
+
+**Status:** Accepted by parent on 2026-10-03. **Depends on:** 18 accepted/committed.
+**Model:** gpt-6.1-sol / medium. **Verification:** R+P and milestone gate if claiming delivery.
+
+**Allowed scope:** Channel fixtures, native compatibility/save/slice harnesses,
+Electron/Web journeys, gated benchmark corpus/instrumentation, bounded defects
+against accepted requirements. Parent updates this record, spec and both roadmaps.
+
+**Functional output:** Fulfil [adapter acceptance](../spec/Surface%20Painting%20Architecture.md#92-required-adapter-editing-and-interoperability-acceptance):
+four-channel editing/save/reopen and native BBS attributes, actual downstream
+slicing, strict contracts, all MMU regressions, history/cache/derived-use restore,
+channel switches, failures, lifecycle and cross-host desktop input. Both current
+WASM variants must be qualified; native interoperability and fuzzy-plus-MMU/
+XY-compensation behavior must be preserved. Record representative channel costs
+and memory under the existing methodology without inventing thresholds/cutoffs.
+
+**Child self-check:** `pnpm test`, `pnpm typecheck`, both quick builds and native
+smokes, comprehensive channel contract/roundtrip harness on one variant plus
+focused startup/channel/save/slice on the other (both comprehensive contracts
+when variant-dependent code warrants it). Real Electron and Web threaded/serial
+journeys verify current artifact identities, download/save/reopen and runtime
+admission/cancellation; production builds/elision and non-root deployment where
+affected. Run the full release matrix in the testing guide when claiming
+milestone delivery. Record reproducible measurements, environment/build/fixture
+identities and missing pinned-native comparison explicitly.
+
+**Parent acceptance:** Independently review affected flows, fixture independence,
+actual downstream assertions, production gates and measured evidence. Rerun root
+checks, both native builds/applicable smokes, required host/variant/interop gates
+and representative measurements. No delivered checkbox with required checks
+missing/failing. Numeric threshold approval and unavailable native performance
+comparison remain explicit limitations, separate from functional qualification.
+
+**Stage 19 implementation and child self-check:**
+
+Both current production WASM variants passed the four-channel contracts. The
+final host qualification passed root tests (1,346), root typecheck, dual quick
+build/smoke, the 28 production native harness runs, the instrumented serial
+backend/history fault suites, full mock Electron (44 passes/12 existing skips),
+real Electron project/performance (10/10), real rack (5/5), the six-tool painting
+journey, the four-channel imported/adapters/cancellation journey, and both full
+Web variants (12 passes/one separately gated benchmark each). The dedicated
+Prime Tower warning fixture passed. Ordinary macOS packaging, real packaged
+slice/export and startup/missing/corrupt profile probes passed (4/4); the core
+ZIP was restored byte for byte. Web non-root deployment, painting elision (26
+artifacts), real-project-profile exclusion and actual initialized native export
+checks passed. Both production caches have all three `NEO_*` instrumentation/test
+flags OFF. No pinned C++ source or submodule pointer changed.
+
+Browser journeys save `paint_color`, `paint_supports`, `paint_seam` and
+`paint_fuzzy_skin`, reopen the actual downloaded bytes through the file chooser,
+verify each nonempty channel and ordinary MMU rendering, and reexport identical
+canonical per-triangle fields, including subdivision strings. Reopening restores
+object selection across both instances; actual Alt single-part picking selects
+one current native object/instance before testing painting eligibility. During
+serial slicing, all four entries disable with the same selected identities and
+without toggling selection. Both hosts exercise panel states, Shift erasing,
+Undo, right/middle pan and mounted hidden viewport navigation. Three ordinary
+Electron Cancel attempts use physical clicks immediately after the button becomes
+enabled; each native acceptance is followed by `slice cancelled` and Ready with
+no error. A separate test fixes native-terminal-before-DOM-Cancel order, observes
+`no active slice job`, verifies natural Sliced/no-error convergence, and completes
+a subsequent actual slice after a real edit. This deterministic race check does
+not establish the cause of an earlier Error attempt without transport receipts.
+
+The Fuzzy harness now uses a closed square-ring prism with a real through-hole.
+Its modal XYZ/E parser identifies positive-extrusion inner perimeters inside the
+retained hole bounds: the disabled baseline has 804 segments, while erased Hole
+mode has 4,490 textured segments. Other annotation fields remain identical. A
+solid cube alone did not prove hole behavior. Current threaded Fuzzy finalization
+also retains native XY-compensation warnings after the worker join.
+
+Bounded test repairs preserve actual macOS native menus, use Meta for additive
+selection, wait for File Manager navigation and a fresh New Project native
+reset-history request/response, refresh painting coordinates after restoration,
+and resolve `.app` resources. Fresh project loads allocate new runtime filament
+IDs; exact Undo/Redo identity remains asserted within each history. Nullable and
+numeric preset vector expectations follow exported native slot/variant metadata,
+retaining untouched tails. The mixed-temperature rejection fixture similarly
+expands temperatures/ranges by native `filament_self_index` and
+`filament_extruder_variant`; rejection and actual T0/T1 output assertions remain.
+An invalidated projection read crossing a timing baseline was observed directly;
+the E2E-only pending observer tracks every old/new promise, including rejection.
+Undo/Redo baselines wait for actual settlement and retain the exact one-read
+assertion. No projection behavior was changed.
+
+One product repair was necessary: R3F emitted a missed-pointer event for a
+right-button context menu and cleared eight selected volumes before menu
+membership was checked. The viewport now admits only primary-button missed
+selection clearing. Final context-menu, primary/additive/empty-canvas selection
+and right-drag pan checks pass. Temporary product diagnostics were removed.
+Original failed attempts, including a Web page crash followed by an unchanged
+isolated full-suite pass, remain in the handoff; the crash's cause is unproven.
+Fixture acquisition and the initial Electron download encountered TLS failures.
+System curl with normal CA verification restored the exact manifest fixture
+hashes; packaging used the supported CLI `electronDist` override to the already
+installed Electron 43.4.0 distribution. No TLS verification was disabled.
+
+The existing benchmark authority now supports all four channels and macOS launch
+and memory commands while retaining Windows branches and headed Web policy.
+The locally retained macOS four-channel archive
+contains 96 samples: both hosts, four channels, four cases and three trials
+(32 groups). Cases vary original triangle count (12/3,072), part count and native
+subdivision work, and include the fixed real project. All renderer/native leases
+balance; Escape has 96/96 matched terminal-to-logical-frame measurements. Normal
+physical-release statuses are 403 matched, 168 without a geometry receipt, 178
+without a terminal receipt, 14 duplicate inputs and five without a bounded
+revision frame. Only matched observations enter latency aggregates. The five
+successful commits without a bounded frame publish their large geometry after
+a subsequent admitted stroke; the analysis correctly excludes those later
+frames. Raw targets were not captured for every physical release, so missing
+receipts are not silently classified as panel input or successful no-op.
+
+At the user's request on 2026-10-03, the 98 generated measurement files are
+excluded from Git and the PR. Their SHA-verified local copy is retained under
+`packages/slicer-wasm/.work/step19/benchmark-archive/reference-2026-10-02-macos-four-channel/`.
+The benchmark runners and analysis scripts remain versioned for reproduction.
+
+Representative medians from that repeated baseline:
+
+| Host/channel | 12-face release to logical frame (ms) | Fixed-project release to logical frame (ms) | Fixed-project Escape to logical frame (ms) | Fixed-project sampled host memory (MiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Electron Support | 39.2 | 116.2 | 73.3 | 2,790.9 |
+| Electron Seam | 40.9 | 112.4 | 57.3 | 2,772.6 |
+| Electron Fuzzy | 41.5 | 108.9 | 182.1 | 2,796.0 |
+| Electron MMU | 41.2 | 132.5 | 111.6 | 2,698.3 |
+| Web Support | 44.5 | 110.9 | 61.0 | 2,657.1 |
+| Web Seam | 45.3 | 111.3 | 59.3 | 2,742.8 |
+| Web Fuzzy | 43.6 | 115.5 | 184.0 | 2,659.6 |
+| Web MMU | 44.0 | 120.4 | 102.7 | 2,734.4 |
+
+Memory is whole-host sampled working set (Electron) or RSS (Web), at one-second
+intervals, rather than incremental painting allocation. Native timing, transfer,
+CPU upload, logical frames, heap/history and cleanup are recorded; logical frames
+do not measure GPU execution or pixel visibility. A compact gated observer reads
+published session/settings/revision/resource metadata without triangle scans;
+small-fixture agreement with the full functional observer and bounded real-object
+read cost were verified. Final Gap waits require current requested settings plus
+native preview, geometry publication and rendered revision. An earlier area-0,
+in-flight observation did not prove completed area-3 no-op; that interpretation
+is withdrawn. Legitimate completed empty previews remain valid no-ops.
+
+The 96-sample run precedes the independent pending-history observer and per-sample
+bundle hashing. Its source/native identities and captured Web bundle are retained;
+its original Electron bundle SHA was not saved and cannot be reconstructed by
+claim. A subsequent uniform eight-sample final-source pilot (all four channels,
+both hosts, 12-face fixture) passed native counters, cleanup and disk identity
+checks. Every sample records actual HTML/assets and selected JS/WASM/data SHA
+before the memory/journey window; the Web JS matches the existing exact transform.
+Both pilot host bundles and the complete ON/ON serial module/cache/build recipe
+are retained privately. Production serial bytes were then restored exactly.
+The Mac baseline records Apple M1, Darwin arm64 24.6.0, Node 26.7.0, Chrome
+154.0.8037.93 and Electron 43.4.0. The historical Windows reference is unchanged.
+The installed Orca 2.4.2 binary provides a supplemental exact native-format
+roundtrip; it is not a pinned performance comparator. No native-equivalent
+speedup, GPU execution measurement or numeric threshold is claimed.
+
+A supplemental real-only invalid-configuration test exposed `RuntimeError: Aborted`
+after setting object-scoped `layer_height=0`. This additional failure remains
+unresolved and is not counted as passing qualification. Its navigation changes
+were withdrawn. The scoped configuration panel and slice action sources equal
+current `origin/main`; the native pipeline difference is post-success warning
+collection, with apply/validate/process unchanged. No baseline rebuild or native
+call-site traceback was captured, so pre-existence and painting causality are
+unproven. The failed logs/trace and source comparison are retained in
+`step19/supplemental-slice-error-limit.json`; no native guard was added.
+
+Exact commands, failures/retries/skips, source/artifact/fixture hashes and the
+requirement-to-evidence matrix are retained in
+`packages/slicer-wasm/.work/step19-handoff.json`. Level 4 profile-package coverage
+is the current resource build (67 vendors), both-variant compatibility and the
+ordinary packaged profile probes. No separate instrumented packaged app or
+additional unnamed licensed fixture/generic cross-check was run. The independent
+parent acceptance below qualifies delivery; numeric thresholds remain pending.
+
+**Independent parent acceptance (2026-10-03):**
+
+Child `/root/painting_step19` used **gpt-6.1-sol / medium**, completed its self-check
+and explicitly stopped all mutations before parent verification. The parent
+refreshed `origin/main` (`86ce9f7`) and merged it: already up to date. Earlier
+main integrations remain separate merge commits. Each of stages 13–19 used a
+fresh child; the next stage began only after independent acceptance and commit.
+
+The parent reviewed the actual source and test diffs, native-field independence,
+modal hole-path classification, settings/geometry publication, terminal
+correlation, actual native menu/transport paths and failure assertions. The graph
+was stale at `dbee028`; its flow hints were supplemented by current focused
+source inspection and actual coverage. Repairs retained strict native rejection,
+history identity and one-read projection assertions. Production changes in this
+stage are the primary-button missed-pointer guard; the projection/benchmark
+observers are E2E-gated and independently confirmed absent from production.
+
+Before rebuilding, all 966 manifest hash records matched. Separate native
+identity verification matched 968 records, including 228 object files per
+variant; only the two mutable Ninja logs changed during parent builds. All 96
+archived raw samples passed uncompressed SHA checks. Independent reanalysis
+reproduced every row and aggregate, all 32 groups of three, cleanup and terminal
+coverage above. The actual Escape/release/cancel and cross-stroke attribution
+check passed without overwriting child evidence.
+
+| Independent parent command / scope | Result |
+| --- | --- |
+| `NODE_OPTIONS=--no-experimental-webstorage pnpm test`; `pnpm typecheck` | 145 files / 1,346 tests; all workspace types passed. The Node 26 localStorage workaround changes no repository configuration. |
+| `bash scripts/build.sh quick --variant both`; `bash scripts/build.sh smoke --variant both` | Both current variants passed. |
+| `pnpm exec node packages/slicer-wasm/harness/<name>.mjs <module>` with the harness arguments below | 28 production runs passed on both variants. |
+| Backend and history/plate harnesses against `step19/instrumented-serial/orca_slice.js --expect-test-hooks` | Injected channel commit rollback and all four channel/plate history fault suites passed. Production modules were not replaced for these checks. |
+| `pnpm --filter @orca/desktop test:e2e`; `pnpm --filter @orca/desktop test:e2e:real` | Mock 44 passed / 12 declared skips; real project/performance 10/10 passed, serially and without competing heavy jobs. |
+| Real `playwright test e2e/multi-filament.e2e.ts`; `e2e/painted-facet-preview.e2e.ts`; `pnpm exec node scripts/run-painting-e2e.mjs` | Rack 5/5, imported adapters/three immediate Cancels/late-Cancel recovery 1/1, serial four-channel/six-MMU journey 1/1 passed. |
+| `pnpm --filter @orca/desktop test:e2e:prime-tower-warnings` | Dedicated warning fixture 1/1 passed. |
+| Full Web `playwright test --config ../../apps/web/playwright.config.ts`, repeated with `ORCA_WEB_NO_ISOLATION=1` | Threaded 12 passed / 1 separately gated benchmark; serial 12 passed / 1 separately gated benchmark. Actual download/reopen/reexport, native cancel and same-selection serial admission passed. |
+| `pnpm --filter @orca/profile-resources build`; actual packaged `e2e/packaged-real.e2e.ts` and `e2e/packaged.e2e.ts` with `ORCA_E2E_PACKAGED_ROOT=release/mac-arm64/OrcaSlicerNeo.app` | 67 vendor packages; packaged probes 4/4 passed. Parent exercised the frozen ordinary app whose source/artifact hashes matched, rather than repackaging unchanged sources. Missing/corrupt ZIP probes restored the exact core bytes. |
+| `pnpm exec node scripts/run-painting-benchmark.mjs --host both --channels mmu,support,seam,fuzzy --cases cube-3072-4parts --trials 1 --native-cache packages/slicer-wasm/.work/step19/instrumented-serial/CMakeCache.txt --output packages/slicer-wasm/.work/step19-parent/benchmark-current` | Eight current-source representative samples passed. Every disk HTML/asset/active-native hash and positive native counter was checked; Electron used zero renderer Workers, Web one non-isolated serial Worker. All renderer resources and native leases balanced. |
+| Ordinary `pnpm --filter @orca/desktop build`, then `pnpm --filter @orca/web test:non-root`; painting-profile elision and real-project-profile exclusion scripts | Passed sequentially; 26 ordinary production artifacts contained no painting observers/profile sentinels. Actual initialized serial/threaded exports had no fault/profile hooks. |
+
+For each `out/{serial,threaded}/orca_slice.js`, the production harness basenames
+were `painting-engine-smoke`, `painting-session-smoke`,
+`painting-foundations-smoke`, `history-editing-session-smoke`,
+`painting-backend-smoke`, `seam-painting-smoke`, `support-painting-smoke`,
+`fuzzy-painting-smoke`, `multi-filament-command-smoke`,
+`preset-draft-registry-smoke`, `profile-compatibility-smoke`, `profile-smoke`,
+`project-compatibility` and `multi-filament-slice-preview-smoke`.
+The backend adds `--expect-production`; Seam/Support/Fuzzy receive an output
+directory after the module. Material-command, preset-registry, project and
+MMU-preview use `--module <module>`. The two private harnesses are
+`painting-backend-smoke.mjs` and `painting-history-plate-smoke.mjs`, both with
+`--expect-test-hooks`. Full argv and results are in `step19-parent/native-results.json`.
+
+The parent's first serial painting run captured one distinct held-triangle
+contour where the existing frame assertion expected two. An isolated repeat
+passed the complete journey in 37.8 seconds with source and assertions unchanged.
+Both complete frame/trace sets are retained; the first failure's cause remains
+unproven. No retry or original failure is silently relabeled as an initial pass.
+The supplemental invalid-layer-height abort above remains unresolved and is not
+a passed check or a demonstrated painting regression. These observations and
+the historical Electron-bundle provenance gap remain explicit limitations.
+
+For the representative measurement the parent backed up the three production
+serial files, temporarily copied the preserved ON/ON module, and supplied its
+private cache explicitly. Production caches remained OFF/OFF/OFF. All three
+production files were restored by SHA in a `finally` block, then ordinary hosts
+were rebuilt in Desktop-to-Web order. The final 38 source and 58 production
+artifact records matched the frozen handoff before documentation finalization.
+The staged new-file check then found an extra EOF blank line in the project-menu
+test helper. The same child removed exactly one LF, and the parent independently
+verified all preceding bytes unchanged and reran the full staged whitespace check.
+Exact parent argv/results and evidence are under
+`packages/slicer-wasm/.work/step19-parent/`; child receipts remain separate.
+
+All named required functional gates passed. **Step 19 accepted; scheme B Support,
+Seam and Fuzzy functional delivery is complete.** The three separate Orca-style
+entries remain ordered Support, Seam, Fuzzy, MMU. Numeric thresholds, pinned
+native performance comparison and GPU execution timing remain unapproved or
+unavailable; no universal latency/memory guarantee is claimed.
+
+**Latest-main integration verification (2026-10-03):** Parent merged remote
+`main` at `2f25b0fe00cd66c1b2361c62c2c64042f8f7649f` without conflicts
+(`f54fc76`). This adds NODEFS-backed Electron threaded temporary files; Web
+and Electron serial retain MEMFS. The automatic merges preserve both painting
+behavior and the new `/tmp/plate-result-*` native/mock paths.
+
+| Command / focused check | Parent result |
+| --- | --- |
+| `NODE_OPTIONS=--no-experimental-webstorage pnpm test`; `pnpm typecheck` | 1,371 tests / 148 files passed; all workspace typechecks passed. |
+| `bash scripts/build.sh quick -j 4` | Both production variants rebuilt and validated; all three native instrumentation/test gates OFF. |
+| `pnpm exec node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs`; `bash scripts/build.sh smoke --variant serial` | NODEFS comprehensive bridge and serial slice/bridge/DRC/STEP, including cancellation and malformed STEP preservation, passed. |
+| Threaded `support-painting-smoke.mjs`, `seam-painting-smoke.mjs`, `fuzzy-painting-smoke.mjs`; serial `painting-backend-smoke.mjs --interop-only --expect-production` | Native annotation independence, edit/history/save/reopen, downstream slicing and four-channel production interoperability passed. |
+| `pnpm --filter @orca/desktop test:e2e` | 44 passed / 12 existing skips. |
+| Current-artifact threaded Electron DRC/STEP and `painted-facet-preview.e2e.ts` | 3 passed; imported four-channel edits, native cancellation and history passed. Staged threaded JS/WASM/data hashes match current build outputs. |
+| `ORCA_E2E_REAL=1 ORCA_E2E_NODEFS_EXPECT_VARIANT=threaded` with `e2e/nodefs-runtime.e2e.ts` | Independent parent rerun passed: native byte equality, generation replacement, paged preview, saved 3MF/configuration reopening, reload/crash/quit cleanup. |
+| `pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`; serial NODEFS lifecycle test with `ORCA_E2E_NODEFS_EXPECT_VARIANT=serial` | Six-tool real serial painting passed; serial runtime remains MEMFS and cleans up its empty native session directory. |
+| Headed real Web NODEFS compatibility, DRC, STEP and painted-project E2E; repeated without isolation for serial | Threaded 4/4 and serial 3/3 passed. Threaded compatibility serves exact unmodified shared artifacts; export and File Manager download bytes match. |
+| `VITE_USE_MOCK=0 pnpm --filter @orca/desktop build`; `VITE_USE_MOCK=0 pnpm --filter @orca/web build`; `pnpm exec node scripts/check-painting-profile-elision.mjs` | Ordinary host builds and painting test/profile-hook exclusion passed. |
+
+The first default `pnpm test` run failed 11 Web tests because Node 26.7.0's
+experimental `localStorage` global was undefined. Disabling Node Web Storage
+for the rerun passed without source/test edits. The first threaded NODEFS E2E
+passed native file checks and 3MF save, then failed looking for a custom menu
+button under macOS native chrome. A fresh GPT-6.1-sol / medium child reused
+the existing `openProjectMenu` helper without changing assertions, passed its
+typecheck and real test, and the parent independently reviewed and reran both
+before accepting `bfcb2af`. The first supplemental backend harness invocation
+omitted production-mode arguments and rejected the correctly absent failure
+hook; the correct production interoperability invocation passed. These first
+attempts remain separate from their passing reruns.
+
+Exact logs are retained only in ignored
+`packages/slicer-wasm/.work/main-merge-2026-10-03/`. No benchmark measurements
+or generated archives were added. This is focused merge validation; packaged
+installers, performance benchmarks and instrumented fault-injection rebuilds
+were not rerun. Earlier step-19 qualification remains historical evidence.
+
+**Arrangement-main integration verification (2026-10-03):** Parent subsequently
+merged `main` at `226eafcb957f6f6a6629df4cfb59a217980e14f4` (`f3c5252`).
+The one `Viewport.tsx` conflict retains both left-button admission and the live
+arrangement-active guard. A fresh GPT-6.1-sol / medium child resolved that file,
+passed 924 application tests / 111 files and the application typecheck, then
+the parent independently reviewed the combined source and passed the full
+workspace tests/typecheck before completing the merge. The four painting
+entries and their order remain intact; arrangement closes painting before
+publishing transforms and blocks editing during computation.
+
+| Command / focused check | Parent result |
+| --- | --- |
+| `NODE_OPTIONS=--no-experimental-webstorage pnpm test`; `pnpm typecheck` | 1,418 tests / 153 files; all workspace typechecks passed. |
+| `WASM_THREADING=1 bash packages/slicer-wasm/build-nlopt-wasm64.sh`; repeated with `WASM_THREADING=0`; `bash scripts/build.sh quick -j 4` | Separate NLopt dependencies and both current production WASM variants built successfully. |
+| `cmake --build packages/slicer-wasm/.work/<variant>/build --target arrangement_core_test headless_arrangement_test --parallel 2`; execute both `.cjs` targets with Node | Four native algorithm/adapter test runs passed across threaded and serial. |
+| Both production `arrangement-smoke.mjs`; threaded `nodefs-bridge-smoke.mjs`; `bash scripts/build.sh smoke --variant serial` | Arrangement/source-identity/history, NODEFS comprehensive bridge and serial slice/bridge/DRC/STEP contracts passed. Production arrangement rollback injection is explicitly skipped. |
+| Both `painting-backend-smoke.mjs --interop-only --expect-production`; threaded Support/Seam/Fuzzy downstream harnesses | Four-channel annotation/3MF interoperability and actual Support/Seam/Fuzzy native slicing, history, inherited settings and real through-hole Fuzzy checks passed. |
+| `pnpm --filter @orca/desktop test:e2e` | 44 passed / 12 existing skips, including printer-console guest readiness. |
+| Current-artifact threaded Electron `arrangement.e2e.ts`, `nodefs-runtime.e2e.ts`, `painted-facet-preview.e2e.ts` | 3/3 passed; exact staged JS/WASM/data hashes checked before launch. |
+| `pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`; serial `arrangement.e2e.ts` and `nodefs-runtime.e2e.ts` | Six-tool painting 1/1; serial arrangement/MEMFS lifecycle 2/2 passed using the freshly staged serial artifacts. |
+| Headed Web threaded arrangement, NODEFS, DRC, STEP and painted-project checks | Initial batch 3 passed / 2 failed; independent final arrangement/painted-project rerun 2/2 passed, completing all five focused checks. |
+| Headed Web without isolation: DRC, STEP and painted-project checks | Serial 3/3 passed, including reactive painting admission and download/reopen. |
+| Ordinary Electron/Web builds with `VITE_USE_MOCK=0`; `pnpm exec node scripts/check-painting-profile-elision.mjs` | Both builds and exclusion checks across 27 production artifacts passed. All four native `NEO_*` test/profile gates are OFF in both variants. |
+
+The initial Web arrangement trace showed successful completion before a later
+disabled-control assertion. Unchanged isolation reproduced the same race at a
+later control. A separate fresh GPT-6.1-sol / medium child enlarged the real
+fixture from 96 to 192 cylinders; that change alone still raced. Its next attempt
+passed an atomic active/all-seven-controls observation and the camera gesture,
+but a pre-cancel screenshot again allowed completion; this bounded attempt was
+stopped, and an orphaned test-owned preview was removed before retrying. The
+accepted test keeps every editing/history/camera/cancellation assertion, takes
+the busy-control observation in one browser turn and clicks Cancel immediately
+after the real wheel gesture, then polls camera movement and captures the final
+cancelled view. Web unit tests (28 / 6 files), typecheck and the headed real test
+passed in child self-verification; parent source review, Web typecheck and the
+independent headed real rerun passed before committing `a756b2a`.
+
+The separate initial Web painted-project failure ended at `Sliced` instead of
+the expected cancellation state. No native-terminal-versus-click order was
+established from that attempt. The same unchanged painting test passed in the
+parent rerun; the failed trace and passing log remain separate, and no painting
+source/test change or causal regression claim is attached to that retry.
+
+Logs and preserved traces remain ignored under
+`packages/slicer-wasm/.work/main-merge-arrangement-2026-10-03/`. No benchmark
+measurements or generated archives are submitted. This is focused integration
+verification; packaged installers, performance benchmarks and instrumented
+fault-injection rebuilds were not rerun.
+
+### Adapter acceptance checklist
+
+- [x] Documentation piece independently reviewed and verified; committed before step 13.
+- [x] 13 strict channel/native/transport boundary and all-six MMU regression accepted.
+- [x] 14 all-channel history, affected plates and support-derived invalidation accepted.
+- [x] 15 complete seam editor/save/slice accepted before entrypoint exposure.
+- [x] 16 native Smart Fill/Gap/overhang foundations accepted; consumers remain hidden.
+- [x] 17 complete fuzzy editor and explicit independent configuration action accepted.
+- [x] 18 complete support editor and derived settlement accepted.
+- [x] 19 both-host/variant interoperability, cleanup and functional qualification accepted.
+- [ ] Quantitative performance thresholds separately reviewed and approved.
 
 ## Execution ledger
 
@@ -524,8 +1787,8 @@ The controller serializes native input, display and history transitions in one
 RPC lane. Busy moves are discarded; normal release retains its endpoint/settings;
 Escape and capture/focus interruption follow their separate terminal semantics.
 Dedicated painting uses the existing Canvas and camera, draws only eligible
-active-instance parts, borrows original geometry for cursor-only BVH, and never
-builds a BVH on subdivided geometry. Idle native hit results select painting or
+active-instance parts, borrows original geometry for cursor BVH and negative initial-press preflight, and never
+builds a BVH on subdivided geometry. Reliable initial BVH misses select camera rotation directly; otherwise idle native hit results select painting or
 empty-space rotation. Changed geometry and candidate resources are reused/disposed
 by explicit manifests. Other gizmos close painting first, including numeric panels.
 
@@ -1801,3 +3064,184 @@ in `packages/slicer-wasm/.work/`. No native code changed or was rebuilt.
 Desktop/Web production builds, 21-artifact observer elision and
 `git diff --check` also passed. Build logs use
 `painting-circle-dashes-{desktop,web}-production.log` in the same directory.
+
+## Project process catalogue — 2026-10-03
+
+Project settings now use the same native ownership eligibility as Project
+mutation: native project options plus editable Print-preset options, including
+global object/region defaults. This restores Fuzzy skin and the other supported
+Quality, Strength, Speed and Support defaults while excluding printer,
+filament and preset-bookkeeping fields that the generic mutation API cannot
+edit. Dedicated routing and scene-coordinate exclusions remain intact.
+AMS exclusion now matches an underscore-delimited token, preserving the legal
+`staggered_inner_seams` setting and its resets. Boolean G-code output options
+remain visible; custom G-code scripts stay outside the generic settings editor.
+
+Child self-verification passed the serial quick build with the existing native
+test/profile gates OFF, all client tests (304), focused shared settings tests
+(15), client/app typechecks and `git diff --check`. Real serial mutation coverage
+checks every metadata key against native Project admission without committing
+probe changes, including routing/bookkeeping rejection and representative
+process, seam and output-flag edits/resets. The extended native Project history
+harness passed Fuzzy set/read/reset, inherited restoration, Undo/Redo and native
+3MF diff/reopen checks. Its first run failed because the new test expected an
+`ok` field on the history-commit response; the corrected test checks the existing
+`status` receipt and passed on retry. The existing scoped interoperability
+harness passed; its optional external Orca save stage was not run.
+
+Commands were `bash scripts/build.sh quick --variant serial -j 8`,
+`pnpm --filter @orca/slicer-wasm test`, client/app `typecheck`, the two focused
+settings Vitest files, and the `native-scoped-config-mutation-smoke.mjs`,
+`native-project-preset-history-smoke.mjs` and
+`scoped-config-interoperability.mjs` harnesses against `out/serial/orca_slice.js`.
+Logs use `packages/slicer-wasm/.work/project-catalogue-*`. A focused real Web
+Project-settings journey covers catalogue visibility and Fuzzy, seam and output
+flag edits/resets; parent independent dual-variant and host acceptance is
+recorded separately after execution. No pinned submodule or native ABI changed.
+
+The first independent real Web journey exposed a selected-enum label fallback:
+after the popup closed, Fuzzy skin displayed `allwalls` rather than the native
+`All walls` label. Scoped enum controls now render the label directly from
+`enum_values`/`enum_labels`, preserving it after popup disposal and field
+remount; committed values remain native enum keys. Child verification passed
+the focused `ScopedConfigurationPanel.test.tsx` suite (11 tests), app typecheck
+and `git diff --check`. The initial new component test used an incomplete
+synthetic click and did not select an option; it passed after using the existing
+pointerdown/click event convention. The real Web journey now checks the readable
+label, closes the popup, unmounts/remounts through search, and verifies the
+selected option after reopening. Logs use `project-catalogue-enum-label-*`.
+
+Parent independently compared the old and rebuilt real serial metadata across
+the complete native Print-preset catalogue. The generic Project UI restores
+289 fields: 285 omitted process defaults, `staggered_inner_seams`, and three
+G-code output booleans. It removes 197 incorrectly advertised printer/filament
+fields from this generic process editor; their dedicated editors retain their
+ownership. The Project catalogue now has 374 visible fields rather than 282.
+Restored types include booleans, enums, integer/float/percent values,
+float-or-percent values, strings and their supported list variants.
+
+| Affected configuration | Representative restored fields |
+| --- | --- |
+| Quality and seams | `layer_height`, `seam_position`, `staggered_inner_seams`, wall widths and ironing |
+| Strength | `wall_loops`, `sparse_infill_density`, top/bottom shells and infill patterns |
+| Speed | `inner_wall_speed`, wall/support/bridge speeds, acceleration and jerk |
+| Support | `enable_support`, support type/distances/interfaces and tree support |
+| Other process defaults | All 12 `fuzzy_skin*` fields, flow ratios, interlocking and flush options |
+| G-code output | `gcode_add_line_number`, `gcode_comments`, `gcode_label_objects` |
+
+Independent parent acceptance passed both production quick builds (all four
+native test/profile gates OFF), both variants' native scoped mutation and
+Project preset/history harnesses, and the threaded comprehensive bridge smoke
+(including slicing/export). The full workspace test run passed all packages
+except Web on its initial attempt: Node 26's global Web Storage behaviour made
+`localStorage.clear()` unavailable in the existing browser-adapter tests. Web
+passed all 28 tests with `NODE_OPTIONS=--no-experimental-webstorage`; no product
+or test code was changed for that environment issue. After the enum-label fix,
+the parent reran the complete app suite (926 tests) and app typecheck, plus the
+11-test focused component suite. Combined final workspace coverage is 1,420
+passing tests; root `pnpm typecheck` also passed.
+
+The real threaded Web Project-settings journey passed after the enum-label
+repair (one test, 28.1 seconds including build/startup). It covers representative
+categories, seam/output flag edits and resets, Fuzzy mode/thickness edits,
+thickness reset, selected-label remount, and excluded AMS/custom-script fields.
+The original host failure and successful retry are retained separately. The
+parent's first additional bridge-smoke invocation used the wrong argument
+format; the corrected positional module/STL invocation passed. No Electron
+host seam changed, so a duplicate Electron journey was intentionally skipped;
+external Orca UI save verification remains skipped. Parent evidence resides in
+`packages/slicer-wasm/.work/project-config-catalogue-audit/`; no audit output or
+benchmark artifact is committed. This correction passed parent acceptance.
+
+## Painting initial-press preflight — 2026-10-03
+
+All four painting channels reuse the displayed target's borrowed original BVHs
+to check the initial unmodified left press against all displayed solid parts.
+A reliable blank miss skips the controller/native stroke request and captures
+a camera-rotation gesture. Crossing into a model during that drag does not
+start painting, and releasing it does not send a native stroke terminal.
+Positive hits retain native picking, face/part selection and stroke sampling;
+subsequent off-surface painting samples still reach the controller unchanged.
+Gap static previews and modified camera gestures retain their existing routing.
+Incomplete BVHs, invalid viewport/camera data, outdated source triangle counts
+or target transforms fall back to the controller/native path. No subdivided geometry BVH is built.
+
+Verification uses real original-mesh BVHs in the shared component suite for
+blank/surface starts across MMU, Support, Seam and Fuzzy, camera ownership,
+source/transform refresh, unavailable-input fallback and unchanged input gates.
+The existing real Electron painting journey now checks zero native stroke calls
+on blank starts and model-crossing drags in all four channels using its existing
+compile-gated observer. Parent host acceptance is recorded after execution.
+
+Child self-verification passed the focused `PaintingGizmoBase.test.tsx` suite
+(44 tests), `pnpm --filter @orca/slicer-app test` (949 tests),
+`pnpm --filter @orca/slicer-app typecheck` and `git diff --check`. The first
+typecheck found a readonly-array mutation in the new test setup; immutable
+metadata construction fixed it, and the final typecheck passed. Logs use
+`packages/slicer-wasm/.work/painting-start-preflight-{focused,app-tests,typecheck}.log`.
+No native code, bridge, WASM artifacts or pinned submodule changed; no native
+build or release matrix was run for this shared input optimization.
+
+Parent independent acceptance passed `NODE_OPTIONS=--no-experimental-webstorage
+pnpm test` (1,443 tests across 153 files) and `pnpm typecheck`. The Node option
+avoids the previously verified Node 26 Web Storage/jsdom environment conflict.
+`pnpm exec node scripts/run-painting-e2e.mjs` passed the real serial Electron
+six-tool/four-channel journey (44.1 seconds, 45.2 seconds overall), including
+the new zero-native-stroke blank-start assertions for every channel. The runner
+verified freshly staged JS/WASM/DATA hashes against the current serial artifacts
+before launching; native test/profile gates remain OFF.
+
+Ordinary Desktop and Web builds passed, followed by
+`check-painting-profile-elision.mjs` (27 production artifacts) and
+`verify-real-project-profile-exclusion.mjs`. Final whitespace and pinned
+submodule checks passed. No native rebuild or duplicate Web/second-WASM journey
+was needed: the changed shared React input path is covered by real BVH unit
+tests and one real primary-host journey. Evidence is retained under
+`packages/slicer-wasm/.work/painting-start-preflight-parent/`; no benchmark or
+other generated evidence is committed. This step passed parent acceptance.
+
+## Latest main integration — 2026-10-03
+
+Merged `origin/main` at `bf37ca81726a2c4cf375897f5aaffa79ae46b3de`,
+including the structural history-jump painted-filament usage fix. Conflict
+resolution preserves this branch's transactional restore, rollback and
+serialize-before-publication ordering. The successful restore tail evicts
+touched objects' usage summaries for structural changes; dirty summaries cannot
+become cache hits when Redo restores the same IDs after an empty-plate read.
+The new invalidation helper remains `noexcept`. The incoming Electron regression
+uses the native Open Project menu on macOS and the custom menu elsewhere.
+
+A fresh GPT-6.1-sol medium child implemented the integration and self-verified
+the serial production quick build, complete production painting backend smoke,
+history editing-session and Project preset/history harnesses, WASM package tests
+(304), shared app tests (949), affected package/desktop typechecks and whitespace.
+All passed. The parent independently reviewed the conflict resolution and passed
+`NODE_OPTIONS=--no-experimental-webstorage pnpm test` (1,443 tests across 153
+files), `pnpm typecheck`, and the threaded production quick build.
+
+Parent real-WASM acceptance passed both variants' complete
+`painting-backend-smoke.mjs --expect-production`,
+`history-editing-session-smoke.mjs`, `native-project-preset-history-smoke.mjs`
+and `native-scoped-config-mutation-smoke.mjs`. These cover the incoming empty
+scene/single-colour Cube Redo Prime Tower regression, all four painting channels,
+history, remapping, 3MF and actual slicing, plus Project/Scoped configuration.
+The threaded comprehensive `bridge-smoke.mjs` also passed.
+
+Real serial Electron acceptance passed both painting journeys: the incoming
+structural history regression (18.3 seconds) and the six-tool/four-channel
+journey with blank-start BVH assertions (42.1 seconds; 1.0 minute overall).
+The runner checked freshly staged serial JS/WASM/DATA hashes. Real threaded Web
+Project-settings acceptance passed (one test, 23.6 seconds overall), including
+Fuzzy skin edits, reset, remount and catalogue exclusions. Ordinary Desktop and
+Web production builds, painting-profile elision and real-project-profile
+exclusion guards passed. Both native variants keep all four NEO test/profile
+gates OFF, and the pinned C++ submodule remains unchanged and clean.
+
+There were no build or test failures during this integration. The existing Node
+26 Web Storage workaround was applied to the root tests. Production artifacts
+intentionally omit injected rollback hooks, so the gated
+`painting-history-plate-smoke.mjs` was not run; external Orca UI save verification
+and the full release matrix were also skipped. Evidence stays under
+`packages/slicer-wasm/.work/main-merge-painted-usage-2026-10-03/` and
+`/tmp/neo-main-merge-*.log`; no benchmark or generated evidence is committed.
+This integration passed parent acceptance.

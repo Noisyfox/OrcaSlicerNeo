@@ -12,13 +12,14 @@
 
 namespace Slic3r::Neo::Painting {
 
-// Each annotation channel will supply its own state and publication rules.
-// MMU is the only implemented adapter; other channels never share its tree.
-struct MmuAnnotationAdapter {
-    static constexpr int max_state = 16;
-    static void validate_state(int state);
-    static void load(const ModelVolume& volume, TriangleSelector& selector);
-};
+enum class Channel { Mmu, Support, Seam, Fuzzy };
+const char* channel_name(Channel channel);
+int max_state(Channel channel);
+void validate_state(Channel channel, int state);
+FacetsAnnotation& annotation(ModelVolume& volume, Channel channel);
+const FacetsAnnotation& annotation(const ModelVolume& volume, Channel channel);
+void load_annotation(const ModelVolume& volume, Channel channel, TriangleSelector& selector);
+const char* history_name(Channel channel);
 
 struct PartDraft {
     std::size_t volume_id;
@@ -33,16 +34,19 @@ struct PartDraft {
     std::array<std::size_t, 17> facet_counts() const;
 };
 
-enum class Tool { Circle, Sphere, Triangle, Height, Region, Gap, EraseAll };
+enum class Tool { Circle, Sphere, Triangle, Height, Region, SmartFill, Gap, EraseAll, Overhang };
 enum class Phase { Idle, Drawing, Finished };
 struct Settings {
     int state = 1;
     bool erase = false;
+    bool vertical = false;
     double radius = 2.;
     double height = 1.;
     std::optional<double> angle = 30.; // nullopt disables geometry edge detection.
     double gap_area = 0.;
-    void validate() const;
+    std::optional<double> overhang_angle;
+    bool restrict_to_overhangs = false;
+    void validate(Channel channel) const;
 };
 // Matrices are OpenGL column-major, pointer and viewport use the same CSS-pixel
 // coordinate system, origin at top left; clip-space depth is [-1,1].
@@ -72,9 +76,11 @@ struct Preview {
     // Leaf IDs refer to the unchanged Session::parts selectors, not the
     // prospective selectors above. Gap fragments remain separately inspectable.
     std::vector<std::vector<NativeSelector::GapPatch>> gap_regions;
+
 };
 
 struct Session {
+    Channel channel;
     std::uint64_t id;
     std::uint64_t history_session_id;
     std::uint64_t revision = 1;
@@ -88,9 +94,12 @@ struct Session {
     Tool tool = Tool::Circle;
     std::vector<std::shared_ptr<NativeSelector>> before_stroke;
     std::shared_ptr<const std::vector<TriangleSelector::TriangleSplittingData>> before_data;
+    double stroke_screen_x = 0.;
     std::optional<PointerEvent> last_event;
     std::optional<Hit> last_hit;
     std::optional<Preview> preview;
+    std::uint64_t highlight_revision = 0;
+    std::optional<double> highlight_angle; // Independent of selection candidates and strokes.
     bool effective = false;
     std::vector<std::size_t> changed_parts;
 };
@@ -98,7 +107,7 @@ struct Session {
 class Sessions {
 public:
     std::unique_ptr<Session> prepare_open(const Model& model, std::size_t object_id,
-        std::size_t instance_id, std::size_t filament_slots, std::uint64_t history_session_id);
+        std::size_t instance_id, Channel channel, std::size_t filament_slots, std::uint64_t history_session_id);
     std::unique_ptr<Session> prepare_target(const Model& model, std::uint64_t id,
         std::uint64_t revision, std::size_t object_id, std::size_t instance_id);
     const Session& require(std::uint64_t id, std::uint64_t revision, bool idle_only = true) const;

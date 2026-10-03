@@ -50,6 +50,31 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 }
 
 describe('scoped field drafts', () => {
+  it('retains the native enum label after selection closes and the field remounts', async () => {
+    const field = { key: 'fuzzy_skin', label: 'Fuzzy skin', value: 'none', meta: {
+      type: 'enum' as const, enum_values: ['none', 'allwalls'], enum_labels: ['Painted only', 'All walls'],
+    } };
+    const { onCommit, rerender } = await renderField(field, undefined, undefined, false);
+    const selectedText = () => container.querySelector('[data-slot="select-value"]')?.textContent;
+    const trigger = () => container.querySelector<HTMLButtonElement>('[data-testid="config-input-fuzzy_skin"]')!;
+    expect(selectedText()).toBe('Painted only');
+    await act(async () => trigger().click());
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((element) => element.textContent?.includes('All walls'));
+    expect(option).toBeDefined();
+    await act(async () => {
+      option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(expect.anything(), 'allwalls');
+    expect(trigger().getAttribute('aria-expanded')).toBe('false');
+    expect(selectedText()).toBe('All walls');
+    await rerender({ value: 'allwalls' });
+    await act(async () => root!.render(null));
+    await rerender({ value: 'allwalls' });
+    expect(selectedText()).toBe('All walls');
+  });
+
   it('highlights modified pages and groups across search, and resets only applicable native categories', async () => {
     const metadata = {
       layer_height: { type: 'float' as const, label: 'Layer height', category: 'Quality', scopes: ['project', 'object'] as const },

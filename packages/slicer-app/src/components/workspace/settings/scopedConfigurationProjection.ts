@@ -41,13 +41,16 @@ export interface ScopedConfigurationField {
   readonly resettable: boolean;
 }
 
-const EXCLUDED_KEY = /(?:filament|rack|ams|gcode|layer[_-]?range)/i;
+const EXCLUDED_KEY = /(?:filament|rack|layer[_-]?range|(?:^|_)ams(?:_|$))/i;
 
 /** Generic Project/Scoped intentionally excludes typed material and opaque
  * native domains. Scene-only Prime Tower coordinates are also excluded. */
 export function isGenericScopedKey(key: string, meta?: OptionMeta): boolean {
   if (key === 'extruder' || key === 'wipe_tower_x' || key === 'wipe_tower_y') return false;
   if (EXCLUDED_KEY.test(key)) return false;
+  // G-code output flags are ordinary process controls; opaque custom scripts
+  // stay outside this generic editor.
+  if (/gcode/i.test(key) && meta?.type !== 'bool') return false;
   if (!meta || meta.type === 'unknown') return false;
   return true;
 }

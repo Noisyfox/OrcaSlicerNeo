@@ -1131,7 +1131,7 @@ test('object list: refuses mixing object and part selection (mock)', async () =>
     expect(before).toBeGreaterThan(1);
 
     // Ctrl+click a part of the same object (object + part is Orca Mixed) — refused.
-    await list.locator('[data-testid^="part-"]').first().click({ modifiers: ['Control'] });
+    await list.locator('[data-testid^="part-"]').first().click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
     await expect.poll(selectedInstances).toBe(before);
   } finally {
     await app.close();
@@ -1250,10 +1250,10 @@ test('object list: ctrl and shift multi-select (mock)', async () => {
 
     // Ctrl+click both instances -> both selected (additive toggle).
     await instanceRows.nth(0).click();
-    await instanceRows.nth(1).click({ modifiers: ['Control'] });
+    await instanceRows.nth(1).click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
     await expect.poll(instanceCount).toBe(2);
     // Ctrl+click the first again -> toggled off.
-    await instanceRows.nth(0).click({ modifiers: ['Control'] });
+    await instanceRows.nth(0).click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
     await expect.poll(instanceCount).toBe(1);
 
     // Shift-range between the two instance rows selects both.
@@ -1319,7 +1319,7 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     // selected objects are merged, not the whole list.
     const objectRows = list.locator('div[data-testid^="object-"]');
     await objectRows.nth(0).click();
-    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await objectRows.nth(1).click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
     await objectRows.nth(1).click({ button: 'right' });
     // Rename is hidden while multiple objects are selected (the single-object
     // rename flow is covered by the rename test).
@@ -1336,7 +1336,7 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await expect(page.getByTestId('objectlist-printable')).toHaveText('Mark printable');
     await page.keyboard.press('Escape');
     await objectRows.nth(0).click();
-    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await objectRows.nth(1).click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
     await objectRows.nth(1).click({ button: 'right' });
     await page.getByTestId('objectlist-assemble').click();
     await expect(list).toContainText('Assembly');
@@ -1762,9 +1762,22 @@ test('scene context menu: right-click on a model body opens the object menu', as
     await objectRows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
     await page.getByTestId('objectlist-clone').click();
     await expect.poll(() => objectRows.count()).toBeGreaterThan(1);
-    await objectRows.nth(0).click({ position: { x: 40, y: 4 } });
-    await objectRows.nth(1).click({ modifiers: ['Control'], position: { x: 40, y: 4 } });
-    await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
+    await objectRows.nth(0).locator('> button').click({ position: { x: 40, y: 4 } });
+    await objectRows.nth(1).locator('> button').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'], position: { x: 40, y: 4 } });
+    await expect(objectRows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
+    // Clone and sidebar expansion can change the camera framing and canvas
+    // bounds. Project a current selected body instead of reusing the old hit.
+    const currentPoint = await page.evaluate(() => {
+      const hook = (window as unknown as { __orcaE2e: {
+        modelWorldCenters: () => Array<[number, number, number]>;
+        projectWorldToScreen: (point: [number, number, number]) => { x: number; y: number };
+      } }).__orcaE2e;
+      return hook.projectWorldToScreen(hook.modelWorldCenters()[0]);
+    });
+    const currentBox = await canvas.boundingBox();
+    if (!currentBox) throw new Error('current viewport canvas has no bounding box');
+    await page.mouse.click(currentBox.x + currentPoint.x, currentBox.y + currentPoint.y, { button: 'right' });
     await expect(objectMenu).toBeVisible();
     await expect(objectRows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
     await expect(objectRows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
@@ -2520,14 +2533,14 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
       const secondStart = await project([52, -2, 10]);
       const secondEnd = await project([68, 22, 10]);
       if (!secondStart || !secondEnd) throw new Error('second-cube marquee projection unavailable');
-      await page.keyboard.down('Control');
+      await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
       await page.keyboard.down('Shift');
       await page.mouse.move(secondStart.x, secondStart.y);
       await page.mouse.down();
       await page.mouse.move(secondEnd.x, secondEnd.y, { steps: 6 });
       await page.mouse.up();
       await page.keyboard.up('Shift');
-      await page.keyboard.up('Control');
+      await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
       await expect.poll(selectionCount).toBe(2);
       await expect.poll(() => selectionBoxWorldSegments(page))
         .toEqual({ min: [0, 0, 0], max: [70, 20, 20], segmentCount: 24 });
@@ -2542,6 +2555,13 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
       await expect.poll(selectionCount).toBe(1);
       await expect.poll(() => selectionBoxWorldSegments(page))
         .toEqual({ min: [50, 0, 0], max: [70, 20, 20], segmentCount: 24 });
+
+      // A primary click on empty canvas still clears after the right-button
+      // missed-pointer guard; no marquee or keyboard modifier is involved.
+      await page.mouse.click(box.x + box.width - 60, box.y + 90);
+      await expect.poll(selectionCount).toBe(0);
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
     } catch (err) {
       await diag.dump();
       throw err;

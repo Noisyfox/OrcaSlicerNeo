@@ -10,8 +10,12 @@ Prepare and Preview for the shared Web and Electron application.
 This specification extends [Multi-Filament Support](Multi-Filament%20Support.md),
 [Workspace Prepare and Preview Modes](Workspace%20Prepare%20and%20Preview%20Modes.md),
 and the [shared application architecture](Web-Electron%20Shared%20Application%20Architecture.md).
-Facet-paint creation and editing remain deferred; this feature displays
-painting already present in the native model, including imported 3MF projects.
+This feature displays committed MMU painting in the native model, including
+imported 3MF projects. Editing is governed by
+[Surface Painting Architecture](Surface%20Painting%20Architecture.md): MMU editing
+is delivered, and scheme B support/seam/fuzzy editors are approved for implementation.
+Ordinary scene rendering remains MMU-only; active-editor channel colours are
+separate draft resources.
 
 ## Accepted behavior
 

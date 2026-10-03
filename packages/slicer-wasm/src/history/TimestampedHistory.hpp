@@ -93,6 +93,7 @@ struct TimestampedResourceDiagnostics {
 };
 
 class TimestampedHistory {
+    struct Impl;
 public:
     // Publication hooks inspect a fully staged, read-only candidate before it
     // replaces the live history. If the callback throws, live history is
@@ -143,6 +144,25 @@ public:
     bool abort_operation(TimestampedRestore* predecessor = nullptr);
     bool operation_active() const;
 
+    // Native navigation may lazily capture the live top and evict budgeted
+    // frames before model/renderer publication succeeds. Stage that complete
+    // timeline under one short-lived rollback owner; archives remain shared.
+    // Failure restores the exact prior Impl (including capacities/accounting),
+    // while commit releases it without allocation. Do not nest these guards.
+    class NavigationPublication {
+    public:
+        ~NavigationPublication();
+        NavigationPublication(const NavigationPublication&) = delete;
+        NavigationPublication& operator=(const NavigationPublication&) = delete;
+        void commit() noexcept;
+    private:
+        friend class TimestampedHistory;
+        explicit NavigationPublication(TimestampedHistory& owner);
+        TimestampedHistory& m_owner;
+        std::unique_ptr<Impl> m_before;
+    };
+    NavigationPublication stage_navigation();
+
     bool undo(const TimestampedRoots& live_current, TimestampedRestore& result);
     bool redo(TimestampedRestore& result);
     bool restore(LogicalTimestamp target, const TimestampedRoots* live_current, TimestampedRestore& result);
@@ -177,7 +197,6 @@ public:
     const std::vector<TimestampedObjectVersionInterval>& object_intervals() const;
 
 private:
-    struct Impl;
     explicit TimestampedHistory(std::unique_ptr<Impl> impl) noexcept;
     static bool compact_editing_session_staged(Impl& staged, EditingSessionId session_id,
                                                const std::string& label, bool apply, bool enforce_budget,

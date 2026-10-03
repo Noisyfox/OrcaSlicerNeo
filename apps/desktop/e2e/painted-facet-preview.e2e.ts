@@ -1,3 +1,5 @@
+import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
+import { openProjectMenu } from './project-menu';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -103,6 +105,7 @@ test('real imported painted facets retain Preview colours, share resources, and 
   try {
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 800 });
+    await installSliceReceiptObserver(page);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
 
@@ -127,14 +130,7 @@ test('real imported painted facets retain Preview colours, share resources, and 
       return `idle:${status}`;
     });
 
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
-    }
-
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-open-project').click();
+    await openProjectMenu(page, app);
 
     // A dirty startup scene asks whether to open the 3MF as a project or
     // import geometry. Resolve that choice before waiting for native progress.
@@ -306,7 +302,102 @@ test('real imported painted facets retain Preview colours, share resources, and 
     expect(colourByState(await readPaintColours(), paintedResources)).toEqual(recoloured);
     await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
 
-    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    // Native history restore clears ordinary selection. Establish eligibility
+    // from the current world/camera projection before testing cancellation.
+    const selectCurrentBody = async () => {
+      const center = (await readCenters())[0]!;
+      const currentPoint = await projectWorld(center);
+      const currentViewport = await page.getByTestId('viewport').boundingBox();
+      expect(currentPoint).not.toBeNull();
+      expect(currentViewport).not.toBeNull();
+      await page.mouse.click(currentViewport!.x + currentPoint!.x, currentViewport!.y + currentPoint!.y);
+      await expect.poll(readSelection).not.toHaveLength(0);
+      for (const channel of ['support', 'seam', 'fuzzy', 'paint'])
+        await expect(page.getByTestId(`gizmo-btn-${channel}`)).toBeEnabled();
+    };
+    await selectCurrentBody();
+    for (let cancellationAttempt = 1; cancellationAttempt <= 3; cancellationAttempt++) {
+      const beforeCancelSelection = await readSelection();
+      await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+      await page.getByTestId('btn-slice').click();
+      await expect(page.getByTestId('btn-cancel-slice')).toBeEnabled();
+      await page.getByTestId('btn-cancel-slice').click();
+      await expect.poll(() => page.getByTestId('slicer-status').textContent(), { timeout: 120_000 }).toMatch(/^(Ready|Error)$/);
+      const cancelTerminal = await page.evaluate(() => ({ status: document.querySelector('[data-testid="slicer-status"]')?.textContent,
+        errors: [...document.querySelectorAll('[data-testid*="error"]')].map(e => e.textContent) }));
+      await test.info().attach('cancel-terminal', {body:JSON.stringify({cancelTerminal,receipts:await readSliceReceipts(page)}),contentType:'application/json'});
+      await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+      await expect(page.getByTestId('slicer-error')).toHaveCount(0);
+      await page.locator('#app-tab-prepare').click();
+      const afterCancelSelection = await readSelection();
+      await selectCurrentBody();
+      for(const channel of ['support','seam','fuzzy','paint'])await expect(page.getByTestId(`gizmo-btn-${channel}`)).toBeEnabled();
+      await test.info().attach(`threaded-native-cancel-${cancellationAttempt}`,{body:JSON.stringify({status:'Ready',beforeCancelSelection,afterCancelSelection,selectedAfterReselection:await readSelection(),allFourEntriesEnabled:true}),contentType:'application/json'});
+    }
+    const painting = () => page.evaluate(() =>
+      ((window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e?.paintingEvidence as (() => any) | undefined)?.());
+    const annotations = () => page.evaluate(() =>
+      ((window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e?.paintingNativeFacetCounts as (() => Promise<any[]>) | undefined)?.());
+    const adapterEvidence: Record<string, unknown> = {};
+    for (const channel of ['support', 'seam', 'fuzzy']) {
+      await page.getByTestId(`gizmo-btn-${channel}`).click();
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+      expect((await painting()).channel).toBe(channel);
+      await page.getByRole('button', { name: 'Erase all', exact: true }).click();
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+      await page.getByRole('radio', { name: channel === 'fuzzy' ? 'Enable' : 'Enforce', exact: true }).click();
+      await page.getByTestId('painting-tool-circle').click();
+      const point = (await painting()).center;
+      const currentPoint = (await painting()).center;
+      await page.mouse.click(currentPoint.x, currentPoint.y);
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+      const enabled = (await annotations())!;
+      expect(enabled[0].facetCounts[1]).toBeGreaterThan(0);
+      if (channel !== 'fuzzy') {
+        await page.getByRole('radio', { name: 'Block', exact: true }).click();
+        const blockPoint = (await painting()).center;
+        await page.mouse.click(blockPoint.x, blockPoint.y);
+        await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+        const blocked = (await annotations())!;
+        expect(blocked[0].facetCounts[2]).toBeGreaterThan(0);
+        await page.getByTestId('history-undo').click();
+        await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+        expect((await annotations())!.map(v => v.facetCounts)).toEqual(enabled.map(v => v.facetCounts));
+        adapterEvidence[`${channel}-block`] = blocked;
+      }
+      await page.getByRole('radio', { name: 'Erase', exact: true }).click();
+      const eraseEvidence = await painting();
+      adapterEvidence[`${channel}-erase-target`] = {previousPoint:point,currentPoint:eraseEvidence.center,tool:eraseEvidence.tool,settings:eraseEvidence.settings,camera:eraseEvidence.camera,nativeTarget:eraseEvidence.nativeTarget};
+      await page.mouse.click(eraseEvidence.center.x, eraseEvidence.center.y);
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+      expect((await annotations())![0].facetCounts[1]).toBeLessThan(enabled[0].facetCounts[1]);
+      await page.getByTestId('history-undo').click();
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+      expect((await annotations())!.map(v => v.facetCounts)).toEqual(enabled.map(v => v.facetCounts));
+      await page.getByRole('radio', { name: channel === 'fuzzy' ? 'Enable' : 'Enforce', exact: true }).click();
+      const shiftPoint = (await painting()).center;
+      await page.keyboard.down('Shift'); await page.mouse.click(shiftPoint.x, shiftPoint.y); await page.keyboard.up('Shift');
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+      expect((await annotations())![0].facetCounts[1]).toBeLessThan(enabled[0].facetCounts[1]);
+      await page.getByTestId('history-undo').click();
+      await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle');
+      expect((await annotations())!.map(v => v.facetCounts)).toEqual(enabled.map(v => v.facetCounts));
+      for (const button of ['middle', 'right'] as const) {
+        const before = await annotations();
+        await page.mouse.move(point.x, point.y); await page.mouse.down({ button });
+        await page.mouse.move(point.x + 10, point.y + 5, { steps: 3 }); await page.mouse.up({ button });
+        expect((await painting()).phase).toBe('idle');
+        expect(await annotations()).toEqual(before);
+      }
+      const sessionId = (await painting()).sessionId;
+      await page.locator('#app-tab-home').click(); await page.locator('#app-tab-prepare').click();
+      expect((await painting()).sessionId).toBe(sessionId);
+      adapterEvidence[channel] = { enabled, sessionId };
+    }
+    await test.info().attach('three-adapter-electron-editing', {
+      body: JSON.stringify(adapterEvidence), contentType: 'application/json',
+    });
+    await page.evaluate(() => { (window as unknown as {__orcaLateCancel:unknown}).__orcaLateCancel={armed:true}; });
     await page.getByTestId('btn-slice').click();
     await expect.poll(() => page.evaluate(() => ({
       status: document.querySelector('[data-testid="slicer-status"]')?.textContent?.trim() ?? null,
@@ -347,7 +438,26 @@ test('real imported painted facets retain Preview colours, share resources, and 
       && resource.visibleUsesBvhRaycast === false
       && resource.originalPickVisible === null)).toBe(true);
     await expect.poll(readCenters, { timeout: 30_000 }).toHaveLength(2);
+    const lateOrder = await page.evaluate(() => (window as unknown as {__orcaLateCancel:{armed:boolean;firedAt?:number}}).__orcaLateCancel);
+    expect(lateOrder.armed).toBe(false); expect(lateOrder.firedAt).toBeGreaterThan(0);
+    await expect.poll(async () => (await readSliceReceipts(page) as Array<{direction:string;op:string;at:number;result?:{ok:boolean;error?:string}}>)
+      .some(receipt => receipt.direction==='response' && receipt.op==='cancel' && receipt.at>lateOrder.firedAt!
+        && receipt.result?.ok!==true && /no active slice job|slice job is no longer active/.test(receipt.result?.error??''))).toBe(true);
+    await expect(page.getByTestId('slicer-error')).toHaveCount(0);
+    await test.info().attach('deterministic-late-native-cancel',{body:JSON.stringify({lateOrder,receipts:await readSliceReceipts(page),status:'Sliced',semantics:'test fixes native-terminal-before-DOM-Cancel order; no inference about the earlier unrecorded Error'}),contentType:'application/json'});
+    await page.locator('#app-tab-prepare').click(); await selectCurrentBody();
+    // Make a real native input change before requesting another slice.
+    await page.getByTestId('gizmo-btn-fuzzy').click();
+    await page.getByRole('button', {name:'Erase all', exact:true}).click();
+    await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase','idle');
+    await page.getByTestId('gizmo-btn-fuzzy').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced',{timeout:240_000});
+    await expect(page.getByTestId('slicer-error')).toHaveCount(0);
+
   } finally {
+    await test.info().attach('slice-runtime-receipts',{body:JSON.stringify(await readSliceReceipts(await app.firstWindow()).catch(()=>null)),contentType:'application/json'});
     await app.close();
   }
 });

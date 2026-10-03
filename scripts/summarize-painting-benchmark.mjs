@@ -13,18 +13,27 @@ const stats = (values) => ({ count: values.length, min: values.length ? Math.min
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const flatten = (value) => Array.isArray(value) ? value : value ? [value] : [];
 function workingSet(sample, host) {
-  if (host === 'electron') return flatten(sample.metrics).reduce((sum, m) => sum + (m.memory?.workingSetSize ?? 0) * 1024, 0);
-  return flatten(sample.processes).reduce((sum, m) => sum + (m.WorkingSet64 ?? 0), 0);
+  const values = host === 'electron'
+    ? flatten(sample.metrics).map(m => m.memory?.workingSetSize * 1024)
+    : flatten(sample.processes).map(m => m.WorkingSet64);
+  const available = values.filter(value => Number.isFinite(value) && value > 0);
+  return available.length ? available.reduce((sum, value) => sum + value, 0) : null;
 }
 function terminal(input, phases, calls, frames, phaseName, nextInputAt) {
   const lifecycle = calls.find((call) => call.at > input.at
     && ['openPaintingSession', 'closePaintingSession'].includes(call.name));
-  const receiptUntil = Math.min(nextInputAt ?? Infinity, lifecycle?.at ?? Infinity);
+  // A physical release can follow Escape while cancellation waits for an
+  // admitted sample. Only a fresh stroke or session boundary ends attribution.
+  // Native begin may itself wait behind preview after this gesture's terminal
+  // input. The controller's fresh drawing transition identifies admission.
+  const nextStroke = phases.find((phase, index) => phase.at > input.at
+    && phase.phase === 'drawing' && phases[index - 1]?.phase === 'idle');
+  const receiptUntil = Math.min(nextStroke?.at ?? Infinity, lifecycle?.at ?? Infinity);
   const name = phaseName === 'ending' ? 'commitPaintingStroke' : 'cancelPaintingStroke';
   const receipt = calls.find((call) => call.name === name && call.at >= input.at && call.at < receiptUntil);
   const nextTerminal = receipt && calls.find((call) => call.at > receipt.at
     && ['commitPaintingStroke', 'cancelPaintingStroke'].includes(call.name));
-  const until = Math.min(lifecycle?.at ?? Infinity, nextTerminal?.at ?? Infinity);
+  const until = Math.min(receiptUntil, nextTerminal?.at ?? Infinity);
   const selected = receipt && phases.find((phase) => phase.phase === phaseName
     && phase.at >= input.at && phase.at <= receipt.at + receipt.ms);
   const idle = selected && phases.find((phase) => phase.phase === 'idle'
@@ -39,7 +48,7 @@ function terminal(input, phases, calls, frames, phaseName, nextInputAt) {
     inputToIdleMs: idle ? idle.at - input.at : null,
     inputToVisibleMs: visible ? visible.at - input.at : null,
     visibleRevision: receipt?.revision ?? null, phaseAt: selected?.at ?? null,
-    receiptAt: receipt?.at ?? null, nextInputAt,
+    receiptAt: receipt?.at ?? null, nextInputAt, nextStrokeAt: nextStroke?.at ?? null,
     boundaryAt: Number.isFinite(until) ? until : null };
 }
 const rows = [];
@@ -76,9 +85,9 @@ for (const sample of index.samples) {
   const facets = Object.fromEntries(Object.entries(r.facets).map(([name, parts]) => [name,
     parts?.map((part) => ({ volumeId: part.volumeId, originalTriangles: part.sourceTriangleCount,
       selectorFacets: part.facetCounts.reduce((sum, count) => sum + count, 0) })) ?? null]));
-  rows.push({ host: sample.host, caseId: sample.caseId, trial: sample.trial, rawFile: sample.file, rawSha256: hash(bytes),
+  rows.push({ host: sample.host, caseId: sample.caseId, channel: sample.channel ?? 'mmu', trial: sample.trial, rawFile: sample.file, rawSha256: hash(bytes),
     browserEnvironment: r.browserEnvironment, browserVersion: r.browserVersion ?? r.electronVersion,
-    automationWallMs: r.automationWallMs, rpcMs: rpc, nativeCumulative: native,
+    automationWallMs: r.automationWallMs, observer: r.observer ?? null, rpcMs: rpc, nativeCumulative: native, gapPreview: r.gapPreview ?? null,
     normalRelease: normalTerminals, escape: escapeTerminals,
     closeInputToDisposedMs: r.afterClose.inputToDisposedMs,
     recloseInputToDisposedMs: r.reopened?.inputToDisposedMs ?? null,
@@ -86,8 +95,11 @@ for (const sample of index.samples) {
       calls: performance.glUploads.length, bytes: performance.glUploads.reduce((sum, upload) => sum + upload.bytes, 0),
       cpuSubmissionMs: performance.glUploads.reduce((sum, upload) => sum + upload.ms, 0) },
     rendererResourceConstructionMs: stats(performance.resources.map((entry) => entry.ms)),
-    peakObservedWorkingSetBytes: Math.max(0, ...r.memorySamples.map((memory) => workingSet(memory, sample.host))),
-    peakObservedJsHeapBytes: performance.peakJsHeapBytes,
+    peakObservedWorkingSetBytes: (() => {
+      const values = r.memorySamples.map(memory => workingSet(memory, sample.host)).filter(value => value !== null);
+      return values.length ? Math.max(...values) : null;
+    })(),
+    peakObservedJsHeapBytes: performance.peakJsHeapBytes > 0 ? performance.peakJsHeapBytes : null,
     retainedHistoryBytesBeforeClose: r.expandedHistory.bytesUsed,
     retainedHistoryBytesAfterClose: r.compactedHistory.bytesUsed,
     resources: { created: final?.totalCreated ?? null, released: final?.totalReleased ?? null,
@@ -101,15 +113,16 @@ for (const sample of index.samples) {
 }
 const aggregates = [];
 for (const host of [...new Set(rows.map((row) => row.host))]) {
-  for (const caseId of [...new Set(rows.filter((row) => row.host === host).map((row) => row.caseId))]) {
-    const group = rows.filter((row) => row.host === host && row.caseId === caseId);
+  for (const channel of [...new Set(rows.filter(row => row.host === host).map(row => row.channel))]) {
+  for (const caseId of [...new Set(rows.filter((row) => row.host === host && row.channel === channel).map((row) => row.caseId))]) {
+    const group = rows.filter((row) => row.host === host && row.caseId === caseId && row.channel === channel);
     const normal = group.flatMap((row) => row.normalRelease);
     const escape = group.flatMap((row) => row.escape);
     const matchedNormal = normal.filter((event) => event.status === 'matched');
     const matchedEscape = escape.filter((event) => event.status === 'matched');
     const coverage = (events) => ({ totalInputs: events.length, statuses: Object.fromEntries(
       [...new Set(events.map((event) => event.status))].map((status) => [status, events.filter((event) => event.status === status).length])) });
-    aggregates.push({ host, caseId, trials: group.length,
+    aggregates.push({ host, caseId, channel, trials: group.length,
       normalCoverage: coverage(normal), escapeCoverage: coverage(escape),
       normalInputToIdleMs: stats(matchedNormal.map((item) => item.inputToIdleMs)),
       normalInputToVisibleMs: stats(matchedNormal.map((item) => item.inputToVisibleMs)),
@@ -122,7 +135,7 @@ for (const host of [...new Set(rows.map((row) => row.host))]) {
       nativeGeometryTotalUs: stats(group.map((row) => row.nativeCumulative?.nativeGeometryUs ?? 0)),
       renderFrameIntervalMaxMs: stats(group.map((row) => row.renderFrameIntervalMs.max)),
       renderFrameIntervalP95Ms: stats(group.map((row) => row.renderFrameIntervalMs.p95)),
-      peakObservedWorkingSetBytes: stats(group.map((row) => row.peakObservedWorkingSetBytes)),
+      peakObservedWorkingSetBytes: stats(group.map((row) => row.peakObservedWorkingSetBytes).filter(value => value !== null)),
       retainedHistoryBytesBeforeClose: stats(group.map((row) => row.retainedHistoryBytesBeforeClose)),
       retainedHistoryBytesAfterClose: stats(group.map((row) => row.retainedHistoryBytesAfterClose)),
       rendererResourcesBalanced: group.every((row) => row.resources.created === row.resources.released
@@ -132,19 +145,23 @@ for (const host of [...new Set(rows.map((row) => row.host))]) {
     });
   }
 }
+}
 const summary = { schemaVersion: 1, sourceIndex: indexPath, sourceHead: index.hardware.gitHead,
   analysisScriptSha256: hash(await readFile(import.meta.filename)),
   measurementSemantics: {
     nativeCounters: 'Cumulative Worker-thread microseconds for native picking, instrumented selector work and geometry generation. Selector scopes include their cloning/comparison and related selector serialization; counters exclude project-history commits, bridge response serialization and JS transfer.',
     rpcMs: 'Renderer-side API wall time including Worker transfer, JS decoding and native work; not a pure transport measure.',
     automationWallMs: 'Playwright action plus polling wall time; not browser input latency.',
+    benchmarkObserver: 'E2E-gated compact observer reads published session/phase/settings and per-resource metadata without vertex copies or leaf scans. Each sample separately times 100 initial reads; controlled small fixtures compare its state with the full functional observer.',
     glBufferSubmission: 'CPU time in WebGL bufferData/bufferSubData calls during painting; GPU execution time unavailable.',
-    peakObservedWorkingSetBytes: 'Largest sampled sum across host processes; nominal 1 s polling with PowerShell/CDP overhead can miss a shorter peak.',
+    peakObservedWorkingSetBytes: 'Largest sampled sum across host processes; nominal 1 s polling with OS-process/CDP overhead (Windows working set or Unix resident set) can miss a shorter peak.',
+    peakObservedJsHeapBytes: 'Largest performance.memory.usedJSHeapSize observed at logical frames; null means this browser metric was unavailable. Web CDP metrics separately record the final snapshot.',
     inputToVisibleMs: 'Browser event to first useFrame observing the terminal receipt revision after its geometry RPC completes; this is logical frame cadence, not verified display pixel or GPU presentation completion. Every terminal input has an explicit correlation status.',
+    nextStrokeAt: 'Next controller idle-to-drawing admission after this terminal input; bounds receipt, idle, geometry and frame attribution. Native begin may wait behind preview within the current gesture. Physical release after Escape does not create a fresh stroke.',
     closeInputToDisposedMs: 'Close button pointerup in browser to painting probe disposal after panel unmount; this includes native closure and renderer resource cleanup.',
     equivalentWork: 'Only identical admitted sequences are comparable. Busy movement drops are reported separately.',
     toolOutcomes: 'A committed=true Paint history operation means the native candidate was effective. The receipt effective flag is reset after commit and is not the outcome indicator; per-tool facet counts give additional state evidence.' },
-  nativeOrcaComparison: { status: 'unavailable', reason: 'available executable sits beside a checkout whose revision differs from the pinned Orca source; binary provenance is unverified, and no equivalent pinned painting instrumentation is available',
+  nativeOrcaComparison: { status: 'unavailable', reason: 'available executable has no verified binary provenance matching the pinned Orca source, and no equivalent pinned painting instrumentation is available',
     availableExecutable: index.hardware.nativeOrca, pinnedCppHead: index.hardware.pinnedOrca },
   hardware: index.hardware, corpus: index.corpus.cases, aggregates, rows };
 const output = resolve(dirname(indexPath), 'summary.json');

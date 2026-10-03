@@ -134,8 +134,8 @@ test('Web Help opens one nonmodal Worker File Manager and reopening it resets to
     const earlyDirectory = manager.locator('[data-testid^="file-manager-entry-"][data-entry-type="directory"]').first();
     await expect(earlyDirectory).toBeVisible({ timeout: 30_000 });
     await earlyDirectory.dblclick();
+    await expect(path).not.toHaveText('/');
     earlyPath = await path.textContent();
-    expect(earlyPath).not.toBe('/');
   } finally {
     releaseManifest();
   }

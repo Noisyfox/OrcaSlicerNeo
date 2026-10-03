@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { openProjectMenu } from './project-menu';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
@@ -273,10 +274,7 @@ test(`real ${EXPECTED_VARIANT} runtime validates temporary files, preview and se
 
       // Reuse the existing native picker override with the real saved 3MF.
       await app.evaluate((_, path) => { process.env.ORCA_E2E_MODEL = path; }, projectOutput);
-      await page.getByTestId('titlebar-menu-trigger').click();
-      await page.getByTestId('menu-file-trigger').hover();
-      await page.locator('[data-slot="menubar-sub-content"]').hover({ position: { x: 8, y: 8 } });
-      await page.getByTestId('file-open-project').click();
+      await openProjectMenu(page, app);
       await page.getByTestId('project-load-project').click();
       await page.getByTestId('project-load-confirm').click();
       await expect.poll(() => page.evaluate(() => (window as unknown as {

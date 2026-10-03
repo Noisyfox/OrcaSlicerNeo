@@ -7,14 +7,14 @@ import type { PaintingPhase } from './gizmo/painting/PaintingController';
 import { GizmoToolbar } from './GizmoToolbar';
 
 const mocked = vi.hoisted(() => ({
-  phase: 'closed' as PaintingPhase,
+  phase: 'closed' as PaintingPhase, channel: 'mmu' as 'mmu' | 'seam' | 'fuzzy' | 'support', slotCount: 2,
   close: vi.fn(), open: vi.fn(),
   runtime: { getRuntimeExecutionState: () => ({ serialSliceActive: false }) },
 }));
 vi.mock('@orca/platform-contract', async (importOriginal) => ({ ...await importOriginal<typeof import('@orca/platform-contract')>(), usePlatform: () => ({ runtime: mocked.runtime }) }));
 vi.mock('../arrangement/ArrangementControls', () => ({ ArrangementMenu: () => null }));
 vi.mock('./gizmo/painting/PaintingProvider', () => ({
-  usePaintingState: () => ({ phase: mocked.phase }),
+  usePaintingState: () => ({ phase: mocked.phase, channel: mocked.channel }),
   usePaintingController: () => ({
     get active() { return mocked.phase !== 'closed'; },
     get unfinished() { return ['drawing', 'ending', 'cancelling'].includes(mocked.phase); },
@@ -23,7 +23,7 @@ vi.mock('./gizmo/painting/PaintingProvider', () => ({
   paintingTarget: () => ({ objectId: 1, instanceId: 2 }),
 }));
 vi.mock('@/stores/useSettingsStore', () => ({ useSettingsStore: () => true }));
-vi.mock('@/stores/useFilamentSessionStore', () => ({ useFilamentSessionStore: () => 2 }));
+vi.mock('@/stores/useFilamentSessionStore', () => ({ useFilamentSessionStore: () => mocked.slotCount }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement;
@@ -36,7 +36,7 @@ const scene = {
 };
 beforeEach(() => {
   vi.clearAllMocks(); vi.stubGlobal('PointerEvent', MouseEvent);
-  mocked.phase = 'closed'; scene.gizmo = null;
+  mocked.phase = 'closed'; mocked.channel = 'mmu'; mocked.slotCount = 2; scene.gizmo = null;
   mocked.close.mockImplementation(async () => { mocked.phase = 'closed'; return true; });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
@@ -70,7 +70,7 @@ describe('gizmo toolbar session state', () => {
     scene.gizmo = 'rotate'; await render();
     await act(async () => button('paint').click());
     expect(scene.closeGizmo).toHaveBeenCalledOnce();
-    expect(mocked.open).toHaveBeenCalledWith(1, 2);
+    expect(mocked.open).toHaveBeenCalledWith(1, 2, 'mmu');
     expect(scene.closeGizmo.mock.invocationCallOrder[0]).toBeLessThan(mocked.open.mock.invocationCallOrder[0]);
     mocked.phase = 'idle'; await render();
     expect(button('rotate').getAttribute('aria-pressed')).toBe('false');
@@ -78,4 +78,33 @@ describe('gizmo toolbar session state', () => {
     expect(mocked.close).toHaveBeenCalledOnce();
     expect(button('paint').getAttribute('aria-pressed')).toBe('false');
   });
+});
+
+it('exposes independent seam entry with one filament and independent support entry', async () => {
+  mocked.slotCount = 1; await render();
+  expect(button('paint').disabled).toBe(true); expect(button('seam').disabled).toBe(false);
+  expect(button('support').disabled).toBe(false);
+  await act(async()=>button('support').click()); expect(mocked.open).toHaveBeenCalledWith(1,2,'support');
+  expect(button('fuzzy').disabled).toBe(false);
+  await act(async()=>button('seam').click()); expect(mocked.open).toHaveBeenCalledWith(1,2,'seam');
+  mocked.phase = 'idle'; mocked.channel = 'seam'; await render();
+  expect(button('seam').getAttribute('aria-pressed')).toBe('true'); expect(button('paint').getAttribute('aria-pressed')).toBe('false');
+  await act(async()=>button('seam').click()); expect(mocked.close).toHaveBeenCalledOnce();
+});
+it('uses the distinct entries to switch an idle channel and ignores busy clicks', async () => {
+  mocked.phase = 'idle'; await render(); await act(async()=>button('seam').click());
+  expect(mocked.open).toHaveBeenCalledWith(1,2,'seam'); expect(mocked.close).not.toHaveBeenCalled();
+  mocked.channel = 'seam'; await render(); await act(async()=>button('paint').click());
+  expect(mocked.open).toHaveBeenLastCalledWith(1,2,'mmu');
+  mocked.phase = 'drawing'; await render(); expect(button('paint').disabled).toBe(true); expect(button('seam').disabled).toBe(true);
+  const admitted = mocked.open.mock.calls.length; await act(async()=>button('paint').click()); expect(mocked.open).toHaveBeenCalledTimes(admitted);
+});
+
+it('orders independent support/seam/fuzzy/MMU entries and routes Fuzzy with one filament',async()=>{
+  mocked.slotCount=1;await render();
+  const ids=[...container.querySelectorAll('[data-testid^="gizmo-btn-"]')].map(node=>node.getAttribute('data-testid'));
+  expect(ids.slice(-4)).toEqual(['gizmo-btn-support','gizmo-btn-seam','gizmo-btn-fuzzy','gizmo-btn-paint']);
+  await act(async()=>button('fuzzy').click());expect(mocked.open).toHaveBeenCalledWith(1,2,'fuzzy');
+  mocked.phase='idle';mocked.channel='fuzzy';await render();expect(button('fuzzy').getAttribute('aria-pressed')).toBe('true');expect(button('paint').getAttribute('aria-pressed')).toBe('false');expect(button('paint').disabled).toBe(true);
+  await act(async()=>button('fuzzy').click());expect(mocked.close).toHaveBeenCalledOnce();
 });

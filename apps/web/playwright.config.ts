@@ -15,8 +15,12 @@ export default defineConfig({
     // hide the browser because the operator uses the live window to detect
     // stalls and incorrect preview state.
     headless: false,
+    trace: 'retain-on-failure',
     launchOptions: {
-      executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+      executablePath: process.env.ORCA_CHROME_EXECUTABLE ?? (process.platform === 'win32'
+        ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+        : process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          : '/usr/bin/google-chrome'),
       args: [
         '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader', '--enable-webgl',
         '--enable-features=WebAssemblyMemory64', '--js-flags=--experimental-wasm-memory64',

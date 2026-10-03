@@ -574,6 +574,43 @@ TimestampedHistory::~TimestampedHistory() = default;
 TimestampedHistory::TimestampedHistory(TimestampedHistory&&) noexcept = default;
 TimestampedHistory& TimestampedHistory::operator=(TimestampedHistory&&) noexcept = default;
 
+TimestampedHistory::NavigationPublication::NavigationPublication(TimestampedHistory& owner)
+    : m_owner(owner), m_before(std::make_unique<Impl>(*owner.m_impl))
+{
+    // Keep capacity-based accounting identical in the candidate as well as in
+    // the untouched rollback owner. No mutable snapshot/archive is copied.
+    m_before->entries.reserve(owner.m_impl->entries.capacity());
+    m_before->intervals.reserve(owner.m_impl->intervals.capacity());
+    for (std::size_t i = 0; i < m_before->entries.size(); ++i) {
+        auto& target = m_before->entries[i];
+        const auto& source = owner.m_impl->entries[i];
+        target.label.reserve(source.label.capacity());
+        target.scene_delta.object_ids.reserve(source.scene_delta.object_ids.capacity());
+        target.scene_delta.volume_ids.reserve(source.scene_delta.volume_ids.capacity());
+        target.scene_delta.instance_ids.reserve(source.scene_delta.instance_ids.capacity());
+        target.scene_delta.plate_ids.reserve(source.scene_delta.plate_ids.capacity());
+        target.scene_delta.object_order.reserve(source.scene_delta.object_order.capacity());
+        for (std::size_t p = 0; p < target.scene_delta.plate_ids.size(); ++p)
+            target.scene_delta.plate_ids[p].reserve(source.scene_delta.plate_ids[p].capacity());
+    }
+    owner.m_impl.swap(m_before);
+}
+
+TimestampedHistory::NavigationPublication::~NavigationPublication()
+{
+    if (m_before) m_owner.m_impl.swap(m_before);
+}
+
+void TimestampedHistory::NavigationPublication::commit() noexcept
+{
+    m_before.reset();
+}
+
+TimestampedHistory::NavigationPublication TimestampedHistory::stage_navigation()
+{
+    return NavigationPublication(*this);
+}
+
 void TimestampedHistory::clear()
 {
     const std::size_t budget = m_impl->byte_budget;

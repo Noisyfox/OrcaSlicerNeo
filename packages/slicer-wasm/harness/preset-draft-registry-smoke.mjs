@@ -234,8 +234,10 @@ assert.equal(genericPlaBefore.editor_bindings.filament_shrink.source_value, 100)
 assert.equal(genericPlaBefore.editor_bindings.filament_retract_length_nc.scalar_type, 'float');
 assert.equal(genericPlaBefore.editor_bindings.filament_retract_length_nc.nullable, true);
 assert.equal(genericPlaBefore.editor_bindings.filament_retract_length_nc.source_value, null);
-assert.equal(genericPlaBefore.source_values.filament_retract_length_nc, 'nil',
-  'a nil native vector element must project as null while its complete serialized value stays available');
+const nullableSource = genericPlaBefore.source_values.filament_retract_length_nc;
+assert.equal(nullableSource.split(',').length, genericPlaBefore.editor_bindings.filament_retract_length_nc.element_count);
+assert.ok(nullableSource.split(',').every(value => value === 'nil'));
+// The binding is element zero; full native vectors must retain all elements.
 assert.equal(genericPlaBefore.editor_bindings.filament_type.scalar_type, 'string');
 assert.equal(genericPlaBefore.editor_bindings.filament_type.gui_type, 'f_enum_open');
 assert.equal(genericPlaBefore.editor_bindings.filament_type.gui_flags, 'show_value');
@@ -301,7 +303,7 @@ const genericBooleanEdit = mutateDraftElement('filament', genericPlaSource,
   'filament_adaptive_volumetric_speed', 'bool', 0, true);
 assert.equal(genericBooleanEdit.editor_bindings.filament_adaptive_volumetric_speed.source_value, false);
 assert.equal(genericBooleanEdit.editor_bindings.filament_adaptive_volumetric_speed.effective_value, true);
-assert.equal(genericBooleanEdit.overrides.filament_adaptive_volumetric_speed, '1');
+assert.equal(genericBooleanEdit.overrides.filament_adaptive_volumetric_speed, ['1', ...genericPlaBefore.source_values.filament_adaptive_volumetric_speed.split(',').slice(1)].join(','));
 
 const genericVectorSeed = mutateDraft('set', 'filament', genericPlaSource,
   { key: 'filament_max_volumetric_speed', value: '12,36' });
@@ -324,11 +326,11 @@ const genericNullableEdit = mutateDraftElement('filament', genericPlaSource,
   'filament_retract_length_nc', 'float', 0, 8.5);
 assert.equal(genericNullableEdit.editor_bindings.filament_retract_length_nc.source_value, null);
 assert.equal(genericNullableEdit.editor_bindings.filament_retract_length_nc.effective_value, 8.5);
-assert.equal(genericNullableEdit.effective_values.filament_retract_length_nc, '8.5');
+assert.equal(genericNullableEdit.effective_values.filament_retract_length_nc, ['8.5', ...nullableSource.split(',').slice(1)].join(','));
 const genericNullableReset = mutateDraftElement('filament', genericPlaSource,
   'filament_retract_length_nc', 'float', 0, null);
 assert.equal(genericNullableReset.editor_bindings.filament_retract_length_nc.effective_value, null);
-assert.equal(genericNullableReset.effective_values.filament_retract_length_nc, 'nil');
+assert.equal(genericNullableReset.effective_values.filament_retract_length_nc, nullableSource);
 
 const genericEnumEdit = mutateDraftElement('filament', genericPlaSource,
   'filament_retract_lift_enforce', 'enum', 0, 1);
@@ -442,6 +444,19 @@ function loadArchive(bytes, displayName) {
       [pointer, bytes.length, 0, displayName]);
   } finally { Module._free(pointer); }
 }
+// The pinned BBS reader expands slot vectors into the physical-extruder
+// variant spans encoded by filament_self_index/filament_extruder_variant.
+// Derive the canonical full vector from independently inspected saved metadata,
+// preserving every variant rather than asserting only element zero.
+const savedVariantIndices = savedProjectConfig.filament_self_index.map(Number);
+assert.equal(savedVariantIndices.length, savedProjectConfig.filament_extruder_variant.length);
+function expectedLoadedVariantVector(slot) {
+  const span = savedVariantIndices.filter(index => index === slot + 1).length;
+  assert.ok(span > 0, 'standard native archive defines an extruder-variant span for each slot');
+  return Array(span).fill(String(savedProjectConfig.filament_max_volumetric_speed[slot])).join(',');
+}
+const expectedSharedVariantVector = expectedLoadedVariantVector(0);
+const expectedIndependentVariantVector = expectedLoadedVariantVector(2);
 const reloaded = loadArchive(exportedBytes, 'preset-drafts-roundtrip.3mf');
 assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
 const reloadedPresets = callJson('orc_get_preset_snapshot');
@@ -455,14 +470,14 @@ assert.equal(callJson('orc_get_preset_draft', ['string', 'string'], ['filament',
   .overrides.default_filament_colour, '#123456');
 assert.deepEqual(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', firstSource])
   .overrides, {
-  default_filament_colour: '#123456', filament_max_volumetric_speed: '24.5',
+  default_filament_colour: '#123456', filament_max_volumetric_speed: expectedSharedVariantVector,
   filament_notes: persistedTextDraft.effective_values.filament_notes,
 }, 'reload must reconstruct the shared overlay including typed numeric and escaped text elements');
 assert.equal(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', firstSource])
   .editor_bindings.filament_notes.effective_value, persistedElementText,
   '3MF reload must recover exact text after native escaping and serialized overlay reconstruction');
 assert.deepEqual(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', alternateSource])
-  .overrides, { filament_max_volumetric_speed: '31' },
+  .overrides, { filament_max_volumetric_speed: expectedIndependentVariantVector },
 'reload must reconstruct an independent active Filament overlay');
 assert.deepEqual(callJson('orc_get_preset_draft', ['string', 'string'], ['printer', printer.name])
   .overrides, { nozzle_diameter: '0.6' }, 'reload must reconstruct the active Printer overlay');
@@ -565,6 +580,7 @@ console.log(JSON.stringify({
   independent_filament_source: alternateSource,
   effective_filament_max_volumetric_speed: afterFilamentDrafts.project_config.filament_max_volumetric_speed,
   effective_nozzle_diameter: afterPrinterDraft.project_config.nozzle_diameter,
+  saved_variant_indices: savedVariantIndices, expectedSharedVariantVector, expectedIndependentVariantVector,
   saved_filament_max_volumetric_speed: savedProjectConfig.filament_max_volumetric_speed,
   saved_nozzle_diameter: savedProjectConfig.nozzle_diameter,
   reloaded_draft_names: [firstSource, alternateSource, printer.name],

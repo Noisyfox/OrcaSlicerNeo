@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
-import { buildPaintedFacetProject } from './painted-facet-fixture-builder.mjs';
+import { buildPaintedFacetProject, buildPaintingChannelProject } from './painted-facet-fixture-builder.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 
 const modulePath = process.argv[2];
 if (!modulePath) throw new Error('usage: painting-session-smoke.mjs <orca_slice.js>');
@@ -22,15 +23,15 @@ const history = () => call('orc_history_status');
 const structure = () => ok(call('orc_get_model_structure')).objects;
 const observe = () => ({ history: history(), model: structure(), plates: call('orc_get_plate_session_snapshot') });
 const bytes = await buildPaintedFacetProject();
-function load() {
-  const pointer = Number(Module._malloc(bytes.length));
-  Module.HEAPU8.set(bytes, pointer);
-  try { return ok(call('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, bytes.length, 0, 'painting-session.3mf'])); }
+function load(input = bytes) {
+  const pointer = Number(Module._malloc(input.length));
+  Module.HEAPU8.set(input, pointer);
+  try { return ok(call('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, input.length, 0, 'painting-session.3mf'])); }
   finally { Module._free(pointer); }
 }
-const handle = session => ({ version: 1, sessionId: session.id, revision: session.revision });
+const handle = session => ({ version: 1, channel: session.channel, sessionId: session.id, revision: session.revision });
 const target = object => ({ objectId: object.id, instanceId: object.instances[0].id });
-const open = (hs, object) => command('orc_painting_session_open', { version: 1, historySessionId: hs, ...target(object) });
+const open = (hs, object) => command('orc_painting_session_open', { version: 1, channel: 'mmu', historySessionId: hs, ...target(object) });
 const read = session => command('orc_painting_session_read', handle(session));
 ok(command('orc_init', { log_level: 'error' }));
 load();
@@ -111,4 +112,48 @@ ok(read(rebound));
 ok(command('orc_painting_session_close', handle(rebound)));
 error(open(hs5, structure()[0]));
 ok(command('orc_history_session_close', { sessionId: hs5 }));
+// New channels use their own imported trees and remain legal with one slot.
+load(await buildPaintingChannelProject());
+let singleRack = ok(call('orc_get_filament_session_snapshot'));
+ok(command('orc_merge_filament_slots', { version: 1, revision: singleRack.revisions.session, source: 2, destination: 1 }));
+ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Independent channel second part']));
+ok(call('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(structure().map(o => o.id)), 'Channel assembly']));
+command('orc_history_reset', context);
+const channelHistory = ok(command('orc_history_session_open', {})).sessionId;
+const channelObject = structure()[0];
+for (const channel of ['support', 'seam', 'fuzzy']) {
+  const request = { version: 1, channel, historySessionId: channelHistory, ...target(channelObject) };
+  const { channel: removed, ...missing } = request;
+  error(command('orc_painting_session_open', missing));
+  error(command('orc_painting_session_open', { ...request, channel: 'invalid' }));
+  const observed = observe();
+  const active = ok(command('orc_painting_session_open', request)).session;
+  assert.equal(active.channel, channel);
+  assert.equal(active.parts.length, 2);
+  assert.ok(active.parts[0].facetCounts.reduce((a,b) => a+b,0) > 12, `${channel} imported its independent split tree`);
+  assert.ok(active.parts[0].facetCounts[1] > 0);
+  assert.ok(active.parts[0].annotationTimestamp > 0);
+  assert.match(active.parts[0].draftResourceId, new RegExp(`^pd-${channel}-`));
+  assert.equal(active.parts[1].facetCounts[0], 12);
+  error(command('orc_painting_session_read', { ...handle(active), channel: 'mmu' }));
+  error(command('orc_painting_session_close', { ...handle(active), channel: 'mmu' }));
+  assert.deepEqual(observe(), observed);
+  ok(command('orc_painting_session_close', handle(active)));
+}
+error(command('orc_painting_session_open', { version: 1, channel: 'mmu', historySessionId: channelHistory, ...target(channelObject) }));
+ok(command('orc_history_session_close', { sessionId: channelHistory }));
+// A malformed imported active channel cannot silently clamp its legal state
+// domain or borrow the legal MMU tree. Failure leaves all model/history roots.
+const channelFixture = await buildPaintingChannelProject();
+for (const [channel, attribute, state] of [['support', 'paint_supports', '0C'], ['seam', 'paint_seam', '0C'], ['fuzzy', 'paint_fuzzy_skin', '8']]) {
+  const corrupted = writeStoredZip(readZipEntries(channelFixture).map(entry => entry.name !== '3D/3dmodel.model' ? entry : {
+    ...entry, content: new TextEncoder().encode(new TextDecoder().decode(entry.content).replace(new RegExp(`${attribute}="[^"]*"`), `${attribute}="${state}"`))
+  }));
+  load(corrupted);
+  const malformedHistory = ok(command('orc_history_session_open', {})).sessionId;
+  const observed = observe();
+  error(command('orc_painting_session_open', { version: 1, channel, historySessionId: malformedHistory, ...target(structure()[0]) }));
+  assert.deepEqual(observe(), observed);
+  ok(command('orc_history_session_close', { sessionId: malformedHistory }));
+}
 console.log('Painting session real-WASM lifecycle smoke passed');

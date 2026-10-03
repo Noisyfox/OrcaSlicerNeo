@@ -1,3 +1,4 @@
+import { openProjectMenu } from './project-menu';
 // Real-WASM timing regression. This intentionally has its own Electron
 // session so the functional ten-tower/slice scenario cannot hide a load or
 // history performance regression.
@@ -127,14 +128,7 @@ test('measures real-project Prime Tower commit and history restore stages after 
       return value;
     };
 
-    if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
-      await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
-      await page.getByTestId('titlebar-menu-trigger').click();
-    }
-
-    await page.getByTestId('menu-file-trigger').hover();
-    await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
-    await page.getByTestId('file-open-project').click();
+    await openProjectMenu(page, app);
     const choice = page.getByTestId('project-load-choice-dialog');
     if (await choice.isVisible({ timeout: 30_000 }).catch(() => false)) {
       await page.getByTestId('project-load-project').click();
@@ -259,6 +253,15 @@ test('measures real-project Prime Tower commit and history restore stages after 
     withinLivenessLimit('pointer-up to authoritative native commit', pointerUpToCommitMs);
     const moveDiagnosticsAfter = requireDiagnostics(await readDiagnostics());
 
+    const settleProjectionReads = async () => {
+      // Flush the move's reactive publication before observing all outstanding
+      // reads, including an older generation invalidated by a later input.
+      await page.evaluate(() => new Promise<void>(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      await expect.poll(() => page.evaluate(() =>
+        (window as unknown as { __orcaE2e?: { primeTowerProjectionPendingCount?: () => number } }).__orcaE2e?.primeTowerProjectionPendingCount?.() ?? null)).toBe(0);
+    };
+    await settleProjectionReads();
     const undoDiagnosticsBefore = requireDiagnostics(await readDiagnostics());
     const undoAt = performance.now();
     await page.getByTestId('history-undo').click();
@@ -285,6 +288,7 @@ test('measures real-project Prime Tower commit and history restore stages after 
     expect(countDelta(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(1);
     expect(countDelta(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(1);
 
+    await settleProjectionReads();
     const redoDiagnosticsBefore = requireDiagnostics(await readDiagnostics());
     const redoAt = performance.now();
     await page.getByTestId('history-redo').click();

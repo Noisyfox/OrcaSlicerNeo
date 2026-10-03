@@ -3046,11 +3046,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     objects: () => objectMeta.map((object, i) => ({ id: object.id, instanceIds: instanceMeta[i].map(instance => instance.id), volumes: volumeMeta[i] })),
     history: historyStatus,
     allocate: values => { const ptr = malloc(values.length * 4); HEAPF32.set(values, ptr / 4); return ptr; },
-    commit: mutate => {
+    commit: (mutate, label) => {
       const context = historyEntries[historyCursor]?.context ?? { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
       paintingBusy = false;
       try {
-        const begin = bridge.orc_history_begin('Paint', 'project', JSON.stringify(context)) as any;
+        const begin = bridge.orc_history_begin(label, 'project', JSON.stringify(context)) as any;
         if (begin.error) throw new Error(begin.error);
         mutate();
         return bridge.orc_history_commit(begin.transactionId, JSON.stringify(context));

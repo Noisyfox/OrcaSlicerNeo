@@ -59,10 +59,10 @@ void restore_coordinate_settings(DynamicPrintConfig& settings,
 json projection_json();
 
 void invalidate_projection_cache();
-void invalidate_projection_cache(const std::set<std::string>& plate_ids);
-void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids);
+void invalidate_projection_cache(const std::set<std::string>& plate_ids) noexcept;
+void invalidate_projection_cache_and_usage_summaries(const std::set<std::string>& plate_ids) noexcept;
 void invalidate_projection_cache_and_object_usage_summaries(
-    const std::set<std::string>& plate_ids, const std::vector<std::uint64_t>& object_ids);
+    const std::set<std::string>& plate_ids, const std::vector<std::uint64_t>& object_ids) noexcept;
 
 json move_position_json(const char* request_cstr);
 

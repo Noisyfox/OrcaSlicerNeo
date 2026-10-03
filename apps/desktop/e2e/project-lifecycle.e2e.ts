@@ -34,7 +34,10 @@ async function ready(page: Page): Promise<void> {
   await expect(page.getByTestId('preset-select')).toBeVisible();
 }
 
-async function openPickerProject(page: Page): Promise<void> {
+async function openPickerProject(page: Page, app: ElectronApplication): Promise<void> {
+  if (process.platform === 'darwin') {
+    await app.evaluate(({ Menu }) => { const item=Menu.getApplicationMenu()!.getMenuItemById('file-open-project')!; item.click(); });
+  } else {
   if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
     await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
     await page.getByTestId('titlebar-menu-trigger').click();
@@ -42,6 +45,7 @@ async function openPickerProject(page: Page): Promise<void> {
   await page.getByTestId('menu-file-trigger').hover();
   await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await page.getByTestId('file-open-project').click();
+  }
   await page.getByTestId('config-mode-scoped').click();
   await expect(page.getByTestId('object-list').getByRole('button', { name: 'picked-project.3mf' })).toBeVisible();
 }
@@ -56,7 +60,11 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
   try {
     const page = await app.firstWindow();
     await ready(page);
-    await openPickerProject(page);
+    await openPickerProject(page, app);
+    if (process.platform === 'darwin') {
+      await expect.poll(() => app.evaluate(({ Menu }) => ({ save:Menu.getApplicationMenu()!.getMenuItemById('file-save-project')!.enabled, saveAs:Menu.getApplicationMenu()!.getMenuItemById('file-save-project-as')!.enabled }))).toEqual({save:false,saveAs:true});
+      await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-save-project-as')!.click());
+    } else {
     if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
       await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
       await page.getByTestId('titlebar-menu-trigger').click();
@@ -66,6 +74,7 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     await expect(page.getByTestId('file-save-project')).toBeDisabled();
     await expect(page.getByTestId('file-save-project-as')).toBeEnabled();
     await page.getByTestId('file-save-project-as').click();
+    }
     await expect.poll(() => existsSync(savePath)).toBe(true);
 
     // A dropped 3MF over the object list enters the same Open Project action.
@@ -121,7 +130,7 @@ test('Electron close requests honor Cancel then Save/Don\'t Save choices', async
   try {
     const page = await app.firstWindow();
     await ready(page);
-    await openPickerProject(page);
+    await openPickerProject(page, app);
     await makeDirty(page);
 
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());

@@ -15,10 +15,11 @@ const DESKTOP_ROOT = resolve(__dirname, '..');
 const PACKAGED_ROOT = resolve(DESKTOP_ROOT, process.env.ORCA_E2E_PACKAGED_ROOT ?? (process.platform === 'win32' ? 'release/win-unpacked' : 'release/linux-unpacked'));
 const EXE = process.platform === 'win32'
   ? resolve(PACKAGED_ROOT, 'OrcaSlicerNeo.exe')
+  : process.platform === 'darwin' ? resolve(PACKAGED_ROOT, 'Contents/MacOS/OrcaSlicerNeo')
   : resolve(PACKAGED_ROOT, 'OrcaSlicerNeo');
 const UNPACKED_PROFILES = resolve(
   PACKAGED_ROOT,
-  'resources/app.asar.unpacked/out/renderer/profiles',
+  process.platform === 'darwin' ? 'Contents/Resources/app.asar.unpacked/out/renderer/profiles' : 'resources/app.asar.unpacked/out/renderer/profiles',
 );
 const CORE_PACKAGE = resolve(UNPACKED_PROFILES, 'core.upstream.zip');
 // darwin: release/mac/OrcaSlicerNeo.app/Contents/MacOS/OrcaSlicerNeo

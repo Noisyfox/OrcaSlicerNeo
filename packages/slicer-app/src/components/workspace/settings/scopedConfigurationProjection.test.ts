@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NativeScopedConfigSnapshot, OptionMetadata } from '@slicer/client';
-import { projectScopedConfigurationFields, resolveScopedConfigurationTarget } from './scopedConfigurationProjection';
+import { isGenericScopedKey, projectScopedConfigurationFields, resolveScopedConfigurationTarget } from './scopedConfigurationProjection';
 
 const metadata: OptionMetadata = {
   layer_height: { type: 'float', label: 'Layer height', category: 'Quality', scopes: ['project', 'plate', 'object', 'part'] },
@@ -24,6 +24,17 @@ const structure = [{
 }];
 
 describe('scoped configuration projection', () => {
+  it('keeps seam settings and G-code output flags while excluding AMS and custom scripts', () => {
+    expect(isGenericScopedKey('staggered_inner_seams', { type: 'bool' })).toBe(true);
+    for (const key of ['gcode_add_line_number', 'gcode_comments', 'gcode_label_objects'])
+      expect(isGenericScopedKey(key, { type: 'bool' })).toBe(true);
+    for (const key of ['ams', 'ams_mode', 'extruder_ams_count', 'foo_ams_mode'])
+      expect(isGenericScopedKey(key, { type: 'int' })).toBe(false);
+    expect(isGenericScopedKey('machine_start_gcode', { type: 'string' })).toBe(false);
+    expect(isGenericScopedKey('filament_start_gcode', { type: 'strings' })).toBe(false);
+    expect(isGenericScopedKey('process_change_extrusion_role_gcode', { type: 'string' })).toBe(false);
+  });
+
   it('resolves empty, whole-object, and part selections without falling back on mixed selections', () => {
     expect(resolveScopedConfigurationTarget({
       selectionKind: 'empty', selectedVolumes: [], activePlateId: 'plate-1', activePlateLabel: 'Plate 1', structure,

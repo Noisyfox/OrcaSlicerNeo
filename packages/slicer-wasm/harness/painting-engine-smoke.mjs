@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
-import { buildPaintedFacetProject } from './painted-facet-fixture-builder.mjs';
+import { buildPaintedFacetProject, buildPaintingChannelProject } from './painted-facet-fixture-builder.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 
 const modulePath = process.argv[2];
@@ -47,17 +47,17 @@ function load(bytes) {
   command('orc_history_reset', context);
 }
 let session, hs;
-const handle = () => ({ version: 1, sessionId: session.id, revision: session.revision });
+const handle = () => ({ version: 1, channel: session.channel, sessionId: session.id, revision: session.revision });
 const read = () => ok(command('orc_painting_session_read', handle())).session;
 function update(name, request) {
   const reply = ok(command(name, { ...handle(), ...request }));
   session = { ...session, revision: reply.revision, strokeId: reply.strokeId, phase: reply.phase };
   return reply;
 }
-function open() {
+function open(channel = 'mmu') {
   hs = ok(command('orc_history_session_open', {})).sessionId;
   const object = structure()[0];
-  session = ok(command('orc_painting_session_open', { version: 1, historySessionId: hs, objectId: object.id, instanceId: object.instances[0].id })).session;
+  session = ok(command('orc_painting_session_open', { version: 1, channel, historySessionId: hs, objectId: object.id, instanceId: object.instances[0].id })).session;
 }
 const begin = (tool, settings = {}, event = top(), extra = {}) => update('orc_painting_stroke_begin', { tool, settings, ...(event ? { event } : {}), ...extra });
 const sample = (settings, event) => update('orc_painting_stroke_sample', { strokeId: session.strokeId, settings, event });
@@ -135,4 +135,24 @@ assert.equal(session.phase, 'finished'); assert.deepEqual(read().parts[0].facetC
 assert.deepEqual(observe(), gap_committed); cancel(); assert.deepEqual(read().parts[0].facetCounts, gap_initial);
 begin('eraseAll', {}, null); assert.equal(read().parts[0].facetCounts[1], 0); cancel();
 ok(command('orc_painting_session_close', handle())); ok(command('orc_history_session_close', { sessionId: hs }));
+for (const channel of ['support', 'seam', 'fuzzy']) {
+  load(await buildPaintingChannelProject());
+  const rack = ok(call('orc_get_filament_session_snapshot'));
+  ok(command('orc_merge_filament_slots', { version: 1, revision: rack.revisions.session, source: 2, destination: 1 }));
+  open(channel);
+  const imported = read(), observed = observe();
+  for (const tool of ['circle', 'sphere', ...(channel === 'fuzzy' ? ['triangle'] : [])]) {
+    const begun = begin(tool, { state: channel === 'fuzzy' ? 1 : 2, radius: 1 }, top(92.013,105.027));
+    assert.equal(begun.channel, channel); assert.ok(begun.hit, `${channel} ${tool} native hit`);
+    const painted = sample({ state: channel === 'fuzzy' ? 1 : 2, radius: 2 }, top(108,95));
+    assert.equal(painted.effective, true, `${channel} ${tool} native draft effect`);
+    sample({ state: 1, radius: 2 }, top(97,105));
+    sample({ erase: true, radius: .75 }, top(102,105));
+    cancel();
+    assert.deepEqual(read().parts.map(p => p.facetCounts), imported.parts.map(p => p.facetCounts));
+    assert.deepEqual(read().parts.map(p => p.annotationTimestamp), imported.parts.map(p => p.annotationTimestamp));
+  }
+  assert.deepEqual(observe(), observed);
+  ok(command('orc_painting_session_close', handle())); ok(command('orc_history_session_close', { sessionId: hs }));
+}
 console.log('Painting six-tool real-WASM engine smoke passed');

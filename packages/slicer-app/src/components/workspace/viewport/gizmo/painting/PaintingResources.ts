@@ -10,7 +10,7 @@ export interface PaintingResource {
 export class PaintingResources {
   readonly resources = new Map<string, PaintingResource>();
   update(display: Extract<PaintingGeometryResult, { ok: true }>, session: PaintingSessionMetadata): boolean {
-    if (display.sessionId !== session.id || display.revision !== session.revision) return false;
+    if (display.channel !== session.channel || display.sessionId !== session.id || display.revision !== session.revision) return false;
     const active = new Set([...display.parts, ...display.candidates].map((r) => r.resourceId));
     const incoming = new Map(display.resources.map((r) => [r.resourceId, r]));
     // Validate before disposal/publication; a partial manifest cannot blank the view.

@@ -2,11 +2,16 @@ import { expect, type Page } from '@playwright/test';
 import { statSync } from 'node:fs';
 import { basename } from 'node:path';
 
-type Probe = { phase: string; center: { x: number; y: number }; input: { admittedMoves: number; droppedMoves: number };
+type Probe = { channel: string; phase: string; center: { x: number; y: number }; input: { admittedMoves: number; droppedMoves: number };
   sessionId: string; resources: unknown[]; error: string | null };
 
 /** All inputs use the real canvas/panel commands. The probe only observes. */
-export async function paintingBenchmarkJourney(page: Page, project: string, host: 'electron' | 'web') {
+export async function paintingBenchmarkJourney(page: Page, project: string, host: 'electron' | 'web', openNativeProject?: () => Promise<void>) {
+  const channel = process.env.ORCA_PAINTING_BENCHMARK_CHANNEL ?? 'mmu';
+  const entry = channel === 'mmu' ? 'gizmo-btn-paint' : `gizmo-btn-${channel}`;
+  const setPaintState = async (state: 1 | 2) => {
+    await page.getByRole('radio', { name: channel === 'mmu' ? `Paint filament ${state}` : channel === 'fuzzy' ? 'Enable' : state === 1 ? 'Enforce' : 'Block', exact: true }).click();
+  };
   const stamps: Record<string, number[]> = {};
   const measure = async (name: string, action: () => Promise<void>) => {
     const start = performance.now(); await action(); (stamps[name] ??= []).push(performance.now() - start);
@@ -15,11 +20,12 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
     const api = (window as unknown as { __orcaE2e?: Record<string, (...args: never[]) => unknown> }).__orcaE2e;
     return api?.[key]?.() ?? null;
   }, name);
-  const read = () => hook('paintingEvidence') as Promise<Probe>;
+  const read = () => hook('paintingBenchmarkState') as Promise<Probe>;
   const perf = () => hook('paintingPerformanceEvidence');
-  const idle = async () => {
+  const idle = async (allowEmptyDisplay = false) => {
     await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle', { timeout: 120_000 });
-    await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0);
+    if (!allowEmptyDisplay) await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0);
+    expect((await read()).error).toBeNull();
   };
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
   await page.locator('#app-tab-prepare').click();
@@ -34,12 +40,15 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
   });
   await measure('projectLoad', async () => {
     const chooser = host === 'web' ? page.waitForEvent('filechooser') : null;
+    if (openNativeProject) await openNativeProject();
+    else {
     if (await page.getByTestId('titlebar-menu-trigger').getAttribute('aria-expanded') !== 'true') {
       await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
       await page.getByTestId('titlebar-menu-trigger').click();
     }
     await page.getByTestId('menu-file-trigger').hover();
     await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } }); await page.getByTestId('file-open-project').click();
+    }
     if (chooser) await (await chooser).setFiles(project);
     await expect.poll(async () => !!(await hook('projectLoadEvidence') as { receipt?: unknown } | null)?.receipt ||
       await page.getByTestId('project-load-choice-dialog').isVisible().catch(() => false) ||
@@ -67,7 +76,7 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
   const bounds = await page.getByTestId('viewport').boundingBox();
   if (!bounds) throw new Error('viewport missing');
   await page.mouse.click(bounds.x + center.x, bounds.y + center.y);
-  await expect(page.getByTestId('gizmo-btn-paint')).toBeEnabled();
+  await expect(page.getByTestId(entry)).toBeEnabled();
   if (process.env.ORCA_PAINTING_BENCHMARK_CLOSE_ONLY === '1') {
     const cycles = [];
     const workloads = process.env.ORCA_PAINTING_BENCHMARK_CLOSE_EDITS === '1'
@@ -77,12 +86,12 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
     type PrepareResource = { id: string; originalGeometryUuid: string; paintGroupStates: number[]; visibleGeometryUuid: string | null; paintGeometryUuid: string | null };
     for (const [cycle, workload] of workloads.entries()) {
       const originalResources = await hook('modelPaintResources') as PrepareResource[];
-      await page.getByTestId('gizmo-btn-paint').click(); await idle();
+      await page.getByTestId(entry).click(); await idle();
       const targetId = (await read() as Probe & { nativeTarget: { objectId: number } }).nativeTarget.objectId;
       if (workload !== 'noop') {
         await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle();
-        await page.getByTestId('painting-tool-triangle').click();
-        await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
+        await page.getByTestId(`painting-tool-${channel === 'support' || channel === 'seam' ? 'sphere' : 'triangle'}`).click();
+        await setPaintState(channel === 'fuzzy' ? 1 : 2);
         const point = (await read()).center;
         await page.mouse.click(point.x, point.y); await idle();
         const calls = (await perf() as { calls: Array<{ name: string; committed?: boolean }> }).calls;
@@ -124,11 +133,11 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
       const targetIds = new Set((await hook('modelSelectionIdentities') as Array<{ id: string; objectId: number }>)
         .filter((v) => v.objectId === targetId).map((v) => v.id));
       const targetResources = shown.filter((r) => targetIds.has(r.id));
-      if (workload === 'paint' || workload === 'separator') {
+      if (channel === 'mmu' && (workload === 'paint' || workload === 'separator')) {
         expect(targetResources.some((r) => r.paintGroupStates.includes(2))).toBe(true);
         expect(targetResources.filter((r) => r.paintGeometryUuid).every((r) => r.visibleGeometryUuid === r.paintGeometryUuid)).toBe(true);
       }
-      if (workload === 'undo') expect(targetResources.every((r) => r.paintGeometryUuid === null)).toBe(true);
+      if (channel === 'mmu' && workload === 'undo') expect(targetResources.every((r) => r.paintGeometryUuid === null)).toBe(true);
       if (process.env.ORCA_PAINTING_EXPECT_INCREMENTAL_CLOSE === '1') {
         const closeCalls = final.resources.calls.filter((call) => call.at >= final.inputAt);
         expect(closeCalls.some((call) => call.name === 'getModelMesh')).toBe(false);
@@ -143,19 +152,43 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
       cycles.push({ cycle, workload, facets, before, after, prepare: targetResources, ...final,
         inputToDisposedMs: final.resources.at - final.inputAt });
     }
-    return { host, project, browserEnvironment, receipt, closeOnly: true, cycles };
+    return { host, channel, project, browserEnvironment, receipt, closeOnly: true, cycles };
   }
-  await measure('open', async () => { await page.getByTestId('gizmo-btn-paint').click(); await idle(); });
+  await measure('open', async () => { await page.getByTestId(entry).click(); await idle(); });
   const session = await read();
+  expect(session.channel).toBe(channel);
   const facets: Record<string, unknown> = { initial: await hook('paintingNativeFacetCounts') };
+  const smallFixture=(facets.initial as Array<{sourceTriangleCount:number}>).every(part=>part.sourceTriangleCount<=12);
+  const observer=await page.evaluate(checkFull=> {
+    const hook=(window as unknown as {__orcaE2e:Record<string,()=>any>}).__orcaE2e;
+    let totalCpuMs=0,maxCpuMs=0,compact;
+    for(let i=0;i<100;i++) {
+      const start=performance.now();compact=hook.paintingBenchmarkState();
+      const ms=performance.now()-start;totalCpuMs+=ms;maxCpuMs=Math.max(maxCpuMs,ms);
+    }
+    let fullAgreement:boolean|null=null;
+    if(checkFull) {
+      const full=hook.paintingEvidence();
+      const comparable=(state:any)=>({phase:state.phase,channel:state.channel,tool:state.tool,settings:state.settings,sessionId:state.sessionId,
+        center:state.center,rendered:state.rendered,nativeTarget:{objectId:state.nativeTarget.objectId,revision:state.nativeTarget.revision},
+        resources:state.resources.map((resource:any)=>({kind:resource.kind,resourceId:resource.resourceId??resource.id}))});
+      fullAgreement=JSON.stringify(comparable(compact))===JSON.stringify(comparable(full));
+    }
+    return {reads:100,totalCpuMs,maxCpuMs,fullAgreement};
+  },smallFixture);
+  if(smallFixture)expect(observer.fullAgreement).toBe(true);
   const toolOutcomes: Record<string, unknown> = {};
+  let gapPreview: { candidateResources: number; areaMm2: number; revision: number } | null = null;
   await measure('eraseAll', async () => { await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle(); });
-  const tools = ['circle', 'sphere', 'triangle', 'height', 'region'] as const;
-  await page.getByRole('radio', { name: 'Paint filament 2', exact: true }).click();
+  const tools = channel === 'mmu' ? ['circle', 'sphere', 'triangle', 'height', 'region']
+    : channel === 'seam' ? ['circle', 'sphere']
+      : channel === 'support' ? ['circle', 'sphere', 'smartFill'] : ['circle', 'sphere', 'triangle', 'smartFill'];
+  await setPaintState(channel === 'fuzzy' ? 1 : 2);
   for (const tool of tools) {
     if (tool !== 'circle') { await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle(); }
     await page.getByTestId(`painting-tool-${tool}`).click();
     if (tool === 'circle' || tool === 'sphere') await page.getByRole('spinbutton', { name: 'Radius (mm)', exact: true }).fill('2');
+    if (tool === 'smartFill') await page.getByRole('spinbutton', { name: 'Edge angle (degrees)', exact: true }).fill('90');
     if (tool === 'height') await page.getByRole('spinbutton', { name: 'Height (mm)', exact: true }).fill('5');
     const point = (await read()).center;
     await measure(`stroke-${tool}`, async () => { await page.mouse.click(point.x, point.y); await idle(); });
@@ -172,23 +205,48 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
         .filter((call) => call.name === 'commitPaintingStroke').at(-1)?.committed ?? null;
     }
   }
+  if (channel === 'mmu' || channel === 'support') {
   await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle();
   await page.getByTestId('painting-tool-circle').click();
-  await page.getByRole('radio', { name: 'Paint filament 1', exact: true }).click();
+  await setPaintState(1);
   await page.getByRole('spinbutton', { name: 'Radius (mm)', exact: true }).fill('0.3');
   const gapSeed = (await read()).center;
   await page.mouse.click(gapSeed.x, gapSeed.y); await idle();
+  const gapRequestAt=await page.evaluate(()=> { const at=performance.now(); (window as unknown as {__orcaGapRequestAt:number}).__orcaGapRequestAt=at; return at; });
   await page.getByTestId('painting-tool-gap').click();
   await page.getByRole('spinbutton', { name: 'Gap area (mm²)', exact: true }).fill('3');
-  await expect.poll(async () => (await read()).resources.some((r: unknown) => (r as { kind?: string }).kind === 'gap')).toBe(true);
-  await measure('gap', async () => { await page.getByRole('button', { name: 'Apply gap fill', exact: true }).click(); await idle(); });
+  let gapRevision=-1;
+  await expect.poll(async () => {
+    const calls=((await perf()) as { calls: Array<{name:string;tool?:string;settings?:{gapArea?:number};at:number;ms:number;revision?:number}> }).calls;
+    const preview=calls.filter(call=>call.name==='previewPainting' && call.tool==='gap' && call.settings?.gapArea===3 && call.at>=gapRequestAt).at(-1);
+    const geometry=preview && calls.find(call=>call.name==='getPaintingGeometry' && call.at>=preview.at+preview.ms && call.revision===preview.revision);
+    const display=await read() as Probe & {rendered:{revision:number};nativeTarget:{revision:number}};
+    if(!geometry || display.rendered.revision!==geometry.revision || display.nativeTarget.revision!==geometry.revision)return false;
+    gapRevision=geometry.revision!;return true;
+  }).toBe(true);
+  await idle(true);
+  gapPreview = {candidateResources:(await read()).resources.filter((r: unknown) => (r as { kind?: string }).kind === 'gap').length,areaMm2:3,revision:gapRevision};
+  const beforeGap=await hook('paintingNativeFacetCounts');
+  const historyBeforeGap=await hook('historyNativeStatus') as {undoEntries:unknown[]};
+  await measure('gap', async () => { await page.getByRole('button', { name: channel === 'support' ? 'Apply gaps' : 'Apply gap fill', exact: true }).click(); await idle(true); });
   facets.gap = await hook('paintingNativeFacetCounts');
   toolOutcomes.gap = (await perf() as { calls: Array<{ name: string; committed?: boolean }> }).calls
     .filter((call) => call.name === 'commitPaintingStroke').at(-1)?.committed ?? null;
-  await page.getByTestId('painting-tool-triangle').click();
+  if(gapPreview.candidateResources===0) {
+    expect(toolOutcomes.gap).toBe(false);
+    const annotationCounts=(parts:unknown)=> (parts as Array<{facetCounts:number[]}>).map(part=>part.facetCounts);
+    expect(annotationCounts(facets.gap)).toEqual(annotationCounts(beforeGap));
+    expect((await hook('historyNativeStatus') as {undoEntries:unknown[]}).undoEntries).toEqual(historyBeforeGap.undoEntries);
+  }
+  }
+  await page.getByTestId(channel === 'seam' || channel === 'support' ? 'painting-tool-sphere' : 'painting-tool-triangle').click();
   const point = (await read()).center;
   await page.mouse.move(point.x, point.y); await page.mouse.down();
   await expect.poll(async () => (await read()).phase).toBe('drawing');
+  await expect.poll(async()=> {
+    const state=await read() as Probe & {nativeTarget:{strokeId:string|null;revision:number};rendered:{revision:number}};
+    return !!state.nativeTarget.strokeId && state.rendered.revision===state.nativeTarget.revision;
+  }).toBe(true);
   const inputBefore = (await read()).input;
   await measure('continuousTerminal', async () => {
     await page.evaluate((p) => {
@@ -231,13 +289,13 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
   const firstCloseLatencyMs = firstCloseInput === null ? null : (afterClose as { at: number }).at - firstCloseInput;
   // A second session on the same project catches retained geometry and wrapper
   // ownership that a single unmount cannot expose.
-  await measure('reopen', async () => { await page.getByTestId('gizmo-btn-paint').click(); await idle(); });
+  await measure('reopen', async () => { await page.getByTestId(entry).click(); await idle(); });
   const reopened = await read();
   await page.getByRole('button', { name: 'Erase all', exact: true }).click(); await idle();
   const reopenReset = ((await perf()) as { calls: Array<{ name: string; committed?: boolean }> }).calls
     .filter((call) => call.name === 'commitPaintingStroke').at(-1);
   await page.getByTestId('painting-tool-circle').click();
-  await page.getByRole('radio', { name: 'Paint filament 1', exact: true }).click();
+  await setPaintState(1);
   await measure('reopenStroke', async () => { await page.mouse.click(reopened.center.x, reopened.center.y); await idle(); });
   const reopenBeforeClose = await perf();
   const reopenStroke = (reopenBeforeClose as { calls: Array<{ name: string; committed?: boolean }> }).calls
@@ -252,9 +310,9 @@ export async function paintingBenchmarkJourney(page: Page, project: string, host
   const reopenAfterClose = await page.evaluate(() => (window as unknown as { __orcaPaintingBenchmarkFinal?: unknown }).__orcaPaintingBenchmarkFinal ?? null);
   const secondCloseInput = await closeInputAt('second');
   const secondCloseLatencyMs = secondCloseInput === null ? null : (reopenAfterClose as { at: number }).at - secondCloseInput;
-  return { host, project, browserEnvironment, receipt, automationWallMs: stamps, input: { admitted: inputAfter.admittedMoves - inputBefore.admittedMoves,
+  return { host, channel, project, browserEnvironment, receipt, automationWallMs: stamps, input: { admitted: inputAfter.admittedMoves - inputBefore.admittedMoves,
     dropped: inputAfter.droppedMoves - inputBefore.droppedMoves, after: inputAfter },
-    sessionParts: session.resources.length, facets, toolOutcomes, beforeClose, expandedHistory, compactedHistory,
+    sessionParts: session.resources.length, observer, facets, gapPreview, toolOutcomes, beforeClose, expandedHistory, compactedHistory,
     afterClose: { paintingPanelCount: await page.getByTestId('painting-panel').count(), resources: afterClose,
       inputToDisposedMs: firstCloseLatencyMs },
     reopened: { beforeClose: reopenBeforeClose, afterClose: reopenAfterClose,
