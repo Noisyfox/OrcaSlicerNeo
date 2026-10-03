@@ -74,10 +74,14 @@ test('commits the requested multi-plate project before dependent E2E assertions'
     }), { timeout: 300_000 }).toBe('native-progress-before-result');
 
     const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
-
-    await expect.poll(readEvidence, { timeout: 300_000 }).toMatchObject({
+    await expect.poll(async () => {
+      // Native metadata progress can precede the optional confirmation.
+      // isVisible() is immediate even when given a timeout, so keep handling
+      // a late prompt until the requested native project has committed.
+      if (await confirmation.isVisible())
+        await page.getByTestId('project-load-confirmation-dialog-continue').click();
+      return readEvidence();
+    }, { timeout: 300_000 }).toMatchObject({
       receipt: {
         sourceDisplayName: PROJECT_FILE_NAME,
         sourceByteLength: statSync(PROJECT_PATH).size,
