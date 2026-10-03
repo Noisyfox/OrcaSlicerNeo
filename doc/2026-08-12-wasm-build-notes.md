@@ -13,7 +13,7 @@ hit, the bridge JSON contract, and the known M2 work. Companion to the approved 
 
 `packages/slicer-wasm` compiles the pinned C++ submodule
 (`cpp/` → `Noisyfox/OrcaSlicer`, branch `dev/orcaslicerneo-wasm`, based on
-upstream main `3384daa6bc`, merged into the existing WASM branch) into Emscripten wasm64
+upstream main `8a6377f087`, merged into the existing WASM branch) into Emscripten wasm64
 modules: threaded and serial TBB variants, scaffold CMake with a denylist of
 dropped features, the OCCT/XCAF STEP closure, the extern "C" bridge API, and
 the CLI driver. The build machinery is inherited from the phase-0 spike and
@@ -31,7 +31,8 @@ Artifacts land in
 > apply `patches/orca`. On 2026-10-01, upstream main `3384daa6bc` was merged as
 > `41a96752d9afc747ccdd9d88e85c474bb8abcc95`, followed by WASM logging
 > adaptation `489cbe91840ff97aaf4d8029009d5db410f32893`. The superproject now
-> pins the latter commit.
+> pinned the latter commit at that date. The current 2026-10-03 integration is
+> recorded below.
 
 The build is **not push-button** — it is an iteration surface. When it fails,
 work the loops in AGENTS.md ("WASM Build Workflow") and this note's
@@ -115,7 +116,7 @@ on the submodule branch `dev/orcaslicerneo-wasm`, originally based on upstream
 commit `b97ca3c0ac`. The table records those original patches in application
 order, ending at `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The branch now
 contains upstream main `8a6377f087` through merge `232ea2783d`; the current
-gitlink pins `8d77d2f53da4484dc4fe0ba32499191e45994e47`.
+gitlink pins `9ac6431df4a382c160a02c4f01d09730ffdc7ca9`.
 Build scripts compile the pinned source directly. Publish the
 submodule branch before distributing a superproject commit that depends on it.
 
@@ -148,12 +149,20 @@ allocator; the serial shim supplies the global allocation functions through
 for libnoise's `module/modulebase.h`.
 
 The separate `8d77d2f53d` submodule adaptation routes the newly explicit
-Boost.Thread lock/time includes in `Print.cpp` and `bbs_3mf.cpp` through the existing WASM shim and
+Boost.Thread lock/time includes in `Print.cpp` and `bbs_3mf.cpp` through the
+existing WASM shim and
 guards the new synchronous Boost.Log frontend include in `utils.cpp`, where
 native file logging is already disabled. Native builds keep their explicit
 upstream includes. Neo's separate synchronous console/MEMFS logging continues
 to use the real Boost.Log frontend; its Boost.Thread headers are not globally
 replaced with lock/time forwarding headers.
+
+Full native acceptance exposed an uninitialized `ModelVolume::mmuseg_ts`:
+copied/restored volumes could accidentally treat an empty extruder cache as
+current, losing the painted Prime Tower on Redo. Submodule commit
+`9ac6431df4` initializes the timestamp to zero, which native facet timestamps
+reserve as unreliable. The standalone identity test now checks restored and
+copied painted extruder use and includes Cereal's pair serializer explicitly.
 
 The earlier integration remains the basis for the retained adaptations:
 
