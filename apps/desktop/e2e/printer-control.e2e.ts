@@ -187,6 +187,14 @@ test('Device config and Electron console fixture inject the API key', async () =
     await waitForConsoleKey(fixture, API_KEY);
     await expect(page.getByTestId('device-console-status')).toHaveCount(0);
 
+    // A guest reload creates a new document without another panel.load().
+    // The API-key wrapper must be installed again in that document.
+    const receiptsBeforeReload = fixture.state.consoleApiKeys.length;
+    await page.locator('webview').evaluate((element) => {
+      (element as unknown as { reload(): void }).reload();
+    });
+    await expect.poll(() => fixture.state.consoleApiKeys.slice(receiptsBeforeReload), { timeout: 20_000 }).toContain(API_KEY);
+
     // Editing a selected printer keeps its console integration attached.
     await rows.filter({ hasText: 'Fixture A' }).getByTestId(/device-edit-/).click();
     await page.getByTestId('device-display-name').fill('Fixture A edited');

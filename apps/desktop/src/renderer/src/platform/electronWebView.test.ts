@@ -12,7 +12,7 @@ import {
 function setupWebview() {
   const addContentScripts = vi.fn(async () => ['script-1']);
   const loadURL = vi.fn(async () => {});
-  const executeJavaScript = vi.fn(async () => ({ ok: true }));
+  const executeJavaScript = vi.fn(async (_script: string, _userGesture?: boolean) => ({ ok: true }));
   class FakeElement {
     readonly children: FakeElement[] = [];
     readonly listeners = new Map<string, EventListener[] | undefined>();
@@ -112,6 +112,7 @@ describe('Electron webview security and lifecycle', () => {
     const onNavigation = vi.fn();
     const panel = createElectronWebViewHost({ document: ownerDocument }).mount(container, {}, { onStateChange, onNavigation });
     webview.dispatchEvent(new Event('did-attach'));
+    webview.dispatchEvent(new Event('dom-ready'));
     expect(panel.registerBuiltInScript({ scriptId: MOONRAKER_FETCH_SCRIPT_ID, context: { apiKey: 'secret-key' } })).toEqual({ status: 'ok' });
     expect(panel.exposeHostApi(PRINTER_CONSOLE_HOST_API_NAME, { version: 1, status: 'ready' })).toEqual({ status: 'ok' });
     panel.load('https://printer.example/console');
@@ -137,6 +138,62 @@ describe('Electron webview security and lifecycle', () => {
     expect(panel.state).toEqual({ status: 'error', url: 'https://printer.example/console', error: 'embedded content failed to load' });
     panel.dispose();
     expect((webview as unknown as { removed: boolean }).removed).toBe(true);
+  });
+
+  it('waits for the initial guest DOM before calling webview navigation methods', async () => {
+    const { webview, ownerDocument, addContentScripts, loadURL } = setupWebview();
+    const panel = createElectronWebViewHost({ document: ownerDocument }).mount(ownerDocument.createElement('div'));
+    panel.registerBuiltInScript({ scriptId: MOONRAKER_FETCH_SCRIPT_ID, context: { apiKey: 'secret-key' } });
+    panel.load('https://printer.example/console');
+    webview.dispatchEvent(new Event('did-attach'));
+    // Electron can attach the guest before its initial about:blank document
+    // is ready. Methods are unavailable during this interval.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(addContentScripts).not.toHaveBeenCalled();
+    expect(loadURL).not.toHaveBeenCalled();
+    webview.dispatchEvent(new Event('dom-ready'));
+    await vi.waitFor(() => expect(loadURL).toHaveBeenCalledWith('https://printer.example/console'));
+    panel.dispose();
+  });
+
+  it('injects fallback scripts into each ready guest document and stops after disposal', async () => {
+    const { webview, ownerDocument, loadURL, executeJavaScript } = setupWebview();
+    delete webview.addContentScripts;
+    const panel = createElectronWebViewHost({ document: ownerDocument }).mount(ownerDocument.createElement('div'));
+    panel.registerBuiltInScript({ scriptId: MOONRAKER_FETCH_SCRIPT_ID, context: { apiKey: 'secret-key' } });
+    panel.exposeHostApi(PRINTER_CONSOLE_HOST_API_NAME, { version: 1, status: 'ready' });
+    panel.load('https://printer.example/console');
+    webview.dispatchEvent(new Event('did-attach'));
+    webview.dispatchEvent(new Event('dom-ready'));
+    await vi.waitFor(() => expect(loadURL).toHaveBeenCalledOnce());
+    executeJavaScript.mockClear();
+    // Navigation starts while the previous document still exists. Injection
+    // must target the new document's dom-ready, including guest-initiated reloads.
+    webview.dispatchEvent(new Event('did-start-loading'));
+    expect(executeJavaScript).not.toHaveBeenCalled();
+    webview.dispatchEvent(new Event('dom-ready'));
+    expect(executeJavaScript).toHaveBeenCalledTimes(2);
+    expect(executeJavaScript.mock.calls[0]?.[0]).toBe(createMoonrakerFetchScript('secret-key'));
+    expect(executeJavaScript.mock.calls[1]?.[0]).toContain('__orcaSlicerNeoPrinterConsoleApi');
+    executeJavaScript.mockClear();
+    webview.dispatchEvent(new Event('did-start-loading'));
+    webview.dispatchEvent(new Event('dom-ready'));
+    expect(executeJavaScript).toHaveBeenCalledTimes(2);
+    panel.dispose();
+    executeJavaScript.mockClear();
+    webview.dispatchEvent(new Event('dom-ready'));
+    expect(executeJavaScript).not.toHaveBeenCalled();
+  });
+
+  it('cancels navigation when disposed before the initial guest is ready', async () => {
+    const { webview, ownerDocument, loadURL } = setupWebview();
+    const panel = createElectronWebViewHost({ document: ownerDocument }).mount(ownerDocument.createElement('div'));
+    panel.load('https://printer.example/console');
+    webview.dispatchEvent(new Event('did-attach'));
+    panel.dispose();
+    webview.dispatchEvent(new Event('dom-ready'));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(loadURL).not.toHaveBeenCalled();
   });
 
   it('rejects unknown scripts and unsafe navigations without loading them', async () => {
