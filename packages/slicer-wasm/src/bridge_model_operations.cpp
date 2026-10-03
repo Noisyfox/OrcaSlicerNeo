@@ -409,7 +409,7 @@ ModelGeometryReply model_mesh_json(const std::set<std::size_t>* object_ids = nul
 extern "C" {
 
 // Model bytes arrive in the WASM heap (JS: _malloc + HEAPU8 + _free).
-// Stage them to a MEMFS file so the format loaders can open a real path.
+// Stage them in the session temporary filesystem so format loaders can open a path.
 EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const char* ext, const char* filename) {
     try {
         if (!data || len <= 0) return error_json("no model bytes");

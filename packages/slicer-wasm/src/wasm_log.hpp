@@ -7,7 +7,7 @@
 
 namespace wasm_log {
 
-// Install the console (std::clog) + file (/tmp/orca.log, MEMFS) sinks on the
+// Install the console (std::clog) + file (/tmp/orca.log) sinks on the
 // first call, then apply the severity filter from a level string
 // (trace|debug|info|warning|error|fatal; unknown/empty → info). Idempotent.
 void init_with_level(const std::string& level);

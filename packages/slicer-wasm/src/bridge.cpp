@@ -19,6 +19,7 @@
 
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/Utils.hpp"
 
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
@@ -91,6 +92,9 @@ extern "C" {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
     try {
+        // STEP preprocessing and native 3MF backup/config staging use this
+        // directory as well as the bridge's explicit temporary paths.
+        Slic3r::set_temporary_dir("/tmp");
         // The options object currently controls only the bridge log severity.
         json opts = json::object();
         if (options_json && *options_json) {
