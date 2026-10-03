@@ -1389,6 +1389,43 @@ entries remain ordered Support, Seam, Fuzzy, MMU. Numeric thresholds, pinned
 native performance comparison and GPU execution timing remain unapproved or
 unavailable; no universal latency/memory guarantee is claimed.
 
+**Latest-main integration verification (2026-10-03):** Parent merged remote
+`main` at `2f25b0fe00cd66c1b2361c62c2c64042f8f7649f` without conflicts
+(`f54fc76`). This adds NODEFS-backed Electron threaded temporary files; Web
+and Electron serial retain MEMFS. The automatic merges preserve both painting
+behavior and the new `/tmp/plate-result-*` native/mock paths.
+
+| Command / focused check | Parent result |
+| --- | --- |
+| `NODE_OPTIONS=--no-experimental-webstorage pnpm test`; `pnpm typecheck` | 1,371 tests / 148 files passed; all workspace typechecks passed. |
+| `bash scripts/build.sh quick -j 4` | Both production variants rebuilt and validated; all three native instrumentation/test gates OFF. |
+| `pnpm exec node packages/slicer-wasm/harness/nodefs-bridge-smoke.mjs`; `bash scripts/build.sh smoke --variant serial` | NODEFS comprehensive bridge and serial slice/bridge/DRC/STEP, including cancellation and malformed STEP preservation, passed. |
+| Threaded `support-painting-smoke.mjs`, `seam-painting-smoke.mjs`, `fuzzy-painting-smoke.mjs`; serial `painting-backend-smoke.mjs --interop-only --expect-production` | Native annotation independence, edit/history/save/reopen, downstream slicing and four-channel production interoperability passed. |
+| `pnpm --filter @orca/desktop test:e2e` | 44 passed / 12 existing skips. |
+| Current-artifact threaded Electron DRC/STEP and `painted-facet-preview.e2e.ts` | 3 passed; imported four-channel edits, native cancellation and history passed. Staged threaded JS/WASM/data hashes match current build outputs. |
+| `ORCA_E2E_REAL=1 ORCA_E2E_NODEFS_EXPECT_VARIANT=threaded` with `e2e/nodefs-runtime.e2e.ts` | Independent parent rerun passed: native byte equality, generation replacement, paged preview, saved 3MF/configuration reopening, reload/crash/quit cleanup. |
+| `pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`; serial NODEFS lifecycle test with `ORCA_E2E_NODEFS_EXPECT_VARIANT=serial` | Six-tool real serial painting passed; serial runtime remains MEMFS and cleans up its empty native session directory. |
+| Headed real Web NODEFS compatibility, DRC, STEP and painted-project E2E; repeated without isolation for serial | Threaded 4/4 and serial 3/3 passed. Threaded compatibility serves exact unmodified shared artifacts; export and File Manager download bytes match. |
+| `VITE_USE_MOCK=0 pnpm --filter @orca/desktop build`; `VITE_USE_MOCK=0 pnpm --filter @orca/web build`; `pnpm exec node scripts/check-painting-profile-elision.mjs` | Ordinary host builds and painting test/profile-hook exclusion passed. |
+
+The first default `pnpm test` run failed 11 Web tests because Node 26.7.0's
+experimental `localStorage` global was undefined. Disabling Node Web Storage
+for the rerun passed without source/test edits. The first threaded NODEFS E2E
+passed native file checks and 3MF save, then failed looking for a custom menu
+button under macOS native chrome. A fresh GPT-6.1-sol / medium child reused
+the existing `openProjectMenu` helper without changing assertions, passed its
+typecheck and real test, and the parent independently reviewed and reran both
+before accepting `bfcb2af`. The first supplemental backend harness invocation
+omitted production-mode arguments and rejected the correctly absent failure
+hook; the correct production interoperability invocation passed. These first
+attempts remain separate from their passing reruns.
+
+Exact logs are retained only in ignored
+`packages/slicer-wasm/.work/main-merge-2026-10-03/`. No benchmark measurements
+or generated archives were added. This is focused merge validation; packaged
+installers, performance benchmarks and instrumented fault-injection rebuilds
+were not rerun. Earlier step-19 qualification remains historical evidence.
+
 ### Adapter acceptance checklist
 
 - [x] Documentation piece independently reviewed and verified; committed before step 13.
