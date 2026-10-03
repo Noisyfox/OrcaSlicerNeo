@@ -776,7 +776,7 @@ export function Workspace({
         <WorkspaceSidebar
           sceneInteraction={sceneInteraction}
           onEditPrinter={(canonicalName) => void openPresetEditor({ kind: 'printer', canonicalName })}
-          printerExtras={activeTab === 'prepare' && <FilamentRack onEditPreset={(canonicalName) =>
+          printerExtras={(activeTab === 'prepare' || isPreviewTab(activeTab)) && <FilamentRack onEditPreset={(canonicalName) =>
             void openPresetEditor({ kind: 'filament', canonicalName })
           } />}
           configurationExtras={isPreviewTab(activeTab) && plateSession && <PreviewPlateList

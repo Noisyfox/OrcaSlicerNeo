@@ -56,10 +56,17 @@ scrollbars use a 6px dark track, a rounded dark-gray thumb, and no arrow
 buttons, matching the reference sidebar. Chromium uses the custom scrollbar
 pseudo-elements; other browsers retain the thin standard-property fallback.
 The upper device/material card contains the Printer selector and the
-existing Prepare-tab filament rack. The lower configuration card contains the
+existing filament rack in both Prepare and Preview. The lower configuration card contains the
 settings and, in Preview, the plate list. The initial height split is 35% / 65%;
 the divider can be dragged or adjusted with the keyboard. Both panels retain a
 minimum height, and the vertical split is session-local.
+The upper card's maximum height tracks the natural height of its printer and
+material content, including its border. Content and workspace resize observers
+update the limit after slot-count, material-collapse, or available-size changes.
+Its minimum height is capped by that content height too, so short content cannot
+force empty space. Smaller user-selected heights retain independent scrolling.
+Content-size observations synchronously commit the panel constraints before
+paint, preventing a transient scrollbar when Material is expanded.
 
 The Material rack uses two columns of compact single-line slots. Each slot
 combines a clickable rectangular colour/number block, a searchable preset
