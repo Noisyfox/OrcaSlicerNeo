@@ -738,12 +738,19 @@ json restore_timestamped_result(const Runtime& runtime,
     }
     // `affected_plates` above is the single source of invalidation truth for
     // the Worker cache, presentation registry, input stamps, and renderer.
-    // Structural Add/Delete changes retain their delta-capable usage summaries;
-    // material-affecting edits with stable object topology discard only the
-    // affected summaries before their next projection.
-    if (!usage_unchanged &&
-        live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size())
-        Neo::Bridge::PrimeTower::invalidate_projection_cache_and_usage_summaries(affected_plates);
+    // Structural jumps can also undo painting. Empty plates do not refresh
+    // usage summaries, and Redo restores the same object IDs, so retaining a
+    // removed object's summary can resurrect its later painted filament use.
+    // Evict the jump's touched objects while retaining structural delta lookup
+    // for other objects on those plates. A dirty summary cannot become a hit
+    // merely because Redo restores the same IDs after an empty-plate read.
+    if (!usage_unchanged) {
+        if (live_model_state.mutable_objects.size() == restored.roots.model.mutable_objects.size())
+            Neo::Bridge::PrimeTower::invalidate_projection_cache_and_usage_summaries(affected_plates);
+        else
+            Neo::Bridge::PrimeTower::invalidate_projection_cache_and_object_usage_summaries(
+                affected_plates, restored.scene_delta.object_ids);
+    }
     else
         Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_plates);
     if (reconciled_painting) state().painting.publish(std::move(reconciled_painting));
