@@ -1,4 +1,4 @@
-import { openProjectMenu } from './project-menu';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // End-to-end profile for the exact user-visible boundary: clicking Add Plate
 // until the matching Undo entry is enabled. This is intentionally real-WASM
 // only: mock timings cannot establish the cost of history model snapshots.
@@ -53,9 +53,7 @@ test('profiles Add Plate click through its visible Undo entry on the real projec
       await page.getByTestId('project-load-project').click();
       await page.getByTestId('project-load-confirm').click();
     }
-    const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    await waitForProjectLoad(page);
     await expect.poll(() => page.evaluate(() => {
       const hook = (window as unknown as { __orcaE2e?: { projectLoadEvidence?: () => {
         receipt: { sourceDisplayName: string; sourceByteLength: number; nativeResult: { multiPlate?: boolean; plateCount?: number } } | null;

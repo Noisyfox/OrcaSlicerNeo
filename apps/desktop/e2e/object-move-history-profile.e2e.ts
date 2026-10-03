@@ -1,4 +1,4 @@
-import { openProjectMenu } from './project-menu';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // Real-WASM profile for the user-visible object-move boundary: completing one
 // canvas drag until its matching Undo Move entry is enabled.
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
@@ -77,9 +77,7 @@ test('profiles a real object move through the visible Undo Move boundary', async
       await page.getByTestId('project-load-project').click();
       await page.getByTestId('project-load-confirm').click();
     }
-    const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    await waitForProjectLoad(page);
     await expect.poll(readEvidence, { timeout: 300_000 }).toMatchObject({
       receipt: {
         sourceDisplayName: basename(PROJECT_PATH),

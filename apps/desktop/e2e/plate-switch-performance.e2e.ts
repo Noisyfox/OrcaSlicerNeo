@@ -1,4 +1,4 @@
-import { openProjectMenu } from './project-menu';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -33,9 +33,7 @@ test('switches several non-current plates within the interactive budget', async 
     await projectChoice.click();
     await expect(projectChoice).toHaveAttribute('data-checked', '');
     await page.getByTestId('project-load-confirm').click();
-    const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    await waitForProjectLoad(page);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0, { timeout: 300_000 });
     await expect.poll(() => page.evaluate(() => {

@@ -1,4 +1,4 @@
-import { openProjectMenu } from './project-menu';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // Real-WASM timing regression. This intentionally has its own Electron
 // session so the functional ten-tower/slice scenario cannot hide a load or
 // history performance regression.
@@ -134,9 +134,7 @@ test('measures real-project Prime Tower commit and history restore stages after 
       await page.getByTestId('project-load-project').click();
       await page.getByTestId('project-load-confirm').click();
     }
-    const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    await waitForProjectLoad(page);
 
     // Never measure an empty, geometry-only, or merely staged project.
     await expect.poll(readEvidence, { timeout: 300_000 }).toMatchObject({
