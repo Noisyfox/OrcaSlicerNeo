@@ -1,6 +1,13 @@
-# High Level Development Plan (updated 2026-09-09)
+# High Level Development Plan (updated 2026-10-02)
 
 ## Context
+
+- Delivered 2026-10-02: [Model Arrangement](../spec/Model%20Arrangement.md)
+  reuses Orca's native Arrange/libnest2d/NLopt pipeline for all/current-plate
+  commands, with atomic Undo/Redo, partial-success parking, host preferences,
+  progress/cancellation, and affected-plate slicing coordination. Both WASM
+  variants and focused real Electron/Web journeys pass. NLopt is an independent
+  cached dependency; cut, measure, and orientation tools remain deferred.
 
 - Current architecture validation: Electron utility-host migration, without
   Python or new product features, is tracked in

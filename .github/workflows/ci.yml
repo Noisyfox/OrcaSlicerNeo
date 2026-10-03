@@ -75,7 +75,7 @@ jobs:
       - name: Select compiled dependency cache key
         id: dependency-key
         env:
-          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/stubs/freetype-port-probe.c') }}
+          DEPS_INPUT_HASH: ${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh', 'packages/slicer-wasm/build-draco-wasm64.sh', 'packages/slicer-wasm/build-nlopt-wasm64.sh', 'packages/slicer-wasm/build-occt-wasm64.sh', 'packages/slicer-wasm/patches/occt/*.patch', 'packages/slicer-wasm/stubs/freetype-port-probe.c') }}
         run: echo "key=${{ runner.os }}-wasm64-deps-emsdk-6.0.4-${DEPS_INPUT_HASH}" >> "$GITHUB_OUTPUT"
       - name: Restore compiled WASM dependencies
         id: dependency-cache
@@ -91,6 +91,8 @@ jobs:
           bash packages/slicer-wasm/build-boost-wasm64.sh
           bash packages/slicer-wasm/build-onetbb.sh
           node packages/slicer-wasm/harness/run-tbb-parallelism-probe.mjs packages/slicer-wasm/out/orca_tbb_probe.js
+          WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded bash packages/slicer-wasm/build-nlopt-wasm64.sh
+          WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-nlopt-wasm64.sh
           WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded bash packages/slicer-wasm/build-draco-wasm64.sh
           WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build-draco-wasm64.sh
           WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded bash packages/slicer-wasm/build-occt-wasm64.sh
@@ -106,6 +108,9 @@ jobs:
           require_file "${boost_filesystem[0]}"
           require_file "$deps/oneTBB-3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3/stage-wasm64-pthreads/lib/libtbb.a"
           for variant in threaded serial; do
+            require_file "$deps/nlopt-2.5.0/stage-wasm64-$variant/include/nlopt.h"
+            require_file "$deps/nlopt-2.5.0/stage-wasm64-$variant/include/nlopt.hpp"
+            require_file "$deps/nlopt-2.5.0/stage-wasm64-$variant/lib/libnlopt.a"
             require_file "$deps/draco-1.5.7/stage-wasm64-$variant/lib/libdraco.a"
             require_file "$deps/occt-7.6.0/stage-wasm64-$variant/include/opencascade/Standard.hxx"
             require_file "$deps/occt-7.6.0/stage-wasm64-$variant/lib/libTKXDESTEP.a"
@@ -148,10 +153,17 @@ jobs:
         run: bash packages/slicer-wasm/fetch-deps.sh
       - name: Configure + build threaded module (preload-file bundle included)
         run: bash packages/slicer-wasm/build.sh
+      - name: Verify arrangement with cached threaded NLopt
+        run: |
+          cmake --build packages/slicer-wasm/.work/threaded/build --target arrangement_core_test headless_arrangement_test --parallel 2
+          node packages/slicer-wasm/.work/threaded/build/arrangement_core_test.cjs
+          node packages/slicer-wasm/.work/threaded/build/headless_arrangement_test.cjs
       - name: Smoke — slice cube.stl end to end
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
       - name: Bridge smoke — binary-buffer contract (M2 deferred verification)
         run: node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
+      - name: Arrangement — atomic history, cancellation, concurrent slicing
+        run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/orca_slice.js
       - name: Upload the legacy threaded WASM artifact
         uses: actions/upload-artifact@v7
         with:
@@ -200,8 +212,22 @@ jobs:
         run: bash packages/slicer-wasm/fetch-deps.sh
       - name: Build serial WASM for the Web fallback
         run: WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial bash packages/slicer-wasm/build.sh
+      - name: Verify arrangement with cached serial NLopt
+        run: |
+          cmake --build packages/slicer-wasm/.work/serial/build --target arrangement_core_test headless_arrangement_test --parallel 2
+          node packages/slicer-wasm/.work/serial/build/arrangement_core_test.cjs
+          node packages/slicer-wasm/.work/serial/build/headless_arrangement_test.cjs
+      - name: Arrangement — serial atomic history and partial success
+        run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - name: Smoke — serial fallback slices cube.stl
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
+      - name: Arrangement — explicit test build verifies publication rollback
+        run: |
+          cmake -S packages/slicer-wasm -B packages/slicer-wasm/.work/serial/build -DNEO_ARRANGEMENT_TEST=ON
+          cmake --build packages/slicer-wasm/.work/serial/build --target orca_slice --parallel 2
+          node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/.work/serial/build/orca_slice.js --test-injection
+          # Keep the enabled test artifact in the build tree. Upload only the
+          # production out/serial artifact already checked by its smoke above.
       - name: Upload serial Web WASM artifact
         uses: actions/upload-artifact@v7
         with:

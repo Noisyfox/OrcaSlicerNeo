@@ -184,6 +184,18 @@ export function runProjectMutationOperation<T>(operation: (lease: ProjectMutatio
   });
 }
 
+/** Refresh an atomic native command's successor while its caller still holds
+ * the shared mutation lease. Do not re-enter the FIFO from this publication. */
+export async function publishNativeOperationHistory(
+  runtime: Pick<SlicerRuntime, 'getHistoryStatus'>,
+  _lease: ProjectMutationLease,
+  plateInputRevisions: Readonly<Record<string, number>>,
+): Promise<HistoryStatus> {
+  const status = projectHistoryStatus(await runtime.getHistoryStatus());
+  projectFilamentPlateInputRevisions(status.revision, plateInputRevisions);
+  return status;
+}
+
 type HistoryTransactionRuntime = HistoryMutationRuntime & {
   runProjectHistoryTransaction: SlicerRuntime['runProjectHistoryTransaction'];
 };

@@ -96,8 +96,8 @@ export function deriveMenuItemStates(
   const prepareTab = isPrepareTab(snapshot.activeTab);
   const projectOperationActive = ['waiting-for-load-choice', 'waiting-for-project-confirmation', 'waiting-for-dirty-decision', 'loading', 'saving', 'model-import']
     .includes(project.operation.phase);
-  const editActionsEnabled = ready && !serialSlicing && !projectOperationActive;
-  const taskActionsEnabled = ready && !slicing && !projectOperationActive;
+  const editActionsEnabled = ready && !serialSlicing && !projectOperationActive && !snapshot.scene.arranging;
+  const taskActionsEnabled = ready && !slicing && !projectOperationActive && !snapshot.scene.arranging;
   const projectActionsEnabled = taskActionsEnabled;
   const electron = isElectronHost(snapshot, chrome);
   const state = (enabled: boolean): { enabled: boolean; checked: false } => ({ enabled, checked: false });
@@ -111,7 +111,7 @@ export function deriveMenuItemStates(
     'add-model': state(editActionsEnabled && prepareTab),
     'clear-scene': state(editActionsEnabled && prepareTab && snapshot.scene.hasModel),
     'slice': state(taskActionsEnabled && workspaceTab && snapshot.scene.hasModel && !hasCompletedResult),
-    'export-gcode': state(ready && !slicing && hasCompletedResult),
+    'export-gcode': state(ready && !slicing && hasCompletedResult && !snapshot.scene.arranging),
     'quit': state(electron),
     'open-source': state(true),
     // Filesystem inspection is the recovery surface for startup diagnostics;

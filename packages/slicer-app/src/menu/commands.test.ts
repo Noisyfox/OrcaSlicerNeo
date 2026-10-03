@@ -26,7 +26,7 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
-    scene: { hasModel: true },
+    scene: { hasModel: true, arranging: false },
     result: { hasResult: false, exported: false },
     project: { hasContent: true, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: true, menuMode: 'custom' },

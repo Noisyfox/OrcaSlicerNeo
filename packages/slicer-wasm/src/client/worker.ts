@@ -31,6 +31,7 @@ export type WorkerMessage =
   | { type: 'history-diagnostic'; diagnostic: HistoryWorkerDiagnostic }
   | { type: 'project-closed'; plateSession: PlateSessionMutation }
   | { type: 'progress'; percent: number; text: string }
+  | { type: 'arrangement-progress'; percent: number; text: string }
   | { type: 'startup-progress'; text: string }
   | { type: 'runtime-state'; threaded: boolean; serialTerminalEpoch: string };
 
@@ -58,6 +59,7 @@ const historyMutationOperations = new Set([
 // wait behind the running task and execute against a later epoch.
 const paintingOperations = new Set(['openPaintingSession', 'targetPaintingSession', 'readPaintingSession', 'closePaintingSession', 'previewPainting', 'beginPaintingStroke', 'samplePaintingStroke', 'finishPaintingStroke', 'cancelPaintingStroke', 'commitPaintingStroke', 'getPaintingGeometry', 'settlePainting']);
 const restrictedWhileSerialSlicing = new Set([
+  'arrange', 'reorderPlates',
   ...paintingOperations,
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
@@ -165,6 +167,7 @@ export function startWorker(
   // Short command gate, acquired before any async hook/module initialization.
   // It rejects overlap; it never queues work or spans an editing session.
   let historyTransitionInFlight = false;
+  let arrangementActive = false;
   const historyTransactionStartedAts: number[] = [];
 
   onMessage(async (msg) => {
@@ -176,8 +179,16 @@ export function startWorker(
     const isHistoryTransition = isRestore || isSessionTransition || op === 'resetHistory' || paintingOperations.has(op);
     let ownsTransition = false;
     let ownsTransactionStart = false;
+    let ownsArrangement = false;
     try {
       const callArgs = args ?? [];
+      if (arrangementActive && restrictedWhileSerialSlicing.has(op)) throw new Error('arrangement_busy');
+      if (op === 'arrange') {
+        if (historyTransitionInFlight || transactionStarting || activeTransactionIds.length) throw new Error('Finish the current editing operation before arranging');
+        arrangementActive = true;
+        ownsArrangement = true;
+        callArgs[1] = (percent: number, text: string) => post({ type: 'arrangement-progress', percent, text });
+      }
       if ((isHistoryTransition || op === 'beginHistory') && historyTransitionInFlight)
         throw new Error(isRestore ? 'history restore is already in progress' : 'history transition is already in progress');
       if (isHistoryTransition) {
@@ -253,6 +264,7 @@ export function startWorker(
       if (ownsTransactionStart) transactionStarting = false;
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
     } finally {
+      if (ownsArrangement) arrangementActive = false;
       if (ownsTransition) historyTransitionInFlight = false;
     }
   });
@@ -267,6 +279,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     startedAt: number;
   }>();
   const progressListeners = new Set<(pct: number, text: string) => void>();
+  const arrangementListeners = new Set<(pct: number, text: string) => void>();
+  let arrangementActive = false;
   const projectClosedListeners = new Set<ProjectClosedCallback>();
   let runtimeThreaded: boolean | undefined;
   let fatalError: Error | undefined;
@@ -300,6 +314,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       pending.clear();
       activeSliceRequests = 0;
       serialSliceActive = false;
+      arrangementActive = false;
       return;
     }
     if (msg.type === 'history-diagnostic') {
@@ -308,6 +323,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     }
     if (msg.type === 'progress') {
       for (const l of progressListeners) l(msg.percent, msg.text);
+      return;
+    }
+    if (msg.type === 'arrangement-progress') {
+      if (arrangementActive) for (const listener of arrangementListeners) listener(msg.percent, msg.text);
       return;
     }
     if (msg.type === 'runtime-state') {
@@ -324,6 +343,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
+    if (p.op === 'arrange') arrangementActive = false;
     if (REAL_PROJECT_PROFILE_BUILD && isRestoreOperation(p.op))
       profileLastRestoreSliceActive = activeSliceRequests > 0;
     if (p.op === 'slice' || p.op === 'slicePlate') activeSliceRequests -= 1;
@@ -346,20 +366,23 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   function call(op: string, args: unknown[]): Promise<unknown> {
     if (fatalError) return Promise.reject(fatalError);
     const id = nextId++;
+    if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
-      if (op === 'openHistorySession' || op === 'closeHistorySession') return Promise.reject(new Error('slice_busy'));
+      if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession') return Promise.reject(new Error('slice_busy'));
       return Promise.resolve({ error: 'slice_busy' });
     }
     if (op === 'slice' || op === 'slicePlate') {
       activeSliceRequests += 1;
       if (runtimeThreaded !== true) serialSliceActive = true;
     }
+    if (op === 'arrange') arrangementActive = true;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, op, startedAt: historyNow() });
       try {
         transport.post({ type: 'request', id, op, args, serialTerminalEpoch });
       } catch (error) {
         pending.delete(id);
+        if (op === 'arrange') arrangementActive = false;
         if (op === 'slice' || op === 'slicePlate') {
           activeSliceRequests -= 1;
           serialSliceActive = false;
@@ -459,6 +482,12 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
           return call('slice', [config]).finally(() => {
             progressListeners.delete(onProgress);
           });
+        };
+      }
+      if (prop === 'arrange') {
+        return (request: unknown, onProgress?: (percent: number, text: string) => void) => {
+          if (onProgress) arrangementListeners.add(onProgress);
+          return call(prop, [request]).finally(() => { if (onProgress) arrangementListeners.delete(onProgress); });
         };
       }
       return (...args: unknown[]) => call(prop, args);

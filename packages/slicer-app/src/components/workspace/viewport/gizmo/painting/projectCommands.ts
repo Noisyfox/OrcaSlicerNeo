@@ -1,4 +1,5 @@
 import type { PaintingController } from './PaintingController';
+import { useArrangementStore } from '@/stores/useArrangementStore';
 import type { FilamentSessionSnapshot, FilamentMutationSummary } from '@slicer/client';
 
 let owner: PaintingController | null = null;
@@ -10,7 +11,7 @@ export function registerPaintingCommands(controller: PaintingController): () => 
   return () => { if (owner === controller) owner = null; };
 }
 export function paintingCommandAllowed(): boolean {
-  return owner?.commandAllowed ?? true;
+  return !useArrangementStore.getState().active && (owner?.commandAllowed ?? true);
 }
 export function coordinatePaintingProjectOperation<T>(operation: () => Promise<T>, enqueue: (operation: () => Promise<T>) => Promise<T>): Promise<T> {
   return owner?.active ? owner.projectOperation(operation) : enqueue(operation);

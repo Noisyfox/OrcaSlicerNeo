@@ -22,12 +22,14 @@ add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
 if(WASM_THREADING)
-  set(_OCCT_DEFAULT_VARIANT threaded)
+  set(_DEPS_DEFAULT_VARIANT threaded)
 else()
-  set(_OCCT_DEFAULT_VARIANT serial)
+  set(_DEPS_DEFAULT_VARIANT serial)
 endif()
-set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_OCCT_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
+set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
+set(NLOPT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/nlopt-2.5.0/stage-wasm64-${_DEPS_DEFAULT_VARIANT}" CACHE PATH "Staged NLopt wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone history tests" OFF)
+option(NEO_ARRANGEMENT_TEST "Build arrangement publication fault injection for rollback tests" OFF)
 option(NEO_REAL_PROJECT_PROFILE "Build the dedicated real-project profiling ABI" OFF)
 option(NEO_PAINTING_PROFILE "Build painting-only native timing counters" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
@@ -110,7 +112,6 @@ set(DROP_PATTERNS
   "MeshBoolean"           # CGAL boolean ops
   "/Format/svg"           # SVG->mesh needs OpenCASCADE; load_svg stubbed in stubs/format-stubs.cpp
   "/Shape/TextShape"      # OCCT font->mesh; no kept callers
-  "/Arrange.cpp"          # libnest2d bed arrangement (nlopt + boost::geometry deps)
   "GCodeSender"           # serial/network host control; boost::asio signal_blocker
                           # supports only Windows/POSIX, and nothing kept calls it
   "VoronoiUtilsCgal"      # CGAL Voronoi planarity diagnostics; planarity checks
@@ -236,6 +237,22 @@ target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
 # semver=Semver.hpp, qoi=thumbnail PNG). Keep in sync with upstream lists.
 enable_language(C)
 
+# Compiled independently by build-nlopt-wasm64 so CI can cache both variants.
+foreach(_nlopt_file include/nlopt.h include/nlopt.hpp lib/libnlopt.a)
+  if(NOT EXISTS "${NLOPT_ROOT}/${_nlopt_file}")
+    message(FATAL_ERROR "Missing NLopt dependency: ${NLOPT_ROOT}/${_nlopt_file}. Run build-nlopt-wasm64 for this variant first.")
+  endif()
+endforeach()
+add_library(nlopt STATIC IMPORTED)
+set_target_properties(nlopt PROPERTIES
+  IMPORTED_LOCATION "${NLOPT_ROOT}/lib/libnlopt.a"
+  INTERFACE_INCLUDE_DIRECTORIES "${NLOPT_ROOT}/include")
+target_link_libraries(slic3r_core PRIVATE nlopt)
+# Arrange.cpp instantiates libnest2d's templates directly. The TBB backend also
+# works with the serial shim; do not fall back to std::async in serial builds.
+set_property(SOURCE "${LIBSLIC3R_ROOT}/Arrange.cpp" APPEND PROPERTY
+  COMPILE_DEFINITIONS LIBNEST2D_THREADING_tbb)
+
 set(DEPS_CORE_SRC
   "${ORCA_SRC}/deps_src/expat/xmlparse.c"
   "${ORCA_SRC}/deps_src/expat/xmlrole.c"
@@ -353,6 +370,8 @@ target_compile_options(deps_core PRIVATE
 # set outside the pinned Orca submodule; the C bridge and Worker transaction
 # adapters remain Neo code.
 set(ORCA_BRIDGE_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_arrangement.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/InstanceIdentity.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/TimestampedHistory.cpp"
@@ -383,6 +402,13 @@ set(ORCA_SLICE_SRC
   ${ORCA_BRIDGE_SRC}
 )
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+if(NEO_ARRANGEMENT_TEST)
+  # The test state and call sites are private to this TU; core/other bridge
+  # objects retain the same layout and need not rebuild when the gate changes.
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_arrangement.cpp"
+    APPEND PROPERTY COMPILE_DEFINITIONS NEO_ARRANGEMENT_TEST=1)
+  message(STATUS "Arrangement test: publication fault injection enabled")
+endif()
 if(NEO_REAL_PROJECT_PROFILE)
   target_compile_definitions(orca_slice PRIVATE NEO_REAL_PROJECT_PROFILE=1)
   message(STATUS "Real-project profile: dedicated profiling ABI enabled")
@@ -591,6 +617,25 @@ foreach(_pf IN LISTS PRELOAD_FILES)
     endif()
     target_link_options(orca_slice PRIVATE "--preload-file=${_pf}")
   endif()
+endforeach()
+
+# A real algorithm/linkage probe, separate from the product ABI. Building the
+# scaffold's default target includes this executable; it can also be selected
+# explicitly for the fast arrange-only loop.
+get_target_property(_arrange_test_libraries orca_slice LINK_LIBRARIES)
+add_executable(arrangement_core_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/ArrangementCore.test.cpp")
+add_executable(headless_arrangement_test "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/arrangement/HeadlessArrangement.test.cpp")
+foreach(_arrange_test arrangement_core_test headless_arrangement_test)
+target_compile_options(${_arrange_test} PRIVATE -fexceptions)
+target_link_libraries(${_arrange_test} PRIVATE ${_arrange_test_libraries})
+target_link_options(${_arrange_test} PRIVATE -m64 -O2 -fexceptions
+  -sDISABLE_EXCEPTION_CATCHING=0 -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1
+  -sASSERTIONS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608)
+set_target_properties(${_arrange_test} PROPERTIES SUFFIX ".cjs")
+if(WASM_THREADING)
+  target_link_options(${_arrange_test} PRIVATE -pthread -sPTHREAD_POOL_SIZE=4)
+endif()
 endforeach()
 if(NOT PRELOAD_FILES)
   if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
