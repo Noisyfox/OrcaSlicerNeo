@@ -19,7 +19,7 @@ import {
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 import { writeFileAtomically } from './atomicFile';
 import { summarizeElectronMemory } from './memoryIpc';
-import { attachSlicerUtility } from './slicerUtility';
+import { attachSlicerUtility, stopSlicerUtilities } from './slicerUtility';
 
 // Chromium documents this as a preference for a discrete GPU when multiple
 // adapters are available. It does not name or require a particular GPU; the
@@ -526,6 +526,12 @@ app.on('before-quit', () => {
   if (process.env.ORCA_E2E === '1' && process.env.ORCA_E2E_LIFECYCLE !== '1') allowWindowClose = true;
 });
 
-app.on('will-quit', () => {
+app.on('will-quit', (event) => {
+  const cleanup = stopSlicerUtilities();
+  if (cleanup) {
+    event.preventDefault();
+    void cleanup.then(() => app.quit());
+    return;
+  }
   rendererServer?.close();
 });

@@ -345,7 +345,7 @@ std::string generation_gcode_path(const PlateRuntimeRegistry::Entry& entry,
         const unsigned char byte = static_cast<unsigned char>(value);
         if (!std::isalnum(byte) && value != '-' && value != '_') value = '_';
     }
-    return "/plate-result-" + safe_id + "-" +
+    return "/tmp/plate-result-" + safe_id + "-" +
            std::to_string(entry.incarnation_id) + "-" +
            std::to_string(generation) + ".gcode";
 }

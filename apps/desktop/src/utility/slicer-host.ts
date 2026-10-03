@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { collectTransferables } from '../../../../packages/slicer-wasm/src/client/transfer';
 
 // Electron ports and Node worker ports are different APIs. Keep this event loop
@@ -7,7 +7,11 @@ import { collectTransferables } from '../../../../packages/slicer-wasm/src/clien
 process.parentPort.once('message', (event) => {
   const port = event.ports[0];
   if (!port || event.data?.type !== 'connect') process.exit(1);
-  const worker = new Worker(join(__dirname, 'slicer-worker.js'));
+  const temporaryDirectory: unknown = event.data.temporaryDirectory;
+  if (typeof temporaryDirectory !== 'string' || temporaryDirectory.includes('\0') || !isAbsolute(temporaryDirectory)) {
+    process.exit(1);
+  }
+  const worker = new Worker(join(__dirname, 'slicer-worker.js'), { workerData: { temporaryDirectory } });
   worker.on('message', (message) => port.postMessage(message));
   worker.on('error', (error) => {
     port.postMessage({ type: 'fatal', error: error.message });
@@ -15,6 +19,9 @@ process.parentPort.once('message', (event) => {
   });
   worker.on('exit', (code) => {
     port.postMessage({ type: 'fatal', error: `Slicer worker exited (${code})` });
+    // Main owns cleanup and waits for this process exit. Do not keep a dead
+    // Worker session (and its native temporary directory) alive via the port.
+    process.exit(code || 1);
   });
   // IPC already produced utility-owned input buffers. Move them to the Node
   // Worker instead of cloning a large project a second time inside the host.
