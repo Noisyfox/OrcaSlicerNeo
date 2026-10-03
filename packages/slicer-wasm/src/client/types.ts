@@ -26,6 +26,9 @@ export interface OrcaModule {
     stat?: (path: string) => { mode: number; size: number };
     isDir?: (mode: number) => boolean;
     isFile?: (mode: number) => boolean;
+    /** Optional NODEFS support in the shared threaded artifact. */
+    filesystems?: { NODEFS?: unknown };
+    mount?: (filesystem: unknown, options: { root: string }, mountpoint: string) => unknown;
   };
 }
 
@@ -1074,7 +1077,7 @@ export interface CancelResult {
   error?: string;
 }
 
-/** The bridge's boost::log file sink output (/tmp/orca.log in MEMFS). */
+/** The bridge's boost::log file sink output (/tmp/orca.log in the session filesystem). */
 export interface ReadLogResult {
   ok: boolean;
   path: string;

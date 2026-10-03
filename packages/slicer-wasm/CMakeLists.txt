@@ -599,6 +599,9 @@ endif()
 if(WASM_THREADING)
   target_link_options(orca_slice PRIVATE
     -pthread
+    # The shared threaded artifact keeps MEMFS in browsers. Electron may
+    # explicitly mount its session temporary directory through NODEFS.
+    -lnodefs.js
     "-sPTHREAD_POOL_SIZE=${WASM_PTHREAD_POOL_SIZE}"
     # dlmalloc has a single global lock; mimalloc has per-thread allocation
     # contexts and avoids making TBB's allocation-heavy passes serialize.

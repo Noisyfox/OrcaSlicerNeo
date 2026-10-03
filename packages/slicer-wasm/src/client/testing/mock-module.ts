@@ -1482,7 +1482,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       'G1 X0 Y0 Z0.2 F1200', 'G1 X20 Y0 E1.0', 'M104 S0', '',
     ].join('\n');
     previewSourceBytes = new TextEncoder().encode(gcode);
-    files.set(`/plate-result-${plateId}-${receipt.resultGeneration}.gcode`, previewSourceBytes);
+    files.set(`/tmp/plate-result-${plateId}-${receipt.resultGeneration}.gcode`, previewSourceBytes);
     const result = { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], receipt: {
       plate_id: plateId, input_stamp: receipt.inputStamp,
       result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId,
@@ -2937,7 +2937,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const receipt = sliceReceipts.get(plateId);
       if (!receipt || receipt.inputStamp !== revision || receipt.resultGeneration !== String(resultGeneration))
         return { error: 'plate slice result is stale or unavailable' };
-      const path = `/plate-result-${plateId}-${receipt.resultGeneration}.gcode`;
+      const path = `/tmp/plate-result-${plateId}-${receipt.resultGeneration}.gcode`;
       return { ok: true, path };
     },
     orc_export_project() {

@@ -97,7 +97,7 @@ void init_with_level(const std::string& level)
             core.add_sink(sink);
         }
         {
-            // File: /tmp/orca.log in MEMFS. open_mode defaults to out|trunc
+            // File: /tmp/orca.log in the session filesystem. open_mode defaults to out|trunc
             // (fresh file per module session); auto_flush defaults to FALSE
             // (text_file_backend.hpp:606), which would leave records stuck in
             // the C++ stream buffer — the JS side reads the file while the
