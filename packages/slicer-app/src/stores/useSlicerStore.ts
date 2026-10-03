@@ -11,6 +11,7 @@ export interface PreviewState {
   activeMoveEnd: number;
   maxMove: number;
   showTravel: boolean;
+  moveVisibility: Record<number, boolean>;
   dimPreviousLayers: boolean;
   colorScheme: PreviewColorScheme;
   schemeVisibility: PreviewSchemeVisibility;
@@ -32,6 +33,7 @@ export const DEFAULT_PREVIEW_STATE: PreviewState = {
   activeMoveEnd: 0,
   maxMove: 0,
   showTravel: true,
+  moveVisibility: {},
   dimPreviousLayers: true,
   colorScheme: 'feature',
   schemeVisibility: {},
@@ -76,6 +78,7 @@ interface SlicerState {
   setPreviewLayerEnd: (layer: number, activeLayerMaxMove?: number) => void;
   setPreviewMoveEnd: (move: number) => void;
   setPreviewShowTravel: (show: boolean) => void;
+  setPreviewMoveVisibility: (type: number, visible: boolean) => void;
   setPreviewDimPreviousLayers: (dim: boolean) => void;
   setPreviewColorScheme: (scheme: PreviewColorScheme) => void;
   setPreviewSchemeVisibility: (scheme: PreviewColorScheme, item: number, visible: boolean) => void;
@@ -287,6 +290,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     return { preview: { ...state.preview, activeMoveEnd: end } };
   }),
   setPreviewShowTravel: (showTravel) => set((state) => ({ preview: { ...state.preview, showTravel } })),
+  setPreviewMoveVisibility: (type, visible) => set((state) => ({ preview: { ...state.preview, moveVisibility: { ...state.preview.moveVisibility, [type]: visible } } })),
   setPreviewDimPreviousLayers: (dimPreviousLayers) => set((state) => ({ preview: { ...state.preview, dimPreviousLayers } })),
   setPreviewColorScheme: (colorScheme) => set((state) => ({ preview: { ...state.preview, colorScheme } })),
   setPreviewSchemeVisibility: (scheme, item, visible) => set((state) => ({

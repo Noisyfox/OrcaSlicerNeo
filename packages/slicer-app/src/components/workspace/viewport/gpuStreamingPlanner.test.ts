@@ -42,6 +42,17 @@ function clientToolpath(overrides: Partial<ClientToolpath> = {}): ClientToolpath
 }
 
 describe('GPU streaming source adapter and page planner', () => {
+  it('keeps actions independent of role/tool filters and clips them by layer, move end, and their own toggle', () => {
+    const input = clientToolpath({ moveTypes: Uint8Array.from([10, 9, 1, 2, 3, 4, 5, 6, 7, 8, 10]) });
+    const plan = createGpuStreamingPagePlan(input, undefined, { softPageTarget: 3 });
+    const options = { visibleLayerStart: 0, visibleLayerEnd: 2, activeMoveEnd: 4, showTravel: false, moveVisibility: {}, visibilityField: 'feature' as const, visibility: { 0: false, 1: false, 2: false } };
+    const selected = (extra = {}) => rebuildGpuStreamingSelection(plan, { ...options, ...extra }).pages.flatMap((page) => Array.from(page.indices, (local) => page.firstSegment + local));
+    expect(selected()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(selected({ visibilityField: 'filament' })).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(selected({ visibleLayerStart: 1, visibleLayerEnd: 1, activeMoveEnd: 0 })).toEqual([3]);
+    expect(selected({ moveVisibility: { 9: false, 1: false, 3: false } })).toEqual([3, 5, 6, 7, 8]);
+  });
+
   it('coalesces consecutive arc-like source ids into one logical move while retaining segments', () => {
     const layerIds = Uint32Array.from([0, 0, 0, 0]);
     const gcodeIds = Uint32Array.from([41, 41, 41, 42]);
@@ -159,7 +170,7 @@ describe('GPU streaming source adapter and page planner', () => {
       visibleLayerStart: 1,
       visibleLayerEnd: 2,
       activeMoveEnd: 2,
-      showTravel: false,
+      showTravel: false, moveVisibility: {}, visibilityField: 'feature' as const,
       visibility: { 1: false },
     });
     const globalIndices = selection.pages.flatMap((page) => Array.from(page.indices, (id) => page.firstSegment + id));
@@ -177,7 +188,7 @@ describe('GPU streaming source adapter and page planner', () => {
       visibleLayerStart: 0,
       visibleLayerEnd: 2,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
-      showTravel: true,
+      showTravel: true, moveVisibility: {},
       visibility: { 1: false },
       visibilityField: 'filament',
     });

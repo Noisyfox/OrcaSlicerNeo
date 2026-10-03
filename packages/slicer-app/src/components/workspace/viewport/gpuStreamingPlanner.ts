@@ -1,5 +1,5 @@
+import { TRAVEL_MOVE_TYPE, isIndependentPreviewMove, type PreviewMoveVisibility } from './previewMoveTypes';
 import type { ClientToolpath, PreviewAnalysis, PreviewMetadata, PreviewPaletteEntry, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
-import { TRAVEL_MOVE_TYPE } from './toolpathColors';
 
 /** The soft page target agreed by the streaming renderer design. */
 export const GPU_STREAMING_SOFT_PAGE_TARGET = 65_536;
@@ -67,10 +67,6 @@ export interface GpuStreamingSource {
   readonly extruderPalette?: readonly PreviewPaletteEntry[];
   readonly analysis?: PreviewAnalysis;
   readonly layers: readonly GpuStreamingLayerRange[];
-  /** Optional fields reserved by the source-neutral contract. */
-  readonly angles?: Float32Array;
-  readonly capAngles?: Float32Array;
-  readonly biases?: Float32Array;
 }
 
 export interface GpuStreamingPage {
@@ -142,9 +138,10 @@ export interface GpuStreamingSelectionOptions {
   visibleLayerEnd: number;
   activeMoveEnd: number;
   showTravel: boolean;
-  visibility?: Readonly<Record<number, boolean>>;
+  moveVisibility: PreviewMoveVisibility;
+  visibility: Readonly<Record<number, boolean>>;
   /** Selects the categorical id used by the scheme-scoped visibility map. */
-  visibilityField?: 'feature' | 'filament';
+  visibilityField: 'feature' | 'filament';
 }
 
 export interface GpuStreamingPageSelection {
@@ -159,12 +156,6 @@ export interface GpuStreamingSelection {
   readonly visitedSegments: number;
   readonly emittedSegments: number;
 }
-
-type ExtendedClientToolpath = ClientToolpath & {
-  angles?: Float32Array;
-  capAngles?: Float32Array;
-  biases?: Float32Array;
-};
 
 function integer(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value) ? Math.floor(value) : fallback;
@@ -314,11 +305,7 @@ export function adaptClientToolpath(
   ensureArrayLength('extruderIds', toolpath.extruderIds.length, count);
   ensureArrayLength('colorPrintIds', toolpath.colorPrintIds.length, count);
   ensureArrayLength('features', toolpath.features.length, count);
-  const extended = toolpath as ExtendedClientToolpath;
-  if (extended.capAngles) ensureArrayLength('capAngles', extended.capAngles.length, count);
-  if (extended.angles) ensureArrayLength('angles', extended.angles.length, count);
   ensureMetricLengths(toolpath.metrics, count);
-  if (extended.biases) ensureArrayLength('biases', extended.biases.length, count);
 
   return Object.freeze({
     segmentCount: count,
@@ -341,9 +328,6 @@ export function adaptClientToolpath(
     ...(metadata?.extruderPalette ? { extruderPalette: metadata.extruderPalette } : {}),
     ...(metadata?.analysis ? { analysis: metadata.analysis } : {}),
     layers: Object.freeze(normalizeLayerRanges(toolpath.layerIds, count, metadata?.layerRanges)),
-    ...(extended.angles ? { angles: extended.angles } : {}),
-    ...(extended.capAngles ? { capAngles: extended.capAngles } : {}),
-    ...(extended.biases ? { biases: extended.biases } : {}),
   });
 }
 
@@ -367,9 +351,6 @@ export function normalizeGpuStreamingSource(source: GpuStreamingSource): GpuStre
   ensureArrayLength('extruderIds', source.extruderIds.length, count);
   ensureArrayLength('colorPrintIds', source.colorPrintIds.length, count);
   ensureArrayLength('features', source.features.length, count);
-  if (source.angles) ensureArrayLength('angles', source.angles.length, count);
-  if (source.capAngles) ensureArrayLength('capAngles', source.capAngles.length, count);
-  if (source.biases) ensureArrayLength('biases', source.biases.length, count);
   ensureMetricLengths(source.metrics, count);
   for (let i = 1; i < count; i++) {
     if ((source.layerIds[i] ?? 0) < (source.layerIds[i - 1] ?? 0)) {
@@ -577,8 +558,8 @@ export function createGpuStreamingPagePlan(
   return planGpuStreamingPages(adaptClientToolpath(toolpath, metadata), options);
 }
 
-function visibleFeature(visibility: Readonly<Record<number, boolean>> | undefined, feature: number): boolean {
-  return visibility?.[feature] !== false;
+function visibleFeature(visibility: Readonly<Record<number, boolean>>, feature: number): boolean {
+  return visibility[feature] !== false;
 }
 
 /**
@@ -609,11 +590,12 @@ export function rebuildGpuStreamingSelection(
       const layer = source.layerIds[i] ?? 0;
       if (layer < layerStart || layer > layerEnd) continue;
       if (layer === layerEnd && (source.moveOrders[i] ?? 0) > moveEnd) continue;
-      if (!options.showTravel && (source.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
+      if (!options.showTravel && source.moveTypes[i] === TRAVEL_MOVE_TYPE) continue;
+      if (options.moveVisibility[source.moveTypes[i]] === false) continue;
       const visibilityId = options.visibilityField === 'filament'
         ? source.extruderIds[i] ?? 0
         : source.features[i] ?? 0;
-      if ((source.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE && !visibleFeature(options.visibility, visibilityId)) continue;
+      if (!isIndependentPreviewMove(source.moveTypes[i]) && !visibleFeature(options.visibility, visibilityId)) continue;
       indices[emitted++] = i - page.firstSegment;
     }
     pages.push(Object.freeze({ firstSegment: page.firstSegment, indices: indices.subarray(0, emitted), emittedCount: emitted }));

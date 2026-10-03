@@ -1,9 +1,7 @@
 import type { PreviewAnalysis, PreviewPaletteEntry, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
 import type { PreviewColorScheme } from '@/stores/useSlicerStore';
 import { adjustRgbForRendering } from './renderColor';
-
-/** EMoveType::Travel in libslic3r/libvgcode. */
-export const TRAVEL_MOVE_TYPE = 8;
+import { TRAVEL_MOVE_TYPE, WIPE_MOVE_TYPE, previewMoveOption } from './previewMoveTypes';
 
 /** libvgcode's DEFAULT_OPTIONS_COLORS entry for EOptionType::Travels. */
 export const ORCA_TRAVEL_COLOR: readonly [number, number, number] = [56 / 255, 72 / 255, 155 / 255];
@@ -126,7 +124,7 @@ export function describePreviewScheme(source: PreviewColorSource, scheme: Previe
   if (scheme === 'feature') {
     const ids = [...new Set(Array.from(source.features))];
     return { scheme, label: PREVIEW_SCHEME_LABELS[scheme], kind: 'categorical', items: ids.map((id) => {
-      const entry = source.palette.find((candidate) => candidate.id === id) ?? source.palette[id];
+      const entry = source.palette.find((candidate) => candidate.id === id);
       return { id, label: entry?.name ?? `Feature ${id}`, color: paletteColor(entry) };
     }) };
   }
@@ -183,7 +181,9 @@ export function resolveToolpathColor(
   moveType: number,
 ): [number, number, number] {
   if (moveType === TRAVEL_MOVE_TYPE) return [...ORCA_TRAVEL_COLOR];
-  const entry = palette.find((candidate) => candidate.id === feature) ?? palette[feature];
+  const option = previewMoveOption(moveType);
+  if (option) return option.color.map((value) => value / 255) as [number, number, number];
+  const entry = palette.find((candidate) => candidate.id === feature);
   return paletteColor(entry);
 }
 
@@ -194,7 +194,12 @@ export function resolvePreviewColor(
   scheme: PreviewColorScheme,
 ): [number, number, number] {
   if (source.moveTypes[index] === TRAVEL_MOVE_TYPE) return [...ORCA_TRAVEL_COLOR];
-  if (scheme === 'feature') return resolveToolpathColor(source.palette, source.features[index] ?? 0, source.moveTypes[index] ?? 0);
+  const moveType = source.moveTypes[index];
+  const option = previewMoveOption(moveType);
+  if (option && (moveType !== WIPE_MOVE_TYPE || scheme !== 'speed')) {
+    return option.color.map((value) => value / 255) as [number, number, number];
+  }
+  if (scheme === 'feature') return resolveToolpathColor(source.palette, source.features[index] ?? 0, source.moveTypes[index]);
   if (scheme === 'filament') return paletteColor(filamentEntry(source, source.extruderIds[index] ?? 0));
   const range = rangeForScheme(source, scheme);
   const value = numericValue(source, scheme, index);

@@ -39,6 +39,40 @@ an alternate path renderer or silently reduce the active inspection range.
 All renderer-owned textures, buffers, materials, and planner references are
 released exactly once on invalidation, unmount, failure, or context loss.
 
+## Actions and markers (2026-10-03)
+
+Travel and Wipe use independent thin-line rendering and visibility. Wipe uses
+native yellow in categorical and non-speed schemes, the speed ramp in Speed,
+and the native 0.1 mm dimensions with a 0.05 eye-space depth bias.
+Retract, Unretract, Seams, and Filament changes use the native sixteen-sided
+OptionTemplate diamond at the event endpoint, with native option colours,
+1.5 shape scaling, and a 0.1 eye-space depth bias. Existing Color change,
+Pause Print, and Custom G-code events use the same marker path when present.
+Events without positive width/height use a 0.4/0.2 mm marker shape so initial
+control moves remain visible. Positive native dimensions are preserved.
+
+The action legend lists only move types present in the accepted result. Its
+visibility state is independent of role/tool filters and the colour scheme;
+layer range, move end, and earlier-layer dimming apply to both paths and
+markers. Preview reset restores action visibility. These are read-only display
+controls and do not insert or modify G-code events. Mobile support remains
+outside the desktop preview scope; the controls use ordinary accessible buttons.
+
+Each page partitions its existing enabled-index texture between segment and
+marker draws. Both draws share the static textures; toggles change only index
+contents and draw counts. One shared 96-vertex marker geometry and a marker
+instance buffer sized to the page's event count supplement the segment path.
+Invalidation and context loss release both draw resources exactly once.
+
+The internal selection contract requires an action-visibility map, a category
+visibility map, and an explicit category field. Empty maps mean no overrides;
+callers must supply them rather than relying on omitted legacy arguments.
+Move-type constants are imported from their defining module. Renderer shape
+data comes from the current typed client contract; unsupported historical
+palette indexing and speculative angle/bias aliases are not accepted.
+An injected template factory must supply the complete current geometry; an
+incomplete template is rejected rather than repaired by the renderer.
+
 ## Verification scope
 
 Focused tests use small deterministic sources and cover page completeness,

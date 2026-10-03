@@ -1,3 +1,4 @@
+import { TRAVEL_MOVE_TYPE } from './previewMoveTypes';
 import { useMemo } from 'react';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { PreviewFeatureStatistics } from '@slicer/client';
@@ -10,7 +11,6 @@ import {
   previewSchemeUnit,
   formatPreviewValue,
   type PreviewColorSource,
-  TRAVEL_MOVE_TYPE,
 } from './toolpathColors';
 
 const MOVE_TYPE_LABELS: Readonly<Record<number, string>> = {
@@ -56,7 +56,7 @@ function formatCost(cost: number | undefined): string | undefined {
 }
 
 function featureName(data: ToolpathGeometry, featureId: number): string | undefined {
-  const entry = data.palette.find((candidate) => candidate.id === featureId) ?? data.palette[featureId];
+  const entry = data.palette.find((candidate) => candidate.id === featureId);
   return entry?.name;
 }
 

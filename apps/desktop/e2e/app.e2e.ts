@@ -2570,3 +2570,49 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
     await app.close();
   }
 });
+
+
+test('preview actions: real seam and retraction markers have independent GPU visibility', async () => {
+  test.skip(!REAL, 'Requires native GCodeProcessor event vertices');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const shaderErrors: string[] = [];
+    page.on('console', (message) => { if (/Shader Error|VALIDATE_STATUS|Error compiling shader/i.test(message.text())) shaderErrors.push(message.text()); });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await page.locator('#app-tab-preview').click();
+    const counts = () => page.evaluate(() => (window as unknown as { __orcaE2e?: { gpuStreamingMoveCounts?(): Record<number, number> } }).__orcaE2e?.gpuStreamingMoveCounts?.() ?? {});
+    await expect.poll(async () => (await counts())[3] ?? 0).toBeGreaterThan(0);
+    await expect.poll(async () => (await counts())[1] ?? 0).toBeGreaterThan(0);
+    const initial = await counts();
+    for (const type of [9, 1, 2, 3, 4]) {
+      if (!(initial[type] > 0)) continue;
+      const toggle = page.getByTestId(`preview-move-visibility-${type}`);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      await expect.poll(async () => (await counts())[type] ?? 0).toBe(0);
+      await toggle.click();
+      await expect.poll(async () => (await counts())[type] ?? 0).toBe(initial[type]);
+    }
+    for (const feature of await page.locator('[data-testid^="preview-feature-visibility-"]').all()) await feature.click();
+    await expect.poll(async () => (await counts())[10] ?? 0).toBe(0);
+    expect((await counts())[3]).toBe(initial[3]);
+    await page.evaluate(() => {
+      const hooks = (window as unknown as { __orcaE2e?: {
+        modelWorldCenters?(): number[][];
+        setCameraView?(position: number[], target: number[]): void;
+      } }).__orcaE2e;
+      const center = hooks?.modelWorldCenters?.()[0];
+      if (!center) throw new Error('Missing preview model centre');
+      hooks?.setCameraView?.([center[0] + 38, center[1] - 48, center[2] + 44], center);
+    });
+    const screenshot = test.info().outputPath('independent-seam-markers.png');
+    await page.screenshot({ path: screenshot });
+    await test.info().attach('independent-seam-markers', { path: screenshot, contentType: 'image/png' });
+    expect(shaderErrors).toEqual([]);
+  } finally { await app.close(); }
+});

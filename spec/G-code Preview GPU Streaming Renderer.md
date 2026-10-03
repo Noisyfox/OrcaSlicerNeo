@@ -33,8 +33,7 @@ Goals:
 - Keep per-segment geometry attributes static and GPU-resident for the lifetime
   of an immutable slice result.
 - Draw a shared indexed segment template through one enabled-index stream per
-  page, using one draw for an ordinary page and a small number of draws for a
-  large result.
+  page, using one segment draw and one event-marker draw per page.
 - Make layer/range/filter changes deterministic and bounded to rebuilding
   index streams, while making camera gestures uniform-only updates.
 - Preserve Feature/Line Type, travel, dimming, single-layer, move-end, marker,
@@ -130,7 +129,7 @@ updated in place in source order when any of these change:
 
 - inclusive visible layer start/end;
 - active-layer inclusive move end;
-- travel visibility;
+- travel and independent action/marker visibility;
 - active-scheme feature/material/tool visibility.
 
 Entries are emitted at most once, with no per-segment object allocation. The
@@ -253,3 +252,20 @@ shape, and color-layer textures are global to the source result, the vertex
 shader adds the page's `firstSegment` through a `segment_base` uniform before
 fetching them. This offset must be retained for every page draw; otherwise
 pages after the first read the wrong source range and large previews truncate.
+
+
+## Read-only actions and markers
+
+The shared renderer also uses native libvgcode OptionTemplate diamonds for
+Retract, Unretract, Seam, Tool change, Color change, Pause Print, and Custom
+G-code event vertices. Wipe remains a thin SegmentTemplate line with its own
+colour and visibility. Action controls are independent of extrusion-role/tool
+filters and remain available across colour schemes, but obey the inclusive
+layer range, move end, and dimming. Their legend is result-dependent.
+
+Marker and segment draws share static textures and partition the existing
+page-local enabled-index texture; changing visibility does not rebuild geometry.
+A shared sixteen-sided diamond geometry and per-page event instance buffers
+are released alongside existing renderer resources. Marker colours and scaling
+follow native options; zero-sized initial events use a 0.4/0.2 mm shape. These
+controls inspect existing events only and never mutate slice results.

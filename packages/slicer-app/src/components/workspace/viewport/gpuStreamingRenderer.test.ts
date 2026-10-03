@@ -23,7 +23,7 @@ function source(): GpuStreamingSource {
     layerIds: new Uint32Array([0, 0, 1, 1]),
     moveOrders: new Uint32Array([0, 1, 0, 1]),
     gcodeIds: new Uint32Array([10, 11, 12, 13]),
-    moveTypes: new Uint8Array([1, 8, 2, 3]),
+    moveTypes: new Uint8Array([10, 8, 10, 10]),
     extrusionRoles: new Uint16Array([1, 2, 3, 4]),
     extruderIds: new Uint8Array([0, 0, 1, 1]),
     colorPrintIds: new Uint8Array([0, 0, 1, 1]),
@@ -57,15 +57,95 @@ function context(
 function templateFacade() {
   const dispose = vi.fn();
   const resourceFacade: GpuStreamingResourceFacade = {
-    createSegmentTemplate: (): GpuStreamingSegmentTemplateResource => ({
-      geometry: new THREE.BufferGeometry(),
-      dispose,
-    }),
+    createSegmentTemplate: (): GpuStreamingSegmentTemplateResource => {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('vertex_id', new THREE.Uint8BufferAttribute([
+        0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1, 5, 4, 7, 5, 7, 6,
+      ], 1));
+      geometry.setDrawRange(0, 24);
+      return { geometry, dispose };
+    },
   };
   return { resourceFacade, dispose };
 }
 
 describe('native SegmentTemplate GPU renderer', () => {
+  it('draws zero-length events as endpoint diamonds, partitions one index stream, and releases marker resources', () => {
+    const input = source();
+    input.moveTypes.set([10, 9, 3, 4]);
+    input.starts.set([25, 10, 0.4], 6);
+    input.ends.set([25, 10, 0.4], 6);
+    input.widths[3] = 0; input.heights[3] = 0;
+    const plan = planGpuStreamingPages(input, { softPageTarget: 4 });
+    const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
+    expect(result.ok).toBe(true); if (!result.ok) return;
+    const backend = result.backend, page = backend.pages[0]!;
+    const scene = new THREE.Scene(); backend.attachToScene(scene);
+    expect(scene.children).toEqual([page.mesh, page.markerMesh]);
+    expect(page.markerMesh.geometry.getAttribute('position').count).toBe(96);
+    const material = page.markerMesh.material as THREE.ShaderMaterial;
+    expect(material.blending).toBe(THREE.NoBlending);
+    expect(material.depthWrite).toBe(true);
+    const shape = material.uniforms.height_width_angle_tex.value.image.data as Float32Array;
+    expect(shape[8]).toBeCloseTo(0.1); expect(shape[9]).toBeCloseTo(0.1); // Wipe thin line
+    expect(shape[10]).toBe(0); expect(shape[11]).toBeCloseTo(0.05);
+    expect(shape[28]).toBeCloseTo(0.2); expect(shape[29]).toBeCloseTo(0.4); // startup fallback
+    const options = { visibleLayerStart: 0, visibleLayerEnd: 1, activeMoveEnd: 10, showTravel: true, moveVisibility: {}, visibilityField: 'feature' as const, visibility: {} };
+    backend.updateSelection(rebuildGpuStreamingSelection(plan, options));
+    expect(page.mesh.count).toBe(2); expect(page.markerMesh.count).toBe(2);
+    expect(Array.from(page.indexData.slice(0, 4))).toEqual([0, 1, 2, 3]);
+    expect(material.uniforms.index_offset.value).toBe(2);
+    backend.updateSelection(rebuildGpuStreamingSelection(plan, { ...options, visibility: { 4: false }, moveVisibility: { 3: false } }));
+    expect(page.mesh.count).toBe(1); expect(page.markerMesh.count).toBe(1);
+    expect(Array.from(page.indexData.slice(0, 2))).toEqual([1, 3]);
+    expect(material.uniforms.index_offset.value).toBe(1);
+    backend.updateDimming(1, 0.34);
+    expect(material.uniforms.active_layer.value).toBe(1);
+    expect(material.uniforms.earlier_layer_dim.value).toBe(0.34);
+    const geometryDispose = vi.spyOn(page.markerMesh.geometry, 'dispose');
+    const meshDispose = vi.spyOn(page.markerMesh, 'dispose');
+    const materialDispose = vi.spyOn(material, 'dispose');
+    backend.detachFromScene(scene); expect(scene.children).toHaveLength(0);
+    backend.dispose(); backend.dispose();
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(meshDispose).toHaveBeenCalledTimes(1);
+    expect(materialDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases event geometry and the context listener when shader compilation fails', () => {
+    const input = source(); input.moveTypes[0] = 3;
+    const element = new EventTarget();
+    const add = vi.spyOn(element, 'addEventListener'), remove = vi.spyOn(element, 'removeEventListener');
+    let releaseGeometry: ReturnType<typeof vi.spyOn> | undefined;
+    let releaseMaterial: ReturnType<typeof vi.spyOn> | undefined;
+    const result = createGpuStreamingRenderer(planGpuStreamingPages(input), {
+      renderer: { domElement: element, getContext: () => context(), compile: (scene) => {
+        const marker = scene.children[1] as THREE.InstancedMesh;
+        releaseGeometry = vi.spyOn(marker.geometry, 'dispose');
+        releaseMaterial = vi.spyOn(marker.material as THREE.Material, 'dispose');
+        throw new Error('shader compilation failed');
+      } },
+    });
+    expect(result.ok).toBe(false);
+    expect(releaseGeometry).toHaveBeenCalledTimes(1);
+    expect(releaseMaterial).toHaveBeenCalledTimes(1);
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith('webglcontextlost', add.mock.calls[0]![1]);
+  });
+
+  it('rejects an incomplete injected template instead of repairing an old internal contract', () => {
+    const geometry = new THREE.BufferGeometry(), dispose = vi.fn();
+    const result = createGpuStreamingRenderer(planGpuStreamingPages(source()), {
+      context: context(), compile: false,
+      resourceFacade: { createSegmentTemplate: () => ({ geometry, dispose }) },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics.message).toContain('complete 24-invocation vertex_id');
+    expect(geometry.getAttribute('vertex_id')).toBeUndefined();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('requires WebGL2, integer-texture units, and vertex texture fetch', () => {
     expect(probeGpuStreamingCapabilities(context()).supported).toBe(true);
     expect(
@@ -203,7 +283,7 @@ describe('native SegmentTemplate GPU renderer', () => {
         starts: new Float32Array([0, 0, 0, 1, 0, 0]),
         ends: new Float32Array([1, 0, 0, 1, 1, 0]),
         layerIds: new Uint32Array([0, 0]),
-        moveTypes: new Uint8Array([1, 1]),
+        moveTypes: new Uint8Array([10, 10]),
         widths: new Float32Array([0.4, 0.4]),
         heights: new Float32Array([0.2, 0.2]),
       },
@@ -220,7 +300,7 @@ describe('native SegmentTemplate GPU renderer', () => {
         visibleLayerStart: 0,
         visibleLayerEnd: 0,
         activeMoveEnd: Number.MAX_SAFE_INTEGER,
-        showTravel: true,
+        showTravel: true, moveVisibility: {}, visibilityField: 'feature' as const, visibility: {},
       }),
     );
     result.backend.dispose();
@@ -255,7 +335,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerStart: 0,
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
-      showTravel: true,
+      showTravel: true, moveVisibility: {}, visibilityField: 'feature' as const,
       visibility: { 4: true, 5: true, 6: true, 7: true },
     });
     expect(selection.visitedSegments).toBe(4);
@@ -269,7 +349,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerStart: 1,
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
-      showTravel: false,
+      showTravel: false, moveVisibility: {}, visibilityField: 'feature' as const,
       visibility: { 4: false },
     });
     result.backend.updateSelection(filtered);
@@ -278,8 +358,8 @@ describe('native SegmentTemplate GPU renderer', () => {
     result.backend.dispose();
   });
 
-  it('resolves indexed legacy palettes as well as explicit feature ids', () => {
-    const legacy = {
+  it('resolves categorical palettes by explicit feature ids', () => {
+    const explicit = {
       ...source(),
       palette: [
         {
@@ -293,9 +373,9 @@ describe('native SegmentTemplate GPU renderer', () => {
           color: [0, 255, 0] as [number, number, number],
         },
       ],
-      features: new Uint32Array([0, 1, 0, 1]),
+      features: new Uint32Array([100, 101, 100, 101]),
     };
-    const plan = planGpuStreamingPages(legacy, { softPageTarget: 4 });
+    const plan = planGpuStreamingPages(explicit, { softPageTarget: 4 });
     const result = createGpuStreamingRenderer(plan, {
       context: context(),
       compile: false,
@@ -306,13 +386,12 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerStart: 0,
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
-      showTravel: true,
+      showTravel: true, moveVisibility: {}, visibilityField: 'feature' as const, visibility: {},
     });
     result.backend.updateSelection(selection);
-    expect(
-      (result.backend.pages[0]!.mesh.material as THREE.ShaderMaterial)
-        .uniforms.color_tex.value,
-    ).toBeDefined();
+    expect(result.backend.debugColorSamples()).toEqual(expect.arrayContaining([
+      [1, 0, 0], [0, 1, 0],
+    ]));
     result.backend.dispose();
   });
 
@@ -328,7 +407,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerStart: 0,
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
-      showTravel: true,
+      showTravel: true, moveVisibility: {}, visibilityField: 'feature' as const,
       visibility: { 5: false },
     });
     expect(selection.emittedSegments).toBe(4);
@@ -354,7 +433,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerStart: 0,
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
-      showTravel: true,
+      showTravel: true, moveVisibility: {}, visibilityField: 'feature' as const, visibility: {},
     });
     result.backend.updateSelection(selection);
     result.backend.updateColorScheme('feature');

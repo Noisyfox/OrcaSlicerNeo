@@ -80,9 +80,10 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
     visibleLayerEnd: preview.visibleLayerEnd,
     activeMoveEnd: preview.activeMoveEnd,
     showTravel: preview.showTravel,
-    visibility: preview.schemeVisibility[preview.colorScheme],
+    moveVisibility: preview.moveVisibility,
+    visibility: preview.schemeVisibility[preview.colorScheme] ?? {},
     visibilityField: preview.colorScheme === 'filament' ? 'filament' : 'feature',
-  }) : null, [plan, preview.activeMoveEnd, preview.colorScheme, preview.schemeVisibility, preview.showTravel, preview.visibleLayerEnd, preview.visibleLayerStart]);
+  }) : null, [plan, preview.activeMoveEnd, preview.colorScheme, preview.schemeVisibility, preview.moveVisibility, preview.showTravel, preview.visibleLayerEnd, preview.visibleLayerStart]);
 
   useLayoutEffect(() => {
     if (!source) {
@@ -188,7 +189,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
       setActive(null);
       invalidate();
     }
-  }, [invalidate, plan, scene, selection]);
+  }, [active, invalidate, plan, scene, selection]);
 
   useEffect(() => {
     const current = activeRef.current;
@@ -201,7 +202,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [plan, preview.dimPreviousLayers, preview.visibleLayerEnd]);
+  }, [active, plan, preview.dimPreviousLayers, preview.visibleLayerEnd]);
 
   useEffect(() => {
     const current = activeRef.current;
@@ -215,7 +216,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [invalidate, plan, preview.colorScheme]);
+  }, [active, invalidate, plan, preview.colorScheme]);
 
   return (
     <>
