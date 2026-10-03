@@ -113,6 +113,27 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await assertPaintingArmed('idle'); await assertPaintingArmed('idle-hover', true);
     await page.screenshot({ path: test.info().outputPath('painting-toolbar-active.png') });
     const near = (actual: number[], expected: number[]) => actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 8));
+    const assertBlankStart = async (channel: string) => {
+      await idle(); await settleFrames();
+      const before = (await read())!, h = await history(), viewport = await page.locator('canvas').first().boundingBox();
+      expect(before.channel).toBe(channel);
+      const origin = { x: viewport!.x + 10, y: before.center.y };
+      await page.mouse.move(origin.x, origin.y); await settleFrames();
+      const strokeCalls = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingPerformanceEvidence().calls.filter((call: { name: string }) =>
+        ['beginPaintingStroke', 'samplePaintingStroke', 'commitPaintingStroke', 'cancelPaintingStroke'].includes(call.name)));
+      const nativeBefore = await strokeCalls();
+      await page.mouse.down(); await settleFrames();
+      expect((await read())!.phase, `${channel}: blank press stays idle`).toBe('idle');
+      expect(await strokeCalls(), `${channel}: blank press bypasses native begin`).toEqual(nativeBefore);
+      await page.mouse.move(before.center.x, origin.y, { steps: 5 }); await settleFrames();
+      expect((await read())!.camera).not.toEqual(before.camera);
+      expect((await read())!.phase).toBe('idle');
+      // Reverse the same horizontal orbit before releasing to retain framing.
+      await page.mouse.move(origin.x, origin.y, { steps: 5 }); await page.mouse.up(); await settleFrames();
+      expect(await strokeCalls(), `${channel}: crossing the model never starts or ends a stroke`).toEqual(nativeBefore);
+      near((await read())!.camera, before.camera); near((await read())!.target, before.target);
+      expect(await history()).toEqual(h);
+    };
     const afterOpen = (await read())!;
     const afterOpenCamera = { position: afterOpen.camera.slice(0, 3), quaternion: afterOpen.camera.slice(3), target: afterOpen.target };
     for (const key of ['position', 'quaternion', 'target'] as const) near(afterOpenCamera[key], beforeOpenCamera[key]);
@@ -122,6 +143,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     near((await read())!.pivot, [100, 100, 10]);
     const entryFrames = await stopFrames(); await completeFrames('painting-entry-render-frames', entryFrames);
     expect(entryFrames.some((f) => f.ordinary.length > 0)).toBe(true); expect(entryFrames.some((f) => f.painting.length > 0)).toBe(true);
+    await assertBlankStart('mmu');
     const initialPoint = (await read())!.center;
     await page.mouse.move(initialPoint.x, initialPoint.y); await page.mouse.wheel(0, -700); await page.mouse.wheel(0, -700);
     expect((await read())!.runtime.threaded).toBe(false);
@@ -685,7 +707,8 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const seamEvidence: Record<string, unknown> = {};
     await seamButton.click(); await idle();
     await expect(seamButton).toHaveAttribute('aria-pressed','true'); await expect(paintButton).toHaveAttribute('aria-pressed','false');
-    expect((await read())!.channel).toBe('seam'); expect((await read())!.resources.flatMap(r=>r.groups.map(g=>g[0]))).toEqual([0]);
+    expect((await read())!.channel).toBe('seam');
+    await assertBlankStart('seam'); expect((await read())!.resources.flatMap(r=>r.groups.map(g=>g[0]))).toEqual([0]);
     await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');
     await page.getByRole('checkbox',{name:'Vertical',exact:true}).check();
     // Rotate the camera by actual navigation before the constrained stroke.
@@ -755,6 +778,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await fuzzyButton.click();await idle();
     await expect(fuzzyButton).toHaveAttribute('aria-pressed','true');await expect(paintButton).toHaveAttribute('aria-pressed','false');
     expect((await read())!.channel).toBe('fuzzy');
+    await assertBlankStart('fuzzy');
     await expect(page.getByTestId('fuzzy-disabled-warning')).toBeVisible();
     const fuzzyEvidence:Record<string,unknown>={};
     await page.getByRole('spinbutton',{name:'Radius (mm)',exact:true}).fill('1');
@@ -794,6 +818,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const fuzzyPath=test.info().outputPath('fuzzy-editor-evidence.json');writeFileSync(fuzzyPath,JSON.stringify(fuzzyEvidence,null,2));await test.info().attach('fuzzy-editor-evidence',{path:fuzzyPath,contentType:'application/json'});
     // Support's independent native overlay survives candidate/tool/stroke changes.
     const supportButton=page.getByTestId('gizmo-btn-support');await supportButton.click();await idle();
+    await assertBlankStart('support');
     expect((await read())!.channel).toBe('support');await expect(supportButton).toHaveAttribute('aria-pressed','true');
     const supportCounts=()=>page.evaluate(()=> (window as unknown as {__orcaE2e:Record<string,any>}).__orcaE2e.paintingNativeFacetCounts());
     const supportEvidence:Record<string,unknown>={};

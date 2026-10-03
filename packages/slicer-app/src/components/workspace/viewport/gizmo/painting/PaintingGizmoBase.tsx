@@ -21,15 +21,39 @@ export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>
 export function paintingCursorMeshes(previous: THREE.Mesh[], volumes: readonly LoadedObject[], session: PaintingSessionMetadata | undefined, material: THREE.Material): THREE.Mesh[] {
   const parts = session ? volumes.filter((v) => v.buffer.objectId === session.objectId && v.buffer.instanceId === session.instanceId && session.parts.some((p) => p.volumeId === v.buffer.volumeId)) : [];
   const matrices = parts.map((v) => paintingPartMatrix(session!, v.buffer.volumeId));
-  if (previous.length === parts.length && previous.every((mesh, i) => mesh.geometry === parts[i].geometry && mesh.matrix.equals(matrices[i]))) return previous;
+  if (previous.length === parts.length && previous.every((mesh, i) => mesh.geometry === parts[i].geometry && mesh.userData.paintingVolumeId === parts[i].buffer.volumeId && mesh.matrix.equals(matrices[i]))) return previous;
   return parts.map((v, i) => {
     const existing = previous[i];
-    if (existing?.geometry === v.geometry && existing.matrix.equals(matrices[i])) return existing;
+    if (existing?.geometry === v.geometry && existing.userData.paintingVolumeId === v.buffer.volumeId && existing.matrix.equals(matrices[i])) return existing;
     const mesh = new THREE.Mesh(v.geometry, material);
+    mesh.userData.paintingVolumeId = v.buffer.volumeId;
     mesh.raycast = acceleratedRaycast; mesh.matrixAutoUpdate = false;
     mesh.matrix.copy(matrices[i]); mesh.updateMatrixWorld(true);
     return mesh;
   });
+}
+
+/** Only a reliable negative start may bypass native picking. Positive and
+ * unavailable results retain native ownership of targets and stroke samples. */
+export function paintingStartMiss(event: Pick<PointerEvent, 'clientX' | 'clientY'>, canvas: HTMLCanvasElement, camera: THREE.Camera, meshes: readonly THREE.Mesh[], displayed: PaintingSessionMetadata | undefined, current: PaintingSessionMetadata | null, raycaster: THREE.Raycaster): boolean {
+  const rect = canvas.getBoundingClientRect();
+  if (!(camera instanceof THREE.PerspectiveCamera || camera instanceof THREE.OrthographicCamera)) return false;
+  if (!displayed || !current || displayed.id !== current.id || displayed.objectId !== current.objectId || displayed.instanceId !== current.instanceId ||
+    !current.parts.length || new Set(meshes.map((mesh) => mesh.userData.paintingVolumeId)).size !== current.parts.length || meshes.length !== current.parts.length || displayed.parts.length !== current.parts.length ||
+    ![rect.left, rect.top, rect.width, rect.height, event.clientX, event.clientY].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return false;
+  for (let i = 0; i < meshes.length; i++) {
+    const mesh = meshes[i], volumeId = mesh.userData.paintingVolumeId as number;
+    const displayedPart = displayed.parts.find((p) => p.volumeId === volumeId), currentPart = current.parts.find((p) => p.volumeId === volumeId);
+    const triangleCount = (mesh.geometry.index?.count ?? mesh.geometry.getAttribute('position')?.count ?? 0) / 3;
+    if (!displayedPart || !currentPart || triangleCount !== displayedPart.sourceTriangleCount || triangleCount !== currentPart.sourceTriangleCount || !mesh.geometry.boundsTree || !mesh.geometry.getAttribute('position')?.count ||
+      !mesh.matrix.elements.every(Number.isFinite) || mesh.matrix.determinant() === 0 ||
+      !mesh.matrix.equals(paintingPartMatrix(current, volumeId))) return false;
+    mesh.updateMatrixWorld(true);
+  }
+  camera.updateWorldMatrix(true, false);
+  if (!camera.projectionMatrix.elements.every(Number.isFinite) || !camera.matrixWorld.elements.every(Number.isFinite) || camera.projectionMatrix.determinant() === 0 || camera.matrixWorld.determinant() === 0) return false;
+  raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2), camera);
+  return raycaster.intersectObjects([...meshes], false).length === 0;
 }
 
 export function paintingModelBounds(meshes: readonly THREE.Mesh[]): THREE.Box3 {
@@ -62,12 +86,14 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
   useEffect(() => () => cache.dispose(), [cache]);
   useEffect(() => () => cursorMaterial.dispose(), [cursorMaterial]);
   // Cursor meshes borrow the immutable original geometry/BVH; disposal stays
-  // with GLVolume. Its hits never determine sample admission or native target.
+  // with GLVolume. Only a reliable initial miss skips native picking; hits
+  // never identify native targets or determine subsequent sample admission.
   const cursorMeshes = useMemo(() => {
     borrowedCursorMeshes.current = paintingCursorMeshes(borrowedCursorMeshes.current, volumes, session, cursorMaterial);
     return borrowedCursorMeshes.current;
   }, [volumes, session?.objectId, session?.instanceId, session?.instanceTransform, session?.parts, cursorMaterial]);
   const cursorMeshesRef = useRef(cursorMeshes); cursorMeshesRef.current = cursorMeshes;
+  const displayedSessionRef = useRef(session); displayedSessionRef.current = session;
   // Bounds follow only the complete displayed target, using original solid
   // vertices and its displayed matrices. Equivalent RGB/stroke receipts reuse
   // cursorMeshes, so neither vertex scans nor the orbit centre change.
@@ -84,7 +110,7 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     type Gesture = { id: number; mode: 'pending' | 'paint' | 'rotate' | 'pan'; x: number; y: number; pressX: number };
     let gesture: Gesture | null = null;
     let disposed = false;
-    const raycaster = new THREE.Raycaster();
+    const raycaster = new THREE.Raycaster(); raycaster.firstHitOnly = true;
     const cursorAt = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       const snapshot = owner.getSnapshot();
@@ -96,11 +122,15 @@ export function PaintingGizmoBase({ volumes, resolveColor, resolveCursorColor, o
     const releaseCapture = () => { const old = gesture; gesture = null; if (old && canvas.hasPointerCapture(old.id)) canvas.releasePointerCapture(old.id); };
     const down = (event: PointerEvent) => {
       stop(event);
-      if (gesture || owner.getSnapshot().phase !== 'idle') return;
+      const snapshot = owner.getSnapshot();
+      if (gesture || snapshot.phase !== 'idle') return;
       canvas.focus(); canvas.setPointerCapture(event.pointerId);
       const mode = event.button === 1 || event.button === 2 ? 'pan' : event.ctrlKey || event.metaKey ? 'rotate' : 'pending';
       const mine: Gesture = { id: event.pointerId, mode, x: event.clientX, y: event.clientY, pressX: event.clientX };
       gesture = mine;
+      if (mode === 'pending' && snapshot.tool !== 'gap' && paintingStartMiss(event, canvas, camera, cursorMeshesRef.current, displayedSessionRef.current, snapshot.session, raycaster)) {
+        mine.mode = 'rotate'; return;
+      }
       if (mode === 'pending') void owner.press(paintingPointer(event, canvas, camera), event.shiftKey).then((result) => {
         if (disposed || gesture !== mine) return;
         if (result === 'ignored') { releaseCapture(); return; }

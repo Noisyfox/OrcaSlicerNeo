@@ -27,7 +27,7 @@ performance thresholds remain awaiting user review.
 
 ## Fixed integration decisions
 
-- Native owns annotations, selectors, authoritative picking, per-stroke commits and history. The renderer owns presentation/cursor-only BVH. Client/Worker/runtime boundaries remain as specified.
+- Native owns annotations, selectors, authoritative picking, per-stroke commits and history. The renderer owns presentation/original-mesh BVH, with a negative initial-press preflight as specified in section 4. Client/Worker/runtime boundaries remain as specified.
 - Commands use session/stroke/revision identities. Camera input is a per-admitted-event viewport/pointer/camera-matrix snapshot; native reconstructs rays and uses authoritative object/instance transforms. Exact typed schemas are fixed by the relevant transport step and reused thereafter.
 - Reuse one Worker and WASM module. No wx GUI compilation, extra native worker, session-long exclusive transaction, movement queue, pending-latest move, or new history authority.
 - One painting event in flight; busy moves discarded; reliable terminal state; normal release paints its retained endpoint once before commit; Escape restores after the in-flight call and does not paint an endpoint.
@@ -173,7 +173,7 @@ The user requested larger functional stages. Stages 05-07 use **gpt-6-astra / lo
 1. Implement a pure single-event-in-flight input controller: discard busy moves without a queue/latest cache; preserve reliable terminal actions. Normal release retains endpoint/settings; Escape waits for the active call then restores; unexpected focus/capture loss commits once. Reject presses while ending/cancelling until a fresh press.
 2. Own painting session above viewport lifetime, with idle/drawing/ending/cancelling/closing/error states and short per-command transactions. Eligible target switches preserve session; hidden pages can retain ownership.
 3. Render only the active editing instance's solid parts in dedicated painting mode, suppressing ordinary rendering/body dragging. Use separate draft geometry/materials, changed-part replacement, stale-response guards and disposal. Refresh opportunistically with one display request in flight and no fixed 30-Hz cap.
-4. Frontend BVH draws cursor only. Route idle left-on-model to paint, empty/modifier-left to rotate, middle/right to pan, wheel to zoom; lock camera during a stroke and preserve gesture ownership.
+4. Frontend original-mesh BVH draws the cursor and rejects reliable blank initial presses before native picking. Route idle left-on-model to paint, empty/modifier-left to rotate, middle/right to pan, wheel to zoom; lock camera during a stroke and preserve gesture ownership.
 5. Provide all six tools, first-16 palette, radius/height/edge-angle/gap controls, Erase/Erase all, Shift erase and modifier-wheel. No letter/digit tool shortcuts. Numeric settings persist for the run; selected filament follows project identity.
 6. Enforce one gizmo at a time, including numeric panels; close painting before another activates. History buttons/menu use native floor and retained entries. Failed close keeps painting active.
 
@@ -1787,8 +1787,8 @@ The controller serializes native input, display and history transitions in one
 RPC lane. Busy moves are discarded; normal release retains its endpoint/settings;
 Escape and capture/focus interruption follow their separate terminal semantics.
 Dedicated painting uses the existing Canvas and camera, draws only eligible
-active-instance parts, borrows original geometry for cursor-only BVH, and never
-builds a BVH on subdivided geometry. Idle native hit results select painting or
+active-instance parts, borrows original geometry for cursor BVH and negative initial-press preflight, and never
+builds a BVH on subdivided geometry. Reliable initial BVH misses select camera rotation directly; otherwise idle native hit results select painting or
 empty-space rotation. Changed geometry and candidate resources are reused/disposed
 by explicit manifests. Other gizmos close painting first, including numeric panels.
 
@@ -3152,3 +3152,50 @@ host seam changed, so a duplicate Electron journey was intentionally skipped;
 external Orca UI save verification remains skipped. Parent evidence resides in
 `packages/slicer-wasm/.work/project-config-catalogue-audit/`; no audit output or
 benchmark artifact is committed. This correction passed parent acceptance.
+
+## Painting initial-press preflight — 2026-10-03
+
+All four painting channels reuse the displayed target's borrowed original BVHs
+to check the initial unmodified left press against all displayed solid parts.
+A reliable blank miss skips the controller/native stroke request and captures
+a camera-rotation gesture. Crossing into a model during that drag does not
+start painting, and releasing it does not send a native stroke terminal.
+Positive hits retain native picking, face/part selection and stroke sampling;
+subsequent off-surface painting samples still reach the controller unchanged.
+Gap static previews and modified camera gestures retain their existing routing.
+Incomplete BVHs, invalid viewport/camera data, outdated source triangle counts
+or target transforms fall back to the controller/native path. No subdivided geometry BVH is built.
+
+Verification uses real original-mesh BVHs in the shared component suite for
+blank/surface starts across MMU, Support, Seam and Fuzzy, camera ownership,
+source/transform refresh, unavailable-input fallback and unchanged input gates.
+The existing real Electron painting journey now checks zero native stroke calls
+on blank starts and model-crossing drags in all four channels using its existing
+compile-gated observer. Parent host acceptance is recorded after execution.
+
+Child self-verification passed the focused `PaintingGizmoBase.test.tsx` suite
+(44 tests), `pnpm --filter @orca/slicer-app test` (949 tests),
+`pnpm --filter @orca/slicer-app typecheck` and `git diff --check`. The first
+typecheck found a readonly-array mutation in the new test setup; immutable
+metadata construction fixed it, and the final typecheck passed. Logs use
+`packages/slicer-wasm/.work/painting-start-preflight-{focused,app-tests,typecheck}.log`.
+No native code, bridge, WASM artifacts or pinned submodule changed; no native
+build or release matrix was run for this shared input optimization.
+
+Parent independent acceptance passed `NODE_OPTIONS=--no-experimental-webstorage
+pnpm test` (1,443 tests across 153 files) and `pnpm typecheck`. The Node option
+avoids the previously verified Node 26 Web Storage/jsdom environment conflict.
+`pnpm exec node scripts/run-painting-e2e.mjs` passed the real serial Electron
+six-tool/four-channel journey (44.1 seconds, 45.2 seconds overall), including
+the new zero-native-stroke blank-start assertions for every channel. The runner
+verified freshly staged JS/WASM/DATA hashes against the current serial artifacts
+before launching; native test/profile gates remain OFF.
+
+Ordinary Desktop and Web builds passed, followed by
+`check-painting-profile-elision.mjs` (27 production artifacts) and
+`verify-real-project-profile-exclusion.mjs`. Final whitespace and pinned
+submodule checks passed. No native rebuild or duplicate Web/second-WASM journey
+was needed: the changed shared React input path is covered by real BVH unit
+tests and one real primary-host journey. Evidence is retained under
+`packages/slicer-wasm/.work/painting-start-preflight-parent/`; no benchmark or
+other generated evidence is committed. This step passed parent acceptance.

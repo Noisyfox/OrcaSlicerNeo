@@ -510,9 +510,15 @@ arrives, process that command under the normal idle rules above.
 
 ## 4. Cursor preview and authoritative native picking
 
-The React-side BVH is used only to locate the cursor visually on the original
-model. Its hit point, `faceIndex`, and selected hit volume do not determine a
-painting operation. No BVH is built over the subdivided paint display geometry.
+The React-side BVH locates the cursor visually on the original model and
+preflights the initial painting press against all currently displayed target
+solid parts. A reliable miss enters camera rotation directly without a native
+stroke request; dragging across the model retains camera ownership. This
+negative check requires complete original BVHs, valid viewport/camera data and
+transforms matching the current native target. Unavailable or outdated inputs
+fall back to native picking. Gap fill keeps its static-preview controller
+routing. BVH hit points, `faceIndex`, and selected hit volumes do not
+determine a painting operation. No BVH is built over the subdivided paint display geometry.
 
 Render brush cursors after draft surfaces, candidates and contours, with a
 stable draw order across stroke/geometry publication. Cursors do not write
@@ -586,15 +592,16 @@ selection uses the same ownership rules, preserving Triangle's selected leaf
 and Region's candidate-free painted display. Model-only recovery after an
 invalidated request cannot restore its candidates.
 
-Once the pointer is pressed, native code performs all painting hit tests and
-face identification. The frontend sends the admitted pointer events in order and the
-camera/viewport information needed to reconstruct the corresponding rays. The
+After an initial press passes the negative preflight, native code performs all
+painting hit tests and face identification. The frontend sends the admitted
+pointer events in order and the camera/viewport information needed to
+reconstruct the corresponding rays. The
 native session determines the eligible target, nearest hit, original face,
 local hit coordinates, clipping, and transformation semantics, then invokes
 `TriangleSelector` to locate or modify subdivided facets.
 
-The frontend must not discard a painting sample because its cursor-only BVH
-reported a miss. Native code also owns trajectory interpolation and continuous
+The frontend must not discard any subsequent painting sample because its BVH
+reported a miss. The negative initial-press preflight is the sole exception. Native code also owns trajectory interpolation and continuous
 brush coverage, including transitions between parts and off-surface intervals.
 Region fill includes a hover preview that highlights the candidate area before
 clicking. Native code performs the candidate hit test and region calculation;
