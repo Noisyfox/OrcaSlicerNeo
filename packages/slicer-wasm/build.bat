@@ -169,6 +169,9 @@ if not exist "%SHIM_INCLUDE%\boost\thread\detail" mkdir "%SHIM_INCLUDE%\boost\th
 REM libnoise stand-in (FuzzySkin.cpp includes <libnoise/noise.h>).
 if not exist "%SHIM_INCLUDE%\libnoise" mkdir "%SHIM_INCLUDE%\libnoise"
 copy /y "%PKG_DIR%\shim\libnoise\noise.h" "%SHIM_INCLUDE%\libnoise\noise.h" >nul
+if not exist "%SHIM_INCLUDE%\libnoise\module" mkdir "%SHIM_INCLUDE%\libnoise\module"
+> "%SHIM_INCLUDE%\libnoise\module\modulebase.h" echo #pragma once
+>> "%SHIM_INCLUDE%\libnoise\module\modulebase.h" echo #include "../noise.h"
 REM libjpeg stand-in (GCode/Thumbnails.cpp includes <jpeglib.h>/<jerror.h>;
 REM stubs\jpeg-stub.cpp provides the no-op implementations).
 copy /y "%PKG_DIR%\shim\jpeglib.h" "%SHIM_INCLUDE%\jpeglib.h" >nul

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdlib>
 #include <deque>
 #include <functional>
 #include <list>
@@ -39,6 +40,11 @@
 #define TBB_VERSION_MAJOR 2021
 #define TBB_VERSION_MINOR 5
 #endif
+
+// Clipper2 uses the global oneTBB allocation API. The serial artifact uses
+// the ordinary heap and never links tbbmalloc.
+inline void* scalable_malloc(std::size_t size) { return std::malloc(size); }
+inline void scalable_free(void* ptr) { std::free(ptr); }
 
 namespace tbb {
 

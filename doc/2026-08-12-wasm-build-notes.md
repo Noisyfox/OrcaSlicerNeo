@@ -114,8 +114,8 @@ The previous build-time patch files have been replaced by individual commits
 on the submodule branch `dev/orcaslicerneo-wasm`, originally based on upstream
 commit `b97ca3c0ac`. The table records those original patches in application
 order, ending at `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The branch now
-contains upstream main `3384daa6bc` through merge `41a96752d9`; the current
-gitlink pins `489cbe91840ff97aaf4d8029009d5db410f32893`.
+contains upstream main `8a6377f087` through merge `232ea2783d`; the current
+gitlink pins `8d77d2f53da4484dc4fe0ba32499191e45994e47`.
 Build scripts compile the pinned source directly. Publish the
 submodule branch before distributing a superproject commit that depends on it.
 
@@ -133,7 +133,29 @@ submodule branch before distributing a superproject commit that depends on it.
 | 10 | `0010-config-option-vector-resize-stable-default.patch` | `62188ffb4b` | `Config.hpp` — copy the default value before resize may reallocate the vector. |
 | 11 | `0011-extruder-variant-missing-options.patch` | `c7801bdbdb` | `PrintConfig.cpp` — create missing extruder variant options before extending them. |
 
-### Current upstream integration (2026-10-01)
+### Current upstream integration (2026-10-03)
+
+Upstream main `8a6377f087e3f422275cd788339e1fa64a280f50` is recorded
+separately as merge `232ea2783da4984b57c2321a2f03c336d88e33ee`. The sole
+merge conflict in `EdgeGrid.cpp` retains upstream's explicit geometry includes
+and the existing removal of the unavailable libpng include.
+
+The WASM scaffold follows upstream's Clipper2 2.0.1 migration: it removes the
+deleted Clipper1 source/include path and includes Clipper2 triangulation in
+both its ordinary and Z builds. Threaded builds retain oneTBB's scalable
+allocator; the serial shim supplies the global allocation functions through
+`std::malloc` and `std::free`. Both build drivers generate a forwarding header
+for libnoise's `module/modulebase.h`.
+
+The separate `8d77d2f53d` submodule adaptation routes the newly explicit
+Boost.Thread lock/time includes in `Print.cpp` and `bbs_3mf.cpp` through the existing WASM shim and
+guards the new synchronous Boost.Log frontend include in `utils.cpp`, where
+native file logging is already disabled. Native builds keep their explicit
+upstream includes. Neo's separate synchronous console/MEMFS logging continues
+to use the real Boost.Log frontend; its Boost.Thread headers are not globally
+replaced with lock/time forwarding headers.
+
+The earlier integration remains the basis for the retained adaptations:
 
 The merge of main `3384daa6bcbdfccea9797238fc7acb9f4144dae8` is recorded
 separately as `41a96752d9afc747ccdd9d88e85c474bb8abcc95`. Upstream now

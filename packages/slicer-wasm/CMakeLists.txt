@@ -232,8 +232,8 @@ target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
 # scaffold folds the needed ones into one deps_core archive. Sources mirror
 # each deps_src/<dep>/CMakeLists.txt source list. Compiled here because they
 # live outside the libslic3r GLOB and the link needs them (expat=3MF XML,
-# miniz=3MF zip, admesh=STL load/repair, clipper=old ClipperLib Z-variant,
-# clipper2=offset/rectclip, qhull=convex hull, glu-libtess=tesselation,
+# miniz=3MF zip, admesh=STL load/repair, clipper2=clipping/offset/triangulation,
+# qhull=convex hull, glu-libtess=tesselation,
 # semver=Semver.hpp, qoi=thumbnail PNG). Keep in sync with upstream lists.
 enable_language(C)
 
@@ -264,10 +264,10 @@ set(DEPS_CORE_SRC
   "${ORCA_SRC}/deps_src/admesh/stl_io.cpp"
   "${ORCA_SRC}/deps_src/admesh/stlinit.cpp"
   "${ORCA_SRC}/deps_src/admesh/util.cpp"
-  "${ORCA_SRC}/deps_src/clipper/clipper_z.cpp"
   "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/src/clipper.engine.cpp"
   "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/src/clipper.offset.cpp"
   "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/src/clipper.rectclip.cpp"
+  "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/src/clipper.triangulation.cpp"
   "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/src/clipper2_z.cpp"
   "${ORCA_SRC}/deps_src/glu-libtess/src/dict.c"
   "${ORCA_SRC}/deps_src/glu-libtess/src/geom.c"
@@ -338,7 +338,6 @@ endforeach()
 target_include_directories(deps_core PUBLIC
   "${ORCA_SRC}/deps_src"
   "${ORCA_SRC}/deps_src/admesh"
-  "${ORCA_SRC}/deps_src/clipper"
   "${ORCA_SRC}/deps_src/clipper2/Clipper2Lib/include"
   "${ORCA_SRC}/deps_src/expat"
   "${ORCA_SRC}/deps_src/glu-libtess/include"
