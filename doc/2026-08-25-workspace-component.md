@@ -185,6 +185,39 @@ Follow-up validation on 2026-10-02:
 - `git diff --check` — passed. No native rebuild or Web-host E2E was needed
   for these desktop test-only adaptations.
 
+The device-height and Project/Objects/Plates follow-up updates the unit and
+host regressions to select the configuration surface explicitly. Current-plate
+checks assert the selected list entry and total list count, preserving identity
+coverage after the toolbar label became a count. The sidebar regression also
+checks the device content-height cap, Preview materials, the plate-list midpoint
+limit, and the fixed action row during list scrolling. Painting regressions
+expect the relocated actions to remain visible but disabled while editing.
+
+Validation on 2026-10-04:
+
+- `pnpm test` — all workspace unit suites passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop test:e2e` — renderer build and CSS smoke passed;
+  45 tests passed, 12 conditional tests skipped.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts e2e/prime-tower.e2e.ts e2e/scoped-configuration-input.e2e.ts --max-failures=2`
+  — 34 tests passed, 4 conditional tests skipped.
+- `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts web.e2e.ts -g 'multi-plate Prepare grid interactions'`
+  — 1 real-Web test passed.
+- `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts web.e2e.ts -g 'real printer bed STL|multi-plate Preview'`
+  — 2 real-Web tests passed, including retained plate-local Preview results.
+- `pnpm --filter @orca/desktop test:e2e:real` — all 10 functional and
+  performance tests passed with freshly staged artifacts, including two-plate
+  slicing/export, plate switching, Add Plate, and native history restoration.
+  The runner verified that the canonical project fixture was unchanged.
+- `node scripts/run-arrangement-e2e.mjs --desktop-only` — the serial real-WASM
+  arrangement, history, and relocated current-plate entry test passed.
+- `pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`
+  — both serial real-WASM painting regressions passed, including disabled
+  plate actions during painting and native edits, history, camera, and close.
+- `git diff --check` — passed. No native rebuild was needed because no C++,
+  bridge, or build-scaffold code changed. Dedicated instrumented profiling and
+  the full dual-host/dual-WASM release matrix were not run.
+
 The following historical results apply to the original workspace extraction:
 
 - `pnpm typecheck`, `pnpm test` (282 unit tests, incl. the slicer-app

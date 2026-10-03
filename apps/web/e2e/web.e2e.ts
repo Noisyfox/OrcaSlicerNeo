@@ -1,3 +1,4 @@
+import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 import { readFile } from 'node:fs/promises';
@@ -33,7 +34,7 @@ test('real printer bed STL renders and updates with the selected printer', async
   expect((await models())[0].position[1]).toBeCloseTo(0);
   await page.screenshot({ path: test.info().outputPath('printer-bed.png') });
   const mini = (await models())[0];
-  await page.getByTestId('add-plate').click();
+  await clickPlateControl(page, 'add-plate');
   await expect.poll(async () => (await models())[0]?.position).not.toEqual(mini.position);
   expect(await models()).toHaveLength(1);
   expect((await models())[0].geometry).toBe(mini.geometry);
@@ -642,7 +643,9 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('config-mode-plates').click();
   await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: 120_000 });
+
   await expect(page.getByTestId('delete-plate')).toBeDisabled();
   const readBeds = () => page.evaluate(() =>
     (window as unknown as {
@@ -688,6 +691,7 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await page.locator('#app-tab-preview').click();
   await expect.poll(readBeds).toHaveLength(1);
   await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('config-mode-plates').click();
   await expect(page.getByTestId('plate-controls')).toBeVisible();
   await expect.poll(readBeds).toHaveLength(1);
 
@@ -699,8 +703,8 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
 
   await expect.poll(readCamera).not.toBeUndefined();
   const cameraBefore = await readCamera();
-  await page.getByTestId('add-plate').click();
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+  await clickPlateControl(page, 'add-plate');
+  await expectCurrentPlate(page, 'Plate 2', 2);
   await expect.poll(readCamera).toEqual(cameraBefore);
 
   // Preview deliberately keeps only the selected authoritative bed after
@@ -709,20 +713,21 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await page.locator('#app-tab-preview').click();
   await expect.poll(readBeds).toHaveLength(1);
   await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('config-mode-plates').click();
   await expect(page.getByTestId('plate-controls')).toBeVisible();
   await expect.poll(readBeds).toHaveLength(2);
 
   await clickBed(0);
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 1 (2/36)');
+  await expectCurrentPlate(page, 'Plate 1', 2);
   await clickBed(1);
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+  await expectCurrentPlate(page, 'Plate 2', 2);
   const modelCenter = (await readModels())[0];
   if (!modelCenter) throw new Error('model center is unavailable');
   await clickWorld(modelCenter);
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+  await expectCurrentPlate(page, 'Plate 2', 2);
 
-  await page.getByTestId('add-plate').click();
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 3 (3/36)');
+  await clickPlateControl(page, 'add-plate');
+  await expectCurrentPlate(page, 'Plate 3', 3);
   const bedsBeforeReflow = await readBeds();
   const plate3Before = bedsBeforeReflow[2];
   if (!plate3Before?.plateId) throw new Error('third plate identity is unavailable');
@@ -732,14 +737,14 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await expect.poll(readModels).toHaveLength(2);
   const modelsBeforeReflow = await readModels();
   await clickBed(1);
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (3/36)');
-  await page.getByTestId('delete-plate').click();
+  await expectCurrentPlate(page, 'Plate 2', 3);
+  await clickPlateControl(page, 'delete-plate');
   await expect.poll(readBeds).toHaveLength(2);
   const bedsAfterReflow = await readBeds();
   const plate3After = bedsAfterReflow.find((bed) => bed.plateId === plate3Before.plateId);
   if (!plate3After) throw new Error('reflowed third plate identity is unavailable');
   expect(bedsAfterReflow.find((bed) => bed.current)?.plateId).toBe(plate3Before.plateId);
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 3 (2/36)');
+  await expectCurrentPlate(page, 'Plate 3', 2);
   const modelsAfterReflow = await readModels();
   expect(modelsAfterReflow).toHaveLength(modelsBeforeReflow.length);
   expect(modelsAfterReflow[1][0] - modelsBeforeReflow[1][0])
@@ -749,10 +754,11 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await expect.poll(readCamera).toEqual(cameraBefore);
 
   for (let count = 3; count <= 36; count += 1) {
-    await page.getByTestId('add-plate').click();
-    await expect(page.getByTestId('current-plate-label')).toHaveText(`Plate ${count} (${count}/36)`);
+    await clickPlateControl(page, 'add-plate');
+    await expectCurrentPlate(page, `Plate ${count}`, count);
   }
-  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 36 (36/36)');
+  await expectCurrentPlate(page, 'Plate 36', 36);
+  await page.getByTestId('config-mode-plates').click();
   await expect(page.getByTestId('add-plate')).toBeDisabled();
 });
 
@@ -906,6 +912,7 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
   });
   await phaseStep('enter Prepare', 60_000, async () => {
     await page.locator('#app-tab-prepare').click({ timeout: 30_000 });
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: 30_000 });
   });
 
@@ -914,8 +921,8 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
     await page.getByTestId('btn-add-model').click({ timeout: 30_000 });
     await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 120_000 });
-    await page.getByTestId('add-plate').click({ timeout: 30_000 });
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)', { timeout: 30_000 });
+    await clickPlateControl(page, 'add-plate', { timeout: 30_000 });
+    await expectCurrentPlate(page, 'Plate 2', 2, { timeout: 30_000 });
   });
   const beds = await page.evaluate(() => (window as unknown as {
     __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number]; bounds: { minX: number; maxX: number; minY: number; maxY: number } }> };
@@ -977,6 +984,7 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
   // Preview exposes the same authoritative plate selection transaction in its
   // left sidebar. The first plate is valid but unsliced, so selecting it must
   // release plate 2's renderer projection and show the explicit empty state.
+  await page.getByTestId('config-mode-plates').click();
   const plateList = page.getByTestId('preview-plate-list');
   await expect(plateList).toBeVisible();
   const plate1Option = page.getByTestId(`preview-plate-${plate1.plateId}`);

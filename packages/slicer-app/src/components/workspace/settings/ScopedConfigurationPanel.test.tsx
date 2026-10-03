@@ -79,6 +79,7 @@ describe('scoped field drafts', () => {
     const metadata = {
       layer_height: { type: 'float' as const, label: 'Layer height', category: 'Quality', scopes: ['project', 'object'] as const },
       initial_layer_print_height: { type: 'float' as const, label: 'First layer height', category: 'Quality', scopes: ['project', 'object'] as const },
+      travel_speed: { type: 'float' as const, label: 'Travel speed', category: 'Speed', scopes: ['project', 'object'] as const },
       wall_loops: { type: 'int' as const, label: 'Wall loops', category: 'Strength', scopes: ['object'] as const },
       machine_gcode: { type: 'string' as const, label: 'Machine G-code', category: 'Machine', scopes: ['object'] as const },
     };

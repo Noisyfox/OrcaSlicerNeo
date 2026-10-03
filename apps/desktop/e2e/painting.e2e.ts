@@ -193,6 +193,7 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     };
     const cameraPose = () => page.evaluate(() => { const state = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.cameraState(); return { position: state.position, quaternion: state.quaternion, target: state.target }; });
     const beforeOpenCamera = await cameraPose();
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('plate-controls')).toBeVisible();
     await startFrames(); await settleFrames(); await page.getByTestId('gizmo-btn-paint').click();
     const read = () => page.evaluate(() => ((window as unknown as { __orcaE2e?: Record<string, any> }).__orcaE2e?.paintingEvidence as (() => Evidence) | undefined)?.() ?? null);
@@ -200,7 +201,8 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     const history = () => page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.historyNativeStatus());
     const idle = async () => { await expect(page.getByTestId('painting-panel')).toHaveAttribute('data-phase', 'idle'); await expect.poll(async () => (await read())?.resources.length ?? 0).toBeGreaterThan(0); };
     await idle(); await settleFrames();
-    await expect(page.getByTestId('plate-controls')).toHaveCount(0);
+    await expect(page.getByTestId('add-plate')).toBeDisabled();
+    await expect(page.getByTestId('arrange-current-plate')).toBeDisabled();
     await assertPaintingArmed('idle'); await assertPaintingArmed('idle-hover', true);
     await page.screenshot({ path: test.info().outputPath('painting-toolbar-active.png') });
     const near = (actual: number[], expected: number[]) => actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 8));

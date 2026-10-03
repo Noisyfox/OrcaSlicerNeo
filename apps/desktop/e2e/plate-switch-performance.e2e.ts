@@ -46,6 +46,7 @@ test('switches several non-current plates within the interactive budget', async 
       sourceByteLength: statSync(resolve(projectPath)).size,
       nativeResult: { multiPlate: true, plateCount: 11 },
     });
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('current-plate-label')).toBeVisible({ timeout: 300_000 });
     await expect.poll(() => page.evaluate(() => {
       const hook = (window as unknown as { __orcaE2e?: { bedPlateStates?: () => unknown[] } }).__orcaE2e;
@@ -71,7 +72,7 @@ test('switches several non-current plates within the interactive budget', async 
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
-    const readCurrentLabel = () => page.getByTestId('current-plate-label').textContent();
+    const readCurrentLabel = () => page.getByTestId('preview-plate-list').locator('[aria-selected="true"]').textContent();
     const latencies: number[] = [];
     // The first scene click is a cold navigation through the already-loaded
     // Worker/React path; keep a separate, explicit cold budget. Subsequent
@@ -99,7 +100,7 @@ test('switches several non-current plates within the interactive budget', async 
               plateId?: string; current: boolean;
             }> } }).__orcaE2e;
             const selected = hook?.bedPlateStates?.().some((bed) => bed.current && bed.plateId === plateId) ?? false;
-            const label = document.querySelector('[data-testid="current-plate-label"]')?.textContent;
+            const label = document.querySelector('[data-testid="preview-plate-list"] [aria-selected="true"]')?.textContent;
             return selected && label !== oldLabel;
           }, { plateId: target!.plateId, oldLabel: previousLabel }, { timeout: 1_000, polling: 'raf' });
           latencies.push(performance.now() - started);

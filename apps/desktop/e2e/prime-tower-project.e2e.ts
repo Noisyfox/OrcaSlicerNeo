@@ -135,7 +135,9 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     // equate it with that archive-preview count. Wait for the active first
     // plate and a valid session count; the later tower/history assertions
     // prove the multi-filament projection from the imported project.
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('current-plate-label')).toBeVisible({ timeout: 300_000 });
+    await page.getByTestId('config-mode-project').click();
     await page.getByTestId('config-page-Multi.').click();
     await expect(page.getByTestId('config-field-enable_prime_tower').getByRole('checkbox')).toBeChecked();
     await expect(page.locator('#wipe_tower_x')).toHaveCount(0);
@@ -424,6 +426,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       const bed = beds.find((candidate) => candidate.plateId === plateId);
       if (!bed) {
         await clickPreviewTab('select plate from preview list');
+        await page.getByTestId('config-mode-plates').click();
         const item = page.getByTestId(`preview-plate-${plateId}`);
         await expect(item).toBeVisible({ timeout: 30_000 });
         await item.scrollIntoViewIfNeeded();
@@ -442,6 +445,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       // The preview list is the authoritative UI fallback after a slice has
       // replaced the prepare scene with only the active bed.
       await clickPreviewTab('select plate from preview list');
+      await page.getByTestId('config-mode-plates').click();
       const item = page.getByTestId(`preview-plate-${plateId}`);
       await expect(item).toBeVisible({ timeout: 30_000 });
       await item.scrollIntoViewIfNeeded();
