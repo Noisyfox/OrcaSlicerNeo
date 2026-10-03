@@ -30,7 +30,7 @@
     "sinking-out-of-bounds-smoke": "node harness/sinking-out-of-bounds-smoke.mjs out/serial/orca_slice.js"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "vitest": "^2.1.9"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }
