@@ -9,6 +9,7 @@
 ## Accepted behavior
 
 - Help contains **File Manager…**. It is available during startup, after startup failure, and after the WASM runtime is ready. It opens one non-modal floating window; reopening the command raises the existing window.
+- Completing startup preserves the open window and its current directory. The File Manager keeps the same root-level React position across startup and Ready, outside the Ready-only arrangement editing boundary.
 - The window stays above the application's other panels, supports dragging by its title bar and resizing from a visible handle, and remains usable within the viewport. It does not block interaction with the application behind it.
 - The title area shows the current absolute Emscripten path. The directory listing has exactly two columns: **Name** and **Size**. Its first row is `../`; at `/` that row is disabled. Directory names end in `/`.
 - A visible **Refresh** title-bar action re-reads the current directory. It lets users inspect files mounted during startup and retry after a transient listing error without closing the window.
@@ -38,3 +39,4 @@
 - Independent acceptance reran repository tests and typechecks, the real-Worker Web download E2E, the focused Electron E2E, renderer CSS smoke, and the complete branch diff check; all passed.
 - After adopting shadcn `Table` and the standalone `cn` package, the slicer-app suite passes (87 files/678 tests), slicer-app/desktop/web typechecks pass, and the focused real-Worker Web File Manager E2E passes. The File Manager unit test checks the Table markup, sticky header, scroll ownership, and existing navigation/download behavior.
 - The disabled-row hover regression is covered by the focused File Manager suite (5 tests); the slicer-app typecheck and focused real-Worker Web File Manager E2E pass.
+- The 2026-10-03 integration passes the existing startup-to-Ready File Manager regression with both threaded and serial real Web Workers. Repository unit tests (1,443 tests) and typechecks pass.
