@@ -158,6 +158,13 @@ staging/copy, or receipt verification was skipped.
 
 ## Test Quality and Maintenance
 
+- All workspace packages use Vitest 5.0.3. Follow the
+  [official migration guide](https://vitest.dev/guide/migration/) when updating
+  the runner. Vitest 5 clears mock call history before each test by default:
+  capture values produced during module initialization before that cleanup,
+  and keep assertions independent of calls from earlier tests. Await all
+  asynchronous assertions. Generated reports and attachments belong in the
+  ignored `.vitest/` directory.
 - Keep test output quiet. Expected errors must be captured explicitly, and
   React component tests must configure the `act` environment correctly so
   warnings do not hide regressions.

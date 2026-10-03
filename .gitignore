@@ -5,6 +5,8 @@ out/
 # Playwright artifacts (both hosts)
 test-results/
 playwright-report/
+# Vitest generated reports and attachments
+.vitest/
 *.local
 .DS_Store
 packages/slicer-wasm/.work/

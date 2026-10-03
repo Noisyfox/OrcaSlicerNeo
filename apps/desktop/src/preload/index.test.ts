@@ -24,9 +24,11 @@ vi.mock('electron', () => ({
 
 await import('./index');
 
+// Capture the startup bridge before Vitest clears mock call history per test.
+const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+
 describe('Electron preload bridge', () => {
   it('exposes only narrow menu/source operations and fixed channels', async () => {
-    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
     const model = { version: 1 as const, menuMode: 'native' as const, menus: [] };
     const snapshot = {
       version: 1 as const,
@@ -62,7 +64,6 @@ describe('Electron preload bridge', () => {
   });
 
   it('filters native command events and removes the exact listener', () => {
-    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
     const listener = vi.fn();
     const cleanup = bridge.menu.onCommand(listener);
     const handler = electronMocks.on.mock.calls.at(-1)?.[1] as (event: unknown, value: unknown) => void;
@@ -77,7 +78,6 @@ describe('Electron preload bridge', () => {
   });
 
   it('validates printer configuration payloads and uses dedicated IPC channels', async () => {
-    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
     const document = {
       version: 1 as const,
       printers: [{
@@ -97,7 +97,6 @@ describe('Electron preload bridge', () => {
   });
 
   it('exposes structured transport IPC and filters progress payloads', async () => {
-    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
     const listener = vi.fn();
     const cleanup = bridge.printers.transport.onProgress(listener);
     const handler = electronMocks.on.mock.calls.at(-1)?.[1] as (event: unknown, id: unknown, progress: unknown) => void;
@@ -119,7 +118,6 @@ describe('Electron preload bridge', () => {
   });
 
   it('exposes project bytes and opaque location tokens without a path API', async () => {
-    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
     await bridge.projects.open();
     await bridge.projects.save('opaque-token', 'scene.3mf', new ArrayBuffer(2));
     await bridge.projects.saveAs('scene.3mf', new ArrayBuffer(2));
@@ -130,14 +128,12 @@ describe('Electron preload bridge', () => {
   });
 
   it('forwards modern dropped-file path resolution only through the host bridge', () => {
-    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
     const file = {} as File;
     expect(bridge.projects.getPathForFile(file)).toBe('C:\\drop\\scene.3mf');
     expect(electronMocks.getPathForFile).toHaveBeenCalledWith(file);
   });
 
   it('exposes close requests as a narrow lifecycle bridge', async () => {
-    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
     const listener = vi.fn();
     const cleanup = bridge.lifecycle.onCloseRequest(listener);
     const handler = electronMocks.on.mock.calls.at(-1)?.[1] as () => void;
