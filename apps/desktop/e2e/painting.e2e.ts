@@ -103,6 +103,16 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
   const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
   try {
     const page = await app.firstWindow(); await page.setViewportSize({ width: 1400, height: 900 });
+    await page.evaluate(() => {
+      const events: unknown[] = [];
+      (window as unknown as { __paintingInputDiagnostics: unknown[] }).__paintingInputDiagnostics = events;
+      for (const type of ['pointermove', 'pointerdown', 'pointerleave', 'wheel', 'blur'])
+        window.addEventListener(type, (event) => {
+          const pointer = event as PointerEvent;
+          events.push({ at: performance.now(), type, x: pointer.clientX, y: pointer.clientY,
+            target: (event.target as Element | null)?.nodeName });
+        }, true);
+    });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
     if (process.platform === 'darwin') {
@@ -239,7 +249,15 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await page.getByTestId('painting-tool-triangle').click();
     const topFaces = await page.evaluate(() => {
       const hooks = (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e;
-      return [[105, 95, 20], [95, 105, 20]].map((world) => hooks.paintingWorldToScreen(world));
+      const canvas = document.querySelector('[data-testid="viewport"] canvas');
+      // Zoom can put a cap point under the floating toolbar. Keep both
+      // samples inside their distinct native triangles and on the canvas.
+      for (const offset of [5, 2, 1]) {
+        const points = [[100 + offset, 100 - offset, 20], [100 - offset, 100 + offset, 20]]
+          .map((world) => hooks.paintingWorldToScreen(world));
+        if (points.every((point) => document.elementFromPoint(point.x, point.y) === canvas)) return points;
+      }
+      throw new Error('two visible native top triangles are required for continuous hover');
     });
     const triangleHistory = await history();
     await page.mouse.move(topFaces[0]!.x, topFaces[0]!.y);
@@ -252,7 +270,18 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     for (const point of [topFaces[1], topFaces[0], topFaces[1], topFaces[0]]) {
       const before = (await read())!.resources.find((r) => r.kind === 'triangle')!.contourGeometry;
       await page.mouse.move(point.x, point.y);
-      await expect.poll(async () => (await read())!.resources.find((r) => r.kind === 'triangle')?.contourGeometry).not.toBe(before);
+      await expect.poll(async () => {
+        const leaf = (await read())?.resources.find((r) => r.kind === 'triangle');
+        return leaf?.matchesDraftLeaf === true && typeof leaf.contourGeometry === 'string' && leaf.contourGeometry !== before;
+      }).toBe(true).catch(async (error) => {
+        const diagnostics = { point, before, topFaces, evidence: await read(), frames: await readFrames(),
+          native: await page.evaluate(() => (window as unknown as { __orcaE2e: Record<string, any> }).__orcaE2e.paintingPerformanceEvidence()) };
+        await test.info().attach('painting-triangle-hover-failure', {
+          body: Buffer.from(JSON.stringify(diagnostics, null, 2)), contentType: 'application/json',
+        });
+        await page.screenshot({ path: test.info().outputPath('painting-triangle-hover-failure.png') });
+        throw error;
+      });
       const leaf = (await read())!.resources.find((r) => r.kind === 'triangle')!;
       expect(leaf.matchesDraftLeaf).toBe(true); hoverContours.push(leaf.contour!); await settleFrames();
     }
@@ -292,7 +321,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     for (const point of [regionPoints[1], regionPoints[0], regionPoints[1], regionPoints[0]]) {
       const before = (await read())!.resources.find((r) => r.kind === 'region')!.vertices;
       await page.mouse.move(point.x, point.y);
-      await expect.poll(async () => (await read())!.resources.find((r) => r.kind === 'region')?.vertices).not.toEqual(before);
+      await expect.poll(async () => {
+        const region = (await read())?.resources.find((r) => r.kind === 'region');
+        return region?.matchesDraftLeaf === true && region.vertices !== undefined && JSON.stringify(region.vertices) !== JSON.stringify(before);
+      }).toBe(true);
       const region = (await read())!.resources.find((r) => r.kind === 'region')!;
       expect(region.matchesDraftLeaf).toBe(true); regions.push(region); await settleFrames();
     }
@@ -382,9 +414,14 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         const dashCounts: number[] = [];
         await startFrames(); await settleFrames();
         for (const [name, delta] of [['zoomed-out', 500], ['restored', -500]] as const) {
+          const cameraBeforeWheel = (await read())!.camera;
           await page.mouse.wheel(0, delta);
+          // mouse.wheel() returns before the browser processes the wheel.
+          // Wait for its camera update before sending the new hover sample.
+          await expect.poll(async () => (await read())!.camera).not.toEqual(cameraBeforeWheel);
           await idle();
           const center = (await read())!.center;
+          await page.mouse.move(center.x + 1, center.y);
           await page.mouse.move(center.x, center.y); await settleFrames();
           await expect.poll(async () => (await readFrames()).at(-1)?.draws.at(-1)?.cursor?.lineWidth).toBe(2);
           const actual = (await readFrames()).at(-1)!.draws.at(-1)!.cursor!;
@@ -470,7 +507,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         for (const next of [topFaces[1], topFaces[0]]) {
           const before = (await read())!.resources.find((r) => r.kind === 'triangle')!.contourGeometry;
           await page.mouse.move(next.x, next.y);
-          await expect.poll(async () => (await read())!.resources.find((r) => r.kind === 'triangle')?.contourGeometry).not.toBe(before);
+          await expect.poll(async () => {
+            const leaf = (await read())?.resources.find((r) => r.kind === 'triangle');
+            return leaf?.matchesDraftLeaf === true && typeof leaf.contourGeometry === 'string' && leaf.contourGeometry !== before;
+          }).toBe(true);
           expect((await read())!.resources.find((r) => r.kind === 'triangle')!.matchesDraftLeaf).toBe(true);
           await settleFrames();
         }
@@ -624,7 +664,10 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     for (const value of ['4', '3', '4']) {
       const before = (await read())!.resources.find((r) => r.kind === 'gap')!.contourGeometry;
       await area.fill(value);
-      await expect.poll(async () => (await read())!.resources.find((r) => r.kind === 'gap')?.contourGeometry).not.toBe(before);
+      await expect.poll(async () => {
+        const leaf = (await read())?.resources.find((r) => r.kind === 'gap');
+        return leaf?.matchesDraftLeaf === true && typeof leaf.contourGeometry === 'string' && leaf.contourGeometry !== before;
+      }).toBe(true);
       const selection = (await read())!.resources.filter((r) => r.kind === 'gap');
       expect(selection).toHaveLength(gapResources.length); expect(selection.every((r) => r.matchesDraftLeaf)).toBe(true);
       gapSelections.push(selection); await settleFrames();
@@ -950,5 +993,15 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
     await expect(page.locator('#app-tab-preview')).toHaveAttribute('aria-selected', 'true', { timeout: 60_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+  } catch (error) {
+    const page = await app.firstWindow();
+    const diagnostics = await page.evaluate(() => {
+      const value = window as unknown as { __orcaE2e: Record<string, any>; __paintingInputDiagnostics: unknown[] };
+      return { state: value.__orcaE2e.paintingEvidence(), native: value.__orcaE2e.paintingPerformanceEvidence(), inputs: value.__paintingInputDiagnostics };
+    });
+    const path = test.info().outputPath('painting-failure-state.json');
+    writeFileSync(path, JSON.stringify(diagnostics, null, 2));
+    await test.info().attach('painting-failure-state', { path, contentType: 'application/json' });
+    throw error;
   } finally { await app.close(); }
 });

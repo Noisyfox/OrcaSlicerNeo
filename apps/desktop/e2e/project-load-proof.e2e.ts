@@ -1,4 +1,4 @@
-import { openProjectMenu } from './project-menu';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // This is intentionally separate from viewport assertions: it proves the
 // real 3MF selected by the Electron host became the native project session.
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
@@ -73,10 +73,7 @@ test('commits the requested multi-plate project before dependent E2E assertions'
         : `waiting:${evidence?.receipt === null}:${progress}:${message}`;
     }), { timeout: 300_000 }).toBe('native-progress-before-result');
 
-    const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
-
+    await waitForProjectLoad(page);
     await expect.poll(readEvidence, { timeout: 300_000 }).toMatchObject({
       receipt: {
         sourceDisplayName: PROJECT_FILE_NAME,

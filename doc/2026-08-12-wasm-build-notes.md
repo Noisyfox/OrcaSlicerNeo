@@ -13,7 +13,7 @@ hit, the bridge JSON contract, and the known M2 work. Companion to the approved 
 
 `packages/slicer-wasm` compiles the pinned C++ submodule
 (`cpp/` → `Noisyfox/OrcaSlicer`, branch `dev/orcaslicerneo-wasm`, based on
-upstream main `3384daa6bc`, merged into the existing WASM branch) into Emscripten wasm64
+upstream main `a6dbf2502d`, merged into the existing WASM branch) into Emscripten wasm64
 modules: threaded and serial TBB variants, scaffold CMake with a denylist of
 dropped features, the OCCT/XCAF STEP closure, the extern "C" bridge API, and
 the CLI driver. The build machinery is inherited from the phase-0 spike and
@@ -31,7 +31,8 @@ Artifacts land in
 > apply `patches/orca`. On 2026-10-01, upstream main `3384daa6bc` was merged as
 > `41a96752d9afc747ccdd9d88e85c474bb8abcc95`, followed by WASM logging
 > adaptation `489cbe91840ff97aaf4d8029009d5db410f32893`. The superproject now
-> pins the latter commit.
+> pinned the latter commit at that date. The current 2026-10-03 integration is
+> recorded below.
 
 The build is **not push-button** — it is an iteration surface. When it fails,
 work the loops in AGENTS.md ("WASM Build Workflow") and this note's
@@ -114,8 +115,8 @@ The previous build-time patch files have been replaced by individual commits
 on the submodule branch `dev/orcaslicerneo-wasm`, originally based on upstream
 commit `b97ca3c0ac`. The table records those original patches in application
 order, ending at `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The branch now
-contains upstream main `3384daa6bc` through merge `41a96752d9`; the current
-gitlink pins `489cbe91840ff97aaf4d8029009d5db410f32893`.
+contains upstream main `a6dbf2502d` through final merge `9d3118b7a4`; the current
+gitlink pins `9d3118b7a406a4e44d5344ae69c084f01d72e772`.
 Build scripts compile the pinned source directly. Publish the
 submodule branch before distributing a superproject commit that depends on it.
 
@@ -133,7 +134,81 @@ submodule branch before distributing a superproject commit that depends on it.
 | 10 | `0010-config-option-vector-resize-stable-default.patch` | `62188ffb4b` | `Config.hpp` — copy the default value before resize may reallocate the vector. |
 | 11 | `0011-extruder-variant-missing-options.patch` | `c7801bdbdb` | `PrintConfig.cpp` — create missing extruder variant options before extending them. |
 
-### Current upstream integration (2026-10-01)
+### Current upstream integration (2026-10-03)
+
+Upstream main `8a6377f087e3f422275cd788339e1fa64a280f50` is recorded
+separately as merge `232ea2783da4984b57c2321a2f03c336d88e33ee`. The sole
+merge conflict in `EdgeGrid.cpp` retains upstream's explicit geometry includes
+and the existing removal of the unavailable libpng include.
+
+The delivery-time refresh also includes upstream main
+`a6dbf2502d0e0d6d6fcd7aa7b9089c397f3493a0`, merged separately as
+`9d3118b7a406a4e44d5344ae69c084f01d72e772`. That last upstream increment
+changes the original GUI/WebView and plugin pages only; `src/libslic3r`,
+`deps_src`, and `resources/profiles` are identical to the previously qualified
+`9ac6431df4`. Both Release artifacts are rebuilt with the final commit metadata.
+
+The WASM scaffold follows upstream's Clipper2 2.0.1 migration: it removes the
+deleted Clipper1 source/include path and includes Clipper2 triangulation in
+both its ordinary and Z builds. Threaded builds retain oneTBB's scalable
+allocator; the serial shim supplies the global allocation functions through
+`std::malloc` and `std::free`. Both build drivers generate a forwarding header
+for libnoise's `module/modulebase.h`.
+
+The separate `8d77d2f53d` submodule adaptation routes the newly explicit
+Boost.Thread lock/time includes in `Print.cpp` and `bbs_3mf.cpp` through the
+existing WASM shim and
+guards the new synchronous Boost.Log frontend include in `utils.cpp`, where
+native file logging is already disabled. Native builds keep their explicit
+upstream includes. Neo's separate synchronous console/MEMFS logging continues
+to use the real Boost.Log frontend; its Boost.Thread headers are not globally
+replaced with lock/time forwarding headers.
+
+Full native acceptance exposed an uninitialized `ModelVolume::mmuseg_ts`:
+copied/restored volumes could accidentally treat an empty extruder cache as
+current, losing the painted Prime Tower on Redo. Submodule commit
+`9ac6431df4` initializes the timestamp to zero, which native facet timestamps
+reserve as unreliable. The standalone identity test now checks restored and
+copied painted extruder use and includes Cereal's pair serializer explicitly.
+
+The multi-material 3MF roundtrip also exposed expanded project options in an
+embedded Filament preset. Neo's temporary inputs to
+`PresetBundle::construct_full_config` now use the native default Filament key
+set, matching `PresetBundle::full_config`, and retain native defaults for
+missing Filament fields. This prevents missing options in other rack slots
+from reaching the static assembler's vector merge; draft overrides are applied
+before the temporary configuration is restricted to Filament-owned fields.
+
+Acceptance also includes Neo main `3cec8a183a`, merged before qualification.
+The accepted Windows checks are recorded below; command definitions and scope
+remain in [README](../README.md) and [testing guidelines](testing_guidelines.md).
+
+| Check | Accepted result |
+| --- | --- |
+| `pnpm -r test`; `pnpm -r typecheck` | 1,443 tests in 153 files passed; every workspace typecheck passed. |
+| `scripts\build-windows.bat build --variant both -j 12`; `smoke --variant both` | Full threaded and serial Release reconfigure/build/link/stage and both smoke suites passed at final pin `9d3118b7a4`. Generated version is `v2.2.0-7301-g9d3118b7a4`. |
+| Profile resources and real fixtures | All 67 profile packages built; official project fixture sizes/hashes verified. |
+| Native WASM harnesses | All 55 applicable extended gates and all 20 real multi-filament checklist gates passed, covering profiles, history, mutation/invalidation, painting, Prime Tower, arrangement, geometry, and project interoperability. Serial NODEFS is inapplicable; serial uses MEMFS. |
+| Standalone C++ history and test-hook acceptance | Five direct runners passed: timestamped history, painting session, mesh capture, instance identity, and plate runtime. Both gated painting harnesses passed, including all four channels, Undo/Redo, unaffected-plate reuse, and injected rollback failures. These source-level results were obtained at `9ac6431df4` and retained after verifying the final GUI-only upstream increment leaves core/dependency/profile sources identical. |
+| Electron and Web host suites | Desktop mock/UI: 45 passed, 11 conditional skips. Desktop real: 10 passed, including large-project performance cases. Web threaded: 12 passed, 4 conditional skips; Web serial: 11 passed, 5 conditional skips. |
+| Dedicated real host proofs | Imported painted facets: Electron and Web passed. Four-channel painting: Electron and Web passed; the full suite passed three consecutive times, with the final run on `9d3118b7a4`. Arrangement: Desktop serial, Desktop threaded, and Web threaded passed. Native project-load progress: both Web variants passed. |
+| Production delivery | Web non-root deployment smoke passed. Standard `pnpm --filter @orca/desktop package:dir` passed on retry after a transient download TLS failure; all three fresh packaged runtime/missing-core/corrupt-core probes passed. Painting and real-project production-profile exclusion gates passed. |
+| Artifact identity | All six packaged JS/WASM/DATA hashes match the final dual-build outputs. All four Web WASM/DATA hashes match; Web JS has the intended Vite import rewrite. Both Release configurations have history test hooks and both profiling flags disabled. |
+
+All final-artifact functional gates were rerun after the final upstream refresh.
+The startup File Manager regression is fixed and covered on both Web variants;
+real project-load acceptance now handles delayed native confirmation, and
+painting acceptance waits for complete geometry evidence at unobstructed canvas
+targets without weakening the continuous-frame assertions.
+
+This is local Windows qualification. Remote CI and Linux/macOS packaging were
+not run here. The original wxWidgets GUI is outside the Neo WASM build; the
+optional native Orca GUI roundtrip fixture was unavailable, and native CLI
+output crosschecks remain deferred. Dedicated painting benchmarks and
+real-project profile collection were not run; the existing real-project
+performance cases and production exclusion gates passed.
+
+The earlier integration remains the basis for the retained adaptations:
 
 The merge of main `3384daa6bcbdfccea9797238fc7acb9f4144dae8` is recorded
 separately as `41a96752d9afc747ccdd9d88e85c474bb8abcc95`. Upstream now

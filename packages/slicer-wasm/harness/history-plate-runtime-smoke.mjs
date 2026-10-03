@@ -1,7 +1,7 @@
 // Step 7 real-WASM history/runtime reconciliation smoke.
 //
-// Every history restore invalidates derived results on all plates. Neither
-// plate republishes its old presentation on Undo/Redo. Delete Plate Undo
+// History restores invalidate results only on affected plates. An unaffected
+// plate retains its current receipt across Undo/Redo. Delete Plate Undo
 // recreates a fresh invalid runtime entry for the restored stable id.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
@@ -83,22 +83,28 @@ const afterEditStamps = stamps();
 if (!(afterEditStamps[plateA] > slicedStamps[plateA]) || afterEditStamps[plateB] !== slicedStamps[plateB])
   throw new Error(`edit stamp reconciliation failed: ${JSON.stringify({ slicedStamps, afterEditStamps })}`);
 
-requireStatus('Undo A edit', callJson('orc_history_undo'));
+const undone = requireStatus('Undo A edit', callJson('orc_history_undo'));
+if (JSON.stringify(undone.affected_plate_ids) !== JSON.stringify([plateA]))
+  throw new Error(`Undo affected the wrong plates: ${JSON.stringify(undone.affected_plate_ids)}`);
 const afterUndoStamps = stamps();
-if (!(afterUndoStamps[plateA] > afterEditStamps[plateA]) || !(afterUndoStamps[plateB] > afterEditStamps[plateB]))
-  throw new Error(`undo did not advance every plate stamp: ${JSON.stringify({ afterEditStamps, afterUndoStamps })}`);
+if (!(afterUndoStamps[plateA] > afterEditStamps[plateA]) || afterUndoStamps[plateB] !== afterEditStamps[plateB])
+  throw new Error(`undo stamp reconciliation failed: ${JSON.stringify({ afterEditStamps, afterUndoStamps })}`);
 requireOk('select retained B after Undo', callJson('orc_select_plate', ['string'], [plateB]));
-requireStale('B historical presentation is invalid after Undo', getSliceResult(callJson, sliceB.receipt));
+requireOk('unaffected B retains its presentation after Undo', getSliceResult(callJson, sliceB.receipt));
+requireOk('unaffected B retains its G-code after Undo', exportGcode(callJson, sliceB.receipt));
 requireOk('select changed A after Undo', callJson('orc_select_plate', ['string'], [plateA]));
 requireStale('A never republishes historical presentation on Undo', getSliceResult(callJson, sliceA.receipt));
 requireStale('A export rejects the pre-history target after Undo', exportGcode(callJson, sliceA.receipt));
 
-requireStatus('Redo A edit', callJson('orc_history_redo'));
+const redone = requireStatus('Redo A edit', callJson('orc_history_redo'));
+if (JSON.stringify(redone.affected_plate_ids) !== JSON.stringify([plateA]))
+  throw new Error(`Redo affected the wrong plates: ${JSON.stringify(redone.affected_plate_ids)}`);
 const afterRedoStamps = stamps();
-if (!(afterRedoStamps[plateA] > afterUndoStamps[plateA]) || !(afterRedoStamps[plateB] > afterUndoStamps[plateB]))
-  throw new Error(`redo did not advance every plate stamp: ${JSON.stringify({ afterUndoStamps, afterRedoStamps })}`);
+if (!(afterRedoStamps[plateA] > afterUndoStamps[plateA]) || afterRedoStamps[plateB] !== afterUndoStamps[plateB])
+  throw new Error(`redo stamp reconciliation failed: ${JSON.stringify({ afterUndoStamps, afterRedoStamps })}`);
 requireOk('select retained B after Redo', callJson('orc_select_plate', ['string'], [plateB]));
-requireStale('B historical presentation is invalid after Redo', getSliceResult(callJson, sliceB.receipt));
+requireOk('unaffected B retains its presentation after Redo', getSliceResult(callJson, sliceB.receipt));
+requireOk('unaffected B retains its G-code after Redo', exportGcode(callJson, sliceB.receipt));
 requireOk('select changed A after Redo', callJson('orc_select_plate', ['string'], [plateA]));
 requireStale('A never republishes historical presentation on Redo', getSliceResult(callJson, sliceA.receipt));
 

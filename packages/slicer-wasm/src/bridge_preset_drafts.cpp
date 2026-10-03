@@ -254,6 +254,8 @@ DynamicPrintConfig effective_full_config(
     // swapped, even temporarily.
     if (printer.printer_technology() == ptFFF) {
         Preset print = bundle.prints.get_edited_preset();
+        const DynamicPrintConfig& filament_defaults = bundle.filaments.default_preset().config;
+        const auto filament_keys = filament_defaults.keys();
         std::vector<Preset> filaments;
         filaments.reserve(bundle.filament_presets.size());
         for (const std::string& canonical_name : bundle.filament_presets) {
@@ -262,6 +264,14 @@ DynamicPrintConfig effective_full_config(
                 throw std::runtime_error("selected filament preset not found: " + canonical_name);
             filaments.emplace_back(*source);
             apply_draft(filaments.back(), drafts);
+            // Project-embedded presets may carry the expanded project config.
+            // Orca's ordinary assembler iterates the default Filament keys;
+            // its static assembler instead iterates the first input's keys.
+            // Supply only Filament-owned options, with native defaults for
+            // missing keys, so other slots never supply a null vector option.
+            DynamicPrintConfig owned_config = filament_defaults;
+            owned_config.apply_only(filaments.back().config, filament_keys, true);
+            filaments.back().config = std::move(owned_config);
         }
         if (filaments.empty())
             throw std::runtime_error("selected filament rack has no presets");

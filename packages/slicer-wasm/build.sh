@@ -99,6 +99,8 @@ generate_shim() {
   # libnoise stand-in (FuzzySkin.cpp includes <libnoise/noise.h>).
   mkdir -p "$SHIM_INCLUDE/libnoise"
   cp "$PKG_DIR/shim/libnoise/noise.h" "$SHIM_INCLUDE/libnoise/noise.h"
+  mkdir -p "$SHIM_INCLUDE/libnoise/module"
+  printf '#pragma once\n#include "../noise.h"\n' > "$SHIM_INCLUDE/libnoise/module/modulebase.h"
   # libjpeg stand-in (GCode/Thumbnails.cpp includes <jpeglib.h>/<jerror.h>;
   # stubs/jpeg-stub.cpp provides the no-op implementations).
   cp "$PKG_DIR/shim/jpeglib.h" "$SHIM_INCLUDE/jpeglib.h"

@@ -43,7 +43,7 @@
     "delete-merge-first-middle-last":["command-rollback-serial"],
     "imported-painting-and-tool-changes":["imported-painting-tools-serial","imported-painting-tools-threaded"],
     "imported-flushing-matrix":["flushing-prime-tower-serial","flushing-prime-tower-threaded"],
-    "embedded-presets-and-fallbacks":["project-preflight-rack-serial","project-preflight-rack-threaded","project-preset-restoration-serial","project-preset-restoration-threaded"],
+    "embedded-presets-and-fallbacks":["reader-and-project-serial","reader-and-project-threaded","project-preset-restoration-serial","project-preset-restoration-threaded"],
     "project-save-open-and-history":["history-project-serial","history-project-threaded","project-roundtrip-serial","project-roundtrip-threaded"],
     "mixed-temperature-used-vs-unused":["slice-preview-serial","slice-preview-threaded"],
     "atomic-failure-rollback":["command-rollback-serial","client-boundary"],

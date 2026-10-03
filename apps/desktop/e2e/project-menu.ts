@@ -22,6 +22,25 @@ async function projectMenu(page: Page, app: ElectronApplication, command: 'file-
 }
 
 export const openProjectMenu = (page: Page, app: ElectronApplication) => projectMenu(page, app, 'file-open-project');
+
+/** Keep accepting late native prompts until the project commit is published. */
+export async function waitForProjectLoad(page: Page): Promise<void> {
+  await expect.poll(async () => {
+    if (await page.getByTestId('project-load-choice-dialog').isVisible()) {
+      await page.getByTestId('project-load-project').click();
+      await page.getByTestId('project-load-confirm').click();
+    }
+    if (await page.getByTestId('project-load-confirmation-dialog').isVisible())
+      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    // isVisible() does not wait for a future prompt. Native preflight can
+    // publish progress before compatibility confirmation becomes visible.
+    // Each caller still asserts the exact requested file and native result.
+    return page.evaluate(() => (window as unknown as {
+      __orcaE2e?: { projectLoadEvidence?: () => { receipt: unknown | null } };
+    }).__orcaE2e?.projectLoadEvidence?.().receipt != null);
+  }, { timeout: 300_000 }).toBe(true);
+}
+
 export async function newProjectMenu(page: Page, app: ElectronApplication): Promise<void> {
   const boundary = (await readSliceReceipts(page)).length;
   await projectMenu(page, app, 'file-new-project');

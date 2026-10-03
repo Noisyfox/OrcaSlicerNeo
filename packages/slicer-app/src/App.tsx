@@ -584,7 +584,6 @@ function AppContent() {
         device={<DevicePanel />}
         status={<StatusBar />}
       />
-      {fileManagerWindow}
       <ProjectLoadChoiceDialog
         open={dialog === 'load-choice'}
         input={loadInput}
@@ -622,6 +621,7 @@ function AppContent() {
         onCancel={() => { void cancelProjectOperation(platform); }}
       />
       </ArrangementEditBoundary>
+      {fileManagerWindow}
       <ArrangementStatus />
     </>
   );

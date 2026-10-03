@@ -1,4 +1,4 @@
-import { openProjectMenu } from './project-menu';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
@@ -32,9 +32,7 @@ test('imported opaque RGBA slots colour Prepare models like the filament rack', 
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await page.locator('#app-tab-prepare').click();
     await openProjectMenu(page, app);
-    const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    await waitForProjectLoad(page);
 
     await expect.poll(() => page.evaluate(() => (window as unknown as {
       __orcaE2e?: { projectLoadEvidence?: () => {

@@ -1,4 +1,4 @@
-import { openProjectMenu } from './project-menu';
+import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // Real threaded regression for an imported multi-plate project whose native
 // Process config enables a prime tower without a Neo overlay entry.
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -99,9 +99,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       await page.getByTestId('project-load-project').click();
       await page.getByTestId('project-load-confirm').click();
     }
-    const confirmation = page.getByTestId('project-load-confirmation-dialog');
-    if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
-      await page.getByTestId('project-load-confirmation-dialog-continue').click();
+    await waitForProjectLoad(page);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0, { timeout: 300_000 });
 

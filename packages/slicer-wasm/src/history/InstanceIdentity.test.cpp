@@ -12,6 +12,7 @@
 
 #include <cereal/archives/adapters.hpp>
 #include <cereal/archives/binary.hpp>
+#include <cereal/types/utility.hpp>
 #include <cereal/types/base_class.hpp>
 #include <cereal/types/map.hpp>
 #include <cereal/types/memory.hpp>
@@ -291,6 +292,9 @@ int main()
     CHECK(restored_volume->seam_facets.equals(volume->seam_facets));
     CHECK(restored_volume->mmu_segmentation_facets.equals(volume->mmu_segmentation_facets));
     CHECK(restored_volume->fuzzy_skin_facets.equals(volume->fuzzy_skin_facets));
+    CHECK(restored_volume->get_extruders() == volume->get_extruders());
+    const ModelVolume* copied_volume = restored_object->add_volume(*restored_volume);
+    CHECK(copied_volume->get_extruders() == volume->get_extruders());
 
     Model collision_model;
     ModelObject* collision_object = collision_model.add_object();
