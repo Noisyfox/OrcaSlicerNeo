@@ -1426,6 +1426,56 @@ or generated archives were added. This is focused merge validation; packaged
 installers, performance benchmarks and instrumented fault-injection rebuilds
 were not rerun. Earlier step-19 qualification remains historical evidence.
 
+**Arrangement-main integration verification (2026-10-03):** Parent subsequently
+merged `main` at `226eafcb957f6f6a6629df4cfb59a217980e14f4` (`f3c5252`).
+The one `Viewport.tsx` conflict retains both left-button admission and the live
+arrangement-active guard. A fresh GPT-6.1-sol / medium child resolved that file,
+passed 924 application tests / 111 files and the application typecheck, then
+the parent independently reviewed the combined source and passed the full
+workspace tests/typecheck before completing the merge. The four painting
+entries and their order remain intact; arrangement closes painting before
+publishing transforms and blocks editing during computation.
+
+| Command / focused check | Parent result |
+| --- | --- |
+| `NODE_OPTIONS=--no-experimental-webstorage pnpm test`; `pnpm typecheck` | 1,418 tests / 153 files; all workspace typechecks passed. |
+| `WASM_THREADING=1 bash packages/slicer-wasm/build-nlopt-wasm64.sh`; repeated with `WASM_THREADING=0`; `bash scripts/build.sh quick -j 4` | Separate NLopt dependencies and both current production WASM variants built successfully. |
+| `cmake --build packages/slicer-wasm/.work/<variant>/build --target arrangement_core_test headless_arrangement_test --parallel 2`; execute both `.cjs` targets with Node | Four native algorithm/adapter test runs passed across threaded and serial. |
+| Both production `arrangement-smoke.mjs`; threaded `nodefs-bridge-smoke.mjs`; `bash scripts/build.sh smoke --variant serial` | Arrangement/source-identity/history, NODEFS comprehensive bridge and serial slice/bridge/DRC/STEP contracts passed. Production arrangement rollback injection is explicitly skipped. |
+| Both `painting-backend-smoke.mjs --interop-only --expect-production`; threaded Support/Seam/Fuzzy downstream harnesses | Four-channel annotation/3MF interoperability and actual Support/Seam/Fuzzy native slicing, history, inherited settings and real through-hole Fuzzy checks passed. |
+| `pnpm --filter @orca/desktop test:e2e` | 44 passed / 12 existing skips, including printer-console guest readiness. |
+| Current-artifact threaded Electron `arrangement.e2e.ts`, `nodefs-runtime.e2e.ts`, `painted-facet-preview.e2e.ts` | 3/3 passed; exact staged JS/WASM/data hashes checked before launch. |
+| `pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`; serial `arrangement.e2e.ts` and `nodefs-runtime.e2e.ts` | Six-tool painting 1/1; serial arrangement/MEMFS lifecycle 2/2 passed using the freshly staged serial artifacts. |
+| Headed Web threaded arrangement, NODEFS, DRC, STEP and painted-project checks | Initial batch 3 passed / 2 failed; independent final arrangement/painted-project rerun 2/2 passed, completing all five focused checks. |
+| Headed Web without isolation: DRC, STEP and painted-project checks | Serial 3/3 passed, including reactive painting admission and download/reopen. |
+| Ordinary Electron/Web builds with `VITE_USE_MOCK=0`; `pnpm exec node scripts/check-painting-profile-elision.mjs` | Both builds and exclusion checks across 27 production artifacts passed. All four native `NEO_*` test/profile gates are OFF in both variants. |
+
+The initial Web arrangement trace showed successful completion before a later
+disabled-control assertion. Unchanged isolation reproduced the same race at a
+later control. A separate fresh GPT-6.1-sol / medium child enlarged the real
+fixture from 96 to 192 cylinders; that change alone still raced. Its next attempt
+passed an atomic active/all-seven-controls observation and the camera gesture,
+but a pre-cancel screenshot again allowed completion; this bounded attempt was
+stopped, and an orphaned test-owned preview was removed before retrying. The
+accepted test keeps every editing/history/camera/cancellation assertion, takes
+the busy-control observation in one browser turn and clicks Cancel immediately
+after the real wheel gesture, then polls camera movement and captures the final
+cancelled view. Web unit tests (28 / 6 files), typecheck and the headed real test
+passed in child self-verification; parent source review, Web typecheck and the
+independent headed real rerun passed before committing `a756b2a`.
+
+The separate initial Web painted-project failure ended at `Sliced` instead of
+the expected cancellation state. No native-terminal-versus-click order was
+established from that attempt. The same unchanged painting test passed in the
+parent rerun; the failed trace and passing log remain separate, and no painting
+source/test change or causal regression claim is attached to that retry.
+
+Logs and preserved traces remain ignored under
+`packages/slicer-wasm/.work/main-merge-arrangement-2026-10-03/`. No benchmark
+measurements or generated archives are submitted. This is focused integration
+verification; packaged installers, performance benchmarks and instrumented
+fault-injection rebuilds were not rerun.
+
 ### Adapter acceptance checklist
 
 - [x] Documentation piece independently reviewed and verified; committed before step 13.
