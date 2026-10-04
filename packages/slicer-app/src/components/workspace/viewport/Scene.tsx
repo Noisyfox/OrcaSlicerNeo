@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
+import { modelGenerationForVolumes } from './useModelLoader';
 import { BedPlate } from './BedPlate';
 import { useBedModel } from './useBedModel';
 import { useBedTexture } from './useBedTexture';
@@ -63,6 +64,7 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
   const painting = usePaintingState();
   const paintingActive = activeTab === 'prepare' && painting != null && painting.phase !== 'closed';
   const previouslyPainting = useRef(false);
+  const previousModelGeneration = useRef<number | undefined>(undefined);
   const previewVolumes = useMemo(
     () => isPreviewTab(activeTab) ? previewVolumesForCurrentPlate(glVolumes, plateSession, structure) : glVolumes,
     [activeTab, glVolumes, plateSession, structure],
@@ -84,8 +86,11 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
     // A Prime Tower move can republish model meshes while its native commit
     // is still in flight. The tower keeps its stable selection ID across that
     // receipt; prune against the current collection instead of clearing it.
-    if (paintingActive || previouslyPainting.current || wipeTowerVolumes?.busy) sceneInteraction.pruneSelection();
+    const generation = modelGenerationForVolumes(glVolumes);
+    const sameModel = generation !== undefined && generation === previousModelGeneration.current;
+    if (sameModel || paintingActive || previouslyPainting.current || wipeTowerVolumes?.busy) sceneInteraction.pruneSelection();
     else sceneInteraction.resetForModel();
+    previousModelGeneration.current = generation;
     // Canvas and the DOM owner use separate React roots. The closed phase can
     // arrive before Canvas receives the committed collection. Keep the handoff
     // marker until this root observes that exact replacement, not just one render.

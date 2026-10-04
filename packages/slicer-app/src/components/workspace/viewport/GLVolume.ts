@@ -289,6 +289,7 @@ export class GLVolume {
 export const glVolumeCollection = {
   volumes: [] as GLVolume[],
   revision: 0,
+  replacementGeneration: 0,
   listeners: new Set<(volumes: readonly GLVolume[]) => void>(),
   publish() {
     for (const listener of this.listeners) listener(this.volumes);
@@ -298,6 +299,7 @@ export const glVolumeCollection = {
     return () => { this.listeners.delete(listener); };
   },
   replace(volumes: GLVolume[], revision?: number) {
+    this.replacementGeneration += 1;
     this.volumes.forEach((v) => v.dispose());
     this.volumes = volumes;
     this.revision = revision ?? glVolumeCollection.revision + 1;

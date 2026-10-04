@@ -165,10 +165,38 @@ viewport plate actions, moved out of the bottom-right floating toolbar; native
 history receipts, plate limits, arrangement behavior, and painting guards are
 preserved. The action row remains outside the list's scrolling area. Send All
 and Print All are not introduced by this relocation.
+The Objects list inherits its horizontal inset from the configuration panel,
+without an additional list-level inset, aligning its edges with other sections.
+The Objects list uses compact 24px tree rows beneath full-width dark collapsible
+plate headers and an Outside group. Selection uses a subdued teal background;
+orange circular-arrow indicators identify native scoped overrides. Part-type
+icons distinguish solid and negative volumes. Right-aligned printable controls
+and filament-colour cells keep the name column aligned; filament cells show only
+the slot number while retaining the assignment menu and inherited-state tooltip.
+Object and instance checkboxes use the existing native printable commands and
+selection targets. Parts display their inherited object printability without
+introducing a separate volume printable setting. Group collapse changes only
+the list presentation, preserving native plate membership, selection, drag/drop,
+renaming, context menus, the half-panel height cap, and the fixed divider.
 The object list stays mounted while hidden so its model-structure and selection subscriptions remain
 active. Printer and Process transitions share their existing state and native
 preset-selection flow. The horizontal sidebar-width resize and its persisted
 preference remain unchanged.
+
+Scoped configuration edits retain valid object/part selections when native
+history publishes a stable-ID scene patch. Renderer snapshots carry the full
+model replacement generation, so the separate Canvas root prunes deleted IDs
+for same-model updates and resets interaction only for a full loader replacement.
+
+Object names also use the orange override colour when that object has local
+scoped configuration overrides, independently of selection highlighting.
+Object and part circular-arrow markers are buttons that reset all overrides
+on that row's native target through the existing history/configuration mutation
+queue. They do not change the current selection or reset other selected rows.
+
+Numeric scoped-field steppers use reactive commit-pending state for their
+disabled appearance. Both successful and rejected commits release that state,
+while a synchronous ref guard continues to prevent duplicate submissions.
 
 ## Verification
 

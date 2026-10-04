@@ -70,6 +70,7 @@ export const ScopedField = memo(function ScopedField({
   const initial = valueForField(field);
   const [draft, setDraft] = useState(initial);
   const committing = useRef(false);
+  const [commitPending, setCommitPending] = useState(false);
   const cancelBlur = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const signature = `${targets.map((target) => `${target.scope}:${target.id ?? ''}`).join(',')}|${field.source}|${field.mixed ? 'mixed' : field.value ?? ''}`;
@@ -82,6 +83,7 @@ export const ScopedField = memo(function ScopedField({
   const commit = async (value: string) => {
     if (committing.current) return;
     committing.current = true;
+    setCommitPending(true);
     const submittedSignature = signatureRef.current;
     try {
       const effective = await onCommit(field, value);
@@ -92,6 +94,7 @@ export const ScopedField = memo(function ScopedField({
         setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       committing.current = false;
+      setCommitPending(false);
     }
   };
   const onDiscrete = (value: string) => { setDraft(value); void commit(value); };
@@ -151,9 +154,9 @@ export const ScopedField = memo(function ScopedField({
       /></TooltipFor>
       {canStep && <div className="flex shrink-0 gap-px pr-0.5">
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-[2px] rounded-r-none [&>svg]:size-3"
-          aria-label={`Decrease ${field.label}`} disabled={committing.current || field.mixed} onClick={() => adjust(-1)}><Minus /></Button>
+          aria-label={`Decrease ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(-1)}><Minus /></Button>
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-none rounded-r-[2px] [&>svg]:size-3"
-          aria-label={`Increase ${field.label}`} disabled={committing.current || field.mixed} onClick={() => adjust(1)}><Plus /></Button>
+          aria-label={`Increase ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(1)}><Plus /></Button>
       </div>}
       </div>;
   }
@@ -373,7 +376,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           {mode === 'project' ? <div className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
             <span data-testid="scoped-target-label" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{resolution.label}</span>}
           {mode === 'project' && <span data-testid="scoped-target-label" className="sr-only">Project</span>}
-          <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-background"
+          <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-control-background text-input-button-foreground hover:text-muted-foreground aria-expanded:bg-control-background aria-expanded:text-input-button-foreground"
             aria-label="Search settings" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }}><Search /></Button></TooltipFor>
         </div>
         {searchOpen && <Input autoFocus data-testid="scoped-config-search" value={search} onChange={(event) => setSearch(event.target.value)}

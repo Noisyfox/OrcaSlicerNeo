@@ -261,6 +261,35 @@
   }
 }
 
+.object-list-tree .object-list-row {
+  height: 24px;
+  min-width: 0;
+  gap: 0;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-muted-foreground);
+}
+
+.object-list-tree .object-list-row[data-state="selected"] {
+  background: color-mix(in srgb, var(--color-primary) 25%, var(--color-card));
+  color: var(--color-foreground);
+}
+
+.object-list-tree .object-list-printable {
+  border-radius: 1px;
+}
+
+.object-list-tree .object-list-printable::after {
+  inset: 0;
+}
+
+.object-list-tree .object-list-printable [data-slot="checkbox-indicator"] {
+  width: 100%;
+  height: 100%;
+  border-radius: 1px;
+}
+
 /* Replaces tailwindcss-animate (tw3 plugin, incompatible with tw4):
    enter/exit animation utilities for popover/dialog transitions. The
    keyframes animate opacity only — animating transform would override the
