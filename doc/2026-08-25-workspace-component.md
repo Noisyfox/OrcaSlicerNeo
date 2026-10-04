@@ -198,6 +198,14 @@ Numeric scoped-field steppers use reactive commit-pending state for their
 disabled appearance. Both successful and rejected commits release that state,
 while a synchronous ref guard continues to prevent duplicate submissions.
 
+Horizontal tab bars respond to mouse-wheel input whenever their list or shared
+Tabs root overflows horizontally, including title-bar pages, configuration
+categories, and preset-editor pages. Vertical wheel movement scrolls the tab
+bar horizontally; trackpad horizontal movement is retained. Non-overflowing
+and vertical tab bars leave native scrolling unchanged, and Ctrl-wheel remains
+available for zoom. The shared listener covers portal dialogs and is removed
+when the app shell unmounts.
+
 ## Verification
 
 The 2026-10-02 sidebar and filament-slot batch was verified after the user's

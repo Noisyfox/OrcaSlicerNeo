@@ -1,6 +1,7 @@
-import { type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { AppTab } from './appTabs';
 import { isWorkspaceTab } from './appTabs';
+import { scrollTabListWithWheel } from './tabWheelScroll';
 
 export interface AppPagePanelProps {
   active: boolean;
@@ -42,6 +43,12 @@ export function AppShell({ titleBar, home, workspace, device, activeTab = 'home'
   prewarmWorkspace?: boolean;
   status: ReactNode;
 }) {
+  useEffect(() => {
+    // React's delegated wheel listener is passive; a native listener allows
+    // preventing vertical page scroll while an overflowing tab bar scrolls.
+    document.addEventListener('wheel', scrollTabListWithWheel, { passive: false });
+    return () => document.removeEventListener('wheel', scrollTabListWithWheel);
+  }, []);
   return (
     <div className="flex h-full flex-col bg-titlebar-tab">
       {titleBar}
