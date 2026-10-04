@@ -25,6 +25,16 @@ function check(label, condition, detail) {
   console.log(`arrange PASS ${label}`);
 }
 function ok(label, value) { check(label, value.ok === true, value); return value; }
+// Packing scenarios below require a fixed 20 mm cube. UI primitives scale
+// with the printer bed and therefore cannot define these fixture dimensions.
+const cubeBytes = await readFile(resolve(repo, 'packages/slicer-wasm/fixtures/cube.stl'));
+function addFixtureCube(name) {
+  const pointer = Number(module._malloc(cubeBytes.length));
+  try {
+    module.HEAPU8.set(cubeBytes, pointer);
+    return call('orc_add_model', ['pointer', 'number', 'string', 'string'], [pointer, cubeBytes.length, 'stl', name]);
+  } finally { module._free(pointer); }
+}
 const context = { selection: { mode: 'object', objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 function history() { return call('orc_history_status'); }
 function observe() {
@@ -46,7 +56,7 @@ async function arrange(options = {}) {
 }
 ok('initialize', call('orc_init', ['string'], ['{"log_level":"error"}']));
 ok('clear model', call('orc_clear_model'));
-for (let i = 0; i < 2; ++i) ok('create cube', call('orc_add_shape', ['string', 'string'], ['Cube', `Cube ${i + 1}`]));
+for (let i = 0; i < 2; ++i) ok('create cube', addFixtureCube(`Cube ${i + 1}`));
 call('orc_history_reset', ['string'], [JSON.stringify(context)]);
 let before = observe();
 let beforeHistory = history();
@@ -73,7 +83,7 @@ if (call('orc_get_threading_info').threaded) {
     cancelled.unplaced.length === 0 && cancelled.plate_limit_reached === false, cancelled);
   check('cancellation preserves transforms, plates, and undo', JSON.stringify(observe()) === JSON.stringify(before) && history().undoEntries.length === beforeHistory.undoEntries.length);
   const stale = startArrangement();
-  ok('change input before stale completion', call('orc_add_shape', ['string', 'string'], ['Cube', 'Late instance']));
+  ok('change input before stale completion', addFixtureCube('Late instance'));
   const changed = observe();
   const rejected = await awaitAsyncTask(call, stale);
   check('obsolete result rejected', !rejected.ok && rejected.error.includes('input changed'), rejected);
@@ -121,10 +131,10 @@ console.log('Arrangement bridge smoke passed');
 if (call('orc_get_threading_info').threaded) {
   ok('clear concurrency fixture', call('orc_clear_model'));
   const plateA = observe().plates.current_plate_id;
-  ok('add slice A cube', call('orc_add_shape', ['string', 'string'], ['Cube', 'Slice A']));
+  ok('add slice A cube', addFixtureCube('Slice A'));
   ok('add slice B plate', call('orc_add_plate'));
   const plateB = observe().plates.current_plate_id;
-  ok('add slice B cube', call('orc_add_shape', ['string', 'string'], ['Cube', 'Slice B']));
+  ok('add slice B cube', addFixtureCube('Slice B'));
   const origins = observe().plates.plates;
   for (const [index, id] of [plateA, plateB].entries()) {
     const origin = origins.find(plate => plate.plate_id === id).origin;
@@ -165,7 +175,7 @@ for (const [key, value] of Object.entries({ enable_prime_tower: '1', timelapse_t
   wipe_tower_wall_type: 'rectangle' }))
   ok(`set tower ${key}`, setNativeScopedConfig(call, 'project', undefined, key, value));
 for (let i = 0; i < 2; ++i) {
-  ok('add tower fixture cube', call('orc_add_shape', ['string', 'string'], ['Cube', `Tower ${i}`]));
+  ok('add tower fixture cube', addFixtureCube(`Tower ${i}`));
   ok('enlarge tower fixture cube', call('orc_set_model_transform',
     ['number', 'number', 'number', 'string', 'string'], [i, 0, 0,
       JSON.stringify({ offset: [100,100,10], rotation: [0,0,0], scale: [9,9,1], mirror: [1,1,1] }),
@@ -211,7 +221,7 @@ console.log('Arrangement estimated tower and history smoke passed');
 // unfit polygon retains an itemid reused by a successfully packed polygon.
 ok('clear identity regression fixture', call('orc_clear_model'));
 for (const [index, size] of [20, 400, 80].entries()) {
-  ok('create identity cube', call('orc_add_shape', ['string', 'string'], ['Cube', `Identity ${size}`]));
+  ok('create identity cube', addFixtureCube(`Identity ${size}`));
   ok('resize identity cube', call('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'],
     [index, 0, 0, JSON.stringify({ offset: [50,50,10], rotation: [0,0,0], scale: [size/20,size/20,1], mirror: [1,1,1] }),
       JSON.stringify({ offset: [0,0,0], rotation: [0,0,0], scale: [1,1,1], mirror: [1,1,1] })]));
