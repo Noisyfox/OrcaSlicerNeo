@@ -77,7 +77,7 @@ remove the last slot. Edit, Merge, and Delete are available by right-clicking a
 slot. Existing mutation capabilities and reference-impact confirmations still
 control these commands. Mixes, flushing-volume editing, and purge-mode controls
 are outside this layout change. Shared buttons use dark hover (`#343437`) and
-expanded (`#1D1D1F`)
+expanded (`#1B1B1D`)
 backgrounds in place of the light muted surface. Material collapse controls,
 slot dropdown chevrons, and configuration group headings use these shared
 colours; no sidebar-specific button variant is needed. Printer, Process,
@@ -87,9 +87,37 @@ selectors share one sidebar dropdown surface: 24px high, 13px regular text,
 area. The Select and Combobox trigger variants share these styles; names
 truncate within the available width and modified indicators retain their
 existing colour. Text and numeric inputs use the same opaque dark control
-background (`#1D1D1F`), including configuration search and inline rename fields.
+background (`#1B1B1D`), including configuration search and inline rename fields.
 The scalar input and its step buttons share one surface; the inner input stays
 transparent in both light and dark CSS states. Focus rings remain visible.
+The 2026-10-04 number-stepper styling uses two dark 18px buttons separated by
+a 1px gap, with square inner corners and 2px outer corners. Gray plus/minus
+icons use heavier strokes with flat ends, matching the supplied reference.
+Input-associated buttons share the same dark background and gray foreground
+tokens, including Select/Combobox arrows and inline Combobox clear buttons.
+Checkboxes use a borderless dark rounded outer square in both states. The
+checked indicator occupies 70% of that square, with a teal fill, a fixed 2px
+corner radius, and a white checkmark. Focus and disabled behavior are retained.
+The Printer preset editor opens from a 24px square settings button to the left
+of the selector, using a gray sliders icon and a dark-gray rounded background.
+The device/material reference palette is sampled directly from the supplied
+image: panel `#27272A`, controls `#1B1B1D`, headers `#171719`, action buttons
+`#373739`, dropdown icons `#7D7D7F`, muted labels/icons `#AFAFB0`, white primary
+text, and modified indicators `#F7941D`. These use shared theme tokens.
+Printer and Material headings use the configuration-mode header design:
+full-width dark 20px bars, centered card-colored titles with top-only corners,
+and regular 12px text. The Material collapse action remains at the right edge.
+Printer has the same right-edge collapse action. Collapsing it hides its
+selector and editor button while retaining the title bar and current preset;
+the upper panel's content-height constraint follows the collapsed content.
+When collapsing content lowers that maximum below the current panel size,
+the split is resized immediately to the new limit, returning the freed space
+to the configuration panel. Both collapsed headers remain visible.
+Before a section toggle changes content, the combined Printer + Material
+scroll area's overflow state is captured. If it had
+no vertical scrollbar, expanding content also resizes the panel to its new
+maximum, subject to the configuration panel's minimum size. A previously
+scrolling panel keeps its user-selected split when content expands.
 
 The lower configuration panel uses a full-width dark mode header without a
 top divider, with Project, Objects, and Plates tabs (20px high, 12px regular

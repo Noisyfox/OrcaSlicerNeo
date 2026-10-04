@@ -50,7 +50,7 @@ function SelectTrigger({
       {children}
       <SelectPrimitive.Icon
         render={
-          <ChevronDownIcon className={variant === "sidebar" ? "sidebar-dropdown-arrow" : cn("pointer-events-none", variant !== "action" && "size-3.5 text-muted-foreground")} />
+          <ChevronDownIcon className={variant === "sidebar" ? "sidebar-dropdown-arrow" : cn("pointer-events-none", variant !== "action" && "size-3.5 rounded-sm bg-input-button-background text-input-button-foreground")} />
         }
       />
     </SelectPrimitive.Trigger>
