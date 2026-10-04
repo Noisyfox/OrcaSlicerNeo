@@ -54,6 +54,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
   const app: ElectronApplication = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   try {
     const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1600, height: 900 });
     const rendererErrors: string[] = [];
     const recordRendererError = (message: string) => {
       rendererErrors.push(message);
@@ -147,6 +148,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       (window as unknown as { __orcaE2e?: { primeTowerStates?: () => Array<{
         plateId: string; displayIndex: number; current: boolean; eligible: boolean; position: { x: number; y: number };
         bands: number; colours: string[]; opacity: number[];
+        worldBounds: { min: [number, number, number]; max: [number, number, number]; center: [number, number, number] };
         footprint?: { minX: number; maxX: number; minY: number; maxY: number };
         buildArea?: { minX: number; maxX: number; minY: number; maxY: number };
         outsideBoundaryWarning?: boolean;
@@ -213,64 +215,35 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const beds = await page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; position: [number, number, number]; bounds?: { minX: number; maxX: number; minY: number; maxY: number } }> } }).__orcaE2e?.bedPlateStates?.() ?? [],
     );
-    const otherBed = beds.find((bed) => bed.plateId === other!.plateId)?.position ?? [0, 0, 0];
     const projectWorldToScreen = (point: [number, number, number]) => page.evaluate((p) =>
       (window as unknown as { __orcaE2e?: { projectWorldToScreen?: (q: [number, number, number]) => { x: number; y: number } | null } }).__orcaE2e?.projectWorldToScreen?.(p) ?? null, point);
-    // Imported plate rotations/footprints vary by native profile. Search the
-    // authoritative footprint through the same scene ray path instead of
-    // assuming one fixed corner pixel is inside the rendered tower.
-    expect(other!.footprint).toBeDefined();
-    const otherWidth = Math.max(20, other!.footprint!.maxX - other!.footprint!.minX);
-    const otherDepth = Math.max(20, other!.footprint!.maxY - other!.footprint!.minY);
-    let otherPoint: { x: number; y: number } | null = null;
-    for (let dx = 4; dx <= otherWidth; dx += 8) {
-      for (let dy = 4; dy <= otherDepth; dy += 8) {
-        const candidate = await projectWorldToScreen([
-          otherBed[0] + other!.position.x + dx,
-          otherBed[1] + other!.position.y + dy,
-          9,
-        ]);
-        if (!candidate) continue;
-        await page.mouse.click(box!.x + candidate.x, box!.y + candidate.y);
-        if (await readSelection() === other!.plateId) {
-          otherPoint = candidate;
-          break;
+    // Aim at the rendered top surface, using world bounds that already include
+    // imported rotation and plate origin. The wider viewport keeps the adjacent
+    // plate's tower top on canvas; its old fixed Z=9 sample could fall behind
+    // a model and previously reached the tower only through event propagation.
+    const selectTowerSurface = async (tower: typeof towers[number]) => {
+      const { min, max } = tower.worldBounds;
+      for (const fx of [0.5, 0.1, 0.3, 0.7, 0.9]) {
+        for (const fy of [0.5, 0.1, 0.3, 0.7, 0.9]) {
+          const candidate = await projectWorldToScreen([
+            min[0] + (max[0] - min[0]) * fx,
+            min[1] + (max[1] - min[1]) * fy,
+            max[2],
+          ]);
+          if (!candidate || candidate.x < 0 || candidate.x > box!.width
+            || candidate.y < 0 || candidate.y > box!.height) continue;
+          await page.mouse.click(box!.x + candidate.x, box!.y + candidate.y);
+          if (await readSelection() === tower.plateId) return candidate;
         }
       }
-      if (otherPoint) break;
-    }
+      return null;
+    };
+    const otherPoint = await selectTowerSurface(other!);
     expect(otherPoint, 'the non-current tower must be selectable through the real scene ray').not.toBeNull();
 
     // The test-only projection helper supplies exact canvas coordinates, so a
     // large gesture can prove native boundary clamping without pixel diffs.
-    const currentBed = await page.evaluate((plateId) => {
-      const beds = (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; position: [number, number, number] }> } }).__orcaE2e?.bedPlateStates?.() ?? [];
-      return beds.find((bed) => bed.plateId === plateId)?.position ?? [0, 0, 0];
-    }, current!.plateId);
-    // Locate a body point through the same scene ray path used by the user.
-    // Imported projects can place/rotate towers differently, so a fixed
-    // corner pixel is not a reliable hit even when the proxy is present.
-    let start: { x: number; y: number } | null = null;
-    const footprint = current!.footprint;
-    expect(footprint).toBeDefined();
-    const footprintWidth = Math.max(20, footprint!.maxX - footprint!.minX);
-    const footprintDepth = Math.max(20, footprint!.maxY - footprint!.minY);
-    for (let dx = 4; dx <= footprintWidth; dx += 8) {
-      for (let dy = 4; dy <= footprintDepth; dy += 8) {
-        const candidate = await projectWorldToScreen([
-          currentBed[0] + current!.position.x + dx,
-          currentBed[1] + current!.position.y + dy,
-          9,
-        ]);
-        if (!candidate) continue;
-        await page.mouse.click(box!.x + candidate.x, box!.y + candidate.y);
-        if (await readSelection() === current!.plateId) {
-          start = candidate;
-          break;
-        }
-      }
-      if (start) break;
-    }
+    const start = await selectTowerSurface(current!);
     expect(start, 'current Prime Tower body should be selectable through the real canvas ray').not.toBeNull();
     // The imported tower may begin at any native boundary, and its screen
     // axes depend on the fitted camera. During one captured gesture, try the
