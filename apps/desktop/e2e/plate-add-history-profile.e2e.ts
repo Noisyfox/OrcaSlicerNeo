@@ -64,6 +64,7 @@ test('profiles Add Plate click through its visible Undo entry on the real projec
       sourceByteLength: statSync(PROJECT_PATH).size,
       nativeResult: { multiPlate: true, plateCount: 11 },
     });
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('add-plate')).toBeEnabled({ timeout: 300_000 });
 
     const readDiagnostics = () => page.evaluate(() =>

@@ -56,10 +56,18 @@ scrollbars use a 6px dark track, a rounded dark-gray thumb, and no arrow
 buttons, matching the reference sidebar. Chromium uses the custom scrollbar
 pseudo-elements; other browsers retain the thin standard-property fallback.
 The upper device/material card contains the Printer selector and the
-existing Prepare-tab filament rack. The lower configuration card contains the
-settings and, in Preview, the plate list. The initial height split is 35% / 65%;
+existing filament rack in both Prepare and Preview. The lower configuration card
+contains the settings and the scope-specific object or plate list. The initial
+height split is 35% / 65%;
 the divider can be dragged or adjusted with the keyboard. Both panels retain a
 minimum height, and the vertical split is session-local.
+The upper card's maximum height tracks the natural height of its printer and
+material content, including its border. Content and workspace resize observers
+update the limit after slot-count, material-collapse, or available-size changes.
+Its minimum height is capped by that content height too, so short content cannot
+force empty space. Smaller user-selected heights retain independent scrolling.
+Content-size observations synchronously commit the panel constraints before
+paint, preventing a transient scrollbar when Material is expanded.
 
 The Material rack uses two columns of compact single-line slots. Each slot
 combines a clickable rectangular colour/number block, a searchable preset
@@ -84,11 +92,14 @@ The scalar input and its step buttons share one surface; the inner input stays
 transparent in both light and dark CSS states. Focus rings remain visible.
 
 The lower configuration panel uses a full-width dark mode header without a
-top divider, with compact 20px tabs (12px regular text, 68px wide). The active
+top divider, with Project, Objects, and Plates tabs (20px high, 12px regular
+text, 68px wide). Objects is the renamed Scoped tab. The active
 tab has top-only rounding and joins the card surface below. The preset/search row is
 followed by horizontal Quality, Strength, Speed, Support, Multi., and Other
-page tabs. Tabs do not move down while pressed, and the category strip permits
-only horizontal scrolling when the sidebar is narrow. Selection is indicated
+page tabs. Tabs do not move down while pressed. Only scopes with multiple
+eligible pages display the category tabs. A scope
+with one page shows its configuration directly without a category strip. The
+strip permits only horizontal scrolling when the sidebar is narrow. Selection is indicated
 by an underline; orange text marks only
 local modifications. A shared TypeScript layout preserves the pinned Orca Print tab's
 page/group/option ordering without altering native scope eligibility. Eligible
@@ -102,8 +113,31 @@ reset is available by right-clicking a group heading; field and target-wide
 reset commands retain their original behavior.
 
 Immediately below the configuration scope toggle, Project displays the Process
-preset selector and Scoped displays the object list. The object list stays
-mounted while hidden so its model-structure and selection subscriptions remain
+preset selector and Objects displays the object list. Plates displays the plate
+list in both Prepare and Preview and edits the active plate's native settings,
+independent of any selected objects, parts, or tower. Selecting a plate updates
+the configuration target through the existing plate-selection command. Preview
+retains its plate-result activation and camera framing behavior.
+
+Objects filters options by the selected object's native scope (or part scope
+for a selected model volume). It never falls back to plate settings: an empty
+selection prompts the user to select an object or volume. Plate-only options
+are confined to Plates; project-level options retain their eligibility rules.
+Object and plate lists scroll independently and their bottom edge cannot extend
+past the combined list-and-settings panel's vertical midpoint. The height budget
+includes the scope header and spacing above the list. The reference area excludes
+the Move, Rotate, and Scale panels above it. Resize observations measure the
+panel and list offset to update the pixel cap as the panel changes size;
+configuration options retain their separate scroll area.
+The divider between a list and its settings belongs to the scroll viewport's
+border, so it remains fixed while the list contents scroll.
+The Plates tab starts with a fixed toolbar: a centered live plate count above
+a row containing New Plate, Arrange, and Delete Plate. These are the existing
+viewport plate actions, moved out of the bottom-right floating toolbar; native
+history receipts, plate limits, arrangement behavior, and painting guards are
+preserved. The action row remains outside the list's scrolling area. Send All
+and Print All are not introduced by this relocation.
+The object list stays mounted while hidden so its model-structure and selection subscriptions remain
 active. Printer and Process transitions share their existing state and native
 preset-selection flow. The horizontal sidebar-width resize and its persisted
 preference remain unchanged.
@@ -150,6 +184,39 @@ Follow-up validation on 2026-10-02:
   canonical fixture identity remained unchanged.
 - `git diff --check` — passed. No native rebuild or Web-host E2E was needed
   for these desktop test-only adaptations.
+
+The device-height and Project/Objects/Plates follow-up updates the unit and
+host regressions to select the configuration surface explicitly. Current-plate
+checks assert the selected list entry and total list count, preserving identity
+coverage after the toolbar label became a count. The sidebar regression also
+checks the device content-height cap, Preview materials, the plate-list midpoint
+limit, and the fixed action row during list scrolling. Painting regressions
+expect the relocated actions to remain visible but disabled while editing.
+
+Validation on 2026-10-04:
+
+- `pnpm test` — all workspace unit suites passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop test:e2e` — renderer build and CSS smoke passed;
+  45 tests passed, 12 conditional tests skipped.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts e2e/prime-tower.e2e.ts e2e/scoped-configuration-input.e2e.ts --max-failures=2`
+  — 34 tests passed, 4 conditional tests skipped.
+- `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts web.e2e.ts -g 'multi-plate Prepare grid interactions'`
+  — 1 real-Web test passed.
+- `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts web.e2e.ts -g 'real printer bed STL|multi-plate Preview'`
+  — 2 real-Web tests passed, including retained plate-local Preview results.
+- `pnpm --filter @orca/desktop test:e2e:real` — all 10 functional and
+  performance tests passed with freshly staged artifacts, including two-plate
+  slicing/export, plate switching, Add Plate, and native history restoration.
+  The runner verified that the canonical project fixture was unchanged.
+- `node scripts/run-arrangement-e2e.mjs --desktop-only` — the serial real-WASM
+  arrangement, history, and relocated current-plate entry test passed.
+- `pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`
+  — both serial real-WASM painting regressions passed, including disabled
+  plate actions during painting and native edits, history, camera, and close.
+- `git diff --check` — passed. No native rebuild was needed because no C++,
+  bridge, or build-scaffold code changed. Dedicated instrumented profiling and
+  the full dual-host/dual-WASM release matrix were not run.
 
 The following historical results apply to the original workspace extraction:
 

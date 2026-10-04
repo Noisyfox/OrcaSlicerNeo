@@ -34,10 +34,11 @@ vi.mock('@/components/ui/resizable', () => ({
 vi.mock('./objectList/ObjectList', () => ({ ObjectList: () => <div data-testid="mock-object-list" /> }));
 vi.mock('./settings/SettingsPanel', () => ({
   SettingsPanel: (props: { onEditPrinter?: (canonicalName: string) => void;
+    platesContent?: ReactNode;
     renderLayout?: (panels: { printer: ReactNode; settings: ReactNode }) => ReactNode }) => {
     const panels = {
       printer: <button data-testid="mock-printer-edit" onClick={() => props.onEditPrinter?.('Printer A')}>Edit Printer</button>,
-      settings: <><div data-testid="mock-settings-panel" /><div data-testid="mock-object-list" /></>,
+      settings: <><div data-testid="mock-settings-panel" /><div data-testid="mock-object-list" />{props.platesContent}</>,
     };
     return props.renderLayout ? props.renderLayout(panels) : <>{panels.printer}{panels.settings}</>;
   },

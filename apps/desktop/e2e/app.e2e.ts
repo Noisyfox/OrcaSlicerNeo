@@ -1,3 +1,4 @@
+import { expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
 // apps/desktop/e2e/app.e2e.ts — the full v1 flow against the built app.
 // Mock mode (default): expects the mock gcode marker. Real mode
 // (ORCA_E2E_REAL=1, CI e2e-real job): expects real extruder moves (G1).
@@ -240,13 +241,26 @@ test('sidebar panels resize independently and configuration controls keep their 
     const handle = (await divider.boundingBox())!;
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
     await page.mouse.down();
-    await page.mouse.move(handle.x + handle.width / 2, handle.y + 80, { steps: 6 });
+    await page.mouse.move(handle.x + handle.width / 2, handle.y - 60, { steps: 6 });
     await page.mouse.up();
-    await expect.poll(async () => (await device.boundingBox())!.height).toBeGreaterThan(before.height + 60);
+    await expect.poll(async () => (await device.boundingBox())!.height).toBeLessThan(before.height - 20);
+    const smallerHandle = (await divider.boundingBox())!;
+    await page.mouse.move(smallerHandle.x + smallerHandle.width / 2, smallerHandle.y + smallerHandle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(smallerHandle.x + smallerHandle.width / 2, smallerHandle.y + 400, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(() => device.evaluate((el) => Math.abs(el.clientHeight - el.firstElementChild!.getBoundingClientRect().height))).toBeLessThanOrEqual(1);
     await divider.focus();
     const draggedHeight = (await device.boundingBox())!.height;
     await divider.press('ArrowUp');
     await expect.poll(async () => (await device.boundingBox())!.height).toBeLessThan(draggedHeight);
+    await device.getByTestId('filament-rack-toggle').click();
+    await expect(device.getByTestId('filament-slot-grid')).toHaveCount(0);
+    await device.getByTestId('filament-rack-toggle').click();
+    await expect(device.getByTestId('filament-slot-grid')).toBeVisible();
+    await page.locator('#app-tab-preview').click();
+    await expect(device.getByTestId('filament-rack')).toBeVisible();
+    await page.locator('#app-tab-prepare').click();
 
     // Resizing can leave the pointer over a preset picker. Verify hover
     // deliberately, then leave the sidebar before checking its resting style.
@@ -279,6 +293,7 @@ test('sidebar panels resize independently and configuration controls keep their 
     const tabsBeforeScroll = (await tabs.boundingBox())!;
     await options.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     expect((await tabs.boundingBox())!.y).toBe(tabsBeforeScroll.y);
+    await page.mouse.move(0, 0);
     const scrollbar = await options.evaluate((el) => ({
       width: getComputedStyle(el, '::-webkit-scrollbar').width,
       track: getComputedStyle(el, '::-webkit-scrollbar-track').backgroundColor,
@@ -321,7 +336,9 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+
     await expect(page.getByTestId('delete-plate')).toBeDisabled();
     const readBeds = () => page.evaluate(() =>
       (window as unknown as {
@@ -369,6 +386,7 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     await page.locator('#app-tab-preview').click();
     await expect.poll(readBeds).toHaveLength(1);
     await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('plate-controls')).toBeVisible();
     await expect.poll(readBeds).toHaveLength(1);
 
@@ -380,8 +398,9 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
 
     await expect.poll(readCamera).not.toBeUndefined();
     const cameraBefore = await readCamera();
-    await page.getByTestId('add-plate').click();
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await clickPlateControl(page, 'add-plate');
+    await expectCurrentPlate(page, 'Plate 2', 2);
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('delete-plate')).toBeEnabled();
     await expect.poll(readCamera).toEqual(cameraBefore);
 
@@ -389,20 +408,20 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     // non-current plate while preserving the camera, whereas clicking the
     // model on Plate 1 only changes model selection and never changes plate.
     await clickWorld([110, 110, 0]);
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 1 (2/36)');
+    await expectCurrentPlate(page, 'Plate 1', 2);
     await clickWorld([350, 110, 0]);
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     const modelCenter = (await readModels())[0];
     if (!modelCenter) throw new Error('model center is unavailable');
     await clickWorld(modelCenter);
     await expect.poll(() => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { selectionInstanceCount?: () => number } }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
     )).toBeGreaterThan(0);
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     await expect.poll(readCamera).toEqual(cameraBefore);
 
-    await page.getByTestId('add-plate').click();
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 3 (3/36)');
+    await clickPlateControl(page, 'add-plate');
+    await expectCurrentPlate(page, 'Plate 3', 3);
     const bedsBeforeReflow = await readBeds();
     expect(bedsBeforeReflow.map((bed) => bed.position.slice(0, 2))).toEqual([[0, 0], [240, 0], [0, -240]]);
     // Add a model to Plate 3 so deleting the middle plate must move its
@@ -413,9 +432,9 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     const secondObjectModels = modelsBeforeReflow.slice(4);
     expect(secondObjectModels[0]?.[1]).toBeLessThan(modelsBeforeReflow[0]?.[1] ?? 0);
     await clickWorld([350, 110, 0]);
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (3/36)');
-    await page.getByTestId('delete-plate').click();
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 3);
+    await clickPlateControl(page, 'delete-plate');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     await expect.poll(readBeds).toHaveLength(2);
     const bedsAfterReflow = await readBeds();
     expect(bedsAfterReflow.map((bed) => bed.position.slice(0, 2))).toEqual([[0, 0], [240, 0]]);
@@ -429,11 +448,22 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     // pure control predicate: the authoritative snapshot reaches Plate 36
     // and the Add control is disabled at the limit.
     for (let count = 3; count <= 36; count += 1) {
-      await page.getByTestId('add-plate').click();
-      await expect(page.getByTestId('current-plate-label')).toHaveText(`Plate ${count} (${count}/36)`);
+      await clickPlateControl(page, 'add-plate');
+      await expectCurrentPlate(page, `Plate ${count}`, count);
     }
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('add-plate')).toBeDisabled();
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 36 (36/36)');
+    await expectCurrentPlate(page, 'Plate 36', 36);
+    const listScroll = page.getByTestId('configuration-plate-list-scroll');
+    const panel = page.getByTestId('scoped-configuration-panel');
+    const panelBox = (await panel.boundingBox())!;
+    const listBox = (await listScroll.boundingBox())!;
+    expect(listBox.y + listBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height / 2 + 1);
+    expect(await listScroll.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    const toolbarBox = (await page.getByTestId('plate-controls').boundingBox())!;
+    await listScroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    expect((await page.getByTestId('plate-controls').boundingBox())!.y).toBe(toolbarBox.y);
+    expect(await listScroll.evaluate((el) => Number.parseFloat(getComputedStyle(el).borderBottomWidth))).toBeGreaterThan(0);
     const clipping = await readCameraPlanes();
     expect(clipping).toBeDefined();
     expect(clipping!.near).toBeGreaterThan(0);
@@ -743,8 +773,8 @@ test('shared titlebar history supports buttons, shortcuts, menu jumps, and nativ
     // plates. Selection, blank deselection, and plate switching are real
     // Prepare interactions; none may consume the redo for the third model.
     await page.getByTestId('btn-add-model').click();
-    await page.getByTestId('add-plate').click();
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await clickPlateControl(page, 'add-plate');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     await page.getByTestId('btn-add-model').click();
     await page.getByTestId('config-mode-scoped').click();
     const objectRows = page.getByTestId('object-list')
@@ -778,20 +808,21 @@ test('shared titlebar history supports buttons, shortcuts, menu jumps, and nativ
 
     await clickWorld([350, 110, 0]);
     await expect.poll(selectedInstances).toBe(0);
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     await expect(redo).toBeEnabled();
 
     await clickWorld([110, 110, 0]);
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 1 (2/36)');
+    await expectCurrentPlate(page, 'Plate 1', 2);
     // The plate button is disabled while the authoritative switch is pending.
     // Waiting for it flushes the old selection/plate history queue as well, so
     // this assertion deterministically fails if context navigation killed Redo.
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('add-plate')).toBeEnabled();
     await expect(redo).toBeEnabled();
 
     await redo.click();
     await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 2);
 
     // One directional-menu command can cross the retained Add Model and Add
     // Plate entries. The Worker receives the selected opaque entry ID rather
@@ -808,7 +839,7 @@ test('shared titlebar history supports buttons, shortcuts, menu jumps, and nativ
     await expect(redoEntries).toHaveCount(4);
     await redoEntries.last().click();
     await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 2);
   } finally {
     await app.close();
   }
@@ -821,8 +852,8 @@ test('undoes the first Cube added after an empty-scene Add Plate', async () => {
     await page.getByTestId('config-mode-scoped').click();
     const objectRows = page.getByTestId('object-list')
       .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
-    await page.getByTestId('add-plate').click();
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await clickPlateControl(page, 'add-plate');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     await page.getByTestId('btn-add-model').click();
     await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
 
@@ -843,7 +874,7 @@ test('undoes the first Cube added after an empty-scene Add Plate', async () => {
 
     await page.getByTestId('history-undo').click();
     await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
     await expect.poll(restoreCounts).toEqual({
       direct: beforeUndo!.direct + 1,
@@ -853,7 +884,7 @@ test('undoes the first Cube added after an empty-scene Add Plate', async () => {
 
     await page.getByTestId('history-redo').click();
     await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expectCurrentPlate(page, 'Plate 2', 2);
     await expect.poll(restoreCounts).toEqual({
       direct: beforeUndo!.direct + 2,
       full: beforeUndo!.full,

@@ -28,9 +28,8 @@ export function PreviewPlateList({
   }
 
   return (
-    <section className="border-b px-2 py-2" aria-label="Preview plates" data-testid="preview-plate-list">
-      <div className="mb-1 px-1 text-xs font-medium text-muted-foreground">Plates</div>
-      <div role="listbox" aria-label="Preview plates" aria-activedescendant={`preview-plate-${snapshot.currentPlateId}`}>
+    <section className="px-2 py-2" aria-label="Plates" data-testid="preview-plate-list">
+      <div role="listbox" aria-label="Plates" aria-activedescendant={`preview-plate-${snapshot.currentPlateId}`}>
         {items.map((item) => (
           <button
             key={item.plate.plateId}

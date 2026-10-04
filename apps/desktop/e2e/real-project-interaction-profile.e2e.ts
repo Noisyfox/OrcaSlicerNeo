@@ -481,6 +481,7 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     await takeAttribution();
 
     // Add Plate: event dispatch to the enabled matching Undo entry.
+    await page.getByTestId('config-mode-plates').click();
     const addBefore = await readDiagnostics();
     if (!addBefore?.worker || !addBefore.client) throw new Error('history diagnostics unavailable');
     const addStart = await page.evaluate(() => {

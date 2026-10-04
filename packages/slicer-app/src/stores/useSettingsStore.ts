@@ -4,7 +4,7 @@ import type {
   NativeScopedConfigSnapshot, NativeScopedConfigTransport,
 } from '@slicer/client';
 
-export type ConfigurationSurfaceMode = 'project' | 'scoped';
+export type ConfigurationSurfaceMode = 'project' | 'scoped' | 'plates';
 
 export const emptyNativeScopedConfig = (): NativeScopedConfigSnapshot => ({
   project: {}, objects: {}, parts: {}, plates: {},

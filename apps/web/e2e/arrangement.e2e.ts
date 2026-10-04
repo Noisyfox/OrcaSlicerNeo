@@ -61,6 +61,7 @@ test('real threaded Web arrangement, editing guards, camera and cancellation', a
   // file picker. No project configuration or synthetic runtime calls are used.
   await expect.poll(async () => (await centers(page)).length, { timeout: 60_000 }).toBe(196);
   const before = await centers(page), beforeHistory = await history(page), cameraBefore = await camera(page);
+  await page.getByTestId('config-mode-plates').click();
   await page.getByTestId('arrange-menu').click();
   await page.getByTestId('arrange-rotate').check();
   await page.getByTestId('arrange-all').click();

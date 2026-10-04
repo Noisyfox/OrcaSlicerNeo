@@ -1,3 +1,4 @@
+import { clickPlateControl } from './plate-controls.helpers';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
 
@@ -41,6 +42,7 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('plate-controls')).toBeVisible();
 
     const readTowers = () => page.evaluate(() =>
@@ -129,7 +131,7 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
         && JSON.stringify(tower.colours) === JSON.stringify(['#333333', '#ffd700'])
         && tower.opacity.every((opacity) => Math.abs(opacity - 0.66) < 0.01));
     await expect.poll(async () => hasExpectedBands(await readTowers())).toBe(true);
-    await page.getByTestId('add-plate').click();
+    await clickPlateControl(page, 'add-plate');
     await expect.poll(readTowers).toHaveLength(2);
     await expect.poll(async () => (await readTowers()).every((tower) => tower.renderedWorldPosition !== null)).toBe(true);
     const towers = await readTowers();

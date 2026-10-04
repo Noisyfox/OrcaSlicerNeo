@@ -1,3 +1,4 @@
+import { expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
 import { _electron, expect, test } from '@playwright/test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -81,9 +82,9 @@ test(`real ${expectedVariant} arrangement settings, atomic layout, history and c
     // run the same real algorithm without adding another plate.
     await page.getByTestId('history-undo').click();
     await expect.poll(() => centers(page)).toEqual(before);
-    await page.getByTestId('arrange-current-plate').click();
+    await clickPlateControl(page, 'arrange-current-plate');
     await completed(page); await assertCubePacking(page, before);
-    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 1 (1/36)');
+    await expectCurrentPlate(page, 'Plate 1', 1);
     await expect.poll(() => JSON.parse(readFileSync(preferences, 'utf8')).arrangement).toMatchObject({
       byLayer: { distance: 0, rotate: false }, multipleMaterials: true,
     });

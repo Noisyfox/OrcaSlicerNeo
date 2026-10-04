@@ -16,6 +16,8 @@ vi.mock('./MovePanel', () => ({ MovePanel: () => null }));
 vi.mock('./RotatePanel', () => ({ RotatePanel: () => null }));
 vi.mock('./ScalePanel', () => ({ ScalePanel: () => null }));
 
+Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
+
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 
 function preset(name: string, isVisible = true): PresetInfo {
@@ -350,7 +352,7 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="config-field-wipe_tower_y"]')).toBeNull();
   });
 
-  it('keeps the explicit Scoped mode across an empty selection and resolves the active plate', async () => {
+  it('keeps Objects empty without a selection and exposes plate settings only in Plates', async () => {
     resetStores();
     useSettingsStore.setState({ metadata: {
       layer_height: { type: 'float', label: 'Layer height', scopes: ['project', 'plate'] },
@@ -367,8 +369,15 @@ describe('SettingsPanel preset transitions', () => {
     expect(configurationPanel.contains(scopedModeButton)).toBe(true);
     await act(async () => { scopedModeButton.click(); });
     expect(useSettingsStore.getState().configurationMode).toBe('scoped');
+    expect(scopedModeButton.textContent).toBe('Objects');
+    expect(container.querySelector('[data-testid="scoped-target-label"]')?.textContent).toBe('No object selected');
+    expect(container.querySelector('[data-testid="config-field-layer_height"]')).toBeNull();
+    expect(container.querySelector('[data-testid="scoped-invalid-selection"]')).not.toBeNull();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="config-mode-plates"]')!.click(); });
+    expect(useSettingsStore.getState().configurationMode).toBe('plates');
     expect(container.querySelector('[data-testid="scoped-target-label"]')?.textContent).toBe('Plate 1');
     expect(container.querySelector('[data-testid="config-field-layer_height"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Settings category"]')).toBeNull();
   });
 
 });

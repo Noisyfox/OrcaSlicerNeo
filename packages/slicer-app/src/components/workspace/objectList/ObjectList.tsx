@@ -341,7 +341,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       No objects
     </div>
   ) : (
-    <div data-testid="object-list" className="max-h-56 overflow-y-auto border-b px-2 py-2"
+    <div data-testid="object-list" className="px-2 py-2"
       onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleListDropToEnd}>
