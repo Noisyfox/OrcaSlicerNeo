@@ -11,6 +11,19 @@ This is the single current product record for this feature. It describes the
 experience users can rely on; implementation history and internal interfaces
 are intentionally not recorded here.
 
+## Plate list cards
+
+- The existing Plates list uses square model thumbnails beside each plate's
+  name, state, valid slice totals, and plate actions. Its surrounding sidebar
+  layout, height allocation, configuration editor, and viewport remain unchanged.
+- Selecting a plate uses its name or thumbnail. Action buttons operate on their
+  explicit plate target and do not also select a plate.
+- Thumbnails use a fixed orthographic isometric view of printable model parts,
+  without selection overlays, modifiers, Prime Towers, or bed decorations.
+  They are transient session images; normal project saves do not embed them.
+- The list toolbar retains New Plate and Arrange, with Delete Plate in its menu
+  and a plate-name search. Send All and Print All are not displayed.
+
 ## Material rack
 
 - The Prepare view presents one ordered, one-based rack of filament slots. A
