@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PlateSessionSnapshot } from '@slicer/client';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectPreviewPlateList } from './previewPlateListProjection';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { PlateThumbnail } from './PlateThumbnail';
+import { createThumbnailRenderer, PlateThumbnailService } from './plateThumbnailService';
 
 export function PreviewPlateList({
   snapshot,
@@ -19,6 +21,14 @@ export function PreviewPlateList({
   const [selecting, setSelecting] = useState<string | null>(null);
   const items = useMemo(() => projectPreviewPlateList(snapshot, results), [results, snapshot]);
   const disabled = pending || selecting !== null;
+  const [thumbnails, setThumbnails] = useState<PlateThumbnailService>();
+  useEffect(() => {
+    const renderer = createThumbnailRenderer();
+    const service = new PlateThumbnailService(renderer.render);
+    setThumbnails(service);
+    return () => { service.dispose(); renderer.dispose(); };
+  }, []);
+  useEffect(() => thumbnails?.retain(snapshot.plates.map(p => p.plateId)), [snapshot, thumbnails]);
 
   async function handleSelect(plateId: string) {
     if (disabled) return;
@@ -36,8 +46,8 @@ export function PreviewPlateList({
         {items.map((item) => (
           <Card key={item.plate.plateId} size="sm" className="plate-list-card" data-current={item.current} data-plate-status={item.status}>
             <CardContent className="plate-list-thumbnail">
-              <button type="button" className="aspect-square w-full rounded bg-secondary" disabled={disabled}
-                aria-label={`Select ${item.label}`} onClick={() => void handleSelect(item.plate.plateId)} />
+              {thumbnails && <PlateThumbnail plateId={item.plate.plateId} label={item.label} session={snapshot} service={thumbnails}
+                disabled={disabled} onSelect={() => void handleSelect(item.plate.plateId)} />}
             </CardContent>
             <CardHeader className="plate-list-details">
               <div className="flex min-w-0 flex-wrap items-start justify-between gap-1">
