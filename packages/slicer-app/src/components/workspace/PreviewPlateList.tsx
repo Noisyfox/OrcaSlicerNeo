@@ -16,6 +16,7 @@ import { usePaintingPhase } from './viewport/gizmo/painting/PaintingProvider';
 import { useProjectStore } from '@/stores/useProjectStore';
 import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
 import { Send } from 'lucide-react';
+import { usePlateListViewStore } from '@/stores/usePlateListViewStore';
 
 export function PreviewPlateList({
   snapshot,
@@ -70,11 +71,13 @@ export function PreviewPlateList({
     finally { operation.current = false; setActing(null); }
   }
   const review = items.find(item => item.plate.plateId === reviewId);
+  const query = usePlateListViewStore(s => s.query).trim().toLocaleLowerCase();
+  const visibleItems = items.filter(item => item.label.toLocaleLowerCase().includes(query));
 
   return (
     <section className="plate-list px-2 py-2" aria-label="Plates" data-testid="preview-plate-list">
-      <div role="listbox" aria-label="Plates" aria-activedescendant={`preview-plate-${snapshot.currentPlateId}`}>
-        {items.map((item) => (
+      <div role="listbox" aria-label="Plates" aria-activedescendant={visibleItems.some(item => item.current) ? `preview-plate-${snapshot.currentPlateId}` : undefined}>
+        {visibleItems.map((item) => (
           <Card key={item.plate.plateId} size="sm" className="plate-list-card" data-current={item.current} data-plate-status={item.status}>
             <CardContent className="plate-list-thumbnail">
               {thumbnails && <PlateThumbnail plateId={item.plate.plateId} label={item.label} session={snapshot} service={thumbnails}
@@ -121,6 +124,7 @@ export function PreviewPlateList({
           </Card>
         ))}
       </div>
+      {visibleItems.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground" role="status">No matching plates</p>}
       {send && <SendGcodeDialog open action={send.action} targetReceipt={send.receipt} onClose={() => setSend(undefined)} />}
       <Dialog open={reviewId !== undefined} onOpenChange={open => { if (!open) setReviewId(undefined); }}>
         <DialogContent>

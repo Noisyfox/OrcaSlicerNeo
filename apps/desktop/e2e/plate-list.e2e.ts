@@ -46,6 +46,17 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     await expect(page.getByTestId('send-gcode-dialog')).toBeVisible();
     await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
     await page.getByTestId('send-close').click();
+    await page.getByTestId('plate-search-toggle').click();
+    await page.getByTestId('plate-search').fill('plate 1');
+    await expect(page.getByTestId('preview-plate-list').getByRole('option')).toHaveCount(1);
+    await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveCount(0);
+    await page.getByTestId('plate-search').fill('no such plate');
+    await expect(page.getByText('No matching plates', { exact: true })).toBeVisible();
+    await page.getByTestId('plate-search-toggle').click();
+    await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
+    expect(await page.getByTestId('sidebar-settings-panel').boundingBox()).toEqual(before);
+    await expect(page.getByRole('button', { name: 'Send All', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Print All', exact: true })).toHaveCount(0);
     await page.getByTestId('sidebar-settings-panel').screenshot({ path: join(desktop, '.vitest/plate-list.png') });
     await test.info().attach('plate-list', { body: await page.getByTestId('sidebar-settings-panel').screenshot(), contentType: 'image/png' });
   } finally { await app.close(); }

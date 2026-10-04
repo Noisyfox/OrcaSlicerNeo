@@ -394,7 +394,9 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
 
+    await page.getByTestId('plate-menu').click();
     await expect(page.getByTestId('delete-plate')).toBeDisabled();
+    await page.keyboard.press('Escape');
     const readBeds = () => page.evaluate(() =>
       (window as unknown as {
         __orcaE2e?: {
@@ -456,7 +458,9 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     await clickPlateControl(page, 'add-plate');
     await expectCurrentPlate(page, 'Plate 2', 2);
     await page.getByTestId('config-mode-plates').click();
+    await page.getByTestId('plate-menu').click();
     await expect(page.getByTestId('delete-plate')).toBeEnabled();
+    await page.keyboard.press('Escape');
     await expect.poll(readCamera).toEqual(cameraBefore);
 
     // Empty-bed clicks are real viewport interactions. They select either
