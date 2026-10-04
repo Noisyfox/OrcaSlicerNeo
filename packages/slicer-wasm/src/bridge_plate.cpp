@@ -331,8 +331,8 @@ bool validate_plate_operation_target(const std::string& plate_id,
                                      std::string& error)
 {
     ensure_plate_session_state();
-    if (plate_id.empty() || plate_id != state().current_plate_id) {
-        error = "plate operation target is not the current plate";
+    if (plate_id.empty()) {
+        error = "plate operation target is empty";
         return false;
     }
     const auto* plate = find_plate(plate_id);

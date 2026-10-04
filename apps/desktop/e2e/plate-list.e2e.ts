@@ -4,14 +4,17 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 test('plate cards render model thumbnails without changing surrounding layout', async () => {
+  test.setTimeout(90000);
   const desktop = resolve(__dirname, '..');
   const env = { ...process.env, ORCA_E2E: '1',
     ORCA_E2E_USER_DATA: mkdtempSync(join(tmpdir(), 'orca-plate-list-')),
     ORCA_E2E_MODEL: resolve(desktop, '../../packages/slicer-wasm/fixtures/cube.stl') } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: desktop, env });
+  const errors: string[] = [];
   try {
     const page = await app.firstWindow();
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.setViewportSize({ width: 1280, height: 900 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30000 });
     await page.locator('#app-tab-prepare').click();
@@ -40,7 +43,12 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     await page.getByTestId('add-plate').click();
     await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
     await page.getByTestId(`plate-slice-${plateId}`).click();
-    await expect(page.getByTestId('preview-plate-list').locator('[data-plate-state="sliced"]')).toHaveCount(1);
+    await expect(page.getByTestId('preview-plate-list').locator('[data-plate-state="sliced"]'),
+      'Explicit plate slicing should finish successfully').toHaveCount(1, { timeout: 30000 });
+    if (process.env.ORCA_E2E_REAL === '1') {
+      await expect(page.getByTestId(`plate-time-${plateId}`)).not.toHaveText('—');
+      await expect(page.getByTestId('preview-plate-list')).toContainText(/\d+\.\d+m \| \d+\.\d+g/);
+    }
     await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
     await page.getByTestId(`plate-print-${plateId}`).click();
     await expect(page.getByTestId('send-gcode-dialog')).toBeVisible();
@@ -59,5 +67,6 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     await expect(page.getByRole('button', { name: 'Print All', exact: true })).toHaveCount(0);
     await page.getByTestId('sidebar-settings-panel').screenshot({ path: join(desktop, '.vitest/plate-list.png') });
     await test.info().attach('plate-list', { body: await page.getByTestId('sidebar-settings-panel').screenshot(), contentType: 'image/png' });
-  } finally { await app.close(); }
+  } catch (error) { console.error(errors.join('\n')); throw error; }
+  finally { await app.close(); }
 });

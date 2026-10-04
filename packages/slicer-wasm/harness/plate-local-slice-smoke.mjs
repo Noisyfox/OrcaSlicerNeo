@@ -52,14 +52,16 @@ check('select unsliced plate 2', selectUnslicedSecond.ok === true && selectUnsli
 const unslicedSecondResult = getSliceResult(callJson, resultTarget(secondTarget.id, secondTarget.revision, 1));
 check('unsliced plate 2 result rejected', unslicedSecondResult.ok !== true &&
   unslicedSecondResult.status === 'stale', JSON.stringify(unslicedSecondResult));
-const selectFirst = callJson('orc_select_plate', ['string'], [firstTarget.id]);
-check('select plate 1', selectFirst.ok === true && selectFirst.current_plate_id === firstTarget.id);
 const modelBeforeSlice = callJson('orc_get_model_structure');
 const sliceFirst = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', firstTarget.id, firstTarget.revision]);
 check('slice plate 1', sliceFirst.ok === true, JSON.stringify(sliceFirst));
+check('slice non-current plate preserves selection',
+  callJson('orc_get_plate_session_snapshot').current_plate_id === secondTarget.id);
 const modelAfterSlice = callJson('orc_get_model_structure');
 check('local slice preserves global model', JSON.stringify(modelAfterSlice) === JSON.stringify(modelBeforeSlice));
+const selectFirst = callJson('orc_select_plate', ['string'], [firstTarget.id]);
+check('select plate 1', selectFirst.ok === true && selectFirst.current_plate_id === firstTarget.id);
 const firstPreview = getSliceResult(callJson, sliceFirst.receipt);
 check('preview plate 1 uses its print', firstPreview.ok === true && firstPreview.objects === 1,
   JSON.stringify(firstPreview));
