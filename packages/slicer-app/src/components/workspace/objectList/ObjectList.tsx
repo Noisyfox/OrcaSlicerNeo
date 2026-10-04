@@ -3,6 +3,8 @@ import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client'
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { AlertTriangle, Box, CircleMinus, CirclePlus, RotateCcw } from 'lucide-react';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
@@ -16,7 +18,7 @@ import {
   type ObjectListValidity,
   type SelectableRow,
 } from './projection';
-import { renameObjectInList, renamePartInList } from './actions';
+import { renameObjectInList, renamePartInList, setObjectPrintableInList, setInstancePrintableInList } from './actions';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -24,6 +26,7 @@ import { FilamentAssignmentCell } from './FilamentAssignmentCell';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { assignmentTargetsForSelection } from './filamentAssignment';
 import { isKeyEligibleForScope } from '../settings/scopedConfigurationProjection';
+import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from '../settings/configurationActions';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
@@ -34,9 +37,10 @@ function ObjectValidityBadge({ validity, objectId }: { validity: ObjectListValid
       <span
         data-testid={`object-validity-${objectId}`}
         data-validity={validity}
-        className="ml-auto pl-1 text-[0.65rem] font-normal text-destructive"
+        className="ml-auto shrink-0 pl-1 text-destructive"
       >
-        {label}
+        <AlertTriangle className="size-3" aria-hidden />
+        <span className="sr-only">{label}</span>
       </span>
     </TooltipFor>
   );
@@ -86,6 +90,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const [ctx, setCtx] = useState<{ target: ObjectListCtxTarget } | null>(null);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [lastSelectedKey, setLastSelectedKey] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [resetPending, setResetPending] = useState(false);
   const restorePhase = useHistoryRestoreStore((s) => s.phase);
   const flatRows = useMemo(() => buildSelectableRows(structure), [structure]);
   const objectGroups = useMemo(
@@ -99,6 +105,31 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     if (!values) return false;
     return Object.keys(values).some((key) => isKeyEligibleForScope(key, configMetadata[key] ?? { type: 'unknown' }, scope));
   };
+
+  function resetControl(scope: 'object' | 'part', id: number) {
+    if (!hasScopedMarker(scope, id)) return null;
+    const label = scope === 'object' ? 'Object' : 'Part';
+    return <TooltipFor content={`Reset all ${scope} overrides`}>
+      <Button type="button" variant="ghost" size="icon-xs"
+        className="size-4 shrink-0 text-config-override [&>svg]:size-3"
+        data-testid={`config-marker-${scope}-${id}`}
+        aria-label={`Reset ${label} ${id} overrides`}
+        disabled={resetPending || restorePhase !== 'idle'}
+        onPointerDown={(event) => event.stopPropagation()}
+        onContextMenu={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          setResetPending(true);
+          void commitScopedConfigurationMutation(platform, {
+            version: 1, operation: 'reset-all', targets: [{ scope, id }],
+          }).then((mutation) => {
+            if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+          }).catch(() => {
+            // The shared mutation path publishes the runtime error to the UI.
+          }).finally(() => setResetPending(false));
+        }}><RotateCcw /></Button>
+    </TooltipFor>;
+  }
 
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
     const targets = assignmentTargetsForSelection({ kind, id }, projection);
@@ -337,11 +368,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   }
 
   const content: ReactNode = !modelLoaded || !loaded ? (
-    <div data-testid="object-list" onContextMenu={(e) => openContextMenu(e, { kind: 'list' })} className="px-2 pb-2 text-xs text-muted-foreground">
+    <div data-testid="object-list" onContextMenu={(e) => openContextMenu(e, { kind: 'list' })} className="pb-2 text-xs text-muted-foreground">
       No objects
     </div>
   ) : (
-    <div data-testid="object-list" className="px-2 py-2"
+    <div data-testid="object-list" className="object-list-tree py-2"
       onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleListDropToEnd}>
@@ -349,23 +380,27 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         <section
           key={group.key}
           data-testid={`plate-group-${group.kind === 'unprintable' ? 'unprintable' : group.plateId}`}
-          className="border-b py-1 last:border-b-0"
+          className="mb-2 last:mb-0"
         >
-          <div
-            className="flex items-center justify-between px-1 text-[0.68rem] font-semibold uppercase tracking-wide text-muted-foreground"
+          <button
+            type="button"
+            aria-expanded={!collapsedGroups[group.key]}
+            onClick={() => setCollapsedGroups((current) => ({ ...current, [group.key]: !current[group.key] }))}
+            className="mb-1 flex h-5 w-full items-center gap-1 rounded-[2px] bg-panel-header px-1 text-left text-xs font-semibold text-muted-foreground"
             data-testid={`plate-group-label-${group.kind === 'unprintable' ? 'unprintable' : group.plateId}`}
           >
-            <span>{group.label}</span>
+            <span aria-hidden className="w-3 shrink-0 text-center">{collapsedGroups[group.key] ? '▸' : '▾'}</span>
+            <span>{group.kind === 'unprintable' ? 'Outside' : group.label}</span>
             {group.kind === 'plate' && group.plateId && hasScopedMarker('plate', group.plateId) && (
-              <span data-testid={`config-marker-plate-${group.plateId}`} aria-label="Plate has scoped overrides" className="ml-auto px-1 text-[0.65rem] text-muted-foreground">●</span>
+              <RotateCcw data-testid={`config-marker-plate-${group.plateId}`} aria-label="Plate has scoped overrides" className="ml-auto size-3 shrink-0 text-config-override" />
             )}
             {group.kind === 'unprintable' ? (
-              <span data-testid="plate-group-validity-unprintable">Unprintable</span>
+              <span className="sr-only" data-testid="plate-group-validity-unprintable">Unprintable</span>
             ) : group.valid === false && (
               <span data-testid={`plate-group-validity-${group.plateId}`}>Out of bounds</span>
             )}
-          </div>
-          {group.objects.map((obj) => {
+          </button>
+          {!collapsedGroups[group.key] && group.objects.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
         const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1;
         const isExpanded = hasExpandable && !!expanded[obj.id];
@@ -402,10 +437,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               if (row) handleRowContextMenu(e, row, { kind: 'object', object: obj });
             }}
           >
+            <div className="relative flex items-center">
             <Button
               variant="ghost"
               size="xs"
-              className={`w-full justify-start pr-20 ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
+              className={`object-list-row w-full justify-start ${obj.volumes.length > 1 ? 'pr-32' : 'pr-24'}`}
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={(e) => {
                 const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
@@ -431,11 +467,20 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                   onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
                   className="w-32 rounded border bg-control-background px-1 text-xs"
                 />
-              ) : obj.name}
-              {hasScopedMarker('object', obj.id) && <span data-testid={`config-marker-object-${obj.id}`} aria-label="Object has scoped overrides" className="ml-1 text-[0.65rem] text-muted-foreground">●</span>}
+              ) : <span className={`min-w-0 truncate ${hasScopedMarker('object', obj.id) ? 'text-config-override' : ''}`}>{obj.name}</span>}
               {validity !== 'valid' && <ObjectValidityBadge validity={validity} objectId={obj.id} />}
             </Button>
-            <div className="absolute right-0 top-0">
+            <div className="absolute inset-y-0 right-1 flex items-center gap-2">
+              {obj.volumes.length > 1 && <Box className="size-3.5 text-primary-hover" aria-label="Assembly" />}
+              <Checkbox
+                className="object-list-printable size-4"
+                aria-label={`Object ${obj.id} printable`}
+                checked={obj.printable}
+                indeterminate={obj.instances.some((instance) => instance.printable) && obj.instances.some((instance) => !instance.printable)}
+                disabled={restorePhase !== 'idle'}
+                onClick={(event) => event.stopPropagation()}
+                onCheckedChange={(checked) => void setObjectPrintableInList(platform.runtime, objectSelected ? [...projection.objectIds] : [obj.id], checked)}
+              />
               <FilamentAssignmentCell
                 snapshot={filamentSnapshot}
                 kind="object"
@@ -443,6 +488,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                 pending={filamentPending}
                 onAssign={(slot) => assignRow('object', obj.id, slot)}
               />
+              <span className="flex w-3 items-center">
+                {resetControl('object', obj.id)}
+              </span>
+            </div>
             </div>
             {isExpanded && (
               <div className="ml-4">
@@ -450,7 +499,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                   <div
                     key={vol.id}
                     data-testid={`part-${vol.id}`}
-                    className="flex items-center gap-0.5"
+                    className="relative flex items-center"
                     draggable={!(renaming?.kind === 'part' && renaming.id === vol.id)}
                     onDragStart={(e) => {
                       e.stopPropagation();
@@ -478,13 +527,17 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                     <Button
                       variant="ghost"
                       size="xs"
-                      className={`flex-1 justify-start pl-5 ${projection.volumeIds.has(vol.id) ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
+                      className="object-list-row min-w-0 flex-1 justify-start pl-1 pr-24"
                       data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
                       onClick={(e) => {
                         const row = flatRows.find((r) => r.key === `vol:${obj.index}:${vol.index}`);
                         if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
                       }}
                     >
+                      <span className="relative mr-1 size-4 shrink-0" aria-label={vol.type}>
+                        <Box className="size-3.5 text-muted-foreground" />
+                        {vol.type === 'model_part' ? <CirclePlus className="absolute bottom-0 left-0 size-2.5 text-lime-500" /> : vol.type === 'negative_volume' ? <CircleMinus className="absolute bottom-0 left-0 size-2.5 text-destructive" /> : null}
+                      </span>
                       {renaming?.kind === 'part' && renaming.id === vol.id ? (
                         <input
                           data-testid={`part-name-input-${vol.id}`}
@@ -496,9 +549,12 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
                           className="w-28 rounded border bg-control-background px-1 text-xs"
                         />
-                      ) : vol.name}
-                      {hasScopedMarker('part', vol.id) && <span data-testid={`config-marker-part-${vol.id}`} aria-label="Part has scoped overrides" className="ml-1 text-[0.65rem] text-muted-foreground">●</span>}
+                      ) : <span className="min-w-0 truncate">{vol.name}</span>}
                     </Button>
+                    <div className="absolute inset-y-0 right-1 flex items-center gap-2">
+                    <TooltipFor content="Inherits the object's printable state">
+                      <Checkbox className="object-list-printable size-4 disabled:opacity-100" checked={obj.printable} disabled aria-label={`Part ${vol.id} inherits object printability`} />
+                    </TooltipFor>
                     <FilamentAssignmentCell
                       snapshot={filamentSnapshot}
                       kind="part"
@@ -508,10 +564,14 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       pending={filamentPending}
                       onAssign={(slot) => assignRow('part', vol.id, slot)}
                     />
+                    <span className="flex w-3 items-center">
+                      {resetControl('part', vol.id)}
+                    </span>
+                    </div>
                   </div>
                 ))}
                 {obj.instanceCount > 1 && (
-                  <div data-testid={`instances-${obj.id}`} className="border-l pl-2">
+                  <div data-testid={`instances-${obj.id}`} className="pl-2">
                     <Button
                       size="xs"
                       variant="ghost"
@@ -531,7 +591,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         }
                         openContextMenu(e, { kind: 'object', object: obj });
                       }}
-                      className={`w-full justify-start ${obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
+                      className="object-list-row w-full justify-start"
                       data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
                       onClick={(e) => handleInstancesGroupClick(obj, e.ctrlKey || e.metaKey)}
                     >
@@ -549,7 +609,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       <div
                         key={inst.id}
                         data-testid={`instance-${inst.id}`}
-                        className="flex items-center gap-0.5"
+                        className="relative flex items-center"
                         onContextMenu={(e) => {
                           const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
                           if (row) handleRowContextMenu(e, row, { kind: 'instance', object: obj, instance: inst });
@@ -558,7 +618,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         <Button
                           size="xs"
                           variant="ghost"
-                          className={`flex-1 justify-start pl-5 ${projection.instanceIds.has(inst.id) ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
+                          className="object-list-row min-w-0 flex-1 justify-start pl-5 pr-24"
                           data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
                           onClick={(e) => {
                             const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
@@ -567,6 +627,14 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         >
                           {`Instance ${inst.index + 1}`}
                         </Button>
+                        <Checkbox
+                          className="object-list-printable absolute top-1/2 right-[4.5rem] size-4 -translate-y-1/2"
+                          aria-label={`Instance ${inst.id} printable`}
+                          checked={inst.printable}
+                          disabled={restorePhase !== 'idle'}
+                          onClick={(event) => event.stopPropagation()}
+                          onCheckedChange={(checked) => void setInstancePrintableInList(platform.runtime, projection.instanceIds.has(inst.id) ? [...projection.instanceIds] : [inst.id], checked)}
+                        />
                       </div>
                     ))}
                   </div>

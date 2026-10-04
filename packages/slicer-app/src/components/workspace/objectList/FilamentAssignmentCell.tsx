@@ -6,9 +6,7 @@ import {
   SelectGroup,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select';
-import { cn } from 'cn';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { assignmentForRow, assignmentSlotOptions } from './filamentAssignment';
 import type { FilamentSessionSnapshot, FilamentAssignmentTargetRequest } from '@slicer/client';
@@ -23,7 +21,10 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
   onAssign?: (slot: number) => void;
 }) {
   const assignment = assignmentForRow(snapshot, kind, id);
-  if (!snapshot || !assignable || !assignment) return <span className="w-16 shrink-0 text-center text-[0.65rem] text-muted-foreground" data-testid={`filament-cell-${kind}-${id}`}>—</span>;
+  if (!snapshot || !assignable || !assignment) return <span className="w-10 shrink-0 text-center text-xs text-muted-foreground" data-testid={`filament-cell-${kind}-${id}`}>—</span>;
+  const colour = snapshot.slots.find((slot) => slot.slot === assignment.effectiveSlot)?.colour.effective;
+  const rgb = colour?.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})/i);
+  const lightColour = rgb && (Number.parseInt(rgb[1], 16) * 0.299 + Number.parseInt(rgb[2], 16) * 0.587 + Number.parseInt(rgb[3], 16) * 0.114) > 150;
   const label = assignment.effectiveSlot > 0 ? `Slot ${assignment.effectiveSlot}${assignment.inherited ? ' · inherited' : ''}` : 'Default';
   const items = [
     ...(allowDefault ? [{ value: '0', label: 'Default' }] : []),
@@ -41,16 +42,17 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
     >
       <TooltipFor content={label}>
         <SelectTrigger
-          variant="sidebar"
+          hideIndicator
           aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
           data-testid={`filament-cell-${kind}-${id}`}
-          className={cn('w-16 shrink-0', assignment.inherited && 'italic text-muted-foreground')}
+          className="h-5 w-10 shrink-0 justify-center rounded-[1px] border border-input-button-foreground/40 px-0 py-0 text-xs leading-none"
+          style={{ height: 20, backgroundColor: colour ?? 'var(--color-control-background)', color: lightColour ? 'var(--color-control-background)' : 'var(--color-foreground)' }}
           size="sm"
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <SelectValue />
+          {assignment.effectiveSlot > 0 ? assignment.effectiveSlot : '—'}
         </SelectTrigger>
       </TooltipFor>
       <SelectContent

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import type { SceneInteractionController } from './viewport/SceneInteractionController';
 import { SettingsPanel } from './settings/SettingsPanel';
@@ -13,14 +14,18 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
 }) {
   const groupRef = useRef<HTMLDivElement>(null);
   const devicePanelRef = useRef<HTMLDivElement>(null);
+  const devicePanelHandle = useRef<PanelImperativeHandle>(null);
+  const deviceViewportRef = useRef<HTMLDivElement>(null);
   const deviceContentRef = useRef<HTMLDivElement>(null);
+  const expandToMaximum = useRef(false);
   const [deviceBounds, setDeviceBounds] = useState<{ maximum: number; minimum: number } | null>(null);
 
   useLayoutEffect(() => {
     const group = groupRef.current;
     const panel = devicePanelRef.current;
+    const viewport = deviceViewportRef.current;
     const content = deviceContentRef.current;
-    if (!group || !panel || !content) return;
+    if (!group || !panel || !viewport || !content) return;
     const measure = () => {
       const groupHeight = group.getBoundingClientRect().height;
       if (groupHeight <= 0) return;
@@ -38,18 +43,47 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
     // frame so expanded content cannot flash a scrollbar at the old height.
     const observer = new ResizeObserver(() => flushSync(measure));
     observer.observe(content);
+    observer.observe(viewport);
     observer.observe(group);
     return () => observer.disconnect();
   }, []);
 
+  useLayoutEffect(() => {
+    if (!deviceBounds) return;
+    const expanding = expandToMaximum.current;
+    expandToMaximum.current = false;
+    // Apply content-driven changes to the current split: shrink on collapse,
+    // and grow on expansion when the previous content fitted without scrolling.
+    const resizePanel = () => {
+      const panel = devicePanelHandle.current;
+      if (panel && (expanding || panel.getSize().inPixels > deviceBounds.maximum)) {
+        panel.resize(deviceBounds.maximum);
+      }
+    };
+    resizePanel();
+    // The group re-registers panels when constraints change. Reapply after
+    // that update so an expansion is not clamped to the previous maximum.
+    const frame = requestAnimationFrame(() => flushSync(resizePanel));
+    return () => cancelAnimationFrame(frame);
+  }, [deviceBounds]);
+
   return <SettingsPanel sceneInteraction={sceneInteraction} onEditPrinter={onEditPrinter} platesContent={configurationExtras}
     renderLayout={({ printer, settings }) => (
       <ResizablePanelGroup elementRef={groupRef} orientation="vertical" id="workspace-sidebar-panels" className="min-h-0">
-        <ResizablePanel elementRef={devicePanelRef} id="device-material-panel" defaultSize="35%"
+        <ResizablePanel elementRef={devicePanelRef} panelRef={devicePanelHandle} id="device-material-panel" defaultSize="35%"
           minSize={deviceBounds?.minimum ?? '15%'} maxSize={deviceBounds?.maximum}
           className="overflow-hidden rounded-md border bg-card">
-          <div className="h-full overflow-y-auto" data-testid="sidebar-device-panel">
-            <div ref={deviceContentRef} className="flow-root">
+          <div ref={deviceViewportRef} className="h-full overflow-y-auto" data-testid="sidebar-device-panel">
+            <div ref={deviceContentRef} className="flow-root" onClickCapture={(event) => {
+              const target = event.target instanceof Element ? event.target : null;
+              const toggle = target?.closest('.sidebar-section-header button[aria-expanded]');
+              const viewport = deviceViewportRef.current;
+              if (!toggle || !viewport) return;
+              // Capture the combined Printer + Material scroll state before
+              // the child's toggle changes either section's content height.
+              expandToMaximum.current = toggle.getAttribute('aria-expanded') === 'false'
+                && viewport.scrollHeight <= viewport.clientHeight;
+            }}>
               {printer}
               {printerExtras}
             </div>

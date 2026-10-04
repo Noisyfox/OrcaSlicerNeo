@@ -13,6 +13,14 @@ const buttonVariants = cva(
           "border-border hover:bg-input/50 hover:text-foreground aria-expanded:bg-button-expanded aria-expanded:text-foreground dark:bg-input/30",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--color-secondary),var(--color-foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        "number-stepper":
+          "bg-input-button-background text-input-button-foreground hover:bg-button-hover [&_svg]:[stroke-linecap:butt] [&_svg]:[stroke-width:3]",
+        input:
+          "bg-input-button-background text-input-button-foreground hover:bg-button-hover",
+        settings:
+          "bg-settings-button-background text-muted-foreground hover:bg-button-hover",
+        "panel-toggle":
+          "text-input-button-foreground hover:bg-button-hover",
         ghost:
           "hover:bg-button-hover hover:text-foreground aria-expanded:bg-button-expanded aria-expanded:text-foreground dark:hover:bg-button-hover",
         gizmo:

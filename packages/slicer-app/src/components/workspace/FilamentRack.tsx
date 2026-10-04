@@ -97,7 +97,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}
-        className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-background"
+        className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
         <label className="relative flex h-full w-6 shrink-0 cursor-pointer items-center justify-center text-[13px] font-medium"
           style={{ backgroundColor: displayedColour, color: numberColour }}>
@@ -213,9 +213,9 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   return (
     <>
       <section data-testid="filament-rack" className="px-2 pb-2" aria-busy={pending}>
-        <div className="relative flex h-6 items-end justify-center bg-background">
-          <h2 className="rounded-t-sm bg-card px-3 py-1 text-xs font-medium">Material ({snapshot.slots.length})</h2>
-          <Button className="absolute right-0 bottom-0 size-6" variant="ghost" size="icon-xs"
+        <div className="sidebar-section-header -mx-2">
+          <h2 className="sidebar-section-title">Material ({snapshot.slots.length})</h2>
+          <Button className="absolute right-0 bottom-0" variant="panel-toggle" size="icon-xs"
             data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)}
             aria-label={expanded ? 'Collapse materials' : 'Expand materials'} aria-expanded={expanded}>
             {expanded ? <ChevronDown /> : <ChevronUp />}

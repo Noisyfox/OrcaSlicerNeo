@@ -31,11 +31,13 @@ function SelectTrigger({
   className,
   size = "default",
   variant = "default",
+  hideIndicator = false,
   children,
   ...props
 }: SelectPrimitive.Trigger.Props & {
   size?: "sm" | "default"
   variant?: "default" | "action" | "sidebar"
+  hideIndicator?: boolean
 }) {
   return (
     <SelectPrimitive.Trigger
@@ -48,11 +50,11 @@ function SelectTrigger({
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon
+      {!hideIndicator && <SelectPrimitive.Icon
         render={
-          <ChevronDownIcon className={variant === "sidebar" ? "sidebar-dropdown-arrow" : cn("pointer-events-none", variant !== "action" && "size-3.5 text-muted-foreground")} />
+          <ChevronDownIcon className={variant === "sidebar" ? "sidebar-dropdown-arrow" : cn("pointer-events-none", variant !== "action" && "size-3.5 rounded-sm bg-input-button-background text-input-button-foreground")} />
         }
-      />
+      />}
     </SelectPrimitive.Trigger>
   )
 }

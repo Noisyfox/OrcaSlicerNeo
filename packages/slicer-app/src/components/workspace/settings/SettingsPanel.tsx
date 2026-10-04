@@ -1,6 +1,7 @@
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { ObjectList } from '../objectList/ObjectList';
 import { PlateToolbar } from '../PlateToolbar';
 import { unstable_batchedUpdates } from 'react-dom';
@@ -50,6 +51,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
+  const [printerExpanded, setPrinterExpanded] = useState(true);
 
   // A system profile selection is session state; only its three names and UI
   // preferences are persisted. Compatibility remains in the C++ bridge.
@@ -154,16 +156,28 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   }
 
   const printer = !metadata ? <div className="p-3 text-xs text-muted-foreground">Loading presets…</div> : (
-    <section className="p-3" aria-busy={presetTransitionPending} data-testid="preset-transition-region">
-      <PresetRow
-        label="Printer"
-        items={printers}
-        value={selectedPrinter}
-        onValue={(v) => handleSelectPreset('printer', v)}
-        onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
-        disabled={presetTransitionPending}
-        testId="preset-select"
-      />
+    <section className="pb-2" aria-busy={presetTransitionPending} data-testid="preset-transition-region">
+      <div className="sidebar-section-header">
+        <h2 className="sidebar-section-title">Printer</h2>
+        <Button className="absolute right-0 bottom-0" variant="panel-toggle" size="icon-xs"
+          data-testid="printer-section-toggle" onClick={() => setPrinterExpanded((value) => !value)}
+          aria-label={printerExpanded ? 'Collapse printer' : 'Expand printer'} aria-expanded={printerExpanded}
+          aria-controls="printer-section-content">
+          {printerExpanded ? <ChevronDown /> : <ChevronUp />}
+        </Button>
+      </div>
+      <div id="printer-section-content" hidden={!printerExpanded} className="px-2 pt-1">
+        <PresetRow
+          compact
+          label="Printer"
+          items={printers}
+          value={selectedPrinter}
+          onValue={(v) => handleSelectPreset('printer', v)}
+          onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
+          disabled={presetTransitionPending}
+          testId="preset-select"
+        />
+      </div>
     </section>
   );
   const settings = !metadata ? <div className="p-3 text-xs text-muted-foreground">Loading presets…</div> : (
@@ -214,6 +228,16 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
         disabled={disabled}
       >
         <div className="flex min-w-0 gap-1">
+          {onEdit && <Button
+            type="button"
+            variant="settings"
+            size="icon-sm"
+            aria-label="Edit Printer"
+            title="Printer settings"
+            data-testid="preset-edit-printer"
+            disabled={disabled || value.length === 0}
+            onClick={onEdit}
+          ><SlidersHorizontal /></Button>}
           <ComboboxTrigger
             variant="sidebar"
             aria-label={label}
@@ -225,14 +249,6 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
           >
             <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue placeholder="— select —" /></span>
           </ComboboxTrigger>
-          {onEdit && <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid="preset-edit-printer"
-            disabled={disabled || value.length === 0}
-            onClick={onEdit}
-          >Edit</Button>}
         </div>
         <ComboboxContent>
           {/* showTrigger={false} — official popup-style anatomy: the only

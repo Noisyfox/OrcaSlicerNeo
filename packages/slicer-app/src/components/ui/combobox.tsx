@@ -30,7 +30,7 @@ function ComboboxTrigger({
       {...props}
     >
       {children}
-      <ChevronDownIcon className={variant === "sidebar" ? "sidebar-dropdown-arrow" : "pointer-events-none size-3.5 text-muted-foreground"} />
+      <ChevronDownIcon className={variant === "sidebar" ? "sidebar-dropdown-arrow" : "pointer-events-none size-3.5 rounded-sm bg-input-button-background text-input-button-foreground"} />
     </ComboboxPrimitive.Trigger>
   )
 }
@@ -39,7 +39,7 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props) {
   return (
     <ComboboxPrimitive.Clear
       data-slot="combobox-clear"
-      render={<InputGroupButton variant="ghost" size="icon-xs" />}
+      render={<InputGroupButton variant="input" size="icon-xs" />}
       className={cn(className)}
       {...props}
     >
@@ -72,10 +72,10 @@ function ComboboxInput({
         {showTrigger && (
           <InputGroupButton
             size="icon-xs"
-            variant="ghost"
+            variant="input"
             render={<ComboboxTrigger />}
             data-slot="input-group-button"
-            className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent"
+            className="group-has-data-[slot=combobox-clear]/input-group:hidden"
             disabled={disabled}
           />
         )}

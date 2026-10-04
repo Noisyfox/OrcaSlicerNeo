@@ -274,8 +274,9 @@ export function Workspace({
     });
   }, [historyRestorePhase, historyRestoreRevision, platform.runtime]);
   const glVolumes = useModelLoader();
-  // Typed-array/GPU projection exists only while Preview is active. Native
-  // plate cores stay retained in the Worker registry across tab switches.
+  // Typed-array/GPU projection follows the retained workspace mode, including
+  // while AppShell hides Preview behind another page. Prepare releases it;
+  // native plate cores stay retained in the Worker registry across mode changes.
   const sliceResult = useSliceResult(isPreviewTab(activeTab));
   const primeTowerRefreshRef = useRef<((forceDuringRestore?: boolean, forceRead?: boolean) => Promise<void>) | null>(null);
   const primeTowerRefreshGenerationRef = useRef(0);
@@ -776,7 +777,9 @@ export function Workspace({
         <WorkspaceSidebar
           sceneInteraction={sceneInteraction}
           onEditPrinter={(canonicalName) => void openPresetEditor({ kind: 'printer', canonicalName })}
-          printerExtras={(activeTab === 'prepare' || isPreviewTab(activeTab)) && <FilamentRack onEditPreset={(canonicalName) =>
+          // AppShell hides inactive pages; keep the rack mounted so tab switches
+          // preserve its expansion state and the combined panel's height.
+          printerExtras={<FilamentRack onEditPreset={(canonicalName) =>
             void openPresetEditor({ kind: 'filament', canonicalName })
           } />}
           configurationExtras={plateSession && <PreviewPlateList

@@ -27,6 +27,13 @@ performance thresholds remain awaiting user review.
 
 ## Fixed integration decisions
 
+- Painting model materials apply the shared near-black rendering adjustment
+  before sRGB-to-linear conversion. This matches pinned Orca
+  `TriangleSelectorPatch::render()` in `GLGizmoPainterBase.cpp`, which calls
+  `adjust_color_for_rendering()` before submitting its uniform colour: if all
+  encoded RGB channels are below 0.2, each is raised to 0.2. Filament palette
+  values, native annotations, and cursor-highlight semantics remain unchanged.
+
 - Native owns annotations, selectors, authoritative picking, per-stroke commits and history. The renderer owns presentation/original-mesh BVH, with a negative initial-press preflight as specified in section 4. Client/Worker/runtime boundaries remain as specified.
 - Commands use session/stroke/revision identities. Camera input is a per-admitted-event viewport/pointer/camera-matrix snapshot; native reconstructs rays and uses authoritative object/instance transforms. Exact typed schemas are fixed by the relevant transport step and reused thereafter.
 - Reuse one Worker and WASM module. No wx GUI compilation, extra native worker, session-long exclusive transaction, movement queue, pending-latest move, or new history authority.
@@ -35,6 +42,20 @@ performance thresholds remain awaiting user review.
 - Follow the user's implementation reference: pinned Orca `TriangleSelectorGUI` and `TriangleSelectorPatch` in `GLGizmoPainterBase.{hpp,cpp}`, alongside base `TriangleSelector`. Reuse their selection/neighbor/update semantics through non-GUI adapters; separate candidate selection, paint-state change and render invalidation. Native owns candidate membership/contours even for same-color hover. OpenGL/wx resources stay outside WASM; NEO transports geometry to the dedicated React renderer.
 
 ## Verification profiles
+
+The 2026-10-04 near-black rendering follow-up adds model-colour regressions
+for black, near-black, the encoded 0.2 threshold boundary, and ordinary colours,
+using an independent sRGB transfer equation. The held-stroke E2E wheel check
+waits for actual event dispatch and render frames before asserting that the
+camera remains fixed or releasing the stroke; this addresses an intermittent
+delayed-wheel failure without weakening the camera invariant.
+
+Validation for this follow-up: `pnpm test` passed all 154 files and 1459 tests;
+`pnpm typecheck` passed all workspace packages;
+`pnpm --filter @orca/desktop exec node ../../scripts/run-painting-e2e.mjs`
+rebuilt the renderer, verified the staged current serial artifacts, and passed
+both real-WASM painting tests. `git diff --check` passed. No native rebuild or
+dual-host/dual-WASM release matrix was run for this renderer-only change.
 
 Every step requires `git diff --check`, child self-review, and parent independent review. Use pnpm; Windows native work uses the repository `.bat` driver, not Git Bash.
 

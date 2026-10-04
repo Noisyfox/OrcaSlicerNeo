@@ -10,6 +10,14 @@ declare const __ORCA_E2E__: boolean;
 
 export type LoadedObject = GLVolume;
 
+// Capture the full-replacement generation with each React snapshot. Canvas
+// can receive it later than the DOM root; reading the live generation there
+// would confuse an older patch with a newer model load.
+const modelGenerations = new WeakMap<readonly LoadedObject[], number>();
+export function modelGenerationForVolumes(volumes: readonly LoadedObject[]): number | undefined {
+  return modelGenerations.get(volumes);
+}
+
 export function useModelLoader(): LoadedObject[] {
   const platform = usePlatform();
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
@@ -21,7 +29,11 @@ export function useModelLoader(): LoadedObject[] {
     return registerModelLoadingProbeOwner();
   }, []);
 
-  useEffect(() => glVolumeCollection.subscribe((volumes) => setObjects([...volumes])), []);
+  useEffect(() => glVolumeCollection.subscribe((volumes) => {
+    const snapshot = [...volumes];
+    modelGenerations.set(snapshot, glVolumeCollection.replacementGeneration);
+    setObjects(snapshot);
+  }), []);
 
   useEffect(() => {
     let disposed = false;

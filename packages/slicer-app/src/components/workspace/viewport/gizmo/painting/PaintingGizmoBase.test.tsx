@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { PaintingController, type PaintingPorts, type PaintingState } from './PaintingController';
 import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
-import { PaintingGizmoBase, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
+import { PaintingGizmoBase, paintingModelColor, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
 
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
 vi.mock('./PaintingProvider', () => ({ usePaintingState: () => mocked.state, usePaintingController: () => mocked.owner }));
@@ -16,6 +16,19 @@ vi.mock('@react-three/drei', () => ({ Line: () => null }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement, canvas: HTMLCanvasElement;
 const identity = new THREE.Matrix4().toArray();
+it.each([
+  ['#000000', [0.2, 0.2, 0.2]],
+  ['#102030', [0.2, 0.2, 0.2]],
+  ['#330000', [0.2, 0, 0]],
+  ['#445566', [68 / 255, 85 / 255, 102 / 255]],
+  ['#ffffff', [1, 1, 1]],
+] as const)('matches Orca painting model colour preprocessing for %s', (style, expected) => {
+  const colour = paintingModelColor(style);
+  // Independent IEC sRGB equation proves adjustment happens on encoded
+  // channels, before conversion to Three's linear working colour space.
+  const linear = (channel: number) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  expected.forEach((channel, i) => expect(colour.toArray()[i]).toBeCloseTo(linear(channel), 6));
+});
 let source: LoadedObject, replacement: THREE.BufferGeometry;
 beforeEach(() => {
   resolveCursorColor.mockClear();

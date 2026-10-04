@@ -61,6 +61,15 @@ contains the settings and the scope-specific object or plate list. The initial
 height split is 35% / 65%;
 the divider can be dragged or adjusted with the keyboard. Both panels retain a
 minimum height, and the vertical split is session-local.
+The filament rack remains mounted while AppShell hides the workspace on other
+pages. Prepare → Device → Preview does not remove and recreate Material content;
+the combined panel retains its split and section expansion state across navigation.
+App keeps the workspace's last Prepare/Preview mode independently of top-level
+navigation. Home and Device only hide the mounted workspace; they do not switch
+its scene mode, remove action controls, or release the Preview projection and
+its layer/text controls. Returning to the same mode preserves those component
+instances and local state. Selecting Prepare or Preview still changes the
+workspace mode normally.
 The upper card's maximum height tracks the natural height of its printer and
 material content, including its border. Content and workspace resize observers
 update the limit after slot-count, material-collapse, or available-size changes.
@@ -77,7 +86,7 @@ remove the last slot. Edit, Merge, and Delete are available by right-clicking a
 slot. Existing mutation capabilities and reference-impact confirmations still
 control these commands. Mixes, flushing-volume editing, and purge-mode controls
 are outside this layout change. Shared buttons use dark hover (`#343437`) and
-expanded (`#1D1D1F`)
+expanded (`#1B1B1D`)
 backgrounds in place of the light muted surface. Material collapse controls,
 slot dropdown chevrons, and configuration group headings use these shared
 colours; no sidebar-specific button variant is needed. Printer, Process,
@@ -87,9 +96,37 @@ selectors share one sidebar dropdown surface: 24px high, 13px regular text,
 area. The Select and Combobox trigger variants share these styles; names
 truncate within the available width and modified indicators retain their
 existing colour. Text and numeric inputs use the same opaque dark control
-background (`#1D1D1F`), including configuration search and inline rename fields.
+background (`#1B1B1D`), including configuration search and inline rename fields.
 The scalar input and its step buttons share one surface; the inner input stays
 transparent in both light and dark CSS states. Focus rings remain visible.
+The 2026-10-04 number-stepper styling uses two dark 18px buttons separated by
+a 1px gap, with square inner corners and 2px outer corners. Gray plus/minus
+icons use heavier strokes with flat ends, matching the supplied reference.
+Input-associated buttons share the same dark background and gray foreground
+tokens, including Select/Combobox arrows and inline Combobox clear buttons.
+Checkboxes use a borderless dark rounded outer square in both states. The
+checked indicator occupies 70% of that square, with a teal fill, a fixed 2px
+corner radius, and a white checkmark. Focus and disabled behavior are retained.
+The Printer preset editor opens from a 24px square settings button to the left
+of the selector, using a gray sliders icon and a dark-gray rounded background.
+The device/material reference palette is sampled directly from the supplied
+image: panel `#27272A`, controls `#1B1B1D`, headers `#171719`, action buttons
+`#373739`, dropdown icons `#7D7D7F`, muted labels/icons `#AFAFB0`, white primary
+text, and modified indicators `#F7941D`. These use shared theme tokens.
+Printer and Material headings use the configuration-mode header design:
+full-width dark 20px bars, centered card-colored titles with top-only corners,
+and regular 12px text. The Material collapse action remains at the right edge.
+Printer has the same right-edge collapse action. Collapsing it hides its
+selector and editor button while retaining the title bar and current preset;
+the upper panel's content-height constraint follows the collapsed content.
+When collapsing content lowers that maximum below the current panel size,
+the split is resized immediately to the new limit, returning the freed space
+to the configuration panel. Both collapsed headers remain visible.
+Before a section toggle changes content, the combined Printer + Material
+scroll area's overflow state is captured. If it had
+no vertical scrollbar, expanding content also resizes the panel to its new
+maximum, subject to the configuration panel's minimum size. A previously
+scrolling panel keeps its user-selected split when content expands.
 
 The lower configuration panel uses a full-width dark mode header without a
 top divider, with Project, Objects, and Plates tabs (20px high, 12px regular
@@ -137,12 +174,69 @@ viewport plate actions, moved out of the bottom-right floating toolbar; native
 history receipts, plate limits, arrangement behavior, and painting guards are
 preserved. The action row remains outside the list's scrolling area. Send All
 and Print All are not introduced by this relocation.
+The Objects list inherits its horizontal inset from the configuration panel,
+without an additional list-level inset, aligning its edges with other sections.
+The Objects list uses compact 24px tree rows beneath full-width dark collapsible
+plate headers and an Outside group. Selection uses a subdued teal background;
+orange circular-arrow indicators identify native scoped overrides. Part-type
+icons distinguish solid and negative volumes. Right-aligned printable controls
+and filament-colour cells keep the name column aligned; filament cells show only
+the slot number while retaining the assignment menu and inherited-state tooltip.
+Object and instance checkboxes use the existing native printable commands and
+selection targets. Parts display their inherited object printability without
+introducing a separate volume printable setting. Group collapse changes only
+the list presentation, preserving native plate membership, selection, drag/drop,
+renaming, context menus, the half-panel height cap, and the fixed divider.
 The object list stays mounted while hidden so its model-structure and selection subscriptions remain
 active. Printer and Process transitions share their existing state and native
 preset-selection flow. The horizontal sidebar-width resize and its persisted
 preference remain unchanged.
 
+Scoped configuration edits retain valid object/part selections when native
+history publishes a stable-ID scene patch. Renderer snapshots carry the full
+model replacement generation, so the separate Canvas root prunes deleted IDs
+for same-model updates and resets interaction only for a full loader replacement.
+
+Object names also use the orange override colour when that object has local
+scoped configuration overrides, independently of selection highlighting.
+Object and part circular-arrow markers are buttons that reset all overrides
+on that row's native target through the existing history/configuration mutation
+queue. They do not change the current selection or reset other selected rows.
+
+Numeric scoped-field steppers use reactive commit-pending state for their
+disabled appearance. Both successful and rejected commits release that state,
+while a synchronous ref guard continues to prevent duplicate submissions.
+
+Horizontal tab bars respond to mouse-wheel input whenever their list or shared
+Tabs root overflows horizontally, including title-bar pages, configuration
+categories, and preset-editor pages. Vertical wheel movement scrolls the tab
+bar horizontally; trackpad horizontal movement is retained. Non-overflowing
+and vertical tab bars leave native scrolling unchanged, and Ctrl-wheel remains
+available for zoom. The shared listener covers portal dialogs and is removed
+when the app shell unmounts.
+
 ## Verification
+
+The 2026-10-04 control, Object List, and tab-wheel follow-up updates the
+regressions for the accepted palette, slot-number colour cells, and wrapped
+object-row buttons. Numeric field tests cover re-enabling both steppers after
+successful and rejected native commits. Wheel tests cover overflowing lists
+and parent tab containers, horizontal trackpad input, line-mode deltas, and
+preserved zoom/non-overflow/vertical-tab behavior. Electron coverage checks
+real tab-bar scrolling, retained scoped selection and orange object names,
+and row-specific reset without clearing another object's overrides.
+
+Validation for this follow-up:
+
+- `pnpm test` — 154 files, 1454 tests passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/scoped-configuration-input.e2e.ts`
+  — 2 tests passed, including scoped edit, selection retention, and row reset.
+- `pnpm --filter @orca/desktop test:e2e` — renderer build and CSS smoke passed;
+  45 tests passed and 12 conditional tests skipped.
+- `git diff --check` — passed.
+- No native build or real-Web/dual-WASM release matrix is required for these
+  shared renderer/style and test changes; no bridge or host adapter changed.
 
 The 2026-10-02 sidebar and filament-slot batch was verified after the user's
 request to run the affected tests and commit:
@@ -217,6 +311,21 @@ Validation on 2026-10-04:
 - `git diff --check` — passed. No native rebuild was needed because no C++,
   bridge, or build-scaffold code changed. Dedicated instrumented profiling and
   the full dual-host/dual-WASM release matrix were not run.
+
+The 2026-10-04 retained-workspace navigation batch was verified with:
+
+- `pnpm test` — 154 files / 1,459 tests passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` and
+  `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs`
+  — mock renderer build and CSS smoke passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts -g 'starts on blank Home|sidebar panels resize independently|full v1 flow'`
+  — 3 tests passed. The navigation regression checks the combined panel's
+  maximum, scrollbar-free height through Prepare → Device → Preview, mounted
+  rack/action/canvas identity while hidden, and Preview → Home → Device → Preview
+  without a second mode-change render. The slice/export journey checks retained
+  Preview control identity and a non-default layer range through navigation.
+- No native rebuild or full release matrix was needed for this shared UI change.
 
 The following historical results apply to the original workspace extraction:
 

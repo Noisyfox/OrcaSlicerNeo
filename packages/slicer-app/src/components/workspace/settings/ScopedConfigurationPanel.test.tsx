@@ -50,6 +50,26 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 }
 
 describe('scoped field drafts', () => {
+  it.each(['success', 'failure'] as const)('re-enables numeric steppers after commit %s', async (outcome) => {
+    let resolve!: (value: string) => void;
+    let reject!: (reason: Error) => void;
+    const onCommit = vi.fn(() => new Promise<string>((yes, no) => { resolve = yes; reject = no; }));
+    const view = await renderField({}, onCommit, undefined, false);
+    const increase = view.container.querySelector<HTMLButtonElement>('[aria-label="Increase Layer height"]')!;
+    const decrease = view.container.querySelector<HTMLButtonElement>('[aria-label="Decrease Layer height"]')!;
+    await act(async () => increase.click());
+    expect(increase.disabled).toBe(true);
+    expect(decrease.disabled).toBe(true);
+    await act(async () => {
+      if (outcome === 'success') resolve('0.3');
+      else reject(new Error('native rejection'));
+    });
+    expect(increase.disabled).toBe(false);
+    expect(decrease.disabled).toBe(false);
+    await act(async () => decrease.click());
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    await act(async () => resolve('0.2'));
+  });
   it('retains the native enum label after selection closes and the field remounts', async () => {
     const field = { key: 'fuzzy_skin', label: 'Fuzzy skin', value: 'none', meta: {
       type: 'enum' as const, enum_values: ['none', 'allwalls'], enum_labels: ['Painted only', 'All walls'],

@@ -70,6 +70,7 @@ export const ScopedField = memo(function ScopedField({
   const initial = valueForField(field);
   const [draft, setDraft] = useState(initial);
   const committing = useRef(false);
+  const [commitPending, setCommitPending] = useState(false);
   const cancelBlur = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const signature = `${targets.map((target) => `${target.scope}:${target.id ?? ''}`).join(',')}|${field.source}|${field.mixed ? 'mixed' : field.value ?? ''}`;
@@ -82,6 +83,7 @@ export const ScopedField = memo(function ScopedField({
   const commit = async (value: string) => {
     if (committing.current) return;
     committing.current = true;
+    setCommitPending(true);
     const submittedSignature = signatureRef.current;
     try {
       const effective = await onCommit(field, value);
@@ -92,6 +94,7 @@ export const ScopedField = memo(function ScopedField({
         setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       committing.current = false;
+      setCommitPending(false);
     }
   };
   const onDiscrete = (value: string) => { setDraft(value); void commit(value); };
@@ -115,7 +118,7 @@ export const ScopedField = memo(function ScopedField({
   if (field.meta.type === 'bool' && !field.mixed) {
     control = <TooltipFor content={tooltip}><Checkbox
       id={`scoped-${field.key}`}
-      className="size-5 rounded-sm after:inset-0"
+      className="size-5 after:inset-0"
       checked={displayed === '1'}
       onCheckedChange={(checked) => onDiscrete(checked ? '1' : '0')}
     /></TooltipFor>;
@@ -150,10 +153,10 @@ export const ScopedField = memo(function ScopedField({
         className="h-6 min-w-0 flex-1 rounded-sm border-0 bg-transparent dark:bg-transparent px-1.5 text-[13px] focus-visible:ring-0 md:text-[13px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
       /></TooltipFor>
       {canStep && <div className="flex shrink-0 gap-px pr-0.5">
-        <Button type="button" variant="ghost" size="icon-xs" className="size-[18px] rounded-sm bg-card text-muted-foreground [&>svg]:size-3"
-          aria-label={`Decrease ${field.label}`} disabled={committing.current || field.mixed} onClick={() => adjust(-1)}><Minus /></Button>
-        <Button type="button" variant="ghost" size="icon-xs" className="size-[18px] rounded-sm bg-card text-muted-foreground [&>svg]:size-3"
-          aria-label={`Increase ${field.label}`} disabled={committing.current || field.mixed} onClick={() => adjust(1)}><Plus /></Button>
+        <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-[2px] rounded-r-none [&>svg]:size-3"
+          aria-label={`Decrease ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(-1)}><Minus /></Button>
+        <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-none rounded-r-[2px] [&>svg]:size-3"
+          aria-label={`Increase ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(1)}><Plus /></Button>
       </div>}
       </div>;
   }
@@ -353,8 +356,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   return (
     <section ref={panelRef} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
       <div className="shrink-0 space-y-1 bg-card pb-1">
-        <div data-testid="configuration-mode-header" className="bg-button-expanded">
-          <div role="tablist" aria-label="Configuration mode" className="flex h-5 items-end justify-center">
+        <div data-testid="configuration-mode-header" className="bg-panel-header">
+          <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
             {(['project', 'scoped', 'plates'] as const).map((value) => <Button key={value} type="button" role="tab"
               aria-selected={mode === value} data-testid={`config-mode-${value}`} variant="ghost" size="xs"
               className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-xs leading-none font-normal',
@@ -373,7 +376,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           {mode === 'project' ? <div className={cn("min-w-0 flex-1", hasLocalOverrides && "[&_button[data-slot=combobox-trigger]]:text-config-override")}>{projectContent}</div> :
             <span data-testid="scoped-target-label" className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{resolution.label}</span>}
           {mode === 'project' && <span data-testid="scoped-target-label" className="sr-only">Project</span>}
-          <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-background"
+          <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-control-background text-input-button-foreground hover:text-muted-foreground aria-expanded:bg-control-background aria-expanded:text-input-button-foreground"
             aria-label="Search settings" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }}><Search /></Button></TooltipFor>
         </div>
         {searchOpen && <Input autoFocus data-testid="scoped-config-search" value={search} onChange={(event) => setSearch(event.target.value)}
@@ -421,7 +424,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                 <ContextMenuTrigger render={<div />}>
                   <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
                     aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
-                    className={cn("h-5 w-full justify-between rounded-none border-0 bg-background px-1 text-xs font-semibold", highlighted && "config-override-label")}
+                    className={cn("h-5 w-full justify-between rounded-none border-0 bg-control-background px-1 text-xs font-semibold", highlighted && "config-override-label")}
                     onClick={() => setExpanded((current) => ({ ...current, [expansionKey]: !open }))}>
                     {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
                   </Button>

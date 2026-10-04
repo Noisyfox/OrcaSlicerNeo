@@ -536,7 +536,16 @@ test('real painting gizmo routes six tools, native edits, history, camera and cl
         await page.mouse.move(point.x, point.y);
         await expect.poll(async () => (await read())?.resources.find((r) => r.kind === 'triangle')?.matchesDraftLeaf).toBe(true);
       }
-      await page.mouse.wheel(0, 90); expect((await read())!.camera).toEqual(drawingEvidence.camera);
+      // wheel() returns before dispatch; keep the stroke held until the
+      // actual wheel event and its render frames finish before asserting.
+      await page.evaluate(() => {
+        (window as unknown as { __paintingHeldWheel?: Promise<void> }).__paintingHeldWheel = new Promise<void>((resolve) => {
+          window.addEventListener('wheel', () => requestAnimationFrame(() => requestAnimationFrame(() => resolve())), { capture: true, once: true });
+        });
+      });
+      await page.mouse.wheel(0, 90);
+      await page.evaluate(() => (window as unknown as { __paintingHeldWheel?: Promise<void> }).__paintingHeldWheel);
+      expect((await read())!.camera).toEqual(drawingEvidence.camera);
       expect((await read())!.pivot).toEqual(drawingEvidence.pivot); expect((await read())!.target).toEqual(drawingEvidence.target);
       await page.mouse.move(point.x + 2, point.y + 2); await page.mouse.up(); await idle();
       expect((await committed()).paint.some((p) => p.groups.some((g) => g.stateId === 2 && g.indexCount > 0)), tool).toBe(true); await idle();
