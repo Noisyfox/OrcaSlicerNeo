@@ -35,6 +35,16 @@ negative/support volumes. Objects and full instances assign their owning
 object; model parts and parameter modifiers retain the native assignment
 boundary. Existing model-part Default/inherit support remains available.
 
+Auxiliary volumes follow Orca's `color_from_model_volume` rather than filament
+or paint colours: negative volumes are RGB (0.3, 0.3, 0.3) at alpha 0.4,
+parameter modifiers are yellow at alpha 0.6, support blockers are red-tinted
+and enforcers blue-tinted at alpha 0.4. Selection adds 0.25 HSL lightness while
+preserving alpha. Prepare uses front-face rendering and depth writes in the
+transparent pass, matching `GLVolumeCollection::render`. Model parts retain
+their filament/paint materials; imported segmentation does not override an
+auxiliary volume's category material. Native unprintable flags still take
+precedence over category colours.
+
 ## Architecture and support
 
 The typed client owns heap uploads and bridge calls; application commands use
@@ -54,6 +64,9 @@ Passed:
   Load..., primitive addition, owning-object preservation and Undo/Redo.
   The sizing regression also measures the standalone Cube and newly selected
   Cube Part world bounds as 25.6 mm on P1P.
+  Render-material assertions cover selected/unselected negative-volume grey
+  with unchanged alpha 0.4 and selected modifier yellow at alpha 0.6; the
+  selected negative-volume screenshot was visually reviewed.
 - `scripts\build-windows.bat quick --variant serial` and `--variant threaded`.
 - `add-volume-smoke.mjs` on both variants: all six primitives/five volume
   kinds, stable IDs, rejection without mutation, native Undo/Redo, STL Load...
@@ -64,3 +77,5 @@ Passed:
 The full dual-host release matrix was intentionally not run. The filament
 Electron cases are real-only and skipped in the mock E2E selection; component
 tests validate submenu assignment dispatch and queued revision handling.
+The auxiliary-rendering follow-up changes shared renderer code only; no WASM
+rebuild or additional Electron host-seam qualification was required.

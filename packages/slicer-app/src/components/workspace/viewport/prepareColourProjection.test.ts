@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canRenderPreparePaint,
   isModelInstanceMarkedUnprintable,
+  prepareAuxiliaryMaterial,
   prepareColourForVolume,
   preparePaintMaterialOverlays,
   resolvePrepareMaterial,
@@ -36,6 +37,26 @@ function volume(volumeIdx: number, instanceId = 30, instanceIdx = 0) {
 }
 
 describe('Prepare colour projection', () => {
+  it.each([
+    ['negative_volume', '#4d4d4d', '#8c8c8c', 0.4],
+    ['parameter_modifier', '#ffff00', '#ffff80', 0.6],
+    ['support_blocker', '#ff4d4d', '#ffcccc', 0.4],
+    ['support_enforcer', '#4d4dff', '#ccccff', 0.4],
+  ] as const)('renders %s with Orca category colour and selection-independent alpha', (type, colour, selectedColour, opacity) => {
+    const auxiliaryStructure = [{ ...structure[0]!, volumes: [{ ...structure[0]!.volumes[0]!, type }] }];
+    expect(prepareAuxiliaryMaterial(volume(0), auxiliaryStructure)).toEqual({
+      colour, opacity, transparent: true, depthWrite: true,
+    });
+    expect(prepareAuxiliaryMaterial(volume(0), auxiliaryStructure, true)).toEqual({
+      colour: selectedColour, opacity, transparent: true, depthWrite: true,
+    });
+    // Imported segmentation must never replace the auxiliary category material.
+    expect(canRenderPreparePaint(volume(0), auxiliaryStructure)).toBe(false);
+  });
+  it('keeps model parts on the filament/paint material path', () => {
+    expect(prepareAuxiliaryMaterial(volume(0), structure, true)).toBeNull();
+    expect(canRenderPreparePaint(volume(0), structure)).toBe(true);
+  });
   it('uses effective object assignment colour for printable model parts', () => {
     expect(prepareColourForVolume(volume(0), structure, snapshot)).toBe('#123456');
   });

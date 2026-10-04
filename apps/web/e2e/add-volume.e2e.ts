@@ -27,6 +27,21 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   const added = list.locator('[data-testid^="part-"]').filter({ hasText: 'Generic-Sphere' });
   await expect(added).toBeVisible();
   await expect(rows).toHaveCount(1);
+  const materials = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { modelMaterialColours?: () => Array<{
+      colour: string; opacity: number; transparent: boolean; depthWrite: boolean;
+    }> };
+  }).__orcaE2e?.modelMaterialColours?.() ?? []);
+  await expect.poll(materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ colour: '#8c8c8c', opacity: 0.4, transparent: true, depthWrite: true }),
+  ]));
+  await page.screenshot({ path: test.info().outputPath('selected-negative-volume.png') });
+  const canvas = await page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]').boundingBox();
+  if (!canvas) throw new Error('missing canvas');
+  await page.mouse.click(canvas.x + canvas.width - 40, canvas.y + 80);
+  await expect.poll(materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ colour: '#4d4d4d', opacity: 0.4, transparent: true, depthWrite: true }),
+  ]));
   await added.click({ button: 'right' });
   await expect(page.getByTestId('objectlist-add-model_part')).toHaveCount(0);
   await expect(page.getByTestId('objectlist-change-filament')).toHaveCount(0);
@@ -42,6 +57,9 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   await (await partChooser).setFiles(cube);
   await expect(list.locator('[data-testid^="part-"]')).toHaveCount(3);
   await expect(rows).toHaveCount(1);
+  await expect.poll(materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ colour: '#ffff80', opacity: 0.6, transparent: true, depthWrite: true }),
+  ]));
   await page.screenshot({ path: test.info().outputPath('added-volumes.png') });
 });
 
