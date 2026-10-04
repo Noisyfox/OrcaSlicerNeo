@@ -20,8 +20,11 @@ describe('user preferences', () => {
   });
 
   it('keeps workspace and device sidebar widths independent', () => {
-    const normalized = normalizeUserPreferences({ version: 1, ui: { sidebarWidth: 280, deviceSidebarWidth: 360 } });
-    expect(normalized.ui).toEqual({ sidebarWidth: 280, deviceSidebarWidth: 360, switchToDeviceAfterSend: true });
+    const normalized = normalizeUserPreferences({ version: 1, ui: { sidebarWidth: 280, rightSidebarWidth: 400, deviceSidebarWidth: 360 } });
+    expect(normalized.ui).toEqual({ sidebarWidth: 280, rightSidebarWidth: 400, deviceSidebarWidth: 360, switchToDeviceAfterSend: true });
+    for (const width of [NaN, Infinity, '400']) {
+      expect(normalizeUserPreferences({ version: 1, ui: { rightSidebarWidth: width } }).ui.rightSidebarWidth).toBeUndefined();
+    }
   });
 
   it('preserves the send navigation preference and migrates old preferences to enabled', () => {

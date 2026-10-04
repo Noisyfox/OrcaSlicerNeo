@@ -1,7 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { useSlicerStore } from './useSlicerStore';
 
 describe('useSlicerStore', () => {
+  beforeEach(() => useSlicerStore.setState({ preview: useSlicerStore.getInitialState().preview }));
+
+  it('retains display options through invalidation and replacement slice bounds', () => {
+    const store = useSlicerStore.getState();
+    store.setPreviewBounds(4, 8, 42);
+    store.setPreviewColorScheme('speed');
+    store.setPreviewSchemeVisibility('feature', 7, false);
+    store.setPreviewMoveVisibility(3, false);
+    store.setPreviewShowTravel(false);
+    store.setPreviewDimPreviousLayers(false);
+    store.setPreviewSingleLayer(true);
+    const options = {
+      colorScheme: 'speed', schemeVisibility: { feature: { 7: false } }, moveVisibility: { 3: false },
+      showTravel: false, dimPreviousLayers: false, singleLayer: true,
+    };
+    store.invalidateSliceResult();
+    expect(useSlicerStore.getState().preview).toMatchObject({ ...options, resultId: null, visibleLayerStart: 0, visibleLayerEnd: 0 });
+    store.setPreviewBounds(2, 5, 43);
+    expect(useSlicerStore.getState().preview).toMatchObject({ ...options, resultId: 43, visibleLayerStart: 2, visibleLayerEnd: 2, activeMoveEnd: 5 });
+  });
   it('tracks slice status and scrubber range', () => {
     const s = useSlicerStore.getState();
     s.setStatus('slicing');
@@ -32,7 +52,7 @@ describe('useSlicerStore', () => {
     });
   });
 
-  it('keeps the visible layer range and move end inclusive, and resets ephemeral controls', () => {
+  it('keeps the visible layer range and move end inclusive, and preserves display choices when resetting projection', () => {
     useSlicerStore.getState().setPreviewBounds(4, 8, 42);
     useSlicerStore.getState().setPreviewLayerRange([1, 3]);
     useSlicerStore.getState().setPreviewMoveEnd(6);
@@ -45,8 +65,8 @@ describe('useSlicerStore', () => {
     useSlicerStore.getState().resetPreviewState();
     expect(useSlicerStore.getState().preview).toMatchObject({
       visibleLayerStart: 0, visibleLayerEnd: 0,
-      activeMoveEnd: 0, showTravel: true, dimPreviousLayers: true,
-      schemeVisibility: {}, resultId: null,
+      activeMoveEnd: 0, showTravel: false, dimPreviousLayers: true,
+      schemeVisibility: { feature: { 7: false } }, resultId: null,
     });
   });
 

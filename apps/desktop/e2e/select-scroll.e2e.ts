@@ -68,7 +68,7 @@ async function launchApp() {
 // keeps the layout test tied to rendered controls rather than a fixture key.
 // Only the configuration options scroll; mode, preset and page tabs stay fixed.
 async function scrollRowToMidlist(page: Page) {
-  const aside = page.locator('#app-panel-workspace aside');
+  const aside = page.locator('#app-panel-workspace aside:not(#preview-sidebar)');
   const scroller = page.getByTestId('configuration-options-scroll');
   // The real preset panel already has genuine scrollable content. Synthetic
   // spacer nodes are retained only for the compact mock fixture; injecting

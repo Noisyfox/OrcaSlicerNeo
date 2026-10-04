@@ -237,6 +237,34 @@ describe('GcodeTextWindow', () => {
     expect(parseFloat(windowElement.style.top) + parseFloat(windowElement.style.height)).toBeLessThanOrEqual(600);
   });
 
+  it('floats above the sidebars and clamps dragging to the entire workspace', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    const platform = testPlatform(readTextLines);
+    const workspace = document.createElement('div');
+    workspace.setAttribute('data-workspace-overlay-host', '');
+    document.body.append(workspace);
+    setViewportSize(workspace);
+    const viewport = document.createElement('div');
+    workspace.append(viewport);
+    setViewportSize(viewport, 350, 300);
+    root = createRoot(viewport);
+    await act(async () => root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>));
+    const windowElement = workspace.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    const header = workspace.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
+    addPointerCaptureMock(header);
+    expect(windowElement.parentElement).toBe(workspace);
+    expect(viewport.contains(windowElement)).toBe(false);
+    await act(async () => {
+      dispatchPointer(header, 'pointerdown', 7, 0, 0);
+      dispatchPointer(header, 'pointermove', 7, 2000, 2000);
+      dispatchPointer(header, 'pointerup', 7, 2000, 2000);
+    });
+    expect(parseFloat(windowElement.style.left) + parseFloat(windowElement.style.width)).toBe(800);
+    expect(parseFloat(windowElement.style.top) + parseFloat(windowElement.style.height)).toBe(600);
+  });
+
   it('restores saved geometry once and clamps it to a small viewport', async () => {
     const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
       resultId, startLine, lineCount, eof: true, text: 'G1 X1',

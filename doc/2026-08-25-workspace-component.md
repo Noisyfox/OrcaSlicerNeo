@@ -417,3 +417,25 @@ The following historical results apply to the original workspace extraction:
   default `test:e2e` list but is the test that covers the moved resizer, so it
   was run explicitly.
 - No WASM quick build: this change touches no C++, bridge, or build scaffold.
+
+Validation for the Preview sidebar and workspace overlay follow-up (2026-10-04):
+
+- Updated component tests to exercise both the relocated Preview sidebar and
+  scrubber, with explicit initial-state isolation now that display choices
+  survive projection resets. Covered the dimming submenu and single-layer label.
+- Added regressions for independent right-sidebar preference normalization,
+  restoration and saving, display-option retention across replacement results,
+  and G-code dragging bounded by the full workspace above the sidebars.
+- Updated Electron selectors to distinguish the left sidebar from the retained
+  right sidebar, and checked the slim scrubber thumbs and inverted multi-layer
+  toggle state. The Preview journey proves workspace-wide G-code drag bounds
+  and hit-testing over the right sidebar.
+- `pnpm test` — 154 files and 1464 tests passed across all workspace packages.
+- `pnpm typecheck` — all workspace packages passed.
+- `node scripts/stage.mjs --soft`,
+  `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, and
+  `node apps/desktop/scripts/check-renderer-css.mjs` — passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts e2e/select-scroll.e2e.ts --grep 'full v1 flow|preview overlay|select|sidebar panels resize|starts on blank Home'`
+  — 14 Electron mock tests passed.
+- `git diff --check` — passed. Real-WASM builds and the dual-host release matrix
+  were not run: this follow-up changes shared UI and preference handling only.
