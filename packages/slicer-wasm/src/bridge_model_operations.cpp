@@ -408,17 +408,7 @@ ModelGeometryReply model_mesh_json(const std::set<std::size_t>* object_ids = nul
 
 extern "C" {
 
-// Model bytes arrive in the WASM heap (JS: _malloc + HEAPU8 + _free).
-// Stage them in the session temporary filesystem so format loaders can open a path.
-EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const char* ext, const char* filename) {
-    try {
-        if (!data || len <= 0) return error_json("no model bytes");
-        const std::string path = "/tmp/" + sanitized_model_basename(filename, ext);
-        std::FILE* f = std::fopen(path.c_str(), "wb");
-        if (!f) return error_json("cannot open /tmp for model upload");
-        std::fwrite(data, 1, size_t(len), f);
-        std::fclose(f);
-
+static Model read_uploaded_geometry(const std::string& path, const char* ext) {
         DynamicPrintConfig dummy;
         LoadStrategy model_strategy = LoadStrategy::AddDefaultInstances;
         std::string lower_ext = ext ? ext : "";
@@ -473,6 +463,24 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
             imported = Model::read_from_file(path, &dummy, nullptr,
                                               model_strategy);
         }
+        return imported;
+}
+
+// Model bytes arrive in the WASM heap (JS: _malloc + HEAPU8 + _free).
+// Stage them in the session temporary filesystem so format loaders can open a path.
+EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const char* ext, const char* filename) {
+    try {
+        if (!data || len <= 0) return error_json("no model bytes");
+        const std::string path = "/tmp/" + sanitized_model_basename(filename, ext);
+        std::FILE* f = std::fopen(path.c_str(), "wb");
+        if (!f) return error_json("cannot open /tmp for model upload");
+        std::fwrite(data, 1, size_t(len), f);
+        std::fclose(f);
+
+        Model imported = read_uploaded_geometry(path, ext);
+        std::string lower_ext = ext ? ext : "";
+        std::transform(lower_ext.begin(), lower_ext.end(), lower_ext.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         // The wxWidgets GUI is not compiled into the WASM build, so replicate
         // the Plater's post-load steps for non-project files (Plater.cpp
         // _load_files: per object center_around_origin(false) + ensure_on_bed
@@ -552,6 +560,25 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
 }
 
 
+static TriangleMesh make_primitive(const std::string& type_str, double side) {
+        TriangleMesh mesh;
+        if (type_str == "Cube")
+            mesh = TriangleMesh(its_make_cube(side, side, side));
+        else if (type_str == "Cylinder")
+            mesh = TriangleMesh(its_make_cylinder(0.5 * side, side));
+        else if (type_str == "Sphere")
+            mesh = TriangleMesh(its_make_sphere(0.5 * side, PI / 90));
+        else if (type_str == "Cone")
+            mesh = TriangleMesh(its_make_cone(0.5 * side, side));
+        else if (type_str == "Disc")
+            mesh = TriangleMesh(its_make_cylinder(0.5 * side, 0.2f));
+        else if (type_str == "Torus")
+            mesh = TriangleMesh(its_make_torus(0.5 * side, 0.125 * side, PI / 60));
+        else
+            throw Slic3r::RuntimeError("unsupported primitive type: " + type_str);
+        return mesh;
+}
+
 // OrcaSlicer primitives are created in the engine and added to the model
 // directly (ObjectList::load_shape_object → create_mesh → load_mesh_object),
 // never through a file: no staging, no basename-derived names, no extension.
@@ -579,21 +606,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
         // established 20 mm so primitives render like the well-tested cube
         // path. Orca's create_mesh proportions from `side` are preserved.
         const double side = 20.0;
-        TriangleMesh mesh;
-        if (type_str == "Cube")
-            mesh = TriangleMesh(its_make_cube(side, side, side));
-        else if (type_str == "Cylinder")
-            mesh = TriangleMesh(its_make_cylinder(0.5 * side, side));
-        else if (type_str == "Sphere")
-            mesh = TriangleMesh(its_make_sphere(0.5 * side, PI / 90));
-        else if (type_str == "Cone")
-            mesh = TriangleMesh(its_make_cone(0.5 * side, side));
-        else if (type_str == "Disc")
-            mesh = TriangleMesh(its_make_cylinder(0.5 * side, 0.2f));
-        else if (type_str == "Torus")
-            mesh = TriangleMesh(its_make_torus(0.5 * side, 0.125 * side, PI / 60));
-        else
-            return error_json("unsupported primitive type: " + type_str);
+        TriangleMesh mesh = make_primitive(type_str, side);
         const BoundingBoxf3 bb = mesh.bounding_box();
 
         ModelObject* new_object = state().model.add_object();
@@ -633,6 +646,93 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Add one part to an existing object; prepare all geometry before mutation.
+EMSCRIPTEN_KEEPALIVE const char* orc_add_volume(const char* request_json, const char* data, int len) {
+    try {
+        const json request = json::parse(request_json ? request_json : "");
+        const auto object_id = to_object_id(request.at("objectId").get<double>());
+        const auto instance_id = to_object_id(request.at("instanceId").get<double>());
+        const auto type = volume_type_from_string(request.at("volumeType").get<std::string>());
+        if (!object_id || !instance_id || !type) return error_json("invalid add-volume target");
+        ModelObject* object = find_object_by_id(*object_id);
+        if (!object) return error_json("object not found");
+        auto instance_it = std::find_if(object->instances.begin(), object->instances.end(),
+            [&](const ModelInstance* instance) { return instance->id().id == *instance_id; });
+        if (instance_it == object->instances.end()) return error_json("instance not found in object");
+        const auto instance_index = std::distance(object->instances.begin(), instance_it);
+        const ModelInstance* instance = *instance_it;
+        const bool primitive = request.contains("shape");
+        TriangleMesh mesh;
+        Vec3d source_mesh_offset = Vec3d::Zero();
+        std::string name;
+        std::string upload_path;
+        if (primitive) {
+            const auto bounds = selected_plate_bounds();
+            mesh = make_primitive(request.at("shape").get<std::string>(),
+                0.1 * std::max(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y));
+            name = "Generic-" + request.at("shape").get<std::string>();
+        } else {
+            if (!data || len <= 0) return error_json("no model bytes");
+            const auto ext = request.at("ext").get<std::string>();
+            name = request.at("name").get<std::string>();
+            upload_path = "/tmp/part-" + sanitized_model_basename(name.c_str(), ext.c_str());
+            struct UploadCleanup {
+                std::string path;
+                ~UploadCleanup() { std::remove(path.c_str()); }
+            } cleanup{upload_path};
+            std::FILE* file = std::fopen(upload_path.c_str(), "wb");
+            if (!file) return error_json("cannot open /tmp for part upload");
+            const auto written = std::fwrite(data, 1, size_t(len), file);
+            std::fclose(file);
+            if (written != size_t(len)) return error_json("incomplete part upload");
+            Model imported = read_uploaded_geometry(upload_path, ext.c_str());
+            for (auto* incoming : imported.objects) {
+                if (object->origin_translation != Vec3d::Zero()) {
+                    incoming->center_around_origin();
+                    const Vec3d delta = object->origin_translation - incoming->origin_translation;
+                    for (auto* volume : incoming->volumes) volume->translate(delta);
+                }
+            }
+            imported.add_default_instances();
+            if (imported.objects.size() == 1 && imported.objects.front()->volumes.size() == 1)
+                source_mesh_offset = imported.objects.front()->volumes.front()->source.mesh_offset;
+            mesh = imported.mesh();
+        }
+        if (mesh.empty()) return error_json("empty part mesh");
+        const BoundingBoxf3 instance_bb = object->instance_bounding_box(instance_index);
+        std::set<std::size_t> affected_instances;
+        append_instance_ids(*object, affected_instances);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
+        ModelVolume* volume = object->add_volume(std::move(mesh), *type);
+        volume->name = name;
+        const int extruder = *type == ModelVolumeType::MODEL_PART && object->config.has("extruder")
+            ? object->config.opt_int("extruder") : 0;
+        volume->config.set_key_value("extruder", new ConfigOptionInt(extruder));
+        if (primitive) {
+            const Transform3d inverse = instance->get_transformation().get_matrix_no_offset().inverse();
+            volume->set_transformation(inverse);
+            const Vec3d offset = Vec3d(instance_bb.max.x(), instance_bb.min.y(), instance_bb.min.z())
+                + 0.5 * volume->mesh().bounding_box().size() - instance->get_offset();
+            volume->set_offset(inverse * offset);
+            volume->source.is_from_builtin_objects = true;
+        } else {
+            volume->source.input_file = upload_path;
+            volume->source.mesh_offset = source_mesh_offset;
+            volume->set_offset(source_mesh_offset - object->volumes.front()->source.mesh_offset);
+        }
+        object->sort_volumes(true);
+        object->invalidate_bounding_box();
+        rebuild_plate_membership(true);
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-structure"},
+            json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true}, {"volumeId", volume->id().id}}, mutation).dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }

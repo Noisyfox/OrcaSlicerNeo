@@ -424,7 +424,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextVolumeId = 2000;
   let nextInstanceId = 3000;
   let objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }> = [];
-  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }>> = [];
+  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>> = [];
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
@@ -462,7 +462,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
     objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }>;
-    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }>>;
+    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }>>;
     instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
     objectPlateIds: string[];
     currentPlateId: string;
@@ -931,7 +931,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const needsOriginal = instances.length > 0 && !known.has(volume_id);
         const needsPaint = instances.length > 0 && paintKey !== null && !_knownPaint.has(paintKey);
         const sourceMesh = needsOriginal || needsPaint
-          ? primitiveMesh(objectMeta[object_idx]?.primitive)
+          ? primitiveMesh(volumeMeta[object_idx][volume_idx].primitive ?? objectMeta[object_idx]?.primitive)
           : undefined;
         if (needsOriginal && sourceMesh) {
           const { verts, tris } = sourceMesh;
@@ -2377,6 +2377,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), plate_session: plateMutation('model-import') };
     },
+    orc_add_volume(requestJson: string, _ptr: number, len: number) {
+      const r = JSON.parse(requestJson);
+      const oi = objectMeta.findIndex((o) => o.id === r.objectId);
+      if (oi < 0) return { ok: false, error: 'object not found' };
+      if (!instanceMeta[oi].some((i) => i.id === r.instanceId)) return { ok: false, error: 'instance not found in object' };
+      if (!['model_part', 'negative_volume', 'parameter_modifier', 'support_blocker', 'support_enforcer'].includes(r.volumeType))
+        return { ok: false, error: 'invalid volume type' };
+      if (r.shape && !SUPPORTED_PRIMITIVES.includes(r.shape)) return { ok: false, error: 'unsupported primitive type' };
+      if (!r.shape && len <= 0) return { ok: false, error: 'no model bytes' };
+      const volumeId = nextVolumeId++;
+      volumeMeta[oi].push({ id: volumeId, name: r.shape ? `Generic-${r.shape}` : r.name,
+        type: r.volumeType, isSplittable: false, primitive: r.shape });
+      objectVolumeTransforms[oi].push(identityTransform());
+      sliced = false;
+      return { ok: true, volumeId, plate_session: plateMutation('model-structure', [],
+        [...new Set(objectPlateIds[oi] ? [objectPlateIds[oi]] : [])]) };
+    },
     orc_clear_model() {
       objectTransforms = [];
       objectVolumeTransforms = [];
@@ -2517,7 +2534,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           const source = volumeMeta[oi][vi];
           const sourceValues = nativeScopedConfig.parts[String(source.id)];
           if (!source.isSplittable) return { error: 'volume is not splittable' };
-          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }> = [];
+          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }> = [];
           for (let p = 0; p < splitParts; p++) {
             parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
             if (sourceValues) nativeScopedConfig.parts[String(parts[p].id)] = clone(sourceValues);
@@ -2592,7 +2609,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const affectedBefore = srcIdxs.map((oi) => objectPlateIds[oi]).filter((id): id is string => typeof id === 'string');
       const newObjectId = nextObjectId++;
       const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
-      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; paintState?: number }> = [];
+      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean; primitive?: string; paintState?: number }> = [];
       const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
       for (const oi of srcIdxs) {
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
@@ -3089,6 +3106,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_close_project: { ret: 'number', args: [] },
     orc_load_project_after_close: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_import_project_geometry: { ret: 'number', args: ['pointer', 'number', 'string'] },
+    orc_add_volume: { ret: 'number', args: ['string', 'pointer', 'number'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
