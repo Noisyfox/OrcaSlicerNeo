@@ -122,6 +122,7 @@ export interface UserPreferences {
   rememberedFilamentRacks?: Record<string, RememberedFilamentRack>;
   ui: {
     sidebarWidth?: number;
+    rightSidebarWidth?: number;
     deviceSidebarWidth?: number;
     /** Whether successful G-code sends should navigate to Device by default. */
     switchToDeviceAfterSend: boolean;
@@ -299,6 +300,8 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
     ui: {
       ...(typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)
         ? { sidebarWidth: ui.sidebarWidth } : {}),
+      ...(typeof ui.rightSidebarWidth === 'number' && Number.isFinite(ui.rightSidebarWidth)
+        ? { rightSidebarWidth: ui.rightSidebarWidth } : {}),
       ...(typeof ui.deviceSidebarWidth === 'number' && Number.isFinite(ui.deviceSidebarWidth)
         ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
       switchToDeviceAfterSend: typeof ui.switchToDeviceAfterSend === 'boolean'

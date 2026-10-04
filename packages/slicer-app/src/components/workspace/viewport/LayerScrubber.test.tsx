@@ -2,7 +2,7 @@
 import { act } from 'react';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./toolpathColors', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./toolpathColors')>();
@@ -15,6 +15,7 @@ vi.mock('./toolpathColors', async (importOriginal) => {
 
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { LayerScrubber } from './LayerScrubber';
+import { PreviewSidebar } from './PreviewSidebar';
 import { describePreviewScheme, PREVIEW_SCHEME_LABELS, previewSchemeAvailable } from './toolpathColors';
 import type { ToolpathGeometry } from './useSliceResult';
 
@@ -31,11 +32,12 @@ const data: ToolpathGeometry = {
 
 describe('LayerScrubber preview controls', () => {
   let root: Root | undefined;
+  beforeEach(() => useSlicerStore.setState({ preview: useSlicerStore.getInitialState().preview }));
   afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = ''; useSlicerStore.getState().resetPreviewState(); });
 
-  it('lists only present action types, toggles independently, and resets with the preview', async () => {
+  it('lists only present action types, toggles independently, and retains choices after a preview reset', async () => {
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => root?.render(<LayerScrubber data={{ ...data, moveTypes: Uint8Array.from([9, 1, 3, 4]) }} />));
+    await act(async () => root?.render(<PreviewSidebar data={{ ...data, moveTypes: Uint8Array.from([9, 1, 3, 4]) }} />));
     for (const type of [9, 1, 3, 4]) expect(container.querySelector(`[data-testid="preview-move-visibility-${type}"]`)).toBeTruthy();
     expect(container.querySelector('[data-testid="preview-move-visibility-2"]')).toBeNull();
     await act(async () => { container.querySelector('[data-testid="preview-move-visibility-3"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
@@ -44,13 +46,13 @@ describe('LayerScrubber preview controls', () => {
     await act(async () => useSlicerStore.getState().setPreviewColorScheme('speed'));
     expect(container.querySelector('[data-testid="preview-move-visibility-3"]')?.getAttribute('aria-pressed')).toBe('false');
     await act(async () => useSlicerStore.getState().resetPreviewState());
-    expect(useSlicerStore.getState().preview.moveVisibility).toEqual({});
+    expect(useSlicerStore.getState().preview.moveVisibility).toEqual({ 3: false });
   });
 
   it('exposes feature, travel, dimming, single-layer controls and hide semantics', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
     expect(container.querySelector('[data-testid="preview-legend"]')).toBeTruthy();
     await act(async () => { container.querySelector('[data-testid="preview-feature-visibility-1"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(useSlicerStore.getState().preview.schemeVisibility.feature?.[1]).toBe(false);
@@ -58,12 +60,20 @@ describe('LayerScrubber preview controls', () => {
     expect(useSlicerStore.getState().preview.showTravel).toBe(false);
     await act(async () => { container.querySelector('[data-testid="preview-single-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(useSlicerStore.getState().preview.singleLayer).toBe(true);
+    expect(container.querySelector('[data-testid="preview-single-layer"]')?.getAttribute('aria-pressed')).toBe('false');
+    expect(container.querySelectorAll('[data-testid="preview-layer-range"] .preview-slider-label')).toHaveLength(1);
+    expect(document.querySelector('[data-testid="preview-dimming-toggle"]')).toBeNull();
+    await act(async () => { (container.querySelector('[data-testid="preview-layer-options"]') as HTMLElement).click(); });
+    const dimming = document.querySelector('[data-testid="preview-dimming-toggle"]') as HTMLElement;
+    expect(dimming).not.toBeNull();
+    await act(async () => dimming.click());
+    expect(useSlicerStore.getState().preview.dimPreviousLayers).toBe(false);
   });
 
   it('does not rebuild G-code-wide scheme data for an unrelated preview update', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
 
     const available = vi.mocked(previewSchemeAvailable);
     const descriptor = vi.mocked(describePreviewScheme);
@@ -81,7 +91,7 @@ describe('LayerScrubber preview controls', () => {
   it('renders one move-end thumb and changes the end with keyboard input', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
 
     const moveSlider = container.querySelector('[data-testid="preview-move-range"]') as HTMLElement;
     const moveInput = moveSlider.querySelector('input[type="range"]') as HTMLInputElement;
@@ -104,7 +114,7 @@ describe('LayerScrubber preview controls', () => {
   it('resets the move end to the newly selected layer bound', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
     const moveInput = container.querySelector('[data-testid="preview-move-range"] input[type="range"]') as HTMLInputElement;
     const layerEnd = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]')[1] as HTMLInputElement;
     await act(async () => {
@@ -126,7 +136,7 @@ describe('LayerScrubber preview controls', () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     useSlicerStore.getState().setPreviewLayerRange([0, 1], 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
     await act(async () => { container.querySelector('[data-testid="preview-single-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
 
     const layerInputs = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]');
@@ -156,7 +166,7 @@ describe('LayerScrubber preview controls', () => {
   it('moves the horizontal slider one move per wheel step and clamps at its bounds', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
     const moveInput = container.querySelector('[data-testid="preview-move-range"] input[type="range"]') as HTMLInputElement;
 
     const down = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
@@ -177,7 +187,7 @@ describe('LayerScrubber preview controls', () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     useSlicerStore.getState().setPreviewLayerRange([0, 0], 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
 
     const moveFrame = container.querySelector('[data-testid="preview-move-range"]') as HTMLElement;
     const moveWheel = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
@@ -196,7 +206,7 @@ describe('LayerScrubber preview controls', () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     useSlicerStore.getState().setPreviewLayerRange([0, 0], 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
     const layerInputs = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]');
     const startInput = layerInputs[0] as HTMLInputElement;
     const endInput = layerInputs[1] as HTMLInputElement;
@@ -252,7 +262,7 @@ describe('LayerScrubber preview controls', () => {
     useSlicerStore.getState().setPreviewLayerEnd(0, 1);
     useSlicerStore.getState().setPreviewSingleLayer(true);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
     const startInput = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]')[0] as HTMLInputElement;
     const wheelUp = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
     await act(async () => { startInput.dispatchEvent(wheelUp); });
@@ -263,7 +273,7 @@ describe('LayerScrubber preview controls', () => {
   it('keeps legend filters scoped to the selected scheme', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
     const scheme = container.querySelector('[data-testid="preview-color-scheme"]') as HTMLButtonElement;
     await act(async () => {
       scheme.click();
@@ -293,7 +303,7 @@ describe('LayerScrubber preview controls', () => {
   it('collapses and re-expands the entire preview controls panel from the Preview header', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { root?.render(<><LayerScrubber data={data} /><PreviewSidebar data={data} /></>); });
 
     const header = container.querySelector('[data-testid="preview-controls-header"]') as HTMLButtonElement;
     const content = container.querySelector('#preview-controls-content') as HTMLElement;

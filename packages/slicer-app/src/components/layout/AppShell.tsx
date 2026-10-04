@@ -25,7 +25,8 @@ export function AppPagePanel({ active, prewarming = false, id, labelledBy, child
       aria-hidden={!active}
       hidden={!active && !prewarming}
       inert={!active}
-      className={`flex min-h-0 flex-1 px-1${prewarming && !active ? ' invisible absolute inset-0' : ''}`}
+      data-workspace-overlay-host={id === 'app-panel-workspace' ? '' : undefined}
+      className={`relative flex min-h-0 flex-1 px-1${prewarming && !active ? ' invisible absolute inset-0' : ''}`}
     >
       {children}
     </div>

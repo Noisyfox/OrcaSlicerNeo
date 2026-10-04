@@ -61,6 +61,15 @@ contains the settings and the scope-specific object or plate list. The initial
 height split is 35% / 65%;
 the divider can be dragged or adjusted with the keyboard. Both panels retain a
 minimum height, and the vertical split is session-local.
+Window/group height changes preserve the upper Printer + Material panel's pixel
+height and let the lower configuration panel absorb the change. Only when the
+lower panel's 20% minimum would be violated does the group reduce the upper
+panel. Content-driven maximum-height changes and manual divider resizing still
+apply independently.
+The upper panel's pixel minimum is initialized from 15% of the first visible
+group height and capped by its content height. Window resizing does not recalculate
+that minimum: changing constraints would re-register the panels and reapply a
+percentage split, overriding the intended pixel-preserving behavior.
 The filament rack remains mounted while AppShell hides the workspace on other
 pages. Prepare → Device → Preview does not remove and recreate Material content;
 the combined panel retains its split and section expansion state across navigation.
@@ -70,6 +79,75 @@ its scene mode, remove action controls, or release the Preview projection and
 its layer/text controls. Returning to the same mode preserves those component
 instances and local state. Selecting Prepare or Preview still changes the
 workspace mode normally.
+Preview display controls live in a dedicated right sidebar (initially 320px) with an opaque
+card surface and a centered Slice Info header. The sidebar contains the color
+scheme selector, compact feature/action visibility rows with eye icons, numeric
+color legends, statistics, and current-move inspection. Its content scrolls
+independently below the header. The layer and move range sliders remain viewport
+overlays. The sidebar follows the retained workspace mode when another page
+hides the workspace; Prepare continues to use the full viewport width.
+Slice Info and its resize handle remain mounted across Prepare/Preview navigation
+and are hidden/inert outside Preview. After the first Preview visit, its valid
+projection remains enabled across tab changes, preserving the sidebar's collapse
+state, scroll position, color scheme, and visibility settings. Native result
+invalidation still replaces stale data; tab navigation alone does not reset it.
+Preview display choices also survive reslicing and result invalidation within
+the UI session: color scheme, feature/action visibility, travel visibility,
+previous-layer dimming, and single-layer mode. New result bounds reset layer/move
+positions and result identity independently; a retained single-layer mode starts
+with both bounds on the new result's final layer.
+The layer range sits at the viewport's left edge, starting 15% down and spanning
+54% of its height. A slim 24px dark rounded capsule contains a 6px gray track, teal
+selected range, and thin cross-line thumbs. Right-side labels show one-based
+layer numbers and native Z heights (two decimal places when available).
+Only the layer label corner nearest its handle is square: bottom-left on the
+upper label, top-left on the lower label. The other corners have a 6px radius.
+Thumb lines are 1px thick with a 1px near-black outline; keyboard focus retains its teal outline.
+Their cross-axis span is 22px, so the outline fits within the 24px capsule edge.
+The single-layer toggle sits 6px below the left layer capsule as a 24px dark square
+button with 3px corners and a layers icon. Multiple-layer mode is its pressed
+state and uses a teal icon; single-layer mode is unpressed.
+its accessible name, tooltip, and keyboard activation retain the existing toggle behavior.
+Single-layer mode displays only the current/end-layer thumb label; range mode
+displays both start and end labels.
+A matching menu button sits 6px below the single-layer button and opens the
+layer options menu to its right. Dim previous layers is a checked menu item
+bound to the existing preview state, replacing the standalone sidebar button.
+Thumb labels are interactive drag surfaces inside their corresponding slider
+thumbs. Pointer events bubble to the native slider drag handling, preserving
+the initial grab offset. Labels retain the normal pointer cursor and disable
+text selection and touch scrolling during dragging.
+The slider control's transparent hit surface extends across the entire capsule,
+including side padding and rounded end padding. Clicks and drags anywhere in that
+surface use the existing native slider handler and unchanged track coordinates;
+the visible dimensions and pointer cursor stay unchanged.
+The move range uses the matching 24px horizontal capsule and 6px track at bottom center, spanning 60% of the
+viewport with an 8px bottom inset, a thin teal marker, and current move number above it. Drag, wheel,
+and keyboard behavior remain unchanged; generic sliders retain their normal style.
+Line Type rows show native feature time, its share of the native estimated total,
+and filament length/weight when available; absent metrics display a dash.
+Those feature statistics are shown once in the table rather than repeated below.
+Actions and markers append to the same legend list with their independent
+visibility state. A separator and compact icon summary row below that list show
+estimated time, combined filament length/weight, and cost. This replaces the
+previous labeled Statistics block; current-move inspection remains available below.
+The Time, %, and Usage columns use compact 40px, 24px, and 60px widths, with matching header and row alignment.
+Feature and action rows use a compact 20px height and share the object list's
+2px corners, regular 12px muted labels, and dark button hover surface.
+Rows are click-only visibility controls with no selection state or persistent
+selection highlight. Visibility is indicated by the eye icon; keyboard focus
+remains visible. Scheme color swatches retain
+their native colors. Light-muted hover backgrounds are not used for these rows.
+The G-code text window renders in the workspace overlay above the viewport and both sidebars. Its drag and resize bounds cover the entire area between the title bar and status bar; saved geometry uses this workspace coordinate space.
+The right sidebar's left-edge separator supports horizontal pointer/mouse dragging
+and arrow-key resizing between 220px and 560px. Dragging left widens it; dragging
+right narrows it. Its independent width is saved as `ui.rightSidebarWidth` in
+user preferences after dragging or keyboard resizing, and restored on startup
+with the same bounds. An unset width defaults to 320px. It is also retained across
+Prepare/Preview and top-level page navigation. The handle is transparent
+and shares the existing left-sidebar classes. Both 6px handles overlap the viewport
+edge, leaving no visible background strip or hover highlight between the scene
+and either sidebar.
 The upper card's maximum height tracks the natural height of its printer and
 material content, including its border. Content and workspace resize observers
 update the limit after slot-count, material-collapse, or available-size changes.
@@ -339,3 +417,25 @@ The following historical results apply to the original workspace extraction:
   default `test:e2e` list but is the test that covers the moved resizer, so it
   was run explicitly.
 - No WASM quick build: this change touches no C++, bridge, or build scaffold.
+
+Validation for the Preview sidebar and workspace overlay follow-up (2026-10-04):
+
+- Updated component tests to exercise both the relocated Preview sidebar and
+  scrubber, with explicit initial-state isolation now that display choices
+  survive projection resets. Covered the dimming submenu and single-layer label.
+- Added regressions for independent right-sidebar preference normalization,
+  restoration and saving, display-option retention across replacement results,
+  and G-code dragging bounded by the full workspace above the sidebars.
+- Updated Electron selectors to distinguish the left sidebar from the retained
+  right sidebar, and checked the slim scrubber thumbs and inverted multi-layer
+  toggle state. The Preview journey proves workspace-wide G-code drag bounds
+  and hit-testing over the right sidebar.
+- `pnpm test` — 154 files and 1464 tests passed across all workspace packages.
+- `pnpm typecheck` — all workspace packages passed.
+- `node scripts/stage.mjs --soft`,
+  `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, and
+  `node apps/desktop/scripts/check-renderer-css.mjs` — passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts e2e/select-scroll.e2e.ts --grep 'full v1 flow|preview overlay|select|sidebar panels resize|starts on blank Home'`
+  — 14 Electron mock tests passed.
+- `git diff --check` — passed. Real-WASM builds and the dual-host release matrix
+  were not run: this follow-up changes shared UI and preference handling only.

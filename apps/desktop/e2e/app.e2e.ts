@@ -197,7 +197,7 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
     const sidebarIdentity = await page.evaluate(() => {
-      const sidebar = document.querySelector('#app-panel-workspace aside');
+      const sidebar = document.querySelector('#app-panel-workspace aside:not(#preview-sidebar)');
       (window as unknown as { __orcaSidebar?: Element }).__orcaSidebar = sidebar ?? undefined;
       return Boolean(sidebar);
     });
@@ -215,7 +215,7 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
     await expect.poll(() => devicePanel.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
     const expandedHeight = (await devicePanel.boundingBox())!.height;
     const retainedElements = await page.evaluateHandle(() => [
-      '#app-panel-workspace aside', '[data-testid="filament-rack"]',
+      '#app-panel-workspace aside:not(#preview-sidebar)', '[data-testid="filament-rack"]',
       '[data-testid="toolbar-actions"]', '[data-testid="viewport"] canvas',
     ].map((selector) => ({ selector, node: document.querySelector(selector) })));
     await page.getByTestId('tab-device').click();
@@ -245,7 +245,7 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible();
     await expect.poll(() => page.evaluate(() => {
-      const current = document.querySelector('#app-panel-workspace aside');
+      const current = document.querySelector('#app-panel-workspace aside:not(#preview-sidebar)');
       const original = (window as unknown as { __orcaSidebar?: Element }).__orcaSidebar;
       return current === original;
     })).toBe(true);
@@ -608,7 +608,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     expect(statsBox!.y).toBeCloseTo(viewportBox!.y + 4, 0);
 
     const titlebarBox = await page.getByTestId('titlebar').boundingBox();
-    const sidebarBox = await page.locator('#app-panel-workspace aside').boundingBox();
+    const sidebarBox = await page.locator('#app-panel-workspace aside:not(#preview-sidebar)').boundingBox();
     const footerBox = await page.locator('footer').boundingBox();
     expect(viewportBox!.y).toBeCloseTo(titlebarBox!.y + titlebarBox!.height, 0);
     expect(viewportBox!.x).toBeCloseTo(sidebarBox!.x + sidebarBox!.width, 0);
@@ -627,7 +627,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await resizer.focus();
     expect(await resizer.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
     await resizer.press('ArrowRight');
-    const resizedSidebar = await page.locator('#app-panel-workspace aside').boundingBox();
+    const resizedSidebar = await page.locator('#app-panel-workspace aside:not(#preview-sidebar)').boundingBox();
     expect(resizedSidebar!.width).toBeGreaterThan(sidebarBox!.width);
     await resizer.press('ArrowLeft');
 
@@ -670,25 +670,18 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await expect(page.getByTestId('layer-scrubber')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
     await expect(page.getByTestId('btn-export')).toBeEnabled();
 
-    // The scrubber grabber (Base UI Thumb: div wrapper + visually-hidden
-    // input) must render as a full 12x12 knob (base-mira size-3) straddling
-    // the 4px track. Regression (2026-08-16): the Base UI migration nested
-    // the Thumb inside the overflow-hidden Track, which clipped most of the
-    // knob to a barely visible sliver. getBoundingClientRect ignores ancestor
-    // overflow clipping, so probe hit-testing with elementFromPoint at the
-    // thumb's vertical extremes: clipped, both hit the card overlay instead.
+    // Slim cross-line thumbs must remain hit-testable outside the track.
     const thumbFullyVisible = await page
       .getByTestId('layer-scrubber')
       .evaluate((el) => {
         const thumb = el.querySelector('input[type="range"]')?.parentElement;
         if (!thumb) return false;
         const r = thumb.getBoundingClientRect();
-        const cx = r.x + r.width / 2;
         return (
-          r.width === 12 &&
-          r.height === 12 &&
-          thumb.contains(document.elementFromPoint(cx, r.y + 1)) &&
-          thumb.contains(document.elementFromPoint(cx, r.y + r.height - 1))
+          r.width === 22 &&
+          r.height === 1 &&
+          thumb.contains(document.elementFromPoint(r.x + 1, r.y + r.height / 2)) &&
+          thumb.contains(document.elementFromPoint(r.right - 1, r.y + r.height / 2))
         );
       });
     expect(thumbFullyVisible).toBe(true);
@@ -1083,7 +1076,7 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     // either thumb can then move that layer without reversing the range.
     const singleLayerToggle = page.getByTestId('preview-single-layer');
     await singleLayerToggle.click();
-    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
     await expect(layerInputs.nth(0)).toHaveValue(await layerInputs.nth(1).inputValue());
     await layerInputs.nth(0).focus();
     await page.keyboard.press('Home');
@@ -1093,9 +1086,9 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     await page.keyboard.press('ArrowUp');
     await expect.poll(() => layerInputs.nth(0).inputValue()).toBe('1');
     await expect(layerInputs.nth(1)).toHaveValue('1');
-    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
-    await singleLayerToggle.click();
     await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
+    await singleLayerToggle.click();
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(async () => Number(await layerInputs.nth(0).inputValue()) <= Number(await layerInputs.nth(1).inputValue())).toBe(true);
 
     const layerBefore = await layerInputs.nth(1).inputValue();
@@ -1119,6 +1112,21 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     await page.keyboard.press('c');
     await expect(page.getByTestId('gcode-text-window')).toBeVisible();
     await expect(page.getByTestId('gcode-text-scroll')).toBeVisible();
+    const textWindow = page.getByTestId('gcode-text-window');
+    expect(await textWindow.evaluate((el) => el.parentElement?.id)).toBe('app-panel-workspace');
+    const workspaceBounds = (await page.locator('#app-panel-workspace').boundingBox())!;
+    const headerBounds = (await page.getByTestId('gcode-text-header').boundingBox())!;
+    await page.mouse.move(headerBounds.x + 30, headerBounds.y + headerBounds.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(workspaceBounds.x + workspaceBounds.width + 100, workspaceBounds.y + workspaceBounds.height + 100, { steps: 6 });
+    await page.mouse.up();
+    const textBounds = (await textWindow.boundingBox())!;
+    expect(textBounds.x + textBounds.width).toBeCloseTo(workspaceBounds.x + workspaceBounds.width, 0);
+    expect(textBounds.y + textBounds.height).toBeCloseTo(workspaceBounds.y + workspaceBounds.height, 0);
+    expect(await textWindow.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(rect.right - 12, rect.top + 18));
+    })).toBe(true);
     const renderedSourceRows = await page.locator('[data-testid^="gcode-line-"]').count();
     expect(renderedSourceRows).toBeLessThan(2401);
     await page.getByTestId('gcode-text-close').click();

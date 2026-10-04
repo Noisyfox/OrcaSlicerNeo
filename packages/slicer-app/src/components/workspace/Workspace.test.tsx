@@ -77,6 +77,27 @@ const twoPlateSnapshot: PlateSessionSnapshot = {
 describe('Workspace ownership', () => {
   let root: Root | undefined;
 
+  it('restores and saves right sidebar width independently of left sidebar width', async () => {
+    vi.mocked(platform.preferences.load).mockResolvedValueOnce({
+      version: 1, selectedProfiles: {}, ui: { sidebarWidth: 288, rightSidebarWidth: 400, switchToDeviceAfterSend: true },
+    });
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>));
+    const resizer = container.querySelector('[data-testid="preview-sidebar-resizer"]') as HTMLElement;
+    expect(resizer.getAttribute('aria-valuenow')).toBe('400');
+    expect(container.querySelector('[data-testid="sidebar-resizer"]')?.getAttribute('aria-valuenow')).toBe('288');
+    await act(async () => resizer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })));
+    expect(resizer.getAttribute('aria-valuenow')).toBe('416');
+    expect(platform.preferences.save).toHaveBeenLastCalledWith(expect.objectContaining({ ui: expect.objectContaining({ sidebarWidth: 288, rightSidebarWidth: 416 }) }));
+    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" /></PlatformProvider>));
+    expect(container.querySelector('[data-testid="preview-sidebar-resizer"]')).toBe(resizer);
+    expect(resizer.hidden).toBe(true);
+    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>));
+    expect(resizer.getAttribute('aria-valuenow')).toBe('416');
+  });
+
   afterEach(() => {
     root?.unmount();
     root = undefined;

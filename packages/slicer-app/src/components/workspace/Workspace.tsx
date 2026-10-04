@@ -17,6 +17,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { WorkspaceHistoryProbe, trackPrimeTowerProjectionRead } from '@/e2e/WorkspaceHistoryProbe';
 import { ScopedConfigurationGateProbe } from '@/e2e/ScopedConfigurationGateProbe';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
+import { PreviewSidebar } from './viewport/PreviewSidebar';
 import { Viewport } from './viewport/Viewport';
 import { SceneInteractionController } from './viewport/SceneInteractionController';
 import { glVolumeCollection, waitForGLVolumeRevision } from './viewport/GLVolume';
@@ -61,14 +62,16 @@ import { paintingTarget, usePaintingController, usePaintingPhase } from './viewp
 declare const __ORCA_E2E__: boolean;
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
+const DEFAULT_RIGHT_SIDEBAR_WIDTH = 320;
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 560;
+const SIDEBAR_RESIZER_CLASS = 'relative z-30 w-1.5 shrink-0 cursor-ew-resize touch-none self-stretch focus-visible:outline-none';
 export interface PreviewRenderTransition {
   begin(): void;
   cancel(): void;
 }
-function clampSidebarWidth(value: number | undefined): number {
-  if (!Number.isFinite(value)) return DEFAULT_SIDEBAR_WIDTH;
+function clampSidebarWidth(value: number | undefined, fallback = DEFAULT_SIDEBAR_WIDTH): number {
+  if (!Number.isFinite(value)) return fallback;
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
@@ -274,10 +277,12 @@ export function Workspace({
     });
   }, [historyRestorePhase, historyRestoreRevision, platform.runtime]);
   const glVolumes = useModelLoader();
-  // Typed-array/GPU projection follows the retained workspace mode, including
-  // while AppShell hides Preview behind another page. Prepare releases it;
-  // native plate cores stay retained in the Worker registry across mode changes.
-  const sliceResult = useSliceResult(isPreviewTab(activeTab));
+  // Once Preview is visited, keep its projection across tab changes so the
+  // hidden Slice Info sidebar retains its component and store state. Native
+  // result invalidation still clears stale projections through useSliceResult.
+  const [previewVisited, setPreviewVisited] = useState(isPreviewTab(activeTab));
+  if (!previewVisited && isPreviewTab(activeTab)) setPreviewVisited(true);
+  const sliceResult = useSliceResult(previewVisited);
   const primeTowerRefreshRef = useRef<((forceDuringRestore?: boolean, forceRead?: boolean) => Promise<void>) | null>(null);
   const primeTowerRefreshGenerationRef = useRef(0);
   const primeTowerProjectionInputsRef = useRef<readonly unknown[] | null>(null);
@@ -592,6 +597,8 @@ export function Workspace({
   const previewRenderPendingRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(DEFAULT_RIGHT_SIDEBAR_WIDTH);
+  const rightSidebarWidthRef = useRef(rightSidebarWidth);
   const resizeActiveRef = useRef(false);
   const stopResizeRef = useRef<(() => void) | null>(null);
 
@@ -667,34 +674,40 @@ export function Workspace({
         const width = clampSidebarWidth(prefs.ui.sidebarWidth);
         sidebarWidthRef.current = width;
         setSidebarWidth(width);
+        const previewWidth = clampSidebarWidth(prefs.ui.rightSidebarWidth, DEFAULT_RIGHT_SIDEBAR_WIDTH);
+        rightSidebarWidthRef.current = previewWidth;
+        setRightSidebarWidth(previewWidth);
       }
     });
     return () => { active = false; stopResizeRef.current?.(); };
   }, [platform.preferences]);
 
-  function persistSidebarWidth(width: number) {
+  function persistSidebarWidth(width: number, side: 'left' | 'right') {
     void platform.preferences.load().then((prefs) => platform.preferences.save({
       ...prefs,
-      ui: { ...prefs.ui, sidebarWidth: width },
+      ui: { ...prefs.ui, [side === 'left' ? 'sidebarWidth' : 'rightSidebarWidth']: width },
     })).catch(() => undefined);
   }
 
-  function beginResize(clientX: number) {
+  function beginResize(clientX: number, side: 'left' | 'right' = 'left') {
     if (resizeActiveRef.current) return;
     resizeActiveRef.current = true;
 
     const startX = clientX;
-    const startWidth = sidebarWidthRef.current;
+    const widthRef = side === 'left' ? sidebarWidthRef : rightSidebarWidthRef;
+    const setWidth = side === 'left' ? setSidebarWidth : setRightSidebarWidth;
+    const startWidth = widthRef.current;
+    const direction = side === 'left' ? 1 : -1;
     let active = true;
 
     const applyClientX = (nextClientX: number) => {
       if (!active) return;
       const nextWidth = Math.min(
         MAX_SIDEBAR_WIDTH,
-        Math.max(MIN_SIDEBAR_WIDTH, startWidth + nextClientX - startX),
+        Math.max(MIN_SIDEBAR_WIDTH, startWidth + direction * (nextClientX - startX)),
       );
-      sidebarWidthRef.current = nextWidth;
-      setSidebarWidth(nextWidth);
+      widthRef.current = nextWidth;
+      setWidth(nextWidth);
     };
 
     const onPointerMove = (moveEvent: PointerEvent) => applyClientX(moveEvent.clientX);
@@ -710,7 +723,7 @@ export function Workspace({
       window.removeEventListener('pointerup', stop);
       window.removeEventListener('mouseup', stop);
       window.removeEventListener('pointercancel', stop);
-      persistSidebarWidth(sidebarWidthRef.current);
+      persistSidebarWidth(widthRef.current, side);
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
     };
@@ -726,7 +739,7 @@ export function Workspace({
     document.body.style.cursor = 'ew-resize';
   }
 
-  function handleResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+  function handleResizePointerDown(event: ReactPointerEvent<HTMLDivElement>, side: 'left' | 'right' = 'left') {
     if (event.button !== 0) return;
     event.preventDefault();
     const handle = event.currentTarget;
@@ -737,26 +750,28 @@ export function Workspace({
         // Some test/jsdom environments do not implement pointer capture.
       }
     }
-    beginResize(event.clientX);
+    beginResize(event.clientX, side);
   }
 
-  function handleResizeMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
+  function handleResizeMouseDown(event: ReactMouseEvent<HTMLDivElement>, side: 'left' | 'right' = 'left') {
     if (event.button !== 0) return;
     event.preventDefault();
-    beginResize(event.clientX);
+    beginResize(event.clientX, side);
   }
 
-  function handleResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+  function handleResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>, side: 'left' | 'right' = 'left') {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();
-    const delta = event.key === 'ArrowLeft' ? -16 : 16;
+    const widthRef = side === 'left' ? sidebarWidthRef : rightSidebarWidthRef;
+    const setWidth = side === 'left' ? setSidebarWidth : setRightSidebarWidth;
+    const delta = (event.key === 'ArrowLeft' ? -16 : 16) * (side === 'left' ? 1 : -1);
     const nextWidth = Math.min(
       MAX_SIDEBAR_WIDTH,
-      Math.max(MIN_SIDEBAR_WIDTH, sidebarWidthRef.current + delta),
+      Math.max(MIN_SIDEBAR_WIDTH, widthRef.current + delta),
     );
-    sidebarWidthRef.current = nextWidth;
-    setSidebarWidth(nextWidth);
-    persistSidebarWidth(nextWidth);
+    widthRef.current = nextWidth;
+    setWidth(nextWidth);
+    persistSidebarWidth(nextWidth, side);
   }
 
   return (
@@ -801,9 +816,9 @@ export function Workspace({
         onPointerDown={handleResizePointerDown}
         onMouseDown={handleResizeMouseDown}
         onKeyDown={handleResizeKeyDown}
-        className="relative z-30 w-1.5 shrink-0 cursor-ew-resize touch-none self-stretch focus-visible:outline-none"
+        className={SIDEBAR_RESIZER_CLASS}
       />
-      <main className="relative -mt-1 -mr-1 -ml-1.5 min-w-0 flex-1 overflow-hidden">
+      <main className={`relative -mt-1 -ml-1.5 min-w-0 flex-1 overflow-hidden${isPreviewTab(activeTab) ? ' -mr-1.5' : ' -mr-1'}`}>
         <Viewport
           sceneInteraction={sceneInteraction}
           wipeTowerVolumes={wipeTowerVolumes}
@@ -818,6 +833,39 @@ export function Workspace({
           onSceneFrameRendered={handleSceneFrameRendered}
         />
       </main>
+      <>
+      <div
+        hidden={!isPreviewTab(activeTab)}
+        inert={!isPreviewTab(activeTab)}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize preview sidebar"
+        aria-controls="preview-sidebar"
+        aria-valuenow={rightSidebarWidth}
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_SIDEBAR_WIDTH}
+        tabIndex={0}
+        data-testid="preview-sidebar-resizer"
+        onPointerDown={(event) => handleResizePointerDown(event, 'right')}
+        onMouseDown={(event) => handleResizeMouseDown(event, 'right')}
+        onKeyDown={(event) => handleResizeKeyDown(event, 'right')}
+        className={SIDEBAR_RESIZER_CLASS}
+      />
+      <aside
+        hidden={!isPreviewTab(activeTab)}
+        inert={!isPreviewTab(activeTab)}
+        id="preview-sidebar"
+        aria-label="Preview sidebar"
+        data-testid="preview-sidebar"
+        className="min-w-0 shrink-0 overflow-hidden rounded-md bg-card"
+        style={{ width: rightSidebarWidth, minWidth: MIN_SIDEBAR_WIDTH, maxWidth: MAX_SIDEBAR_WIDTH }}
+      >
+        {sliceResult.toolpath ? <PreviewSidebar data={sliceResult.toolpath} /> : <>
+          <div className="sidebar-section-header"><span className="sidebar-section-title">Slice Info</span></div>
+          <p className="p-2 text-xs text-muted-foreground">{sliceResult.projectionStatus === 'loading' ? 'Loading preview…' : 'Needs slicing'}</p>
+        </>}
+      </aside>
+      </>
     </div>
     <PresetEditorDialog
       target={presetEditorTarget}
