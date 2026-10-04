@@ -9,7 +9,16 @@ import { paintingPartMatrix, PaintingResources, type PaintingResource } from './
 import { PaintingProbe } from '@/e2e/PaintingProbe';
 import type { PaintingDisplay } from './PaintingController';
 import { PaintingCursor, PAINTING_RENDER_ORDER } from './PaintingCursor';
+import { adjustRgbForRendering } from '../../renderColor';
 declare const __ORCA_E2E__: boolean;
+
+/** Orca adjusts encoded palette RGB before submitting painting model colours.
+ * Apply the shared near-black rule before Three converts to linear light. */
+export function paintingModelColor(style: string): THREE.Color {
+  const encoded = new THREE.Color().setStyle(style, THREE.LinearSRGBColorSpace);
+  const [r, g, b] = adjustRgbForRendering([encoded.r, encoded.g, encoded.b]);
+  return new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
+}
 
 export function paintingPointer(event: Pick<PointerEvent, 'clientX' | 'clientY'>, canvas: HTMLCanvasElement, camera: THREE.Camera): PaintingPointerEvent {
   const rect = canvas.getBoundingClientRect(); camera.updateMatrixWorld();
@@ -221,7 +230,7 @@ function PaintResourceMesh({ resource, matrix, colors, targetName }: { resource:
   const triangle = resource.source.kind === 'triangle';
   const overhang = resource.source.kind === 'overhang';
   const region = (resource.source.kind === 'region' || resource.source.kind === 'smartFill' || resource.source.kind === 'overhang'), overlay = resource.source.kind !== 'draft';
-  const materials = useMemo(() => triangle ? [] : colors.map((color) => new THREE.MeshStandardMaterial({ color: overhang ? '#ffb347' : region ? '#ffffff' : color, side: THREE.DoubleSide, transparent: region, opacity: overhang ? 0.25 : region ? 0.35 : 1, depthWrite: !overlay, polygonOffset: overlay, polygonOffsetFactor: overhang ? -1 : -2, polygonOffsetUnits: overhang ? -1 : -2 })), [colors.join(','), triangle, region, overlay, overhang]);
+  const materials = useMemo(() => triangle ? [] : colors.map((color) => new THREE.MeshStandardMaterial({ color: paintingModelColor(overhang ? '#ffb347' : region ? '#ffffff' : color), side: THREE.DoubleSide, transparent: region, opacity: overhang ? 0.25 : region ? 0.35 : 1, depthWrite: !overlay, polygonOffset: overlay, polygonOffsetFactor: overhang ? -1 : -2, polygonOffsetUnits: overhang ? -1 : -2 })), [colors.join(','), triangle, region, overlay, overhang]);
   const contourMaterial = useMemo(() => triangle ? triangleContourMaterial() : new THREE.LineBasicMaterial({ color: 'white', depthTest: false }), [triangle]);
   useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
   useEffect(() => () => contourMaterial.dispose(), [contourMaterial]);
