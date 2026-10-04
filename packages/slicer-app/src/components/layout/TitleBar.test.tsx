@@ -45,6 +45,24 @@ function markup(chrome: PlatformChrome) {
 }
 
 describe('TitleBar menu surface', () => {
+  it.each(['home', 'prepare', 'device'] as const)('identifies page dividers independently of sidebar actions on %s', (activeTab) => {
+    const chrome: PlatformChrome = { kind: 'desktop', platform: 'win32', menuMode: 'custom', dragRegion: true };
+    const snapshot = state(chrome);
+    const container = document.createElement('div');
+    container.innerHTML = renderTitlebar(<TitleBar activeTab={activeTab} chrome={chrome}
+      model={buildMenuModel(snapshot, chrome)} state={snapshot} onCommand={vi.fn()}
+      leftSidebarVisible rightSidebarVisible onToggleLeftSidebar={() => undefined} onToggleRightSidebar={() => undefined} />);
+    const bar = container.querySelector('[data-testid="titlebar"]')!;
+    const tabs = bar.querySelector('[data-slot="tabs"]')!;
+    const beforePages = tabs.previousElementSibling!;
+    const afterPages = tabs.nextElementSibling!;
+    expect(beforePages.getAttribute('data-slot')).toBe('separator');
+    expect(afterPages.getAttribute('data-slot')).toBe('separator');
+    expect(beforePages.classList.contains('invisible')).toBe(activeTab === 'home');
+    expect(afterPages.classList.contains('invisible')).toBe(activeTab === 'device');
+    expect(bar.querySelectorAll(':scope > [data-slot="separator"]')).toHaveLength(4);
+  });
+
   it('dispatches sidebar toggles and reflects the current page and visibility', () => {
     const chrome: PlatformChrome = { kind: 'web', menuMode: 'browser' };
     const snapshot = state(chrome);

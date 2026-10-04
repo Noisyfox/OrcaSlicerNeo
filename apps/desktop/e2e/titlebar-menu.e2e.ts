@@ -40,16 +40,17 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
-    const dividers = page.getByTestId('titlebar').locator(':scope > [data-slot="separator"]');
-    await expect(dividers.nth(1)).toBeHidden();
+    const beforePages = page.getByTestId('titlebar').locator(':scope > [data-slot="separator"]:has(+ [data-slot="tabs"])');
+    const afterPages = page.getByTestId('titlebar').locator(':scope > [data-slot="tabs"] + [data-slot="separator"]');
+    await expect(beforePages).toBeHidden();
     await page.locator('#app-tab-device').click();
-    await expect(dividers.nth(2)).toBeHidden();
+    await expect(afterPages).toBeHidden();
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('titlebar')).toBeVisible();
     await expect(page.getByTestId('titlebar-menu')).toBeVisible();
     await expect(page.getByTestId('titlebar-menu-trigger')).toHaveClass(/no-drag/);
-    await expect(dividers.nth(1)).toBeVisible();
-    await expect(dividers.nth(2)).toBeVisible();
+    await expect(beforePages).toBeVisible();
+    await expect(afterPages).toBeVisible();
     const layout = await page.getByTestId('titlebar').evaluate((bar) => {
       const tab = bar.querySelector('#app-tab-prepare')!.getBoundingClientRect();
       const center = tab.y + tab.height / 2;
@@ -62,7 +63,7 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
     });
     expect(layout.height).toBe(32);
     layout.offsets.forEach((offset) => expect(Math.abs(offset)).toBeLessThanOrEqual(0.5));
-    expect(layout.lines).toEqual([1, 1, 1]);
+    expect(layout.lines).toEqual([1, 1, 1, 1]);
     await expect(page.getByTestId('titlebar-save-project')).toBeDisabled();
 
 
