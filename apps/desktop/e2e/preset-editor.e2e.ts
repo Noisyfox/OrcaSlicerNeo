@@ -62,6 +62,23 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
     if (REAL) await selectFilamentPreset(page, 'Generic PLA @System');
+    for (const [id, placeholder] of [
+      ['preset-select', 'Search presets…'],
+      ['process-preset-select', 'Search presets…'],
+      ['filament-preset-1', 'Search compatible presets…'],
+    ]) {
+      const picker = page.getByTestId(id);
+      const selected = await picker.textContent();
+      await picker.click();
+      const search = page.getByPlaceholder(placeholder).and(page.locator('input[aria-expanded="true"]'));
+      await search.fill('no-such-preset');
+      await page.getByRole('button', { name: 'Clear search', exact: true }).click();
+      await expect(search).toHaveValue('');
+      await expect(search).toBeFocused();
+      await expect(picker).toHaveText(selected!);
+      await expect(page.getByRole('option').first()).toBeVisible();
+      await page.keyboard.press('Escape');
+    }
 
     await page.getByTestId('preset-edit-printer').click();
     const dialog = page.getByTestId('preset-editor-dialog');

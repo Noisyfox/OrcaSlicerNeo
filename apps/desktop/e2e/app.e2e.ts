@@ -364,6 +364,10 @@ test('sidebar panels resize independently and configuration controls keep their 
     await page.getByTestId('config-input-layer_height').fill('0.3');
     await page.getByTestId('config-input-layer_height').press('Enter');
     await expect(group).toHaveAttribute('data-local-override-highlight', 'true');
+    await settings.getByRole('button', { name: 'Clear search', exact: true }).click();
+    await expect(page.getByTestId('scoped-config-search')).toHaveValue('');
+    await expect(page.getByTestId('scoped-config-search')).toBeFocused();
+    await expect(tabs).toBeVisible();
   } finally { await app.close(); }
 });
 

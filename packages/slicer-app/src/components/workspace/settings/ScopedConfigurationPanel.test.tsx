@@ -161,6 +161,11 @@ describe('scoped field drafts', () => {
     await search('future_option');
     expect(fieldOrder()).toEqual([]);
     expect(container.querySelector('[data-testid="scoped-config-empty"]')).toBeTruthy();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Clear search"]')!.click());
+    expect(input.value).toBe('');
+    expect(document.activeElement).toBe(input);
+    expect(fieldOrder()[0]).toBe('wall_loops');
+    expect(container.querySelector('[aria-label="Clear search"]')).toBeNull();
     expect(useSettingsStore.getState().nativeScopedConfig.project).toEqual(hidden);
     expect(useSettingsStore.getState().nativeScopedConfig.objects['42']).toEqual(hidden);
   });

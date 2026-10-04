@@ -56,6 +56,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
+  const [search, setSearch] = useState('');
   const colourInputRef = useRef<HTMLInputElement>(null);
   const authoritativeColour = slot.colour.effective.slice(0, 7).toLowerCase();
   const [draftColour, setDraftColour] = useState<string | null>(null);
@@ -112,7 +113,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
             className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-default"
           />
         </label>
-        <Combobox value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
+        <Combobox inputValue={search} onInputValueChange={setSearch} value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
           <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
             aria-label={`Filament preset for slot ${slot.slot}`}
             title={slot.preset.name}
@@ -120,7 +121,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
             <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue /></span>
           </ComboboxTrigger>
           <ComboboxContent>
-            <ComboboxInput placeholder="Search compatible presets…" showTrigger={false} />
+            <ComboboxInput placeholder="Search compatible presets…" showTrigger={false} searchValue={search} onClearSearch={() => setSearch('')} />
             <ComboboxList>{(name) => <ComboboxItem key={name} value={name}>{name}</ComboboxItem>}</ComboboxList>
             <ComboboxEmpty>No compatible preset</ComboboxEmpty>
           </ComboboxContent>

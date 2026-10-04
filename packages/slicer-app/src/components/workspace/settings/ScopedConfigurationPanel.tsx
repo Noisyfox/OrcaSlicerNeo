@@ -8,6 +8,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TooltipFor } from '@/components/ui/tooltip';
@@ -357,7 +358,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-control-background text-input-button-foreground hover:text-muted-foreground aria-expanded:bg-control-background aria-expanded:text-input-button-foreground"
             aria-label="Search settings" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }}><Search /></Button></TooltipFor>
         </div>
-        {searchOpen && <Input autoFocus data-testid="scoped-config-search" value={search} onChange={(event) => setSearch(event.target.value)}
+        {searchOpen && <SearchInput autoFocus data-testid="scoped-config-search" value={search} onValueChange={setSearch}
           placeholder="Search settings…" className="h-6 rounded-sm border-0 bg-control-background" />}
         {!search.trim() && availablePages.length > 1 && <div role="tablist" aria-label="Settings category" className="flex overflow-x-auto overflow-y-hidden border-b border-border">
           {availablePages.map((page) => <Button key={page.title} role="tab" type="button" variant="ghost" size="xs"
