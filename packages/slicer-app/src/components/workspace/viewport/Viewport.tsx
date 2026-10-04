@@ -7,6 +7,10 @@ import { BED_SIZE, getPrintableAreaBounds, normalizePrintableArea, type Printabl
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
+import { ArrangementPanel } from '../arrangement/ArrangementControls';
+import { MovePanel } from '../settings/MovePanel';
+import { RotatePanel } from '../settings/RotatePanel';
+import { ScalePanel } from '../settings/ScalePanel';
 import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
 import type { LoadedObject } from './useModelLoader';
@@ -109,6 +113,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
   const [showGcodeText, setShowGcodeText] = useState(false);
+  const [arrangementOpen, setArrangementOpen] = useState(false);
+  const closeArrangement = useCallback(() => setArrangementOpen(false), []);
   const [plateActionPending, setPlateActionPending] = useState(false);
   // The controls ref is consumed as a prop target (drei Stats `parent`),
   // never read by this component — so it can be typed without the null union, which
@@ -380,6 +386,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         if (previewTab || paintingActive) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
+        if ((event.target as HTMLElement).closest('canvas')) closeArrangement();
         if (useArrangementStore.getState().active) return;
         if (paintingActive) return;
         if (previewTab) {
@@ -513,7 +520,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       {/* The canvas fills the removed chrome gaps; the control frame preserves
           the previous screen positions and passes empty-space input through. */}
       <div ref={controlsRef} className="pointer-events-none absolute top-1 right-1 bottom-0 left-1.5 [&>*:not([role=status])]:pointer-events-auto" data-testid="viewport-control-frame">
-        {paintingActive && (paintState?.channel === 'support' ? <SupportPaintingPanel /> : paintState?.channel === 'seam' ? <SeamPaintingPanel /> : paintState?.channel === 'fuzzy' ? <FuzzyPaintingPanel /> : <MmuPaintingPanel />)}
         {!paintingActive && paintState?.error && <p role="alert" className="absolute top-14 right-0 rounded-md border bg-card p-3 text-sm text-destructive">{paintState.error}</p>}
         {previewTab && !toolpath && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" aria-live="polite">
@@ -528,7 +534,16 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
         )}
         {previewTab && toolpath && <LayerScrubber data={toolpath} />}
         {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
-        {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
+        {prepareTab && <div className="absolute top-14 bottom-44 left-0 flex max-w-full items-center gap-1.5" style={{ pointerEvents: 'none' }} data-testid="gizmo-controls">
+          <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} arrangementOpen={arrangementOpen} onArrangementOpenChange={setArrangementOpen} />
+          <div className="pointer-events-auto flex max-h-full w-64 min-w-0 flex-col gap-3 overflow-y-auto rounded-md bg-card p-3 empty:hidden" data-testid="gizmo-options">
+            {arrangementOpen && <ArrangementPanel sceneInteraction={sceneInteraction} onClose={closeArrangement} />}
+            <MovePanel sceneInteraction={sceneInteraction} />
+            <RotatePanel sceneInteraction={sceneInteraction} />
+            <ScalePanel sceneInteraction={sceneInteraction} />
+            {paintingActive && (paintState?.channel === 'support' ? <SupportPaintingPanel /> : paintState?.channel === 'seam' ? <SeamPaintingPanel /> : paintState?.channel === 'fuzzy' ? <FuzzyPaintingPanel /> : <MmuPaintingPanel />)}
+          </div>
+        </div>}
         {actionControls && <div className="pointer-events-auto absolute top-0 -left-0.5 z-40 max-w-full" data-testid="viewport-actions">{actionControls}</div>}
       </div>
     </div>

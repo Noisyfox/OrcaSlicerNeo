@@ -2556,6 +2556,56 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
 // Gizmo keyboard shortcuts (OrcaSlicer bindings): M / R / S toggle
 // move/rotate/scale (refusing with an empty selection), Esc deselects all
 // (which also closes the gizmo).
+test('scene gizmo cards share navigator clearance and Arrange closes on tool or scene input', async () => {
+  test.skip(REAL, 'shared DOM layout and interaction use the mock runtime');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible();
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await selectMockInstance(page, 0);
+    await page.getByTestId('gizmo-btn-rotate').click();
+    await expect(page.getByTestId('gizmo-options').getByTestId('rotate-panel')).toBeVisible();
+    await page.getByTestId('arrange-menu').click();
+    await expect(page.getByTestId('rotate-panel')).toBeHidden();
+    await expect(page.getByTestId('arrangement-panel')).toBeVisible();
+    await page.getByTestId('arrange-distance').click();
+    await expect(page.getByTestId('arrangement-panel')).toBeVisible();
+    const assertClearance = async () => {
+      const viewport = (await page.getByTestId('viewport').boundingBox())!;
+      const toolbar = (await page.getByTestId('gizmo-toolbar').boundingBox())!;
+      const options = (await page.getByTestId('gizmo-options').boundingBox())!;
+      expect(options.x).toBeGreaterThanOrEqual(toolbar.x + toolbar.width);
+      for (const card of [toolbar, options]) {
+        expect(card.y).toBeGreaterThanOrEqual(viewport.y + 56);
+        expect(card.y + card.height).toBeLessThanOrEqual(viewport.y + viewport.height - 160);
+      }
+    };
+    await assertClearance();
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await assertClearance();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('gizmo-btn-move').click();
+    await expect(page.getByTestId('arrangement-panel')).toBeHidden();
+    await expect(page.getByTestId('move-panel')).toBeVisible();
+    await page.getByTestId('arrange-menu').click();
+    await expect(page.getByTestId('move-panel')).toBeHidden();
+    await expect(page.getByTestId('arrangement-panel')).toBeVisible();
+    const viewport = (await page.getByTestId('viewport').boundingBox())!;
+    await page.mouse.click(viewport.x + viewport.width - 40, viewport.y + 80);
+    await expect(page.getByTestId('arrangement-panel')).toBeHidden();
+    await page.getByTestId('arrange-menu').click();
+    await selectMockInstance(page, 0);
+    await page.getByTestId('viewport').focus();
+    await page.keyboard.press('r');
+    await expect(page.getByTestId('arrangement-panel')).toBeHidden();
+    await expect(page.getByTestId('rotate-panel')).toBeVisible();
+  } finally { await app.close(); }
+});
+
 test('scene transforms: gizmo keyboard shortcuts', async () => {
   const { app } = await launchApp();
   try {

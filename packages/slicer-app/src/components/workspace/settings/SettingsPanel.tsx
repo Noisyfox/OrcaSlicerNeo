@@ -9,9 +9,6 @@ import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
-import { MovePanel } from './MovePanel';
-import { RotatePanel } from './RotatePanel';
-import { ScalePanel } from './ScalePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -182,9 +179,6 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   );
   const settings = !metadata ? <div className="p-3 text-xs text-muted-foreground">Loading presets…</div> : (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-2 pb-2">
-      <MovePanel sceneInteraction={sceneInteraction} />
-      <RotatePanel sceneInteraction={sceneInteraction} />
-      <ScalePanel sceneInteraction={sceneInteraction} />
       <ScopedConfigurationPanel
         sceneInteraction={sceneInteraction}
         projectContent={<PresetRow compact label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />}

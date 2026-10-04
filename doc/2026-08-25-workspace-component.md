@@ -45,6 +45,8 @@ which are siblings inside that middle row. Every controller change re-rendered
 
 ## Behavior
 
+The Prepare scene gizmo toolbar is a vertical opaque card at the viewport's left edge. Arrange, Move, Rotate, Scale, and painting options are shown in an adjacent card to its right instead of inside the settings sidebar or at the viewport's right edge. Both cards are centered within a shared region beginning 56px below the viewport controls frame and ending 176px above its bottom, reserving space for the 3D navigator. Each card scrolls independently on short windows. The existing tool order and actions are retained, with a horizontal separator after Add Model. Empty space in the shared region passes pointer input to the scene. Arrange uses the same inline options card instead of a popover; its toolbar button toggles the card, choosing another tool immediately closes it, and starting arrangement closes it. Pressing the 3D scene canvas also closes Arrange without consuming the scene gesture; interacting inside its options card keeps it open. Opening Arrange closes the armed transform gizmo and first awaits a successful close of any active painting session; unfinished painting operations continue to block switching.
+
 The sidebar contains two vertically resizable cards. The upper card scrolls
 its device/material content; the lower card scrolls only the configuration
 options below the category tabs. Mode, preset, search, and category controls
@@ -459,3 +461,13 @@ Validation for title-bar sidebar toggles and internal API cleanup (2026-10-04):
   — four Electron mock tests passed.
 - `git diff --check` — passed. Real-WASM builds and the full release matrix
   were not run because no native or runtime-boundary code changed.
+
+
+Validation for vertical gizmo cards and Arrange interaction (2026-10-04):
+
+- `pnpm --filter @orca/slicer-app exec vitest run src/components/workspace/viewport/GizmoToolbar.test.tsx src/components/workspace/arrangement/ArrangementControls.test.tsx` — 26 tests passed, including tool switching and failed painting closure.
+- `pnpm test` — 156 files and 1,505 tests passed across the workspace.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` and `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` — passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'scene gizmo cards|scene transforms: gizmo keyboard shortcuts|full v1 flow'` — three Electron mock tests passed. The focused card journey checks navigator clearance at 800px and 600px window heights, adjacent transform options, Arrange/transform mutual exclusion, keyboard switching, inside-card interaction, and scene dismissal.
+- `git diff --check` — passed. Real-WASM builds and the full release matrix were not run because no native or runtime-boundary code changed.

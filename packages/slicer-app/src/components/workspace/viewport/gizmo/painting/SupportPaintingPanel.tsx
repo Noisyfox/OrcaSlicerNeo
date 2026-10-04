@@ -9,7 +9,7 @@ export function SupportPaintingPanel() {
   const controller = usePaintingController(), state = usePaintingState();
   if (!controller || !state || state.phase === 'closed') return null;
   const idle = state.phase === 'idle', settings = state.settings;
-  return <section className="absolute top-14 right-0 flex w-64 flex-col gap-3 rounded-md border bg-card/95 p-3 text-sm shadow-sm" aria-label="Support painting" data-testid="painting-panel" data-phase={state.phase}>
+  return <section className="flex min-w-0 flex-col gap-3 text-sm" aria-label="Support painting" data-testid="painting-panel" data-phase={state.phase}>
     <div className="flex items-center justify-between"><h2 className="font-semibold">Support painting</h2><Button size="sm" variant="ghost" onClick={() => void controller.close()} disabled={!idle && state.phase !== 'error'} aria-label="Close painting">Close</Button></div>
     <fieldset disabled={!idle}><legend className="mb-2 text-xs text-muted-foreground">Tool</legend>
       <RadioGroup disabled={!idle} value={state.tool} onValueChange={(tool) => controller.setTool(tool as 'circle' | 'sphere' | 'smartFill' | 'gap')} className="grid-cols-2" aria-label="Painting tool">

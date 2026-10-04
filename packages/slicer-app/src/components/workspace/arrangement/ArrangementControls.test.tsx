@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_USER_PREFERENCES, normalizeArrangementPreferences, type PlatformCapabilities } from '@orca/platform-contract';
@@ -9,11 +9,11 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { ArrangeCurrentPlateButton, ArrangementMenu, ArrangementStatus } from './ArrangementControls';
+import { ArrangeCurrentPlateButton, ArrangementButton, ArrangementPanel, ArrangementStatus } from './ArrangementControls';
 
 const mocked = vi.hoisted(() => ({
   platform: null as unknown as PlatformCapabilities,
-  unfinished: false,
+  unfinished: false, activePainting: false, closePainting: vi.fn(),
   arrange: vi.fn(), cancel: vi.fn(),
 }));
 vi.mock('@orca/platform-contract', async (original) => ({
@@ -22,13 +22,21 @@ vi.mock('@orca/platform-contract', async (original) => ({
 }));
 vi.mock('../actions/arrangementActions', () => ({ arrangeModels: mocked.arrange, cancelArrangement: mocked.cancel }));
 vi.mock('../viewport/gizmo/painting/PaintingProvider', () => ({
-  usePaintingController: () => ({ unfinished: mocked.unfinished }), usePaintingState: () => null,
+  usePaintingController: () => ({ unfinished: mocked.unfinished, active: mocked.activePainting, close: mocked.closePainting }),
+  usePaintingState: () => ({ phase: mocked.activePainting ? 'idle' : 'closed' }),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let container: HTMLDivElement;
 let root: Root;
-const scene = { owner: 'none', subscribe: () => () => {} } as unknown as SceneInteractionController;
+const scene = { owner: 'none', subscribe: () => () => {}, closeGizmo: vi.fn() } as unknown as SceneInteractionController;
+function ArrangementHarness() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <ArrangementButton sceneInteraction={scene} open={open} onOpenChange={setOpen} />
+    {open && <ArrangementPanel sceneInteraction={scene} onClose={() => setOpen(false)} />}
+  </>;
+}
 const button = (id: string) => document.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!;
 const plateSnapshot = (locked = false): PlateSessionSnapshot => ({
   ok: true, version: 1, currentPlateId: 'one', instances: [],
@@ -38,7 +46,7 @@ const plateSnapshot = (locked = false): PlateSessionSnapshot => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('PointerEvent', MouseEvent);
-  mocked.unfinished = false;
+  mocked.unfinished = false; mocked.activePainting = false; mocked.closePainting.mockResolvedValue(true);
   mocked.platform = {
     preferences: { load: vi.fn(async () => DEFAULT_USER_PREFERENCES), save: vi.fn(async () => {}) },
     runtime: { getRuntimeExecutionState: () => ({ threaded: true, serialSliceActive: false }) },
@@ -106,7 +114,7 @@ describe('arrangement controls', () => {
   });
 
   it('opens settings rather than running immediately and applies rotation exclusion in the visible controls', async () => {
-    await act(async () => root.render(<ArrangementMenu sceneInteraction={scene} />));
+    await act(async () => root.render(<ArrangementHarness />));
     await act(async () => button('arrange-menu').click());
     expect(mocked.arrange).not.toHaveBeenCalled();
     expect(button('arrange-all')).not.toBeNull();
@@ -133,5 +141,27 @@ describe('arrangement controls', () => {
     expect(button('arrange-align-y').getAttribute('aria-checked')).toBe('true');
     await act(async () => button('arrange-all').click());
     expect(mocked.arrange).toHaveBeenCalledWith(mocked.platform, scene, 'all');
+    expect(button('arrange-all')).toBeNull();
   });
+});
+
+it('closes the transform before opening Arrange and toggles its panel closed', async () => {
+  await act(async () => root.render(<ArrangementHarness />));
+  await act(async () => button('arrange-menu').click());
+  expect(scene.closeGizmo).toHaveBeenCalledOnce();
+  expect(button('arrange-all')).not.toBeNull();
+  await act(async () => button('arrange-menu').click());
+  expect(button('arrange-all')).toBeNull();
+});
+it('opens Arrange only after a successful painting close', async () => {
+  mocked.activePainting = true;
+  mocked.closePainting.mockResolvedValueOnce(false);
+  await act(async () => root.render(<ArrangementHarness />));
+  await act(async () => button('arrange-menu').click());
+  expect(button('arrange-all')).toBeNull();
+  expect(scene.closeGizmo).not.toHaveBeenCalled();
+  await act(async () => button('arrange-menu').click());
+  expect(mocked.closePainting).toHaveBeenCalledTimes(2);
+  expect(scene.closeGizmo).toHaveBeenCalledOnce();
+  expect(button('arrange-all')).not.toBeNull();
 });

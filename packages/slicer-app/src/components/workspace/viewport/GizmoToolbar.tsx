@@ -1,20 +1,21 @@
-// Top-of-viewport scene toolbar: Add Model first (OrcaSlicer's scene toolbar
-// placement), then the Move / Rotate / Scale gizmo toggles. The gizmos never
+// Left-side vertical scene toolbar: Add Model first, followed by arrangement
+// and the Move / Rotate / Scale gizmo toggles. The gizmos never
 // auto-open on selection — arming happens here, and an emptied selection
 // auto-closes them (see SceneInteractionController.toggleGizmo). The toolbar
 // overlays the canvas (outside the R3F tree). Selection and the armed gizmo
 // are observed separately so transform frames do not rerender the toolbar.
 import { FolderPlus, Move, Rotate3d, Scaling, Paintbrush, Scissors, Sparkles, Blocks } from 'lucide-react';
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
+import { Separator } from '@/components/ui/separator';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
 import { paintingTarget, usePaintingController, usePaintingState } from './gizmo/painting/PaintingProvider';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import { ArrangementMenu } from '../arrangement/ArrangementControls';
+import { ArrangementButton } from '../arrangement/ArrangementControls';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
   mode: Exclude<OpenGizmo, null>;
@@ -30,9 +31,13 @@ const GIZMO_BUTTONS: ReadonlyArray<{
 export function GizmoToolbar({
   sceneInteraction,
   onModelAdded,
+  arrangementOpen,
+  onArrangementOpenChange,
 }: {
   sceneInteraction: SceneInteractionController | null;
   onModelAdded?: () => void;
+  arrangementOpen: boolean;
+  onArrangementOpenChange: (open: boolean) => void;
 }) {
   const selection = sceneInteraction?.selection;
   const subscribeSelection = useCallback(
@@ -44,12 +49,15 @@ export function GizmoToolbar({
     [sceneInteraction],
   );
   useSyncExternalStore(subscribeSelection, () => selection?.revision ?? 0);
-  useSyncExternalStore(subscribeGizmo, () => sceneInteraction?.gizmo ?? null);
+  const gizmo = useSyncExternalStore(subscribeGizmo, () => sceneInteraction?.gizmo ?? null);
   const platform = usePlatform();
   const painting = usePaintingController();
   const paintState = usePaintingState();
   const slotCount = useFilamentSessionStore((s) => s.snapshot?.slots.length ?? 0);
   const paintActive = paintState != null && paintState.phase !== 'closed';
+  useEffect(() => {
+    if (gizmo || paintActive) onArrangementOpenChange(false);
+  }, [gizmo, paintActive, onArrangementOpenChange]);
   // Boot loads the printer/process lists and the rack's filament catalogue
   // atomically; until they
   // arrive (or if boot fails) Add Model stays disabled — a model without
@@ -64,14 +72,17 @@ export function GizmoToolbar({
   // ordinary toolbar to Move; Rotate and Scale remain unavailable.
   return (
     <div
-      className="absolute top-0 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
+      className="pointer-events-auto flex max-h-full shrink-0 flex-col items-center gap-1 overflow-y-auto rounded-md bg-card p-1"
       data-testid="gizmo-toolbar"
+      role="toolbar"
+      aria-label="Scene tools"
+      aria-orientation="vertical"
     >
       <TooltipFor content="Add Model" disabled={!presetsLoaded}>
         <Button
           size="icon"
           variant="ghost"
-          onClick={() => { void addModel(platform, sceneInteraction, onModelAdded); }}
+          onClick={() => { onArrangementOpenChange(false); void addModel(platform, sceneInteraction, onModelAdded); }}
           disabled={!presetsLoaded || !!painting?.unfinished}
           aria-label="Add Model"
           data-testid="btn-add-model"
@@ -79,8 +90,8 @@ export function GizmoToolbar({
           <FolderPlus />
         </Button>
       </TooltipFor>
-      <div className="mx-0.5 h-4 w-px bg-border/60" aria-hidden="true" />
-      <ArrangementMenu sceneInteraction={sceneInteraction} />
+      <Separator className="my-0.5 w-6 shrink-0" />
+      <ArrangementButton sceneInteraction={sceneInteraction} open={arrangementOpen} onOpenChange={onArrangementOpenChange} />
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
         const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
@@ -95,6 +106,7 @@ export function GizmoToolbar({
               disabled={disabled}
               data-testid={testId}
               onClick={() => {
+                onArrangementOpenChange(false);
                 if (painting?.active) void painting.close().then((closed) => { if (closed) sceneInteraction.toggleGizmo(mode); });
                 else sceneInteraction.toggleGizmo(mode);
               }}
@@ -109,6 +121,7 @@ export function GizmoToolbar({
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
           onClick={() => {
             if (!painting) return;
+            onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'support') { void painting.close(); return; }
             const target = paintingTarget(sceneInteraction);
             if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'support'); }
@@ -119,6 +132,7 @@ export function GizmoToolbar({
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
           onClick={() => {
             if (!painting) return;
+            onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'seam') { void painting.close(); return; }
             const target = paintingTarget(sceneInteraction);
             if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'seam'); }
@@ -129,6 +143,7 @@ export function GizmoToolbar({
           disabled={paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive}
           onClick={() => {
             if (!painting) return;
+            onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'fuzzy') { void painting.close(); return; }
             const target = paintingTarget(sceneInteraction);
             if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'fuzzy'); }
@@ -139,6 +154,7 @@ export function GizmoToolbar({
           disabled={paintActive && paintState?.channel === 'mmu' ? paintState?.phase !== 'idle' : slotCount < 2 || (paintActive ? paintState?.phase !== 'idle' : !paintingTarget(sceneInteraction) || platform.runtime.getRuntimeExecutionState?.().serialSliceActive)}
           onClick={() => {
             if (!painting) return;
+            onArrangementOpenChange(false);
             if (painting.active && paintState?.channel === 'mmu') { void painting.close(); return; }
             const target = paintingTarget(sceneInteraction);
             if (target) { sceneInteraction.closeGizmo(); void painting.open(target.objectId, target.instanceId, 'mmu'); }

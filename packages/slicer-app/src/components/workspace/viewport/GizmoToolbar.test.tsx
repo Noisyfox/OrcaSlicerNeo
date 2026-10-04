@@ -12,7 +12,7 @@ const mocked = vi.hoisted(() => ({
   runtime: { getRuntimeExecutionState: () => ({ serialSliceActive: false }) },
 }));
 vi.mock('@orca/platform-contract', async (importOriginal) => ({ ...await importOriginal<typeof import('@orca/platform-contract')>(), usePlatform: () => ({ runtime: mocked.runtime }) }));
-vi.mock('../arrangement/ArrangementControls', () => ({ ArrangementMenu: () => null }));
+vi.mock('../arrangement/ArrangementControls', () => ({ ArrangementButton: () => null }));
 vi.mock('./gizmo/painting/PaintingProvider', () => ({
   usePaintingState: () => ({ phase: mocked.phase, channel: mocked.channel }),
   usePaintingController: () => ({
@@ -41,7 +41,8 @@ beforeEach(() => {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
-const render = () => act(async () => root.render(<GizmoToolbar sceneInteraction={scene as unknown as SceneInteractionController} />));
+const arrangementChange = vi.fn();
+const render = () => act(async () => root.render(<GizmoToolbar sceneInteraction={scene as unknown as SceneInteractionController} arrangementOpen={false} onArrangementOpenChange={arrangementChange} />));
 const button = (name: string) => container.querySelector<HTMLButtonElement>(`[data-testid="gizmo-btn-${name}"]`)!;
 
 describe('gizmo toolbar session state', () => {
@@ -107,4 +108,10 @@ it('orders independent support/seam/fuzzy/MMU entries and routes Fuzzy with one 
   await act(async()=>button('fuzzy').click());expect(mocked.open).toHaveBeenCalledWith(1,2,'fuzzy');
   mocked.phase='idle';mocked.channel='fuzzy';await render();expect(button('fuzzy').getAttribute('aria-pressed')).toBe('true');expect(button('paint').getAttribute('aria-pressed')).toBe('false');expect(button('paint').disabled).toBe(true);
   await act(async()=>button('fuzzy').click());expect(mocked.close).toHaveBeenCalledOnce();
+});
+
+it.each(['move', 'rotate', 'scale', 'support', 'seam', 'fuzzy', 'paint'])('closes Arrange when choosing %s', async (tool) => {
+  await render(); arrangementChange.mockClear();
+  await act(async () => button(tool).click());
+  expect(arrangementChange).toHaveBeenCalledWith(false);
 });
