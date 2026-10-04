@@ -1,7 +1,21 @@
-import type { ScopedConfigurationField } from './scopedConfigurationProjection';
+import type { ConfigurationMode, ScopedConfigurationField } from './scopedConfigurationProjection';
 
-// Page, group and option order follows the pinned Orca TabPrint::build().
-export const PRINT_SETTINGS_PAGES = [
+interface PrintSettingsGroup {
+  readonly title: string;
+  readonly keys: readonly string[];
+  /** Native compound option lines rendered as sections of scalar controls. */
+  readonly sections?: readonly { title: string; keys: readonly string[] }[];
+}
+
+interface PrintSettingsPage {
+  readonly title: string;
+  readonly groups: readonly PrintSettingsGroup[];
+}
+
+/** Explicit UI allow-list transcribed from TabPrint::build() at pinned Orca
+ * 9d3118b7a406a4e44d5344ae69c084f01d72e772. Metadata supplies option
+ * definitions and eligibility, never additional pages or fields. */
+export const PRINT_SETTINGS_PAGES: readonly PrintSettingsPage[] = [
   { title: "Quality", groups: [
     { title: "Layer height", keys: ["layer_height", "initial_layer_print_height", "enable_mixed_color_sublayer"] },
     { title: "Line width", keys: ["line_width", "initial_layer_line_width", "outer_wall_line_width", "inner_wall_line_width", "top_surface_line_width", "sparse_infill_line_width", "internal_solid_infill_line_width", "support_line_width", "bridge_line_width"] },
@@ -16,14 +30,17 @@ export const PRINT_SETTINGS_PAGES = [
   ] },
   { title: "Strength", groups: [
     { title: "Walls", keys: ["wall_loops", "alternate_extra_wall", "detect_thin_wall"] },
-    { title: "Shells", keys: ["top_bottom_infill_wall_overlap", "top_shell_layers", "top_shell_thickness", "top_surface_density", "top_surface_pattern", "top_surface_fill_order", "top_layer_direction", "top_surface_expansion", "top_surface_expansion_margin", "top_surface_expansion_direction", "bottom_shell_layers", "bottom_shell_thickness", "bottom_surface_density", "bottom_surface_pattern", "bottom_surface_fill_order", "bottom_layer_direction", "center_of_surface_pattern"] },
-    { title: "Infill", keys: ["infill_wall_overlap", "gap_fill_target", "filter_out_gap_fill", "sparse_infill_density", "fill_multiline", "sparse_infill_pattern", "gyroid_optimized", "sparse_infill_smooth_factor", "infill_direction", "sparse_infill_rotate_template", "skin_infill_density", "skeleton_infill_density", "infill_lock_depth", "skin_infill_depth", "skin_infill_line_width", "skeleton_infill_line_width", "symmetric_infill_y_axis", "infill_shift_step", "lateral_lattice_angle_1", "lateral_lattice_angle_2", "infill_overhang_angle", "lightning_overhang_angle", "lightning_prune_angle", "lightning_straightening_angle", "infill_anchor_max", "infill_anchor", "internal_solid_infill_pattern", "solid_infill_direction", "solid_infill_rotate_template", "separated_infills"] },
+    { title: "Top/bottom shells", keys: ["top_shell_layers", "top_shell_thickness", "top_surface_density", "top_surface_pattern", "top_surface_fill_order", "top_layer_direction", "top_surface_expansion", "top_surface_expansion_margin", "top_surface_expansion_direction", "bottom_shell_layers", "bottom_shell_thickness", "bottom_surface_density", "bottom_surface_pattern", "bottom_surface_fill_order", "bottom_layer_direction", "center_of_surface_pattern", "top_bottom_infill_wall_overlap"] },
+    { title: "Infill", keys: ["sparse_infill_density", "fill_multiline", "sparse_infill_pattern", "gyroid_optimized", "sparse_infill_smooth_factor", "infill_direction", "sparse_infill_rotate_template", "skin_infill_density", "skeleton_infill_density", "infill_lock_depth", "skin_infill_depth", "skin_infill_line_width", "skeleton_infill_line_width", "symmetric_infill_y_axis", "infill_shift_step", "lateral_lattice_angle_1", "lateral_lattice_angle_2", "infill_overhang_angle", "lightning_overhang_angle", "lightning_prune_angle", "lightning_straightening_angle", "infill_anchor_max", "infill_anchor", "internal_solid_infill_pattern", "solid_infill_direction", "solid_infill_rotate_template", "gap_fill_target", "filter_out_gap_fill", "separated_infills", "infill_wall_overlap"] },
     { title: "Advanced", keys: ["align_infill_direction_to_model", "extra_solid_infills", "bridge_angle", "internal_bridge_angle", "relative_bridge_angle", "minimum_sparse_infill_area", "infill_combination", "infill_combination_max_layer_height", "detect_narrow_internal_solid_infill", "ensure_vertical_shell_thickness"] },
   ] },
   { title: "Speed", groups: [
     { title: "First layer speed", keys: ["initial_layer_speed", "initial_layer_infill_speed", "initial_layer_travel_speed", "slow_down_layers"] },
     { title: "Other layers speed", keys: ["outer_wall_speed", "inner_wall_speed", "small_perimeter_speed", "small_perimeter_threshold", "sparse_infill_speed", "internal_solid_infill_speed", "top_surface_speed", "gap_infill_speed", "ironing_speed", "support_speed", "support_interface_speed", "small_support_perimeter_speed", "small_support_perimeter_threshold"] },
-    { title: "Overhang speed", keys: ["enable_overhang_speed", "slowdown_for_curled_perimeters", "overhang_1_4_speed", "overhang_2_4_speed", "overhang_3_4_speed", "overhang_4_4_speed", "bridge_speed", "internal_bridge_speed"] },
+    { title: "Overhang speed", keys: ["enable_overhang_speed", "slowdown_for_curled_perimeters", "overhang_1_4_speed", "overhang_2_4_speed", "overhang_3_4_speed", "overhang_4_4_speed", "bridge_speed", "internal_bridge_speed"], sections: [
+      { title: "Overhang speed", keys: ["overhang_1_4_speed", "overhang_2_4_speed", "overhang_3_4_speed", "overhang_4_4_speed"] },
+      { title: "Bridge", keys: ["bridge_speed", "internal_bridge_speed"] },
+    ] },
     { title: "Travel speed", keys: ["travel_speed"] },
     { title: "Acceleration", keys: ["default_acceleration", "outer_wall_acceleration", "inner_wall_acceleration", "bridge_acceleration", "sparse_infill_acceleration", "internal_solid_infill_acceleration", "initial_layer_acceleration", "initial_layer_travel_acceleration", "top_surface_acceleration", "travel_acceleration", "accel_to_decel_enable", "accel_to_decel_factor"] },
     { title: "Junction Deviation", keys: ["default_junction_deviation"] },
@@ -57,32 +74,70 @@ export const PRINT_SETTINGS_PAGES = [
     { title: "Plugin Configuration", keys: ["print_plugin_config_overrides"] },
     { title: "Notes", keys: ["notes"] },
   ] },
-] as const;
+];
 
-const placements = new Map<string, { page: string; group: string; order: number }>();
+// TabPrintModel adds an unlabelled Frequent group before the process pages.
+const FREQUENT_PAGE: PrintSettingsPage = { title: 'Frequent', groups: [
+  { title: '', keys: ['layer_height', 'sparse_infill_density', 'wall_loops', 'enable_support'] },
+] };
+
+// TabPrintPlate has its own page rather than the full process catalogue.
+const PLATE_SETTINGS_PAGES: readonly PrintSettingsPage[] = [{ title: 'Plate Settings', groups: [
+  { title: '', keys: ['curr_bed_type', 'skirt_start_angle', 'print_sequence', 'spiral_mode',
+    'first_layer_sequence_choice', 'other_layers_sequence_choice'] },
+] }];
+
+export function printSettingsPages(mode: ConfigurationMode): readonly PrintSettingsPage[] {
+  return mode === 'plates' ? PLATE_SETTINGS_PAGES
+    : mode === 'scoped' ? [FREQUENT_PAGE, ...PRINT_SETTINGS_PAGES] : PRINT_SETTINGS_PAGES;
+}
+
+export interface PrintSettingPlacement {
+  readonly page: string;
+  readonly group: string;
+  readonly section?: string;
+}
+
+const placements = new Map<string, PrintSettingPlacement>();
 for (const page of PRINT_SETTINGS_PAGES) {
   for (const group of page.groups) {
-    group.keys.forEach((key, order) => placements.set(key, { page: page.title, group: group.title, order }));
+    group.keys.forEach((key) => placements.set(key, {
+      page: page.title, group: group.title,
+      section: group.sections?.find((section) => section.keys.includes(key))?.title,
+    }));
   }
 }
 
-export function printSettingPlacement(field: ScopedConfigurationField) {
-  return placements.get(field.key) ?? { page: 'Other', group: field.category, order: Number.MAX_SAFE_INTEGER };
+export function printSettingPlacement(field: ScopedConfigurationField): PrintSettingPlacement | undefined {
+  return placements.get(field.key);
 }
 
-const SHORT_LABELS: Readonly<Record<string, string>> = {
-  top_shell_layers: 'Layers', bottom_shell_layers: 'Layers',
-  top_shell_thickness: 'Thickness', bottom_shell_thickness: 'Thickness',
-  top_surface_density: 'Density', bottom_surface_density: 'Density', sparse_infill_density: 'Density',
-  top_surface_pattern: 'Pattern', bottom_surface_pattern: 'Pattern', sparse_infill_pattern: 'Pattern',
-  top_layer_direction: 'Direction', bottom_layer_direction: 'Direction', infill_direction: 'Direction',
-  top_bottom_infill_wall_overlap: 'Infill / Wall overlap', infill_wall_overlap: 'Infill / Wall overlap',
-};
-
-export function printSettingLabel(field: ScopedConfigurationField): string {
-  return SHORT_LABELS[field.key] ?? field.label;
+export function isVisiblePrintSetting(field: ScopedConfigurationField, mode: ConfigurationMode): boolean {
+  return printSettingsPages(mode).some((page) => page.groups.some((group) => group.keys.includes(field.key)));
 }
 
-export function printSettingSection(key: string): string | undefined {
-  return ({ top_shell_layers: 'Top shells', bottom_shell_layers: 'Bottom shells', sparse_infill_density: 'Sparse infill' } as Record<string, string>)[key];
+/** Project already-eligible fields into the allow-list in native layout order. */
+export function printSettingsGroups(fields: readonly ScopedConfigurationField[], pageTitle: string | undefined, search: string, mode: ConfigurationMode) {
+  const query = search.trim().toLocaleLowerCase();
+  const byKey = new Map(fields.map((field) => [field.key, field]));
+  // Frequent duplicates process fields. Cross-page search lists each option
+  // once in its full process-page context.
+  const pages = query && mode === 'scoped' ? PRINT_SETTINGS_PAGES : printSettingsPages(mode);
+  return pages.flatMap((page) => {
+    if (!query && page.title !== pageTitle) return [];
+    return page.groups.flatMap((group) => {
+      const visible = group.keys.flatMap((key) => {
+        const field = byKey.get(key);
+        if (!field) return [];
+        const section = placements.get(key)?.section;
+        const text = `${key} ${field.label} ${field.category} ${page.title} ${group.title} ${section ?? ''}`;
+        return !query || text.toLocaleLowerCase().includes(query) ? [field] : [];
+      });
+      return visible.length ? [{
+        page: page.title, group: group.title,
+        title: query && group.title ? `${page.title} / ${group.title}` : group.title,
+        keys: group.keys, fields: visible,
+      }] : [];
+    });
+  });
 }

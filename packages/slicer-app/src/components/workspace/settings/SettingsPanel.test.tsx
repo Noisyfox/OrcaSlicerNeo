@@ -355,7 +355,7 @@ describe('SettingsPanel preset transitions', () => {
   it('keeps Objects empty without a selection and exposes plate settings only in Plates', async () => {
     resetStores();
     useSettingsStore.setState({ metadata: {
-      layer_height: { type: 'float', label: 'Layer height', scopes: ['project', 'plate'] },
+      print_sequence: { type: 'enum', label: 'Print sequence', enum_values: ['by layer', 'by object'], scopes: ['project', 'plate'] },
     } });
     usePlateSessionStore.setState({ snapshot: {
       ok: true, version: 1, currentPlateId: 'plate-1',
@@ -371,12 +371,12 @@ describe('SettingsPanel preset transitions', () => {
     expect(useSettingsStore.getState().configurationMode).toBe('scoped');
     expect(scopedModeButton.textContent).toBe('Objects');
     expect(container.querySelector('[data-testid="scoped-target-label"]')?.textContent).toBe('No object selected');
-    expect(container.querySelector('[data-testid="config-field-layer_height"]')).toBeNull();
+    expect(container.querySelector('[data-testid="config-field-print_sequence"]')).toBeNull();
     expect(container.querySelector('[data-testid="scoped-invalid-selection"]')).not.toBeNull();
     await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="config-mode-plates"]')!.click(); });
     expect(useSettingsStore.getState().configurationMode).toBe('plates');
     expect(container.querySelector('[data-testid="scoped-target-label"]')?.textContent).toBe('Plate 1');
-    expect(container.querySelector('[data-testid="config-field-layer_height"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="config-field-print_sequence"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Settings category"]')).toBeNull();
   });
 

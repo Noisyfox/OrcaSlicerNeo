@@ -212,6 +212,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
   disabled: boolean;
   testId?: string;
 }) {
+  const [search, setSearch] = useState('');
   if (items.length === 0) return null;
   return (
     <div className={compact ? "min-w-0" : "space-y-1 py-1"}>
@@ -222,6 +223,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
         maps the root's filtered items, so search actually narrows the list.
       */}
       <Combobox
+        inputValue={search} onInputValueChange={setSearch}
         value={value || null}
         onValueChange={(v) => v != null && onValue(v)}
         items={items.map((p) => p.name)}
@@ -256,7 +258,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
               trigger inside the popup overwrites the store's triggerElement
               with an element INSIDE the popup, so the positioner anchors to
               itself and oscillates forever (2026-08-16). */}
-          <ComboboxInput placeholder="Search presets…" showTrigger={false} />
+          <ComboboxInput placeholder="Search presets…" showTrigger={false} searchValue={search} onClearSearch={() => setSearch('')} />
           <ComboboxList>
             {(name) => (
               <ComboboxItem key={name} value={name}>{name}</ComboboxItem>

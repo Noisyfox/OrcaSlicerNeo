@@ -334,14 +334,17 @@ test('sidebar panels resize independently and configuration controls keep their 
     await tabs.evaluate((el, previous) => { el.style.maxWidth = previous; }, originalMaxWidth);
 
     const options = page.getByTestId('configuration-options-scroll');
-    // A compact window forces real catalogue overflow, without synthetic DOM.
-    await page.getByTestId('config-page-Other').click();
+    // Search all mock keys to exercise overflow with the visible Orca
+    // catalogue; Other no longer includes unmapped native metadata fields.
+    await settings.getByRole('button', { name: 'Search settings', exact: true }).click();
+    await page.getByTestId('scoped-config-search').fill('_');
     await page.setViewportSize({ width: 1280, height: 400 });
     await expect(options).toHaveAttribute('data-overflow-y', 'true');
     await expect(options).toHaveCSS('padding-right', '4px');
-    const tabsBeforeScroll = (await tabs.boundingBox())!;
+    const header = settings.getByRole('tablist', { name: 'Configuration mode' });
+    const tabsBeforeScroll = (await header.boundingBox())!;
     await options.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-    expect((await tabs.boundingBox())!.y).toBe(tabsBeforeScroll.y);
+    expect((await header.boundingBox())!.y).toBe(tabsBeforeScroll.y);
     await page.mouse.move(0, 0);
     const scrollbar = await options.evaluate((el) => ({
       width: getComputedStyle(el, '::-webkit-scrollbar').width,
@@ -351,7 +354,6 @@ test('sidebar panels resize independently and configuration controls keep their 
     expect(scrollbar).toEqual({ width: '6px', track: 'rgb(29, 29, 31)', thumb: 'rgb(75, 75, 75)' });
 
     await page.setViewportSize({ width: 1280, height: 800 });
-    await settings.getByRole('button', { name: 'Search settings', exact: true }).click();
     await page.getByTestId('scoped-config-search').fill('layer_height');
     await expect(options).toHaveAttribute('data-overflow-y', 'false');
     await expect(options).toHaveCSS('padding-right', '0px');
@@ -362,6 +364,10 @@ test('sidebar panels resize independently and configuration controls keep their 
     await page.getByTestId('config-input-layer_height').fill('0.3');
     await page.getByTestId('config-input-layer_height').press('Enter');
     await expect(group).toHaveAttribute('data-local-override-highlight', 'true');
+    await settings.getByRole('button', { name: 'Clear search', exact: true }).click();
+    await expect(page.getByTestId('scoped-config-search')).toHaveValue('');
+    await expect(page.getByTestId('scoped-config-search')).toBeFocused();
+    await expect(tabs).toBeVisible();
   } finally { await app.close(); }
 });
 

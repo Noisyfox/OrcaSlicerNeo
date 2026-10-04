@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
@@ -913,14 +914,14 @@ export function PresetEditorDialog({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <Input
+          <SearchInput
             type="search"
             aria-label={`Search ${target.kind} preset settings`}
             data-testid="preset-editor-search"
             placeholder="Search by name, key, or help text"
             value={search}
             disabled={loading || refreshing || !snapshot}
-            onChange={(event) => setSearch(event.currentTarget.value)}
+            onValueChange={setSearch}
           />
 
           {!showSearchResults && <div role="tablist" aria-label="Preset setting pages" className="flex shrink-0 gap-1 overflow-x-auto border-b">
