@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { PlateSessionSnapshot } from '@slicer/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PlateSessionSnapshot, SliceResultReceipt } from '@slicer/client';
+import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { projectPreviewPlateList } from './previewPlateListProjection';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,13 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { PlateThumbnail } from './PlateThumbnail';
 import { createThumbnailRenderer, PlateThumbnailService } from './plateThumbnailService';
 import { formatPreviewTime } from './viewport/PreviewInspectionPanel';
+import { cancelSlice, sliceModel } from './actions/sliceActions';
+import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { usePaintingPhase } from './viewport/gizmo/painting/PaintingProvider';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import { Send } from 'lucide-react';
 
 export function PreviewPlateList({
   snapshot,
@@ -18,6 +26,14 @@ export function PreviewPlateList({
   pending?: boolean;
   onSelect: (plateId: string) => Promise<void> | void;
 }) {
+  const platform = usePlatform();
+  const paintingPhase = usePaintingPhase();
+  const mutationPending = useProjectStore(s => s.projectMutationPendingCount > 0);
+  const restoring = useHistoryRestoreStore(s => s.phase !== 'idle');
+  const operation = useRef(false);
+  const [acting, setActing] = useState<string | null>(null);
+  const [send, setSend] = useState<{ receipt: SliceResultReceipt; action: SendGcodeAction }>();
+  const [reviewId, setReviewId] = useState<string>();
   const results = useSlicerStore((state) => state.plateResults);
   const failures = useSlicerStore(s => s.plateFailures);
   const activeTarget = useSlicerStore(s => s.activeSliceTarget);
@@ -27,7 +43,7 @@ export function PreviewPlateList({
   const items = useMemo(() => projectPreviewPlateList(snapshot, results, { target: activeTarget, progress, text: progressText }, failures),
     [results, snapshot, activeTarget, progress, progressText, failures]);
   const metric = (value: number | undefined, suffix: string) => Number.isFinite(value) ? `${value!.toFixed(2)}${suffix}` : '—';
-  const disabled = pending || selecting !== null;
+  const disabled = pending || selecting !== null || paintingPhase !== 'closed' || mutationPending || restoring;
   const [thumbnails, setThumbnails] = useState<PlateThumbnailService>();
   useEffect(() => {
     const renderer = createThumbnailRenderer();
@@ -46,6 +62,14 @@ export function PreviewPlateList({
       setSelecting(null);
     }
   }
+  async function handleSlice(plateId: string) {
+    if (disabled || operation.current || useSlicerStore.getState().activeSliceTarget) return;
+    operation.current = true; setActing(plateId);
+    try { await sliceModel(platform, plateId); }
+    catch (error) { useSlicerStore.getState().setError(String(error)); }
+    finally { operation.current = false; setActing(null); }
+  }
+  const review = items.find(item => item.plate.plateId === reviewId);
 
   return (
     <section className="plate-list px-2 py-2" aria-label="Plates" data-testid="preview-plate-list">
@@ -78,11 +102,37 @@ export function PreviewPlateList({
               </CardDescription>
             </CardHeader>
             <CardFooter className="plate-list-actions">
-              <Button size="sm" variant="secondary" disabled={disabled} onClick={() => void handleSelect(item.plate.plateId)}>Select</Button>
+              {item.status === 'sliced' ? <>
+                <Button size="icon-sm" variant="secondary" aria-label={`Send ${item.label}`} disabled={disabled || activeTarget !== null || acting !== null}
+                  onClick={() => setSend({ receipt: results[item.plate.plateId].receipt, action: 'send' })}><Send data-icon="inline-start" /></Button>
+                <Button size="sm" disabled={disabled || activeTarget !== null || acting !== null} aria-label={`Print ${item.label}`} data-testid={`plate-print-${item.plate.plateId}`}
+                  onClick={() => setSend({ receipt: results[item.plate.plateId].receipt, action: 'send-and-print' })}>Print</Button>
+              </> : item.status === 'slicing' ?
+                <Button size="sm" variant="secondary" aria-label={`Cancel slicing ${item.label}`} disabled={platform.runtime.getRuntimeExecutionState?.().threaded === false}
+                  title={platform.runtime.getRuntimeExecutionState?.().threaded === false ? 'Cancellation requires the threaded runtime' : undefined}
+                  onClick={() => { if (useSlicerStore.getState().activeSliceTarget?.plateId === item.plate.plateId) void cancelSlice(platform); }}>Cancel</Button>
+                : item.status === 'error' || item.status === 'out-of-bounds' ?
+                  <Button size="sm" variant="destructive" aria-label={`Review ${item.label}`} onClick={() => setReviewId(item.plate.plateId)}>Review</Button>
+                  : <Button size="sm" aria-label={`Slice ${item.label}`} data-testid={`plate-slice-${item.plate.plateId}`}
+                      disabled={disabled || activeTarget !== null || acting !== null || item.status === 'empty'} onClick={() => void handleSlice(item.plate.plateId)}>
+                    {acting === item.plate.plateId ? 'Starting…' : 'Slice'}
+                  </Button>}
             </CardFooter>
           </Card>
         ))}
       </div>
+      {send && <SendGcodeDialog open action={send.action} targetReceipt={send.receipt} onClose={() => setSend(undefined)} />}
+      <Dialog open={reviewId !== undefined} onOpenChange={open => { if (!open) setReviewId(undefined); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{review?.label ?? 'Plate'} — Review</DialogTitle>
+            <DialogDescription>{review?.error ?? (review?.status === 'out-of-bounds' ? 'One or more instances are outside the printable area. Move them inside the plate before slicing.' : 'This plate no longer has a current slicing error.')}</DialogDescription>
+          </DialogHeader>
+          <Button disabled={disabled || !review} onClick={async () => { if (review) await handleSelect(review.plate.plateId); setReviewId(undefined); }}>Select plate</Button>
+          {review?.status === 'error' && <Button disabled={disabled || activeTarget !== null || acting !== null} onClick={() => {
+            setReviewId(undefined); void handleSlice(review.plate.plateId);
+          }}>Retry slice</Button>}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

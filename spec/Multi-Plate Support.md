@@ -347,7 +347,9 @@ settings, or batch slice/export/send.
 **Accept when.** G-code excludes other plates; equivalent local geometry on
 different plates yields equivalent local G-code; empty/invalid plates cannot
 act; temporary slicing never mutates the global editing model; public actions
-reject a non-current target.
+validate explicit plate targets and retained output receipts. Primary workspace
+commands target the selected plate; plate-list card actions can target another
+plate without changing selection.
 
 **Evidence.** Serial/threaded real-WASM multi-plate harnesses, action/
 coordinator tests, and all three host flows for guards and export.

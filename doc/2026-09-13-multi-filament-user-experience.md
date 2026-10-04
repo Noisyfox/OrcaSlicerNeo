@@ -23,6 +23,14 @@ are intentionally not recorded here.
   They are transient session images; normal project saves do not embed them.
 - The list toolbar retains New Plate and Arrange, with Delete Plate in its menu
   and a plate-name search. Send All and Print All are not displayed.
+- Each card reports Not Sliced, Slicing, Sliced, Error, Empty, or Out of bounds.
+  Slicing progress overlays the model image; errors belong to that plate and
+  input revision. Invalidated results do not show their former totals.
+- Slice and Cancel act on their named plate. Review opens its error details
+  with explicit Select plate and Retry slice actions. Print uses the existing
+  Send & Print dialog; the adjacent Send action uploads without starting.
+  Captured output receipts are revalidated before upload, and output actions
+  wait until slicing has finished. These actions do not change plate selection.
 
 ## Material rack
 

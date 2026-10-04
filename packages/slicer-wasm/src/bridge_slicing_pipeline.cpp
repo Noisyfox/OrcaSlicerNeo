@@ -1444,8 +1444,6 @@ const char* export_gcode_for_target(const std::string& plate_id,
                                     const std::uint64_t revision,
                                     const std::uint64_t result_generation) {
     try {
-        if (plate_id != state().current_plate_id)
-            return result_unavailable_error();
         std::string target_error;
         auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
         if (runtime_entry == nullptr)

@@ -1990,7 +1990,7 @@ describe('SlicerClient bridge contract', () => {
     expect(calls.mock.calls.some(call => call[0] === 'orc_get_slice_result')).toBe(false);
   });
 
-  it('binds local slice and export to the current plate identity and revision', async () => {
+  it('binds local slice and export to explicit plate identity independently of navigation', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
     const session = await c.getPlateSessionSnapshot();
@@ -2001,7 +2001,11 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
     const changed = await c.addPlate();
     if (!changed.ok) throw new Error(changed.error);
-    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
+    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
+    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ ok: true });
+    const after = await c.getPlateSessionSnapshot();
+    if (!after.ok) throw new Error(after.error);
+    expect(after.currentPlateId).toBe(changed.currentPlateId);
   });
 
   it('rejects stale current-plate targets before slicing', async () => {

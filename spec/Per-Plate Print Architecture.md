@@ -662,6 +662,13 @@ does not delete the retained core result or its G-code file.
 
 ### 2.13 Slice and Export target the selected current plate
 
+The primary workspace commands retain the selected-current-plate policy below.
+Plate list cards additionally offer explicit target Slice, Send, and Print
+actions. These actions capture the plate identity and, for output, its complete
+result receipt; they validate current inputs and result generation without
+changing selected or preview plate identity. Send and Print remain disabled
+while any slice job is active. No batch operations are introduced.
+
 The primary Slice command applies and processes only the selected current
 plate. The primary Export command exports only that same plate and is enabled
 only when its result stamp is valid. Selecting an unsliced or invalid plate

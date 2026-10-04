@@ -6,6 +6,22 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 
 describe('slice result publication', () => {
+  it('slices an explicit non-current plate and preserves the selected plate result', async () => {
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'a', instances: [], inputRevisions: { a: 1, b: 2 },
+      plates: [{ plateId: 'a', name: 'Plate 1', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], instanceIds: [1] },
+        { plateId: 'b', name: 'Plate 2', displayIndex: 1, origin: [264, 0, 0] as [number, number, number], instanceIds: [2] }] };
+    usePlateSessionStore.getState().setSnapshot(session);
+    useSlicerStore.getState().setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    useSlicerStore.getState().activatePlateResult('a', 1);
+    const receipt = { plateId: 'b', inputStamp: 2, resultGeneration: '1', sliceTaskId: '2' };
+    const runtime = { getPlateSessionSnapshot: vi.fn(async () => session),
+      slicePlate: vi.fn(async () => ({ ok: true, unrecognized_keys: [], receipt, summary: { estimatedTimeSeconds: 12 } })) };
+    await Promise.all([sliceModel({ runtime } as never, 'b'), sliceModel({ runtime } as never, 'b')]);
+    expect(runtime.slicePlate).toHaveBeenCalledExactlyOnceWith({ plateId: 'b', inputRevision: 2 }, {}, expect.any(Function));
+    expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('a');
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'done', sliceTarget: { plateId: 'a' },
+      plateResults: { b: { receipt, summary: { estimatedTimeSeconds: 12 } } } });
+  });
   beforeEach(() => {
     glVolumeCollection.volumes = [];
     usePlateSessionStore.getState().reset();
