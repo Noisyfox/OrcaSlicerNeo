@@ -21,6 +21,15 @@ and its instances, and participate in the existing project history and plate
 invalidation flow. Primitive placement follows `load_generic_subobject`;
 file placement follows `load_modifier`, including source mesh offsets.
 
+Both standalone primitives and primitive parts use Orca's shared sizing rule:
+`side = 0.1 * max(printable-area bounding-box width, height)`. This uses the
+current printer bed, not the selected object's dimensions. Disc thickness
+remains 0.2 mm; other proportions follow the native mesh builders. Existing
+objects retain their size when the printer changes. Measured Cube/Cube Part
+sizes are 25.6 mm for P1P, 18 mm for A1 mini, and 25 mm for Prusa MK4.
+The mock's fixed 20 mm geometry remains a deterministic fixture; real sizing
+is validated against both WASM variants.
+
 Change Filament becomes a submenu. It is hidden with one filament or for
 negative/support volumes. Objects and full instances assign their owning
 object; model parts and parameter modifiers retain the native assignment
@@ -43,6 +52,8 @@ Passed:
 - Focused Electron mock E2E: seven object/scene menu journeys.
 - Real threaded Web E2E: `apps/web/e2e/add-volume.e2e.ts`, including browser
   Load..., primitive addition, owning-object preservation and Undo/Redo.
+  The sizing regression also measures the standalone Cube and newly selected
+  Cube Part world bounds as 25.6 mm on P1P.
 - `scripts\build-windows.bat quick --variant serial` and `--variant threaded`.
 - `add-volume-smoke.mjs` on both variants: all six primitives/five volume
   kinds, stable IDs, rejection without mutation, native Undo/Redo, STL Load...

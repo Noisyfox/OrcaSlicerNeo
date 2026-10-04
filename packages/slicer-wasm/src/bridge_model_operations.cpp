@@ -560,6 +560,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
 }
 
 
+// GUI_ObjectList::create_mesh uses this rule for both new objects and parts.
+static double primitive_side(const PlateBounds& bounds) {
+    return 0.1 * std::max(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y);
+}
+
 static TriangleMesh make_primitive(const std::string& type_str, double side) {
         TriangleMesh mesh;
         if (type_str == "Cube")
@@ -601,11 +606,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
             : Vec3d::Zero();
         const std::string type_str = type ? type : "";
         const std::string object_name = (name && *name) ? name : type_str;
-        // App-sized primitive: OrcaSlicer sizes shapes at 10% of the max bed
-        // size (get_size_proportional_to_max_bed_size); keep the app's
-        // established 20 mm so primitives render like the well-tested cube
-        // path. Orca's create_mesh proportions from `side` are preserved.
-        const double side = 20.0;
+        const double side = primitive_side(placement_bounds);
         TriangleMesh mesh = make_primitive(type_str, side);
         const BoundingBoxf3 bb = mesh.bounding_box();
 
@@ -673,7 +674,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_volume(const char* request_json, const 
         if (primitive) {
             const auto bounds = selected_plate_bounds();
             mesh = make_primitive(request.at("shape").get<std::string>(),
-                0.1 * std::max(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y));
+                primitive_side(bounds));
             name = "Generic-" + request.at("shape").get<std::string>();
         } else {
             if (!data || len <= 0) return error_json("no model bytes");

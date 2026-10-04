@@ -14,6 +14,44 @@ function call(name, types = [], args = []) {
   try { return JSON.parse(module.UTF8ToString(ptr)); } finally { module._free(ptr); }
 }
 assert.equal(call('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
+// Measure the real WASM geometry, rather than deriving an expectation from
+// the Neo helper. These profile dimensions are the native Orca build areas.
+function cubeSizes() {
+  const result = call('orc_get_model_mesh');
+  return result.geometries.map((geometry) => {
+    try {
+      const vertices = new Float32Array(module.HEAPU8.slice(Number(geometry.vertex_ptr),
+        Number(geometry.vertex_ptr) + geometry.vertex_count * 12).buffer);
+      const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < vertices.length; i += 3)
+        for (let axis = 0; axis < 3; axis++) {
+          min[axis] = Math.min(min[axis], vertices[i + axis]);
+          max[axis] = Math.max(max[axis], vertices[i + axis]);
+        }
+      return max.map((value, axis) => value - min[axis]);
+    } finally {
+      module._free(Number(geometry.vertex_ptr));
+      module._free(Number(geometry.index_ptr));
+    }
+  });
+}
+for (const [printer, expected] of [['Bambu Lab P1P 0.4 nozzle', 25.6],
+  ['Bambu Lab A1 mini 0.4 nozzle', 18], ['Prusa MK4 0.4 nozzle', 25]]) {
+  call('orc_clear_model');
+  const selected = call('orc_select_preset', ['string', 'string'], ['printer', printer]);
+  assert.equal(selected.ok, true, JSON.stringify(selected));
+  assert.equal(call('orc_add_shape', ['string', 'string'], ['Cube', 'Size reference']).ok, true);
+  const owner = call('orc_get_model_structure').objects[0];
+  assert.equal(call('orc_add_volume', ['string', 'pointer', 'number'], [JSON.stringify({
+    objectId: owner.id, instanceId: owner.instances[0].id, volumeType: 'model_part', shape: 'Cube',
+  }), 0, 0]).ok, true);
+  const sizes = cubeSizes();
+  assert.equal(sizes.length, 2);
+  for (const size of sizes) for (const value of size)
+    assert.ok(Math.abs(value - expected) < 0.0001, `${printer}: ${size}, expected ${expected}`);
+  console.log(`PASS ${printer}: object Cube and Cube Part both ${expected} mm`);
+}
+call('orc_clear_model');
 assert.equal(call('orc_add_shape', ['string', 'string'], ['Cube', 'Owner']).ok, true);
 const object = call('orc_get_model_structure').objects[0];
 const objectId = object.id, instanceId = object.instances[0].id;

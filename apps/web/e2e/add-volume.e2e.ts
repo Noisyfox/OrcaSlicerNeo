@@ -44,3 +44,32 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   await expect(rows).toHaveCount(1);
   await page.screenshot({ path: test.info().outputPath('added-volumes.png') });
 });
+
+
+test('standalone Cube and Cube Part use the same Orca bed-relative size', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('preset-select').click();
+  await page.getByRole('option', { name: 'Bambu Lab P1P 0.4 nozzle', exact: true }).click();
+  const canvas = await page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]').boundingBox();
+  if (!canvas) throw new Error('missing canvas');
+  await page.mouse.click(canvas.x + canvas.width - 40, canvas.y + 80, { button: 'right' });
+  await page.getByTestId('btn-add-primitive').click();
+  await page.getByTestId('btn-add-cube').click();
+  await page.getByTestId('config-mode-scoped').click();
+  const row = page.getByTestId('object-list').locator('section[data-testid^="plate-group-"] > div[data-testid^="object-"]').first();
+  const button = row.getByRole('button').first();
+  await expect(button).toBeVisible();
+  await button.click();
+  const size = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { selectionBoundsWorld?: () => { size: number[] } | null };
+  }).__orcaE2e?.selectionBoundsWorld?.()?.size);
+  for (let axis = 0; axis < 3; axis++) await expect.poll(async () => (await size())?.[axis]).toBeCloseTo(25.6, 3);
+  await button.click({ button: 'right' });
+  await page.getByTestId('objectlist-add-model_part').click();
+  await page.getByTestId('objectlist-add-model_part-Cube').click();
+  // The add command selects only the new part. Measure its world bounds so
+  // matching raw meshes cannot hide a wrong scale or instance transform.
+  for (let axis = 0; axis < 3; axis++) await expect.poll(async () => (await size())?.[axis]).toBeCloseTo(25.6, 3);
+});
