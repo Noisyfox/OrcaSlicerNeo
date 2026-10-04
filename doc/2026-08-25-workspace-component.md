@@ -208,6 +208,27 @@ when the app shell unmounts.
 
 ## Verification
 
+The 2026-10-04 control, Object List, and tab-wheel follow-up updates the
+regressions for the accepted palette, slot-number colour cells, and wrapped
+object-row buttons. Numeric field tests cover re-enabling both steppers after
+successful and rejected native commits. Wheel tests cover overflowing lists
+and parent tab containers, horizontal trackpad input, line-mode deltas, and
+preserved zoom/non-overflow/vertical-tab behavior. Electron coverage checks
+real tab-bar scrolling, retained scoped selection and orange object names,
+and row-specific reset without clearing another object's overrides.
+
+Validation for this follow-up:
+
+- `pnpm test` — 154 files, 1454 tests passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/scoped-configuration-input.e2e.ts`
+  — 2 tests passed, including scoped edit, selection retention, and row reset.
+- `pnpm --filter @orca/desktop test:e2e` — renderer build and CSS smoke passed;
+  45 tests passed and 12 conditional tests skipped.
+- `git diff --check` — passed.
+- No native build or real-Web/dual-WASM release matrix is required for these
+  shared renderer/style and test changes; no bridge or host adapter changed.
+
 The 2026-10-02 sidebar and filament-slot batch was verified after the user's
 request to run the affected tests and commit:
 

@@ -270,7 +270,7 @@ test('sidebar panels resize independently and configuration controls keep their 
 
     for (const control of [device.getByTestId('preset-select'), process, page.getByTestId('filament-preset-1')]) {
       await expect(control).toHaveCSS('height', '24px');
-      await expect(control).toHaveCSS('background-color', 'rgb(29, 29, 31)');
+      await expect(control).toHaveCSS('background-color', 'rgb(27, 27, 29)');
       await expect(control).toHaveCSS('border-radius', '3px');
       await expect(control.locator('.sidebar-dropdown-arrow')).toHaveCSS('width', '20px');
     }
@@ -283,6 +283,21 @@ test('sidebar panels resize independently and configuration controls keep their 
       expect((await quality.boundingBox())!.y).toBe(tabBefore.y);
       expect(await tabs.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
     } finally { await page.mouse.up(); }
+
+    // The mock exposes fewer categories than real profiles. Constrain the
+    // actual bar to exercise its native overflow and wheel listener.
+    const originalMaxWidth = await tabs.evaluate((el) => {
+      const previous = el.style.maxWidth;
+      el.style.maxWidth = '120px';
+      return previous;
+    });
+    await expect.poll(() => tabs.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    await tabs.hover();
+    await page.mouse.wheel(0, 100);
+    await expect.poll(() => tabs.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    await page.mouse.wheel(0, -100);
+    await expect.poll(() => tabs.evaluate((el) => el.scrollLeft)).toBe(0);
+    await tabs.evaluate((el, previous) => { el.style.maxWidth = previous; }, originalMaxWidth);
 
     const options = page.getByTestId('configuration-options-scroll');
     // A compact window forces real catalogue overflow, without synthetic DOM.
@@ -309,7 +324,7 @@ test('sidebar panels resize independently and configuration controls keep their 
     const group = options.locator('[data-testid^="config-category-toggle-"]').first();
     const label = page.getByTestId('config-field-layer_height').locator('label');
     expect((await label.boundingBox())!.x).toBeCloseTo((await group.boundingBox())!.x + 4, 2);
-    await expect(page.getByTestId('config-input-layer_height').locator('..')).toHaveCSS('background-color', 'rgb(29, 29, 31)');
+    await expect(page.getByTestId('config-input-layer_height').locator('..')).toHaveCSS('background-color', 'rgb(27, 27, 29)');
     await page.getByTestId('config-input-layer_height').fill('0.3');
     await page.getByTestId('config-input-layer_height').press('Enter');
     await expect(group).toHaveAttribute('data-local-override-highlight', 'true');
@@ -1157,12 +1172,12 @@ test('object list: refuses mixing object and part selection (mock)', async () =>
     );
 
     const objectRow = list.locator('div[data-testid^="object-"]').first();
-    await objectRow.click({ button: 'left', position: { x: 10, y: 4 } });
+    await objectRow.locator(':scope > div > button[data-slot="button"]').click({ position: { x: 40, y: 12 } });
     const before = await selectedInstances();
     expect(before).toBeGreaterThan(1);
 
     // Ctrl+click a part of the same object (object + part is Orca Mixed) — refused.
-    await list.locator('[data-testid^="part-"]').first().click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
+    await list.locator('[data-testid^="part-"]').first().locator('button[data-slot="button"]').first().click({ position: { x: 40, y: 12 }, modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
     await expect.poll(selectedInstances).toBe(before);
   } finally {
     await app.close();
@@ -1330,12 +1345,12 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     const rows = list.locator('div[data-testid^="object-"]');
     await page.keyboard.press('Escape');
     await rows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
-    await expect(rows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
-    await expect(rows.nth(1).locator('> button[data-state="selected"]')).toHaveCount(0);
+    await expect(rows.nth(0).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
+    await expect(rows.nth(1).locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await rows.nth(1).click({ button: 'right', position: { x: 40, y: 4 } });
-    await expect(rows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
-    await expect(rows.nth(0).locator('> button[data-state="selected"]')).toHaveCount(0);
+    await expect(rows.nth(1).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
+    await expect(rows.nth(0).locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
     // Assemble is selection-driven: with no multi-selection the menu carries
@@ -1765,10 +1780,10 @@ test('scene context menu: right-click on a model body opens the object menu', as
     // The right-click selected only the clicked instance (instance-level, the
     // same granularity as a plain left-click): exactly one instance row in the
     // Instances group shows selected, and the object row itself does not.
-    // (`> button` because the expanded parts/instances rows live inside the
-    // object row div; only the row's own direct-child button is its state.)
+    // The object's own button is inside its first row wrapper; descendants
+    // also contain part/instance buttons with independent selection states.
     await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(1);
-    await expect(objectRows.first().locator('> button[data-state="selected"]')).toHaveCount(0);
+    await expect(objectRows.first().locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     // With a single object selected the selection-driven Assemble item is
     // absent (needs ≥ 2 full objects).
     await expect(objectMenu.getByTestId('objectlist-assemble')).toHaveCount(0);
@@ -1780,7 +1795,7 @@ test('scene context menu: right-click on a model body opens the object menu', as
     // instance row highlights, the object row stays unselected).
     await list.locator('[data-testid^="instance-"]').first().click({ button: 'right' });
     await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(1);
-    await expect(objectRows.first().locator('> button[data-state="selected"]')).toHaveCount(0);
+    await expect(objectRows.first().locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(objectMenu).toBeHidden();
 
@@ -1793,10 +1808,10 @@ test('scene context menu: right-click on a model body opens the object menu', as
     await objectRows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
     await page.getByTestId('objectlist-clone').click();
     await expect.poll(() => objectRows.count()).toBeGreaterThan(1);
-    await objectRows.nth(0).locator('> button').click({ position: { x: 40, y: 4 } });
-    await objectRows.nth(1).locator('> button').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'], position: { x: 40, y: 4 } });
-    await expect(objectRows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
-    await expect(objectRows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
+    await objectRows.nth(0).locator(':scope > div > button').click({ position: { x: 40, y: 4 } });
+    await objectRows.nth(1).locator(':scope > div > button').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'], position: { x: 40, y: 4 } });
+    await expect(objectRows.nth(0).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(1).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
     // Clone and sidebar expansion can change the camera framing and canvas
     // bounds. Project a current selected body instead of reusing the old hit.
     const currentPoint = await page.evaluate(() => {
@@ -1810,8 +1825,8 @@ test('scene context menu: right-click on a model body opens the object menu', as
     if (!currentBox) throw new Error('current viewport canvas has no bounding box');
     await page.mouse.click(currentBox.x + currentPoint.x, currentBox.y + currentPoint.y, { button: 'right' });
     await expect(objectMenu).toBeVisible();
-    await expect(objectRows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
-    await expect(objectRows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(0).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(1).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
     await expect(objectMenu.getByTestId('objectlist-assemble')).toBeVisible();
   } finally {
     await app.close();

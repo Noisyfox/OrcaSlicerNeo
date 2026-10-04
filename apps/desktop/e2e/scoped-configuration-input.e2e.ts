@@ -35,7 +35,7 @@ test('Project override highlights its category and enables Reset only while loca
     await height.fill(changedHeight);
     await height.press('Enter');
     await expect(categoryToggle).toHaveAttribute('data-local-override-highlight', 'true');
-    await expect(categoryToggle).toHaveCSS('color', 'rgb(241, 117, 78)');
+    await expect(categoryToggle).toHaveCSS('color', 'rgb(247, 148, 29)');
     await openReset();
     await expect(categoryReset).not.toHaveAttribute('data-disabled');
     await expect(resetAll).toBeEnabled();
@@ -79,10 +79,11 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
       await rows.nth(i).locator('button').first().click();
       await height.fill(i === 0 ? '0.21' : '0.31');
       await height.press('Enter');
-      await settle();
-      // The mock history receipt replaces scene buffers; reselect the same
-      // target after publication before inspecting its persisted value/source.
-      await rows.nth(i).locator('button').first().click();
+      // The native history patch must retain selection, allowing continued
+      // editing without selecting the object again.
+      await expect(rows.nth(i).locator('[data-testid^="config-marker-object-"]')).toBeVisible();
+      await expect(rows.nth(i).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
+      await expect(rows.nth(i).locator(':scope > div > button > span').last()).toHaveCSS('color', 'rgb(247, 148, 29)');
       await expect(height).toHaveValue(i === 0 ? '0.21' : '0.31');
       await height.evaluate((el) => el.blur());
       await page.mouse.move(0, 0);
@@ -119,6 +120,11 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
     await percent.hover();
     await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText('Effective value source: Object.');
     await expect(page.locator('[data-testid^="config-error-"]')).toHaveCount(0);
+    await rows.nth(1).locator('[data-testid^="config-marker-object-"]').click();
+    await expect(rows.nth(1).locator('[data-testid^="config-marker-object-"]')).toHaveCount(0);
+    await expect(rows.nth(1).locator(':scope > div > button[data-state="selected"]')).toBeVisible();
+    await expect(percent).not.toHaveValue('22%');
+    await expect(rows.nth(0).locator('[data-testid^="config-marker-object-"]')).toBeVisible();
   } finally {
     await app.close();
   }

@@ -108,9 +108,9 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
     await expect(printableHeightLabel).toHaveAttribute('data-draft-override-highlight', 'true');
     await expect(printerTab).toHaveAttribute('data-draft-override-highlight', 'true');
-    await expect(printerTab).toHaveCSS('color', 'rgb(241, 117, 78)');
+    await expect(printerTab).toHaveCSS('color', 'rgb(247, 148, 29)');
     await expect(printableSpaceGroup).toHaveAttribute('data-draft-override-highlight', 'true');
-    await expect(printableSpaceGroup).toHaveCSS('color', 'rgb(241, 117, 78)');
+    await expect(printableSpaceGroup).toHaveCSS('color', 'rgb(247, 148, 29)');
     await page.getByTestId('preset-editor-reset-preset').click();
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
     await expect(printableHeight).toHaveValue(printerSourceHeight);

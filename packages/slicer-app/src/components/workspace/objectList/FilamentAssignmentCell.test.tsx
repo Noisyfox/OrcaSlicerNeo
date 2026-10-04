@@ -50,8 +50,9 @@ describe('FilamentAssignmentCell semantics', () => {
     expect(container.querySelector('select')).toBeNull();
     expect(trigger.getAttribute('data-slot')).toBe('select-trigger');
     expect(trigger.getAttribute('role')).toBe('combobox');
-    expect(trigger.className).toContain('italic');
-    expect(trigger.textContent).toContain('Slot 1 · inherited');
+    expect(trigger.textContent).toBe('1');
+    expect(trigger.style.backgroundColor).toBe('rgb(17, 34, 51)');
+    expect(trigger.querySelector('svg')).toBeNull();
 
     await act(async () => { trigger.click(); });
     expect(document.body.querySelector('[data-slot="select-content"]')).not.toBeNull();
