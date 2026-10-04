@@ -61,6 +61,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
+  const ownsBodyDragRef = useRef(false);
   const bodyStartRef = useRef(new THREE.Vector3());
   const selectedOnPointerDownRef = useRef(false);
   const invalidate = useThree((s) => s.invalidate);
@@ -200,11 +201,12 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
       // enablement workaround.
       dragConfig={{ enabled: bodyDragEnabled }}
       onDragStart={(origin) => {
-        if (!sceneInteraction.tryBeginBodyDrag(data)) return;
+        ownsBodyDragRef.current = sceneInteraction.tryBeginBodyDrag(data);
+        if (!ownsBodyDragRef.current) return;
         bodyStartRef.current.copy(origin);
       }}
       onDrag={(localMatrix) => {
-        if (sceneInteraction.owner !== 'body') return;
+        if (!ownsBodyDragRef.current || sceneInteraction.owner !== 'body') return;
         const start = sceneInteraction.activeDrag?.startPivot;
         if (!start) return;
         scratch.setFromMatrixPosition(localMatrix).sub(bodyStartRef.current);
@@ -212,6 +214,8 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
         invalidate();
       }}
       onDragEnd={() => {
+        if (!ownsBodyDragRef.current) return;
+        ownsBodyDragRef.current = false;
         if (sceneInteraction.owner === 'body') sceneInteraction.endDrag();
       }}
     >

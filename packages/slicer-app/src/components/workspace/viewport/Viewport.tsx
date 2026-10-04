@@ -11,7 +11,7 @@ import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
 import type { LoadedObject } from './useModelLoader';
 import type { PreviewProjectionStatus, ToolpathGeometry } from './useSliceResult';
-import { filterBuildPlateOccludedIntersections, pickBuildPlateId, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
+import { filterViewportIntersections, pickBuildPlateId, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
@@ -51,7 +51,7 @@ const viewportEvents: ComponentProps<typeof Canvas>['events'] = (state) => {
   const defaultEvents = createPointerEvents(state);
   return {
     ...defaultEvents,
-    filter: (intersections) => filterBuildPlateOccludedIntersections(intersections),
+    filter: (intersections) => filterViewportIntersections(intersections),
   };
 };
 

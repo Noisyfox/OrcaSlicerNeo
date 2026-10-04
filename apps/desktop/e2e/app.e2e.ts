@@ -1819,6 +1819,51 @@ test('scene context menu: right-click on a model body opens the object menu', as
 });
 
 
+test('scene selection: overlapping bodies retain their position on mouse release', async () => {
+  test.skip(REAL, 'uses deterministic mock scene projection hooks');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await page.getByTestId('btn-add-model').click();
+    const centers = () => page.evaluate(() => (window as unknown as {
+      __orcaE2e: { modelWorldCenters(): Array<[number, number, number]> };
+    }).__orcaE2e.modelWorldCenters());
+    await expect.poll(centers).toHaveLength(4);
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = (await canvas.boundingBox())!;
+    const project = (p: [number, number, number]) => page.evaluate((point) => (window as unknown as {
+      __orcaE2e: { projectWorldToScreen(p: [number, number, number]): { x: number; y: number } };
+    }).__orcaE2e.projectWorldToScreen(point), p);
+    const second = await project((await centers())[1]);
+    await page.mouse.click(box.x + second.x, box.y + second.y);
+    await page.getByTestId('gizmo-btn-move').click();
+    await page.getByTestId('move-x').fill('15');
+    await page.getByTestId('move-x').press('Enter');
+    await expect.poll(centers).toEqual([[10, 10, 10], [15, 10, 10], [10, 10, 10], [15, 10, 10]]);
+    await page.getByTestId('gizmo-btn-move').click();
+    const before = await centers();
+    const start = await project([12.5, 10, 10]);
+    await page.mouse.move(box.x + start.x, box.y + start.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + start.x + 8, box.y + start.y + 4);
+    await page.mouse.move(box.x + start.x + 16, box.y + start.y + 8);
+    await expect.poll(centers).not.toEqual(before);
+    const held = await centers();
+    // Exactly one overlapping instance (two volumes) moves, and release must not introduce
+    // another delta from a second captured DragControls gesture.
+    expect(held.filter((center, index) => JSON.stringify(center) !== JSON.stringify(before[index]))).toHaveLength(2);
+    await page.mouse.up();
+    await expect(page.getByTestId('history-undo')).toHaveAttribute('aria-label', 'Undo Move');
+    await expect.poll(centers).toEqual(held);
+    await page.getByTestId('history-undo').click();
+    await expect.poll(centers).toEqual(before);
+  } finally {
+    await app.close();
+  }
+});
+
 test('scene selection: an unselected body keeps its first drag gesture', async () => {
   test.skip(REAL, 'the real fixture does not expose deterministic canvas projection hooks');
   const { app } = await launchApp();

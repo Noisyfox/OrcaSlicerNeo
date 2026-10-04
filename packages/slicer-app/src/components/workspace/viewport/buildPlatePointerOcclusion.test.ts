@@ -4,6 +4,7 @@ import type { RootState } from '@react-three/fiber';
 import {
   BUILD_PLATE_RAYCAST,
   filterBuildPlateOccludedIntersections,
+  filterViewportIntersections,
   MODEL_BODY_RAYCAST,
   pickTopmostModelVolume,
   topmostPrimeTowerHit,
@@ -17,6 +18,27 @@ function object(role?: string): THREE.Object3D {
 }
 
 describe('filterBuildPlateOccludedIntersections', () => {
+  it('dispatches overlapping model gestures only to the nearest body while retaining gizmos', () => {
+    const front = object(MODEL_BODY_RAYCAST), back = object(MODEL_BODY_RAYCAST);
+    const frontMesh = object(), backMesh = object();
+    front.add(frontMesh); back.add(backMesh);
+    const nearest = { distance: 8, object: frontMesh };
+    const gizmo = { distance: 12, object: object('gizmo') };
+    expect(filterViewportIntersections([
+      nearest, { distance: 8, object: backMesh },
+      { distance: 9, object: frontMesh }, gizmo,
+      { distance: 10, object: object(BUILD_PLATE_RAYCAST) },
+    ])).toEqual([nearest, gizmo]);
+  });
+
+  it('arbitrates overlapping tower bands and model bodies through the same event filter', () => {
+    const tower = object('prime-tower'), band = object();
+    tower.add(band);
+    const towerHit = { distance: 5, object: band };
+    const modelHit = { distance: 6, object: object(MODEL_BODY_RAYCAST) };
+    expect(filterViewportIntersections([towerHit, modelHit])).toEqual([towerHit]);
+    expect(filterViewportIntersections([modelHit, { ...towerHit, distance: 7 }])).toEqual([modelHit]);
+  });
   it('resolves a model volume from a mesh hit through its tagged parent group', () => {
     const volume = new GLVolume({
       objectId: 3, volumeId: 4, instanceId: 5,

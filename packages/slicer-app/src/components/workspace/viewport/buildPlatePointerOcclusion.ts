@@ -43,6 +43,21 @@ export function filterBuildPlateOccludedIntersections<T extends RaycastIntersect
   });
 }
 
+/** Dispatch body gestures to the frontmost surface only, before R3F bubbles
+ * the hit to its DragControls. Native stopImmediatePropagation does not stop
+ * R3F dispatch to other intersections, which would arm multiple gestures. */
+export function filterViewportIntersections<T extends RaycastIntersection>(intersections: T[]): T[] {
+  let bodyFound = false;
+  return filterBuildPlateOccludedIntersections(intersections).filter((hit) => {
+    const body = hasRaycastRoleInParents(hit.object as THREE.Object3D, MODEL_BODY_RAYCAST)
+      || hasRaycastRoleInParents(hit.object as THREE.Object3D, 'prime-tower');
+    if (!body) return true;
+    if (bodyFound) return false;
+    bodyFound = true;
+    return true;
+  });
+}
+
 /** Whether the topmost visible scene target is any eligible prime tower. */
 export function topmostPrimeTowerHit<T extends RaycastIntersection>(intersections: T[]): boolean {
   const visible = filterBuildPlateOccludedIntersections(intersections);
