@@ -104,6 +104,23 @@ describe('FilamentAssignmentCell semantics', () => {
     expect(container.querySelectorAll('span[data-testid^="filament-cell-"]')).toHaveLength(2);
   });
 
+  it('reads modifier assignment and supports an explicit slot or Default', async () => {
+    const snapshot = { ...base, assignments: { ...base.assignments, modifiers: [{
+      target: 'parameter-modifier' as const, id: 21, objectId: 10,
+      explicitSlot: 2, effectiveSlot: 2, inherited: false,
+    }] } };
+    const onAssign = vi.fn();
+    const container = await render(<FilamentAssignmentCell snapshot={snapshot} kind="part" id={21} allowDefault onAssign={onAssign} />);
+    const trigger = container.querySelector('[data-testid="filament-cell-part-21"]') as HTMLElement;
+    expect(trigger.getAttribute('role')).toBe('combobox');
+    expect(trigger.textContent).toBe('2');
+    expect(trigger.style.backgroundColor).toBe('rgb(68, 85, 102)');
+    await choose(trigger, 'Slot 1');
+    expect(onAssign).toHaveBeenLastCalledWith(1);
+    await choose(trigger, 'Default');
+    expect(onAssign).toHaveBeenLastCalledWith(0);
+  });
+
   it('does not bubble trigger or portal item events into an ObjectList row', async () => {
     const onAssign = vi.fn();
     const onRowClick = vi.fn();

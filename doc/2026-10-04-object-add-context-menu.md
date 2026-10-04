@@ -34,6 +34,12 @@ Change Filament becomes a submenu. It is hidden with one filament or for
 negative/support volumes. Objects and full instances assign their owning
 object; model parts and parameter modifiers retain the native assignment
 boundary. Existing model-part Default/inherit support remains available.
+Object List parameter-modifier rows also expose the filament selector, read
+native modifier assignments, and submit `parameter-modifier` targets. Default
+resets their assignment to the owning object's effective slot. Mixed part and
+modifier selections use each volume's native target kind; negative and support
+volumes are excluded. Part rows omit the printable checkbox and continue to
+inherit object printability; the object row retains its printable control.
 
 Auxiliary volumes follow Orca's `color_from_model_volume` rather than filament
 or paint colours: negative volumes are RGB (0.3, 0.3, 0.3) at alpha 0.4,
@@ -67,6 +73,8 @@ Passed:
   Render-material assertions cover selected/unselected negative-volume grey
   with unchanged alpha 0.4 and selected modifier yellow at alpha 0.6; the
   selected negative-volume screenshot was visually reviewed.
+  Modifier-row selection is also exercised through Slot 2 and Default, with
+  category rendering preserved and no printable checkbox on part rows.
 - `scripts\build-windows.bat quick --variant serial` and `--variant threaded`.
 - `add-volume-smoke.mjs` on both variants: all six primitives/five volume
   kinds, stable IDs, rejection without mutation, native Undo/Redo, STL Load...

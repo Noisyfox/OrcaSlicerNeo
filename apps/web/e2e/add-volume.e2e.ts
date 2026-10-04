@@ -8,6 +8,8 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   await page.locator('#app-tab-prepare').click();
   await page.getByTestId('preset-select').click();
   await page.getByRole('option', { name: 'Bambu Lab P1P 0.4 nozzle', exact: true }).click();
+  await page.getByTestId('filament-add').click();
+  await expect(page.getByTestId('filament-slot-2')).toBeVisible();
   const cube = resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl');
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
@@ -59,6 +61,21 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   await expect(rows).toHaveCount(1);
   await expect.poll(materials).toEqual(expect.arrayContaining([
     expect.objectContaining({ colour: '#ffff80', opacity: 0.6, transparent: true, depthWrite: true }),
+  ]));
+  const modifierRow = list.locator('[data-testid^="part-"]').filter({ hasText: 'cube.stl' }).last();
+  const modifierFilament = modifierRow.locator('[data-testid^="filament-cell-part-"]');
+  await expect(modifierFilament).toHaveAttribute('role', 'combobox');
+  await expect(modifierFilament).toHaveText('1');
+  await expect(list.locator('[data-testid^="part-"] [role="checkbox"]')).toHaveCount(0);
+  await modifierFilament.click();
+  await page.getByRole('option', { name: 'Slot 2', exact: true }).click();
+  await expect(modifierFilament).toHaveText('2');
+  await modifierFilament.click();
+  await page.getByRole('option', { name: 'Default', exact: true }).click();
+  await expect(modifierFilament).toHaveText('1');
+  // Assignment changes never replace the modifier's category rendering.
+  await expect.poll(materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ colour: '#ffff80', opacity: 0.6 }),
   ]));
   await page.screenshot({ path: test.info().outputPath('added-volumes.png') });
 });

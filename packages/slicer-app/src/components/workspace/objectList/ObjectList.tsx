@@ -132,7 +132,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   }
 
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
-    const targets = assignmentTargetsForSelection({ kind, id }, projection);
+    const targets = assignmentTargetsForSelection({ kind, id }, projection, structure);
+    if (targets.length === 0) return;
     void runFilament(platform.runtime, () => {
       const current = useFilamentSessionStore.getState().snapshot;
       if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
@@ -552,15 +553,12 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       ) : <span className="min-w-0 truncate">{vol.name}</span>}
                     </Button>
                     <div className="absolute inset-y-0 right-1 flex items-center gap-2">
-                    <TooltipFor content="Inherits the object's printable state">
-                      <Checkbox className="object-list-printable size-4 disabled:opacity-100" checked={obj.printable} disabled aria-label={`Part ${vol.id} inherits object printability`} />
-                    </TooltipFor>
                     <FilamentAssignmentCell
                       snapshot={filamentSnapshot}
                       kind="part"
                       id={vol.id}
-                      assignable={vol.type === 'model_part'}
-                      allowDefault={vol.type === 'model_part'}
+                      assignable={vol.type === 'model_part' || vol.type === 'parameter_modifier'}
+                      allowDefault={vol.type === 'model_part' || vol.type === 'parameter_modifier'}
                       pending={filamentPending}
                       onAssign={(slot) => assignRow('part', vol.id, slot)}
                     />
