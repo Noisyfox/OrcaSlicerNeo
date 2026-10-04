@@ -558,7 +558,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       kind="part"
                       id={vol.id}
                       assignable={vol.type === 'model_part' || vol.type === 'parameter_modifier'}
-                      allowDefault={vol.type === 'model_part' || vol.type === 'parameter_modifier'}
+                      allowDefault={vol.type === 'parameter_modifier'}
                       pending={filamentPending}
                       onAssign={(slot) => assignRow('part', vol.id, slot)}
                     />

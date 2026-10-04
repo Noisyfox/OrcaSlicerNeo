@@ -33,10 +33,14 @@ is validated against both WASM variants.
 Change Filament becomes a submenu. It is hidden with one filament or for
 negative/support volumes. Objects and full instances assign their owning
 object; model parts and parameter modifiers retain the native assignment
-boundary. Existing model-part Default/inherit support remains available.
+boundary. Existing model-part context-menu Default/inherit support remains available.
 Object List parameter-modifier rows also expose the filament selector, read
 native modifier assignments, and submit `parameter-modifier` targets. Default
-resets their assignment to the owning object's effective slot. Mixed part and
+clears the modifier's filament override. Its row shows a neutral Default label
+and its popup selects Default using `explicitSlot == 0`, independently of the
+parent object's effective filament. Ordinary model-part row selectors offer
+only numbered filaments, matching Orca's `BitmapChoiceRenderer`; inherited
+model parts continue to display their effective slot. Mixed part and
 modifier selections use each volume's native target kind; negative and support
 volumes are excluded. Part rows omit the printable checkbox and continue to
 inherit object printability; the object row retains its printable control.

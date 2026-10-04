@@ -65,14 +65,17 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   const modifierRow = list.locator('[data-testid^="part-"]').filter({ hasText: 'cube.stl' }).last();
   const modifierFilament = modifierRow.locator('[data-testid^="filament-cell-part-"]');
   await expect(modifierFilament).toHaveAttribute('role', 'combobox');
-  await expect(modifierFilament).toHaveText('1');
+  await expect(modifierFilament).toHaveText('Default');
   await expect(list.locator('[data-testid^="part-"] [role="checkbox"]')).toHaveCount(0);
   await modifierFilament.click();
   await page.getByRole('option', { name: 'Slot 2', exact: true }).click();
   await expect(modifierFilament).toHaveText('2');
   await modifierFilament.click();
   await page.getByRole('option', { name: 'Default', exact: true }).click();
-  await expect(modifierFilament).toHaveText('1');
+  await expect(modifierFilament).toHaveText('Default');
+  await modifierFilament.click();
+  await expect(page.getByRole('option', { name: 'Default', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
   // Assignment changes never replace the modifier's category rendering.
   await expect.poll(materials).toEqual(expect.arrayContaining([
     expect.objectContaining({ colour: '#ffff80', opacity: 0.6 }),
