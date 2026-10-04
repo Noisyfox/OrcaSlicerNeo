@@ -61,6 +61,15 @@ contains the settings and the scope-specific object or plate list. The initial
 height split is 35% / 65%;
 the divider can be dragged or adjusted with the keyboard. Both panels retain a
 minimum height, and the vertical split is session-local.
+The filament rack remains mounted while AppShell hides the workspace on other
+pages. Prepare → Device → Preview does not remove and recreate Material content;
+the combined panel retains its split and section expansion state across navigation.
+App keeps the workspace's last Prepare/Preview mode independently of top-level
+navigation. Home and Device only hide the mounted workspace; they do not switch
+its scene mode, remove action controls, or release the Preview projection and
+its layer/text controls. Returning to the same mode preserves those component
+instances and local state. Selecting Prepare or Preview still changes the
+workspace mode normally.
 The upper card's maximum height tracks the natural height of its printer and
 material content, including its border. Content and workspace resize observers
 update the limit after slot-count, material-collapse, or available-size changes.

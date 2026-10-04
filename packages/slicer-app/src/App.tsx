@@ -98,6 +98,12 @@ function AppContent() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState('Loading preferences...');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
+  // Navigation hides the workspace without changing its internal mode. Update
+  // during render so children never commit an intermediate Prepare/Preview mode.
+  const [workspaceTab, setWorkspaceTab] = useState<'prepare' | 'preview'>('prepare');
+  if (isWorkspaceTab(activeTab) && workspaceTab !== activeTab) setWorkspaceTab(activeTab);
+  const workspaceTabRef = useRef(workspaceTab);
+  workspaceTabRef.current = workspaceTab;
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
   const navigationRequest = useRef(0);
@@ -129,7 +135,9 @@ function AppContent() {
         setActiveTab(tab);
         return;
       }
-      if (!isWorkspaceTab(activeTabRef.current)) {
+      // A retained Preview has already rendered; only prewarm when switching
+      // the hidden workspace from Prepare into Preview.
+      if (!isWorkspaceTab(activeTabRef.current) && workspaceTabRef.current !== 'preview') {
         const transition = previewTransitionRef.current;
         if (transition) {
           setPrewarmingWorkspace(true);
@@ -580,7 +588,7 @@ function AppContent() {
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}
-        workspace={<Workspace actionControls={<SliceButton activeTab={activeTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        workspace={<Workspace actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
       />
