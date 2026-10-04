@@ -312,6 +312,21 @@ Validation on 2026-10-04:
   bridge, or build-scaffold code changed. Dedicated instrumented profiling and
   the full dual-host/dual-WASM release matrix were not run.
 
+The 2026-10-04 retained-workspace navigation batch was verified with:
+
+- `pnpm test` — 154 files / 1,459 tests passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` and
+  `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs`
+  — mock renderer build and CSS smoke passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts -g 'starts on blank Home|sidebar panels resize independently|full v1 flow'`
+  — 3 tests passed. The navigation regression checks the combined panel's
+  maximum, scrollbar-free height through Prepare → Device → Preview, mounted
+  rack/action/canvas identity while hidden, and Preview → Home → Device → Preview
+  without a second mode-change render. The slice/export journey checks retained
+  Preview control identity and a non-default layer range through navigation.
+- No native rebuild or full release matrix was needed for this shared UI change.
+
 The following historical results apply to the original workspace extraction:
 
 - `pnpm typecheck`, `pnpm test` (282 unit tests, incl. the slicer-app

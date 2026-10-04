@@ -203,11 +203,45 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
     });
     expect(sidebarIdentity).toBe(true);
 
+    // Maximize the combined Printer + Material panel before leaving Prepare.
+    // Navigation must not remount the rack or shrink its content-height cap.
+    const devicePanel = page.getByTestId('sidebar-device-panel');
+    const divider = (await page.getByTestId('sidebar-panel-resizer').boundingBox())!;
+    await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(divider.x + divider.width / 2, divider.y + 500, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(() => devicePanel.evaluate((el) => Math.abs(el.clientHeight - el.firstElementChild!.getBoundingClientRect().height))).toBeLessThanOrEqual(1);
+    await expect.poll(() => devicePanel.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+    const expandedHeight = (await devicePanel.boundingBox())!.height;
+    const retainedElements = await page.evaluateHandle(() => [
+      '#app-panel-workspace aside', '[data-testid="filament-rack"]',
+      '[data-testid="toolbar-actions"]', '[data-testid="viewport"] canvas',
+    ].map((selector) => ({ selector, node: document.querySelector(selector) })));
+    await page.getByTestId('tab-device').click();
+    expect(await retainedElements.evaluate((elements) => elements.every(({ selector, node }) =>
+      node !== null && node.isConnected && document.querySelector(selector) === node))).toBe(true);
+
     await page.locator('#app-tab-preview').click();
     await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');
+    await expect.poll(async () => Math.abs((await devicePanel.boundingBox())!.height - expandedHeight)).toBeLessThanOrEqual(1);
+    await expect.poll(() => devicePanel.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+    const previewStatus = await page.getByTestId('viewport').getByRole('status').elementHandle();
+    expect(previewStatus).not.toBeNull();
     await page.locator('#app-tab-home').click();
     await expect(page.locator('#app-panel-home')).toHaveAttribute('aria-hidden', 'false');
+    expect(await previewStatus!.evaluate((node) => node.isConnected)).toBe(true);
     await page.getByTestId('tab-device').click();
+    expect(await retainedElements.evaluate((elements) => elements.every(({ selector, node }) =>
+      node !== null && node.isConnected && document.querySelector(selector) === node))).toBe(true);
+    expect(await previewStatus!.evaluate((node) => node.isConnected)).toBe(true);
+    // Returning to a retained Preview must complete without waiting for a
+    // second mode-change frame (its scene has already rendered).
+    await page.locator('#app-tab-preview').click();
+    await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');
+    expect(await previewStatus!.evaluate((node) => document.querySelector('[data-testid="viewport"] [role="status"]') === node)).toBe(true);
+    await retainedElements.dispose();
+    await previewStatus!.dispose();
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible();
     await expect.poll(() => page.evaluate(() => {
@@ -658,6 +692,31 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
         );
       });
     expect(thumbFullyVisible).toBe(true);
+
+    // Preview controls and layer selection survive leaving the workspace;
+    // retaining only the outer sidebar/canvas would miss projection teardown.
+    const previewControls = await page.evaluateHandle(() => [
+      '[data-testid="layer-scrubber"]', '[data-testid="preview-controls"]',
+    ].map((selector) => ({ selector, node: document.querySelector(selector) })));
+    const layerEnd = page.getByTestId('layer-scrubber').locator('input[type="range"]').nth(1);
+    const originalLayer = await layerEnd.inputValue();
+    await layerEnd.focus();
+    await layerEnd.press('ArrowDown');
+    const retainedLayer = await layerEnd.inputValue();
+    expect(retainedLayer).not.toBe(originalLayer);
+    for (const tab of ['home', 'device'] as const) {
+      await page.locator(`#app-tab-${tab}`).click();
+      expect(await previewControls.evaluate((elements) => elements.every(({ selector, node }) =>
+        node !== null && node.isConnected && document.querySelector(selector) === node))).toBe(true);
+    }
+    await page.locator('#app-tab-preview').click();
+    await expect(page.getByTestId('layer-scrubber')).toBeVisible();
+    await expect(layerEnd).toHaveValue(retainedLayer);
+    expect(await previewControls.evaluate((elements) => elements.every(({ selector, node }) =>
+      node !== null && document.querySelector(selector) === node))).toBe(true);
+    await previewControls.dispose();
+    // Restore the original range before the existing rendering assertions.
+    await layerEnd.press('End');
 
     // Export → file on disk with the expected gcode contents.
     await page.getByTestId('btn-export').click();
