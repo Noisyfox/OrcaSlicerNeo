@@ -34,7 +34,8 @@ export function PlateThumbnail({ plateId, label, session, service, disabled, onS
     return () => { observer?.disconnect(); resize?.disconnect(); };
   }, []);
   useEffect(() => {
-    if (!visible || !projection.parts.length) return;
+    if (!projection.parts.length) { service.remove(plateId); return; }
+    if (!visible) return;
     let live = true;
     void service.request(plateId, projection.key, projection.parts, size).then(url => {
       if (live && url) setImage({ key, url });

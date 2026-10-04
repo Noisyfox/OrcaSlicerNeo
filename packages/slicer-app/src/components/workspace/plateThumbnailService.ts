@@ -27,7 +27,8 @@ export function createThumbnailRenderer() {
         const data = context.createImageData(size, size);
         for (let row = 0; row < size; row++) data.data.set(pixels.subarray(row * size * 4, (row + 1) * size * 4), (size - row - 1) * size * 4);
         context.putImageData(data, 0, 0);
-        return await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Thumbnail encoding failed')), 'image/png'));
+        // Release GPU resources before asynchronous PNG encoding can outlive the owner.
+        return new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Thumbnail encoding failed')), 'image/png'));
       } finally {
         renderer.setRenderTarget(null);
         target.dispose();
@@ -66,9 +67,13 @@ export class PlateThumbnailService {
   retain(plateIds: readonly string[]) {
     const keep = new Set(plateIds);
     for (const [id, entry] of this.entries) if (!keep.has(id)) {
-      if (entry.url) this.urls.revokeObjectURL(entry.url);
-      this.entries.delete(id);
+      this.remove(id);
     }
+  }
+  remove(plateId: string) {
+    const entry = this.entries.get(plateId);
+    if (entry?.url) this.urls.revokeObjectURL(entry.url);
+    this.entries.delete(plateId);
   }
   dispose() { this.disposed = true; this.retain([]); }
 }
