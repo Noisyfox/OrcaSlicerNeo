@@ -421,6 +421,11 @@ describe('PresetEditorDialog', () => {
     expect(document.querySelectorAll('[data-testid^="preset-editor-field-"]')).toHaveLength(1);
     expect(document.querySelector('[data-testid="preset-editor-context-machine_start_gcode"]')?.textContent)
       .toContain('Machine G-code / Machine start G-code');
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Clear search"]')!.click());
+    expect(document.querySelector<HTMLInputElement>('[data-testid="preset-editor-search"]')!.value).toBe('');
+    expect(document.activeElement).toBe(document.querySelector('[data-testid="preset-editor-search"]'));
+    expect(document.querySelector('[aria-label="Clear search"]')).toBeNull();
+    expect(document.querySelector('[role="tablist"][aria-label="Preset setting pages"]')).toBeTruthy();
   });
 
   it('marks Printer topology and specialized fields visibly read-only', async () => {

@@ -27,14 +27,20 @@ mode the object list appears immediately below the mode switch and the target
 label replaces the process preset. Search expands into a text field and finds
 options across all pages in the current mode.
 
-The horizontal page tabs are Quality, Strength, Speed, Support, Multi., and
-Other, with only pages containing eligible options displayed. The selected tab
+The Project page tabs are Quality, Strength, Speed, Support, Multi., and
+Other. Objects adds the leading Frequent page from Orca `TabPrintModel::build()`;
+Plates uses the dedicated Plate Settings page from `TabPrintPlate::build()`.
+Only pages containing eligible options are displayed. Cross-page Objects
+search lists each option once in its full process-page context. The selected tab
 is indicated by its underline; selection alone does not colour the text orange.
 Orange is reserved for indicators of local modifications. Page and group
-order follows the pinned Orca `TabPrint::build()` layout. Unmapped eligible
-options remain accessible under Other. Groups are collapsible dark heading
-bars; Shells and Infill include compact subsection headings. Labels occupy the
-left column and controls align in the right column. Boolean controls use
+order follows the pinned Orca `TabPrint::build()` layout, explicitly defined
+in React as a UI allow-list. Unmapped options and options commented out in
+Orca are omitted, including from search. Groups are collapsible dark heading
+bars with native labels and ordering, including Top/bottom shells. Native
+compound Overhang speed and Bridge lines render as compact sections; their
+headings precede the first visible field after scope/search filtering.
+Labels occupy the left column and controls align in the right column. Boolean controls use
 square checkboxes, enums use dropdowns, and numeric controls have minus/plus
 buttons. Each increment uses the existing configuration mutation path and
 respects native metadata bounds. Field Reset is an orange icon beside its

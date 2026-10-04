@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+import { SearchClearButton } from '@/components/ui/search-input'
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox"
 import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react"
 
@@ -57,16 +59,22 @@ function ComboboxInput({
   disabled = false,
   showTrigger = true,
   showClear = false,
+  searchValue,
+  onClearSearch,
   ...props
 }: ComboboxPrimitive.Input.Props & {
   showTrigger?: boolean
   showClear?: boolean
+  searchValue?: string
+  onClearSearch?: () => void
 }) {
+  const input = useRef<HTMLInputElement>(null)
   return (
     <InputGroup className={cn("w-auto", className)}>
       <ComboboxPrimitive.Input
         render={<InputGroupInput disabled={disabled} />}
         {...props}
+        ref={input}
       />
       <InputGroupAddon align="inline-end">
         {showTrigger && (
@@ -80,6 +88,10 @@ function ComboboxInput({
           />
         )}
         {showClear && <ComboboxClear disabled={disabled} />}
+        {searchValue && onClearSearch && <SearchClearButton disabled={disabled} onClear={() => {
+          onClearSearch()
+          input.current?.focus()
+        }} />}
       </InputGroupAddon>
       {children}
     </InputGroup>
