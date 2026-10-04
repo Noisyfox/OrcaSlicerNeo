@@ -44,7 +44,7 @@ describe('FilamentAssignmentCell semantics', () => {
   }
 
   it('uses the shadcn Select structure and shows an inherited effective slot', async () => {
-    const container = await render(<FilamentAssignmentCell snapshot={base} kind="part" id={20} allowDefault />);
+    const container = await render(<FilamentAssignmentCell snapshot={base} kind="part" id={20} />);
     const trigger = container.querySelector('[data-testid="filament-cell-part-20"]') as HTMLElement;
 
     expect(container.querySelector('select')).toBeNull();
@@ -58,24 +58,23 @@ describe('FilamentAssignmentCell semantics', () => {
     expect(document.body.querySelector('[data-slot="select-content"]')).not.toBeNull();
     expect(document.body.querySelector('[data-slot="select-group"] [data-slot="select-item"]')).not.toBeNull();
     expect([...document.body.querySelectorAll('[data-slot="select-item"]')].map((item) => item.textContent)).toEqual([
-      'Default',
       'Slot 1 · inherited',
       'Slot 2',
     ]);
   });
 
-  it('assigns numeric slots and exposes Default only for parts', async () => {
+  it('assigns numeric slots without Default for model parts and objects', async () => {
     const onPartAssign = vi.fn();
     const onObjectAssign = vi.fn();
     const container = await render(<>
-      <FilamentAssignmentCell snapshot={base} kind="part" id={20} allowDefault onAssign={onPartAssign} />
+      <FilamentAssignmentCell snapshot={base} kind="part" id={20} onAssign={onPartAssign} />
       <FilamentAssignmentCell snapshot={base} kind="object" id={10} onAssign={onObjectAssign} />
     </>);
     const partTrigger = container.querySelector('[data-testid="filament-cell-part-20"]') as HTMLElement;
     const objectTrigger = container.querySelector('[data-testid="filament-cell-object-10"]') as HTMLElement;
 
-    await choose(partTrigger, 'Default');
-    expect(onPartAssign).toHaveBeenCalledWith(0);
+    await choose(partTrigger, 'Slot 2');
+    expect(onPartAssign).toHaveBeenCalledWith(2);
     await act(async () => { objectTrigger.click(); await new Promise((resolve) => setTimeout(resolve, 0)); });
     const objectContent = document.getElementById(objectTrigger.getAttribute('aria-controls') ?? '') as HTMLElement;
     const objectItems = [...objectContent.querySelectorAll('[data-slot="select-item"]')];
@@ -102,6 +101,37 @@ describe('FilamentAssignmentCell semantics', () => {
     await act(async () => { trigger.click(); });
     expect(onAssign).not.toHaveBeenCalled();
     expect(container.querySelectorAll('span[data-testid^="filament-cell-"]')).toHaveLength(2);
+  });
+
+  it('reads modifier assignment and supports an explicit slot or Default', async () => {
+    const snapshot = { ...base, assignments: { ...base.assignments, modifiers: [{
+      target: 'parameter-modifier' as const, id: 21, objectId: 10,
+      explicitSlot: 2, effectiveSlot: 2, inherited: false,
+    }] } };
+    const onAssign = vi.fn();
+    const container = await render(<FilamentAssignmentCell snapshot={snapshot} kind="part" id={21} allowDefault onAssign={onAssign} />);
+    const trigger = container.querySelector('[data-testid="filament-cell-part-21"]') as HTMLElement;
+    expect(trigger.getAttribute('role')).toBe('combobox');
+    expect(trigger.textContent).toBe('2');
+    expect(trigger.style.backgroundColor).toBe('rgb(68, 85, 102)');
+    await choose(trigger, 'Slot 1');
+    expect(onAssign).toHaveBeenLastCalledWith(1);
+    await choose(trigger, 'Default');
+    expect(onAssign).toHaveBeenLastCalledWith(0);
+  });
+
+  it('shows and selects modifier Default independently of the owning filament', async () => {
+    const snapshot = { ...base, assignments: { ...base.assignments, modifiers: [{
+      target: 'parameter-modifier' as const, id: 21, objectId: 10,
+      explicitSlot: 0, effectiveSlot: 2, inherited: true,
+    }] } };
+    const container = await render(<FilamentAssignmentCell snapshot={snapshot} kind="part" id={21} allowDefault />);
+    const trigger = container.querySelector('[data-testid="filament-cell-part-21"]') as HTMLElement;
+    expect(trigger.textContent).toBe('Default');
+    expect(trigger.style.backgroundColor).toBe('transparent');
+    await act(async () => { trigger.click(); });
+    const option = [...document.body.querySelectorAll('[role="option"]')].find((item) => item.textContent === 'Default');
+    expect(option?.getAttribute('aria-selected')).toBe('true');
   });
 
   it('does not bubble trigger or portal item events into an ObjectList row', async () => {

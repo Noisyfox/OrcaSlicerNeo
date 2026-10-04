@@ -44,7 +44,7 @@ export type {
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
-  ModelInstanceStructure, VolumeType,
+  AddVolumeRequest, AddVolumeResult, ModelInstanceStructure, VolumeType,
   SliceResultStatus, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ClientSliceResult, ClientToolpath,
   ToolpathFeature, PreviewLayerRange, PreviewPaletteEntry, PreviewMetadata,

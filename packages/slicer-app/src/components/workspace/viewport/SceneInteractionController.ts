@@ -735,12 +735,15 @@ export class SceneInteractionController {
       const objectSelected = objectIds.has(object.id);
       for (const volume of object.volumes) {
         if (objectSelected || partIds.has(volume.id)) {
-          for (const instance of object.instances)
+          for (const instance of object.instances) {
+            if (context.selection.mode === 'part' && !(instanceIds.size > 0
+                ? instanceIds.has(instance.id) : instance.id === object.instances[0]?.id)) continue;
             selected.add(`${object.id}:${volume.id}:${instance.id}`);
+          }
         }
       }
       for (const instance of object.instances) {
-        if (!instanceIds.has(instance.id)) continue;
+        if (context.selection.mode === 'part' || !instanceIds.has(instance.id)) continue;
         for (const volume of object.volumes)
           selected.add(`${object.id}:${volume.id}:${instance.id}`);
       }

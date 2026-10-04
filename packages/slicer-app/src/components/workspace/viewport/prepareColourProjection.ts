@@ -80,8 +80,8 @@ function adjustHexForRendering(hex: string): string {
  * The bridge/session owns the actual alpha semantics; Prepare's selection
  * overlay is intentionally RGB-only so Preview transparency stays independent.
  */
-function brightenForSelection(hex: string): string {
-  let [r, g, b] = hexToRgb(normalizeHex(hex));
+function brightenForSelection(colour: string | [number, number, number]): string {
+  let [r, g, b] = typeof colour === 'string' ? hexToRgb(normalizeHex(colour)) : colour;
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -138,6 +138,32 @@ function stableVolume(
   return { object, part };
 }
 
+/** Native color_from_model_volume / GLVolume::set_render_color. Auxiliary
+ * volumes keep their category colour and alpha, independent of filament slots.
+ * Orca draws their front faces in the transparent pass with depth writes on. */
+export function prepareAuxiliaryMaterial(
+  volume: LoadedObject,
+  structure: readonly ModelObjectStructure[],
+  selected = false,
+): PrepareMaterialOverlay | null {
+  const { part } = stableVolume(volume, structure);
+  let rgb: [number, number, number];
+  let opacity = 0.4;
+  switch (part?.type) {
+    case 'negative_volume': rgb = [0.3, 0.3, 0.3]; break;
+    case 'parameter_modifier': rgb = [1, 1, 0]; opacity = 0.6; break;
+    case 'support_blocker': rgb = [1, 0.3, 0.3]; break;
+    case 'support_enforcer': rgb = [0.3, 0.3, 1]; break;
+    default: return null;
+  }
+  return {
+    colour: selected ? brightenForSelection(rgb) : rgbToHex(...rgb),
+    opacity,
+    transparent: true,
+    depthWrite: true,
+  };
+}
+
 function instanceIsOutOfBounds(
   volume: LoadedObject,
   plateSession: PlateSessionSnapshot | null | undefined,
@@ -176,7 +202,8 @@ export function canRenderPreparePaint(
   structure: readonly ModelObjectStructure[],
 ): boolean {
   const { object, instance } = nativePrintability(volume, structure);
-  return Boolean(object?.printable) && instance?.printable !== false;
+  return stableVolume(volume, structure).part?.type === 'model_part'
+    && Boolean(object?.printable) && instance?.printable !== false;
 }
 
 export function isModelInstanceMarkedUnprintable(

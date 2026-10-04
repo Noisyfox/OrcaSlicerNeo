@@ -132,7 +132,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   }
 
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
-    const targets = assignmentTargetsForSelection({ kind, id }, projection);
+    const targets = assignmentTargetsForSelection({ kind, id }, projection, structure);
+    if (targets.length === 0) return;
     void runFilament(platform.runtime, () => {
       const current = useFilamentSessionStore.getState().snapshot;
       if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
@@ -288,6 +289,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
    *  selection when the clicked volume is already selected. */
   function rowFullySelected(row: SelectableRow, anchor: number): boolean {
     if (!sceneInteraction) return true;
+    // An instance contains every part geometrically, but its child part rows
+    // are not selected. Right-clicking one must enter the part selection level.
+    if (row.kind === 'part') {
+      const volume = structure.find((object) => object.index === row.target.objectIdx)
+        ?.volumes.find((part) => part.index === row.target.volumeIdx);
+      return volume !== undefined && projection.volumeIds.has(volume.id);
+    }
     const ids = rowVolumeIds(row, anchor);
     if (ids.length === 0) return true;
     const selected = sceneInteraction.selectedVolumes();
@@ -298,9 +306,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
    *  clicked row is already part of the selection, promote the menu to the
    *  selection's most-relative fully-selected level: a fully-selected object
    *  (however it was selected — object row, Instances group, or scene) opens
-   *  the object menu even when the click landed on one of its part/instance
-   *  rows, and a fully-selected instance opens the instance menu from one of
-   *  its part rows. Only when the right-click just replaced the selection with
+   *  the object menu from its selected object/instance rows. Part rows use
+   *  their own projected selection level, so a parent's selection does not
+   *  suppress switching to that part. When the right-click replaced selection with
    *  the row's own target (unselected row) does the menu stay row-scoped. */
   function selectionMenuTarget(row: SelectableRow, anchor: number): ObjectListCtxTarget | null {
     const obj = structure.find((o) => o.index === row.target.objectIdx);
@@ -552,15 +560,12 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       ) : <span className="min-w-0 truncate">{vol.name}</span>}
                     </Button>
                     <div className="absolute inset-y-0 right-1 flex items-center gap-2">
-                    <TooltipFor content="Inherits the object's printable state">
-                      <Checkbox className="object-list-printable size-4 disabled:opacity-100" checked={obj.printable} disabled aria-label={`Part ${vol.id} inherits object printability`} />
-                    </TooltipFor>
                     <FilamentAssignmentCell
                       snapshot={filamentSnapshot}
                       kind="part"
                       id={vol.id}
-                      assignable={vol.type === 'model_part'}
-                      allowDefault={vol.type === 'model_part'}
+                      assignable={vol.type === 'model_part' || vol.type === 'parameter_modifier'}
+                      allowDefault={vol.type === 'parameter_modifier'}
                       pending={filamentPending}
                       onAssign={(slot) => assignRow('part', vol.id, slot)}
                     />
@@ -660,6 +665,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       </ContextMenuTrigger>
       {ctx && (
         <ObjectListContextMenu
+          sceneInteraction={sceneInteraction}
           target={ctx.target}
           onClose={() => setContextMenuOpen(false)}
           onRename={startRename}

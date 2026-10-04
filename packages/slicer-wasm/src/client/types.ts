@@ -813,6 +813,14 @@ export interface MutationResult {
   error?: string;
 }
 
+/** Add geometry to a stable object, anchored to a full instance. */
+export type AddVolumeRequest = {
+  objectId: number;
+  instanceId: number;
+  volumeType: VolumeType;
+} & ({ shape: string } | { ext: string; name: string });
+export interface AddVolumeResult extends MutationResult { volumeId?: number }
+
 /** Volume kinds as reported by the bridge structure read (spec §9.1). */
 export type VolumeType =
   | 'model_part'
@@ -1485,6 +1493,7 @@ export interface SlicerClient extends PaintingApi {
    *  (its_make_cube) and naming the object and its part after the primitive
    *  — no staging file involved. `name` defaults to `type`. */
   addShape(type: string, name?: string): Promise<LoadModelResult>;
+  addVolume(request: AddVolumeRequest, bytes?: Uint8Array): Promise<AddVolumeResult>;
   /** Reset the complete scene in the WASM model and invalidate its Print. */
   clearModel(): Promise<ClearModelResult>;
   setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number): Promise<{ ok: boolean; error?: string }>;

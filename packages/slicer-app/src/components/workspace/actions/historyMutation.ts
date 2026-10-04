@@ -93,6 +93,7 @@ type MutationResponse = { ok?: boolean; error?: string };
  * transforms and plate layout may still change. */
 export interface HistoryContextReceipt {
   structure: 'preserved' | (ModelStructureResult & { ok: true });
+  selection?: HistoryContext['selection'];
   activePlateId: string | null;
 }
 
@@ -308,7 +309,7 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
       let context = historyContextForStructure(sceneInteraction);
       if (receipt) {
         if (receipt.structure !== 'preserved') context = projectContextOntoStructure(context, receipt.structure);
-        return { ...context, activePlateId: receipt.activePlateId };
+        return { ...context, selection: receipt.selection ?? context.selection, activePlateId: receipt.activePlateId };
       }
       const structure = await runtime.getModelStructure().catch(() => null);
       if (structure) context = projectContextOntoStructure(context, structure);

@@ -1503,14 +1503,13 @@ test('object list: context menu follows the selection (mock)', async () => {
     await expect(menu.getByTestId('objectlist-assemble')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    // Same from a part row of the fully-selected object: the object menu
-    // (split-parts is part-menu-only and must not appear). Escape clears the
-    // selection, so re-select the object first.
+    // A part row has its own selection level. Even a fully selected parent
+    // must switch to the clicked part and show the part menu.
     await objectButton.click();
     await list.locator('[data-testid^="part-"]').first().click({ button: 'right' });
     await expect(menu).toBeVisible();
-    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
-    await expect(menu.getByTestId('objectlist-split-parts')).toHaveCount(0);
+    await expect(menu.getByTestId('objectlist-clone')).toHaveCount(0);
+    await expect(menu.getByTestId('objectlist-split-parts')).toBeVisible();
     await page.keyboard.press('Escape');
 
     // And from the Instances group line (right-click selects all instances,
@@ -1871,6 +1870,22 @@ test('scene context menu: right-click on a model body opens the object menu', as
     await expect(objectRows.first().locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(objectMenu).toBeHidden();
+
+    // An instance geometrically contains every part, but right-clicking an
+    // ordinary part row must replace that instance selection with the part.
+    // Keep the second-instance anchor rather than silently jumping to the first.
+    await list.locator('[data-testid^="instance-"]').nth(1).getByRole('button').first().click();
+    const firstPart = list.locator('[data-testid^="part-"]').first();
+    await firstPart.click({ button: 'right' });
+    await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(0);
+    await expect(list.locator('[data-testid^="part-"] button[data-state="selected"]')).toHaveCount(1);
+    await expect(firstPart.locator('button[data-state="selected"]')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-printable')).toHaveCount(0);
+    await expect(objectMenu.getByTestId('objectlist-add-model_part')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {
+      __orcaE2e?: { selectionBoundsWorld?: () => { center: number[] } | null };
+    }).__orcaE2e?.selectionBoundsWorld?.()?.center[0])).toBe(60);
+    await page.keyboard.press('Escape');
 
     // Right-clicking a body that is already selected must not change the
     // selection: with two objects fully selected, a right-click on a body
@@ -2778,5 +2793,56 @@ test('preview actions: real seam and retraction markers have independent GPU vis
     await page.screenshot({ path: screenshot });
     await test.info().attach('independent-seam-markers', { path: screenshot, contentType: 'image/png' });
     expect(shaderErrors).toEqual([]);
+  } finally { await app.close(); }
+});
+
+
+test('object add menus follow Orca selection rules and undo redo added parts', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('config-mode-scoped').click();
+    const list = page.getByTestId('object-list');
+    const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    const button = objectRows.first().getByRole('button').first();
+    const parts = list.locator('[data-testid^="part-"]');
+    const before = await parts.count();
+    await button.click({ button: 'right' });
+    for (const type of ['model_part', 'negative_volume', 'parameter_modifier', 'support_blocker', 'support_enforcer'])
+      await expect(page.getByTestId(`objectlist-add-${type}`)).toBeVisible();
+    await page.getByTestId('objectlist-add-negative_volume').click();
+    const submenu = page.getByTestId('objectlist-add-negative_volume-menu');
+    await expect(submenu.getByRole('menuitem')).toHaveText(['Load...', 'Cube', 'Cylinder', 'Sphere', 'Cone', 'Disc', 'Torus']);
+    await page.getByTestId('objectlist-add-negative_volume-Cube').click();
+    await expect(parts).toHaveCount(before + 1);
+    const added = parts.filter({ hasText: 'Generic-Cube' });
+    await added.click({ button: 'right' });
+    await expect(page.getByTestId('objectlist-add-model_part')).toHaveCount(0);
+    await expect(page.getByTestId('objectlist-change-filament')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await page.getByTestId('history-undo').click();
+    await expect(parts).toHaveCount(before);
+    await page.getByTestId('history-redo').click();
+    await expect(parts).toHaveCount(before + 1);
+    await added.click({ button: 'right' });
+    await expect(page.getByTestId('objectlist-add-model_part')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    if (!REAL) {
+      // Preserve a multiple-object selection on right-click: no Add Part menus.
+      await button.click({ button: 'right' });
+      await page.getByTestId('objectlist-clone').click();
+      await expect(objectRows).toHaveCount(2);
+      await objectRows.first().getByRole('button').first().click();
+      await objectRows.last().getByRole('button').first().click({ modifiers: ['Control'] });
+      await objectRows.last().getByRole('button').first().click({ button: 'right' });
+      await expect(page.getByTestId('objectlist-assemble')).toBeVisible();
+      await expect(page.getByTestId('objectlist-add-model_part')).toHaveCount(0);
+    }
   } finally { await app.close(); }
 });

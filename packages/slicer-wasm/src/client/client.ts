@@ -24,7 +24,7 @@ import type {
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
-  ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
+  AddVolumeRequest, AddVolumeResult, ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
@@ -2258,6 +2258,17 @@ export function createClient(
         drainTaskMessages(m);
         m._free(ptr);
         if (onProgress) progressListeners.delete(onProgress);
+      }
+    },
+
+    async addVolume(request: AddVolumeRequest, bytes?: Uint8Array): Promise<AddVolumeResult> {
+      const m = await module();
+      const ptr = bytes ? writeBytes(m, bytes) : 0;
+      try {
+        return normalizeStructuralResult<AddVolumeResult>(callJson(m, 'orc_add_volume',
+          ['string', 'pointer', 'number'], [JSON.stringify(request), ptr, bytes?.length ?? 0]));
+      } finally {
+        if (bytes) m._free(ptr);
       }
     },
 

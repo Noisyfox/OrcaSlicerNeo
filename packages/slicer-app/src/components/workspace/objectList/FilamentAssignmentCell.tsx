@@ -22,20 +22,23 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
 }) {
   const assignment = assignmentForRow(snapshot, kind, id);
   if (!snapshot || !assignable || !assignment) return <span className="w-10 shrink-0 text-center text-xs text-muted-foreground" data-testid={`filament-cell-${kind}-${id}`}>—</span>;
-  const colour = snapshot.slots.find((slot) => slot.slot === assignment.effectiveSlot)?.colour.effective;
+  // Modifier Default is a distinct native choice, not the inherited effective
+  // filament. Ordinary model parts display their effective assignment.
+  const selectedSlot = allowDefault ? assignment.explicitSlot : assignment.effectiveSlot;
+  const colour = selectedSlot > 0 ? snapshot.slots.find((slot) => slot.slot === selectedSlot)?.colour.effective : undefined;
   const rgb = colour?.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})/i);
   const lightColour = rgb && (Number.parseInt(rgb[1], 16) * 0.299 + Number.parseInt(rgb[2], 16) * 0.587 + Number.parseInt(rgb[3], 16) * 0.114) > 150;
-  const label = assignment.effectiveSlot > 0 ? `Slot ${assignment.effectiveSlot}${assignment.inherited ? ' · inherited' : ''}` : 'Default';
+  const label = selectedSlot > 0 ? `Slot ${selectedSlot}${assignment.inherited ? ' · inherited' : ''}` : 'Default';
   const items = [
     ...(allowDefault ? [{ value: '0', label: 'Default' }] : []),
     ...assignmentSlotOptions(snapshot).map((slot) => ({
       value: String(slot),
-      label: `Slot ${slot}${assignment.inherited && slot === assignment.effectiveSlot ? ' · inherited' : ''}`,
+      label: `Slot ${slot}${!allowDefault && assignment.inherited && slot === assignment.effectiveSlot ? ' · inherited' : ''}`,
     })),
   ];
   return (
     <Select
-      value={String(allowDefault ? assignment.effectiveSlot : Math.max(1, assignment.effectiveSlot))}
+      value={String(selectedSlot)}
       items={items}
       onValueChange={(value) => value != null && onAssign?.(Number(value))}
       disabled={pending}
@@ -46,13 +49,13 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
           aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
           data-testid={`filament-cell-${kind}-${id}`}
           className="h-5 w-10 shrink-0 justify-center rounded-[1px] border border-input-button-foreground/40 px-0 py-0 text-xs leading-none"
-          style={{ height: 20, backgroundColor: colour ?? 'var(--color-control-background)', color: lightColour ? 'var(--color-control-background)' : 'var(--color-foreground)' }}
+          style={{ height: 20, backgroundColor: colour ?? 'transparent', color: lightColour ? 'var(--color-control-background)' : 'var(--color-foreground)' }}
           size="sm"
           onClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          {assignment.effectiveSlot > 0 ? assignment.effectiveSlot : '—'}
+          {selectedSlot > 0 ? selectedSlot : 'Default'}
         </SelectTrigger>
       </TooltipFor>
       <SelectContent

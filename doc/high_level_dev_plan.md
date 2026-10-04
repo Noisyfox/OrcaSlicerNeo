@@ -436,8 +436,11 @@
 > UI and slicing state use stable `ObjectID`; after each structural mutation
 > the shared app re-reads structure and mesh. Selection is currently cleared on a
 > mutation's mesh reload (stable-ID restoration is a later refinement, per spec
-> §6). Mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting, and
+> §6). Mesh boolean, multi-plate, undo/redo, painting, and
 > extruder panels are deferred.
+> Add Part, Negative Part, Modifier, Support Blocker and Support Enforcer were
+> delivered on 2026-10-04 with native primitive/file operations and selection-aware
+> submenus; see [Object Add Context Menus](2026-10-04-object-add-context-menu.md).
 > Verification: unit tests, mock-module contract tests, live WASM smoke
 > (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
 > serial) all pass.

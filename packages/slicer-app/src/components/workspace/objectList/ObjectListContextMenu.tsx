@@ -1,9 +1,10 @@
-import type { ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
+import type { FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
 import type { ReactNode } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import {
   ContextMenuContent,
-  ContextMenuItem,
+  ContextMenuItem, ContextMenuGroup, ContextMenuSeparator,
+  ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
 } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
 import {
@@ -19,7 +20,9 @@ import {
 } from './structuralActions';
 import { changePartTypeInList, setObjectPrintableInList, setInstancePrintableInList } from './actions';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import { assignmentTargetsForSelection } from './filamentAssignment';
+import { ADD_VOLUME_MENUS, addVolumeAnchor, addVolumeInList } from './addVolumeActions';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { PRIMITIVE_TYPES } from '../actions/sceneActions';
 
 export type ObjectListCtxTarget =
   | { kind: 'list' }
@@ -51,8 +54,9 @@ function MenuItem({ label, testid, onClick, danger, disabled }: {
   );
 }
 
-export function ObjectListContextMenu({ target, onClose, onRename, showRename = true }: {
+export function ObjectListContextMenu({ target, onClose, onRename, showRename = true, sceneInteraction }: {
   target: ObjectListCtxTarget;
+  sceneInteraction?: SceneInteractionController | null;
   onClose: () => void;
   onRename?: (kind: 'object' | 'part', id: number, currentName: string) => void;
   // Some surfaces (e.g. the scene object menu) have no rename editor; the
@@ -78,21 +82,31 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
   ) : null;
 
   function changeFilamentItems(target: ObjectListCtxTarget): ReactNode[] {
-    if (!filamentSnapshot || (target.kind !== 'object' && target.kind !== 'part')) return [];
-    const targetSpec = target.kind === 'object'
-      ? { kind: 'object' as const, id: target.object.id }
-      : { kind: 'part' as const, id: target.volume.id };
-    const targets = target.kind === 'object' && projection.objectIds.size === 0 && projection.instanceIds.size > 0
-      ? [...projection.instanceIds].map((id) => ({ kind: 'instance' as const, id }))
-      : assignmentTargetsForSelection(targetSpec, projection);
+    if (!filamentSnapshot || filamentSnapshot.slots.length <= 1 || target.kind === 'list') return [];
+    if (target.kind === 'part' && target.volume.type !== 'model_part' && target.volume.type !== 'parameter_modifier') return [];
+    const selectedOwners: FilamentAssignmentTargetRequest[] = [
+      ...[...projection.objectIds].map((id) => ({ kind: 'object' as const, id })),
+      ...[...projection.instanceIds].map((id) => ({ kind: 'instance' as const, id })),
+    ];
+    const targets = target.kind !== 'part'
+      ? selectedOwners.length > 0 ? selectedOwners : [{ kind: 'object' as const, id: target.object.id }]
+      : target.kind === 'part'
+        ? (projection.volumeIds.has(target.volume.id) ? [...projection.volumeIds] : [target.volume.id])
+          .flatMap<FilamentAssignmentTargetRequest>((id) => {
+            const volume = useObjectListStore.getState().structure.flatMap((o) => o.volumes).find((v) => v.id === id)
+              ?? (id === target.volume.id ? target.volume : undefined);
+            return volume?.type === 'parameter_modifier' ? [{ kind: 'parameter-modifier' as const, id }]
+              : volume?.type === 'model_part' ? [{ kind: 'model-part' as const, id }] : [];
+          })
+        : [];
     if (targets.length === 0) return [];
     const choices = target.kind === 'part'
       ? [{ slot: 0, label: 'Default' }, ...filamentSnapshot.slots.map((slot) => ({ slot: slot.slot, label: `Slot ${slot.slot}` }))]
       : filamentSnapshot.slots.map((slot) => ({ slot: slot.slot, label: `Slot ${slot.slot}` }));
-    return choices.map(({ slot, label }) => (
+    const entries = choices.map(({ slot, label }) => (
       <MenuItem
         key={`filament-${slot}`}
-        label={`Change Filament · ${label}`}
+        label={label}
         testid={`objectlist-change-filament-${slot === 0 ? 'default' : slot}`}
         onClick={() => {
           void runFilament(runtime, () => {
@@ -104,7 +118,32 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
         }}
       />
     ));
+    return [<ContextMenuSub key="change-filament">
+      <ContextMenuSubTrigger data-testid="objectlist-change-filament">Change Filament</ContextMenuSubTrigger>
+      <ContextMenuSubContent><ContextMenuGroup>{entries}</ContextMenuGroup></ContextMenuSubContent>
+    </ContextMenuSub>];
   }
+
+  const anchor = target.kind === 'object' || target.kind === 'instance'
+    ? addVolumeAnchor(target.object, projection) : null;
+  const addItems = anchor !== null && target.kind !== 'list' ? ADD_VOLUME_MENUS.map(({ type, label }) => (
+    <ContextMenuSub key={`add-${type}`}>
+      <ContextMenuSubTrigger data-testid={`objectlist-add-${type}`}>{label}</ContextMenuSubTrigger>
+      <ContextMenuSubContent data-testid={`objectlist-add-${type}-menu`}>
+        <ContextMenuGroup>
+          <MenuItem label="Load..." testid={`objectlist-add-${type}-load`} onClick={() => {
+            onClose(); void addVolumeInList(platform, { objectId: target.object.id, instanceId: anchor, volumeType: type }, undefined, sceneInteraction);
+          }} />
+        </ContextMenuGroup>
+        <ContextMenuSeparator />
+        <ContextMenuGroup>{PRIMITIVE_TYPES.map((shape) => (
+          <MenuItem key={shape} label={shape} testid={`objectlist-add-${type}-${shape}`} onClick={() => {
+            onClose(); void addVolumeInList(platform, { objectId: target.object.id, instanceId: anchor, volumeType: type }, shape, sceneInteraction);
+          }} />
+        ))}</ContextMenuGroup>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  )) : [];
 
   const items: ReactNode[] = [];
   if (target.kind === 'list') {
@@ -119,7 +158,6 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
     // (projection.objectIds empty, e.g. selected via the Instances group).
     const targetObjectIds = selectedObjectIds.includes(o.id) ? selectedObjectIds : [o.id];
     if (assembleItem) items.push(assembleItem);
-    items.push(...changeFilamentItems(target));
     if (showRename && canRename) {
       items.push(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
@@ -129,11 +167,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
           }} />,
       );
     }
-    // Printable applies to the whole selection (right-click a selected
-    // member to toggle everything).
     items.push(
-      <MenuItem key="printable" label={o.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
-        onClick={() => act(setObjectPrintableInList(runtime, targetObjectIds, !o.printable))} />,
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
         onClick={() => act(cloneObjectsInList(runtime, targetObjectIds))} />,
     );
@@ -158,9 +192,17 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
       <MenuItem key="delete" label="Delete" testid="objectlist-delete" danger
         onClick={() => act(deleteObjectsInList(runtime, targetObjectIds))} />,
     );
+    if (addItems.length > 0) items.push(<ContextMenuSeparator key="before-add" />, ...addItems);
+    if (addItems.length > 0) items.push(<ContextMenuSeparator key="after-add" />);
+    items.push(...changeFilamentItems(target));
+    // Printable applies to the whole selection.
+    items.push(
+      <MenuItem key="printable" label={o.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
+        onClick={() => act(setObjectPrintableInList(runtime, targetObjectIds, !o.printable))} />,
+    );
   } else if (target.kind === 'part') {
     const { volume: v } = target;
-    if (v.type === 'model_part') items.push(...changeFilamentItems(target));
+    items.push(...changeFilamentItems(target));
     if (showRename && canRename) {
       items.push(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
@@ -219,7 +261,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
 
   return (
     <ContextMenuContent data-testid="objectlist-ctx-menu" className="min-w-40">
-      {items}
+      <ContextMenuGroup>{items}</ContextMenuGroup>
     </ContextMenuContent>
   );
 }

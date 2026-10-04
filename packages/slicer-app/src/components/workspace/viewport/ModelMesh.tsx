@@ -14,6 +14,7 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import {
   canRenderPreparePaint,
   isModelInstanceMarkedUnprintable,
+  prepareAuxiliaryMaterial,
   prepareColourForVolume,
   preparePaintMaterialOverlays,
   resolvePrepareMaterial,
@@ -75,9 +76,10 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
   const prepareColour = !preview
     ? prepareColourForVolume(data, structure, filamentSnapshot, plateSession)
     : '#cbd5e1';
+  const auxiliaryMaterial = !preview ? prepareAuxiliaryMaterial(data, structure, selected) : null;
   const material = markedUnprintable
     ? resolveUnprintableMaterial(selected)
-    : resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
+    : auxiliaryMaterial ?? resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
   const paintMaterials = paintedPrintable
     ? preparePaintMaterialOverlays(data, data.paintDrawGroups, structure, filamentSnapshot, plateSession, selected, preview)
     : [];
@@ -173,7 +175,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
           color={material.colour}
           roughness={0.6}
           metalness={0.1}
-          side={THREE.DoubleSide}
+          side={auxiliaryMaterial ? THREE.FrontSide : THREE.DoubleSide}
           transparent={material.transparent}
           opacity={material.opacity}
           depthWrite={material.depthWrite}
