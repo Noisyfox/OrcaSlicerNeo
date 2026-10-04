@@ -339,12 +339,19 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await expect.poll(async () => (await readHistoryUntilEntries()).undoLabels).toEqual(historyBeforeGizmoCancel.undoLabels);
     expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(positionBeforeGizmoCancel);
     await expect.poll(readControlsEnabled).toBe(true);
+    // Blur cancels the app gesture, but Playwright still holds the physical
+    // mouse button. Release it before starting a fresh camera gesture.
+    await page.mouse.up();
     const cameraBeforeRecovery = await readCamera();
     const recoveryCanvas = await canvas.boundingBox();
     if (!recoveryCanvas) throw new Error('viewport canvas has no bounding box');
-    await page.mouse.move(recoveryCanvas.x + 20, recoveryCanvas.y + 300);
+    // The left edge is covered by the viewport toolbar and Move panel. Start
+    // above the beds in unobstructed canvas, and verify the actual hit target.
+    const recoveryPoint = { x: recoveryCanvas.x + recoveryCanvas.width / 2, y: recoveryCanvas.y + 120 };
+    expect(await canvas.evaluate((element, point) => document.elementFromPoint(point.x, point.y) === element, recoveryPoint)).toBe(true);
+    await page.mouse.move(recoveryPoint.x, recoveryPoint.y);
     await page.mouse.down();
-    await page.mouse.move(recoveryCanvas.x + 48, recoveryCanvas.y + 315, { steps: 3 });
+    await page.mouse.move(recoveryPoint.x + 28, recoveryPoint.y + 15, { steps: 3 });
     await page.mouse.up();
     await expect.poll(readCamera).not.toEqual(cameraBeforeRecovery);
 

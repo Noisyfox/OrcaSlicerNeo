@@ -129,7 +129,13 @@ async function launchApp(printerConfig: unknown): Promise<{ app: ElectronApplica
   } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const glFlag = process.platform === 'linux' ? ['--use-angle=swiftshader-webgl'] : [];
-  const app = await _electron.launch({ args: ['.', ...glFlag], cwd: DESKTOP_ROOT, env });
+  // Each launch owns its Chromium storage and cache, avoiding shared profile
+  // state between consecutive webview tests on Windows.
+  const app = await _electron.launch({
+    args: ['.', `--user-data-dir=${join(fixtureDir, 'user-data')}`, ...glFlag],
+    cwd: DESKTOP_ROOT,
+    env,
+  });
   return { app, fixtureDir };
 }
 
@@ -138,7 +144,24 @@ async function waitForConsoleKey(fixture: MoonrakerFixture, key: string): Promis
 }
 
 async function waitForReady(page: Page): Promise<void> {
-  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+  const messages: string[] = [];
+  const onConsole = (message: { type(): string; text(): string }) => messages.push(`[${message.type()}] ${message.text()}`);
+  const onError = (error: Error) => messages.push(String(error));
+  page.on('console', onConsole);
+  page.on('pageerror', onError);
+  try {
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+  } catch (error) {
+    console.error('Printer E2E startup failed', {
+      url: page.url(),
+      body: await page.locator('body').innerText().catch(() => '(unavailable)'),
+      messages,
+    });
+    throw error;
+  } finally {
+    page.off('console', onConsole);
+    page.off('pageerror', onError);
+  }
   await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
 }

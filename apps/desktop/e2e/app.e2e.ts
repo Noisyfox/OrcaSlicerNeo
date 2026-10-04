@@ -2889,7 +2889,7 @@ test('object add menus follow Orca selection rules and undo redo added parts', a
       await page.getByTestId('objectlist-clone').click();
       await expect(objectRows).toHaveCount(2);
       await objectRows.first().getByRole('button').first().click();
-      await objectRows.last().getByRole('button').first().click({ modifiers: ['Control'] });
+      await objectRows.last().getByRole('button').first().click({ modifiers: ['ControlOrMeta'] });
       await objectRows.last().getByRole('button').first().click({ button: 'right' });
       await expect(page.getByTestId('objectlist-assemble')).toBeVisible();
       await expect(page.getByTestId('objectlist-add-model_part')).toHaveCount(0);
