@@ -99,6 +99,7 @@ test('new project slots remain assignable from the ObjectList select and context
     await objectRow.click({ button: 'right' });
     await expect(page.getByTestId('objectlist-ctx-menu')).toBeVisible();
 
+    await page.getByTestId('objectlist-change-filament').click();
     await page.getByTestId('objectlist-change-filament-3').click();
     await expect(page.getByTestId('objectlist-ctx-menu')).toBeHidden();
     await expect(page.getByTestId('filament-rejected')).toBeHidden();

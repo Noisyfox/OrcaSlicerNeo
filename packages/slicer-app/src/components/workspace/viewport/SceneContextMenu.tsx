@@ -35,7 +35,6 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { usePlatform } from '@orca/platform-contract';
-import type { ModelObjectStructure } from '@slicer/client';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { isSerialSliceBusy } from '@/runtimeExecution';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -43,7 +42,7 @@ import {
   addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS,
   PRIMITIVE_TYPES, type HandyModel, type PrimitiveType,
 } from '../actions/sceneActions';
-import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
+import { ObjectListContextMenu, type ObjectListCtxTarget } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { pickTopmostModelVolume, topmostPrimeTowerHit } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
@@ -72,7 +71,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
   const busy = isSerialSliceBusy(platform.runtime, slicerStatus);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuObject, setMenuObject] = useState<ModelObjectStructure | null>(null);
+  const [menuObject, setMenuObject] = useState<ObjectListCtxTarget | null>(null);
   const rightGestureRef = useRef<{
     pointerId: number;
     startX: number;
@@ -109,8 +108,8 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
     }) : null;
     if (hitVolume) {
       // Resolve the hit GLVolume's object from the structure (objectIdx is the
-      // positional index); the menu logic is identical to the object list's
-      // object-row menu.
+      // positional index). As in Orca's Plater, full instances use the object
+      // menu and a preserved partial selection uses its part menu.
       const obj = useObjectListStore.getState().structure.find(
         (o) => o.index === hitVolume.buffer.objectIdx,
       );
@@ -130,7 +129,11 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
         if (sceneInteraction && !clickedSelected) {
           sceneInteraction.selectComposite(hit.buffer.objectIdx, undefined, hit.buffer.instanceIdx, false);
         }
-        setMenuObject(obj);
+        const projection = useObjectListStore.getState().projection;
+        const volume = obj.volumes.find((v) => v.index === hit.buffer.volumeIdx);
+        setMenuObject(projection.volumeIds.size > 0 && volume
+          ? { kind: 'part', object: obj, volume }
+          : { kind: 'object', object: obj });
       } else {
         setMenuObject(null);
       }
@@ -223,7 +226,8 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
       </ContextMenuTrigger>
       {menuOpen && menuObject && (
         <ObjectListContextMenu
-          target={{ kind: 'object', object: menuObject }}
+          sceneInteraction={sceneInteraction}
+          target={menuObject}
           onClose={closeMenu}
           showRename={false}
         />

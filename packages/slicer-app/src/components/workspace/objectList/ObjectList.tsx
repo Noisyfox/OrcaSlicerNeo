@@ -660,6 +660,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       </ContextMenuTrigger>
       {ctx && (
         <ObjectListContextMenu
+          sceneInteraction={sceneInteraction}
           target={ctx.target}
           onClose={() => setContextMenuOpen(false)}
           onRename={startRename}

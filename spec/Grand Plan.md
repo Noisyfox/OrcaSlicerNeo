@@ -329,6 +329,10 @@ and drives structural operations through the typed client.
       ObjectList selection sync
 - [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
 
+- [x] Add Part, Negative Part, Modifier, Support Blocker and Support Enforcer
+      through native primitive/file operations and selection-aware submenus;
+      see [Object Add Context Menus](../doc/2026-10-04-object-add-context-menu.md).
+
 ## Milestone 14: Printer Console and Control
 
 > [!info] Status: **delivered 2026-08-28**. The final user experience is

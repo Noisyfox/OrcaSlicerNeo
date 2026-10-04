@@ -339,6 +339,16 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes().every((volume) => volume.buffer.objectIdx === 0)).toBe(true);
   });
 
+  it('restores an added part only in its anchored instance', () => {
+    const structure: ModelStructureResult = { ok: true, objects: [{ id: 100, index: 0, name: 'Owner', printable: true, instanceCount: 2,
+      volumes: [{ id: 200, index: 0, name: 'Old', type: 'model_part', isSplittable: false },
+        { id: 201, index: 1, name: 'Added', type: 'model_part', isSplittable: false }],
+      instances: [{ id: 300, index: 0, printable: true }, { id: 301, index: 1, printable: true }] }] };
+    controller.restoreHistoryContext({ selection: { mode: 'part', objectIds: [], partIds: [201], instanceIds: [301] },
+      activePlateId: null, gizmo: null, nativeScopedConfig: {} }, structure);
+    expect(controller.selectedVolumes()).toEqual([volumes[3]]);
+  });
+
   it('uses only surviving fallback selection IDs when a sparse history context is empty', () => {
     const structure: ModelStructureResult = {
       ok: true,

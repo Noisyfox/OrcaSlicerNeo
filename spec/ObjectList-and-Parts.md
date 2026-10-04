@@ -3,7 +3,7 @@
 **Date:** 2026-08-23
 
 **Status:** Delivered. Design and implementation complete for the first version.
-Deferred items (mesh boolean, Add Part/Modifier, multi-plate, undo/redo,
+Deferred items (mesh boolean, multi-plate, undo/redo,
 painting, extruder panels) remain queued.
 
 **Branch:** `dev/object-list-and-parts`
@@ -60,6 +60,11 @@ Alternative rejected options:
 - Split a part into parts (`ModelVolume::split`).
 - Reorder parts inside an object (`orc_reorder_volumes`).
 
+- Follow-up delivered on 2026-10-04: Add Part, Negative Part, Modifier, Support
+  Blocker and Support Enforcer as native volumes of an existing object.
+  See [Object Add Context Menus](../doc/2026-10-04-object-add-context-menu.md)
+  for primitive/file submenus and selection rules.
+
 ### 3.3 Included instance operations
 
 - Select an instance.
@@ -78,7 +83,6 @@ Alternative rejected options:
 - `merge(false)` / `append_menu_item_merge_to_single_object()`: the upstream
   menu function is defined but has no call site and is not part of the
   delivered feature.
-- Add Part / Add Modifier as a new volume of an existing object.
 - Multi-plate behavior.
 - Undo/redo.
 - Painting, layer ranges, brim points, cut connectors.
