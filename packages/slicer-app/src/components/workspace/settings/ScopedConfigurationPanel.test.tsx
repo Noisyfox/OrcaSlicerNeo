@@ -3,6 +3,7 @@ import { act, Profiler } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider, TOOLTIP_DELAY_MS } from '@/components/ui/tooltip';
+import { printSettingsGroups, isVisiblePrintSetting } from './printSettingsLayout';
 import { ScopedConfigurationPanel, ScopedField } from './ScopedConfigurationPanel';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
@@ -93,6 +94,90 @@ describe('scoped field drafts', () => {
     await act(async () => root!.render(null));
     await rerender({ value: 'allwalls' });
     expect(selectedText()).toBe('All walls');
+  });
+
+  it.each(['project', 'scoped'] as const)('uses Orca ordering and an allow-list in %s mode, including filtered sections', async (mode) => {
+    // Deliberately shuffled metadata and unrelated native categories must not
+    // decide layout; hidden native options may still have persisted values.
+    const keys = ['infill_wall_overlap', 'filter_out_gap_fill', 'gap_fill_target',
+      'sparse_infill_density', 'top_bottom_infill_wall_overlap', 'bottom_shell_layers',
+      'top_shell_thickness', 'top_shell_layers', 'wall_loops', 'layer_height',
+      'ironing_expansion', 'support_interface_loop_pattern', 'compatible_printers_condition',
+      'future_option', 'internal_bridge_speed', 'overhang_2_4_speed'];
+    const scopes = ['project', 'object'] as const;
+    const metadata = Object.fromEntries(keys.map((key) => [key, {
+      type: 'float' as const, label: key === 'top_shell_layers' ? 'Top shell layers' : key,
+      category: 'Unrelated metadata category', scopes,
+    }]));
+    const hidden = { ironing_expansion: '2', future_option: '3' };
+    useSettingsStore.setState({ configurationMode: mode, metadata,
+      baseValues: Object.fromEntries(keys.map((key) => [key, '1'])),
+      nativeScopedConfig: { project: hidden, plates: {}, parts: {}, objects: { '42': hidden } } });
+    const selection = new Selection();
+    selection.replaceIds(['42']);
+    const controller = { selection, computeSelectionKind: () => 'object',
+      selectedVolumes: () => [{ buffer: { objectId: 42, volumeId: 100 } }],
+    } as unknown as SceneInteractionController;
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root!.render(<PlatformProvider value={{} as PlatformCapabilities}><TooltipProvider>
+      <ScopedConfigurationPanel sceneInteraction={controller} />
+    </TooltipProvider></PlatformProvider>));
+    const button = (id: string) => container.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!;
+    const fieldOrder = () => [...container.querySelectorAll('[data-testid^="config-option-label-"]')]
+      .map((el) => el.getAttribute('data-testid')!.replace('config-option-label-', ''));
+    expect([...container.querySelectorAll('[data-testid^="config-page-"]')].map((el) => el.textContent))
+      .toEqual(mode === 'scoped' ? ['Frequent', 'Quality', 'Strength', 'Speed'] : ['Quality', 'Strength', 'Speed']);
+    expect(fieldOrder()).toEqual(mode === 'scoped' ? ['layer_height', 'sparse_infill_density', 'wall_loops'] : ['layer_height']);
+    await act(async () => button('config-page-Strength').click());
+    expect(fieldOrder()).toEqual(['wall_loops', 'top_shell_layers', 'top_shell_thickness',
+      'bottom_shell_layers', 'top_bottom_infill_wall_overlap', 'sparse_infill_density',
+      'gap_fill_target', 'filter_out_gap_fill', 'infill_wall_overlap']);
+    expect(button('config-category-toggle-Top/bottom shells')).toBeTruthy();
+    expect(container.querySelector('[data-testid="config-option-label-top_shell_layers"]')!.textContent)
+      .toBe('Top shell layers');
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Search settings"]')!.click());
+    const input = container.querySelector<HTMLInputElement>('[data-testid="scoped-config-search"]')!;
+    const search = async (value: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await search('Unrelated metadata category');
+    expect(fieldOrder()).not.toContain('future_option');
+    expect(fieldOrder()).not.toContain('ironing_expansion');
+    expect(fieldOrder()).not.toContain('support_interface_loop_pattern');
+    expect(fieldOrder()).not.toContain('compatible_printers_condition');
+    expect(fieldOrder()[0]).toBe('layer_height');
+    expect(fieldOrder().slice(-2)).toEqual(['overhang_2_4_speed', 'internal_bridge_speed']);
+    expect(container.querySelector('[data-testid="config-section-Overhang speed"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="config-section-Bridge"]')).toBeTruthy();
+    await search('internal_bridge_speed');
+    expect(fieldOrder()).toEqual(['internal_bridge_speed']);
+    expect(container.querySelector('[data-testid="config-section-Bridge"]')!.textContent).toBe('Bridge');
+    expect(container.querySelector('[data-testid="config-section-Overhang speed"]')).toBeNull();
+    await search('Top/bottom shells');
+    expect(fieldOrder()).toEqual(['top_shell_layers', 'top_shell_thickness', 'bottom_shell_layers', 'top_bottom_infill_wall_overlap']);
+    await search('future_option');
+    expect(fieldOrder()).toEqual([]);
+    expect(container.querySelector('[data-testid="scoped-config-empty"]')).toBeTruthy();
+    expect(useSettingsStore.getState().nativeScopedConfig.project).toEqual(hidden);
+    expect(useSettingsStore.getState().nativeScopedConfig.objects['42']).toEqual(hidden);
+  });
+
+  it('keeps Orca plate controls in their dedicated order and omits hidden sequence storage options', () => {
+    const keys = ['other_layers_sequence_choice', 'other_layers_print_sequence', 'spiral_mode',
+      'first_layer_sequence_choice', 'first_layer_print_sequence', 'print_sequence',
+      'skirt_start_angle', 'curr_bed_type'];
+    const fields = keys.map((key) => ({ key, label: key, category: 'General',
+      meta: { type: 'int', scopes: ['plate'] }, value: '1', mixed: false,
+      source: 'plate', local: false, resettable: true } as ScopedConfigurationField));
+    const groups = printSettingsGroups(fields, 'Plate Settings', '', 'plates');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].fields.map((field) => field.key)).toEqual(['curr_bed_type', 'skirt_start_angle',
+      'print_sequence', 'spiral_mode', 'first_layer_sequence_choice', 'other_layers_sequence_choice']);
+    expect(isVisiblePrintSetting(fields.find((field) => field.key === 'curr_bed_type')!, 'project')).toBe(false);
+    expect(printSettingsGroups(fields, undefined, 'first_layer_print_sequence', 'plates')).toEqual([]);
   });
 
   it('highlights modified pages and groups across search, and resets only applicable native categories', async () => {

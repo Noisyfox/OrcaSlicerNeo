@@ -14,7 +14,7 @@ import { TooltipFor } from '@/components/ui/tooltip';
 import { cn } from 'cn';
 import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, Search } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { PRINT_SETTINGS_PAGES, printSettingPlacement, printSettingLabel, printSettingSection } from './printSettingsLayout';
+import { printSettingsPages, printSettingPlacement, isVisiblePrintSetting, printSettingsGroups } from './printSettingsLayout';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -99,7 +99,7 @@ export const ScopedField = memo(function ScopedField({
   };
   const onDiscrete = (value: string) => { setDraft(value); void commit(value); };
   const reset = () => { void onReset(field).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); };
-  const label = printSettingLabel(field);
+  const label = field.label;
   const row = 'grid grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
   const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
   const displayed = draft;
@@ -215,7 +215,9 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const setError = useSlicerStore((state) => state.setError);
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [activePage, setActivePage] = useState('Quality');
+  const [activePages, setActivePages] = useState<Partial<Record<typeof mode, string>>>({});
+  const activePage = activePages[mode];
+  const setActivePage = (page: string) => setActivePages((current) => ({ ...current, [mode]: page }));
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const panelRef = useRef<HTMLElement>(null);
   const objectListRef = useRef<HTMLDivElement>(null);
@@ -267,36 +269,12 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   // Reset actions operate on the whole selected category/catalogue, not just
   // the subset currently visible through the search query.
   const allFields = useMemo(() => metadata
-    ? projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' })
+    ? projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' }).filter((field) => isVisiblePrintSetting(field, mode))
     : [], [baseValues, metadata, mode, resolution, snapshot]);
-  const fields = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    return query ? allFields.filter((field) => `${field.key} ${field.label} ${field.category}`.toLocaleLowerCase().includes(query)) : allFields;
-  }, [allFields, search]);
-  const availablePages = useMemo(() => PRINT_SETTINGS_PAGES.filter((page) =>
-    allFields.some((field) => printSettingPlacement(field).page === page.title)), [allFields]);
+  const availablePages = useMemo(() => printSettingsPages(mode).filter((page) =>
+    page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, mode]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
-  const categories = useMemo(() => {
-    const grouped = new Map<string, ScopedConfigurationField[]>();
-    for (const field of fields) {
-      const placement = printSettingPlacement(field);
-      if (!search.trim() && placement.page !== selectedPage) continue;
-      const category = search.trim() ? `${placement.page} / ${placement.group}` : placement.group;
-      const group = grouped.get(category);
-      if (group) group.push(field);
-      else grouped.set(category, [field]);
-    }
-    const groupOrder = PRINT_SETTINGS_PAGES.flatMap((page) => page.groups.map((group) =>
-      search.trim() ? `${page.title} / ${group.title}` : group.title));
-    return [...grouped.entries()]
-      .sort(([left], [right]) => {
-        const leftIndex = groupOrder.indexOf(left);
-        const rightIndex = groupOrder.indexOf(right);
-        return (leftIndex < 0 ? Infinity : leftIndex) - (rightIndex < 0 ? Infinity : rightIndex);
-      })
-      .map(([category, groupFields]) => [category, groupFields.sort((left, right) =>
-        printSettingPlacement(left).order - printSettingPlacement(right).order)] as const);
-  }, [fields, search, selectedPage]);
+  const categories = useMemo(() => printSettingsGroups(allFields, selectedPage, search, mode), [allFields, search, selectedPage, mode]);
   const highlightedCategories = useMemo(() => new Set(allFields
     .filter((field) => field.local && field.resettable)
     .map((field) => field.category)), [allFields]);
@@ -385,7 +363,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           {availablePages.map((page) => <Button key={page.title} role="tab" type="button" variant="ghost" size="xs"
             aria-selected={selectedPage === page.title} data-testid={`config-page-${page.title}`}
             className={cn('h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-[13px] font-normal',
-              allFields.some((field) => printSettingPlacement(field).page === page.title && field.local && field.resettable) && 'config-override-label',
+              allFields.some((field) => field.local && field.resettable && page.groups.some((group) => group.keys.includes(field.key))) && 'config-override-label',
               selectedPage === page.title && 'border-primary')}
             onClick={() => setActivePage(page.title)} onKeyDown={(event) => {
               const index = availablePages.indexOf(page);
@@ -409,18 +387,14 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <div data-testid="scoped-invalid-selection" className="rounded border border-dashed p-2 text-xs text-muted-foreground">{resolution.disabledReason}</div>
         ) : <>
           {categories.length === 0 && <div data-testid="scoped-config-empty" className="p-2 text-xs text-muted-foreground">No matching settings</div>}
-          {categories.map(([category, categoryFields]) => {
-            const expansionKey = `${selectedPage}/${category}`;
+          {categories.map(({ title: category, fields: categoryFields, page, group, keys }) => {
+            const expansionKey = `${page}/${group}`;
             const open = expanded[expansionKey] ?? true;
-            const placement = printSettingPlacement(categoryFields[0]);
-            const groupCatalogue = allFields.filter((field) => {
-              const candidate = printSettingPlacement(field);
-              return candidate.page === placement.page && candidate.group === placement.group;
-            });
+            const groupCatalogue = allFields.filter((field) => keys.includes(field.key));
             const nativeCategories = [...new Set(groupCatalogue.map((field) => field.category))];
             const highlighted = groupCatalogue.some((field) => field.local && field.resettable);
             return <div key={category} data-testid={`config-category-${category}`}>
-              <ContextMenu>
+              {group && <ContextMenu>
                 <ContextMenuTrigger render={<div />}>
                   <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
                     aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
@@ -432,13 +406,17 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                 <ContextMenuContent>{nativeCategories.map((nativeCategory) => <ContextMenuItem key={nativeCategory}
                   data-testid={`config-reset-category-${nativeCategory}`} disabled={!highlightedCategories.has(nativeCategory)}
                   onClick={() => void resetCategory(nativeCategory)}>Reset {nativeCategory}</ContextMenuItem>)}</ContextMenuContent>
-              </ContextMenu>
-              {open && <div className="py-1">{categoryFields.map((field) => <div key={field.key}>
-                {printSettingSection(field.key) && <div className="mt-1 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
-                  {printSettingSection(field.key)}<span className="h-px flex-1 bg-border" />
-                </div>}
-                <ScopedField field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
-              </div>)}</div>}
+              </ContextMenu>}
+              {open && <div className="py-1">{categoryFields.map((field, index) => {
+                const section = printSettingPlacement(field)?.section;
+                const startsSection = section && section !== (index > 0 ? printSettingPlacement(categoryFields[index - 1])?.section : undefined);
+                return <div key={field.key}>
+                  {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
+                    {section}<span className="h-px flex-1 bg-border" />
+                  </div>}
+                  <ScopedField field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
+                </div>;
+              })}</div>}
             </div>;
           })}
         </>}
