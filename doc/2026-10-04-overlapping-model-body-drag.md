@@ -40,3 +40,27 @@ shared application architecture.
 - Initial E2E attempt failed because the test expected two renderer volumes; the mock fixture contains four (two volumes per instance). The fixture assertion was corrected before the baseline comparison and final successful run.
 - `git diff --check`: passed. Commands above match workspace package scripts and the testing guideline's focused Electron execution route.
 - Real Web E2E and WASM builds were intentionally skipped: no host adapter, deployment, runtime, or native bridge code changed.
+
+## Real-project CI qualification
+
+The real-module CI run initially failed when selecting the adjacent plate's
+Prime Tower. The test sampled at fixed Z=9 using unrotated offsets; with
+frontmost-only event dispatch, these low rays could no longer select through
+an intervening model. The actual tower top projected outside the default
+988-pixel canvas (X=1034). The regression now establishes a 1600x900 viewport
+and searches the rendered world bounds at the tower's top height, checking
+canvas containment before issuing real mouse clicks. Native move, boundary
+clamping, history, slicing, and export assertions remain in the same journey.
+
+The CI failure was reproduced locally with the exact threaded and serial
+artifacts downloaded from run `37185817903`, a fresh real renderer build
+(`VITE_USE_MOCK=0 VITE_E2E=1`), explicit public-asset copying, and the verified
+temporary `big-proj.3mf` fixture copy. Staged WASM SHA-256 values were checked
+against the downloaded artifacts. The unchanged test failed at the same
+non-current-tower selection assertion. A top-surface-only attempt at the old
+viewport also failed; bounds/ray diagnostics showed the surface was outside
+the canvas. With both the explicit viewport and top-surface selection in place,
+`pnpm --filter @orca/desktop exec playwright test e2e/prime-tower-project.e2e.ts`
+passed the complete real-module journey in 1.6 minutes. The source fixture's
+44,473,498-byte length and SHA-256 remained unchanged. Desktop typechecking
+and `git diff --check` passed. No native source or WASM build changes were needed.
