@@ -289,6 +289,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
    *  selection when the clicked volume is already selected. */
   function rowFullySelected(row: SelectableRow, anchor: number): boolean {
     if (!sceneInteraction) return true;
+    // An instance contains every part geometrically, but its child part rows
+    // are not selected. Right-clicking one must enter the part selection level.
+    if (row.kind === 'part') {
+      const volume = structure.find((object) => object.index === row.target.objectIdx)
+        ?.volumes.find((part) => part.index === row.target.volumeIdx);
+      return volume !== undefined && projection.volumeIds.has(volume.id);
+    }
     const ids = rowVolumeIds(row, anchor);
     if (ids.length === 0) return true;
     const selected = sceneInteraction.selectedVolumes();
@@ -299,9 +306,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
    *  clicked row is already part of the selection, promote the menu to the
    *  selection's most-relative fully-selected level: a fully-selected object
    *  (however it was selected — object row, Instances group, or scene) opens
-   *  the object menu even when the click landed on one of its part/instance
-   *  rows, and a fully-selected instance opens the instance menu from one of
-   *  its part rows. Only when the right-click just replaced the selection with
+   *  the object menu from its selected object/instance rows. Part rows use
+   *  their own projected selection level, so a parent's selection does not
+   *  suppress switching to that part. When the right-click replaced selection with
    *  the row's own target (unselected row) does the menu stay row-scoped. */
   function selectionMenuTarget(row: SelectableRow, anchor: number): ObjectListCtxTarget | null {
     const obj = structure.find((o) => o.index === row.target.objectIdx);

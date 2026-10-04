@@ -11,6 +11,10 @@ appear in that order in the object menu for a single full object or a single
 full instance only. The viewport uses the object menu for complete instances;
 Object List instance rows retain the native instance-menu scope.
 Partial parts and multiple-object/instance selections do not offer them.
+Right-clicking a part row after selecting a complete instance switches to
+that part in the selected instance. A parent's geometric inclusion of a part
+does not mark the part row selected; the preservation guard uses the list's
+projected part-row selection, so selected part sets still survive right-click.
 This follows `MenuFactory::append_menu_items_add_volume` and
 `ObjectList::is_instance_or_object_selected` in the pinned Orca sources.
 
@@ -70,6 +74,9 @@ Passed:
 
 - `pnpm test` and `pnpm typecheck` (all workspace packages).
 - Focused Electron mock E2E: seven object/scene menu journeys.
+  The part-row right-click follow-up passes five focused selection/menu
+  journeys, including switching from the second instance to an ordinary part
+  with its world-bounds X center still at 60 mm in the mock fixture.
 - Real threaded Web E2E: `apps/web/e2e/add-volume.e2e.ts`, including browser
   Load..., primitive addition, owning-object preservation and Undo/Redo.
   The sizing regression also measures the standalone Cube and newly selected

@@ -1497,14 +1497,13 @@ test('object list: context menu follows the selection (mock)', async () => {
     await expect(menu.getByTestId('objectlist-assemble')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
-    // Same from a part row of the fully-selected object: the object menu
-    // (split-parts is part-menu-only and must not appear). Escape clears the
-    // selection, so re-select the object first.
+    // A part row has its own selection level. Even a fully selected parent
+    // must switch to the clicked part and show the part menu.
     await objectButton.click();
     await list.locator('[data-testid^="part-"]').first().click({ button: 'right' });
     await expect(menu).toBeVisible();
-    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
-    await expect(menu.getByTestId('objectlist-split-parts')).toHaveCount(0);
+    await expect(menu.getByTestId('objectlist-clone')).toHaveCount(0);
+    await expect(menu.getByTestId('objectlist-split-parts')).toBeVisible();
     await page.keyboard.press('Escape');
 
     // And from the Instances group line (right-click selects all instances,
@@ -1865,6 +1864,22 @@ test('scene context menu: right-click on a model body opens the object menu', as
     await expect(objectRows.first().locator(':scope > div > button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(objectMenu).toBeHidden();
+
+    // An instance geometrically contains every part, but right-clicking an
+    // ordinary part row must replace that instance selection with the part.
+    // Keep the second-instance anchor rather than silently jumping to the first.
+    await list.locator('[data-testid^="instance-"]').nth(1).getByRole('button').first().click();
+    const firstPart = list.locator('[data-testid^="part-"]').first();
+    await firstPart.click({ button: 'right' });
+    await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(0);
+    await expect(list.locator('[data-testid^="part-"] button[data-state="selected"]')).toHaveCount(1);
+    await expect(firstPart.locator('button[data-state="selected"]')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-printable')).toHaveCount(0);
+    await expect(objectMenu.getByTestId('objectlist-add-model_part')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {
+      __orcaE2e?: { selectionBoundsWorld?: () => { center: number[] } | null };
+    }).__orcaE2e?.selectionBoundsWorld?.()?.center[0])).toBe(60);
+    await page.keyboard.press('Escape');
 
     // Right-clicking a body that is already selected must not change the
     // selection: with two objects fully selected, a right-click on a body
