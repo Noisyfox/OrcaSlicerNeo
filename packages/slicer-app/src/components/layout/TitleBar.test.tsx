@@ -35,7 +35,7 @@ function state(chrome: PlatformChrome): MenuStateSnapshot {
 function markup(chrome: PlatformChrome) {
   const snapshot = state(chrome);
   return renderTitlebar(
-    <TitleBar
+    <TitleBar leftSidebarVisible={true} rightSidebarVisible={true} onToggleLeftSidebar={() => undefined} onToggleRightSidebar={() => undefined}
       chrome={chrome}
       model={buildMenuModel(snapshot, chrome)}
       state={snapshot}
@@ -45,6 +45,35 @@ function markup(chrome: PlatformChrome) {
 }
 
 describe('TitleBar menu surface', () => {
+  it('dispatches sidebar toggles and reflects the current page and visibility', () => {
+    const chrome: PlatformChrome = { kind: 'web', menuMode: 'browser' };
+    const snapshot = state(chrome);
+    const leftToggle = vi.fn();
+    const rightToggle = vi.fn();
+    const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true, sliceActive: false }) } } as unknown as PlatformCapabilities;
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    const render = (activeTab: 'prepare' | 'preview', visible: boolean) => act(() => root.render(
+      <PlatformProvider value={platform}><TitleBar chrome={chrome} model={buildMenuModel(snapshot, chrome)} state={snapshot} onCommand={vi.fn()} activeTab={activeTab}
+        leftSidebarVisible={visible} rightSidebarVisible={visible} onToggleLeftSidebar={leftToggle} onToggleRightSidebar={rightToggle} /></PlatformProvider>,
+    ));
+    try {
+      render('preview', true);
+      const left = container.querySelector('[data-testid="titlebar-toggle-left-sidebar"]') as HTMLButtonElement;
+      const right = container.querySelector('[data-testid="titlebar-toggle-right-sidebar"]') as HTMLButtonElement;
+      expect(left.getAttribute('aria-pressed')).toBe('true');
+      expect(right.getAttribute('aria-pressed')).toBe('true');
+      act(() => { left.click(); right.click(); });
+      expect(leftToggle).toHaveBeenCalledOnce();
+      expect(rightToggle).toHaveBeenCalledOnce();
+      render('preview', false);
+      expect(left.getAttribute('aria-pressed')).toBe('false');
+      expect(right.getAttribute('aria-pressed')).toBe('false');
+      render('prepare', true);
+      expect(left.disabled).toBe(false);
+      expect(right.disabled).toBe(true);
+    } finally { act(() => root.unmount()); }
+  });
   it('renders custom Electron and browser menus with explicit no-drag controls', () => {
     const customChrome = { kind: 'desktop' as const, platform: 'win32', menuMode: 'custom' as const, dragRegion: true };
     const browserChrome = { kind: 'web' as const, platform: 'Win32', menuMode: 'browser' as const };
@@ -91,7 +120,7 @@ describe('TitleBar menu surface', () => {
     const platform = { runtime: { getRuntimeExecutionState: () => ({ threaded: true, sliceActive: false }) } } as unknown as PlatformCapabilities;
     const container = document.createElement('div');
     const root = createRoot(container);
-    const render = () => act(() => root.render(<PlatformProvider value={platform}><TitleBar chrome={chrome} model={buildMenuModel(snapshot, chrome)} state={snapshot} onCommand={onCommand} /></PlatformProvider>));
+    const render = () => act(() => root.render(<PlatformProvider value={platform}><TitleBar leftSidebarVisible={true} rightSidebarVisible={true} onToggleLeftSidebar={() => undefined} onToggleRightSidebar={() => undefined} chrome={chrome} model={buildMenuModel(snapshot, chrome)} state={snapshot} onCommand={onCommand} /></PlatformProvider>));
     try {
       render();
       const save = container.querySelector('[data-testid="titlebar-save-project"]') as HTMLButtonElement;

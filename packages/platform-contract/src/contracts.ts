@@ -123,6 +123,8 @@ export interface UserPreferences {
   ui: {
     sidebarWidth?: number;
     rightSidebarWidth?: number;
+    leftSidebarCollapsed?: boolean;
+    rightSidebarCollapsed?: boolean;
     deviceSidebarWidth?: number;
     /** Whether successful G-code sends should navigate to Device by default. */
     switchToDeviceAfterSend: boolean;
@@ -302,6 +304,10 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         ? { sidebarWidth: ui.sidebarWidth } : {}),
       ...(typeof ui.rightSidebarWidth === 'number' && Number.isFinite(ui.rightSidebarWidth)
         ? { rightSidebarWidth: ui.rightSidebarWidth } : {}),
+      ...(typeof ui.leftSidebarCollapsed === 'boolean'
+        ? { leftSidebarCollapsed: ui.leftSidebarCollapsed } : {}),
+      ...(typeof ui.rightSidebarCollapsed === 'boolean'
+        ? { rightSidebarCollapsed: ui.rightSidebarCollapsed } : {}),
       ...(typeof ui.deviceSidebarWidth === 'number' && Number.isFinite(ui.deviceSidebarWidth)
         ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
       switchToDeviceAfterSend: typeof ui.switchToDeviceAfterSend === 'boolean'

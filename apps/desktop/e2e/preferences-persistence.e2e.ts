@@ -1,5 +1,5 @@
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -31,6 +31,69 @@ async function launch(preferences: string, exportPath: string): Promise<{ app: E
   }
   return { app, page };
 }
+
+test('persists independent titlebar sidebar toggles and restores their widths on restart', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'orca-sidebar-toggles-'));
+  const preferences = join(dir, 'preferences.json');
+  const start = async () => {
+    const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+    delete env.ELECTRON_RUN_AS_NODE;
+    const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: PRESET_READY_TIMEOUT });
+    await page.locator('#app-tab-prepare').click();
+    await page.locator('#app-tab-preview').click();
+    return { app, page };
+  };
+  const first = await start();
+  try {
+    const page = first.page;
+    const left = page.locator('#workspace-sidebar');
+    const right = page.getByTestId('preview-sidebar');
+    const leftResizer = page.getByTestId('sidebar-resizer');
+    const rightResizer = page.getByTestId('preview-sidebar-resizer');
+    await expect(left).toBeVisible();
+    await expect(right).toBeVisible();
+    await leftResizer.focus();
+    await leftResizer.press('ArrowRight');
+    await expect(leftResizer).toHaveAttribute('aria-valuenow', '304');
+    await expect.poll(() => JSON.parse(readFileSync(preferences, 'utf8')).ui.sidebarWidth).toBe(304);
+    await rightResizer.focus();
+    await rightResizer.press('ArrowLeft');
+    await expect(rightResizer).toHaveAttribute('aria-valuenow', '336');
+    await expect.poll(() => JSON.parse(readFileSync(preferences, 'utf8')).ui.rightSidebarWidth).toBe(336);
+    const before = (await page.getByTestId('viewport').boundingBox())!.width;
+    const retained = await left.elementHandle();
+    await page.getByTestId('titlebar-toggle-left-sidebar').click();
+    await page.getByTestId('titlebar-toggle-right-sidebar').click();
+    await expect(left).toBeHidden();
+    await expect(right).toBeHidden();
+    await expect(leftResizer).toBeHidden();
+    await expect(rightResizer).toBeHidden();
+    expect(await retained!.evaluate((el) => el.isConnected)).toBe(true);
+    expect((await page.getByTestId('viewport').boundingBox())!.width).toBeGreaterThan(before + 600);
+    await expect.poll(() => {
+      const ui = JSON.parse(readFileSync(preferences, 'utf8')).ui;
+      return [ui.leftSidebarCollapsed, ui.rightSidebarCollapsed];
+    }).toEqual([true, true]);
+    await retained!.dispose();
+  } finally { await first.app.close(); }
+  const second = await start();
+  try {
+    const page = second.page;
+    await expect(page.locator('#workspace-sidebar')).toBeHidden();
+    await expect(page.getByTestId('preview-sidebar')).toBeHidden();
+    await expect(page.getByTestId('titlebar-toggle-left-sidebar')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('titlebar-toggle-right-sidebar')).toHaveAttribute('aria-pressed', 'false');
+    await page.getByTestId('titlebar-toggle-left-sidebar').click();
+    await expect(page.locator('#workspace-sidebar')).toBeVisible();
+    await expect(page.getByTestId('preview-sidebar')).toBeHidden();
+    await expect(page.getByTestId('sidebar-resizer')).toHaveAttribute('aria-valuenow', '304');
+    await page.getByTestId('titlebar-toggle-right-sidebar').click();
+    await expect(page.getByTestId('preview-sidebar')).toBeVisible();
+    await expect(page.getByTestId('preview-sidebar-resizer')).toHaveAttribute('aria-valuenow', '336');
+  } finally { await second.app.close(); }
+});
 
 test('persists shared profile/sidebar preferences but not session work', async () => {
   test.setTimeout(360_000);

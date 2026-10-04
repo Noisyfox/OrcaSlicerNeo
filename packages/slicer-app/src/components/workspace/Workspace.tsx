@@ -135,9 +135,13 @@ export function Workspace({
   onPreviewRenderReady,
   onPreviewTransitionChange,
   actionControls,
+  leftSidebarVisible,
+  rightSidebarVisible,
 }: {
   activeTab?: AppTab;
   actionControls?: ReactNode;
+  leftSidebarVisible: boolean;
+  rightSidebarVisible: boolean;
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
@@ -782,6 +786,9 @@ export function Workspace({
     )}
     <div className="mt-1 flex flex-1 min-h-0" inert={serialSliceBusy} aria-busy={serialSliceBusy}>
       <aside
+        id="workspace-sidebar"
+        hidden={!leftSidebarVisible}
+        inert={!leftSidebarVisible}
         className="shrink-0 overflow-hidden"
         style={{
           width: `${sidebarWidth}px`,
@@ -813,12 +820,14 @@ export function Workspace({
         aria-valuemax={MAX_SIDEBAR_WIDTH}
         tabIndex={0}
         data-testid="sidebar-resizer"
+        hidden={!leftSidebarVisible}
+        inert={!leftSidebarVisible}
         onPointerDown={handleResizePointerDown}
         onMouseDown={handleResizeMouseDown}
         onKeyDown={handleResizeKeyDown}
         className={SIDEBAR_RESIZER_CLASS}
       />
-      <main className={`relative -mt-1 -ml-1.5 min-w-0 flex-1 overflow-hidden${isPreviewTab(activeTab) ? ' -mr-1.5' : ' -mr-1'}`}>
+      <main className={`relative -mt-1 min-w-0 flex-1 overflow-hidden${leftSidebarVisible ? ' -ml-1.5' : ' -ml-1'}${isPreviewTab(activeTab) && rightSidebarVisible ? ' -mr-1.5' : ' -mr-1'}`}>
         <Viewport
           sceneInteraction={sceneInteraction}
           wipeTowerVolumes={wipeTowerVolumes}
@@ -835,8 +844,8 @@ export function Workspace({
       </main>
       <>
       <div
-        hidden={!isPreviewTab(activeTab)}
-        inert={!isPreviewTab(activeTab)}
+        hidden={!isPreviewTab(activeTab) || !rightSidebarVisible}
+        inert={!isPreviewTab(activeTab) || !rightSidebarVisible}
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize preview sidebar"
@@ -852,8 +861,8 @@ export function Workspace({
         className={SIDEBAR_RESIZER_CLASS}
       />
       <aside
-        hidden={!isPreviewTab(activeTab)}
-        inert={!isPreviewTab(activeTab)}
+        hidden={!isPreviewTab(activeTab) || !rightSidebarVisible}
+        inert={!isPreviewTab(activeTab) || !rightSidebarVisible}
         id="preview-sidebar"
         aria-label="Preview sidebar"
         data-testid="preview-sidebar"

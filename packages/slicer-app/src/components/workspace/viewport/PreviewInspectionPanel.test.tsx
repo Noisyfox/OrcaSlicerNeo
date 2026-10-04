@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { PreviewInspectionPanel, formatPreviewTime } from './PreviewInspectionPanel';
+import { PreviewSidebar } from './PreviewSidebar';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data: ToolpathGeometry = {
@@ -43,7 +45,7 @@ const data: ToolpathGeometry = {
 describe('PreviewInspectionPanel', () => {
   let root: Root | undefined;
   afterEach(() => {
-    root?.unmount(); root = undefined; document.body.innerHTML = '';
+    act(() => root?.unmount()); root = undefined; document.body.innerHTML = '';
     useSlicerStore.getState().resetPreviewState();
   });
 
@@ -53,14 +55,14 @@ describe('PreviewInspectionPanel', () => {
     expect(formatPreviewTime(undefined)).toBeUndefined();
   });
 
-  it('renders summary, feature statistics, and the nearest current move', async () => {
+  it('renders sidebar summary, feature statistics, and the nearest current move', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     useSlicerStore.getState().setPreviewLayerEnd(0, 1);
     useSlicerStore.getState().setPreviewMoveEnd(1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => { root?.render(<PreviewInspectionPanel data={data} />); });
+    await act(async () => { root?.render(<PreviewSidebar data={data} />); });
     expect(container.querySelector('[data-testid="preview-statistics"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="preview-feature-stat-0"]')?.textContent).toContain('1h 0m 0s');
+    expect(container.querySelector('[data-testid="preview-feature-visibility-0"]')?.textContent).toContain('1h0m0s');
     expect(container.querySelector('[data-testid="preview-inspection-card"]')?.textContent).toContain('G-code line12');
     expect(container.querySelector('[data-testid="preview-inspection-card"]')?.textContent).toContain('Position3.00 / 4.00 / 0.20 mm');
   });

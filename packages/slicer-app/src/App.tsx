@@ -98,6 +98,24 @@ function AppContent() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState('Loading preferences...');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
+  const [leftSidebarVisible, setLeftSidebarVisible] = useState(true);
+  const [rightSidebarVisible, setRightSidebarVisible] = useState(true);
+  const sidebarVisibilityRef = useRef({ left: true, right: true });
+  const sidebarPreferenceSaveRef = useRef(Promise.resolve());
+  const toggleSidebar = (side: 'left' | 'right') => {
+    const visibility = { ...sidebarVisibilityRef.current, [side]: !sidebarVisibilityRef.current[side] };
+    sidebarVisibilityRef.current = visibility;
+    setLeftSidebarVisible(visibility.left);
+    setRightSidebarVisible(visibility.right);
+    // Serialize toggles so rapid left/right clicks cannot overwrite each other.
+    sidebarPreferenceSaveRef.current = sidebarPreferenceSaveRef.current.then(async () => {
+      const preferences = await platform.preferences.load();
+      await platform.preferences.save({
+        ...preferences,
+        ui: { ...preferences.ui, leftSidebarCollapsed: !visibility.left, rightSidebarCollapsed: !visibility.right },
+      });
+    }).catch(() => undefined);
+  };
   // Navigation hides the workspace without changing its internal mode. Update
   // during render so children never commit an intermediate Prepare/Preview mode.
   const [workspaceTab, setWorkspaceTab] = useState<'prepare' | 'preview'>('prepare');
@@ -387,6 +405,10 @@ function AppContent() {
       projectName={projectState.projectName}
       projectDirty={projectState.dirty}
       navigationDisabled={boot !== 'ready'}
+      leftSidebarVisible={leftSidebarVisible}
+      rightSidebarVisible={rightSidebarVisible}
+      onToggleLeftSidebar={() => toggleSidebar('left')}
+      onToggleRightSidebar={() => toggleSidebar('right')}
       onCommand={(command) => { void dispatcher.dispatch(command); }}
     />
   );
@@ -424,6 +446,13 @@ function AppContent() {
         setBootProgress('Loading preferences...');
         const preferences = await platform.preferences.load();
         if (cancelled) return;
+        const sidebarVisibility = {
+          left: preferences.ui.leftSidebarCollapsed !== true,
+          right: preferences.ui.rightSidebarCollapsed !== true,
+        };
+        sidebarVisibilityRef.current = sidebarVisibility;
+        setLeftSidebarVisible(sidebarVisibility.left);
+        setRightSidebarVisible(sidebarVisibility.right);
         setBootProgress('Starting slicer runtime...');
         const init = await platform.runtime.init();
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
@@ -588,7 +617,7 @@ function AppContent() {
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}
-        workspace={<Workspace actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        workspace={<Workspace leftSidebarVisible={leftSidebarVisible} rightSidebarVisible={rightSidebarVisible} actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
       />

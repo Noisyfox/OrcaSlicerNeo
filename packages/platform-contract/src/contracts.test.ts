@@ -27,6 +27,14 @@ describe('user preferences', () => {
     }
   });
 
+  it('preserves independent sidebar collapse settings and rejects malformed values', () => {
+    expect(normalizeUserPreferences({ version: 1, ui: { leftSidebarCollapsed: true, rightSidebarCollapsed: false } }).ui)
+      .toMatchObject({ leftSidebarCollapsed: true, rightSidebarCollapsed: false });
+    const ui = normalizeUserPreferences({ version: 1, ui: { leftSidebarCollapsed: 'true', rightSidebarCollapsed: 1 } }).ui;
+    expect(ui.leftSidebarCollapsed).toBeUndefined();
+    expect(ui.rightSidebarCollapsed).toBeUndefined();
+  });
+
   it('preserves the send navigation preference and migrates old preferences to enabled', () => {
     expect(normalizeUserPreferences({ version: 1, ui: { switchToDeviceAfterSend: false } }).ui.switchToDeviceAfterSend).toBe(false);
     expect(normalizeUserPreferences({ version: 1, ui: {} }).ui.switchToDeviceAfterSend).toBe(true);

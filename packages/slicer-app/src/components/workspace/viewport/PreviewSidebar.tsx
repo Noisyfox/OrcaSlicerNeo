@@ -156,7 +156,7 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
           </div>
         </div>
         <PreviewStatisticsFooter data={data} />
-        <PreviewInspectionPanel data={data} showStatistics={false} />
+        <PreviewInspectionPanel data={data} />
       </CollapsibleContent>
     </Collapsible>
   );

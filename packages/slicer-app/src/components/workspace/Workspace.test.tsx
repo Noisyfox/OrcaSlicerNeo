@@ -77,6 +77,31 @@ const twoPlateSnapshot: PlateSessionSnapshot = {
 describe('Workspace ownership', () => {
   let root: Root | undefined;
 
+  it('collapses both sidebars without unmounting their content or changing width', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    const render = (visible: boolean) => act(async () => root?.render(
+      <PlatformProvider value={platform}><Workspace activeTab="preview" leftSidebarVisible={visible} rightSidebarVisible={visible} /></PlatformProvider>,
+    ));
+    await render(true);
+    const left = container.querySelector('#workspace-sidebar') as HTMLElement;
+    const right = container.querySelector('#preview-sidebar') as HTMLElement;
+    const rack = left.querySelector('[data-testid="mock-filament-edit"]');
+    const widths = [left.style.width, right.style.width];
+    await render(false);
+    expect(left.hidden).toBe(true);
+    expect(right.hidden).toBe(true);
+    expect(container.querySelector('[data-testid="sidebar-resizer"]')?.hasAttribute('hidden')).toBe(true);
+    expect(container.querySelector('[data-testid="preview-sidebar-resizer"]')?.hasAttribute('hidden')).toBe(true);
+    expect(rack?.isConnected).toBe(true);
+    await render(true);
+    expect(container.querySelector('#workspace-sidebar')).toBe(left);
+    expect(container.querySelector('#preview-sidebar')).toBe(right);
+    expect(left.querySelector('[data-testid="mock-filament-edit"]')).toBe(rack);
+    expect([left.style.width, right.style.width]).toEqual(widths);
+  });
+
   it('restores and saves right sidebar width independently of left sidebar width', async () => {
     vi.mocked(platform.preferences.load).mockResolvedValueOnce({
       version: 1, selectedProfiles: {}, ui: { sidebarWidth: 288, rightSidebarWidth: 400, switchToDeviceAfterSend: true },
@@ -84,17 +109,17 @@ describe('Workspace ownership', () => {
     const container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
-    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>));
+    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="preview" /></PlatformProvider>));
     const resizer = container.querySelector('[data-testid="preview-sidebar-resizer"]') as HTMLElement;
     expect(resizer.getAttribute('aria-valuenow')).toBe('400');
     expect(container.querySelector('[data-testid="sidebar-resizer"]')?.getAttribute('aria-valuenow')).toBe('288');
     await act(async () => resizer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })));
     expect(resizer.getAttribute('aria-valuenow')).toBe('416');
     expect(platform.preferences.save).toHaveBeenLastCalledWith(expect.objectContaining({ ui: expect.objectContaining({ sidebarWidth: 288, rightSidebarWidth: 416 }) }));
-    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" /></PlatformProvider>));
+    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="prepare" /></PlatformProvider>));
     expect(container.querySelector('[data-testid="preview-sidebar-resizer"]')).toBe(resizer);
     expect(resizer.hidden).toBe(true);
-    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>));
+    await act(async () => root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="preview" /></PlatformProvider>));
     expect(resizer.getAttribute('aria-valuenow')).toBe('416');
   });
 
@@ -119,7 +144,7 @@ describe('Workspace ownership', () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} /></PlatformProvider>);
     });
 
     expect(container.querySelector('[data-testid="mock-object-list"]')).not.toBeNull();
@@ -154,7 +179,7 @@ describe('Workspace ownership', () => {
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} /></PlatformProvider>);
     });
 
     await act(async () => {
@@ -204,7 +229,7 @@ describe('Workspace ownership', () => {
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} /></PlatformProvider>);
     });
 
     await act(async () => {
@@ -237,12 +262,12 @@ describe('Workspace ownership', () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="prepare" /></PlatformProvider>);
     });
     const prepareProps = testMocks.viewportProps.at(-1);
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="preview" /></PlatformProvider>);
     });
     const previewProps = testMocks.viewportProps.at(-1);
 
@@ -261,7 +286,7 @@ describe('Workspace ownership', () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" onModelAdded={onModelAdded} /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="prepare" onModelAdded={onModelAdded} /></PlatformProvider>);
     });
 
     expect(testMocks.viewportProps.at(-1)?.onModelAdded).toBe(onModelAdded);
@@ -274,12 +299,12 @@ describe('Workspace ownership', () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="prepare" /></PlatformProvider>);
     });
     expect(sliceModelMock).not.toHaveBeenCalled();
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="preview" /></PlatformProvider>);
     });
 
     expect(sliceModelMock).toHaveBeenCalledOnce();
@@ -295,7 +320,7 @@ describe('Workspace ownership', () => {
     await act(async () => {
       root?.render(
         <PlatformProvider value={platform}>
-          <Workspace
+          <Workspace leftSidebarVisible={true} rightSidebarVisible={true}
             activeTab="home"
             onPreviewTransitionChange={(next) => { transition = next; }}
             onPreviewRenderReady={onPreviewRenderReady}
@@ -326,7 +351,7 @@ describe('Workspace ownership', () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="preview" /></PlatformProvider>);
     });
     expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toBeNull();
     const previewController = testMocks.viewportProps.at(-1)!.sceneInteraction as { clearSelection: () => boolean };
@@ -379,7 +404,7 @@ describe('Workspace ownership', () => {
     let coordinator: HistoryRestoreCoordinator | undefined;
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace onHistoryRestoreCoordinatorChange={(value) => { coordinator = value ?? undefined; }} /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} onHistoryRestoreCoordinatorChange={(value) => { coordinator = value ?? undefined; }} /></PlatformProvider>);
     });
     // Mounting projects the empty shell, then the initial plate session and
     // overlay. Those are independent real inputs; settle them before taking
@@ -419,7 +444,7 @@ describe('Workspace ownership', () => {
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Workspace leftSidebarVisible={true} rightSidebarVisible={true} activeTab="prepare" /></PlatformProvider>);
     });
     const scene = testMocks.viewportProps.at(-1)?.glVolumes;
     const towers = testMocks.viewportProps.at(-1)?.wipeTowerVolumes as WipeTowerVolumeCollection;

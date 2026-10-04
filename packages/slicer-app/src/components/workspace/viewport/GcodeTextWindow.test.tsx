@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
@@ -89,7 +90,7 @@ const lateData: ToolpathGeometry = {
 describe('GcodeTextWindow', () => {
   let root: Root | undefined;
   afterEach(() => {
-    root?.unmount(); root = undefined; document.body.innerHTML = '';
+    act(() => root?.unmount()); root = undefined; document.body.innerHTML = '';
     useSlicerStore.getState().resetPreviewState();
     vi.useRealTimers();
   });
@@ -100,7 +101,7 @@ describe('GcodeTextWindow', () => {
     }));
     const platform = testPlatform(readTextLines);
     useSlicerStore.getState().setPreviewBounds(1, 1, 42);
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     expect(readTextLines).toHaveBeenCalledWith({ receipt: data.receipt, resultId: 42, startLine: 1, lineCount: 100 });
     expect(container.querySelector('[data-testid="gcode-text-window"]')).toBeTruthy();
@@ -116,7 +117,7 @@ describe('GcodeTextWindow', () => {
       sourceTextBytes: new TextEncoder().encode('G1 X1\r\nG1 X2\nG1 X3\n'),
       metadata: { ...data.metadata!, sourceLineMapping: { available: true, lineCount: 3 } },
     };
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={cachedData} onClose={() => undefined} /></PlatformProvider>); });
     expect(readTextLines).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="gcode-line-1"]')?.textContent).toContain('G1 X1');
@@ -147,7 +148,7 @@ describe('GcodeTextWindow', () => {
     }));
     const onClose = vi.fn();
     const platform = testPlatform(readTextLines);
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={onClose} /></PlatformProvider>); });
     const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
     const header = container.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
@@ -192,7 +193,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
     const platform = testPlatform(readTextLines);
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
     const handle = container.querySelector('[data-testid="gcode-text-resize"]') as HTMLElement;
@@ -275,7 +276,7 @@ describe('GcodeTextWindow', () => {
       ui: { sidebarWidth: 280, gcodeTextWindow: { left: 700, top: 500, width: 600, height: 700 } },
     };
     const platform = testPlatform(readTextLines, preferences);
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container, 400, 260); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container, 400, 260); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
     expect(windowElement.style.width).toBe('400px');
@@ -302,7 +303,7 @@ describe('GcodeTextWindow', () => {
         save: vi.fn(async () => undefined),
       },
     } as unknown as PlatformCapabilities;
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
 
     await act(async () => {
       root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>);
@@ -334,7 +335,7 @@ describe('GcodeTextWindow', () => {
       selectedProfiles: {},
       ui: { gcodeTextWindow: { left: 'bad', top: 0, width: 500, height: 400 } },
     } as never);
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => {
       root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>);
     });
@@ -344,7 +345,7 @@ describe('GcodeTextWindow', () => {
     expect(windowElement.style.left).toBe('12px');
     expect(windowElement.style.top).toBe('12px');
 
-    root?.unmount(); root = undefined;
+    act(() => root?.unmount()); root = undefined;
     const rejectedPlatform = {
       ...testPlatform(readTextLines),
       preferences: {
@@ -377,7 +378,7 @@ describe('GcodeTextWindow', () => {
         save: vi.fn(async () => undefined),
       },
     } as unknown as PlatformCapabilities;
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     setViewportSize(container, 400, 260);
     await act(async () => { window.dispatchEvent(new Event('resize')); });
@@ -403,7 +404,7 @@ describe('GcodeTextWindow', () => {
       ui: { sidebarWidth: 280, switchToDeviceAfterSend: false },
     };
     const platform = testPlatform(readTextLines, preferences);
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     const header = container.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
     addPointerCaptureMock(header);
@@ -429,7 +430,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: true, text: 'G1 X1',
     }));
     const platform = testPlatform(readTextLines);
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     const handle = container.querySelector('[data-testid="gcode-text-resize"]') as HTMLElement;
     await act(async () => {
@@ -456,7 +457,7 @@ describe('GcodeTextWindow', () => {
         save: vi.fn(async () => undefined),
       },
     } as unknown as PlatformCapabilities;
-    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
     const header = container.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
@@ -486,7 +487,7 @@ describe('GcodeTextWindow', () => {
     }));
     const platform = testPlatform(readTextLines);
     useSlicerStore.getState().setPreviewBounds(1, 1, 42);
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     await act(async () => { (container.querySelector('[data-testid="gcode-line-6"]') as HTMLElement).click(); });
     expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerEnd: 0, activeMoveEnd: 0 });
@@ -501,7 +502,7 @@ describe('GcodeTextWindow', () => {
     }));
     const platform = testPlatform(readTextLines);
     useSlicerStore.getState().setPreviewBounds(1, 0, 42);
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={lateData} onClose={() => undefined} /></PlatformProvider>); });
     expect(readTextLines).toHaveBeenCalledWith({ receipt: data.receipt, resultId: 42, startLine: 11905, lineCount: 96 });
     expect(readTextLines).not.toHaveBeenCalledWith(expect.objectContaining({ startLine: 1 }));
@@ -523,7 +524,7 @@ describe('GcodeTextWindow', () => {
     };
     const platform = testPlatform(readTextLines);
     useSlicerStore.getState().setPreviewBounds(1, 0, 42);
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={largeData} onClose={() => undefined} /></PlatformProvider>); });
     const expectedStartLine = Math.floor((lateLine - 1) / PAGE_LINES) * PAGE_LINES + 1;
     const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;
@@ -540,7 +541,7 @@ describe('GcodeTextWindow', () => {
     }));
     const platform = testPlatform(readTextLines);
     const scrollData = { ...lateData, metadata: { ...lateData.metadata!, sourceLineMapping: { available: true, lineCount: 12000 } } };
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={scrollData} onClose={() => undefined} /></PlatformProvider>); });
     const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;
     const targetStartLine = PAGE_LINES * 2 + 1;
@@ -569,7 +570,7 @@ describe('GcodeTextWindow', () => {
     }));
     const platform = testPlatform(readTextLines);
     const scrollData = { ...lateData, metadata: { ...lateData.metadata!, sourceLineMapping: { available: true, lineCount: 12000 } } };
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={scrollData} onClose={() => undefined} /></PlatformProvider>); });
     const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;
     const manualScrollTop = PAGE_LINES * 2 * ROW_HEIGHT;
@@ -593,7 +594,7 @@ describe('GcodeTextWindow', () => {
       text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
     const platform = testPlatform(readTextLines);
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={lateData} onClose={() => undefined} /></PlatformProvider>); });
     const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;
     await act(async () => {
@@ -620,7 +621,7 @@ describe('GcodeTextWindow', () => {
       text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
     const platform = testPlatform(readTextLines);
-    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    const container = document.createElement('div'); container.setAttribute('data-workspace-overlay-host', ''); document.body.append(container); root = createRoot(container);
     useSlicerStore.getState().setPreviewBounds(1, 0, 42);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={lateData} onClose={() => undefined} /></PlatformProvider>); });
     const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;

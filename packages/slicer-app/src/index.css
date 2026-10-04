@@ -276,6 +276,10 @@
   background: color-mix(in srgb, var(--color-primary) 25%, var(--color-card));
   color: var(--color-foreground);
 }
+.titlebar .titlebar-sidebar-toggle[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
 
 .sidebar-list-row {
   height: 20px;

@@ -48,8 +48,7 @@ const INITIAL_WINDOW_GEOMETRY: WindowGeometry = {
   height: DEFAULT_WINDOW_HEIGHT,
 };
 
-function viewportSize(windowElement: HTMLElement | null): { width: number; height: number } {
-  const parent = windowElement?.parentElement;
+function viewportSize(parent: HTMLElement | null): { width: number; height: number } {
   const rect = parent?.getBoundingClientRect();
   const width = rect?.width || parent?.clientWidth || window.innerWidth || DEFAULT_WINDOW_WIDTH + 24;
   const height = rect?.height || parent?.clientHeight || window.innerHeight || DEFAULT_WINDOW_HEIGHT + 24;
@@ -187,12 +186,12 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const visibleRowsTop = physicalScrollTop + firstRow * ROW_HEIGHT - scrollTop;
 
   const applyGeometry = useCallback((next: WindowGeometry, userInitiated = false) => {
-    const bounded = clampGeometry(next, viewportSize(windowRef.current));
+    const bounded = clampGeometry(next, viewportSize(overlayHost));
     if (userInitiated) userGeometryRevisionRef.current += 1;
     geometryRef.current = bounded;
     setGeometry(bounded);
     return bounded;
-  }, []);
+  }, [overlayHost]);
 
   const persistGeometry = useCallback((next: WindowGeometry) => {
     pendingGeometrySaveRef.current = { ...next };
@@ -226,13 +225,16 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   }, [platform.preferences]);
 
   useLayoutEffect(() => {
-    setOverlayHost(overlayAnchorRef.current?.closest<HTMLElement>('[data-workspace-overlay-host]') ?? null);
+    const host = overlayAnchorRef.current?.closest<HTMLElement>('[data-workspace-overlay-host]');
+    if (!host) throw new Error('G-code text window requires a workspace overlay host');
+    setOverlayHost(host);
   }, []);
 
   // Size the initial window from the workspace without persisting it. The
   // fixed fallback keeps the component usable in a not-yet-laid-out host.
   useLayoutEffect(() => {
-    const viewport = viewportSize(windowRef.current);
+    if (!overlayHost) return;
+    const viewport = viewportSize(overlayHost);
     const width = viewport.width > DEFAULT_WINDOW_WIDTH
       ? Math.min(MAX_WINDOW_WIDTH, Math.max(MIN_WINDOW_WIDTH, viewport.width * 0.58))
       : DEFAULT_WINDOW_WIDTH;
@@ -243,6 +245,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   }, [applyGeometry, overlayHost]);
 
   useEffect(() => {
+    if (!overlayHost) return;
     let active = true;
     const revisionAtLoad = userGeometryRevisionRef.current;
     void platform.preferences.load().then((prefs) => {
@@ -315,7 +318,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     if (gesture.kind === 'drag') {
       applyGeometry({ ...gesture, left: gesture.left + dx, top: gesture.top + dy }, true);
     } else {
-      applyGeometry(resizeGeometry(gesture, dx, dy, viewportSize(windowRef.current)), true);
+      applyGeometry(resizeGeometry(gesture, dx, dy, viewportSize(overlayHost)), true);
     }
     event.preventDefault();
   }, [applyGeometry]);
@@ -336,7 +339,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     else if (event.key === 'ArrowUp') heightDelta = -amount;
     else if (event.key === 'ArrowDown') heightDelta = amount;
     else return;
-    const next = applyGeometry(resizeGeometry(geometryRef.current, widthDelta, heightDelta, viewportSize(windowRef.current)), true);
+    const next = applyGeometry(resizeGeometry(geometryRef.current, widthDelta, heightDelta, viewportSize(overlayHost)), true);
     persistGeometry(next);
     event.preventDefault();
     event.stopPropagation();
@@ -488,9 +491,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     setPreviewMoveEnd(order);
   };
 
-  if (!sourceTextAvailable(data) || !sourceIndex) return null;
-
-  const textWindow = (
+  const textWindow = sourceTextAvailable(data) && sourceIndex ? (
     <section
       ref={windowRef}
       data-testid="gcode-text-window"
@@ -576,11 +577,11 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         </button>
       </TooltipFor>
     </section>
-  );
+  ) : null;
   return (
     <>
       <span ref={overlayAnchorRef} hidden />
-      {overlayHost ? createPortal(textWindow, overlayHost) : textWindow}
+      {overlayHost && createPortal(textWindow, overlayHost)}
     </>
   );
 }

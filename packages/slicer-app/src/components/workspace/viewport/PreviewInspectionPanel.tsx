@@ -1,7 +1,6 @@
 import { TRAVEL_MOVE_TYPE } from './previewMoveTypes';
 import { useMemo } from 'react';
 import { useSlicerStore } from '@/stores/useSlicerStore';
-import type { PreviewFeatureStatistics } from '@slicer/client';
 import { findPreviewMove, createPreviewInspectionIndex } from './previewSemantics';
 import type { ToolpathGeometry } from './useSliceResult';
 import {
@@ -43,18 +42,6 @@ export function formatPreviewTime(seconds: number | undefined): string | undefin
   return `${secs}s`;
 }
 
-function formatLength(meters: number | undefined): string | undefined {
-  return finite(meters) ? `${meters.toFixed(2)} m` : undefined;
-}
-
-function formatWeight(grams: number | undefined): string | undefined {
-  return finite(grams) ? `${grams.toFixed(2)} g` : undefined;
-}
-
-function formatCost(cost: number | undefined): string | undefined {
-  return finite(cost) ? cost.toFixed(2) : undefined;
-}
-
 function featureName(data: ToolpathGeometry, featureId: number): string | undefined {
   const entry = data.palette.find((candidate) => candidate.id === featureId);
   return entry?.name;
@@ -67,48 +54,6 @@ function filamentName(data: ToolpathGeometry, tool: number): string {
 
 function sourceIndex(data: ToolpathGeometry): Uint32Array | undefined {
   return data.gcodeIds ?? data.source?.gcodeIds;
-}
-
-function Statistics({ data, showFeatureStatistics }: { data: ToolpathGeometry; showFeatureStatistics: boolean }) {
-  const analysis = data.analysis;
-  if (!analysis) return null;
-  const summary = analysis.summary;
-  const rows = [
-    ['Estimated time', formatPreviewTime(summary.estimatedTimeSeconds)],
-    ['Filament length', formatLength(summary.filamentLengthMeters)],
-    ['Filament weight', formatWeight(summary.filamentWeightGrams)],
-    ['Filament cost', formatCost(summary.filamentCost)],
-  ] as const;
-  const featureRows = analysis.featureStatistics.filter((entry) =>
-    finite(entry.timeSeconds) || finite(entry.filamentLengthMeters) || finite(entry.filamentWeightGrams),
-  );
-  if (!rows.some(([, value]) => value !== undefined) && featureRows.length === 0) return null;
-  return (
-    <div data-testid="preview-statistics" className="space-y-2 border-t pt-2">
-      {rows.some(([, value]) => value !== undefined) && <>
-        <div className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Statistics</div>
-        <dl className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 text-xs">
-          {rows.map(([label, value]) => value !== undefined && <div key={label} className="contents">
-            <dt className="text-muted-foreground">{label}</dt><dd data-testid={`preview-summary-${label.toLowerCase().replaceAll(' ', '-')}`} className="text-right tabular-nums">{value}</dd>
-          </div>)}
-        </dl>
-      </>}
-      {showFeatureStatistics && featureRows.length > 0 && <div data-testid="preview-feature-statistics" className="space-y-1">
-        <div className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">By feature</div>
-        {featureRows.map((entry) => <FeatureRow key={entry.featureId} data={data} entry={entry} />)}
-      </div>}
-    </div>
-  );
-}
-
-function FeatureRow({ data, entry }: { data: ToolpathGeometry; entry: PreviewFeatureStatistics }) {
-  const label = featureName(data, entry.featureId) ?? `Feature ${entry.featureId}`;
-  const values = [
-    finite(entry.timeSeconds) ? formatPreviewTime(entry.timeSeconds) : undefined,
-    finite(entry.filamentLengthMeters) ? formatLength(entry.filamentLengthMeters) : undefined,
-    finite(entry.filamentWeightGrams) ? formatWeight(entry.filamentWeightGrams) : undefined,
-  ].filter((value): value is string => value !== undefined);
-  return <div className="flex items-start justify-between gap-2 text-xs" data-testid={`preview-feature-stat-${entry.featureId}`}><span className="truncate">{label}</span><span className="shrink-0 text-right tabular-nums text-muted-foreground">{values.join(' · ')}</span></div>;
 }
 
 function Inspection({ data }: { data: ToolpathGeometry }) {
@@ -169,10 +114,7 @@ function Inspection({ data }: { data: ToolpathGeometry }) {
   );
 }
 
-/** Orca-style read-only summary and current-move information overlay. */
-export function PreviewInspectionPanel({ data, showFeatureStatistics = true, showStatistics = true }: { data: ToolpathGeometry; showFeatureStatistics?: boolean; showStatistics?: boolean }) {
-  return <>
-    {showStatistics && <Statistics data={data} showFeatureStatistics={showFeatureStatistics} />}
-    <Inspection data={data} />
-  </>;
+/** Read-only details for the current preview move. */
+export function PreviewInspectionPanel({ data }: { data: ToolpathGeometry }) {
+  return <Inspection data={data} />;
 }

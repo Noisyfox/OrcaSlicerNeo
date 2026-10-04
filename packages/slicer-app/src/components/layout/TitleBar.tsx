@@ -5,13 +5,13 @@ import type {
   MenuStateSnapshot,
   PlatformChrome,
 } from '@orca/platform-contract';
-import { MenuIcon, SaveIcon, HouseIcon, BoxIcon, LayersIcon, ComputerIcon } from 'lucide-react';
+import { MenuIcon, SaveIcon, HouseIcon, BoxIcon, LayersIcon, ComputerIcon, PanelLeftIcon, PanelRightIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { HistoryNavigation } from './HistoryNavigation';
-import { isAppTab, type AppTab } from './appTabs';
+import { isAppTab, isWorkspaceTab, isPreviewTab, type AppTab } from './appTabs';
 import type { HistoryRestoreCoordinator } from '@/history/restoreCoordinator';
 import {
   Menubar,
@@ -38,6 +38,10 @@ export interface TitleBarProps {
   projectName?: string;
   projectDirty?: boolean;
   navigationDisabled?: boolean;
+  leftSidebarVisible: boolean;
+  rightSidebarVisible: boolean;
+  onToggleLeftSidebar: () => void;
+  onToggleRightSidebar: () => void;
 }
 
 function MenuItems({
@@ -93,7 +97,7 @@ function MenuItems({
 /**
  * Shared navigation and quick actions; macOS keeps its native menu surface.
  */
-export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', onTabChange, historyRestoreCoordinator, projectName = 'Untitled', projectDirty = false, navigationDisabled = false }: TitleBarProps) {
+export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', onTabChange, historyRestoreCoordinator, projectName = 'Untitled', projectDirty = false, navigationDisabled = false, leftSidebarVisible, rightSidebarVisible, onToggleLeftSidebar, onToggleRightSidebar }: TitleBarProps) {
   const native = model.menuMode === 'native' || chrome.menuMode === 'native';
   return (
     <header
@@ -138,6 +142,12 @@ export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', 
         </Button>
       </TooltipFor>
       <HistoryNavigation activeTab={activeTab} coordinator={historyRestoreCoordinator} />
+      <Separator orientation="vertical" className="mx-2 h-5 self-center" />
+      <TooltipFor content={leftSidebarVisible ? 'Hide left sidebar' : 'Show left sidebar'}>
+        <Button size="icon" variant="ghost" className="titlebar-action titlebar-sidebar-toggle [-webkit-app-region:no-drag]" aria-label="Toggle left sidebar" aria-controls="workspace-sidebar" aria-pressed={isWorkspaceTab(activeTab) && leftSidebarVisible} data-testid="titlebar-toggle-left-sidebar" disabled={navigationDisabled || !isWorkspaceTab(activeTab)} onClick={onToggleLeftSidebar}>
+          <PanelLeftIcon />
+        </Button>
+      </TooltipFor>
       <Separator orientation="vertical" className={cn('ml-2 mr-0 h-5 self-center', activeTab === 'home' && 'invisible')} />
       <Tabs value={activeTab} className="titlebar-tabs no-scrollbar min-w-0 shrink self-end overflow-x-auto [-webkit-app-region:no-drag]" onValueChange={(value) => { if (isAppTab(value)) onTabChange?.(value); }}>
         <TabsList aria-label="Main pages" className="titlebar-tabs-list">
@@ -149,6 +159,11 @@ export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', 
       </Tabs>
       <Separator orientation="vertical" className={cn('ml-0 mr-3 h-5 self-center', activeTab === 'device' && 'invisible')} />
       <span className="titlebar-project-label min-w-0 truncate pr-3 text-[13px] leading-5 text-muted-foreground" title={projectName} data-testid="titlebar-project-name">{projectName === 'Untitled' ? 'Untitled Project' : projectName}{projectDirty ? ' *' : ''}</span>
+      <TooltipFor content={rightSidebarVisible ? 'Hide right sidebar' : 'Show right sidebar'}>
+        <Button size="icon" variant="ghost" className="titlebar-action titlebar-sidebar-toggle ml-auto mr-2 shrink-0 [-webkit-app-region:no-drag]" aria-label="Toggle right sidebar" aria-controls="preview-sidebar" aria-pressed={isPreviewTab(activeTab) && rightSidebarVisible} data-testid="titlebar-toggle-right-sidebar" disabled={navigationDisabled || !isPreviewTab(activeTab)} onClick={onToggleRightSidebar}>
+          <PanelRightIcon />
+        </Button>
+      </TooltipFor>
     </header>
   );
 }

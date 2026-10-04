@@ -134,11 +134,13 @@ previous labeled Statistics block; current-move inspection remains available bel
 The Time, %, and Usage columns use compact 40px, 24px, and 60px widths, with matching header and row alignment.
 Feature and action rows use a compact 20px height and share the object list's
 2px corners, regular 12px muted labels, and dark button hover surface.
+Statistics are rendered only by the sidebar table and compact footer; the inspection panel contains current-move details with no legacy statistics-layout switches.
 Rows are click-only visibility controls with no selection state or persistent
 selection highlight. Visibility is indicated by the eye icon; keyboard focus
 remains visible. Scheme color swatches retain
 their native colors. Light-muted hover backgrounds are not used for these rows.
-The G-code text window renders in the workspace overlay above the viewport and both sidebars. Its drag and resize bounds cover the entire area between the title bar and status bar; saved geometry uses this workspace coordinate space.
+The G-code text window requires the workspace overlay host and renders above the viewport and both sidebars; there is no inline viewport fallback. Its drag and resize bounds cover the entire area between the title bar and status bar; saved geometry uses this workspace coordinate space.
+Title-bar sidebar toggles sit between Redo and Home on the left and before the window controls on the right. Expanded sidebars use a teal pressed state. The left toggle is available in Prepare and Preview; the right toggle is available in Preview. Collapsing hides both the sidebar and its resizer without unmounting content or changing its saved width. The viewport fills the released space; toggle state is saved independently as `ui.leftSidebarCollapsed` and `ui.rightSidebarCollapsed` and restored at startup (missing values default to expanded). Toggle writes are serialized to preserve rapid changes to both sides.
 The right sidebar's left-edge separator supports horizontal pointer/mouse dragging
 and arrow-key resizing between 220px and 560px. Dragging left widens it; dragging
 right narrows it. Its independent width is saved as `ui.rightSidebarWidth` in
@@ -439,3 +441,21 @@ Validation for the Preview sidebar and workspace overlay follow-up (2026-10-04):
   — 14 Electron mock tests passed.
 - `git diff --check` — passed. Real-WASM builds and the dual-host release matrix
   were not run: this follow-up changes shared UI and preference handling only.
+Validation for title-bar sidebar toggles and internal API cleanup (2026-10-04):
+
+- Required explicit sidebar visibility and toggle callbacks at internal call
+  sites; removed the unused legacy statistics layout and inline G-code fallback.
+- Fixed G-code geometry preference loading to wait for the workspace overlay
+  host, preventing duplicate reads and preserving delayed-load/drag ordering.
+- Added regression coverage for toggle dispatch, retained sidebar content,
+  independent collapse preference normalization, and restart restoration of
+  both collapse state and saved widths.
+- `pnpm test` — 154 files and 1467 tests passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `node scripts/stage.mjs --soft`,
+  `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, and
+  `node apps/desktop/scripts/check-renderer-css.mjs` — passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/preferences-persistence.e2e.ts e2e/app.e2e.ts --grep 'independent titlebar sidebar|full v1 flow|preview overlay|starts on blank Home'`
+  — four Electron mock tests passed.
+- `git diff --check` — passed. Real-WASM builds and the full release matrix
+  were not run because no native or runtime-boundary code changed.

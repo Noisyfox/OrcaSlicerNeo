@@ -123,7 +123,7 @@ describe('shared titlebar menu integration projection', () => {
   it('renders custom/browser controls inside no-drag titlebar zones and hides native duplicates', () => {
     const customSnapshot = items(windows, input({ host: { isElectron: true, menuMode: 'custom' } }));
     const custom = renderTitlebar(
-      <TitleBar chrome={windows} model={customSnapshot.model} state={customSnapshot.state} onCommand={() => {}} />,
+      <TitleBar leftSidebarVisible={true} rightSidebarVisible={true} onToggleLeftSidebar={() => undefined} onToggleRightSidebar={() => undefined} chrome={windows} model={customSnapshot.model} state={customSnapshot.state} onCommand={() => {}} />,
     );
     expect(custom).toContain('titlebar-menu');
     expect(custom).toContain('[-webkit-app-region:no-drag]');
@@ -132,14 +132,14 @@ describe('shared titlebar menu integration projection', () => {
 
     const browserSnapshot = items(web);
     const browser = renderTitlebar(
-      <TitleBar chrome={web} model={browserSnapshot.model} state={browserSnapshot.state} onCommand={() => {}} />,
+      <TitleBar leftSidebarVisible={true} rightSidebarVisible={true} onToggleLeftSidebar={() => undefined} onToggleRightSidebar={() => undefined} chrome={web} model={browserSnapshot.model} state={browserSnapshot.state} onCommand={() => {}} />,
     );
     expect(browser).toContain('titlebar-menu');
     expect(browser).not.toContain('file-quit');
 
     const nativeSnapshot = items(mac, input({ host: { isElectron: true, menuMode: 'native' } }));
     const native = renderTitlebar(
-      <TitleBar chrome={mac} model={nativeSnapshot.model} state={nativeSnapshot.state} onCommand={() => {}} />,
+      <TitleBar leftSidebarVisible={true} rightSidebarVisible={true} onToggleLeftSidebar={() => undefined} onToggleRightSidebar={() => undefined} chrome={mac} model={nativeSnapshot.model} state={nativeSnapshot.state} onCommand={() => {}} />,
     );
     expect(native).not.toContain('titlebar-menu');
     expect(native).toContain('pl-20');
