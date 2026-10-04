@@ -69,7 +69,7 @@ function sourceIndex(data: ToolpathGeometry): Uint32Array | undefined {
   return data.gcodeIds ?? data.source?.gcodeIds;
 }
 
-function Statistics({ data }: { data: ToolpathGeometry }) {
+function Statistics({ data, showFeatureStatistics }: { data: ToolpathGeometry; showFeatureStatistics: boolean }) {
   const analysis = data.analysis;
   if (!analysis) return null;
   const summary = analysis.summary;
@@ -93,7 +93,7 @@ function Statistics({ data }: { data: ToolpathGeometry }) {
           </div>)}
         </dl>
       </>}
-      {featureRows.length > 0 && <div data-testid="preview-feature-statistics" className="space-y-1">
+      {showFeatureStatistics && featureRows.length > 0 && <div data-testid="preview-feature-statistics" className="space-y-1">
         <div className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">By feature</div>
         {featureRows.map((entry) => <FeatureRow key={entry.featureId} data={data} entry={entry} />)}
       </div>}
@@ -170,9 +170,9 @@ function Inspection({ data }: { data: ToolpathGeometry }) {
 }
 
 /** Orca-style read-only summary and current-move information overlay. */
-export function PreviewInspectionPanel({ data }: { data: ToolpathGeometry }) {
+export function PreviewInspectionPanel({ data, showFeatureStatistics = true, showStatistics = true }: { data: ToolpathGeometry; showFeatureStatistics?: boolean; showStatistics?: boolean }) {
   return <>
-    <Statistics data={data} />
+    {showStatistics && <Statistics data={data} showFeatureStatistics={showFeatureStatistics} />}
     <Inspection data={data} />
   </>;
 }

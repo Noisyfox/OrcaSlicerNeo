@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
@@ -156,6 +157,8 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const windowRef = useRef<HTMLElement>(null);
+  const overlayAnchorRef = useRef<HTMLSpanElement>(null);
+  const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
   const gestureRef = useRef<PointerGesture | null>(null);
   const geometryRef = useRef<WindowGeometry>(INITIAL_WINDOW_GEOMETRY);
   const userGeometryRevisionRef = useRef(0);
@@ -222,7 +225,11 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     void drain();
   }, [platform.preferences]);
 
-  // Size the initial window from the viewport without persisting it. The
+  useLayoutEffect(() => {
+    setOverlayHost(overlayAnchorRef.current?.closest<HTMLElement>('[data-workspace-overlay-host]') ?? null);
+  }, []);
+
+  // Size the initial window from the workspace without persisting it. The
   // fixed fallback keeps the component usable in a not-yet-laid-out host.
   useLayoutEffect(() => {
     const viewport = viewportSize(windowRef.current);
@@ -233,7 +240,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
       ? DEFAULT_WINDOW_HEIGHT
       : Math.max(MIN_WINDOW_HEIGHT, viewport.height - 24);
     applyGeometry(clampGeometry({ ...INITIAL_WINDOW_GEOMETRY, width, height }, viewport));
-  }, [applyGeometry]);
+  }, [applyGeometry, overlayHost]);
 
   useEffect(() => {
     let active = true;
@@ -483,12 +490,12 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
 
   if (!sourceTextAvailable(data) || !sourceIndex) return null;
 
-  return (
+  const textWindow = (
     <section
       ref={windowRef}
       data-testid="gcode-text-window"
       aria-labelledby={titleId}
-      className="pointer-events-auto absolute z-40 flex min-w-0 flex-col overflow-hidden rounded-md border bg-card/95 text-card-foreground shadow-xl backdrop-blur"
+      className="pointer-events-auto absolute z-50 flex min-w-0 flex-col overflow-hidden rounded-md border bg-card/95 text-card-foreground shadow-xl backdrop-blur"
       aria-hidden={!geometryReady}
       style={{
         left: geometry.left,
@@ -569,5 +576,11 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         </button>
       </TooltipFor>
     </section>
+  );
+  return (
+    <>
+      <span ref={overlayAnchorRef} hidden />
+      {overlayHost ? createPortal(textWindow, overlayHost) : textWindow}
+    </>
   );
 }

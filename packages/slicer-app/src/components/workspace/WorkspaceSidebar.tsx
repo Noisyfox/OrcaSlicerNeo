@@ -18,6 +18,7 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
   const deviceViewportRef = useRef<HTMLDivElement>(null);
   const deviceContentRef = useRef<HTMLDivElement>(null);
   const expandToMaximum = useRef(false);
+  const minimumHeight = useRef<number | null>(null);
   const [deviceBounds, setDeviceBounds] = useState<{ maximum: number; minimum: number } | null>(null);
 
   useLayoutEffect(() => {
@@ -33,7 +34,11 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
       const style = getComputedStyle(panel.firstElementChild ?? panel);
       const maximum = Math.ceil(content.getBoundingClientRect().height +
         parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth));
-      const minimum = Math.min(maximum, groupHeight * 0.15);
+      // Changing minSize on every group resize re-registers the panels and
+      // reapplies their percentage layout before pixel preservation can run.
+      // Keep the initial pixel minimum stable; short content can still cap it.
+      const minimumBaseline = minimumHeight.current ?? (minimumHeight.current = groupHeight * 0.15);
+      const minimum = Math.min(maximum, minimumBaseline);
       setDeviceBounds((previous) => previous?.maximum === maximum && previous.minimum === minimum
         ? previous : { maximum, minimum });
     };
@@ -71,6 +76,7 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
     renderLayout={({ printer, settings }) => (
       <ResizablePanelGroup elementRef={groupRef} orientation="vertical" id="workspace-sidebar-panels" className="min-h-0">
         <ResizablePanel elementRef={devicePanelRef} panelRef={devicePanelHandle} id="device-material-panel" defaultSize="35%"
+          groupResizeBehavior="preserve-pixel-size"
           minSize={deviceBounds?.minimum ?? '15%'} maxSize={deviceBounds?.maximum}
           className="overflow-hidden rounded-md border bg-card">
           <div ref={deviceViewportRef} className="h-full overflow-y-auto" data-testid="sidebar-device-panel">
@@ -90,7 +96,7 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
           </div>
         </ResizablePanel>
         <ResizableHandle id="sidebar-panel-resizer" aria-label="Resize device and settings panels" data-testid="sidebar-panel-resizer" className="h-1.5! w-full! shrink-0 bg-transparent after:hidden" />
-        <ResizablePanel id="configuration-panel" defaultSize="65%" minSize="20%" className="overflow-hidden rounded-md border bg-card">
+        <ResizablePanel id="configuration-panel" defaultSize="65%" minSize="20%" groupResizeBehavior="preserve-relative-size" className="overflow-hidden rounded-md border bg-card">
           <div className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="sidebar-settings-panel">
             {settings}
           </div>

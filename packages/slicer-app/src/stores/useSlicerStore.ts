@@ -41,6 +41,19 @@ export const DEFAULT_PREVIEW_STATE: PreviewState = {
   resultId: null,
 };
 
+/** Result bounds are transient; display choices belong to the UI session. */
+function resetPreviewProjection(preview: PreviewState): PreviewState {
+  return {
+    ...DEFAULT_PREVIEW_STATE,
+    colorScheme: preview.colorScheme,
+    schemeVisibility: preview.schemeVisibility,
+    moveVisibility: preview.moveVisibility,
+    showTravel: preview.showTravel,
+    dimPreviousLayers: preview.dimPreviousLayers,
+    singleLayer: preview.singleLayer,
+  };
+}
+
 interface SlicerState {
   status: SliceStatus;
   progress: number;
@@ -141,7 +154,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
           resultExported: false,
           layer: 0,
           maxLayer: 0,
-          preview: { ...DEFAULT_PREVIEW_STATE },
+          preview: resetPreviewProjection(state.preview),
         };
       }
       matched = true;
@@ -155,7 +168,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         layers: 0,
         layer: 0,
         maxLayer: 0,
-        preview: { ...DEFAULT_PREVIEW_STATE },
+        preview: resetPreviewProjection(state.preview),
         error: cached.warnings.length ? `[Warning] ${cached.warnings.join('; ')}` : null,
         resultExported: false,
       };
@@ -181,7 +194,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         resultExported: false,
         layer: 0,
         maxLayer: 0,
-        preview: { ...DEFAULT_PREVIEW_STATE },
+        preview: resetPreviewProjection(state.preview),
       } : {}),
       ...(slicingAffected && !currentAffected ? {
         status: state.sliceTarget ? 'done' as const : 'idle' as const,
@@ -204,7 +217,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         resultExported: false,
         layer: 0,
         maxLayer: 0,
-        preview: { ...DEFAULT_PREVIEW_STATE },
+        preview: resetPreviewProjection(state.preview),
       } : {}),
     };
   }),
@@ -213,7 +226,8 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     maxLayer,
     layer: maxLayer,
     preview: {
-      ...DEFAULT_PREVIEW_STATE,
+      ...resetPreviewProjection(state.preview),
+      visibleLayerStart: state.preview.singleLayer ? Math.max(0, maxLayer) : 0,
       visibleLayerEnd: Math.max(0, maxLayer),
       activeMoveEnd: Math.max(0, maxMove),
       maxMove: Math.max(0, maxMove),
@@ -317,12 +331,12 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   }),
   resetPreviewState: () => set((state) => ({
     layer: 0,
-    preview: { ...DEFAULT_PREVIEW_STATE },
+    preview: resetPreviewProjection(state.preview),
     maxLayer: 0,
     layers: 0,
     error: state.error,
   })),
-  invalidateSliceResult: () => set({
+  invalidateSliceResult: () => set((state) => ({
     status: 'idle',
     progress: 0,
     layers: 0,
@@ -333,6 +347,6 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     activeSliceTarget: null,
     layer: 0,
     maxLayer: 0,
-    preview: { ...DEFAULT_PREVIEW_STATE },
-  }),
+    preview: resetPreviewProjection(state.preview),
+  })),
 }));

@@ -1,4 +1,5 @@
 import { Slider as SliderPrimitive } from "@base-ui/react/slider"
+import type { ReactNode } from 'react';
 
 import { cn } from "cn"
 
@@ -18,6 +19,8 @@ import { cn } from "cn"
 type SliderProps = SliderPrimitive.Root.Props & {
   /** Optional stable identifiers for individual thumbs in multi-thumb sliders. */
   thumbTestIds?: string[];
+  variant?: 'default' | 'preview';
+  thumbLabels?: ReactNode[];
 };
 
 function Slider({
@@ -27,6 +30,8 @@ function Slider({
   min = 0,
   max = 100,
   thumbTestIds,
+  variant = 'default',
+  thumbLabels,
   ...props
 }: SliderProps) {
   const _values = Array.isArray(value)
@@ -39,6 +44,7 @@ function Slider({
     <SliderPrimitive.Root
       className={cn("data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full", className)}
       data-slot="slider"
+      data-variant={variant}
       defaultValue={defaultValue}
       value={value}
       min={min}
@@ -46,7 +52,7 @@ function Slider({
       thumbAlignment="edge"
       {...props}
     >
-      <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-40 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col">
+      <SliderPrimitive.Control data-slot="slider-control" className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-40 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col">
         <SliderPrimitive.Track
           data-slot="slider-track"
           className="relative grow overflow-hidden rounded-md bg-muted select-none data-[orientation=horizontal]:h-1 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1"
@@ -60,9 +66,12 @@ function Slider({
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             data-testid={thumbTestIds?.[index]}
+            data-thumb-index={index}
             key={index}
             className="relative z-10 block size-3 shrink-0 rounded-md border border-ring bg-white ring-ring/30 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-2 focus-visible:ring-2 focus-visible:outline-hidden active:ring-2 disabled:pointer-events-none disabled:opacity-50"
-          />
+          >
+            {thumbLabels?.[index] && <span className="preview-slider-label" aria-hidden="true">{thumbLabels[index]}</span>}
+          </SliderPrimitive.Thumb>
         ))}
       </SliderPrimitive.Control>
     </SliderPrimitive.Root>
