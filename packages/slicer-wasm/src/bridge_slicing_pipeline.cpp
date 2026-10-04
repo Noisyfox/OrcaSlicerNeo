@@ -500,6 +500,13 @@ std::pair<std::string, json> finalize_slice_task(
     PlateRuntimeRegistry::mark_presentation_valid(entry, current_revision);
     json result{{"ok", true}, {"unrecognized_keys", task->unrecognized_keys},
                 {"warnings", task->warnings}, {"receipt", projection_receipt(entry)}};
+    const auto totals = bridge::build_preview_summary(*entry.gcode_result);
+    json summary = json::object();
+    if (totals.has_estimated_time) summary["estimated_time_seconds"] = totals.estimated_time_seconds;
+    if (totals.has_filament_length) summary["filament_length_meters"] = totals.filament_length_meters;
+    if (totals.has_filament_weight) summary["filament_weight_grams"] = totals.filament_weight_grams;
+    if (totals.has_filament_cost) summary["filament_cost"] = totals.filament_cost;
+    result["summary"] = std::move(summary);
     release_active_slice_task(task);
     return {"completed", std::move(result)};
 }

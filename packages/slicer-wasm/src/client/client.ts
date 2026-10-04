@@ -84,6 +84,12 @@ function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
       sliceTaskId: receipt.slice_task_id,
     };
   }
+  const summary = isRecord(raw.summary) ? Object.fromEntries([
+    ['estimatedTimeSeconds', raw.summary.estimated_time_seconds],
+    ['filamentLengthMeters', raw.summary.filament_length_meters],
+    ['filamentWeightGrams', raw.summary.filament_weight_grams],
+    ['filamentCost', raw.summary.filament_cost],
+  ].filter(([, value]) => typeof value === 'number' && Number.isFinite(value) && value >= 0)) : undefined;
   return {
     ok: raw.ok === true,
     unrecognized_keys: Array.isArray(raw.unrecognized_keys)
@@ -91,6 +97,7 @@ function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
     ...(Array.isArray(raw.warnings)
       ? { warnings: raw.warnings.filter((warning): warning is string => typeof warning === 'string') } : {}),
     ...(normalizedReceipt ? { receipt: normalizedReceipt } : {}),
+    ...(summary ? { summary } : {}),
     ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
   };
 }

@@ -2,7 +2,7 @@
 // Contract tests for the typed bridge client, driven against the
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
 // contract that Task 7 implements in C++.
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createMockModule, type MockFeature } from './testing/mock-module';
 import { createClient, normalizeSceneDelta } from './client';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
@@ -1976,6 +1976,18 @@ describe('SlicerClient bridge contract', () => {
     expect(r.unrecognized_keys).toEqual([]);
     expect(events).toContain(0);
     expect(events).toContain(100);
+  });
+
+  it('returns finite plate totals at completion without fetching a toolpath projection', async () => {
+    const module = createMockModule({ sliceFixture: { layers: 1, toolpathVertices: 4, features: [], analysis: { summary: {
+      estimatedTimeSeconds: 1932, filamentLengthMeters: 2.79, filamentWeightGrams: 8.32, filamentCost: -1,
+    } } } });
+    const calls = vi.spyOn(module, 'ccall');
+    const client = createClient(async () => module);
+    await client.addModel(new Uint8Array(4), 'stl');
+    const result = await client.slice({});
+    expect(result.summary).toEqual({ estimatedTimeSeconds: 1932, filamentLengthMeters: 2.79, filamentWeightGrams: 8.32 });
+    expect(calls.mock.calls.some(call => call[0] === 'orc_get_slice_result')).toBe(false);
   });
 
   it('binds local slice and export to the current plate identity and revision', async () => {

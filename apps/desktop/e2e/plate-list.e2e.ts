@@ -35,6 +35,10 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     expect(imageEvidence.transparent).toBeGreaterThan(100);
     await expect(page.getByTestId('preview-plate-list').getByRole('option')).toHaveCount(1);
     expect(await page.getByTestId('sidebar-settings-panel').boundingBox()).toEqual(before);
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
+    await expect(page.getByTestId('preview-plate-list').locator('[data-plate-state="sliced"]')).toHaveCount(1);
+    await page.getByTestId('sidebar-settings-panel').screenshot({ path: join(desktop, '.vitest/plate-list.png') });
     await test.info().attach('plate-list', { body: await page.getByTestId('sidebar-settings-panel').screenshot(), contentType: 'image/png' });
   } finally { await app.close(); }
 });

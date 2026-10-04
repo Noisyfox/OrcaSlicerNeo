@@ -870,6 +870,8 @@ export interface SliceResultStatus {
   warnings?: string[];
   /** Runtime-only identity of the retained core result produced by this Slice. */
   receipt?: SliceResultReceipt;
+  /** Lightweight plate totals; no toolpath projection is needed for list cards. */
+  summary?: PreviewAnalysisSummary;
   error?: string;
 }
 

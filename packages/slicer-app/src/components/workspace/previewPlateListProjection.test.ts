@@ -17,6 +17,22 @@ const snapshot: PlateSessionSnapshot = {
 };
 
 describe('Preview plate list projection', () => {
+  it('binds progress, failures and totals to their own plate and input revision', () => {
+    const summary = { estimatedTimeSeconds: 1932, filamentLengthMeters: 2.79, filamentWeightGrams: 8.32 };
+    const results = { a: { target: { plateId: 'a', inputRevision: 4 }, receipt: { plateId: 'a', inputStamp: 4, resultGeneration: '1', sliceTaskId: '1' }, warnings: [], summary } };
+    const job = { target: { plateId: 'b', inputRevision: 7 }, progress: 45, text: 'Generating perimeters' };
+    const rows = projectPreviewPlateList(snapshot, results, job);
+    expect(rows[0]).toMatchObject({ status: 'sliced', summary });
+    expect(rows[1]).toMatchObject({ status: 'slicing', progress: 45, progressText: job.text });
+    expect(rows[1].summary).toBeUndefined();
+    const failed = projectPreviewPlateList(snapshot, results, undefined, { b: { target: job.target, error: 'Invalid settings' } });
+    expect(failed[1]).toMatchObject({ status: 'error', error: 'Invalid settings' });
+    const edited = projectPreviewPlateList({ ...snapshot, inputRevisions: { ...snapshot.inputRevisions, a: 5, b: 8 } }, results, job, { b: { target: job.target, error: 'Old failure' } });
+    expect(edited[0]).toMatchObject({ status: 'unsliced' });
+    expect(edited[0].summary).toBeUndefined();
+    expect(edited[1]).toMatchObject({ status: 'unsliced' });
+    expect(edited[1].error).toBeUndefined();
+  });
   it('orders by native display index and projects current, empty, invalid, and unsliced state', () => {
     const rows = projectPreviewPlateList(snapshot);
     expect(rows.map((row) => [row.plate.plateId, row.status, row.current])).toEqual([

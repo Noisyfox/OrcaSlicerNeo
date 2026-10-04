@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlateThumbnail } from './PlateThumbnail';
 import { createThumbnailRenderer, PlateThumbnailService } from './plateThumbnailService';
+import { formatPreviewTime } from './viewport/PreviewInspectionPanel';
 
 export function PreviewPlateList({
   snapshot,
@@ -18,8 +19,14 @@ export function PreviewPlateList({
   onSelect: (plateId: string) => Promise<void> | void;
 }) {
   const results = useSlicerStore((state) => state.plateResults);
+  const failures = useSlicerStore(s => s.plateFailures);
+  const activeTarget = useSlicerStore(s => s.activeSliceTarget);
+  const progress = useSlicerStore(s => s.progress);
+  const progressText = useSlicerStore(s => s.progressText);
   const [selecting, setSelecting] = useState<string | null>(null);
-  const items = useMemo(() => projectPreviewPlateList(snapshot, results), [results, snapshot]);
+  const items = useMemo(() => projectPreviewPlateList(snapshot, results, { target: activeTarget, progress, text: progressText }, failures),
+    [results, snapshot, activeTarget, progress, progressText, failures]);
+  const metric = (value: number | undefined, suffix: string) => Number.isFinite(value) ? `${value!.toFixed(2)}${suffix}` : '—';
   const disabled = pending || selecting !== null;
   const [thumbnails, setThumbnails] = useState<PlateThumbnailService>();
   useEffect(() => {
@@ -47,7 +54,7 @@ export function PreviewPlateList({
           <Card key={item.plate.plateId} size="sm" className="plate-list-card" data-current={item.current} data-plate-status={item.status}>
             <CardContent className="plate-list-thumbnail">
               {thumbnails && <PlateThumbnail plateId={item.plate.plateId} label={item.label} session={snapshot} service={thumbnails}
-                disabled={disabled} onSelect={() => void handleSelect(item.plate.plateId)} />}
+                disabled={disabled} onSelect={() => void handleSelect(item.plate.plateId)} progress={item.progress} />}
             </CardContent>
             <CardHeader className="plate-list-details">
               <div className="flex min-w-0 flex-wrap items-start justify-between gap-1">
@@ -59,12 +66,15 @@ export function PreviewPlateList({
                     {item.label}
                   </button>
                 </CardTitle>
-                <Badge variant={item.status === 'sliced' ? 'default' : item.status === 'out-of-bounds' ? 'destructive' : 'secondary'}>
+                <Badge variant={item.status === 'sliced' ? 'default' : item.status === 'out-of-bounds' || item.status === 'error' ? 'destructive' : 'secondary'}
+                  data-plate-state={item.status} title={item.progressText || item.error}>
                   {selecting === item.plate.plateId ? 'Loading…' : item.detail}
                 </Badge>
               </div>
               <CardDescription className="flex flex-col gap-1 tabular-nums">
-                <span>—</span><span>— | —</span>
+                <span data-testid={`plate-time-${item.plate.plateId}`}>{formatPreviewTime(item.summary?.estimatedTimeSeconds)?.replaceAll(' ', '') ?? '—'}</span>
+                <span>{metric(item.summary?.filamentLengthMeters, 'm')} | {metric(item.summary?.filamentWeightGrams, 'g')}</span>
+                {item.progress !== undefined && <span role="progressbar" aria-label={`Slicing ${item.label}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress)}>{Math.round(item.progress)}%</span>}
               </CardDescription>
             </CardHeader>
             <CardFooter className="plate-list-actions">

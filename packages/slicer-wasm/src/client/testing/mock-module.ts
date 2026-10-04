@@ -1483,7 +1483,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     ].join('\n');
     previewSourceBytes = new TextEncoder().encode(gcode);
     files.set(`/tmp/plate-result-${plateId}-${receipt.resultGeneration}.gcode`, previewSourceBytes);
-    const result = { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], receipt: {
+    const result = { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], summary: {
+      estimated_time_seconds: fixture.analysis?.summary?.estimatedTimeSeconds,
+      filament_length_meters: fixture.analysis?.summary?.filamentLengthMeters,
+      filament_weight_grams: fixture.analysis?.summary?.filamentWeightGrams,
+      filament_cost: fixture.analysis?.summary?.filamentCost,
+    }, receipt: {
       plate_id: plateId, input_stamp: receipt.inputStamp,
       result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId,
     } };

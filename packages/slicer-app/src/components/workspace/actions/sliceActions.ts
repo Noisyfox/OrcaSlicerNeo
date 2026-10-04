@@ -59,6 +59,8 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
       meta[key] !== undefined && !SLICE_CONFIG_BLACKLIST.has(key)),
   );
   const setFailure = (message: string) => {
+    const target = useSlicerStore.getState().activeSliceTarget;
+    if (target) useSlicerStore.getState().setPlateFailure(target, message);
     useSlicerStore.getState().setActiveSliceTarget(null);
     useSlicerStore.getState().setStatus('error');
     useSlicerStore.getState().setError(message);
@@ -119,6 +121,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   // processing and publishes a new task-addressed receipt on success.
   slicer.invalidatePlateResults([target.plateId]);
   slicer.setProgress(0);
+  slicer.setProgressText('Preparing slice');
   slicer.setStatus('slicing');
   slicer.setActiveSliceTarget(target);
   slicer.setResultExported(false);
@@ -136,7 +139,11 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     const result = await platform.runtime.slicePlate(
       target,
       values,
-      (pct) => useSlicerStore.getState().setProgress(pct),
+      (pct, text) => {
+        const live = useSlicerStore.getState();
+        if (live.activeSliceTarget?.plateId !== target.plateId || live.activeSliceTarget.inputRevision !== target.inputRevision) return;
+        live.setProgress(pct); live.setProgressText(text);
+      },
     );
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
@@ -161,7 +168,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     // Native Slice completion is the global terminal. Typed-array transfer
     // and GPU construction are a later Preview-local projection and do not
     // keep slicing controls or Export blocked.
-    useSlicerStore.getState().setPlateResult(result.receipt, result.warnings ?? []);
+    useSlicerStore.getState().setPlateResult(result.receipt, result.warnings ?? [], result.summary);
     useSlicerStore.getState().setActiveSliceTarget(null);
     const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
     if (current === target.plateId) useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);
@@ -170,7 +177,6 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
         live.activeSliceTarget.inputRevision !== target.inputRevision) return;
     if (cancellation.requested) { finishCancelled(); return; }
-    useSlicerStore.getState().setActiveSliceTarget(null);
     setFailure(errorText(err));
     console.error('slice failed:', err);
   } finally {

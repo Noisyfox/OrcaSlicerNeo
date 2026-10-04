@@ -15,6 +15,9 @@
 .plate-list-thumbnail { grid-column: 1; grid-row: 1 / 3; padding: 0; }
 .plate-list-details { grid-column: 2; grid-row: 1; padding: 0; }
 .plate-list-actions { grid-column: 2; grid-row: 2; padding: 0; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+.plate-list { --plate-slicing: #793b8c; }
+.plate-list-progress { background: color-mix(in srgb, var(--plate-slicing) 60%, transparent); }
+.plate-list [data-plate-state="slicing"] { background: var(--plate-slicing); color: var(--color-foreground); }
 
 /* Native Tailwind v4 theme: palette values live directly in @theme as design
    tokens, so utilities reference var(--color-*) and opacity modifiers go
