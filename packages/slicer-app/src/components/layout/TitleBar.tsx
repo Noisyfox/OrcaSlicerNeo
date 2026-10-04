@@ -148,7 +148,7 @@ export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', 
           <PanelLeftIcon />
         </Button>
       </TooltipFor>
-      <Separator orientation="vertical" className={cn('ml-2 mr-0 h-5 self-center', activeTab === 'home' && 'invisible')} />
+      <Separator data-testid="titlebar-divider-before-pages" orientation="vertical" className={cn('ml-2 mr-0 h-5 self-center', activeTab === 'home' && 'invisible')} />
       <Tabs value={activeTab} className="titlebar-tabs no-scrollbar min-w-0 shrink self-end overflow-x-auto [-webkit-app-region:no-drag]" onValueChange={(value) => { if (isAppTab(value)) onTabChange?.(value); }}>
         <TabsList aria-label="Main pages" className="titlebar-tabs-list">
           <TabsTrigger className="titlebar-tab" value="home" id="app-tab-home" aria-label="Home" aria-controls="app-panel-home" disabled={navigationDisabled}><HouseIcon /></TabsTrigger>
@@ -157,7 +157,7 @@ export function TitleBar({ chrome, model, state, onCommand, activeTab = 'home', 
           <TabsTrigger className="titlebar-tab" value="device" id="app-tab-device" aria-controls="app-panel-device" data-testid="tab-device" disabled={navigationDisabled}><ComputerIcon />Device</TabsTrigger>
         </TabsList>
       </Tabs>
-      <Separator orientation="vertical" className={cn('ml-0 mr-3 h-5 self-center', activeTab === 'device' && 'invisible')} />
+      <Separator data-testid="titlebar-divider-after-pages" orientation="vertical" className={cn('ml-0 mr-3 h-5 self-center', activeTab === 'device' && 'invisible')} />
       <span className="titlebar-project-label min-w-0 truncate pr-3 text-[13px] leading-5 text-muted-foreground" title={projectName} data-testid="titlebar-project-name">{projectName === 'Untitled' ? 'Untitled Project' : projectName}{projectDirty ? ' *' : ''}</span>
       <TooltipFor content={rightSidebarVisible ? 'Hide right sidebar' : 'Show right sidebar'}>
         <Button size="icon" variant="ghost" className="titlebar-action titlebar-sidebar-toggle ml-auto mr-2 shrink-0 [-webkit-app-region:no-drag]" aria-label="Toggle right sidebar" aria-controls="preview-sidebar" aria-pressed={isPreviewTab(activeTab) && rightSidebarVisible} data-testid="titlebar-toggle-right-sidebar" disabled={navigationDisabled || !isPreviewTab(activeTab)} onClick={onToggleRightSidebar}>

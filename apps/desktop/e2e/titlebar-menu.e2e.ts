@@ -40,8 +40,10 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
-    const beforePages = page.getByTestId('titlebar').locator(':scope > [data-slot="separator"]:has(+ [data-slot="tabs"])');
-    const afterPages = page.getByTestId('titlebar').locator(':scope > [data-slot="tabs"] + [data-slot="separator"]');
+    const beforePages = page.getByTestId('titlebar-divider-before-pages');
+    const afterPages = page.getByTestId('titlebar-divider-after-pages');
+    await expect(beforePages).toHaveCount(1);
+    await expect(afterPages).toHaveCount(1);
     await expect(beforePages).toBeHidden();
     await page.locator('#app-tab-device').click();
     await expect(afterPages).toBeHidden();

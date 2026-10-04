@@ -57,7 +57,9 @@ describe('TitleBar menu surface', () => {
     const beforePages = tabs.previousElementSibling!;
     const afterPages = tabs.nextElementSibling!;
     expect(beforePages.getAttribute('data-slot')).toBe('separator');
+    expect(beforePages.getAttribute('data-testid')).toBe('titlebar-divider-before-pages');
     expect(afterPages.getAttribute('data-slot')).toBe('separator');
+    expect(afterPages.getAttribute('data-testid')).toBe('titlebar-divider-after-pages');
     expect(beforePages.classList.contains('invisible')).toBe(activeTab === 'home');
     expect(afterPages.classList.contains('invisible')).toBe(activeTab === 'device');
     expect(bar.querySelectorAll(':scope > [data-slot="separator"]')).toHaveLength(4);
