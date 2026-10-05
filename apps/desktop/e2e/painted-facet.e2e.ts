@@ -51,6 +51,7 @@ test('Prepare painted model uses original BVH for selection and dragging', async
         opacity: number;
         transparent: boolean;
         depthWrite: boolean;
+        flatShading: boolean;
       }> } }).__orcaE2e?.modelMaterialColours?.() ?? [],
     );
     const readCenters = () => page.evaluate(() =>
@@ -90,7 +91,7 @@ test('Prepare painted model uses original BVH for selection and dragging', async
     const readVolumeColours = async (id: string) => (await readColours()).filter((entry) => entry.id === id);
     const beforeColours = await readVolumeColours(before.id);
     expect(beforeColours).toHaveLength(1);
-    expect(beforeColours[0]).toMatchObject({ id: before.id, stateId: 1 });
+    expect(beforeColours[0]).toMatchObject({ id: before.id, stateId: 1, flatShading: true });
 
     // Change the authoritative slot colour through FilamentRack's real input
     // event path, then confirm React updates the material while both geometry

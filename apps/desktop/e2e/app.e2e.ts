@@ -664,6 +664,14 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     }
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
+    // Sharp edges must not interpolate shared vertex normals across faces.
+    await expect.poll(() => page.evaluate(() => {
+      const materials = (window as unknown as { __orcaE2e?: {
+        modelMaterialColours?: () => Array<{ flatShading: boolean }>;
+      } }).__orcaE2e?.modelMaterialColours?.() ?? [];
+      return materials.length > 0 && materials.every(material => material.flatShading);
+    })).toBe(true);
+
     // Slice → status flips to Sliced, preview + scrubber appear, export unlocks.
     await page.getByTestId('btn-slice').click();
     if (REAL) {

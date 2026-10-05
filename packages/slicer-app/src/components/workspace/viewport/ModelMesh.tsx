@@ -160,6 +160,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
                 attach={`material-${index}`}
                 color={paintMaterial.colour}
                 roughness={0.6}
+                flatShading
                 metalness={0.1}
                 side={THREE.DoubleSide}
                 transparent={paintMaterial.transparent}
@@ -174,6 +175,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
           <meshStandardMaterial
           color={material.colour}
           roughness={0.6}
+          flatShading
           metalness={0.1}
           side={auxiliaryMaterial ? THREE.FrontSide : THREE.DoubleSide}
           transparent={material.transparent}

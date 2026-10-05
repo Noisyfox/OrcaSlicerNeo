@@ -40,7 +40,7 @@ export function createPlateThumbnailScene(parts: readonly PlateThumbnailPart[]) 
   for (const part of parts) {
     const resolved = part.materials.map(m => {
       const material = new THREE.MeshStandardMaterial({ color: m.colour, opacity: m.opacity, transparent: m.transparent,
-        depthWrite: m.depthWrite, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.1 });
+        depthWrite: m.depthWrite, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.1, flatShading: true });
       materials.push(material);
       return material;
     });

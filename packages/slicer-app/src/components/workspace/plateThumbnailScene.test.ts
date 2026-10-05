@@ -37,6 +37,8 @@ describe('plate thumbnail scene', () => {
       expect(Math.abs(point.z)).toBeLessThan(1);
     }
     const mesh = projection.scene.children.find(child => child instanceof THREE.Mesh) as THREE.Mesh;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    expect(materials.every(material => (material as THREE.MeshStandardMaterial).flatShading)).toBe(true);
     const materialDispose = vi.spyOn(Array.isArray(mesh.material) ? mesh.material[0] : mesh.material, 'dispose');
     projection.dispose();
     expect(materialDispose).toHaveBeenCalledOnce();

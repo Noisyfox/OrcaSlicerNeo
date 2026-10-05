@@ -71,6 +71,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
         opacity: number;
         transparent: boolean;
         depthWrite: boolean;
+        flatShading: boolean;
       }>;
       previewFirstCommitPaintMaterialsByVolume?: Record<string, Array<{
         id: string;
@@ -300,6 +301,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
         opacity: number;
         transparent: boolean;
         depthWrite: boolean;
+        flatShading: boolean;
       }> = [];
       scene.traverse((object) => {
         if (object.userData.orcaRaycastRole !== MODEL_BODY_RAYCAST) return;
@@ -318,6 +320,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
             opacity: material.opacity,
             transparent: material.transparent,
             depthWrite: material.depthWrite,
+            flatShading: material.flatShading,
           });
         });
       });
