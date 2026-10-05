@@ -99,9 +99,13 @@ test('plate cards render model thumbnails without changing surrounding layout', 
       const details = element.getBoundingClientRect();
       const metrics = element.querySelector('[data-slot="card-description"]')!.lastElementChild!;
       const range = document.createRange(); range.selectNodeContents(metrics);
-      return range.getBoundingClientRect().bottom <= details.bottom && element.scrollHeight <= element.clientHeight;
+      return {
+        textFits: range.getBoundingClientRect().bottom <= details.bottom,
+        contentFits: element.scrollHeight <= element.clientHeight,
+        fontSize: getComputedStyle(metrics).fontSize,
+      };
     });
-    expect(statsFit).toBe(true);
+    expect(statsFit).toEqual({ textFits: true, contentFits: true, fontSize: '13px' });
     await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
     await page.getByTestId(`plate-print-${plateId}`).click();
     await expect(page.getByTestId('send-gcode-dialog')).toBeVisible();

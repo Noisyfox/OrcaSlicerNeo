@@ -103,7 +103,7 @@ export function PreviewPlateList({
                   {selecting === item.plate.plateId ? 'Loading…' : item.detail}
                 </Badge>
               </div>
-              <CardDescription className="flex flex-col gap-1 tabular-nums">
+              <CardDescription className="flex flex-col gap-1 leading-tight tabular-nums">
                 <span className="flex items-center justify-between gap-1">
                   <span data-testid={`plate-time-${item.plate.plateId}`}>{formatPreviewTime(item.summary?.estimatedTimeSeconds)?.replaceAll(' ', '') ?? '—'}</span>
                   {item.progress !== undefined && <span role="progressbar" aria-label={`Slicing ${item.label}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress)}>{Math.round(item.progress)}%</span>}
