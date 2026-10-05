@@ -33,8 +33,12 @@ export function createColorFavorites(repository: UserPreferencesRepository) {
     add(value: ColorValue) {
       const color = normalizeColorValue(value);
       if (!color) return Promise.resolve();
-      return mutate(favorites => favorites.some(item => colorValueKey(item) === colorValueKey(color)) || favorites.length >= MAX_COLOR_FAVORITES
-        ? favorites : [color, ...favorites]);
+      return mutate(favorites => {
+        const key = colorValueKey(color);
+        const existing = favorites.find(item => colorValueKey(item) === key);
+        if (existing) return [existing, ...favorites.filter(item => colorValueKey(item) !== key)];
+        return favorites.length >= MAX_COLOR_FAVORITES ? favorites : [color, ...favorites];
+      });
     },
     remove(value: ColorValue) { return mutate(favorites => favorites.filter(item => colorValueKey(item) !== colorValueKey(value))); },
   };

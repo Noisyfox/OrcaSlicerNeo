@@ -78,6 +78,7 @@ async function editColor(value: string) {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
+  await act(async () => input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
 }
 async function confirmColor() {
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!.click());

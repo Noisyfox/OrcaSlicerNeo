@@ -41,6 +41,9 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
       return [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth].every(width => width === '0px');
     }))).toBe(true);
     await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+    await page.getByRole('group', { name: 'Color spectrum', exact: true }).click({ button: 'right' });
+    await expect(page.getByTestId('filament-edit-1')).toHaveCount(0);
+    await expect(popup).toBeVisible();
     const anchorBounds = (await trigger.boundingBox())!;
 
     await expect.poll(async () => {
@@ -55,6 +58,11 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
       const favorites = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
       return Math.abs(presets.y + presets.height - favorites.y - favorites.height);
     }).toBeLessThan(2);
+    const modeBounds = (await page.locator('[data-slot="color-picker-mode-row"]').boundingBox())!;
+    const redBounds = (await page.getByRole('spinbutton', { name: 'R value', exact: true }).boundingBox())!;
+    const blueBounds = (await page.getByRole('spinbutton', { name: 'B value', exact: true }).boundingBox())!;
+    const gridBounds = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
+    expect(Math.abs((gridBounds.y - blueBounds.y - blueBounds.height) - (redBounds.y - modeBounds.y - modeBounds.height))).toBeLessThan(2);
     const presets = page.getByLabel('Preset colors', { exact: true });
     const favoriteBounds = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
     await presets.hover();
@@ -69,11 +77,39 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(page.getByRole('spinbutton', { name: 'Alpha value', exact: true })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toHaveCount(0);
-    await editHex(page, '#2357AB');
+    const hexInput = page.getByRole('textbox', { name: 'HEX color', exact: true });
+    await hexInput.fill('');
+    await hexInput.pressSequentially('235');
+    await expect(hexInput).toHaveValue('235');
+    await hexInput.pressSequentially('7ab');
+    await expect(hexInput).toHaveValue('2357ab');
+    await expect(page.getByRole('spinbutton', { name: 'R value', exact: true })).toHaveValue('35');
     await expect(trigger).toHaveAttribute('value', original!);
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('2357AB');
+    await expect(page.getByRole('spinbutton', { name: 'R value', exact: true })).toHaveValue('35');
     await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#2357AB' }, ...hidden]);
     await expect(page.getByRole('button', { name: 'Favorite #2357AB', exact: true })).toBeVisible();
+    const favorite = page.getByRole('button', { name: 'Favorite #2357AB', exact: true });
+    const favoriteBox = (await favorite.boundingBox())!;
+    const swatchBox = (await favorite.locator('[aria-hidden="true"]').boundingBox())!;
+    const emptyBox = (await page.getByLabel('Favorite colors', { exact: true }).locator(':scope > span').first().boundingBox())!;
+    expect(favoriteBox.width).toBeGreaterThan(favoriteBox.height);
+    expect(Math.abs(favoriteBox.width - swatchBox.width)).toBeLessThan(1);
+    expect(Math.abs(favoriteBox.height - swatchBox.height)).toBeLessThan(1);
+    expect(Math.abs(favoriteBox.width - emptyBox.width)).toBeLessThan(1);
+    expect(Math.abs(favoriteBox.height - emptyBox.height)).toBeLessThan(1);
+    await editHex(page, '#456789');
+    await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
+    await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#456789' }, { kind: 'solid', color: '#2357AB' }, ...hidden]);
+    await favorite.click();
+    await page.getByRole('textbox', { name: 'HEX color', exact: true }).hover();
+    await expect(page.getByRole('button', { name: 'Remove favorite #2357AB', exact: true })).toHaveCSS('opacity', '0');
+    await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
+    await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#2357AB' }, { kind: 'solid', color: '#456789' }, ...hidden]);
+    await page.getByRole('button', { name: 'Favorite #456789', exact: true }).hover();
+    await page.getByRole('button', { name: 'Remove favorite #456789', exact: true }).click();
+    await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#2357AB' }, ...hidden]);
     await page.screenshot({ path: test.info().outputPath('color-picker.png') });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(trigger).toHaveAttribute('value', original!);
@@ -110,7 +146,18 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByTestId('filament-colour-1').click();
     await expect(page.getByRole('button', { name: 'Favorite #2357AB', exact: true })).toBeVisible();
     const remove = page.getByRole('button', { name: 'Remove favorite #2357AB', exact: true });
-    await remove.focus(); await remove.click();
+    const favorite = page.getByRole('button', { name: 'Favorite #2357AB', exact: true });
+    await favorite.focus();
+    await favorite.press('Tab');
+    await expect(remove).toBeFocused();
+    await expect(remove).toHaveCSS('opacity', '1');
+    await expect.poll(() => remove.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return [[rect.left + 3, rect.top + 3], [rect.right - 3, rect.top + 3],
+        [rect.left + 3, rect.bottom - 3], [rect.right - 3, rect.bottom - 3]]
+        .every(([x, y]) => element.contains(document.elementFromPoint(x, y)));
+    })).toBe(true);
+    await remove.click();
     await expect.poll(() => saved().colorPicker.favorites).toEqual(hidden);
     expect(saved().ui.sidebarWidth).toBe(320);
   } finally { await second.app.close(); }

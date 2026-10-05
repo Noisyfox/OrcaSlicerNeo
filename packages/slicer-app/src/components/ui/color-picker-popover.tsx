@@ -18,6 +18,7 @@ function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', .
   const [draft, setDraft] = useState(() => formatColorValue(value, props.enableAlpha, props.enableGradient));
   const [valid, setValid] = useState(true);
   return <PopoverContent align="start" sideOffset={6}
+    onContextMenu={event => event.stopPropagation()}
     className="max-h-[min(90vh,var(--available-height))] w-[550px] max-w-[calc(100vw-24px)] gap-3 p-3">
     <PopoverTitle className="sr-only">{title}</PopoverTitle>
     <ColorPicker {...props} className="min-h-0 flex-1" value={draft} onChange={setDraft} onValidityChange={setValid} />

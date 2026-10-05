@@ -98,7 +98,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   const [mode, setMode] = useState('rgb');
   const [paletteId, setPaletteId] = useState('basic');
   const [paletteSearch, setPaletteSearch] = useState('');
-  const [hexText, setHexText] = useState(rgbaToHex(hslaToRgba(color), enableAlpha));
+  const [hexText, setHexText] = useState(rgbaToHex(hslaToRgba(color), enableAlpha).slice(1));
   const memories = useRef<Partial<Record<'solid' | 'start' | 'end', HslaColor>>>({});
   const lastSolid = useRef<ColorValue>({ kind: 'solid', color: hex });
   const lastGradient = useRef<ColorValue>({ kind: 'linear-gradient', start: hex, end: '#FFFFFF' });
@@ -110,18 +110,19 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
       if (!enableAlpha) rgb.a = 1;
       if (emitted.current === `${colorKey}:${rgbaToHex(rgb, enableAlpha)}:${enableAlpha}`) return;
       const next = rgbaToHsla(rgb, memories.current[colorKey]);
-      memories.current[colorKey] = next; setColor(next); setHexText(rgbaToHex(rgb, enableAlpha));
+      memories.current[colorKey] = next; setColor(next); setHexText(rgbaToHex(rgb, enableAlpha).slice(1));
     }
   }, [hex, colorKey, enableAlpha]);
   const format = (hex: string) => rgbaToHex(hexToRgba(hex) ?? { r: 0, g: 0, b: 0, a: 1 }, enableAlpha);
   const outputValue = (next: ColorValue): ColorValue => next.kind === 'solid'
     ? { kind: 'solid', color: format(next.color) }
     : { kind: 'linear-gradient', start: format(next.start), end: format(next.end) };
-  const publish = (next: HslaColor) => {
+  const publish = (next: HslaColor, syncHex = true) => {
     if (!enableAlpha) next = { ...next, a: 1 };
     const output = rgbaToHex(hslaToRgba(next), enableAlpha);
     emitted.current = `${colorKey}:${output}:${enableAlpha}`;
-    memories.current[colorKey] = next; setColor(next); setHexText(output);
+    memories.current[colorKey] = next; setColor(next);
+    if (syncHex) setHexText(output.slice(1));
     const result: ColorValue = isGradient && value.kind === 'linear-gradient'
       ? outputValue({ ...value, [endpoint]: output }) : { kind: 'solid', color: output };
     if (result.kind === 'solid') lastSolid.current = result; else lastGradient.current = result;
@@ -185,11 +186,15 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
         </Tabs>}
         <Field orientation="horizontal" className="ml-auto min-w-0 flex-1 gap-1" data-invalid={hexInvalid || undefined}>
           <FieldLabel htmlFor={hexId} className="shrink-0">#</FieldLabel>
-          <Input id={hexId} aria-label="HEX color" className="min-w-0 border-0 rounded-sm" value={hexText.replace(/^#/, '')} aria-invalid={hexInvalid} disabled={disabled} spellCheck={false}
+          <Input id={hexId} aria-label="HEX color" className="min-w-0 border-0 rounded-sm" value={hexText} aria-invalid={hexInvalid} disabled={disabled} spellCheck={false}
             onChange={event => {
               setHexText(event.target.value);
               const rgb = hexToRgba(event.target.value);
-              if (rgb && (enableAlpha || rgb.a === 1)) { publish(rgbaToHsla(rgb, color)); }
+              if (rgb && (enableAlpha || rgb.a === 1)) publish(rgbaToHsla(rgb, color), false);
+            }}
+            onBlur={event => {
+              const rgb = hexToRgba(event.currentTarget.value);
+              if (rgb && (enableAlpha || rgb.a === 1)) setHexText(rgbaToHex(rgb, enableAlpha).slice(1));
             }} />
         </Field>
       </div>
@@ -206,26 +211,26 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
           gradient={`linear-gradient(to right, ${rgbaToHex({ ...rgba, a: 0 }, true)}, ${rgbaToHex({ ...rgba, a: 1 }, true)})`}
           onChange={next => publish({ ...color, a: next / 100 })} />}
       </FieldGroup>
-      <div className="flex min-w-0 gap-2 pt-2">
+      <div className="flex min-w-0 gap-2">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="sr-only">Favorites ({allFavorites.length}/{MAX_COLOR_FAVORITES})</span>
         {full && <span role="status" className="text-xs text-muted-foreground">Remove a favorite to add another color.</span>}
         <div className="grid grid-cols-8 gap-1" aria-label="Favorite colors">
-          {visibleFavorites.map(item => <div key={colorValueKey(item)} className="group relative">
-            <Button variant="input" size="icon-sm" className="w-full" aria-label={`Favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled} onClick={() => {
+          {visibleFavorites.map(item => <div key={colorValueKey(item)} className="group relative h-6 min-w-0">
+            <Button variant="input" size="icon-sm" className="h-full w-full border-0 p-0" aria-label={`Favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled} onClick={() => {
               if (item.kind === 'solid' && isGradient) { lastSolid.current = item; onChange(outputValue(item)); } else select(item);
             }}>
-              <ColorSwatch value={item} className="size-5" />
+              <ColorSwatch value={item} className="size-full" />
             </Button>
-            {onFavoriteRemove && <Button variant="secondary" size="icon-xs" className="pointer-events-none absolute -top-2 -right-2 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+            {onFavoriteRemove && <Button variant="secondary" size="icon-xs" className="pointer-events-none absolute -top-2 -right-2 z-10 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
               aria-label={`Remove favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled || !favoritesReady} onClick={() => onFavoriteRemove(item)}><XIcon /></Button>}
           </div>)}
           {Array.from({ length: MAX_COLOR_FAVORITES - visibleFavorites.length }, (_, i) => <span key={i} aria-hidden="true" className="h-6 rounded-sm bg-control-background" />)}
         </div>
       </div>
       <div className="flex w-20 shrink-0 flex-col gap-1">
-        <Button variant="input" size="sm" aria-label="Add favorite color" disabled={disabled || !favoritesReady || !onFavoriteAdd || full || alreadySaved || hexInvalid}
-          onClick={() => onFavoriteAdd?.(current)}><PlusIcon data-icon="inline-start" /></Button>
+        <Button variant="settings" size="sm" className="disabled:opacity-100" aria-label="Add favorite color" title={alreadySaved ? 'Move favorite to first' : 'Add favorite color'} disabled={disabled || !favoritesReady || !onFavoriteAdd || (full && !alreadySaved) || hexInvalid}
+          onClick={() => onFavoriteAdd?.(current)}><PlusIcon data-icon="inline-start" className="group-disabled/button:opacity-50" /></Button>
         <ColorSwatch value={current} className="min-h-10 min-w-0 flex-1" />
       </div>
       </div>

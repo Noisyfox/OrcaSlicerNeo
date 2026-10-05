@@ -614,6 +614,7 @@ describe('PresetEditorDialog', () => {
     await click(document.querySelector('[data-testid="preset-editor-page-tab-filament"]'));
     await click(document.querySelector('[data-testid="preset-editor-input-default_filament_colour"]'));
     await changeInput(document.querySelector('input[aria-label="HEX color"]') as HTMLInputElement, '#223344');
+    await act(async () => document.querySelector('input[aria-label="HEX color"]')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
     const beforeColor = onMutate.mock.calls.length;
     await click([...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!);
     expect(onMutate.mock.calls.length).toBe(beforeColor + 1);

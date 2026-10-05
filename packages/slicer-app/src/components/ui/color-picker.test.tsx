@@ -24,6 +24,29 @@ async function fill(container: HTMLElement, label: string, value: string) {
   });
 }
 const button = (container: HTMLElement, label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+async function blurHex(container: HTMLElement) {
+  await act(async () => container.querySelector('input[aria-label="HEX color"]')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+}
+
+it('previews HEX edits immediately without rewriting text until blur, and preserves the last valid color', async () => {
+  const changed = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState<ColorValue>({ kind: 'solid', color: '#123456' });
+    return <ColorPicker value={value} onChange={next => { setValue(next); changed(next); }} />;
+  }
+  const container = await mount(<Picker />);
+  await fill(container, 'HEX color', '#aBc');
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('#aBc');
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="R value"]')!.value).toBe('170');
+  expect(changed).toHaveBeenCalledExactlyOnceWith({ kind: 'solid', color: '#AABBCC' });
+  await blurHex(container);
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('AABBCC');
+  expect(changed).toHaveBeenCalledTimes(1);
+  await fill(container, 'HEX color', 'invalid');
+  await blurHex(container);
+  expect(changed).toHaveBeenCalledTimes(1);
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="R value"]')!.value).toBe('170');
+});
 
 it('synchronizes RGB/HEX and keyboard spectrum editing without coupling instances', async () => {
   const changed = vi.fn();
@@ -42,7 +65,7 @@ it('synchronizes RGB/HEX and keyboard spectrum editing without coupling instance
   expect(first.querySelector('input[aria-label="HEX color"]')!.getAttribute('aria-invalid')).toBe('true');
 });
 
-it('adds only valid unsaved favorites, exposes removal and never evicts at capacity', async () => {
+it('adds valid favorites, permits promoting an existing color at capacity and never evicts', async () => {
   const add = vi.fn(), remove = vi.fn();
   const favorite: ColorValue = { kind: 'solid', color: '#112233' };
   const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#0000FF' }} onChange={() => undefined}
@@ -55,6 +78,11 @@ it('adds only valid unsaved favorites, exposes removal and never evicts at capac
     favorites={Array.from({ length: 24 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }))} onFavoriteAdd={add} />);
   expect(button(full, 'Add favorite color').disabled).toBe(true);
   expect(full.textContent).toContain('Remove a favorite');
+  const promote = await mount(<ColorPicker value={{ kind: 'solid', color: '#000007' }} onChange={() => undefined}
+    favorites={Array.from({ length: 24 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }))} onFavoriteAdd={add} />);
+  expect(button(promote, 'Add favorite color').disabled).toBe(false);
+  await act(async () => button(promote, 'Add favorite color').click());
+  expect(add).toHaveBeenLastCalledWith({ kind: 'solid', color: '#000007' });
 });
 
 it('uses pointer capture, clamps dragging outside the spectrum and stops on cancellation', async () => {
@@ -117,6 +145,7 @@ it('dialog commits once, cancels drafts, retains explicit favorites and restores
   const trigger = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Open picker')!;
   await act(async () => trigger.click());
   await fill(document.body, 'HEX color', '#654321');
+  await blurHex(document.body);
   await act(async () => button(document.body, 'Add favorite color').click());
   expect(favorite).toHaveBeenCalledWith({ kind: 'solid', color: '#654321' });
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Cancel')!.click());
@@ -124,6 +153,7 @@ it('dialog commits once, cancels drafts, retains explicit favorites and restores
   await act(async () => trigger.click());
   expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('123456');
   await fill(document.body, 'HEX color', '#ABCDEF');
+  await blurHex(document.body);
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Confirm')!.click());
   expect(confirm).toHaveBeenCalledExactlyOnceWith({ kind: 'solid', color: '#ABCDEF' });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });

@@ -27,4 +27,10 @@ it('keeps a full collection intact instead of evicting a favorite', async () => 
   const repository: UserPreferencesRepository = { async load() { return saved; }, async save(next) { saved = next; } };
   const colors = createColorFavorites(repository); await colors.add({ kind: 'solid', color: '#FFFFFF' });
   expect(saved.colorPicker!.favorites).toEqual(initial);
+  await colors.add({ kind: 'solid', color: '#000007FF' });
+  const reordered = [initial[7], ...initial.filter((_, index) => index !== 7)];
+  expect(colors.getSnapshot().favorites).toEqual(reordered);
+  expect(saved.colorPicker!.favorites).toEqual(reordered);
+  const restored = createColorFavorites(repository); await restored.load();
+  expect(restored.getSnapshot().favorites).toEqual(reordered);
 });

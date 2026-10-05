@@ -21,6 +21,8 @@ to the clicked color button, aligns to its start edge, and automatically shifts
 or flips to remain inside the viewport. Outside clicks cancel the draft without
 blocking the rest of the application. Nested preset-editor popovers preserve
 their parent dialog when dismissed.
+Right clicks inside the color popup do not open the enclosing filament card's
+context menu. Native input editing menus retain their established behavior.
 
 `enableAlpha` and `enableGradient` default to false. Values are discriminated
 solid colors or fixed-direction, two-endpoint linear gradients. Opaque output
@@ -37,10 +39,16 @@ use a checkerboard. The panel has a scrollable preset palette beside the
 editor. The palette selector reuses the settings panel's searchable Combobox,
 including its shared trigger and popup style. Beneath the spectrum, one row
 contains RGB/HSL tabs, optional gradient endpoint tabs, and HEX input. Channel
-controls follow. Inputs, swatches, favorite slots, and secondary actions use
+controls follow. Valid HEX typing updates channels and preview immediately
+without rewriting the text or caret; case, short forms, and a pasted hash
+remain intact until blur normalizes the display. Invalid edits retain the last
+valid color and display validation feedback. The add-favorite button has
+a persistent NEO settings-button surface, including while disabled.
+Inputs, swatches, favorite slots, and secondary actions use
 NEO's borderless control surfaces; focus rings and invalid-input feedback remain.
 Favorites occupy the lower-left grid; the add action and
-preview stack on its right. Tabs use NEO's neutral line variant. The preset list stretches to align
+preview stack on its right. Occupied and empty favorite slots are equal rectangles;
+color swatches fill occupied slots without an inset. Tabs use NEO's neutral line variant. The preset list stretches to align
 with the bottom of the favorites grid and scrolls independently. The popup
 itself does not scroll; the spectrum can shrink when vertical space is limited.
 Preset palettes are replaceable data; RAL colors from the reference are display approximations.
@@ -56,6 +64,11 @@ Normalization filters malformed data, canonicalizes colors, and removes
 duplicates. Opaque six/eight-digit equivalents are identical.
 
 Explicit additions/removals save immediately. New favorites appear first.
+Adding an existing favorite moves it to the first position without duplicating
+it, including when the collection is full. Removal controls render above their
+neighboring swatches so the complete button remains clickable. They hide after
+the mouse leaves, even when a clicked swatch retains focus; visible keyboard
+focus continues to expose removal controls.
 There are at most 24 entries; a full collection requires removal rather than
 silent eviction. Alpha-disabled instances hide translucent entries and
 gradient-disabled instances hide gradient entries without deleting them.
