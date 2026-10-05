@@ -16,6 +16,7 @@ import { cn } from 'cn';
 import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, Search } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { printSettingsPages, printSettingPlacement, isVisiblePrintSetting, printSettingsGroups } from './printSettingsLayout';
+import { optionTooltip } from './optionTooltip';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -101,11 +102,14 @@ export const ScopedField = memo(function ScopedField({
   const onDiscrete = (value: string) => { setDraft(value); void commit(value); };
   const reset = () => { void onReset(field).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); };
   const label = field.label;
+  const defaultValue = useSettingsStore((state) => state.tooltipDefaults[field.key]);
+  const optionHelp = optionTooltip(field.meta, field.key, field.label, defaultValue);
   const row = 'grid grid-cols-[minmax(0,1fr)_minmax(0,40%)] items-center gap-2 px-1 py-0.5 min-h-7';
   const labelCls = 'min-w-0 flex-1 truncate text-[13px] font-normal text-muted-foreground';
   const displayed = draft;
   const canStep = isScalar(field.meta) || field.meta.type === 'percent' || field.meta.type === 'float_or_percent';
   const step = field.meta.type === 'float' || field.meta.type === 'float_or_percent' ? 0.1 : 1;
+  const numericDraft = /^-?(?:\d+\.?\d*|\.\d+)%?$/.test(draft.trim()) ? Number.parseFloat(draft) : NaN;
   const adjust = (direction: number) => {
     if (!/^-?(?:\d+\.?\d*|\.\d+)%?$/.test(draft.trim())) return;
     const number = Number.parseFloat(draft);
@@ -113,11 +117,11 @@ export const ScopedField = memo(function ScopedField({
     onDiscrete(`${next}${draft.trim().endsWith('%') ? '%' : ''}`);
   };
   const hasEditableLocalOverride = field.local && field.resettable;
-  const tooltip = valueTooltip(field);
+  const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${valueTooltip(field)}`}</span>;
 
   let control;
   if (field.meta.type === 'bool' && !field.mixed) {
-    control = <TooltipFor content={tooltip}><Checkbox
+    control = <TooltipFor content={tooltip} nonInteractive><Checkbox
       id={`scoped-${field.key}`}
       className="size-5 after:inset-0"
       checked={displayed === '1'}
@@ -127,13 +131,13 @@ export const ScopedField = memo(function ScopedField({
     const selectedIndex = field.meta.enum_values.indexOf(displayed);
     const selectedLabel = field.meta.enum_labels?.[selectedIndex] ?? displayed;
     control = <Select value={displayed} onValueChange={(value) => value != null && onDiscrete(value)}>
-      <TooltipFor content={tooltip}>
+      <TooltipFor content={tooltip} nonInteractive>
         <SelectTrigger variant="sidebar" id={`scoped-${field.key}`} size="sm" className="w-full" data-testid={`config-input-${field.key}`}><SelectValue>{selectedLabel}</SelectValue></SelectTrigger>
       </TooltipFor>
       <SelectContent>{field.meta.enum_values.map((value, index) => <SelectItem key={value} value={value}>{field.meta.enum_labels?.[index] ?? value}</SelectItem>)}</SelectContent>
     </Select>;
   } else {
-    control = <div className="flex h-6 min-w-0 items-center rounded-sm bg-control-background focus-within:ring-1 focus-within:ring-ring"><TooltipFor content={tooltip}><Input
+    control = <div className="flex h-6 min-w-0 items-center rounded-sm bg-control-background focus-within:ring-1 focus-within:ring-ring"><TooltipFor content={tooltip} nonInteractive><Input
         id={`scoped-${field.key}`}
         data-testid={`config-input-${field.key}`}
         value={displayed}
@@ -155,9 +159,9 @@ export const ScopedField = memo(function ScopedField({
       /></TooltipFor>
       {canStep && <div className="flex shrink-0 gap-px pr-0.5">
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-[2px] rounded-r-none [&>svg]:size-3"
-          aria-label={`Decrease ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(-1)}><Minus /></Button>
+          aria-label={`Decrease ${field.label}`} disabled={commitPending || field.mixed || numericDraft <= (field.meta.min ?? -Infinity)} onClick={() => adjust(-1)}><Minus /></Button>
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-none rounded-r-[2px] [&>svg]:size-3"
-          aria-label={`Increase ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(1)}><Plus /></Button>
+          aria-label={`Increase ${field.label}`} disabled={commitPending || field.mixed || numericDraft >= (field.meta.max ?? Infinity)} onClick={() => adjust(1)}><Plus /></Button>
       </div>}
       </div>;
   }
@@ -165,7 +169,7 @@ export const ScopedField = memo(function ScopedField({
     <div data-testid={`config-field-${field.key}`} className="space-y-0.5">
       <div className={row}>
         <div className="flex min-w-0 items-center gap-1">
-        <TooltipFor content={field.meta.tooltip ?? field.label}>
+        <TooltipFor content={<span className="whitespace-pre-line">{optionHelp}</span>} nonInteractive>
           <Label
             htmlFor={`scoped-${field.key}`}
             data-testid={`config-option-label-${field.key}`}

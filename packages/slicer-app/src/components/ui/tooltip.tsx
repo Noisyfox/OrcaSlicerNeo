@@ -19,13 +19,14 @@ function TooltipProvider({ delay = TOOLTIP_DELAY_MS, ...props }: TooltipPrimitiv
 
 function TooltipContent({
   className,
+  nonInteractive = false,
   side = "top",
   sideOffset = 4,
   align = "center",
   alignOffset = 0,
   children,
   ...props
-}: TooltipPrimitive.Popup.Props &
+}: TooltipPrimitive.Popup.Props & { nonInteractive?: boolean } &
   Pick<
     TooltipPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset"
@@ -37,12 +38,13 @@ function TooltipContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        className="isolate z-50"
+        className={cn("isolate z-50", nonInteractive && "pointer-events-none")}
       >
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           className={cn(
             "z-50 inline-flex w-fit max-w-xs origin-(--transform-origin) items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs text-background shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            nonInteractive && "pointer-events-none",
             className
           )}
           {...props}
@@ -59,10 +61,12 @@ function TooltipFor({
   children,
   content,
   disabled = false,
+  nonInteractive = false,
 }: {
   children: ReactElement
   content: ReactNode
   disabled?: boolean
+  nonInteractive?: boolean
 }) {
   const trigger = disabled ? <span className="inline-flex">{children}</span> : children
   return (
@@ -70,7 +74,7 @@ function TooltipFor({
     // Remount the root on that transition so Base UI binds the replacement node.
     <Tooltip key={disabled ? "disabled-trigger" : "enabled-trigger"}>
       <TooltipTrigger render={trigger} />
-      <TooltipContent>{content}</TooltipContent>
+      <TooltipContent nonInteractive={nonInteractive}>{content}</TooltipContent>
     </Tooltip>
   )
 }

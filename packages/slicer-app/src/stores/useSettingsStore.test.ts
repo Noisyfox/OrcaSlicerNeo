@@ -73,6 +73,21 @@ describe('useSettingsStore', () => {
     });
   });
 
+  it('refreshes native parent tooltip defaults independently of effective and scoped values', () => {
+    useSettingsStore.getState().hydrateProfileSnapshot({ ...bootSnapshot,
+      project_config: { layer_height: '0.3' }, tooltip_defaults: { layer_height: '0.2' } });
+    useSettingsStore.getState().applyNativeScopedConfigTransport(full({
+      project: { layer_height: '0.4' }, objects: {}, parts: {}, plates: {},
+    }));
+    expect(useSettingsStore.getState().values.layer_height).toBe('0.4');
+    expect(useSettingsStore.getState().tooltipDefaults.layer_height).toBe('0.2');
+    useSettingsStore.getState().hydrateProfileSnapshot({ ...bootSnapshot,
+      tooltip_defaults: { layer_height: '0.1' } });
+    expect(useSettingsStore.getState().tooltipDefaults.layer_height).toBe('0.1');
+    useSettingsStore.getState().hydrateProfileSnapshot(bootSnapshot);
+    expect(useSettingsStore.getState().tooltipDefaults).toEqual({});
+  });
+
   it('does not carry old scoped values into a new profile snapshot', () => {
     useSettingsStore.getState().applyNativeScopedConfigTransport(full({
       project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},

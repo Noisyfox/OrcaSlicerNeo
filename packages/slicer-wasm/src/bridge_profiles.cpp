@@ -217,6 +217,7 @@ json option_def_to_json(const ConfigOptionDef& def)
     if (!def.label.empty()) result["label"] = def.label;
     if (!def.full_label.empty()) result["full_label"] = def.full_label;
     if (!def.tooltip.empty()) result["tooltip"] = def.tooltip;
+    if (!def.sidetext.empty()) result["sidetext"] = def.sidetext;
     if (!def.category.empty()) result["category"] = def.category;
     result["mode"] = int(def.mode);
     if (!def.enum_values.empty()) result["enum_values"] = def.enum_values;
@@ -405,7 +406,13 @@ const json& option_metadata_json()
 json preset_snapshot_json()
 {
     const auto bed_resources = selected_printer_bed_resources();
+    json tooltip_defaults = json::object();
+    if (const Preset* parent = state().presets.prints.get_selected_preset_parent())
+        for (const std::string& key : parent->config.keys())
+            if (const ConfigOption* option = parent->config.option(key))
+                tooltip_defaults[key] = option->serialize();
     return json{{"ok", true},
+                {"tooltip_defaults", std::move(tooltip_defaults)},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
                 {"prints", preset_candidates_json(state().presets.prints, true)},
                 {"filament_catalog", preset_candidates_json(state().presets.filaments, true, false)},

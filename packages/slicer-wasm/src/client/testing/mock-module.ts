@@ -77,7 +77,7 @@ export interface MockModule {
 
 export interface MockModuleOptions {
   sliceFixture?: MockSliceFixture;
-  metadataKeys?: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }>;
+  metadataKeys?: Record<string, { type: string; enum_values?: string[]; sidetext?: string; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }>;
   printErr?: (msg: string) => void;
   /** Number of instances initially exposed by getModelMesh. */
   instanceCount?: number;
@@ -216,14 +216,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { id: 2, role: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
     ],
   };
-  const metadata: Record<string, { type: string; enum_values?: string[]; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }> =
+  const metadata: Record<string, { type: string; enum_values?: string[]; sidetext?: string; min?: number; max?: number; category?: string; scopes?: readonly NativeScopedConfigScope[] }> =
     opts.metadataKeys ?? {
       // Keep the mock catalogue aligned with bridge_profiles.cpp. Plate scope
       // is limited to the explicit editable override keys; native BBS plate
       // metadata/config fields outside this catalogue are not generic targets.
       layer_height: { type: 'float', scopes: ['project', 'object'] },
       wall_loops: { type: 'int', scopes: ['object', 'part'] },
-      sparse_infill_density: { type: 'percent', scopes: ['object', 'part'] },
+      sparse_infill_density: { type: 'percent', min: 0, max: 100, sidetext: '%', scopes: ['object', 'part'] },
       sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'], scopes: ['object', 'part'] },
       enable_support: { type: 'bool', scopes: ['object'] },
       nozzle_temperature: { type: 'float', category: 'Temperature', scopes: ['project'] },
@@ -367,6 +367,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       filament_catalog: candidates('filament').map(filamentEntry),
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
+      tooltip_defaults: { layer_height: '0.2', sparse_infill_density: '20%' },
       bed_model: '',
       bed_texture: '',
       printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area

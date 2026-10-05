@@ -391,6 +391,8 @@ export interface ProfileSnapshot {
    * Worker-owned and composes the native project and plate configs.
    */
   project_config?: Record<string, string>;
+  /** Serialized defaults from the selected Process preset's native parent. */
+  tooltip_defaults?: Record<string, string>;
 }
 
 /** A bridge rejection has no partial snapshot and leaves engine state unchanged. */
@@ -411,6 +413,10 @@ export interface OptionMeta {
   label?: string;
   full_label?: string;
   tooltip?: string;
+  /** Native unit suffix used by Orca option tooltips. */
+  sidetext?: string;
+  /** Serialized native parent-preset value; absent when no parent value exists. */
+  tooltip_default?: string;
   category?: string;
   mode?: number;
   enum_values?: string[];

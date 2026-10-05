@@ -169,6 +169,11 @@ const areaBounds = printableArea.reduce((bounds, point) => ({
 const meta = callJson('orc_get_option_metadata', [], []);
 check('orc_get_option_metadata has layer_height',
       meta.layer_height?.type === 'float', JSON.stringify(meta.layer_height));
+check('option metadata preserves native tooltip units',
+      meta.layer_height?.sidetext === 'mm' && meta.sparse_infill_density?.sidetext === '%');
+check('profile snapshot supplies inherited tooltip defaults',
+      typeof selectedSnapshot.tooltip_defaults?.layer_height === 'string'
+      && Number.isFinite(Number(selectedSnapshot.tooltip_defaults.layer_height)));
 // Drift at the pinned SHA: the infill-pattern option is sparse_infill_pattern
 // (PrintConfig.cpp:3410) — there is no fill_pattern key (renamed upstream);
 // orc_get_option_metadata reflects the pinned names.
@@ -1026,4 +1031,3 @@ if (failures > 0) {
   console.error(`bridge smoke failed: ${failures} check(s)`);
   process.exitCode = 1;
 }
-

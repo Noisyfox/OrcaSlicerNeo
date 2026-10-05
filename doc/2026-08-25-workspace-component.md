@@ -186,6 +186,25 @@ transparent in both light and dark CSS states. Focus rings remain visible.
 The 2026-10-04 number-stepper styling uses two dark 18px buttons separated by
 a 1px gap, with square inner corners and 2px outer corners. Gray plus/minus
 icons use heavier strokes with flat ends, matching the supplied reference.
+Numeric option steppers disable the decrease button at or below the native
+minimum and the increase button at or above the native maximum. Their state
+tracks the displayed draft and native effective-value updates; mixed values
+and pending commits continue to disable both buttons.
+Option-label and input tooltips include Orca's `parameter name`, with indexed
+elements displayed as `key[index]`. `Default` uses serialized native parent
+Process preset values supplied by each profile snapshot, independent of local
+overrides and static option-definition defaults. Numeric defaults use the same
+number and unit formatting as ranges; booleans use `true`/`false`, strings
+preserve their text, and empty strings display `Empty string`. Enums and other
+specialized types only show the parameter name and help, as in Orca.
+Tooltips append Orca's `Range: [min, max]` for scalar and vector
+numeric types only when both bounds are strictly inside the native `FLT_MAX`
+sentinels. Endpoints use up to four decimal places without trailing zeros and
+the native unit suffix, including Orca's space before `layers` and the
+parent value's unit choice for float-or-percent options. Single-sided ranges
+are omitted. Without a native parent value, both Default and Range are omitted.
+Input tooltips also retain their effective-value-source message.
+Configuration tooltips do not intercept pointer input over nearby controls.
 Input-associated buttons share the same dark background and gray foreground
 tokens, including Select/Combobox arrows and inline Combobox clear buttons.
 Checkboxes use a borderless dark rounded outer square in both states. The
