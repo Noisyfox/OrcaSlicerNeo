@@ -204,7 +204,7 @@ describe('shared painting command admission', () => {
     const plateId = session.currentPlateId, inputStamp = session.inputRevisions![plateId];
     const store = useSlicerStore.getState(); store.invalidateSliceResult();
     const receipt = { plateId, inputStamp, resultGeneration: '1', sliceTaskId: 'test' };
-    store.setPlateResult(receipt); store.activatePlateResult(plateId, inputStamp);
+    store.setPlateResult(receipt, [], {}); store.activatePlateResult(plateId, inputStamp);
     const settle = vi.spyOn(runtime, 'settlePainting');
     const slice = vi.spyOn(runtime, 'slicePlate');
     const exported = vi.spyOn(runtime, 'exportGcodePlate').mockResolvedValue({ ok: true, path: '/output.gcode', bytes: new Uint8Array([1]) });

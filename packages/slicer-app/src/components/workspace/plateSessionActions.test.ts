@@ -110,8 +110,8 @@ describe('plate selection actions', () => {
 
   it('cancels only the active threaded plate named by a structural receipt', () => {
     usePlateSessionStore.getState().setSnapshot(plateA);
-    useSlicerStore.getState().setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'a-1' });
-    useSlicerStore.getState().setPlateResult({ plateId: 'b', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'b-1' });
+    useSlicerStore.getState().setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'a-1' }, [], {});
+    useSlicerStore.getState().setPlateResult({ plateId: 'b', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'b-1' }, [], {});
     useSlicerStore.getState().setActiveSliceTarget({ plateId: 'a', inputRevision: 1 });
     const cancel = vi.fn(async () => undefined);
     const result = {
@@ -134,7 +134,7 @@ describe('plate selection actions', () => {
 
   it('cancels an active slice when structural plate deletion removes its identity', () => {
     usePlateSessionStore.getState().setSnapshot(plateA);
-    useSlicerStore.getState().setPlateResult({ plateId: 'b', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'b-1' });
+    useSlicerStore.getState().setPlateResult({ plateId: 'b', inputStamp: 1, resultGeneration: '1', sliceTaskId: 'b-1' }, [], {});
     useSlicerStore.getState().setActiveSliceTarget({ plateId: 'b', inputRevision: 1 });
     const cancel = vi.fn(async () => undefined);
     const result = {

@@ -5,6 +5,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createMockModule, type MockFeature } from './testing/mock-module';
 import { createClient, normalizeSceneDelta } from './client';
+import { writeBytes } from './heap';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
 
@@ -1976,6 +1977,27 @@ describe('SlicerClient bridge contract', () => {
     expect(r.unrecognized_keys).toEqual([]);
     expect(events).toContain(0);
     expect(events).toContain(100);
+  });
+
+  it.each([undefined, null, [], 'invalid'])('rejects a successful slice with invalid summary %j', async (summary) => {
+    const module = createMockModule();
+    const originalCall = module.ccall.bind(module);
+    vi.spyOn(module, 'ccall').mockImplementation((...args) => args[0] === 'orc_slice'
+      ? writeBytes(module, new TextEncoder().encode(JSON.stringify({ ok: true, unrecognized_keys: [], summary }) + '\0')) : originalCall(...args));
+    const client = createClient(async () => module);
+    await expect(client.slice({})).rejects.toThrow('slice bridge returned an invalid result summary');
+  });
+
+  it('accepts an empty successful summary and an error without summary', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall.bind(module);
+    const calls = vi.spyOn(module, 'ccall').mockImplementation((...args) => args[0] === 'orc_slice'
+      ? writeBytes(module, new TextEncoder().encode(JSON.stringify({ ok: true, unrecognized_keys: [], summary: {} }) + '\0')) : originalCall(...args));
+    const client = createClient(async () => module);
+    await expect(client.slice({})).resolves.toMatchObject({ ok: true, summary: {} });
+    calls.mockImplementation((...args) => args[0] === 'orc_slice'
+      ? writeBytes(module, new TextEncoder().encode(JSON.stringify({ error: 'slice failed' }) + '\0')) : originalCall(...args));
+    await expect(client.slice({})).resolves.toMatchObject({ ok: false, error: 'slice failed' });
   });
 
   it('returns finite plate totals at completion without fetching a toolpath projection', async () => {

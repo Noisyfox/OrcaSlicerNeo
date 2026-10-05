@@ -149,8 +149,8 @@ describe('commitScopedConfigurationMutation', () => {
 
   it('invalidates only the native affected plate for a scoped model override', async () => {
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
-    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' }, [], {});
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' }, [], {});
     const mutateNativeScopedConfig = vi.fn(async () => ({
       ok: true as const,
       nativeScopedConfig: affected('object', { layer_height: '0.15' }, '42'),
@@ -165,8 +165,8 @@ describe('commitScopedConfigurationMutation', () => {
 
   it('treats an explicit empty native affected set as a scoped no-op', () => {
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
-    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' }, [], {});
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' }, [], {});
     useSlicerStore.setState({ error: 'existing status' });
     const runtime = {
       cancel: vi.fn(async () => undefined),
@@ -182,8 +182,8 @@ describe('commitScopedConfigurationMutation', () => {
 
   it('invalidates every plate listed by a complete shared transition receipt', () => {
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
-    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' }, [], {});
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' }, [], {});
 
     invalidateAfterSharedConfigurationMutation(['plate-1', 'plate-2'], undefined, true);
 
@@ -315,7 +315,7 @@ describe('commitPresetDraftMutation', () => {
     };
     const platform = { runtime } as unknown as PlatformCapabilities;
     for (const plateId of ['plate-1', 'plate-2', 'unaffected-plate'])
-      useSlicerStore.getState().setPlateResult({ plateId, inputStamp: 1, resultGeneration: plateId, sliceTaskId: plateId } as never);
+      useSlicerStore.getState().setPlateResult({ plateId, inputStamp: 1, resultGeneration: plateId, sliceTaskId: plateId } as never, [], {});
     useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
     useFilamentSessionStore.setState({ snapshot: { revisions: { session: 1, project: 1, plates: {} } } as never });
 
@@ -350,7 +350,7 @@ describe('commitPresetDraftMutation', () => {
     const initialHistory = presetHistoryStatus(1);
     useHistoryNavigationStore.getState().setStatus(initialHistory);
     usePlateSessionStore.getState().setSnapshot(mutation as never);
-    useSlicerStore.getState().setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: 'before', sliceTaskId: 'before' } as never);
+    useSlicerStore.getState().setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: 'before', sliceTaskId: 'before' } as never, [], {});
     useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
     useSlicerStore.getState().setError('existing message');
 

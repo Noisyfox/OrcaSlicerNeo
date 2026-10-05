@@ -11,7 +11,7 @@ describe('slice result publication', () => {
       plates: [{ plateId: 'a', name: 'Plate 1', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], instanceIds: [1] },
         { plateId: 'b', name: 'Plate 2', displayIndex: 1, origin: [264, 0, 0] as [number, number, number], instanceIds: [2] }] };
     usePlateSessionStore.getState().setSnapshot(session);
-    useSlicerStore.getState().setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    useSlicerStore.getState().setPlateResult({ plateId: 'a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' }, [], {});
     useSlicerStore.getState().activatePlateResult('a', 1);
     const receipt = { plateId: 'b', inputStamp: 2, resultGeneration: '1', sliceTaskId: '2' };
     const runtime = { getPlateSessionSnapshot: vi.fn(async () => session),

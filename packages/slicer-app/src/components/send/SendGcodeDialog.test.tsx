@@ -110,7 +110,7 @@ describe('SendGcodeDialog', () => {
         plateId: 'plate-1', member: true, unprintable: false, outOfBounds: false }],
       inputRevisions: { 'plate-1': 1 } });
     useSlicerStore.setState({ sliceTarget: { plateId: 'plate-1', inputRevision: 1 },
-      plateResults: { 'plate-1': { target: { plateId: 'plate-1', inputRevision: 1 }, receipt, warnings: [] } } });
+      plateResults: { 'plate-1': { target: { plateId: 'plate-1', inputRevision: 1 }, receipt, warnings: [], summary: {} } } });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -140,7 +140,7 @@ describe('SendGcodeDialog', () => {
     const { platform, runtime } = makePlatform(new FixtureTransport());
     const { container, root } = await render(platform, 'send', 'p1', undefined, undefined, receipt); roots.push(root);
     // The cached result changes before React can commit disabled state.
-    useSlicerStore.getState().setPlateResult({ ...receipt, resultGeneration: '2', sliceTaskId: '2' });
+    useSlicerStore.getState().setPlateResult({ ...receipt, resultGeneration: '2', sliceTaskId: '2' }, [], {});
     await click(container, 'send-submit');
     expect(runtime.exportGcodePlate).not.toHaveBeenCalled();
   });

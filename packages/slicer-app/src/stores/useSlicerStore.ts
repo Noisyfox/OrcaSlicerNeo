@@ -25,7 +25,7 @@ export interface PlateSliceResult {
   receipt: SliceResultReceipt;
   /** Native advisory warnings scoped to this plate result. */
   warnings: readonly string[];
-  summary?: PreviewAnalysisSummary;
+  summary: PreviewAnalysisSummary;
 }
 
 export interface PlateSliceFailure { target: PlateOperationTarget; error: string; }
@@ -86,7 +86,7 @@ interface SlicerState {
   setResultExported: (exported: boolean) => void;
   setSliceTarget: (target: PlateOperationTarget | null) => void;
   setActiveSliceTarget: (target: PlateOperationTarget | null) => void;
-  setPlateResult: (receipt: SliceResultReceipt, warnings?: readonly string[], summary?: PreviewAnalysisSummary) => void;
+  setPlateResult: (receipt: SliceResultReceipt, warnings: readonly string[], summary: PreviewAnalysisSummary) => void;
   activatePlateResult: (plateId: string, inputRevision: number) => boolean;
   invalidatePlateResults: (plateIds: readonly string[]) => void;
   discardPlateResult: (plateId: string) => void;
@@ -136,12 +136,12 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setResultExported: (resultExported) => set({ resultExported }),
   setSliceTarget: (sliceTarget) => set({ sliceTarget }),
   setActiveSliceTarget: (activeSliceTarget) => set({ activeSliceTarget }),
-  setPlateResult: (receipt, warnings = [], summary) => set((state) => {
+  setPlateResult: (receipt, warnings, summary) => set((state) => {
     const target = { plateId: receipt.plateId, inputRevision: receipt.inputStamp };
     const { [target.plateId]: _failure, ...plateFailures } = state.plateFailures;
     return {
       plateFailures,
-      plateResults: { ...state.plateResults, [target.plateId]: { target, receipt, warnings: [...warnings], ...(summary ? { summary: { ...summary } } : {}) } },
+      plateResults: { ...state.plateResults, [target.plateId]: { target, receipt, warnings: [...warnings], summary: { ...summary } } },
       // Publish the selected plate result to the toolbar and active preview.
       ...(state.sliceTarget?.plateId === target.plateId || state.activeSliceTarget?.plateId === target.plateId
         ? {

@@ -83,8 +83,8 @@ describe('history restore coordinator', () => {
 
   it('restores immediately while cancellation remains pending and invalidates only affected plate results', async () => {
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
-    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 2, resultGeneration: '2', sliceTaskId: '2' });
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' }, [], {});
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 2, resultGeneration: '2', sliceTaskId: '2' }, [], {});
     slicer.setStatus('slicing');
     slicer.setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
     const cancellation = new Promise<never>(() => undefined);
@@ -226,7 +226,7 @@ describe('history restore coordinator', () => {
       affectedPlateIds: [], sceneDelta };
     useSlicerStore.getState().setPlateResult({
       plateId: 'plate-2', inputStamp: 2, resultGeneration: '8', sliceTaskId: '8',
-    });
+    }, [], {});
     const coordinator = createHistoryRestoreCoordinator({
       runtime: {
         undoHistory: vi.fn(async () => direct), redoHistory: vi.fn(async () => success(2)), jumpHistory: vi.fn(),
