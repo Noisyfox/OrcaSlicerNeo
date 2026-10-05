@@ -66,5 +66,17 @@ test('real bed selector uses native labels, global/local scope, keyboard and com
   expect(await value.evaluate(element => getComputedStyle(element).textOverflow)).toBe('ellipsis');
   expect(await global.getAttribute('title')).toContain(last);
   await page.screenshot({ path: testInfo.outputPath('plate-bed-narrow.png') });
+  const canvas = (await page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]').boundingBox())!;
+  await page.mouse.click(canvas.x + canvas.width - 40, canvas.y + 80, { button: 'right' });
+  await page.getByTestId('btn-add-primitive').click();
+  await page.getByTestId('btn-add-cube').click();
+  await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+  await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 30_000 });
+  await page.reload();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(global).toContainText(last);
   expect(pageErrors).toEqual([]);
 });

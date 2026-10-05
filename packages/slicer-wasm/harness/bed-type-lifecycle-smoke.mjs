@@ -1,7 +1,7 @@
 // Native bed-type validation, result retention, transactions and history.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { callAsyncTask, getSliceResult, exportGcode } from './async-task-mailbox.mjs';
+import { awaitAsyncTask, callAsyncTask, getSliceResult, exportGcode } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { setNativeScopedConfig, resetNativeScopedConfig, mutateNativeScopedConfig } from './native-scoped-command.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -71,6 +71,7 @@ stale(a);
 must(result(b));
 assert.equal(Module.FS.readFile(must(exportGcode(call, receipts.get(b))).path, { encoding: 'utf8' }), retainedGcode);
 pass('global bed change retains explicit-equal override stamps, result and export bytes');
+
 
 const noOpSession = session();
 const noOpConfig = config();
@@ -171,5 +172,18 @@ const both = must(mutateNativeScopedConfig(call, 'set', [{ scope: 'project' }],
   { values: { curr_bed_type: 'Engineering Plate', layer_height: '0.1' } }));
 assert.deepEqual(new Set(both.plate_session.affected_plate_ids), new Set([a, b]));
 pass('combined shared setting edit retains all-plate invalidation');
+const activeOverrideSlice = call('orc_slice_plate', ['string', 'string', 'number'], ['{}', b, session().input_revisions[b]]);
+if (activeOverrideSlice.accepted === true) {
+  const mailbox = call('orc_drain_async_task_mailbox');
+  assert.ok(!(mailbox.messages ?? []).some(message => message.type === 'task-terminal' && message.task_id === activeOverrideSlice.task_id), 'override slice remains admitted before unrelated global edit');
+}
+const unrelated = set('project', undefined, 'Textured PEI Plate');
+assert.deepEqual(unrelated.plate_session.affected_plate_ids, [a]);
+const activeOverrideResult = must(await awaitAsyncTask(call, activeOverrideSlice));
+must(getSliceResult(call, activeOverrideResult.receipt));
+if (activeOverrideSlice.accepted === true) pass('admitted threaded override slice completes across unrelated global bed edit without cancellation');
+receipts.set(b, activeOverrideResult.receipt);
+set('project', undefined, 'Textured PEI Plate');
+
 console.log('bed-type-lifecycle PASS all native lifecycle checks');
 process.exit(0);

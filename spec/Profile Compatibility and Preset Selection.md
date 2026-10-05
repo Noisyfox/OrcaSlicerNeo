@@ -122,3 +122,12 @@ configuration FIFO, so an immediately requested Slice waits for the committed
 bed value. Rejections release pending controls and use the existing error
 surface. The existing plate override highlight/Reset and value-source tooltip
 remain the only local/inherited indicators; no inline source badges are added.
+
+Project import preserves every supported global/local bed value from the archive.
+After the effective imported Printer draft and plate metadata are installed,
+unsupported global beds use the native default and unsupported local overrides
+return to inheritance. The native load receipt reports these corrections and the
+shared project notice displays them. Neo establishes the normalized replacement
+as its clean history baseline; unlike Orca's post-baseline normalization, these
+import corrections do not mark the newly opened project dirty. User preferences
+never seed an opened project.

@@ -7,7 +7,7 @@ import { useSlicerStore } from './stores/useSlicerStore';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
-import { importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, sortProjectInputs } from './projectActions';
+import { noticesFor, importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, sortProjectInputs } from './projectActions';
 
 const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([80, 75, 3, 4]) };
 const snapshot: ProfileSnapshot = {
@@ -67,6 +67,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     importProjectGeometry: vi.fn(async () => ({ ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
+    getNativeScopedConfig: vi.fn(async () => ({ ok: true as const, version: 1 as const, nativeScopedConfig: scopedConfigTransport })),
     mutateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: scopedConfigTransport })),
     getProfileSnapshot: vi.fn(async () => snapshot),
     selectProfile: vi.fn(async () => snapshot),
@@ -94,14 +95,25 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
 }
 
 describe('transactional project actions', () => {
+  it('publishes final native bed root when New Project seed is already unchanged', async () => {
+    const { platform, runtime } = platformFor();
+    runtime.getNativeScopedConfig.mockResolvedValue({ ok: true, version: 1, nativeScopedConfig: { ...scopedConfigTransport, snapshot: { ...scopedConfigTransport.snapshot, project: { curr_bed_type: 'Textured PEI Plate' } } } });
+    expect((await newProject(platform)).status).toBe('ok');
+    expect(useSettingsStore.getState().values.curr_bed_type).toBe('Textured PEI Plate');
+    expect(runtime.getNativeScopedConfig.mock.invocationCallOrder.at(-1)).toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
+  });
+
   it('seeds New Project bed memory before baseline, but never applies it to an opened project', async () => {
     const { platform, runtime, preferences } = platformFor();
     preferences.load.mockResolvedValue({ version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },
       rememberedBedTypes: { 'Project printer': 'Textured PEI Plate' } } as UserPreferences);
+    runtime.mutateNativeScopedConfig.mockResolvedValue({ ok: true, version: 1, nativeScopedConfig: { version: 1, kind: 'delta', revision: 2, baseRevision: 1, set: [], removedTargets: [] } } as never);
+    runtime.getNativeScopedConfig.mockResolvedValue({ ok: true, version: 1, nativeScopedConfig: { ...scopedConfigTransport, revision: 2, snapshot: { ...scopedConfigTransport.snapshot, project: { curr_bed_type: 'Textured PEI Plate' } } } });
     useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
     useProjectStore.getState().setProject({ systemPresets: { printer: 'Project printer', print: 'Project process' } });
     expect((await newProject(platform)).status).toBe('ok');
     expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
+    expect(useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type).toBe('Textured PEI Plate');
     expect(runtime.mutateNativeScopedConfig.mock.invocationCallOrder[0]).toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
     runtime.mutateNativeScopedConfig.mockClear();
     expect((await openProject(platform)).status).toBe('ok');
@@ -503,4 +515,10 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok');
     expect(useProjectStore.getState().notices.some((notice) => notice.kind === 'multi-plate')).toBe(false);
   });
+});
+
+it('reports native imported bed correction', () => {
+  const notices = noticesFor({ ok: true, objects: 1, instances: 1, bedTypeNormalization: { globalChanged: true, removedPlateOverrideIds: ['plate-1'] } });
+  expect(notices).toEqual([expect.objectContaining({ kind: 'bed-type-normalization', message: expect.stringContaining('1 local override(s)') })]);
+
 });

@@ -192,29 +192,29 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       </div>
       <div id="printer-section-content" hidden={!printerExpanded} className="px-2 pt-1">
         <div data-testid="printer-bed-row" className="flex min-w-0 items-center gap-2">
-        <div className="min-w-0 flex-1">
-        <PresetRow
-          compact
-          label="Printer"
-          items={printers}
-          value={selectedPrinter}
-          onValue={(v) => handleSelectPreset('printer', v)}
-          onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
-          disabled={controlsDisabled}
-          testId="preset-select"
-        />
-        </div>
-        {bedVisible && <div className="min-w-0 flex-[0.6]">
-          <Select items={bedType.choices} value={bedValue} disabled={controlsDisabled}
-            onValueChange={(value) => value != null && void handleSelectBed(value)}>
-            <SelectTrigger variant="sidebar" className="w-full" data-testid="global-bed-type-select"
-              aria-label="Global bed type" title={`${bedLabel}. Global bed type; plates without a local override inherit this value.`}>
-              <SelectValue>{bedLabel}</SelectValue>
-            </SelectTrigger>
-            <SelectContent><SelectGroup>{bedType.choices.map(choice =>
-              <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectGroup></SelectContent>
-          </Select>
-        </div>}
+          <div className="min-w-0 flex-1">
+            <PresetRow
+              compact
+              label="Printer"
+              items={printers}
+              value={selectedPrinter}
+              onValue={(v) => handleSelectPreset('printer', v)}
+              onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
+              disabled={controlsDisabled}
+              testId="preset-select"
+            />
+          </div>
+          {bedVisible && <div className="min-w-0 flex-[0.6]">
+            <Select items={bedType.choices} value={bedValue} disabled={controlsDisabled}
+              onValueChange={(value) => value != null && void handleSelectBed(value)}>
+              <SelectTrigger variant="sidebar" className="w-full" data-testid="global-bed-type-select"
+                aria-label="Global bed type" title={`${bedLabel}. Global bed type; plates without a local override inherit this value.`}>
+                <SelectValue>{bedLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent><SelectGroup>{bedType.choices.map(choice =>
+                <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectGroup></SelectContent>
+            </Select>
+          </div>}
         </div>
       </div>
     </section>

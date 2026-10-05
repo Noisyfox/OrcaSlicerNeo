@@ -2191,6 +2191,11 @@ export function createClient(
           fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
           multiPlate: r.multi_plate === true,
           plateCount: Number(r.plate_count ?? 0),
+          bedTypeNormalization: r.bed_type_normalization && typeof r.bed_type_normalization === 'object' ? {
+            globalChanged: (r.bed_type_normalization as Record<string, unknown>).global_changed === true,
+            removedPlateOverrideIds: Array.isArray((r.bed_type_normalization as Record<string, unknown>).removed_plate_override_ids)
+              ? ((r.bed_type_normalization as Record<string, unknown>).removed_plate_override_ids as unknown[]).filter((id): id is string => typeof id === 'string') : [],
+          } : undefined,
           embeddedPresetWarnings: warnings ? {
             present: warnings.present === true,
             count: Number(warnings.count ?? 0),

@@ -599,6 +599,7 @@ export interface ProjectLoadResult {
   fileVersion?: string;
   multiPlate?: boolean;
   plateCount?: number;
+  bedTypeNormalization?: { globalChanged: boolean; removedPlateOverrideIds: string[] };
   embeddedPresetWarnings?: {
     present: boolean;
     count: number;

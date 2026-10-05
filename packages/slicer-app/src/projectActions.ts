@@ -55,7 +55,7 @@ export interface ProjectActionResult {
   load?: ProjectLoadResult;
   loadReceipt?: ProjectLoadReceipt;
 }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getModelScenePatch' | 'mutateNativeScopedConfig' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getModelScenePatch' | 'mutateNativeScopedConfig' | 'getNativeScopedConfig' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
   Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'resetHistory'>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
@@ -69,6 +69,7 @@ export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
   const fallback = compatibilityFallback(load); if (fallback) notices.push({ kind: 'compatibility-fallback', message: fallback });
   if (load.embeddedPresetWarnings?.present) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: load.embeddedPresetWarnings });
+  if (load.bedTypeNormalization) notices.push({ kind: 'bed-type-normalization', message: `Unsupported build plate settings were adjusted to the loaded printer: ${load.bedTypeNormalization.globalChanged ? 'global bed reset to its native default; ' : ''}${load.bedTypeNormalization.removedPlateOverrideIds.length} local override(s) reset to inheritance.`, details: load.bedTypeNormalization });
   return notices;
 }
 function setOperation(phase: Parameters<ReturnType<typeof useProjectStore.getState>['setOperation']>[0]['phase'], progress = 0, message?: string): void {
@@ -187,12 +188,15 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
       );
     }
     await runProjectMutationOperation(async () => {
-      const seeded = await seedRememberedBedType(runtime, await loadRememberedBedTypeFromRepository(platform.preferences, currentPresets().printer));
-      if (seeded) {
-        const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(seeded.nativeScopedConfig);
-        if (outcome === 'refresh-required') throw new Error('new project bed seed requires scoped refresh');
-        if (seeded.plateSession) usePlateSessionStore.getState().setSnapshot(seeded.plateSession);
-      }
+      const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, currentPresets().printer);
+      const seeded = await seedRememberedBedType(runtime, rememberedBed);
+      if (seeded?.plateSession) usePlateSessionStore.getState().setSnapshot(seeded.plateSession);
+      // The renderer replacement reset has no scoped base revision. A seed
+      // delta or no-op cannot restore that projection; publish the final
+      // full native config before establishing the clean baseline.
+      const finalConfig = await runtime.getNativeScopedConfig();
+      if (!finalConfig.ok) throw new Error(finalConfig.error ?? 'new project configuration unavailable');
+      useSettingsStore.getState().applyNativeScopedConfigTransport(finalConfig.nativeScopedConfig);
     });
     // The active system printer already owns its correctly restored rack.
     // New Project preserves that live rack and only establishes a clean model,
