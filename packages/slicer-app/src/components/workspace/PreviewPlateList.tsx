@@ -118,8 +118,8 @@ export function PreviewPlateList({
                 <Button size="sm" disabled={disabled || activeTarget !== null || acting !== null} aria-label={`Print ${item.label}`} data-testid={`plate-print-${item.plate.plateId}`}
                   onClick={() => setSend({ receipt: results[item.plate.plateId].receipt, action: 'send-and-print' })}>Print</Button>
               </> : item.status === 'slicing' ?
-                <Button size="sm" variant="secondary" aria-label={`Cancel slicing ${item.label}`} disabled={platform.runtime.getRuntimeExecutionState?.().threaded === false}
-                  title={platform.runtime.getRuntimeExecutionState?.().threaded === false ? 'Cancellation requires the threaded runtime' : undefined}
+                <Button size="sm" variant="secondary" aria-label={`Cancel slicing ${item.label}`} disabled={platform.runtime.getRuntimeExecutionState().threaded === false}
+                  title={platform.runtime.getRuntimeExecutionState().threaded === false ? 'Cancellation requires the threaded runtime' : undefined}
                   onClick={() => { if (useSlicerStore.getState().activeSliceTarget?.plateId === item.plate.plateId) void cancelSlice(platform); }}>Cancel</Button>
                 : item.status === 'error' || item.status === 'out-of-bounds' ?
                   <Button size="sm" variant="destructive" aria-label={`Review ${item.label}`} onClick={() => setReviewId(item.plate.plateId)}>Review</Button>
