@@ -146,7 +146,10 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     expect(listBounds.y + listBounds.height - lastCardBounds.y - lastCardBounds.height).toBeCloseTo(8 + dividerWidth, 1);
     expect(optionsTop - listBounds.y - listBounds.height).toBeCloseTo(4, 1);
     const listHeight = (await page.getByTestId('configuration-plate-list-scroll').boundingBox())!.height;
-    const firstOption = page.getByTestId('config-field-curr_bed_type');
+    // Bed selection is capability-dependent; print sequence remains a
+    // plate option for both single-bed and selectable-bed printers.
+    const firstOption = page.getByTestId('config-field-print_sequence');
+    await expect(firstOption).toBeVisible();
     const collapsedOptionTop = (await firstOption.boundingBox())!.y;
     await options.getByRole('button', { name: 'Search settings', exact: true }).click();
     expect((await firstOption.boundingBox())!.y).toBeGreaterThan(collapsedOptionTop);
