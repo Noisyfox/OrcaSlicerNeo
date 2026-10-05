@@ -39,6 +39,8 @@ test('Prepare painted model uses original BVH for selection and dragging', async
         paintDisplayRaycastDisabled: boolean;
         originalPickVisible: boolean | null;
         originalPickUsesBvhRaycast: boolean;
+        selectionOutlines: Array<{ colour: string; thickness: number; pixelSized: boolean;
+          raycastDisabled: boolean; depthWrite: boolean; sharedGeometry: boolean }>;
       }> } }).__orcaE2e?.modelPaintResources?.() ?? [],
     );
     const readColours = () => page.evaluate(() =>
@@ -126,6 +128,9 @@ test('Prepare painted model uses original BVH for selection and dragging', async
     expect(expectedSelectedIds).toContain(before.id);
     await expect.poll(async () => (await readSelection()).map((item) => item.id).sort(), { timeout: 10_000 })
       .toEqual(expectedSelectedIds);
+    await expect.poll(async () => (await readResources()).find(resource => resource.id === before.id)?.selectionOutlines)
+      .toEqual([{ colour: '#fcfcfc', thickness: 3, pixelSized: true, raycastDisabled: true,
+        depthWrite: false, sharedGeometry: true }]);
 
     // Drag from a point on the same painted cube, away from the selection
     // pivot, and verify the selected native instance actually moves.
@@ -140,6 +145,9 @@ test('Prepare painted model uses original BVH for selection and dragging', async
     await page.mouse.up();
     await expect.poll(readCenters, { timeout: 10_000 }).not.toEqual([beforeDrag]);
     await expect.poll(async () => (await readSelection()).map((item) => item.id).sort()).toEqual(expectedSelectedIds);
+    expect((await readResources())[0].selectionOutlines).toHaveLength(1);
+    await page.mouse.click(box.x + box.width - 40, box.y + box.height - 40);
+    await expect.poll(async () => (await readResources())[0].selectionOutlines).toEqual([]);
 
     // Native printable=false suppresses facet materials and uses Orca's
     // semi-transparent black default. Restoring printability reveals paint.
@@ -192,6 +200,8 @@ test('Prepare unpainted model keeps the original single-colour BVH mesh', async 
         visibleUsesOriginalGeometry: boolean;
         visibleUsesBvhRaycast: boolean;
         originalPickVisible: boolean | null;
+        selectionOutlines: Array<{ thickness: number; pixelSized: boolean; raycastDisabled: boolean;
+          depthWrite: boolean; sharedGeometry: boolean }>;
       }> } }).__orcaE2e?.modelPaintResources?.() ?? [],
     );
     const readCenters = () => page.evaluate(() =>
@@ -232,6 +242,13 @@ test('Prepare unpainted model keeps the original single-colour BVH mesh', async 
       .sort();
     await expect.poll(async () => (await readSelection()).map((item) => item.id).sort(), { timeout: 10_000 })
       .toEqual(expectedIds);
+    await expect.poll(async () => (await readResources()).find(resource => resource.id === target.id)?.selectionOutlines)
+      .toEqual([expect.objectContaining({ thickness: 3, pixelSized: true, raycastDisabled: true,
+        depthWrite: false, sharedGeometry: true })]);
+    await page.screenshot({ path: test.info().outputPath('selected-model-outline.png') });
+    await page.mouse.click(box.x + box.width - 40, box.y + box.height - 40);
+    await expect.poll(async () => (await readResources()).find(resource => resource.id === target.id)?.selectionOutlines)
+      .toEqual([]);
   } finally {
     await app.close();
   }

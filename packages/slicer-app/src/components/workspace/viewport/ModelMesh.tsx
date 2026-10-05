@@ -21,6 +21,7 @@ import {
   resolveUnprintableMaterial,
 } from './prepareColourProjection';
 import { WipeTowerVolume } from './WipeTowerVolume';
+import { ModelSelectionOutline } from './ModelSelectionOutline';
 import {
   capturePreviewFirstCommitPaintMaterials,
   releasePreviewFirstCommitPaintMaterials,
@@ -168,6 +169,9 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
                 depthWrite={paintMaterial.depthWrite}
               />
             ))}
+            {selected && <ModelSelectionOutline colour={paintMaterials[0]?.colour ?? material.colour}
+              opacity={paintMaterials[0]?.opacity ?? material.opacity}
+              transparent={paintMaterials[0]?.transparent ?? material.transparent} />}
           </mesh>
           {!preview && <mesh name="orca-original-model-pick" geometry={data.geometry} raycast={BVH_RAYCAST} visible={false}
             userData={{ orcaModelSurface: 'original-pick' }} />}
@@ -182,6 +186,8 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
           opacity={material.opacity}
           depthWrite={material.depthWrite}
           />
+          {selected && <ModelSelectionOutline colour={material.colour}
+            opacity={material.opacity} transparent={material.transparent} />}
         </mesh>}
       </group>
     </group>

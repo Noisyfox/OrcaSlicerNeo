@@ -58,6 +58,40 @@ context menus, and viewport keyboard editing shortcuts.
 Prepare never displays G-code preview UI: no toolpath, layer scrubber, or other
 G-code-preview controls.
 
+### 3.1 Selected model silhouettes
+
+Selected ordinary and MMU-painted model volumes show a drei `Outlines`
+silhouette in Prepare. Deselecting removes it; returning from Preview restores
+the current selection's outlines. Outlines inherit model transforms and follow
+the visible model's opacity, including unprintable parts. Wipe-tower bands and
+plate thumbnails do not receive this model-selection effect.
+
+The pinned Orca reference is `GLVolume::render_with_outline` in `3DScene.cpp`:
+its gouraud/phong vertex shaders expand by 3 framebuffer pixels, and their
+`getBackfaceColor` chooses RGB (0.11, 0.165, 0.208) above shaded luminance 0.75,
+otherwise RGB (0.988, 0.988, 0.988). Neo uses the same 3-pixel width and rounded
+sRGB colours (`#1c2a35` / `#fcfcfc`) with tone mapping disabled.
+
+This is an approximation within drei's inverted-hull renderer. Contrast is
+chosen from the selected fill before lighting; painted models use the first
+occupied colour group. It does not reproduce Orca's per-fragment contrast,
+depth-edge detection, stencil pass, or MSAA mask. Ordinary depth testing hides
+the outline behind foreground objects.
+
+In the installed drei version, `screenspace=false` selects pixel offsets;
+`screenspace=true` selects world-unit extrusion. `angle=0` reuses existing
+indexed geometry and normals without a triangle-soup allocation. Each selected
+volume adds one draw call and one material, disposed on deselection. The inner
+outline mesh disables raycasting and depth writes; model BVH picking and paint
+groups remain authoritative. Both hosts share this implementation, with no
+runtime/WASM protocol changes or new mobile input behavior.
+
+Verification covers the luminance threshold, actual ordinary/painted scene
+outline parameters, geometry sharing, selection/deselection, painted-model
+dragging, and the primary Electron import/slice/preview/export flow. The
+repository unit suite and typechecks pass. Native-Orca pixel comparison and
+real-model/Web E2E remain outside the completed validation.
+
 ## 4. Preview
 
 Preview is a G-code-inspection presentation. It still renders the loaded model,
