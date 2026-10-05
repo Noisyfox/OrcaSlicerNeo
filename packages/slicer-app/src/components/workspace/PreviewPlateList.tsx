@@ -104,9 +104,11 @@ export function PreviewPlateList({
                 </Badge>
               </div>
               <CardDescription className="flex flex-col gap-1 tabular-nums">
-                <span data-testid={`plate-time-${item.plate.plateId}`}>{formatPreviewTime(item.summary?.estimatedTimeSeconds)?.replaceAll(' ', '') ?? '—'}</span>
+                <span className="flex items-center justify-between gap-1">
+                  <span data-testid={`plate-time-${item.plate.plateId}`}>{formatPreviewTime(item.summary?.estimatedTimeSeconds)?.replaceAll(' ', '') ?? '—'}</span>
+                  {item.progress !== undefined && <span role="progressbar" aria-label={`Slicing ${item.label}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress)}>{Math.round(item.progress)}%</span>}
+                </span>
                 <span>{metric(item.summary?.filamentLengthMeters, 'm')} | {metric(item.summary?.filamentWeightGrams, 'g')}</span>
-                {item.progress !== undefined && <span role="progressbar" aria-label={`Slicing ${item.label}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress)}>{Math.round(item.progress)}%</span>}
               </CardDescription>
             </CardHeader>
             <CardFooter className="plate-list-actions">

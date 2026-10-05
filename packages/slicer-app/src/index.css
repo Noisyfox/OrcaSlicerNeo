@@ -4,9 +4,9 @@
 .plate-list-card {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 28px;
+  grid-template-rows: minmax(0, 1fr) 24px;
   height: 108px;
-  gap: 6px 8px;
+  gap: 4px 8px;
   padding: 6px;
   margin-bottom: 8px;
   background: var(--color-panel-header);

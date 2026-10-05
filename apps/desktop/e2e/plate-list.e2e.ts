@@ -95,6 +95,13 @@ test('plate cards render model thumbnails without changing surrounding layout', 
       await expect(page.getByTestId(`plate-time-${plateId}`)).not.toHaveText('—');
       await expect(page.getByTestId('preview-plate-list')).toContainText(/\d+\.\d+m \| \d+\.\d+g/);
     }
+    const statsFit = await card.locator('.plate-list-details').evaluate(element => {
+      const details = element.getBoundingClientRect();
+      const metrics = element.querySelector('[data-slot="card-description"]')!.lastElementChild!;
+      const range = document.createRange(); range.selectNodeContents(metrics);
+      return range.getBoundingClientRect().bottom <= details.bottom && element.scrollHeight <= element.clientHeight;
+    });
+    expect(statsFit).toBe(true);
     await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
     await page.getByTestId(`plate-print-${plateId}`).click();
     await expect(page.getByTestId('send-gcode-dialog')).toBeVisible();
@@ -119,9 +126,10 @@ test('plate cards render model thumbnails without changing surrounding layout', 
       await expect.poll(() => options.evaluate(element => {
         const panel = element.closest('[data-testid="scoped-configuration-panel"]')!;
         const list = panel.querySelector('[data-testid="configuration-plate-list-scroll"]')!;
-        const expected = Math.min(232, (panel.getBoundingClientRect().bottom - list.getBoundingClientRect().top) / 2);
-        return Math.abs(element.getBoundingClientRect().height - expected);
-      })).toBeLessThanOrEqual(1);
+        const expected = Math.min(232, Math.max(0, panel.getBoundingClientRect().bottom - list.getBoundingClientRect().top) / 2);
+        return Math.abs(element.getBoundingClientRect().height - expected) <= 1 ? '' : JSON.stringify({
+          actual: element.getBoundingClientRect().height, expected, maxHeight: (element as HTMLElement).style.maxHeight });
+      })).toBe('');
     }
     const optionsHeight = (await options.boundingBox())!.height;
     const lastCardBounds = (await page.getByTestId('preview-plate-list').locator('.plate-list-card').last().boundingBox())!;
