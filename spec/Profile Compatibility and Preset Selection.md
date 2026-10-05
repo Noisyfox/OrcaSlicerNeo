@@ -54,7 +54,8 @@ If a selectable printer excludes its configured default, normalization uses
 the first supported native choice. A printer without selection uses its
 native default and clears local bed overrides.
 
-While the update is in progress, the Printer and Process selectors and rack
+While a Printer, Process, or global bed selection is in progress, the Printer,
+Process, and global bed selectors and rack
 commands are temporarily disabled. A stale candidate or stale rack revision
 cannot be selected.
 
@@ -103,3 +104,21 @@ No legacy single-filament selector, API, preference field, project tuple,
 history state, sidecar member, selected wire flag, compatibility special case,
 or migration code exists. This release has not shipped, so no compatibility
 migration is required or permitted.
+
+
+The compact global bed selector sits immediately to the right of the Printer
+picker, using the shared dark sidebar dropdown, rounded trigger and separate
+arrow surface. It displays the global native project value regardless of the
+active plate's local override. Native capability choices supply both global
+and plate-editor labels/order; unavailable or single-bed capabilities hide the
+selectors. Narrow triggers truncate labels and preserve the complete global
+label and inheritance explanation in their title.
+
+Selection admission uses a synchronous pending guard, with all three pickers
+disabled during selection, history publication, project replacement and serial
+slicing. Threaded bed edits remain available: the native affected plate scope
+owns result invalidation and cancellation. Global edits use the existing
+configuration FIFO, so an immediately requested Slice waits for the committed
+bed value. Rejections release pending controls and use the existing error
+surface. The existing plate override highlight/Reset and value-source tooltip
+remain the only local/inherited indicators; no inline source badges are added.

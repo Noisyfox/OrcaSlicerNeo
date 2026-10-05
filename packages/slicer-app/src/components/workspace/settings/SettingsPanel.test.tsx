@@ -10,6 +10,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { sliceModel } from '../actions/sliceActions';
 import { SettingsPanel } from './SettingsPanel';
 
 vi.mock('./MovePanel', () => ({ MovePanel: () => null }));
@@ -95,6 +96,12 @@ function resetStores() {
   useFilamentSessionStore.getState().reset();
   useHistoryNavigationStore.getState().reset();
     useSettingsStore.setState({
+      bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [
+        { value: 'High Temp Plate', label: 'Smooth PEI Plate' },
+        { value: 'Textured PEI Plate', label: 'Textured PEI Plate' },
+      ] },
+      nativeScopedConfigRevision: 0,
+      nativeScopedConfig: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: { 'plate-1': { curr_bed_type: 'High Temp Plate' } } },
       metadata: {},
     printers: initialSnapshot.printers,
     prints: initialSnapshot.prints,
@@ -120,6 +127,19 @@ function makePlatform(
     save: vi.fn(async (next: UserPreferences) => { Object.assign(preferences, next); }),
   };
   const runtime = {
+        getRuntimeExecutionState: vi.fn(() => ({ threaded: false, sliceActive: false, serialSliceActive: false, serialTerminalEpoch: '0' })),
+        getHistoryStatus: vi.fn(async () => (printerTransition() as Extract<PrinterTransitionResult, { ok: true }>).historyStatus),
+        mutateNativeScopedConfig: vi.fn(async (request: { value?: string }) => ({ ok: true as const,
+          plateSession: (printerTransition() as Extract<PrinterTransitionResult, { ok: true }>).plateSession,
+          nativeScopedConfig: { version: 1 as const, revision: 1, kind: 'full' as const,
+            snapshot: { ...useSettingsStore.getState().nativeScopedConfig, project: { curr_bed_type: request.value ?? 'Textured PEI Plate' } }, removedTargets: [],
+          },
+        })),
+        runProjectHistoryTransaction: vi.fn(async (_label: string, _category: string, _before: unknown, mutation: (id: string) => Promise<unknown>) => {
+          const result = await mutation('tx-1');
+          return { result, sceneDelta: null, status: { ...(printerTransition() as Extract<PrinterTransitionResult, { ok: true }>).historyStatus,
+            nativeScopedConfig: (result as { nativeScopedConfig: unknown }).nativeScopedConfig } };
+        }),
         selectProfile: vi.fn(selectProfile),
         selectPrinterWithRememberedRack: vi.fn(selectPrinterWithRememberedRack),
         revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
@@ -184,6 +204,104 @@ describe('SettingsPanel preset transitions', () => {
     roots = [];
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+  });
+
+  async function chooseBed(container: HTMLElement, label: string) {
+    await act(async () => (container.querySelector('[data-testid="global-bed-type-select"]') as HTMLElement).click());
+    await act(async () => {
+      const option = [...document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')].find(item => item.textContent === label)!;
+      expect(option).toBeDefined(); option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+  }
+
+  it('shows global scope independently of plate override and sends native serialized values with official labels', async () => {
+    resetStores();
+    const { platform, runtime, preferences } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    const trigger = container.querySelector('[data-testid="global-bed-type-select"]') as HTMLButtonElement;
+    expect(trigger.querySelector('[data-slot="select-value"]')?.textContent).toBe('Textured PEI Plate');
+    expect(trigger.title).toContain('plates without a local override inherit');
+    expect(container.querySelector('[data-testid="printer-bed-row"]')?.children.length).toBe(2);
+    await act(async () => trigger.click());
+    expect([...document.querySelectorAll('[data-slot="select-item"]')].map(item => item.textContent)).toEqual(['Smooth PEI Plate', 'Textured PEI Plate']);
+    await act(async () => { const item = [...document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')].find(item => item.textContent === 'Smooth PEI Plate')!; item.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); item.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledExactlyOnceWith({ version: 1, operation: 'set', targets: [{ scope: 'project' }], key: 'curr_bed_type', value: 'High Temp Plate' });
+    expect(trigger.querySelector('[data-slot="select-value"]')?.textContent).toBe('Smooth PEI Plate');
+    expect(preferences.rememberedBedTypes).toEqual({ 'Old Printer': 'High Temp Plate' });
+  });
+
+  it('locks bed, printer and process until native bed mutation settles and releases after rejection', async () => {
+    resetStores();
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    let reject!: (error: Error) => void;
+    runtime.mutateNativeScopedConfig.mockImplementationOnce(() => new Promise((_resolve, no) => { reject = no; }));
+    const { container, root } = await render(platform); roots.push(root);
+    await chooseBed(container, 'Smooth PEI Plate');
+    for (const id of ['global-bed-type-select', 'preset-select', 'process-preset-select'])
+      expect((container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => reject(new Error('native rejected bed')));
+    expect(useSlicerStore.getState().error).toContain('native rejected bed');
+    expect((container.querySelector('[data-testid="global-bed-type-select"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
+  });
+
+  it('an immediately requested Slice waits for the pending bed configuration FIFO', async () => {
+    resetStores();
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const native = runtime.mutateNativeScopedConfig.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>(yes => { release = yes; });
+    runtime.mutateNativeScopedConfig.mockImplementationOnce(async request => { await gate; return native(request); });
+    const finalSession = { ...(printerTransition() as Extract<PrinterTransitionResult, { ok: true }>).plateSession,
+      plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1', instanceIds: [1] }] };
+    const getPlateSessionSnapshot = vi.fn(async () => finalSession);
+    const slicePlate = vi.fn(async () => ({ ok: false, error: 'fixture slice terminal' }));
+    Object.assign(runtime, { getPlateSessionSnapshot, slicePlate });
+    const { container, root } = await render(platform); roots.push(root);
+    await chooseBed(container, 'Smooth PEI Plate');
+    let slicing!: Promise<void>;
+    await act(async () => { slicing = sliceModel(platform); await Promise.resolve(); });
+    expect(getPlateSessionSnapshot).not.toHaveBeenCalled(); expect(slicePlate).not.toHaveBeenCalled();
+    await act(async () => { release(); await slicing; });
+    expect(slicePlate).toHaveBeenCalledOnce();
+    expect(useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type).toBe('High Temp Plate');
+  });
+
+  it('disables transitions during slice, history publication, and project replacement', async () => {
+    resetStores();
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    const disabled = () => (container.querySelector('[data-testid="global-bed-type-select"]') as HTMLButtonElement).disabled;
+    await act(async () => useSlicerStore.setState({ status: 'slicing' })); expect(disabled()).toBe(true);
+    runtime.getRuntimeExecutionState.mockReturnValue({ threaded: true, sliceActive: true, serialSliceActive: false, serialTerminalEpoch: '0' });
+    await act(async () => useSlicerStore.setState({ status: 'idle' }));
+    await act(async () => useSlicerStore.setState({ status: 'slicing' })); expect(disabled()).toBe(false);
+    await act(async () => { useSlicerStore.setState({ status: 'idle' }); useProjectStore.getState().beginProjectMutation(); }); expect(disabled()).toBe(true);
+    await act(async () => { useProjectStore.getState().endProjectMutation(); useProjectStore.getState().setOperation({ phase: 'loading' }); }); expect(disabled()).toBe(true);
+    await act(async () => useProjectStore.getState().setOperation({ phase: 'completed' })); expect(disabled()).toBe(false);
+  });
+
+  it('uses the same allowed options in the local plate editor and hides it for single-bed printers', async () => {
+    resetStores();
+    useSettingsStore.setState({ configurationMode: 'plates', metadata: { curr_bed_type: { type: 'enum', label: 'Bed type', category: 'Other', scopes: ['project', 'plate'], enum_values: ['unsupported-stale-value'], enum_labels: ['Unsupported'] } } });
+    usePlateSessionStore.getState().setSnapshot({ ok: true, version: 1, currentPlateId: 'plate-1', instances: [],
+      plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }] });
+    const { platform } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    const local = container.querySelector('[data-testid="config-input-curr_bed_type"]') as HTMLButtonElement;
+    expect(local).not.toBeNull(); expect(local.textContent).toContain('Smooth PEI Plate');
+    await act(async () => local.click());
+    expect([...document.querySelectorAll('[data-slot="select-item"]')].map(item => item.textContent)).toEqual(['Smooth PEI Plate', 'Textured PEI Plate']);
+    await act(async () => useSettingsStore.setState({ bedType: { ...initialSnapshot.bedType, supportsSelection: false } }));
+    expect(container.querySelector('[data-testid="config-input-curr_bed_type"]')).toBeNull();
+  });
+
+  it('hides selection when native capabilities are absent or single-bed', async () => {
+    resetStores();
+    const { platform } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    await act(async () => useSettingsStore.setState({ bedType: null })); expect(container.querySelector('[data-testid="global-bed-type-select"]')).toBeNull();
+    await act(async () => useSettingsStore.setState({ bedType: { ...initialSnapshot.bedType, supportsSelection: false } })); expect(container.querySelector('[data-testid="global-bed-type-select"]')).toBeNull();
   });
 
   it('renders bridge candidate arrays as-is and preserves their engine order', async () => {
