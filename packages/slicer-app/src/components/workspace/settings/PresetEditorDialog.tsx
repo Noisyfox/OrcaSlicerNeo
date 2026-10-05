@@ -349,7 +349,7 @@ function FieldValue({
       if (next.kind !== 'solid' || next.color.toLowerCase() === colourInputValue(effectiveValue).toLowerCase()) return;
       if (binding && boundText) void submitElementSet(next.color.toLowerCase());
       else void submitSet(next.color.toLowerCase());
-    }} trigger={<Button variant="outline" size="icon-sm" id={inputId} aria-label={label}
+    }} trigger={<Button variant="input" size="icon-sm" id={inputId} aria-label={label}
       data-testid={`preset-editor-input-${field.key}`} value={colourInputValue(displayValue).toLowerCase()}>
       <ColorSwatch value={{ kind: 'solid', color: colourInputValue(displayValue) }} className="size-5" />
     </Button>} />;

@@ -27,7 +27,7 @@ export interface ColorPickerProps {
 }
 
 function ColorSwatch({ value, className }: { value: ColorValue; className?: string }) {
-  return <span aria-hidden="true" className={cn('color-checkerboard block overflow-hidden rounded-sm border border-border', className)}>
+  return <span aria-hidden="true" className={cn('color-checkerboard block overflow-hidden rounded-sm', className)}>
     <span className="block size-full" style={{ background: colorValueCss(value) }} />
   </span>;
 }
@@ -44,7 +44,7 @@ function ColorChannel({ label, value, max, onChange, disabled, gradient }: {
       className="color-channel-slider min-w-0 flex-1" style={{ '--channel-gradient': gradient } as React.CSSProperties}
       onValueChange={next => onChange(Array.isArray(next) ? next[0] : next)} />
     <Input id={id} aria-label={`${label} value`} type="number" min={0} max={max} step={1} value={text} disabled={disabled}
-      className="w-16 shrink-0" onChange={event => {
+      className="w-16 shrink-0 border-0 rounded-sm" onChange={event => {
         setText(event.target.value);
         const next = Number(event.target.value);
         if (event.target.value !== '' && Number.isFinite(next)) onChange(clamp(next, 0, max));
@@ -61,7 +61,7 @@ function ColorSpectrum({ color, onChange, disabled }: { color: HslaColor; onChan
     if (rect.width && rect.height) onChange(spectrumColor((event.clientX - rect.left) / rect.width,
       (event.clientY - rect.top) / rect.height, color.s, color.a));
   };
-  return <div className="color-spectrum relative h-40 min-h-16 w-full touch-none overflow-hidden rounded-md border border-border focus-visible:outline-2 focus-visible:outline-ring"
+  return <div className="color-spectrum relative h-40 min-h-16 w-full touch-none overflow-hidden rounded-md focus-visible:outline-2 focus-visible:outline-ring"
     role="group" aria-label="Color spectrum" aria-disabled={disabled || undefined} tabIndex={disabled ? -1 : 0}
     style={{ flexShrink: 1, background: `linear-gradient(to bottom, white, transparent 50%, black), linear-gradient(to right, ${hueStops})` }}
     onPointerDown={event => {
@@ -185,7 +185,7 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
         </Tabs>}
         <Field orientation="horizontal" className="ml-auto min-w-0 flex-1 gap-1" data-invalid={hexInvalid || undefined}>
           <FieldLabel htmlFor={hexId} className="shrink-0">#</FieldLabel>
-          <Input id={hexId} aria-label="HEX color" className="min-w-0" value={hexText.replace(/^#/, '')} aria-invalid={hexInvalid} disabled={disabled} spellCheck={false}
+          <Input id={hexId} aria-label="HEX color" className="min-w-0 border-0 rounded-sm" value={hexText.replace(/^#/, '')} aria-invalid={hexInvalid} disabled={disabled} spellCheck={false}
             onChange={event => {
               setHexText(event.target.value);
               const rgb = hexToRgba(event.target.value);
@@ -206,13 +206,13 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
           gradient={`linear-gradient(to right, ${rgbaToHex({ ...rgba, a: 0 }, true)}, ${rgbaToHex({ ...rgba, a: 1 }, true)})`}
           onChange={next => publish({ ...color, a: next / 100 })} />}
       </FieldGroup>
-      <div className="flex min-w-0 gap-2 border-t border-border pt-2">
+      <div className="flex min-w-0 gap-2 pt-2">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="sr-only">Favorites ({allFavorites.length}/{MAX_COLOR_FAVORITES})</span>
         {full && <span role="status" className="text-xs text-muted-foreground">Remove a favorite to add another color.</span>}
         <div className="grid grid-cols-8 gap-1" aria-label="Favorite colors">
           {visibleFavorites.map(item => <div key={colorValueKey(item)} className="group relative">
-            <Button variant="outline" size="icon-sm" className="w-full" aria-label={`Favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled} onClick={() => {
+            <Button variant="input" size="icon-sm" className="w-full" aria-label={`Favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled} onClick={() => {
               if (item.kind === 'solid' && isGradient) { lastSolid.current = item; onChange(outputValue(item)); } else select(item);
             }}>
               <ColorSwatch value={item} className="size-5" />
@@ -220,11 +220,11 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
             {onFavoriteRemove && <Button variant="secondary" size="icon-xs" className="pointer-events-none absolute -top-2 -right-2 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
               aria-label={`Remove favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled || !favoritesReady} onClick={() => onFavoriteRemove(item)}><XIcon /></Button>}
           </div>)}
-          {Array.from({ length: MAX_COLOR_FAVORITES - visibleFavorites.length }, (_, i) => <span key={i} aria-hidden="true" className="h-6 rounded-sm border border-border bg-control-background" />)}
+          {Array.from({ length: MAX_COLOR_FAVORITES - visibleFavorites.length }, (_, i) => <span key={i} aria-hidden="true" className="h-6 rounded-sm bg-control-background" />)}
         </div>
       </div>
       <div className="flex w-20 shrink-0 flex-col gap-1">
-        <Button variant="outline" size="sm" aria-label="Add favorite color" disabled={disabled || !favoritesReady || !onFavoriteAdd || full || alreadySaved || hexInvalid}
+        <Button variant="input" size="sm" aria-label="Add favorite color" disabled={disabled || !favoritesReady || !onFavoriteAdd || full || alreadySaved || hexInvalid}
           onClick={() => onFavoriteAdd?.(current)}><PlusIcon data-icon="inline-start" /></Button>
         <ColorSwatch value={current} className="min-h-10 min-w-0 flex-1" />
       </div>

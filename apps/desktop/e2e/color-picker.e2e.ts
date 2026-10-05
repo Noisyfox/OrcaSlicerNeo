@@ -36,6 +36,10 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toBeVisible();
     const popup = page.locator('[data-slot="popover-content"]');
     await expect(popup).toBeVisible();
+    expect(await popup.locator('input').evaluateAll(inputs => inputs.every(input => {
+      const style = getComputedStyle(input);
+      return [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth].every(width => width === '0px');
+    }))).toBe(true);
     await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
     const anchorBounds = (await trigger.boundingBox())!;
 

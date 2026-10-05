@@ -22,7 +22,7 @@ function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', .
     <PopoverTitle className="sr-only">{title}</PopoverTitle>
     <ColorPicker {...props} className="min-h-0 flex-1" value={draft} onChange={setDraft} onValidityChange={setValid} />
     <div className="flex shrink-0 justify-end gap-2">
-      <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+      <Button variant="settings" onClick={() => onOpenChange(false)}>Cancel</Button>
       <Button disabled={props.disabled || !valid} onClick={() => { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }}>Confirm</Button>
     </div>
   </PopoverContent>;

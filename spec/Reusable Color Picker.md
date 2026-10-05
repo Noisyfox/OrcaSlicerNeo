@@ -37,7 +37,9 @@ use a checkerboard. The panel has a scrollable preset palette beside the
 editor. The palette selector reuses the settings panel's searchable Combobox,
 including its shared trigger and popup style. Beneath the spectrum, one row
 contains RGB/HSL tabs, optional gradient endpoint tabs, and HEX input. Channel
-controls follow. Favorites occupy the lower-left grid; the add action and
+controls follow. Inputs, swatches, favorite slots, and secondary actions use
+NEO's borderless control surfaces; focus rings and invalid-input feedback remain.
+Favorites occupy the lower-left grid; the add action and
 preview stack on its right. Tabs use NEO's neutral line variant. The preset list stretches to align
 with the bottom of the favorites grid and scrolls independently. The popup
 itself does not scroll; the spectrum can shrink when vertical space is limited.
