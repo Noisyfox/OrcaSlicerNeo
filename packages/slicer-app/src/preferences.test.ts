@@ -93,7 +93,7 @@ describe('selection restoration', () => {
       selectedProfiles: { printer: 'resolved-printer', print: 'resolved-print' },
       ui: { switchToDeviceAfterSend: true },
     };
-    const repository = { load: vi.fn(), save: vi.fn(async () => {}) };
+    const repository = { load: vi.fn(async () => preferences), save: vi.fn(async () => {}) };
     await persistRestoredSelections(repository, preferences);
     expect(repository.save).toHaveBeenCalledWith(preferences);
 

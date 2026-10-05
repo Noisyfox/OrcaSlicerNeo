@@ -1,5 +1,6 @@
 import type { ProfileSnapshot } from '@slicer/client';
 import type { RememberedFilamentRack, UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
+import { updateUserPreferences } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { resetProjectHistory } from './components/workspace/actions/historyMutation';
@@ -50,14 +51,13 @@ export async function publishRememberedFilamentRack(
   const previous = queues.get(printer) ?? Promise.resolve();
   const write = previous.catch(() => undefined).then(async () => {
     try {
-      const current = await repository.load();
-      await repository.save({
+      await updateUserPreferences(repository, current => ({
         ...current,
         rememberedFilamentRacks: {
           ...(current.rememberedFilamentRacks ?? {}),
           [printer]: rememberedRackFromSnapshot(snapshot),
         },
-      });
+      }));
     } catch (error) {
       console.error('remembered filament rack save failed; keeping session state', error);
     }
@@ -201,7 +201,7 @@ export async function persistRestoredSelections(
   preferences: UserPreferences,
 ): Promise<void> {
   try {
-    await repository.save(preferences);
+    await updateUserPreferences(repository, current => ({ ...current, selectedProfiles: preferences.selectedProfiles }));
   } catch (error) {
     console.error('restored profile preference save failed; keeping session state', error);
   }

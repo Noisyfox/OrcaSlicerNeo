@@ -2,6 +2,7 @@
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import type {
   OptionMeta,
   PresetDraftEditorBinding,
@@ -216,7 +217,8 @@ async function mount(
     />;
   }
   await act(async () => {
-    root.render(<Harness />);
+    const platform = { preferences: { load: async () => structuredClone(DEFAULT_USER_PREFERENCES), save: async () => {} } } as unknown as PlatformCapabilities;
+    root.render(<PlatformProvider value={platform}><Harness /></PlatformProvider>);
   });
   return { container, root, onClose };
 }
@@ -514,7 +516,8 @@ describe('PresetEditorDialog', () => {
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer Canonical');
 
     const filamentSnapshot = snapshotFor('filament');
-    await act(async () => { root.render(<PresetEditorDialog target={{ kind: 'filament', canonicalName: filamentSnapshot.canonicalName }} snapshot={filamentSnapshot} onClose={vi.fn()} onMutate={vi.fn()} />); });
+    const platform = { preferences: { load: async () => structuredClone(DEFAULT_USER_PREFERENCES), save: async () => {} } } as unknown as PlatformCapabilities;
+    await act(async () => { root.render(<PlatformProvider value={platform}><PresetEditorDialog target={{ kind: 'filament', canonicalName: filamentSnapshot.canonicalName }} snapshot={filamentSnapshot} onClose={vi.fn()} onMutate={vi.fn()} /></PlatformProvider>); });
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Filament Canonical');
     expect(document.querySelectorAll('[data-testid="preset-editor-close"]')).toHaveLength(1);
@@ -609,12 +612,12 @@ describe('PresetEditorDialog', () => {
       key: 'filament_soluble', scalarType: 'bool', index: 0, value: true }));
 
     await click(document.querySelector('[data-testid="preset-editor-page-tab-filament"]'));
-    const colour = document.querySelector('[data-testid="preset-editor-input-default_filament_colour"]') as HTMLInputElement;
-    await act(async () => {
-      colour.value = '#223344';
-      colour.dispatchEvent(new Event('input', { bubbles: true }));
-      colour.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await click(document.querySelector('[data-testid="preset-editor-input-default_filament_colour"]'));
+    await changeInput(document.querySelector('input[aria-label="HEX color"]') as HTMLInputElement, '#223344');
+    await act(async () => document.querySelector('input[aria-label="HEX color"]')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    const beforeColor = onMutate.mock.calls.length;
+    await click([...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!);
+    expect(onMutate.mock.calls.length).toBe(beforeColor + 1);
     expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'set-element',
       key: 'default_filament_colour', scalarType: 'string', index: 0, value: '#223344' }));
   });

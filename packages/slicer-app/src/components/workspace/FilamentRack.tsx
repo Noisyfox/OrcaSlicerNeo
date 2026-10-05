@@ -1,5 +1,5 @@
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
@@ -8,6 +8,7 @@ import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import {
   Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
   ComboboxList, ComboboxTrigger, ComboboxValue,
@@ -57,42 +58,12 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   onMerge: (destination: number) => void;
 }) {
   const [search, setSearch] = useState('');
-  const colourInputRef = useRef<HTMLInputElement>(null);
+  const [colourOpen, setColourOpen] = useState(false);
   const authoritativeColour = slot.colour.effective.slice(0, 7).toLowerCase();
-  const [draftColour, setDraftColour] = useState<string | null>(null);
-
-  // A native colour picker emits input events while its value is being
-  // adjusted, then one change event when the picker interaction is accepted.
-  // Keep the intermediate swatch local to this card and commit only at that
-  // native change boundary. React's onChange normalization is intentionally
-  // not used here because it may map the browser's input stream differently
-  // for colour inputs.
   useEffect(() => {
-    setDraftColour(null);
+    setColourOpen(false);
   }, [authoritativeColour]);
-
-  useEffect(() => {
-    const input = colourInputRef.current;
-    if (!input) return;
-    const handleInput = () => setDraftColour(input.value);
-    const handleChange = () => {
-      const nextColour = input.value.toLowerCase();
-      if (nextColour === authoritativeColour) {
-        setDraftColour(null);
-        return;
-      }
-      setDraftColour(nextColour);
-      onColour(nextColour);
-    };
-    input.addEventListener('input', handleInput);
-    input.addEventListener('change', handleChange);
-    return () => {
-      input.removeEventListener('input', handleInput);
-      input.removeEventListener('change', handleChange);
-    };
-  }, [authoritativeColour, onColour]);
-
-  const displayedColour = draftColour ?? authoritativeColour;
+  const displayedColour = authoritativeColour;
   const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(displayedColour.slice(offset, offset + 2), 16));
   const numberColour = red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
   return (
@@ -100,19 +71,13 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
       <ContextMenuTrigger render={<article />}
         className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
-        <label className="relative flex h-full w-6 shrink-0 cursor-pointer items-center justify-center text-[13px] font-medium"
-          style={{ backgroundColor: displayedColour, color: numberColour }}>
-          {slot.slot}
-          <input
-            ref={colourInputRef}
-            aria-label={`Slot ${slot.slot} colour`}
-            data-testid={`filament-colour-${slot.slot}`}
-            type="color"
-            value={displayedColour}
-            disabled={pending}
-            className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-default"
-          />
-        </label>
+        <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
+          title={`Slot ${slot.slot} color`} value={{ kind: 'solid', color: authoritativeColour }} disabled={pending}
+          onConfirm={next => {
+            if (next.kind === 'solid' && next.color.toLowerCase() !== authoritativeColour) onColour(next.color.toLowerCase());
+          }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0 rounded-none"
+            aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
+            style={{ backgroundColor: displayedColour, color: numberColour }}>{slot.slot}</Button>} />
         <Combobox inputValue={search} onInputValueChange={setSearch} value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
           <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
             aria-label={`Filament preset for slot ${slot.slot}`}

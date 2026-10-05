@@ -7,7 +7,7 @@ import {
   type PrinterConfigurationDocument,
   type UploadedGcode,
 } from '@orca/printer-control';
-import { usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
+import { updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -247,22 +247,10 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     preferenceSaveChainRef.current = preferenceSaveChainRef.current
       .catch(() => undefined)
       .then(async () => {
-        let preferences = preferenceRef.current;
-        if (!preferences) {
-          try {
-            preferences = await platform.preferences.load();
-          } catch (error) {
-            console.error('send navigation preference load failed; keeping session value', error);
-            return;
-          }
-        }
-        const next: UserPreferences = {
-          ...preferences,
-          ui: { ...preferences.ui, switchToDeviceAfterSend: checked },
-        };
-        preferenceRef.current = next;
         try {
-          await platform.preferences.save(next);
+          preferenceRef.current = await updateUserPreferences(platform.preferences, preferences => ({
+            ...preferences, ui: { ...preferences.ui, switchToDeviceAfterSend: checked },
+          }));
         } catch (error) {
           // Persistence is best effort; the current dialog still honors the
           // user's choice and the host repository remains the source of truth.

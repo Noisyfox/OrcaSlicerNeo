@@ -14,6 +14,19 @@ vi.mock('@orca/slicer-runtime', async () => {
 describe('browser adapter', () => {
   beforeEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
+  it('restores alpha and gradient favorites through a recreated browser adapter', async () => {
+    const first = createBrowserAdapter({} as never);
+    const prefs = await first.preferences.load();
+    await first.preferences.save({ ...prefs, colorPicker: { favorites: [
+      { kind: 'solid', color: '#12345680' },
+      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FFFF' },
+    ] } });
+    const expected = { favorites: [{ kind: 'solid', color: '#12345680' },
+      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' }] };
+    expect(JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!).colorPicker).toEqual(expected);
+    expect((await createBrowserAdapter({} as never).preferences.load()).colorPicker).toEqual(expected);
+  });
+
   it('uses a file input for model selection', async () => {
     const input = document.createElement('input');
     Object.defineProperty(input, 'files', { value: [{ name: 'cube.stl', arrayBuffer: async () => new Uint8Array([1, 2]).buffer }] });

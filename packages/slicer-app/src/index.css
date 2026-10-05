@@ -1,5 +1,14 @@
 @source "./**/*.{ts,tsx}";
 
+.color-checkerboard {
+  background-color: var(--color-card);
+  background-image: conic-gradient(var(--color-secondary) 25%, transparent 0 50%, var(--color-secondary) 0 75%, transparent 0);
+  background-size: 12px 12px;
+}
+.color-spectrum-pointer { transform: translate(-50%, -50%); box-shadow: 0 0 0 1px var(--color-panel-header); }
+.color-channel-slider [data-slot="slider-track"] { background: var(--channel-gradient); height: 8px; }
+.color-channel-slider [data-slot="slider-range"] { background: transparent; }
+
 /* Plate cards stay inside the existing sidebar list/scroll allocation. */
 .plate-list-card {
   display: grid;

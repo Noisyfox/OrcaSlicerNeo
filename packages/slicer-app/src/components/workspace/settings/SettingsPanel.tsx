@@ -12,7 +12,7 @@ import { useProjectStore } from '@/stores/useProjectStore';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { usePlatform } from '@orca/platform-contract';
+import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
 import { selectProcessPreset, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -105,11 +105,10 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
           const project = useProjectStore.getState();
           if (project.scope !== 'project') {
             try {
-              const prefs = await platform.preferences.load();
-              await platform.preferences.save({ ...prefs, selectedProfiles: {
+              await updateUserPreferences(platform.preferences, prefs => ({ ...prefs, selectedProfiles: {
                 printer: transition.profileSnapshot.printer.name,
                 print: transition.profileSnapshot.print.name,
-              } });
+              } }));
             } catch (error) {
               console.error('preset preference save failed; keeping resolved session state', error);
             }
@@ -136,10 +135,9 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       // made in the system scope may update the cross-host preference store.
       if (project.scope === 'project') return;
       try {
-        const prefs = await platform.preferences.load();
-        await platform.preferences.save({ ...prefs, selectedProfiles: {
+        await updateUserPreferences(platform.preferences, prefs => ({ ...prefs, selectedProfiles: {
           printer: r.printer.name, print: r.print.name,
-        } });
+        } }));
       } catch (error) {
         console.error('preset preference save failed; keeping resolved session state', error);
       }

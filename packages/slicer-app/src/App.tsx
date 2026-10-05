@@ -16,7 +16,7 @@ import { useProjectStore } from './stores/useProjectStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
 import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
-import { usePlatform } from '@orca/platform-contract';
+import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreBootstrapSession } from './preferences';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { addDroppedModels, addModel, clearScene } from './components/workspace/actions/sceneActions';
@@ -109,11 +109,10 @@ function AppContent() {
     setRightSidebarVisible(visibility.right);
     // Serialize toggles so rapid left/right clicks cannot overwrite each other.
     sidebarPreferenceSaveRef.current = sidebarPreferenceSaveRef.current.then(async () => {
-      const preferences = await platform.preferences.load();
-      await platform.preferences.save({
+      await updateUserPreferences(platform.preferences, preferences => ({
         ...preferences,
         ui: { ...preferences.ui, leftSidebarCollapsed: !visibility.left, rightSidebarCollapsed: !visibility.right },
-      });
+      }));
     }).catch(() => undefined);
   };
   // Navigation hides the workspace without changing its internal mode. Update
@@ -275,10 +274,8 @@ function AppContent() {
     setFileManagerFocusRequest((request) => request + 1);
   }, []);
   const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour) => {
-    const current = preferences ?? await platform.preferences.load();
-    const next = { ...current, projectLoadBehaviour: behaviour };
+    const next = await updateUserPreferences(platform.preferences, current => ({ ...current, projectLoadBehaviour: behaviour }));
     setPreferences(next);
-    await platform.preferences.save(next);
   }, [platform.preferences, preferences]);
 
   const menuState = useMemo(() => buildMenuStateSnapshot({

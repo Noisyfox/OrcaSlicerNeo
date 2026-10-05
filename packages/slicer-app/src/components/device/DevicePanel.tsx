@@ -10,7 +10,7 @@ import {
 import { Pencil, Plus, Trash2, Monitor } from 'lucide-react';
 import type { PrinterConfiguration } from '@orca/printer-control';
 import { normalizePrinterConfiguration, normalizePrinterConfigurationDocument } from '@orca/printer-control';
-import { usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
+import { updateUserPreferences, usePlatform, type WebViewHost, type WebViewPanelState } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
@@ -144,7 +144,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
   }, [platform.preferences]);
 
   function persistDeviceSidebarWidth(width: number) {
-    void platform.preferences.load().then((prefs) => platform.preferences.save({
+    void updateUserPreferences(platform.preferences, prefs => ({
       ...prefs,
       ui: { ...prefs.ui, deviceSidebarWidth: width },
     })).catch(() => undefined);

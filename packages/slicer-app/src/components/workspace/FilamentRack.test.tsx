@@ -2,11 +2,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { DEFAULT_USER_PREFERENCES, PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useProjectStore } from '@/stores/useProjectStore';
 import type { FilamentSessionSnapshot, HistoryStatus } from '@slicer/client';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): FilamentSessionSnapshot {
   return {
@@ -55,9 +57,9 @@ function renderRack(runtime: Record<string, unknown>, onEditPreset?: (canonicalN
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  const platform = { runtime } as unknown as PlatformCapabilities;
+  const platform = { runtime, preferences: { load: vi.fn(async () => structuredClone(DEFAULT_USER_PREFERENCES)), save: vi.fn(async () => {}) } } as unknown as PlatformCapabilities;
   act(() => { root.render(<PlatformProvider value={platform}><FilamentRack onEditPreset={onEditPreset} /></PlatformProvider>); });
-  return { container, root };
+  return { container, root, platform };
 }
 
 async function openSlotAction(container: HTMLElement, slot: number, action: 'edit' | 'delete' | 'merge') {
@@ -70,10 +72,22 @@ async function openSlotAction(container: HTMLElement, slot: number, action: 'edi
   return document.querySelector(`[data-testid="filament-${action}-${slot}"]`) as HTMLElement | null;
 }
 
+async function editColor(value: string) {
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+}
+async function confirmColor() {
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!.click());
+}
+
 describe('FilamentRack runtime interaction', () => {
   let root: Root | undefined;
   afterEach(() => {
-    root?.unmount(); root = undefined; document.body.innerHTML = '';
+    act(() => root?.unmount()); root = undefined; document.body.innerHTML = '';
     useFilamentSessionStore.getState().reset();
     useProjectStore.getState().reset();
   });
@@ -110,7 +124,7 @@ describe('FilamentRack runtime interaction', () => {
     expect(onEditPreset).toHaveBeenCalledWith('PETG');
   });
 
-  it('keeps continuous colour input local and commits one final native change', async () => {
+  it('keeps dialog color drafts local and commits one confirmed mutation', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({
       slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#445566', provenance: 'user' as const } } : slot),
@@ -121,22 +135,14 @@ describe('FilamentRack runtime interaction', () => {
     useFilamentSessionStore.setState({ snapshot: initial });
     const rendered = renderRack(runtime); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
-    const input = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLInputElement;
-
-    await act(async () => {
-      input.value = '#223344';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.value = '#334455';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    await act(async () => trigger.click());
+    await editColor('#223344');
+    await editColor('#334455');
     expect(setColour).not.toHaveBeenCalled();
-    expect(input.value).toBe('#334455');
-
-    await act(async () => {
-      input.value = '#445566';
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      await Promise.resolve();
-    });
+    expect(trigger.value).toBe('#112233');
+    await editColor('#445566');
+    await confirmColor();
     expect(setColour).toHaveBeenCalledTimes(1);
     expect(setColour).toHaveBeenCalledWith({ version: 1, revision: 4, slot: 1, colour: '#445566' });
     expect(useFilamentSessionStore.getState().snapshot?.revisions.project).toBe(5);
@@ -148,27 +154,27 @@ describe('FilamentRack runtime interaction', () => {
     useFilamentSessionStore.setState({ snapshot: initial });
     const rendered = renderRack(runtime); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
-    const input = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLInputElement;
-    await act(async () => {
-      input.value = '#223344';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    expect(input.value).toBe('#223344');
+    const input = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    await act(async () => input.click());
+    await editColor('#223344');
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('223344');
     await act(async () => {
       useFilamentSessionStore.setState({ snapshot: makeSnapshot({ slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#abcdef', provenance: 'user' as const } } : slot) }) });
     });
     expect(input.value).toBe('#abcdef');
+    expect(document.querySelector('input[aria-label="HEX color"]')).toBeNull();
   });
 
-  it('does not dispatch a colour mutation when native change leaves the colour unchanged', async () => {
+  it('does not dispatch a color mutation when confirmation leaves the color unchanged', async () => {
     const initial = makeSnapshot();
     const setColour = vi.fn();
     const runtime = { getFilamentSessionSnapshot: vi.fn(async () => initial), setFilamentSlotColour: setColour };
     useFilamentSessionStore.setState({ snapshot: initial });
     const rendered = renderRack(runtime); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
-    const input = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLInputElement;
-    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    const input = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    await act(async () => input.click());
+    await confirmColor();
     expect(setColour).not.toHaveBeenCalled();
   });
 
@@ -202,7 +208,7 @@ describe('FilamentRack runtime interaction', () => {
     let release: ((value: typeof rejected) => void) | undefined;
     const pendingAdd = vi.fn(() => new Promise<typeof rejected>((resolve) => { release = resolve; }));
     const rejecting = { ...runtime, addFilamentSlot: pendingAdd };
-    await act(async () => { root?.render(<PlatformProvider value={{ runtime: rejecting } as unknown as PlatformCapabilities}><FilamentRack /></PlatformProvider>); await Promise.resolve(); });
+    await act(async () => { root?.render(<PlatformProvider value={{ ...rendered.platform, runtime: rejecting } as unknown as PlatformCapabilities}><FilamentRack /></PlatformProvider>); await Promise.resolve(); });
     await act(async () => { useFilamentSessionStore.setState({ snapshot: makeSnapshot(), pendingKind: null, rejected: null }); });
     await act(async () => { (rendered.container.querySelector('[data-testid="filament-add"]') as HTMLButtonElement).click(); });
     expect(rendered.container.querySelector('[data-testid="filament-rack"]')?.getAttribute('aria-busy')).toBe('true');
