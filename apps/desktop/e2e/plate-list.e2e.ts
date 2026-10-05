@@ -38,7 +38,15 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     expect(imageEvidence.transparent).toBeGreaterThan(100);
     const card = page.getByTestId('preview-plate-list').locator('.plate-list-card').first();
     const initialCard = (await card.boundingBox())!;
+    const addPlateButton = (await page.getByTestId('add-plate').boundingBox())!;
+    expect(initialCard.y - addPlateButton.y - addPlateButton.height).toBeCloseTo(4, 1);
+    const optionsBounds = (await page.getByTestId('configuration-options-scroll').boundingBox())!;
+    expect(initialCard.x).toBe(optionsBounds.x);
+    expect(initialCard.x + initialCard.width).toBe(optionsBounds.x + optionsBounds.width);
     const initialThumbnail = (await thumbnail.boundingBox())!;
+    const leftInset = initialThumbnail.x - initialCard.x;
+    expect(initialThumbnail.y - initialCard.y).toBeCloseTo(leftInset, 1);
+    expect(initialCard.y + initialCard.height - initialThumbnail.y - initialThumbnail.height).toBeCloseTo(leftInset, 1);
     const initialImageUrl = await thumbnail.getAttribute('src');
     const resizer = page.getByTestId('sidebar-resizer');
     await resizer.focus();

@@ -27,9 +27,14 @@ are intentionally not recorded here.
 - Thumbnails use a fixed orthographic isometric view of printable model parts,
   without selection overlays, modifiers, Prime Towers, or bed decorations.
   They are transient session images; normal project saves do not embed them.
-  Cards are 128px tall with 96px square thumbnails; sidebar resizing changes
+  Cards are 108px tall with 96px square thumbnails and equal 6px top, bottom,
+  and left insets; sidebar resizing changes
   only horizontal space. Images render at a fixed 256px resolution and are not
   regenerated for display-size or device-pixel-ratio changes.
+  Only the current plate has an inset highlighted outline; unselected cards have no
+  extra border ring.
+  Card edges align horizontally with the options area below the list.
+  The first card starts 4px below the plate toolbar's action buttons.
 - The list toolbar retains New Plate and Arrange, with Delete Plate in its menu
   and a plate-name search. Send All and Print All are not displayed.
 - Each card reports Not Sliced, Slicing, Sliced, Error, Empty, or Out of bounds.

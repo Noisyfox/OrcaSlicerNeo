@@ -61,7 +61,7 @@ export function PlateToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
   }
 
   if (!plateSession) return null;
-  return <div className="py-2" data-testid="plate-controls">
+  return <div className="pt-2" data-testid="plate-controls">
     <div className="mb-2 flex items-center justify-between gap-2">
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button size="icon-sm" variant="secondary" aria-label="Plate menu" data-testid="plate-menu" />}><Menu /></DropdownMenuTrigger>
