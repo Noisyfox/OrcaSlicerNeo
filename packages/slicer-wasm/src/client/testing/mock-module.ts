@@ -246,7 +246,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       prime_tower_width: { type: 'float', scopes: ['project'] },
       printable_area: { type: 'points', category: 'Printer', scopes: ['project'] },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'], scopes: ['project'] },
-      curr_bed_type: { type: 'enum', enum_values: ['Cool Plate', 'Engineering Plate', 'Textured PEI Plate'], scopes: ['project', 'plate'] },
+      curr_bed_type: { type: 'enum', enum_values: ['Cool Plate', 'Engineering Plate', 'High Temp Plate', 'Textured PEI Plate', 'Textured Cool Plate', 'Supertack Plate'], scopes: ['project', 'plate'] },
       print_sequence: { type: 'enum', enum_values: ['by layer', 'by object'], scopes: ['project', 'plate'] },
       first_layer_print_sequence: { type: 'ints', scopes: ['project', 'plate'] },
       other_layers_print_sequence: { type: 'ints', scopes: ['project', 'plate'] },
@@ -767,6 +767,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       revision_after: historyRevision, dirty: true, affected_plate_ids: [...plateIds],
       all_plate_results_invalidated: true, plate_session: plateSession,
       filament_session: filamentSnapshot,
+      profile_snapshot: snapshot(),
       history_status: historyStatus(), native_scoped_config: nativeScopedConfigFullTransport() };
   }
   type MockScopedTarget = { scope: 'project' | 'object' | 'part' | 'plate'; id?: string };
@@ -1004,7 +1005,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return { ok: true, context: { ...clone(entry.context), plateSession: plateSessionSnapshot() },
       native_scoped_config: nativeScopedConfigFullTransport(removedTargets), status: historyStatus(), entryId: entry.id,
       affected_plate_ids: presetDraftsChanged || profileSelection ? [...plateIds] : affectedHistoryPlateIds(beforeState, entry),
-      ...(profileSelection ? { profile_snapshot: snapshot() } : {}),
+      ...(profileSelection || presetDraftsChanged ? { profile_snapshot: snapshot() } : {}),
       scene_delta: sceneDelta,
       impact: { version: 1, model: 'delta', plateSession: true, filamentRack: true, nativeScopedConfig: true,
           presetDrafts: presetDraftsChanged, profileSelection, selectionContext: true, primeTower: true, preview: 'all' } };
@@ -2084,6 +2085,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         targets.push({ scope, id });
       }
       const next = clone(nativeScopedConfig);
+      const previousProject = clone(nativeScopedConfig.project);
+      const previousPlates = clone(nativeScopedConfig.plates);
       const affected = new Set<string>();
       const dirtyReasons = new Set<string>();
       let projectChanged = false;
@@ -2124,6 +2127,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
               if (target.scope === 'plate' && !metadata[key]?.scopes?.includes('plate'))
                 return fail(`configuration option ${key} is not supported for plate scope`, 'unsupported_reference');
               const effective = clamp(key, value);
+              if (key === 'curr_bed_type' && !snapshot().bed_type.choices.some((choice) => choice.value === value))
+                return fail('bed type is not supported by the selected printer', 'native_validation_failure');
               bucket[key] = effective;
               if (effective !== value && !corrections.some((item) => item.key === key && item.effective === effective))
                 corrections.push({ key, requested: value, effective });
@@ -2142,6 +2147,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
               delete bucket[key];
             }
           }
+          if (target.scope === 'project' && !Object.hasOwn(bucket, 'curr_bed_type') &&
+              (Object.hasOwn(previousProject, 'curr_bed_type') ||
+                (request.operation === 'reset' && Object.hasOwn(values, 'curr_bed_type'))))
+            bucket.curr_bed_type = snapshot().bed_type.default_value;
           if (target.scope === 'project' && before !== JSON.stringify(bucket)) {
             projectChanged = true;
             for (const id of plateIds) affected.add(id);
@@ -2157,7 +2166,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       let mutation: Record<string, unknown> | undefined;
       if (dirtyReasons.size > 0) {
-        mutation = projectChanged
+        const withoutBed = (values: Record<string, string>) =>
+          Object.fromEntries(Object.entries(values).filter(([key]) => key !== 'curr_bed_type'));
+        const globalBedOnly = projectChanged &&
+          JSON.stringify(withoutBed(next.project)) === JSON.stringify(withoutBed(previousProject));
+        if (globalBedOnly) {
+          affected.clear();
+          for (const id of plateIds)
+            if (!Object.hasOwn(next.plates[id] ?? {}, 'curr_bed_type')) affected.add(id);
+          for (const target of targets)
+            if (target.scope === 'plate' &&
+                JSON.stringify(previousPlates[target.id] ?? {}) !== JSON.stringify(next.plates[target.id] ?? {}))
+              affected.add(target.id);
+        }
+        mutation = projectChanged && !globalBedOnly
           ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
           : plateMutation([...dirtyReasons][0], [...affected], [...affected]);
       }

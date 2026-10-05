@@ -245,6 +245,10 @@ hashing the complete model.
   G-code invalidate only that plate.
 - Printer, Process, filament-rack, flushing-matrix, and other shared slicing
   configuration invalidate every plate.
+- A project edit changing only the global bed type invalidates the plates
+  inheriting that value. Plates owning a bed-type override retain their input
+  stamps and results, including an explicit override equal to the old global
+  value. A combined edit of another shared setting retains all-plate scope.
 - Selection, camera state, current-plate selection, and Prepare-only Prime
   Tower proxy refresh do not invalidate a slice result.
 
@@ -285,6 +289,8 @@ A committed configuration mutation advances input stamps and invalidates
 presentation only for its effective scope:
 
 - a plate-local override affects that one stable plate ID;
+- a global-bed-only edit affects only entries without a local bed-type
+  override; other shared-setting edits retain their global scope;
 - a global printer, process, or filament-preset mutation affects every live
   plate entry; and
 - an object-config mutation affects every plate whose membership contains an

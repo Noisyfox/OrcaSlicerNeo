@@ -133,6 +133,9 @@ async function commitPresetDraftMutationNow(
 
     projectHistoryStatus(result.historyStatus);
 
+    const configurationMode = useSettingsStore.getState().configurationMode;
+    useSettingsStore.getState().hydrateProfileSnapshot(result.profileSnapshot);
+    useSettingsStore.getState().setConfigurationMode(configurationMode);
     const scopedConfigResult = useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
     if (scopedConfigResult === 'refresh-required')
       throw new Error('native scoped configuration refresh was not accepted');

@@ -478,10 +478,13 @@ export function Workspace({
           projection.volumes.forEach((volume) => { if (!retained.has(volume)) volume.dispose(); });
           return;
         }
-        if (impact.profileSelection) {
+        if (impact.profileSelection || impact.presetDrafts) {
           if (!profileSnapshot)
-            throw new Error('history profile-selection restore is missing its native profile snapshot');
+            throw new Error('history profile restore is missing its native profile snapshot');
+          const configurationMode = useSettingsStore.getState().configurationMode;
           useSettingsStore.getState().hydrateProfileSnapshot(profileSnapshot);
+          if (!impact.profileSelection)
+            useSettingsStore.getState().setConfigurationMode(configurationMode);
           const project = useProjectStore.getState();
           const selections = { printer: profileSnapshot.printer.name, print: profileSnapshot.print.name };
           project.setProject(project.scope === 'project'

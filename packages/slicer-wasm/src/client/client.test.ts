@@ -893,6 +893,32 @@ describe('SlicerClient bridge contract', () => {
     });
   });
 
+  it('uses native bed-only affected receipts and keeps repeated writes unchanged', async () => {
+    const client = makeClient();
+    const beforeAdd = await client.getPlateSessionSnapshot();
+    if (!beforeAdd.ok) throw new Error(beforeAdd.error);
+    const inheriting = beforeAdd.currentPlateId;
+    const added = await client.addPlate();
+    if (!added.ok) throw new Error(added.error);
+    const overriding = added.currentPlateId;
+    await client.setNativeScopedConfig({ scope: 'project' }, 'curr_bed_type', 'High Temp Plate');
+    await client.setNativeScopedConfig({ scope: 'plate', id: overriding }, 'curr_bed_type', 'High Temp Plate');
+    const before = await client.getPlateSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const result = await client.setNativeScopedConfig({ scope: 'project' }, 'curr_bed_type', 'Textured PEI Plate');
+    expect(result).toMatchObject({ ok: true, plateSession: {
+      affectedPlateIds: [inheriting], inputRevisions: { [overriding]: before.inputRevisions?.[overriding] },
+    } });
+    const after = await client.getPlateSessionSnapshot();
+    const noop = await client.setNativeScopedConfig({ scope: 'project' }, 'curr_bed_type', 'Textured PEI Plate');
+    expect(noop).toMatchObject({ ok: true });
+    expect('plateSession' in noop).toBe(false);
+    expect(await client.getPlateSessionSnapshot()).toEqual(after);
+    const rejected = await client.setNativeScopedConfig({ scope: 'project' }, 'curr_bed_type', 'invented-bed');
+    expect(rejected).toMatchObject({ ok: false, errorCode: 'native_validation_failure' });
+    expect(await client.getPlateSessionSnapshot()).toEqual(after);
+  });
+
   it.each([
     undefined,
     { supports_selection: 'true', default_value: 'Cool Plate', choices: [] },

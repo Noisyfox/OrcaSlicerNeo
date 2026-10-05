@@ -149,6 +149,14 @@ The initial validation behavior is intentionally limited:
 - No dependency graph is checked and no dependent value is hidden, disabled,
   or automatically corrected. Other questionable combinations are reported
   by normal slicing validation.
+- Bed type is a narrow native exception: project and plate writes must use
+  the selected Printer's supported choices. A printer/capability transition
+  selects its native default and removes unsupported plate bed overrides,
+  restoring inheritance. A printer without bed-type selection cannot own
+  local bed overrides. The transition, corrections, and native snapshots
+  are committed together as one history action.
+  Resetting the project bed type restores the selected printer's supported
+  native default; resetting a plate bed type removes its override.
 - A field-level Reset, category Reset, or target-wide Reset removes local
   values and resumes inheritance. A bulk Reset is one undoable action and has
   no confirmation prompt.
@@ -173,6 +181,9 @@ representable local Project, Plate, Object, Part, or Modifier value, even if
 that value is no longer effective or valid for the new preset. The displayed
 value and source are recomputed; normal slicing validation reports values the
 new configuration cannot use.
+Bed type follows the explicit exception in section 3: unsupported local bed
+types are removed during printer/capability transitions, and the project bed
+type is initialized from the selected printer's native default.
 
 Object and part/modifier settings belong to their model item and apply to all
 instances of that item. Moving an item to another plate leaves its settings

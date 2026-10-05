@@ -530,6 +530,7 @@ export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'reset-preset' });
 
 export interface PresetDraftMutationSuccess extends PresetDraftSnapshot {
+  readonly profileSnapshot: ProfileSnapshot;
   readonly filamentSession: FilamentSessionSnapshot;
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;

@@ -73,6 +73,10 @@ function presetReceipt(allPlateResultsInvalidated: true): Extract<PresetDraftMut
     modified: true, overrides: { printable_height: '250' },
     sourceValues: { printable_height: '230' }, effectiveValues: { printable_height: '250' },
     optionMetadata: {}, revision: 2,
+    profileSnapshot: { ok: true, printers: [], prints: [], filamentCatalog: [],
+      printer: { name: 'Printer A', idx: 0 }, print: { name: 'Process', idx: 0 },
+      bedType: { supportsSelection: false, defaultValue: 'High Temp Plate', choices: [] },
+      project_config: { printable_height: '250', curr_bed_type: 'High Temp Plate' } },
     historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 2, dirty: true,
     affectedPlateIds: ['plate-1', 'plate-2'], allPlateResultsInvalidated,
     plateSession: { ...mutation,
@@ -317,6 +321,7 @@ describe('commitPresetDraftMutation', () => {
     for (const plateId of ['plate-1', 'plate-2', 'unaffected-plate'])
       useSlicerStore.getState().setPlateResult({ plateId, inputStamp: 1, resultGeneration: plateId, sliceTaskId: plateId } as never, [], {});
     useSlicerStore.getState().setActiveSliceTarget({ plateId: 'plate-1', inputRevision: 1 });
+    useSettingsStore.getState().setConfigurationMode('scoped');
     useFilamentSessionStore.setState({ snapshot: { revisions: { session: 1, project: 1, plates: {} } } as never });
 
     await expect(commitPresetDraftMutation(platform, request)).resolves.toBe(receipt);
@@ -329,6 +334,8 @@ describe('commitPresetDraftMutation', () => {
     expect(usePlateSessionStore.getState().snapshot).toBe(receipt.plateSession);
     expect(useFilamentSessionStore.getState().snapshot).toBe(receipt.filamentSession);
     expect(useSettingsStore.getState().nativeScopedConfig.project.printable_height).toBe('250');
+    expect(useSettingsStore.getState().bedType).toBe(receipt.profileSnapshot.bedType);
+    expect(useSettingsStore.getState().configurationMode).toBe('scoped');
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual([]);
     expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
     expect(cancel).toHaveBeenCalledOnce();

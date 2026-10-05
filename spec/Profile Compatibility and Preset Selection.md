@@ -44,6 +44,14 @@ multi-filament rack together with the selected Process. Selecting a Process
 updates its compatible candidates and revalidates the rack. If a slot is no
 longer compatible, OrcaSlicer's native fallback is applied by the Worker and
 the complete rack snapshot is returned atomically.
+Printer changes also initialize the project bed type from the new printer's
+native default and remove local bed-type overrides that it cannot support.
+Editing the selected printer's bed capabilities performs the same corrections
+inside that draft edit's history transaction. Both mutation and history
+restore receipts carry the effective native capability projection.
+If a selectable printer excludes its configured default, normalization uses
+the first supported native choice. A printer without selection uses its
+native default and clears local bed overrides.
 
 While the update is in progress, the Printer and Process selectors and rack
 commands are temporarily disabled. A stale candidate or stale rack revision
