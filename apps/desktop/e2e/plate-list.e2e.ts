@@ -128,6 +128,11 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     const optionsTop = (await options.boundingBox())!.y;
     expect(optionsTop - lastCardBounds.y - lastCardBounds.height).toBeLessThanOrEqual(13);
     expect(optionsTop).toBeGreaterThan(lastCardBounds.y + lastCardBounds.height);
+    const listBounds = (await page.getByTestId('configuration-plate-list-scroll').boundingBox())!;
+    const dividerWidth = await page.getByTestId('configuration-plate-list-scroll').evaluate(element =>
+      Number.parseFloat(getComputedStyle(element).borderBottomWidth));
+    expect(listBounds.y + listBounds.height - lastCardBounds.y - lastCardBounds.height).toBeCloseTo(8 + dividerWidth, 1);
+    expect(optionsTop - listBounds.y - listBounds.height).toBeCloseTo(4, 1);
     const listHeight = (await page.getByTestId('configuration-plate-list-scroll').boundingBox())!.height;
     const firstOption = page.getByTestId('config-field-curr_bed_type');
     const collapsedOptionTop = (await firstOption.boundingBox())!.y;

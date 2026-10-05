@@ -21,7 +21,8 @@ are intentionally not recorded here.
   below the top title and plate toolbar (those controls are excluded).
   Filtering options does not shrink this section. The plate list takes its
   content height up to the remaining-space limit: short lists place options
-  below the last card with a 12px section gap, while long lists scroll independently.
+  below the list, with 8px between the last card and divider and 4px between
+  the divider and options, while long lists scroll independently.
   The height budget includes expanded search, but collapsed search leaves no
   empty placeholder between the header and options.
 - Selecting a plate uses its card content, name, or thumbnail. Action buttons operate on their

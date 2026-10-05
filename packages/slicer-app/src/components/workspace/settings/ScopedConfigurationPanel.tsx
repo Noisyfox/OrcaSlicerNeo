@@ -241,8 +241,8 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         const optionsHeight = Math.min(PLATE_OPTIONS_SECTION_HEIGHT, available / 2);
         setPlateOptionsMaxHeight(available / 2);
         // The list keeps its natural height until it reaches this scroll limit.
-        // Reserve 8px of bottom padding plus the 4px section gap.
-        setListMaxHeight(Math.max(0, available - optionsHeight - 12));
+        // The list includes its padding above the divider; reserve the 4px section gap.
+        setListMaxHeight(Math.max(0, available - optionsHeight - 4));
         return;
       }
       // Include the scope header and spacing in the upper half's budget.
@@ -429,7 +429,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
 
   return (
     <section ref={panelRef} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
-      <div className={cn('shrink-0 space-y-1 bg-card', mode === 'plates' ? 'pb-2' : 'pb-1')}>
+      <div className={cn('shrink-0 space-y-1 bg-card', mode !== 'plates' && 'pb-1')}>
         <div data-testid="configuration-mode-header" className="shrink-0 bg-panel-header">
           <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
             {(['project', 'scoped', 'plates'] as const).map((value) => <Button key={value} type="button" role="tab"
