@@ -190,9 +190,9 @@ export const ScopedField = memo(function ScopedField({
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
 
-// Six 28px plate-option rows, 8px padding, and 56px for the header/search/gaps.
-// Reserve the full catalogue and expanded search even when filtering hides rows.
-const PLATE_OPTIONS_SECTION_HEIGHT = 232;
+// Fixed options budget includes expanded search even when filtering hides rows.
+// Catalogue content that exceeds the budget scrolls independently.
+const PLATE_OPTIONS_SECTION_HEIGHT = 170;
 
 export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent, platesContent, platesToolbar }: {
   sceneInteraction: SceneInteractionController | null;

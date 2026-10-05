@@ -16,8 +16,8 @@ are intentionally not recorded here.
 - The existing Plates list uses square model thumbnails beside each plate's
   name, state, valid slice totals, and plate actions. Its surrounding sidebar
   layout, configuration editor, and viewport remain unchanged. Within Plates,
-  the options section reserves a fixed 232px for the full six-option catalogue,
-  its header, and expanded search, capped at half the shared scrollable area
+  the options section reserves a fixed 170px for options, its header, and
+  expanded search, capped at half the shared scrollable area
   below the top title and plate toolbar (those controls are excluded).
   Filtering options does not shrink this section. The plate list takes its
   content height up to the remaining-space limit: short lists place options

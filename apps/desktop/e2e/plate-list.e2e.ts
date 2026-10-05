@@ -126,7 +126,7 @@ test('plate cards render model thumbnails without changing surrounding layout', 
       await expect.poll(() => options.evaluate(element => {
         const panel = element.closest('[data-testid="scoped-configuration-panel"]')!;
         const list = panel.querySelector('[data-testid="configuration-plate-list-scroll"]')!;
-        const expected = Math.min(232, Math.max(0, panel.getBoundingClientRect().bottom - list.getBoundingClientRect().top) / 2);
+        const expected = Math.min(170, Math.max(0, panel.getBoundingClientRect().bottom - list.getBoundingClientRect().top) / 2);
         return Math.abs(element.getBoundingClientRect().height - expected) <= 1 ? '' : JSON.stringify({
           actual: element.getBoundingClientRect().height, expected, maxHeight: (element as HTMLElement).style.maxHeight });
       })).toBe('');
