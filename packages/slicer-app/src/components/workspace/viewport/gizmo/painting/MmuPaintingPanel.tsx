@@ -14,13 +14,13 @@ export function MmuPaintingPanel() {
   if (!controller || !state || state.phase === 'closed') return null;
   const idle = state.phase === 'idle', s = state.settings;
   return <section className="flex min-w-0 flex-col gap-3 text-sm" aria-label="Surface painting" data-testid="painting-panel" data-phase={state.phase}>
-    <div className="flex items-center justify-between"><h2 className="font-semibold">Surface painting</h2><Button size="sm" variant="ghost" onClick={() => void controller.close()} disabled={!idle && state.phase !== 'error'} aria-label="Close painting">Close</Button></div>
-    <fieldset disabled={!idle}><legend className="mb-2 text-xs text-muted-foreground">Tool</legend>
+    <div className="flex items-center justify-between"><h2 className="text-module font-semibold">Surface painting</h2><Button size="sm" variant="ghost" onClick={() => void controller.close()} disabled={!idle && state.phase !== 'error'} aria-label="Close painting">Close</Button></div>
+    <fieldset disabled={!idle}><legend className="mb-2 text-module text-muted-foreground">Tool</legend>
       <RadioGroup disabled={!idle} value={state.tool} onValueChange={(v) => controller.setTool(v as PaintTool)} className="grid-cols-2 gap-2" aria-label="Painting tool">
         {tools.map(([tool, label]) => <Label key={tool} className="flex items-center gap-2"><RadioGroupItem value={tool} data-testid={`painting-tool-${tool}`} />{label}</Label>)}
       </RadioGroup>
     </fieldset>
-    {state.tool !== 'gap' && <fieldset><legend className="mb-2 text-xs text-muted-foreground">Filament</legend>
+    {state.tool !== 'gap' && <fieldset><legend className="mb-2 text-module text-muted-foreground">Filament</legend>
       <RadioGroup value={String(s.state)} onValueChange={(v) => controller.setSettings({ state: Number(v) })} className="grid-cols-4 gap-2" aria-label="Painting filament">
         {slots.slice(0, 16).map((slot) => <Label key={slot.slot} className="flex items-center gap-1" title={slot.preset.name}><RadioGroupItem value={String(slot.slot)} /><span className="size-3 rounded-full border" style={{ backgroundColor: slot.colour.effective }} /><span className="sr-only">Paint filament </span>{slot.slot}</Label>)}
       </RadioGroup>

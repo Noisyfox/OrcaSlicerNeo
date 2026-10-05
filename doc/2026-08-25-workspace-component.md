@@ -45,6 +45,8 @@ which are siblings inside that middle row. Every controller change re-rendered
 
 ## Behavior
 
+Shared controls and labels use 13px text, including compact buttons and sidebar list rows. Module tabs, sidebar section headers, and parameter group titles use 11px text. The app titlebar tabs retain their existing 13px size. These sizes share theme tokens across both hosts.
+
 The Prepare scene gizmo toolbar is a vertical opaque card at the viewport's left edge. Arrange, Move, Rotate, Scale, and painting options are shown in an adjacent card to its right instead of inside the settings sidebar or at the viewport's right edge. Both cards are centered within a shared region beginning 56px below the viewport controls frame and ending 176px above its bottom, reserving space for the 3D navigator. Each card scrolls independently on short windows. The existing tool order and actions are retained, with a horizontal separator after Add Model. Empty space in the shared region passes pointer input to the scene. Arrange uses the same inline options card instead of a popover; its toolbar button toggles the card, choosing another tool immediately closes it, and starting arrangement closes it. Pressing the 3D scene canvas also closes Arrange without consuming the scene gesture; interacting inside its options card keeps it open. Opening Arrange closes the armed transform gizmo and first awaits a successful close of any active painting session; unfinished painting operations continue to block switching.
 
 The sidebar contains two vertically resizable cards. The upper card scrolls
@@ -471,3 +473,13 @@ Validation for vertical gizmo cards and Arrange interaction (2026-10-04):
 - `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` and `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` — passed.
 - `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'scene gizmo cards|scene transforms: gizmo keyboard shortcuts|full v1 flow'` — three Electron mock tests passed. The focused card journey checks navigator clearance at 800px and 600px window heights, adjacent transform options, Arrange/transform mutual exclusion, keyboard switching, inside-card interaction, and scene dismissal.
 - `git diff --check` — passed. Real-WASM builds and the full release matrix were not run because no native or runtime-boundary code changed.
+
+
+Validation for shared control and module typography (2026-10-05):
+
+- `pnpm test` — 158 files and 1,519 tests passed.
+- `pnpm typecheck` — all workspace packages passed.
+- `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` and `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` — passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'sidebar panels resize|full v1 flow|scene gizmo cards'` — the main flow and gizmo journey passed. The sidebar test initially failed because its fixed overflow width no longer caused the smaller tabs to overflow. It now constrains width from a rendered tab's size rather than assuming a font-dependent fixed width.
+- `pnpm --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep 'sidebar panels resize'` — passed after the test correction, including rendered 13px controls/labels, 11px module tabs/group titles, unchanged 13px app titlebar tabs, and horizontal wheel scrolling.
+- `git diff --check` — passed. Real-WASM builds and the full release matrix were not run for this shared typography change.

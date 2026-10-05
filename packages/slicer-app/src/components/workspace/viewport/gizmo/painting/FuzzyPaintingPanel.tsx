@@ -31,13 +31,13 @@ export function FuzzyPaintingPanel() {
     finally { setEnabling(false); }
   };
   return <section className="flex min-w-0 flex-col gap-3 text-sm" aria-label="Fuzzy skin painting" data-testid="painting-panel" data-phase={state.phase}>
-    <div className="flex items-center justify-between"><h2 className="font-semibold">Fuzzy skin painting</h2><Button size="sm" variant="ghost" onClick={() => void controller.close()} disabled={!idle && state.phase !== 'error'} aria-label="Close painting">Close</Button></div>
-    <fieldset disabled={!idle}><legend className="mb-2 text-xs text-muted-foreground">Tool</legend>
+    <div className="flex items-center justify-between"><h2 className="text-module font-semibold">Fuzzy skin painting</h2><Button size="sm" variant="ghost" onClick={() => void controller.close()} disabled={!idle && state.phase !== 'error'} aria-label="Close painting">Close</Button></div>
+    <fieldset disabled={!idle}><legend className="mb-2 text-module text-muted-foreground">Tool</legend>
       <RadioGroup disabled={!idle} value={state.tool} onValueChange={(tool) => controller.setTool(tool as 'circle' | 'sphere' | 'triangle' | 'smartFill')} className="grid-cols-2" aria-label="Painting tool">
         {(['circle', 'sphere', 'triangle', 'smartFill'] as const).map((tool) => <Label key={tool} className="flex items-center gap-2"><RadioGroupItem value={tool} data-testid={`painting-tool-${tool}`} />{{circle:'Circle',sphere:'Sphere',triangle:'Triangle',smartFill:'Smart Fill'}[tool]}</Label>)}
       </RadioGroup>
     </fieldset>
-    <fieldset><legend className="mb-2 text-xs text-muted-foreground">Fuzzy</legend>
+    <fieldset><legend className="mb-2 text-module text-muted-foreground">Fuzzy</legend>
       <RadioGroup value={settings.erase ? 'erase' : String(settings.state)} onValueChange={(choice) => controller.setSettings(choice === 'erase' ? { erase: true } : { erase: false, state: Number(choice) })} aria-label="Fuzzy skin action">
         {([['1', 'Enable'], ['erase', 'Erase']] as const).map(([value, label]) => <Label key={value} className="flex items-center gap-2"><RadioGroupItem value={value} data-testid={`painting-action-${value}`} />{label}</Label>)}
       </RadioGroup>

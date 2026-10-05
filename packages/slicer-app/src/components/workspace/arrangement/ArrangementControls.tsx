@@ -99,7 +99,7 @@ export function ArrangementPanel({ sceneInteraction, onClose }: {
 
   return (
     <section className="flex min-w-0 flex-col gap-3" data-testid="arrangement-panel" aria-label="Arrange models">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Arrange models</h2>
+      <h2 className="text-module font-semibold uppercase tracking-wide text-muted-foreground">Arrange models</h2>
       <FieldGroup>
         <Field data-disabled={disabled} data-invalid={!validDistance}>
           <FieldLabel htmlFor="arrange-distance">Spacing (mm)</FieldLabel>

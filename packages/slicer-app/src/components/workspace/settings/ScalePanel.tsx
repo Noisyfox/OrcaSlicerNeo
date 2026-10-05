@@ -110,7 +110,7 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
 
   return (
     <section data-testid="scale-panel" data-selection-version={version}>
-      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scale</h2>
+      <h2 className="mb-1 text-module font-semibold uppercase tracking-wide text-muted-foreground">Scale</h2>
       <div className="space-y-1 pb-1">
         <Label className="text-xs text-muted-foreground">Coord</Label>
         <div className="flex gap-1">

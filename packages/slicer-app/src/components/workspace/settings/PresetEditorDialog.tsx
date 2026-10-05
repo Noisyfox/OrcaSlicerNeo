@@ -778,7 +778,7 @@ function FieldGroup({
         id={titleId}
         data-testid={`preset-editor-group-title-${page.id}-${group.id}`}
         data-draft-override-highlight={overridden ? 'true' : 'false'}
-        className={cn('text-sm font-semibold', overridden && 'config-override-label')}
+        className={cn('text-module font-semibold', overridden && 'config-override-label')}
       >{group.title}</h3>
       <div className="grid min-w-0 gap-2 xl:grid-cols-2">
         {group.fields.map((field) => <FieldValue

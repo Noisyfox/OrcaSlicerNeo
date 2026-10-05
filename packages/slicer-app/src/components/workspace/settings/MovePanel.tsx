@@ -46,7 +46,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
 
   return (
     <section data-testid="move-panel" data-selection-version={version}>
-      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Move</h2>
+      <h2 className="mb-1 text-module font-semibold uppercase tracking-wide text-muted-foreground">Move</h2>
       <div className="space-y-1">
         {AXES.filter((axis) => !tower || axis !== 'z').map((axis) => {
           const i = AXES.indexOf(axis);

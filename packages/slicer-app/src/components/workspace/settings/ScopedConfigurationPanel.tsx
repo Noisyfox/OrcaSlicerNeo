@@ -364,7 +364,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         {!search.trim() && availablePages.length > 1 && <div role="tablist" aria-label="Settings category" className="flex overflow-x-auto overflow-y-hidden border-b border-border">
           {availablePages.map((page) => <Button key={page.title} role="tab" type="button" variant="ghost" size="xs"
             aria-selected={selectedPage === page.title} data-testid={`config-page-${page.title}`}
-            className={cn('h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-[13px] font-normal',
+            className={cn('h-7 min-w-max flex-1 rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-1 text-module font-normal',
               allFields.some((field) => field.local && field.resettable && page.groups.some((group) => group.keys.includes(field.key))) && 'config-override-label',
               selectedPage === page.title && 'border-primary')}
             onClick={() => setActivePage(page.title)} onKeyDown={(event) => {
@@ -401,7 +401,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                 <ContextMenuTrigger render={<div />}>
                   <Button type="button" variant="ghost" size="xs" data-testid={`config-category-toggle-${category}`}
                     aria-expanded={open} data-local-override-highlight={highlighted ? 'true' : 'false'}
-                    className={cn("h-5 w-full justify-between rounded-none border-0 bg-control-background px-1 text-xs font-semibold", highlighted && "config-override-label")}
+                    className={cn("h-5 w-full justify-between rounded-none border-0 bg-control-background px-1 text-module font-semibold", highlighted && "config-override-label")}
                     onClick={() => setExpanded((current) => ({ ...current, [expansionKey]: !open }))}>
                     {category}{open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
                   </Button>
@@ -414,7 +414,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                 const section = printSettingPlacement(field)?.section;
                 const startsSection = section && section !== (index > 0 ? printSettingPlacement(categoryFields[index - 1])?.section : undefined);
                 return <div key={field.key}>
-                  {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
+                  {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-module font-semibold text-muted-foreground">
                     {section}<span className="h-px flex-1 bg-border" />
                   </div>}
                   <ScopedField field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
@@ -434,7 +434,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
             {(['project', 'scoped', 'plates'] as const).map((value) => <Button key={value} type="button" role="tab"
               aria-selected={mode === value} data-testid={`config-mode-${value}`} variant="ghost" size="xs"
-              className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-xs leading-none font-normal',
+              className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-module leading-none font-normal',
                 mode === value ? 'bg-card text-foreground hover:bg-card' : 'text-muted-foreground')}
               onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : value === 'scoped' ? 'Objects' : 'Plates'}</Button>)}
           </div>

@@ -27,6 +27,10 @@
    through color-mix. These are Orca's dark-mode surfaces and dark brand-teal
    mappings; this application remains dark-only. */
 @theme {
+  /* Controls and labels share 13px; module tabs and parameter titles use 11px. */
+  --text-xs: 13px;
+  --text-sm: 13px;
+  --text-module: 11px;
   --color-titlebar: #262E30;
   --color-titlebar-tab: #54545A;
   --color-tabbar: #27272A;
@@ -150,6 +154,10 @@
 }
 
 /* Tabs stay on their baseline when pressed, without overflowing their strip. */
+[role="tab"] {
+  font-size: var(--text-module);
+}
+
 [role="tab"]:active {
   translate: none;
 }
@@ -173,7 +181,7 @@
   border-radius: 4px 4px 0 0;
   background: var(--color-card);
   color: var(--color-foreground);
-  font-size: 12px;
+  font-size: var(--text-module);
   font-weight: 400;
   line-height: 1;
 }
@@ -289,7 +297,7 @@
   min-width: 0;
   gap: 0;
   border-radius: 2px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 400;
   color: var(--color-muted-foreground);
 }

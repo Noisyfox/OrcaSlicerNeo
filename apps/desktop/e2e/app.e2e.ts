@@ -304,12 +304,17 @@ test('sidebar panels resize independently and configuration controls keep their 
 
     for (const control of [device.getByTestId('preset-select'), process, page.getByTestId('filament-preset-1')]) {
       await expect(control).toHaveCSS('height', '24px');
+      await expect(control).toHaveCSS('font-size', '13px');
       await expect(control).toHaveCSS('background-color', 'rgb(27, 27, 29)');
       await expect(control).toHaveCSS('border-radius', '3px');
       await expect(control.locator('.sidebar-dropdown-arrow')).toHaveCSS('width', '20px');
     }
     const tabs = settings.getByRole('tablist', { name: 'Settings category' });
     const quality = page.getByTestId('config-page-Quality');
+    await expect(quality).toHaveCSS('font-size', '11px');
+    await expect(page.getByTestId('config-mode-project')).toHaveCSS('font-size', '11px');
+    await expect(device.locator('.sidebar-section-title').first()).toHaveCSS('font-size', '11px');
+    await expect(page.locator('#app-tab-prepare')).toHaveCSS('font-size', '13px');
     const tabBefore = (await quality.boundingBox())!;
     await page.mouse.move(tabBefore.x + tabBefore.width / 2, tabBefore.y + tabBefore.height / 2);
     await page.mouse.down();
@@ -322,7 +327,7 @@ test('sidebar panels resize independently and configuration controls keep their 
     // actual bar to exercise its native overflow and wheel listener.
     const originalMaxWidth = await tabs.evaluate((el) => {
       const previous = el.style.maxWidth;
-      el.style.maxWidth = '120px';
+      el.style.maxWidth = `${Math.floor(el.firstElementChild!.getBoundingClientRect().width / 2)}px`;
       return previous;
     });
     await expect.poll(() => tabs.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
@@ -359,6 +364,9 @@ test('sidebar panels resize independently and configuration controls keep their 
     await expect(options).toHaveCSS('padding-right', '0px');
     const group = options.locator('[data-testid^="config-category-toggle-"]').first();
     const label = page.getByTestId('config-field-layer_height').locator('label');
+    await expect(label).toHaveCSS('font-size', '13px');
+    await expect(page.getByTestId('config-input-layer_height')).toHaveCSS('font-size', '13px');
+    await expect(group).toHaveCSS('font-size', '11px');
     expect((await label.boundingBox())!.x).toBeCloseTo((await group.boundingBox())!.x + 4, 2);
     await expect(page.getByTestId('config-input-layer_height').locator('..')).toHaveCSS('background-color', 'rgb(27, 27, 29)');
     await page.getByTestId('config-input-layer_height').fill('0.3');

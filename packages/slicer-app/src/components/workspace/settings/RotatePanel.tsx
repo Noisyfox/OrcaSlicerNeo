@@ -45,7 +45,7 @@ export function RotatePanel({ sceneInteraction }: { sceneInteraction: SceneInter
 
   return (
     <section data-testid="rotate-panel" data-selection-version={version}>
-      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rotate</h2>
+      <h2 className="mb-1 text-module font-semibold uppercase tracking-wide text-muted-foreground">Rotate</h2>
       <div className="space-y-1">
         {AXES.map((axis, i) => (
           <div key={axis} className="flex items-center gap-2 py-1">
