@@ -34,6 +34,21 @@ async function expectFilamentRackReady(page: Page): Promise<void> {
   await expect(page.getByTestId('filament-add')).toHaveCount(1);
 }
 
+async function exportCompletedGcode(page: Page, exportPath: string): Promise<string> {
+  const previousMtime = existsSync(exportPath) ? statSync(exportPath).mtimeMs : null;
+  const button = page.getByTestId('btn-export');
+  await button.click();
+  // Creation/mtime proves this export started, but writeFile may still be
+  // writing the toolpath and trailing configuration. The button is enabled
+  // again only after the awaited Electron write has settled.
+  await expect.poll(() => existsSync(exportPath) &&
+    (previousMtime === null || statSync(exportPath).mtimeMs > previousMtime),
+  { timeout: 30_000 }).toBe(true);
+  await expect(button).toBeEnabled({ timeout: 30_000 });
+  await expect(page.getByTestId('slicer-error')).toHaveCount(0);
+  return readFileSync(exportPath, 'utf8');
+}
+
 test('opened project keeps prime-tower UI and first-plate slice in agreement', async () => {
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-prime-tower-e2e-'));
   const exportPath = join(exportDir, 'first-plate.gcode');
@@ -375,9 +390,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 600_000 });
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);
-    await page.getByTestId('btn-export').click();
-    await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
-    const gcode = readFileSync(exportPath, 'utf8');
+    const gcode = await exportCompletedGcode(page, exportPath);
     // Match emitted toolpath markers, rather than configuration headers or
     // filament-change/flush templates that may mention a tower without one.
     expect(gcode).toMatch(/^; WIPE_TOWER_START$/m);
@@ -541,16 +554,13 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const secondTowerBeforeSlice = (await readTowers()).find((tower) => tower.plateId === indexedSecond.plateId);
     expect(secondTowerBeforeSlice).toBeDefined();
     expect(secondTowerBeforeSlice!.plateId).toBe(indexedSecond.plateId);
-    const firstExportMtime = statSync(exportPath).mtimeMs;
     await page.getByTestId('btn-slice').click();
     // Do not accept the previous plate's already-Sliced status as proof that
     // the second target ran.  Wait for the real native slice transition and
     // for the Electron export file to be replaced.
     await expect.poll(() => page.getByTestId('slicer-status').textContent(), { timeout: 30_000 }).toMatch(/^Slicing/);
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 600_000 });
-    await page.getByTestId('btn-export').click();
-    await expect.poll(() => existsSync(exportPath) && statSync(exportPath).mtimeMs > firstExportMtime, { timeout: 30_000 }).toBe(true);
-    const secondGcode = readFileSync(exportPath, 'utf8');
+    const secondGcode = await exportCompletedGcode(page, exportPath);
     const secondEvidence = expectPrimeTowerPosition(secondGcode, secondTowerBeforeSlice!, `plate ${indexedSecond.displayIndex + 1}`);
     // Distinct native plate identity is the isolation contract; two plates
     // may legitimately use the same tower coordinates. `expectPrimeTowerPosition`
@@ -574,10 +584,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     // coordinates; it also proves the per-plate result cache remains isolated.
     await clickPlateBed(indexedFirst.plateId);
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
-    const secondExportMtime = statSync(exportPath).mtimeMs;
-    await page.getByTestId('btn-export').click();
-    await expect.poll(() => existsSync(exportPath) && statSync(exportPath).mtimeMs > secondExportMtime, { timeout: 30_000 }).toBe(true);
-    const firstAgainGcode = readFileSync(exportPath, 'utf8');
+    const firstAgainGcode = await exportCompletedGcode(page, exportPath);
     const firstAgainEvidence = expectPrimeTowerPosition(firstAgainGcode, firstTowerAfterOperations!, `plate ${indexedFirst.displayIndex + 1} after return`);
     // Coordinate equality across plates is valid; the retained-result proof is
     // the indexed plate identity and its own native values, checked above.
