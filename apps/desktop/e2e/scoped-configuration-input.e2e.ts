@@ -88,7 +88,7 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
       await height.evaluate((el) => el.blur());
       await page.mouse.move(0, 0);
       await height.hover();
-      await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText('Effective value source: Object.');
+      await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Effective value source: Object.');
     }
     await rows.nth(0).locator('button').first().click({ modifiers: ['ControlOrMeta'] });
     await expect(page.getByTestId('config-mixed-layer_height')).toBeVisible();
@@ -124,6 +124,8 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
     await expect(percent).toHaveValue(sourcePercent);
     await page.getByTestId('config-option-label-sparse_infill_density').hover();
     await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Range: [0%, 100%]');
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('parameter name: sparse_infill_density');
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Default: 20%');
     await page.mouse.move(0, 0);
     await percent.fill('22%');
     await percent.press('Enter');
@@ -133,7 +135,7 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
     await percent.evaluate((el) => el.blur());
     await page.mouse.move(0, 0);
     await percent.hover();
-    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText('Effective value source: Object.');
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Effective value source: Object.');
     await expect(page.locator('[data-testid^="config-error-"]')).toHaveCount(0);
     await rows.nth(1).locator('[data-testid^="config-marker-object-"]').click();
     await expect(rows.nth(1).locator('[data-testid^="config-marker-object-"]')).toHaveCount(0);

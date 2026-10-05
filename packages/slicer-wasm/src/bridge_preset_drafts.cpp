@@ -614,9 +614,16 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
     const json override_values = overrides == nullptr ? json::object() : json(*overrides);
     const json& all_metadata = Profiles::option_metadata_json();
     json source_metadata = json::object();
+    const auto& collection = type == Preset::TYPE_PRINTER ? state().presets.printers : state().presets.filaments;
+    const Preset* parent = collection.get_preset_parent(*source);
     json editor_bindings = json::object();
     for (const std::string& key : source->config.keys())
-        if (all_metadata.contains(key)) source_metadata[key] = all_metadata[key];
+        if (all_metadata.contains(key)) {
+            source_metadata[key] = all_metadata[key];
+            if (parent != nullptr)
+                if (const ConfigOption* option = parent->config.option(key))
+                    source_metadata[key]["tooltip_default"] = option->serialize();
+        }
     for (const std::string& key : source->config.keys()) {
         const ConfigOptionDef* def = print_config_def.get(key);
         const ConfigOption* source_option = source->config.option(key);

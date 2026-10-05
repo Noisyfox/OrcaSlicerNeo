@@ -64,7 +64,7 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     effectiveValues.nozzle_diameter = JSON.stringify(nozzleDiameter.values);
     optionMetadata.nozzle_diameter = { type: 'floats', label: 'Nozzle diameter' };
     editorBindings.nozzle_diameter = { ...bindingFor(nozzleDiameter), elementCount: 2 };
-    optionMetadata.printable_height = { type: 'float', label: 'Build height', tooltip: 'Height of the build volume', min: 1, max: 1000 };
+    optionMetadata.printable_height = { type: 'float', label: 'Build height', tooltip: 'Height of the build volume', min: 1, max: 1000, tooltip_default: '230' };
     optionMetadata.printer_agent = { type: 'enum', label: 'Printer Agent', tooltip: 'Network agent selector', enum_values: ['default'] };
     optionMetadata.machine_start_gcode = { type: 'string', label: 'Machine start script', tooltip: 'Distinctive machine start help text' };
     optionMetadata.printer_notes = { type: 'string', label: 'Printer notes', tooltip: 'Notes tooltip' };
@@ -338,7 +338,7 @@ describe('PresetEditorDialog', () => {
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('data-native-min')).toBe('1');
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('data-native-max')).toBe('1000');
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('title'))
-      .toBe('Height of the build volume\n\nRange: [1, 1000]');
+      .toBe('Height of the build volume\n\nparameter name: printable_height\n\nDefault: 230\nRange: [1, 1000]');
   });
 
   it('highlights overridden options, groups, and page tabs and clears only the reset category', async () => {

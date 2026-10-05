@@ -49,6 +49,7 @@ interface SettingsState {
   bedTexture: string;
   /** Native effective profile/project configuration before local edits. */
   baseValues: Record<string, string>;
+  tooltipDefaults: Record<string, string>;
   values: Record<string, string>;
   /** Disposable projection of native scoped configuration. */
   nativeScopedConfig: NativeScopedConfigSnapshot;
@@ -90,6 +91,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   bedModel: '',
   bedTexture: '',
   baseValues: {},
+  tooltipDefaults: {},
   values: {},
   nativeScopedConfig: emptyNativeScopedConfig(),
   nativeScopedConfigRevision: null,
@@ -111,6 +113,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       bedModel: snapshot.bed_model ?? '',
       bedTexture: snapshot.bed_texture ?? '',
       baseValues,
+      tooltipDefaults: snapshot.tooltip_defaults ?? {},
       // A profile/project replacement starts with no scoped local values. The
       // caller applies the replacement project's native snapshot separately.
       nativeScopedConfig,

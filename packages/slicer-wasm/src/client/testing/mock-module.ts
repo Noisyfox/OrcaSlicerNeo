@@ -367,6 +367,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       filament_catalog: candidates('filament').map(filamentEntry),
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
+      tooltip_defaults: { layer_height: '0.2', sparse_infill_density: '20%' },
       bed_model: '',
       bed_texture: '',
       printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area

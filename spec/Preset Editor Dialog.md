@@ -333,10 +333,17 @@ Native option metadata remains authoritative only for facts about a listed
 option: its label, type, tooltip, constraints, and native validation. It does
 not infer a page, group, ordering, or whether an option may be edited.
 
+Field tooltips include Orca's `parameter name`; scalar controls bound to native
+vectors show `key[index]`. `Default` comes from the edited preset's native
+parent configuration, never from the current draft or static option defaults.
+Numeric defaults use Orca's number and unit formatting, boolean defaults use
+`true`/`false`, and empty string defaults display `Empty string`. Enum and
+specialized types omit Default. Without a parent value, Default and Range are
+both omitted. The tooltip is available on both the field and its label.
 Numeric field tooltips append Orca's `Range: [min, max]` only when both native
 bounds are strictly inside the `FLT_MAX` sentinels. Endpoints use up to four
 decimal places without trailing zeros and the native unit suffix; `layers`
-gets a preceding space, and float-or-percent fields use the source value's
+gets a preceding space, and float-or-percent fields use the parent value's
 unit choice. This includes scalar controls bound to native vector options.
 
 Phase one intentionally omits Orca's Simple/Advanced/Expert visibility-mode

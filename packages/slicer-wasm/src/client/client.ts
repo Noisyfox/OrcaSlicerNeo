@@ -979,6 +979,8 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
     ...(typeof raw.bed_texture === 'string' ? { bed_texture: raw.bed_texture } : {}),
     ...(raw.project_config && typeof raw.project_config === 'object'
       ? { project_config: raw.project_config as Record<string, string> } : {}),
+    ...(raw.tooltip_defaults && typeof raw.tooltip_defaults === 'object'
+      ? { tooltip_defaults: raw.tooltip_defaults as Record<string, string> } : {}),
   };
 }
 

@@ -406,7 +406,13 @@ const json& option_metadata_json()
 json preset_snapshot_json()
 {
     const auto bed_resources = selected_printer_bed_resources();
+    json tooltip_defaults = json::object();
+    if (const Preset* parent = state().presets.prints.get_selected_preset_parent())
+        for (const std::string& key : parent->config.keys())
+            if (const ConfigOption* option = parent->config.option(key))
+                tooltip_defaults[key] = option->serialize();
     return json{{"ok", true},
+                {"tooltip_defaults", std::move(tooltip_defaults)},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
                 {"prints", preset_candidates_json(state().presets.prints, true)},
                 {"filament_catalog", preset_candidates_json(state().presets.filaments, true, false)},

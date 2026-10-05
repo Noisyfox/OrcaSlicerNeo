@@ -225,7 +225,9 @@ function FieldValue({
   const sourceValue = binding
     ? projectedValueText(binding.sourceValue, binding.scalarType)
     : valueText(snapshot.sourceValues, field.key);
-  const tooltip = optionTooltip(metadata, '', sourceValue);
+  const tooltipKey = binding && ['floats', 'ints', 'percents', 'floats_or_percents', 'bools', 'strings', 'enums'].includes(metadata?.type ?? '')
+    ? `${field.key}#${binding.index}` : field.key;
+  const tooltip = optionTooltip(metadata, tooltipKey);
   const effectiveValue = binding
     ? inputTextForBinding(binding.effectiveValue, binding.scalarType)
     : snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
