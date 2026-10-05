@@ -235,13 +235,10 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
     // values so the bridge palette and uploaded GPU colours are exact.
     for (const [slot, colour] of [[1, '#ff0000'], [2, '#0000ff']] as const) {
       const input = page.getByTestId(`filament-colour-${slot}`);
-      await input.evaluate((element, value) => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-        setter?.call(element, value);
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      }, colour);
-      await expect(input).toHaveValue(colour);
+      await input.click();
+      await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill(colour);
+      await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+      await expect(input).toHaveAttribute('value', colour);
       await expect(page.getByTestId(`filament-slot-${slot}`)).toHaveAttribute('aria-busy', 'false');
     }
 

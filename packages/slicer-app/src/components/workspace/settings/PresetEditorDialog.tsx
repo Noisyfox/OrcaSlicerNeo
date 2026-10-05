@@ -12,6 +12,8 @@ import type {
 } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { Button } from '@/components/ui/button';
+import { UserColorPickerDialog } from '@/components/color/UserColorPickerDialog';
+import { ColorSwatch } from '@/components/ui/color-picker';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -245,11 +247,8 @@ function FieldValue({
   const focused = useRef(false);
   const cancelBlur = useRef(false);
   const actionPending = useRef(false);
-  const colourInput = useRef<HTMLInputElement>(null);
-  const effectiveValueRef = useRef(effectiveValue);
-  const setValueRef = useRef<(value: string) => Promise<void>>(async () => undefined);
-  const setElementRef = useRef<(value: PresetDraftEditorValue) => Promise<void>>(async () => undefined);
-  effectiveValueRef.current = effectiveValue;
+  const [colourOpen, setColourOpen] = useState(false);
+  useEffect(() => setColourOpen(false), [effectiveValue]);
 
   const inputId = `preset-editor-input-${page?.id ?? 'field'}-${group?.id ?? 'group'}-${field.key}`;
 
@@ -277,7 +276,6 @@ function FieldValue({
       actionPending.current = false;
     }
   }, [field.key, loading, mutationPending, onMutate, snapshot]);
-  setValueRef.current = submitSet;
 
   const submitElementSet = useCallback(async (value: PresetDraftEditorValue) => {
     if (!binding || loading || mutationPending || actionPending.current) return;
@@ -307,7 +305,6 @@ function FieldValue({
       actionPending.current = false;
     }
   }, [binding, field.key, loading, mutationPending, onMutate, snapshot]);
-  setElementRef.current = submitElementSet;
 
   const resetField = async () => {
     if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
@@ -338,28 +335,6 @@ function FieldValue({
     }
   };
 
-  // Native colour pickers emit a stream of `input` events followed by one
-  // committed `change`. Keep the preview local until that final boundary.
-  useEffect(() => {
-    const input = colourInput.current;
-    if (!input || !colourField || readOnly) return;
-    const handleInput = () => {
-      setDisplayValue(input.value);
-      setFieldError(null);
-    };
-    const handleChange = () => {
-      const next = input.value.toLowerCase();
-      if (next === colourInputValue(effectiveValueRef.current).toLowerCase()) return;
-      if (binding && boundText) void setElementRef.current(next);
-      else void setValueRef.current(next);
-    };
-    input.addEventListener('input', handleInput);
-    input.addEventListener('change', handleChange);
-    return () => {
-      input.removeEventListener('input', handleInput);
-      input.removeEventListener('change', handleChange);
-    };
-  }, [binding, boundText, colourField, readOnly]);
 
   const textLike = metadata?.type === 'string' || metadata?.type === 'unknown' || metadata === undefined;
   const numeric = metadata?.type === 'float' || metadata?.type === 'int' || metadata?.type === 'percent' || metadata?.type === 'float_or_percent';
@@ -368,6 +343,16 @@ function FieldValue({
     binding?.scalarType === 'percent' || binding?.scalarType === 'float_or_percent';
   const multiline = field.multiline === true || binding?.multiline === true;
   const controlsDisabled = loading || mutationPending;
+  const colorControl = <UserColorPickerDialog open={colourOpen} onOpenChange={setColourOpen} title={label}
+    value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled || nullValue}
+    onConfirm={next => {
+      if (next.kind !== 'solid' || next.color.toLowerCase() === colourInputValue(effectiveValue).toLowerCase()) return;
+      if (binding && boundText) void submitElementSet(next.color.toLowerCase());
+      else void submitSet(next.color.toLowerCase());
+    }} trigger={<Button variant="outline" size="icon-sm" id={inputId} aria-label={label}
+      data-testid={`preset-editor-input-${field.key}`} value={colourInputValue(displayValue).toLowerCase()}>
+      <ColorSwatch value={{ kind: 'solid', color: colourInputValue(displayValue) }} className="size-5" />
+    </Button>} />;
   const commitText = () => {
     if (binding) {
       if (binding.scalarType === 'string') {
@@ -562,17 +547,7 @@ function FieldValue({
     </div>;
   } else if (!readOnly && binding && boundText && colourField) {
     control = <div className="flex min-w-0 items-center gap-2">
-      <input
-        ref={colourInput}
-        aria-label={label}
-        id={inputId}
-        data-testid={`preset-editor-input-${field.key}`}
-        type="color"
-        value={colourInputValue(displayValue)}
-        disabled={controlsDisabled || nullValue}
-        onChange={() => undefined}
-        className="size-8 cursor-pointer rounded border bg-background p-0.5"
-      />
+      {colorControl}
       {binding.nullable && <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
         <Checkbox
           aria-label={`Set ${label} to null`}
@@ -659,17 +634,7 @@ function FieldValue({
       </SelectContent>
     </Select>;
   } else if (!readOnly && colourField) {
-    control = <input
-      ref={colourInput}
-      aria-label={label}
-      id={inputId}
-      data-testid={`preset-editor-input-${field.key}`}
-      type="color"
-      value={colourInputValue(displayValue)}
-      disabled={controlsDisabled}
-      onChange={() => undefined}
-      className="size-8 cursor-pointer rounded border bg-background p-0.5"
-    />;
+    control = colorControl;
   } else if (!readOnly && !binding && freeText) {
     const textProps = {
       'aria-label': label,

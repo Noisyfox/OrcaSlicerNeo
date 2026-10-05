@@ -4,6 +4,11 @@ Date: 2026-10-05
 Status: Approved design; implementation in progress
 Scope: Shared desktop Electron and Web UI, reusable color editing and favorites
 
+Internal callers and tests use the new component contract directly. No legacy
+color-input event emulation, compatibility aliases, or internal API fallback
+paths are retained. Missing optional fields in persisted user documents are
+handled by configuration normalization, not an internal API compatibility layer.
+
 ## Component contract
 
 The UI belongs to `packages/slicer-app/src/components/ui/`. A controlled

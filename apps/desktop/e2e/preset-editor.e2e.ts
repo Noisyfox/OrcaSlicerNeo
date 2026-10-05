@@ -137,8 +137,8 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await page.getByTestId('preset-editor-close').click();
 
     const initialActualColour = page.getByTestId('filament-colour-1');
-    const initialActualColourValue = await initialActualColour.inputValue();
-    await expect(initialActualColour).toHaveValue(initialActualColourValue);
+    const initialActualColourValue = (await initialActualColour.getAttribute('value'))!;
+    await expect(initialActualColour).toHaveAttribute('value', initialActualColourValue);
     await page.getByTestId('filament-slot-1').click({ button: 'right' });
     await page.getByTestId('filament-edit-1').click();
     await expect(dialog).toBeVisible();
@@ -146,26 +146,22 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     const filamentSourceName = await page.getByTestId('preset-editor-title').textContent();
     if (!filamentSourceName) throw new Error('expected Filament canonical source name');
     const defaultColour = page.getByTestId('preset-editor-input-default_filament_colour');
-    const initialDefaultColour = await defaultColour.inputValue();
-    await defaultColour.evaluate((element) => {
-      const input = element as HTMLInputElement;
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      setter?.call(input, '#123456');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await expect(defaultColour).toHaveValue('#123456');
+    const initialDefaultColour = (await defaultColour.getAttribute('value'))!;
+    await defaultColour.click();
+    await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#123456');
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(defaultColour).toHaveAttribute('value', '#123456');
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
     await expect(page.getByTestId('preset-editor-option-label-default_filament_colour'))
       .toHaveAttribute('data-draft-override-highlight', 'true');
-    await expect(initialActualColour).toHaveValue(initialActualColourValue);
+    await expect(initialActualColour).toHaveAttribute('value', initialActualColourValue);
     await page.getByTestId('preset-editor-page-tab-advanced').click();
     const filamentStartGcode = page.getByTestId('preset-editor-input-filament_start_gcode');
     const initialFilamentStartGcode = await filamentStartGcode.inputValue();
     await filamentStartGcode.fill('G28\nM104 S205\nM140 S60\n');
     await filamentStartGcode.press('Control+Enter');
     await expect(filamentStartGcode).toHaveValue('G28\nM104 S205\nM140 S60\n');
-    await expect(initialActualColour).toHaveValue(initialActualColourValue);
+    await expect(initialActualColour).toHaveAttribute('value', initialActualColourValue);
 
     const vectorChanges: Record<string, { before: string; after: string }> = {};
     if (REAL) {
@@ -202,15 +198,15 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await page.getByTestId('filament-add').click();
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();
     const secondActualColour = page.getByTestId('filament-colour-2');
-    const secondActualColourValue = await secondActualColour.inputValue();
+    const secondActualColourValue = (await secondActualColour.getAttribute('value'))!;
     await page.getByTestId('filament-slot-2').click({ button: 'right' });
     await page.getByTestId('filament-edit-2').click();
     await expect(page.getByTestId('preset-editor-title')).toHaveText(filamentSourceName);
     await expect(page.getByTestId('preset-editor-slot-reference'))
       .toHaveText('Used by slot 1 and slot 2. Editing this source affects those slots.');
-    await expect(page.getByTestId('preset-editor-input-default_filament_colour')).toHaveValue('#123456');
-    await expect(page.getByTestId('filament-colour-1')).toHaveValue(initialActualColourValue);
-    await expect(secondActualColour).toHaveValue(secondActualColourValue);
+    await expect(page.getByTestId('preset-editor-input-default_filament_colour')).toHaveAttribute('value', '#123456');
+    await expect(page.getByTestId('filament-colour-1')).toHaveAttribute('value', initialActualColourValue);
+    await expect(secondActualColour).toHaveAttribute('value', secondActualColourValue);
     if (REAL) {
       await page.getByTestId('preset-editor-page-tab-filament').click();
       for (const key of [
@@ -232,9 +228,9 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
     await expect(page.getByTestId('preset-editor-input-filament_start_gcode')).toHaveValue(initialFilamentStartGcode);
     await page.getByTestId('preset-editor-page-tab-filament').click();
-    await expect(page.getByTestId('preset-editor-input-default_filament_colour')).toHaveValue(initialDefaultColour);
-    await expect(page.getByTestId('filament-colour-1')).toHaveValue(initialActualColourValue);
-    await expect(secondActualColour).toHaveValue(secondActualColourValue);
+    await expect(page.getByTestId('preset-editor-input-default_filament_colour')).toHaveAttribute('value', initialDefaultColour);
+    await expect(page.getByTestId('filament-colour-1')).toHaveAttribute('value', initialActualColourValue);
+    await expect(secondActualColour).toHaveAttribute('value', secondActualColourValue);
     if (REAL) {
       for (const key of [
         'filament_max_volumetric_speed', 'filament_adhesiveness_category', 'filament_shrink',
@@ -280,8 +276,8 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
       await page.getByTestId('preset-editor-page-tab-cooling').click();
       await expect(page.getByTestId('preset-editor-input-overhang_fan_threshold'))
         .toContainText(vectorChanges.overhang_fan_threshold.before);
-      await expect(page.getByTestId('filament-colour-1')).toHaveValue(initialActualColourValue);
-      await expect(secondActualColour).toHaveValue(secondActualColourValue);
+      await expect(page.getByTestId('filament-colour-1')).toHaveAttribute('value', initialActualColourValue);
+      await expect(secondActualColour).toHaveAttribute('value', secondActualColourValue);
     }
   } finally {
     await app.close();

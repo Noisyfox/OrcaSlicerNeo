@@ -39,7 +39,7 @@ function ColorChannel({ label, value, max, onChange, disabled, gradient }: {
   const [text, setText] = useState(String(Math.round(value)));
   useEffect(() => setText(String(Math.round(value))), [value]);
   return <Field orientation="horizontal" className="gap-2">
-    <FieldLabel htmlFor={id} className="w-4 shrink-0">{label}</FieldLabel>
+    <FieldLabel htmlFor={id} style={{ flex: '0 0 40px' }}>{label}</FieldLabel>
     <Slider aria-label={`${label} channel`} value={[value]} min={0} max={max} step={1} disabled={disabled}
       className="color-channel-slider min-w-0 flex-1" style={{ '--channel-gradient': gradient } as React.CSSProperties}
       onValueChange={next => onChange(Array.isArray(next) ? next[0] : next)} />
