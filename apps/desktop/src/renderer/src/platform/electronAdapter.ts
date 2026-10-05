@@ -256,7 +256,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       syncState: (snapshot) => host.menu.syncState(snapshot),
       onCommand: (listener) => host.menu.onCommand(listener),
       execute: (command: MenuCommandId) => {
-        if (command === 'quit') return host.menu.executeHostCommand(command);
+        if (command === 'quit' || command === 'open-configuration-folder') return host.menu.executeHostCommand(command);
       },
     } satisfies PlatformMenu,
     externalLinks: { openSource: () => host.externalLinks.openSource() },

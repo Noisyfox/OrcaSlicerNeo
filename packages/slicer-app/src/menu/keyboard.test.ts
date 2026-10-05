@@ -6,7 +6,7 @@ import type { MenuStateSnapshot } from '@orca/platform-contract';
 function snapshot(command: keyof MenuStateSnapshot['items'], enabled: boolean): MenuStateSnapshot {
   const items = Object.fromEntries([
     'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
-    'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source', 'open-file-manager',
+    'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source', 'open-file-manager', 'open-configuration-folder',
   ].map((id) => [id, { enabled: id === command ? enabled : false, checked: false }])) as MenuStateSnapshot['items'];
   return {
     version: 1,

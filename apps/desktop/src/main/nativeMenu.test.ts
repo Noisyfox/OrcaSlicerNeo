@@ -72,8 +72,8 @@ describe('Electron native menu boundary', () => {
     ]);
     expect(template[0].submenu?.[0]).toMatchObject({ label: 'Add Model', enabled: false, checked: false });
     expect(template[0].submenu?.[5]).toMatchObject({ label: 'Quit', enabled: true });
-    expect(template[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: true });
-    expect(template[1].submenu?.[2]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
+    expect(template[1].submenu?.[1]).toMatchObject({ label: 'File Manager…', enabled: true });
+    expect(template[1].submenu?.[3]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
     expect(STARTUP_DISABLED_MENU_STATE.items.quit.enabled).toBe(true);
   });
 
@@ -135,6 +135,7 @@ describe('Electron native menu boundary', () => {
         quit: { enabled: true, checked: false },
         'open-source': { enabled: true, checked: false },
         'open-file-manager': { enabled: true, checked: false },
+        'open-configuration-folder': { enabled: true, checked: false },
       },
     };
     expect(controller.syncState(completed)).toBe(true);
@@ -157,8 +158,8 @@ describe('Electron native menu boundary', () => {
     expect(fake.setApplicationMenu).toHaveBeenCalledTimes(setCount);
     const latest = fake.templates.at(-1)!;
     expect(latest[0].submenu?.[0]).toMatchObject({ enabled: false });
-    expect(latest[1].submenu?.[0]).toMatchObject({ label: 'File Manager…', enabled: true });
-    expect(latest[1].submenu?.[2]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
+    expect(latest[1].submenu?.[1]).toMatchObject({ label: 'File Manager…', enabled: true });
+    expect(latest[1].submenu?.[3]).toMatchObject({ label: 'AGPL-3.0 source', enabled: true });
     const installed = fake.installed.at(-1) as { getMenuItemById(id: string): { enabled: boolean; checked: boolean } | null };
     expect(installed.getMenuItemById('file-add-model')).toEqual({ enabled: false, checked: false });
     expect(installed.getMenuItemById('file-quit')).toMatchObject({ enabled: true });
@@ -175,9 +176,11 @@ describe('Electron native menu boundary', () => {
     template[0].submenu?.[0].click?.();
     expect(onCommand).toHaveBeenCalledOnce();
     expect(onCommand).toHaveBeenCalledWith('add-model');
-    template[1].submenu?.[0].click?.();
+    template[1].submenu?.[1].click?.();
     expect(onCommand).toHaveBeenCalledTimes(2);
     expect(onCommand).toHaveBeenLastCalledWith('open-file-manager');
+    template[1].submenu?.[0].click?.();
+    expect(onCommand).toHaveBeenLastCalledWith('open-configuration-folder');
   });
 
   it('clears the application menu on Windows/Linux', () => {
@@ -190,11 +193,16 @@ describe('Electron native menu boundary', () => {
 
   it('allows only quit and opens only the fixed source URL', async () => {
     const quit = vi.fn();
-    expect(handleHostCommand('open-source', quit)).toBe(false);
+    expect(await handleHostCommand('open-source', quit)).toBe(false);
     expect(quit).not.toHaveBeenCalled();
-    expect(handleHostCommand('quit', quit)).toBe(true);
+    expect(await handleHostCommand('quit', quit)).toBe(true);
     expect(quit).toHaveBeenCalledOnce();
 
+    const openFolder = vi.fn(async () => {});
+    expect(await handleHostCommand('open-configuration-folder', quit, openFolder)).toBe(true);
+    expect(openFolder).toHaveBeenCalledOnce();
+    await expect(handleHostCommand('open-configuration-folder', quit, async () => { throw new Error('shell failed'); })).rejects.toThrow('shell failed');
+    expect(await handleHostCommand('C:/arbitrary', quit, openFolder)).toBe(false);
     const openExternal = vi.fn(async () => {});
     await openFixedSource(openExternal);
     expect(openExternal).toHaveBeenCalledWith('https://github.com/Noisyfox/OrcaSlicerNeo');

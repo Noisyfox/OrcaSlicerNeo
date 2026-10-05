@@ -6,6 +6,7 @@ import type {
 } from '@orca/platform-contract';
 
 export interface CommandActions {
+  openConfigurationFolder?: () => Promise<void>;
   newProject?: () => Promise<void>;
   openProject?: () => Promise<void>;
   saveProject?: () => Promise<void>;
@@ -93,6 +94,7 @@ function commandToAction(command: MenuCommandId): keyof CommandActions {
     case 'slice': return 'slice';
     case 'export-gcode': return 'exportGcode';
     case 'open-source': return 'openSource';
+    case 'open-configuration-folder': return 'openConfigurationFolder';
     case 'open-file-manager': return 'openFileManager';
     case 'quit': return 'quit';
   }

@@ -198,6 +198,9 @@ Model, Clear Scene, Slice, and Export G-code are all disabled while slicing.
 Help → File Manager remains enabled during startup and after startup failure as
 a diagnostic view of the currently mounted Emscripten filesystem; Refresh
 re-reads the current path after files are mounted or a transient listing error.
+Electron Help → Show Configuration Folder opens the host-owned `userData`
+directory through the fixed host-command IPC and stays available before init.
+Web omits this operation; shared code never receives an OS path.
 Help → source remains enabled once the menu surface exists. The command
 dispatcher re-checks the complete snapshot immediately before execution, so a
 stale pointer or native-menu selection cannot bypass these guards.

@@ -14,7 +14,7 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     'export-gcode': state('export-gcode'),
     quit: state('quit'),
     'open-source': state('open-source'),
-    'open-file-manager': state('open-file-manager'),
+    'open-configuration-folder': { enabled: false }, 'open-file-manager': state('open-file-manager'),
     'new-project': state('new-project'),
     'open-project': state('open-project'),
     'save-project': state('save-project'),

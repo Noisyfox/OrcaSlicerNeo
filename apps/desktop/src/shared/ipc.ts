@@ -52,6 +52,7 @@ export const MENU_COMMAND_IDS = [
   'export-gcode',
   'quit',
   'open-source',
+  'open-configuration-folder',
   'open-file-manager',
 ] as const satisfies readonly MenuCommandId[];
 
@@ -59,7 +60,7 @@ export function isMenuCommandId(value: unknown): value is MenuCommandId {
   return typeof value === 'string' && (MENU_COMMAND_IDS as readonly string[]).includes(value);
 }
 
-export type HostCommandId = 'quit';
+export type HostCommandId = 'quit' | 'open-configuration-folder';
 
 export interface ElectronBridge {
   connectSlicerRuntime(): void;

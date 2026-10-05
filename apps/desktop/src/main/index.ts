@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Ipc, type FileDialogFilter, type PreferencesLoadResult, type ProjectOpenIpcResult, type ProjectSaveIpcResult } from '../shared/ipc';
 import type { MenuCommandId } from '../shared/ipc';
@@ -389,7 +389,15 @@ function registerIpc(): void {
 
   ipcMain.handle(Ipc.executeHostCommand, async (event, command: unknown): Promise<void> => {
     if (!isCurrentRenderer(event.sender)) return;
-    handleHostCommand(command, () => app.quit());
+    await handleHostCommand(command, () => app.quit(), async () => {
+      const directory = app.getPath('userData');
+      await mkdir(directory, { recursive: true });
+      const error = await shell.openPath(directory);
+      if (error) {
+        dialog.showErrorBox('Unable to Open Configuration Folder', error);
+        throw new Error(error);
+      }
+    });
   });
 
   ipcMain.handle(Ipc.openSource, async (event): Promise<void> => {

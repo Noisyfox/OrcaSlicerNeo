@@ -35,6 +35,29 @@ async function openFileMenu(page: Page): Promise<void> {
 // it with the native application menu (covered by native-menu.e2e.ts).
 const testCustom = process.platform === 'darwin' ? test.skip : test;
 
+testCustom('Help opens the host configuration folder through Electron IPC', async () => {
+  const app = await launchMenuApp();
+  try {
+    const directory = await app.evaluate(({ app, shell }) => {
+      const calls: string[] = [];
+      (globalThis as any).__configurationFolderCalls = calls;
+      shell.openPath = async (path) => { calls.push(path); return ''; };
+      return app.getPath('userData');
+    });
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.getByTestId('titlebar-menu-trigger').click();
+    await page.getByTestId('menu-help-trigger').hover();
+    const command = page.getByTestId('help-configuration-folder');
+    await expect(command).toHaveText('Show Configuration Folder');
+    await expect(command).toBeEnabled();
+    await command.click();
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__configurationFolderCalls)).toEqual([directory]);
+  } finally {
+    await app.close();
+  }
+});
+
 testCustom('Windows/Linux custom titlebar tracks shared model and result state', async () => {
   const app = await launchMenuApp();
   try {

@@ -15,6 +15,7 @@ const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
 const MENU_STATE_COMMANDS = [
   'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
+  'open-configuration-folder',
   'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source', 'open-file-manager',
 ] as const;
 
@@ -68,6 +69,7 @@ export const STARTUP_DISABLED_MENU_MODEL: MenuModel = {
       testId: 'menu-help',
       label: 'Help',
       items: [
+        { testId: 'help-configuration-folder', label: 'Show Configuration Folder', command: 'open-configuration-folder' },
         { testId: 'help-file-manager', label: 'File Manager…', command: 'open-file-manager' },
         { testId: 'help-separator-before-source', label: '', separator: true },
         { testId: 'help-source', label: 'AGPL-3.0 source', command: 'open-source' },
@@ -101,6 +103,7 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
     'export-gcode': { enabled: false, checked: false },
     quit: { enabled: true, checked: false },
     'open-source': { enabled: true, checked: false },
+    'open-configuration-folder': { enabled: true, checked: false },
     'open-file-manager': { enabled: true, checked: false },
   },
 };
@@ -273,14 +276,18 @@ export function buildNativeMenuTemplate(
   }));
 }
 
-export function isHostCommandId(value: unknown): value is 'quit' {
-  return value === 'quit';
+export function isHostCommandId(value: unknown): value is import('../shared/ipc').HostCommandId {
+  return value === 'quit' || value === 'open-configuration-folder';
 }
 
-/** Main is intentionally limited to this one host-side command. */
-export function handleHostCommand(value: unknown, onQuit: () => void): boolean {
+/** Only fixed host operations are accepted; no renderer-supplied path. */
+export async function handleHostCommand(value: unknown, onQuit: () => void, onOpenConfigurationFolder?: () => Promise<void>): Promise<boolean> {
   if (!isHostCommandId(value)) return false;
-  onQuit();
+  if (value === 'quit') onQuit();
+  else {
+    if (!onOpenConfigurationFolder) return false;
+    await onOpenConfigurationFolder();
+  }
   return true;
 }
 

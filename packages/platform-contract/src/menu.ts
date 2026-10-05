@@ -19,6 +19,7 @@ export type MenuCommandId =
   | 'export-gcode'
   | 'quit'
   | 'open-source'
+  | 'open-configuration-folder'
   | 'open-file-manager';
 
 export interface MenuItem {

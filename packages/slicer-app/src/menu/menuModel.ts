@@ -65,6 +65,7 @@ export function buildMenuModel(
         testId: 'menu-help',
         label: 'Help',
         items: [
+          ...(isElectron ? [item('help-configuration-folder', 'Show Configuration Folder', 'open-configuration-folder')] : []),
           item('help-file-manager', 'File Manager…', 'open-file-manager'),
           separator('help-separator-before-source'),
           item('help-source', 'AGPL-3.0 source', 'open-source'),
@@ -113,6 +114,7 @@ export function deriveMenuItemStates(
     'slice': state(taskActionsEnabled && workspaceTab && snapshot.scene.hasModel && !hasCompletedResult),
     'export-gcode': state(ready && !slicing && hasCompletedResult && !snapshot.scene.arranging),
     'quit': state(electron),
+    'open-configuration-folder': state(electron),
     'open-source': state(true),
     // Filesystem inspection is the recovery surface for startup diagnostics;
     // unlike project and model operations it remains available before init.

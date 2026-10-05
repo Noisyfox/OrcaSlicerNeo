@@ -334,6 +334,7 @@ function AppContent() {
       slice: requestPreviewSlice,
       exportGcode: () => exportGcode(platform),
       openSource: async () => { await platform.externalLinks.openSource(); },
+      openConfigurationFolder: async () => { await platform.menu.execute('open-configuration-folder'); },
       openFileManager,
       quit: async () => { await platform.menu.execute('quit'); },
     },

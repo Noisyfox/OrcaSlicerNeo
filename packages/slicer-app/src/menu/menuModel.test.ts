@@ -57,7 +57,7 @@ describe('buildMenuModel', () => {
       'Add Model', 'Clear Scene', 'Slice', 'Export G-code', '', 'New Project', 'Open Project…',
       'Save Project', 'Save Project As…', 'Preferences…', '', 'Exit',
     ]);
-    expect(menuItems(model, 'Help').map((item) => item.label)).toEqual(['File Manager…', '', 'AGPL-3.0 source']);
+    expect(menuItems(model, 'Help').map((item) => item.label)).toEqual(['Show Configuration Folder', 'File Manager…', '', 'AGPL-3.0 source']);
     expect(model.menus.flatMap((menu) => menu.items).every((item) => !('enabled' in item))).toBe(true);
     expect(JSON.stringify(model)).not.toMatch(/gizmo|view|cube|shortcut/i);
   });
@@ -172,8 +172,12 @@ describe('buildMenuModel', () => {
     expect(stateFor(webState, 'quit')).toEqual({ enabled: false, checked: false });
     expect(stateFor(webState, 'open-source')).toEqual({ enabled: true, checked: false });
     expect(commandItem(buildMenuModel(webState, web), 'quit')).toBeUndefined();
+    expect(commandItem(buildMenuModel(webState, web), 'open-configuration-folder')).toBeUndefined();
+    expect(webState.items['open-configuration-folder'].enabled).toBe(false);
 
     const windowsState = buildMenuStateSnapshot(input({ host: { isElectron: true, menuMode: 'custom' } }), windows);
+    expect(commandItem(buildMenuModel(windowsState, windows), 'open-configuration-folder')).toMatchObject({ label: 'Show Configuration Folder' });
+    expect(windowsState.items['open-configuration-folder'].enabled).toBe(true);
     expect(stateFor(windowsState, 'quit')).toEqual({ enabled: true, checked: false });
     expect(commandItem(buildMenuModel(windowsState, windows), 'quit')).toMatchObject({ label: 'Exit' });
 
@@ -186,7 +190,7 @@ describe('buildMenuModel', () => {
     const raw = input({ scene: { hasModel: true, arranging: false } });
     const states = deriveMenuItemStates(raw, web);
     expect(Object.keys(states).sort()).toEqual([
-      'add-model', 'clear-scene', 'export-gcode', 'new-project', 'open-file-manager', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
+      'add-model', 'clear-scene', 'export-gcode', 'new-project', 'open-configuration-folder', 'open-file-manager', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
     ]);
     expect(states['open-source'].checked).toBe(false);
     expect(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus).toEqual(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus);
