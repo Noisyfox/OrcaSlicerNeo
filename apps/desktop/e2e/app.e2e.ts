@@ -517,7 +517,10 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     const panel = page.getByTestId('scoped-configuration-panel');
     const panelBox = (await panel.boundingBox())!;
     const listBox = (await listScroll.boundingBox())!;
-    expect(listBox.y + listBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height / 2 + 1);
+    const optionsBox = (await page.getByTestId('plate-options-section').boundingBox())!;
+    expect(optionsBox.height).toBeLessThanOrEqual((panelBox.y + panelBox.height - listBox.y) / 2 + 1);
+    expect(listBox.y + listBox.height).toBeLessThan(optionsBox.y);
+    expect(listBox.y + listBox.height).toBeGreaterThan(panelBox.y + panelBox.height / 2);
     expect(await listScroll.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     const toolbarBox = (await page.getByTestId('plate-controls').boundingBox())!;
     await listScroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });

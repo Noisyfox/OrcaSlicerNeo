@@ -69,6 +69,26 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     expect(await page.getByTestId('sidebar-settings-panel').boundingBox()).toEqual(before);
     await expect(page.getByRole('button', { name: 'Send All', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Print All', exact: true })).toHaveCount(0);
+    // The full catalogue and expanded search have a fixed budget. Only the
+    // area below the title and toolbar counts toward the half-height cap.
+    const options = page.getByTestId('plate-options-section');
+    for (const height of [900, 360, 900]) {
+      await page.setViewportSize({ width: 1280, height });
+      await expect.poll(() => options.evaluate(element => {
+        const panel = element.closest('[data-testid="scoped-configuration-panel"]')!;
+        const list = panel.querySelector('[data-testid="configuration-plate-list-scroll"]')!;
+        const expected = Math.min(232, (panel.getBoundingClientRect().bottom - list.getBoundingClientRect().top) / 2);
+        return Math.abs(element.getBoundingClientRect().height - expected);
+      })).toBeLessThanOrEqual(1);
+    }
+    const optionsHeight = (await options.boundingBox())!.height;
+    const listHeight = (await page.getByTestId('configuration-plate-list-scroll').boundingBox())!.height;
+    await options.getByRole('button', { name: 'Search settings', exact: true }).click();
+    await page.getByTestId('scoped-config-search').fill('no matching option');
+    await expect(page.getByTestId('scoped-config-empty')).toBeVisible();
+    expect((await options.boundingBox())!.height).toBe(optionsHeight);
+    expect((await page.getByTestId('configuration-plate-list-scroll').boundingBox())!.height).toBe(listHeight);
+    await options.getByRole('button', { name: 'Search settings', exact: true }).click();
     await page.getByTestId('sidebar-settings-panel').screenshot({ path: join(desktop, '.vitest/plate-list.png') });
     await test.info().attach('plate-list', { body: await page.getByTestId('sidebar-settings-panel').screenshot(), contentType: 'image/png' });
   } catch (error) { console.error(errors.join('\n')); throw error; }

@@ -190,6 +190,10 @@ export const ScopedField = memo(function ScopedField({
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
 
+// Six 28px plate-option rows, 8px padding, and 56px for the header/search/gaps.
+// Reserve the full catalogue and expanded search even when filtering hides rows.
+const PLATE_OPTIONS_SECTION_HEIGHT = 232;
+
 export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent, platesContent, platesToolbar }: {
   sceneInteraction: SceneInteractionController | null;
   projectContent?: ReactNode;
@@ -224,12 +228,18 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const objectListRef = useRef<HTMLDivElement>(null);
   const plateListRef = useRef<HTMLDivElement>(null);
   const [listMaxHeight, setListMaxHeight] = useState(0);
+  const [plateOptionsMaxHeight, setPlateOptionsMaxHeight] = useState<number>();
   useLayoutEffect(() => {
     const panel = panelRef.current;
     const list = mode === 'scoped' ? objectListRef.current : mode === 'plates' ? plateListRef.current : null;
     if (!panel || !list) return;
     const measure = () => {
       const bounds = panel.getBoundingClientRect();
+      if (mode === 'plates') {
+        // The shared scrolling budget starts below the title and plate toolbar.
+        setPlateOptionsMaxHeight(Math.max(0, (bounds.bottom - list.getBoundingClientRect().top) / 2));
+        return;
+      }
       // Include the scope header and spacing in the upper half's budget.
       const listTop = list.getBoundingClientRect().top - bounds.top;
       setListMaxHeight(Math.max(0, Math.floor(bounds.height / 2 - listTop)));
@@ -238,6 +248,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
     observer.observe(panel);
+    observer.observe(list);
     if (panel.firstElementChild) observer.observe(panel.firstElementChild);
     return () => observer.disconnect();
   }, [mode]);
@@ -256,7 +267,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     observer.observe(scroll);
     observer.observe(content);
     return () => observer.disconnect();
-  }, []);
+  }, [mode]);
 
   const resolution = useMemo(() => mode === 'project' ? PROJECT_RESOLUTION : resolveScopedConfigurationTarget({
     selectionKind: mode === 'plates' ? 'empty' : sceneInteraction?.computeSelectionKind() ?? 'empty',
@@ -332,22 +343,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
-  return (
-    <section ref={panelRef} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
-      <div className="shrink-0 space-y-1 bg-card pb-1">
-        <div data-testid="configuration-mode-header" className="bg-panel-header">
-          <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
-            {(['project', 'scoped', 'plates'] as const).map((value) => <Button key={value} type="button" role="tab"
-              aria-selected={mode === value} data-testid={`config-mode-${value}`} variant="ghost" size="xs"
-              className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-xs leading-none font-normal',
-                mode === value ? 'bg-card text-foreground hover:bg-card' : 'text-muted-foreground')}
-              onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : value === 'scoped' ? 'Objects' : 'Plates'}</Button>)}
-          </div>
-        </div>
-        <div className="space-y-1 px-2">
-        {mode === 'plates' && platesToolbar}
-        {scopedContent && <div ref={objectListRef} hidden={mode !== 'scoped'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-object-list-scroll">{scopedContent}</div>}
-        {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
+  const optionsHeader = <div className={cn('shrink-0 space-y-1', mode === 'plates' && 'px-2')}>
         <div className="flex min-w-0 items-center gap-1">
           <TooltipFor content="Reset all local overrides"><Button type="button" variant="ghost" size="icon-xs"
             className="size-5 shrink-0 text-config-override [&>svg]:size-3" aria-label="Reset All" data-testid="config-reset-all"
@@ -358,8 +354,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
           <TooltipFor content="Search settings"><Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0 rounded-sm bg-control-background text-input-button-foreground hover:text-muted-foreground aria-expanded:bg-control-background aria-expanded:text-input-button-foreground"
             aria-label="Search settings" aria-expanded={searchOpen} onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }}><Search /></Button></TooltipFor>
         </div>
-        {searchOpen && <SearchInput autoFocus data-testid="scoped-config-search" value={search} onValueChange={setSearch}
-          placeholder="Search settings…" className="h-6 rounded-sm border-0 bg-control-background" />}
+        {(searchOpen || mode === 'plates') && <div className="h-6">
+          {searchOpen && <SearchInput autoFocus data-testid="scoped-config-search" value={search} onValueChange={setSearch}
+            placeholder="Search settings…" className="h-6 rounded-sm border-0 bg-control-background" />}
+        </div>}
         {!search.trim() && availablePages.length > 1 && <div role="tablist" aria-label="Settings category" className="flex overflow-x-auto overflow-y-hidden border-b border-border">
           {availablePages.map((page) => <Button key={page.title} role="tab" type="button" variant="ghost" size="xs"
             aria-selected={selectedPage === page.title} data-testid={`config-page-${page.title}`}
@@ -378,9 +376,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               tabs?.[next]?.focus();
             }}>{page.title}</Button>)}
         </div>}
-        </div>
-      </div>
-      <div ref={optionsScrollRef} className={cn("mx-2 min-h-0 flex-1 overflow-y-auto", optionsOverflowing && "pr-1")}
+  </div>;
+  const optionsBody = (
+      <div ref={optionsScrollRef}
+        className={cn("mx-2 min-h-0 flex-1 overflow-y-auto", optionsOverflowing && "pr-1")}
         data-testid="configuration-options-scroll" data-overflow-y={optionsOverflowing}>
       <div ref={optionsContentRef}>
       {!metadata ? <div className="p-2 text-xs text-muted-foreground">Loading configuration…</div> :
@@ -423,6 +422,33 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         </>}
       </div>
       </div>
+  );
+
+  return (
+    <section ref={panelRef} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
+      <div className={cn("space-y-1 bg-card pb-1", mode === 'plates' ? 'flex min-h-0 flex-1 flex-col' : 'shrink-0')}>
+        <div data-testid="configuration-mode-header" className="shrink-0 bg-panel-header">
+          <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
+            {(['project', 'scoped', 'plates'] as const).map((value) => <Button key={value} type="button" role="tab"
+              aria-selected={mode === value} data-testid={`config-mode-${value}`} variant="ghost" size="xs"
+              className={cn('h-5 w-[68px] rounded-b-none rounded-t-sm px-0 text-xs leading-none font-normal',
+                mode === value ? 'bg-card text-foreground hover:bg-card' : 'text-muted-foreground')}
+              onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : value === 'scoped' ? 'Objects' : 'Plates'}</Button>)}
+          </div>
+        </div>
+        <div className={cn("space-y-1 px-2", mode === 'plates' && 'flex min-h-0 flex-1 flex-col [&>*]:shrink-0')}>
+        {mode === 'plates' && platesToolbar}
+        {scopedContent && <div ref={objectListRef} hidden={mode !== 'scoped'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-object-list-scroll">{scopedContent}</div>}
+        {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} className="min-h-0 flex-1 overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
+        {mode !== 'plates' && optionsHeader}
+        </div>
+      </div>
+      {mode === 'plates' ? <div data-testid="plate-options-section"
+        className="flex min-h-0 shrink-0 flex-col gap-1 overflow-hidden"
+        style={{ height: PLATE_OPTIONS_SECTION_HEIGHT, maxHeight: plateOptionsMaxHeight }}>
+        {optionsHeader}
+        {optionsBody}
+      </div> : optionsBody}
     </section>
   );
 }

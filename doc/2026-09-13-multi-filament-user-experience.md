@@ -15,7 +15,11 @@ are intentionally not recorded here.
 
 - The existing Plates list uses square model thumbnails beside each plate's
   name, state, valid slice totals, and plate actions. Its surrounding sidebar
-  layout, height allocation, configuration editor, and viewport remain unchanged.
+  layout, configuration editor, and viewport remain unchanged. Within Plates,
+  the options section reserves a fixed 232px for the full six-option catalogue,
+  its header, and expanded search, capped at half the shared scrollable area
+  below the top title and plate toolbar (those controls are excluded).
+  Filtering does not shrink this section; the plate list uses the remaining space.
 - Selecting a plate uses its card content, name, or thumbnail. Action buttons operate on their
   explicit plate target and do not also select a plate.
 - Thumbnails use a fixed orthographic isometric view of printable model parts,
