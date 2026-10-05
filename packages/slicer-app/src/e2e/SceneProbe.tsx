@@ -332,7 +332,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
     ).flat(),
     modelPaintResources: () => glVolumes.map((volume) => {
       const selectionOutlines: Array<{ colour: string; thickness: number; pixelSized: boolean;
-        raycastDisabled: boolean; depthWrite: boolean; sharedGeometry: boolean }> = [];
+        raycastDisabled: boolean; depthWrite: boolean; sharedGeometry: boolean; uniformTriangleNormals: boolean }> = [];
       const surfaces: { display: THREE.Object3D | null; originalPick: THREE.Object3D | null; visibleMesh: THREE.Mesh | null } = {
         display: null,
         originalPick: null,
@@ -345,10 +345,20 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
           if (child.name === MODEL_OUTLINE_NAME) child.traverse(outline => {
             if (!(outline instanceof THREE.Mesh)) return;
             const material = outline.material as THREE.ShaderMaterial;
+            const normals = outline.geometry.getAttribute('normal');
+            let uniformTriangleNormals = outline.geometry.index === null;
+            for (let i = 0; i < normals.count; i += 3) {
+              for (let corner = 1; corner <= 2; corner++) {
+                if (normals.getX(i) !== normals.getX(i + corner)
+                  || normals.getY(i) !== normals.getY(i + corner)
+                  || normals.getZ(i) !== normals.getZ(i + corner)) uniformTriangleNormals = false;
+              }
+            }
             selectionOutlines.push({ colour: `#${(material.uniforms.color.value as THREE.Color).getHexString()}`,
               thickness: material.uniforms.thickness.value, pixelSized: !material.uniforms.screenspace.value,
               raycastDisabled: outline.raycast === NO_OUTLINE_RAYCAST, depthWrite: material.depthWrite,
-              sharedGeometry: outline.geometry === volume.geometry || outline.geometry === volume.paintGeometry });
+              sharedGeometry: outline.geometry === volume.geometry || outline.geometry === volume.paintGeometry,
+              uniformTriangleNormals });
           });
           if (child.userData.orcaModelSurface === 'paint-display') surfaces.display = child;
           if (child.userData.orcaModelSurface === 'original-pick') surfaces.originalPick = child;
@@ -360,6 +370,7 @@ export function SceneE2eProbe({ activeTab, sceneInteraction, glVolumes, previewV
         volumeIndex: volume.buffer.volumeIdx,
         instanceIndex: volume.buffer.instanceIdx,
         originalGeometryUuid: volume.geometry.uuid,
+        originalTriangleCount: (volume.geometry.index?.count ?? volume.geometry.getAttribute('position').count) / 3,
         originalHasBvh: 'boundsTree' in volume.geometry && Boolean((volume.geometry as { boundsTree?: unknown }).boundsTree),
         paintGeometryUuid: volume.paintGeometry?.uuid ?? null,
         paintHasBvh: Boolean(volume.paintGeometry && 'boundsTree' in volume.paintGeometry),

@@ -4,6 +4,45 @@ import { resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
+test('real Benchy outline keeps uniform face normals without triangular streaks', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires a real WASM renderer build');
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_MODEL: resolve(DESKTOP_ROOT,
+    '../../packages/slicer-wasm/cpp/resources/handy_models/3DBenchy.drc') } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    const read = () => page.evaluate(() => (window as unknown as { __orcaE2e?: {
+      modelPaintResources?: () => Array<{ originalTriangleCount: number;
+        selectionOutlines: Array<{ uniformTriangleNormals: boolean; sharedGeometry: boolean; raycastDisabled: boolean }> }>;
+    } }).__orcaE2e?.modelPaintResources?.() ?? []);
+    await expect.poll(async () => (await read())[0]?.originalTriangleCount).toBeGreaterThan(1000);
+    await page.getByTestId('config-mode-scoped').click();
+    await page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])').first().click();
+    await expect.poll(async () => (await read())[0]?.selectionOutlines).toEqual([
+      expect.objectContaining({ uniformTriangleNormals: true, sharedGeometry: false, raycastDisabled: true }),
+    ]);
+    const centre = await page.evaluate(() => (window as unknown as { __orcaE2e?: {
+      modelWorldCenters?: () => Array<[number, number, number]>;
+    } }).__orcaE2e?.modelWorldCenters?.()[0]);
+    if (!centre) throw new Error('real Benchy centre unavailable');
+    for (const [name, offset] of [['roof', [-60, -70, 90]], ['side', [70, -90, 65]]] as const) {
+      await page.evaluate(({ centre, offset }) => (window as unknown as { __orcaE2e?: {
+        setCameraView?: (position: [number, number, number], target: [number, number, number]) => void;
+      } }).__orcaE2e?.setCameraView?.([
+        centre[0] + offset[0], centre[1] + offset[1], centre[2] + offset[2],
+      ], centre), { centre, offset });
+      await page.screenshot({ path: test.info().outputPath(`benchy-outline-${name}.png`) });
+    }
+  } finally { await app.close(); }
+});
+
 test('Prepare painted model uses original BVH for selection and dragging', async () => {
   test.skip(process.env.VITE_MOCK_PAINTED_FACET_FIXTURE !== '1',
     'build with VITE_MOCK_PAINTED_FACET_FIXTURE=1 to provide a painted mock model');
@@ -130,7 +169,7 @@ test('Prepare painted model uses original BVH for selection and dragging', async
       .toEqual(expectedSelectedIds);
     await expect.poll(async () => (await readResources()).find(resource => resource.id === before.id)?.selectionOutlines)
       .toEqual([{ colour: '#fcfcfc', thickness: 3, pixelSized: true, raycastDisabled: true,
-        depthWrite: false, sharedGeometry: true }]);
+        depthWrite: false, sharedGeometry: false, uniformTriangleNormals: true }]);
 
     // Drag from a point on the same painted cube, away from the selection
     // pivot, and verify the selected native instance actually moves.
@@ -244,7 +283,7 @@ test('Prepare unpainted model keeps the original single-colour BVH mesh', async 
       .toEqual(expectedIds);
     await expect.poll(async () => (await readResources()).find(resource => resource.id === target.id)?.selectionOutlines)
       .toEqual([expect.objectContaining({ thickness: 3, pixelSized: true, raycastDisabled: true,
-        depthWrite: false, sharedGeometry: true })]);
+        depthWrite: false, sharedGeometry: false, uniformTriangleNormals: true })]);
     await page.screenshot({ path: test.info().outputPath('selected-model-outline.png') });
     await page.mouse.click(box.x + box.width - 40, box.y + box.height - 40);
     await expect.poll(async () => (await readResources()).find(resource => resource.id === target.id)?.selectionOutlines)

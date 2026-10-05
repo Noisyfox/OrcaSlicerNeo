@@ -79,18 +79,27 @@ depth-edge detection, stencil pass, or MSAA mask. Ordinary depth testing hides
 the outline behind foreground objects.
 
 In the installed drei version, `screenspace=false` selects pixel offsets;
-`screenspace=true` selects world-unit extrusion. `angle=0` reuses existing
-indexed geometry and normals without a triangle-soup allocation. Each selected
-volume adds one draw call and one material, disposed on deselection. The inner
+`screenspace=true` selects world-unit extrusion. The outline uses a private,
+non-indexed copy of the original model geometry with uniform per-face normals;
+`angle=0` preserves those normals. Reusing averaged source normals can fold the
+expanded hull into the surface and expose internal triangle streaks. Painted
+models also use the original model geometry so paint splits cannot affect the
+silhouette. Each selected volume adds one draw call, an expanded geometry buffer
+(three positions and three normals per triangle), and outline/carrier materials.
+Private geometry is disposed on replacement or deselection; materials are
+disposed on deselection. The inner
 outline mesh disables raycasting and depth writes; model BVH picking and paint
 groups remain authoritative. Both hosts share this implementation, with no
 runtime/WASM protocol changes or new mobile input behavior.
 
 Verification covers the luminance threshold, actual ordinary/painted scene
-outline parameters, geometry sharing, selection/deselection, painted-model
-dragging, and the primary Electron import/slice/preview/export flow. The
-repository unit suite and typechecks pass. Native-Orca pixel comparison and
-real-model/Web E2E remain outside the completed validation.
+outline parameters, source geometry isolation, uniform triangle normals,
+selection/deselection, painted-model dragging, and the primary Electron
+import/slice/preview/export flow. Real WASM import of the bundled
+`3DBenchy.drc` verifies per-face outline normals and provides inspected roof/side
+screenshots with the planar triangle streaks removed. The repository unit suite
+and typechecks pass. Native-Orca pixel comparison and Web E2E remain outside
+the completed validation.
 
 ## 4. Preview
 

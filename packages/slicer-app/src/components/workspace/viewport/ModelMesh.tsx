@@ -169,7 +169,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
                 depthWrite={paintMaterial.depthWrite}
               />
             ))}
-            {selected && <ModelSelectionOutline colour={paintMaterials[0]?.colour ?? material.colour}
+            {selected && <ModelSelectionOutline geometry={data.geometry} colour={paintMaterials[0]?.colour ?? material.colour}
               opacity={paintMaterials[0]?.opacity ?? material.opacity}
               transparent={paintMaterials[0]?.transparent ?? material.transparent} />}
           </mesh>
@@ -186,7 +186,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
           opacity={material.opacity}
           depthWrite={material.depthWrite}
           />
-          {selected && <ModelSelectionOutline colour={material.colour}
+          {selected && <ModelSelectionOutline geometry={data.geometry} colour={material.colour}
             opacity={material.opacity} transparent={material.transparent} />}
         </mesh>}
       </group>
