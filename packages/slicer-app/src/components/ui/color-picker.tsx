@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type PointerEvent } from 'react';
 import { cn } from 'cn';
-import { PlusIcon, XIcon } from 'lucide-react';
+import { PlusIcon } from 'lucide-react';
 import { colorValueKey, colorValueSupported, MAX_COLOR_FAVORITES, normalizeColorFavorites, type ColorValue } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger, ComboboxValue } from '@/components/ui/combobox';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { TooltipFor } from '@/components/ui/tooltip';
 import { clamp, colorValueCss, hexToRgba, hslaToRgba, rgbaToHex, rgbaToHsla, spectrumColor, spectrumPosition, type HslaColor } from './color-picker-model';
 import { DEFAULT_COLOR_PALETTES, type ColorPalette } from './color-picker-palettes';
 
@@ -216,15 +218,22 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
         <span className="sr-only">Favorites ({allFavorites.length}/{MAX_COLOR_FAVORITES})</span>
         {full && <span role="status" className="text-xs text-muted-foreground">Remove a favorite to add another color.</span>}
         <div className="grid grid-cols-8 gap-1" aria-label="Favorite colors">
-          {visibleFavorites.map(item => <div key={colorValueKey(item)} className="group relative h-6 min-w-0">
-            <Button variant="input" size="icon-sm" className="h-full w-full border-0 p-0" aria-label={`Favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled} onClick={() => {
+          {visibleFavorites.map(item => {
+            const hexLabel = item.kind === 'solid' ? item.color : `${item.start} → ${item.end}`;
+            const favoriteButton = <Button variant="input" size="icon-sm" className="h-6 w-full border-0 p-0" aria-label={`Favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled} onClick={() => {
               if (item.kind === 'solid' && isGradient) { lastSolid.current = item; onChange(outputValue(item)); } else select(item);
-            }}>
-              <ColorSwatch value={item} className="size-full" />
-            </Button>
-            {onFavoriteRemove && <Button variant="secondary" size="icon-xs" className="pointer-events-none absolute -top-2 -right-2 z-10 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100"
-              aria-label={`Remove favorite ${item.kind === 'solid' ? item.color : `${item.start} to ${item.end}`}`} disabled={disabled || !favoritesReady} onClick={() => onFavoriteRemove(item)}><XIcon /></Button>}
-          </div>)}
+            }} />;
+            return <div key={colorValueKey(item)} className="h-6 min-w-0">
+              {onFavoriteRemove ? <ContextMenu disabled={disabled}>
+                <TooltipFor content={hexLabel}><span className="block h-6 w-full"><ContextMenuTrigger render={favoriteButton}>
+                  <ColorSwatch value={item} className="size-full" />
+                </ContextMenuTrigger></span></TooltipFor>
+                <ContextMenuContent><ContextMenuGroup>
+                  <ContextMenuItem variant="destructive" disabled={disabled || !favoritesReady} onClick={() => onFavoriteRemove(item)}>Remove favorite</ContextMenuItem>
+                </ContextMenuGroup></ContextMenuContent>
+              </ContextMenu> : <TooltipFor content={hexLabel}><Button {...favoriteButton.props}><ColorSwatch value={item} className="size-full" /></Button></TooltipFor>}
+            </div>;
+          })}
           {Array.from({ length: MAX_COLOR_FAVORITES - visibleFavorites.length }, (_, i) => <span key={i} aria-hidden="true" className="h-6 rounded-sm bg-control-background" />)}
         </div>
       </div>

@@ -45,8 +45,8 @@ test('Web color favorites survive reload and preserve hidden alpha/gradient entr
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(trigger).toHaveAttribute('value', '#456789');
   await trigger.click();
-  const remove = page.getByRole('button', { name: 'Remove favorite #456789', exact: true });
-  await favorite.hover(); await remove.click();
+  await favorite.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Remove favorite', exact: true }).click();
   await expect.poll(async () => (await stored()).colorPicker.favorites).toEqual(hidden);
   expect((await stored()).ui.sidebarWidth).toBe(320);
 });

@@ -72,7 +72,9 @@ it('adds valid favorites, permits promoting an existing color at capacity and ne
     favorites={[favorite]} onFavoriteAdd={add} onFavoriteRemove={remove} />);
   await act(async () => button(container, 'Add favorite color').click());
   expect(add).toHaveBeenCalledWith({ kind: 'solid', color: '#0000FF' });
-  await act(async () => button(container, 'Remove favorite #112233').click());
+  expect(container.querySelector('button[aria-label^="Remove favorite"]')).toBeNull();
+  await act(async () => button(container, 'Favorite #112233').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 })));
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Remove favorite')!.click());
   expect(remove).toHaveBeenCalledWith(favorite);
   const full = await mount(<ColorPicker value={{ kind: 'solid', color: '#FFFFFF' }} onChange={() => undefined}
     favorites={Array.from({ length: 24 }, (_, i) => ({ kind: 'solid', color: '#' + i.toString(16).padStart(6, '0') }))} onFavoriteAdd={add} />);

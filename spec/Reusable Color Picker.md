@@ -65,10 +65,10 @@ duplicates. Opaque six/eight-digit equivalents are identical.
 
 Explicit additions/removals save immediately. New favorites appear first.
 Adding an existing favorite moves it to the first position without duplicating
-it, including when the collection is full. Removal controls render above their
-neighboring swatches so the complete button remains clickable. They hide after
-the mouse leaves, even when a clicked swatch retains focus; visible keyboard
-focus continues to expose removal controls.
+it, including when the collection is full. Favorite swatches expose a
+red "Remove favorite" context-menu action instead of an overlay button, available
+through right click or keyboard context-menu invocation. NEO tooltips show the
+stored HEX value, or both endpoint HEX values for a gradient.
 There are at most 24 entries; a full collection requires removal rather than
 silent eviction. Alpha-disabled instances hide translucent entries and
 gradient-disabled instances hide gradient entries without deleting them.
