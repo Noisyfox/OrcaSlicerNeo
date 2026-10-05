@@ -11,6 +11,44 @@ This is the single current product record for this feature. It describes the
 experience users can rely on; implementation history and internal interfaces
 are intentionally not recorded here.
 
+## Plate list cards
+
+- The existing Plates list uses square model thumbnails beside each plate's
+  name, state, valid slice totals, and plate actions. Its surrounding sidebar
+  layout, configuration editor, and viewport remain unchanged. Within Plates,
+  the options section reserves a fixed 170px for options, its header, and
+  expanded search, capped at half the shared scrollable area
+  below the top title and plate toolbar (those controls are excluded).
+  Filtering options does not shrink this section. The plate list takes its
+  content height up to the remaining-space limit: short lists place options
+  below the list, with 8px between the last card and divider and 4px between
+  the divider and options, while long lists scroll independently.
+  The height budget includes expanded search, but collapsed search leaves no
+  empty placeholder between the header and options.
+- Selecting a plate uses its card content, name, or thumbnail. Action buttons operate on their
+  explicit plate target and do not also select a plate.
+- Thumbnails use a fixed orthographic isometric view of printable model parts,
+  without selection overlays, modifiers, Prime Towers, or bed decorations.
+  They are transient session images; normal project saves do not embed them.
+  Cards are 108px tall with 96px square thumbnails and equal 6px top, bottom,
+  and left insets; sidebar resizing changes
+  only horizontal space. Images render at a fixed 256px resolution and are not
+  regenerated for display-size or device-pixel-ratio changes.
+  Only the current plate has an inset highlighted outline; unselected cards have no
+  extra border ring.
+  Card edges align horizontally with the options area below the list.
+  The first card starts 4px below the plate toolbar's action buttons.
+- The list toolbar retains New Plate and Arrange, with Delete Plate in its menu
+  and a plate-name search. Send All and Print All are not displayed.
+- Each card reports Not Sliced, Slicing, Sliced, Error, Empty, or Out of bounds.
+  Slicing progress overlays the model image; errors belong to that plate and
+  input revision. Invalidated results do not show their former totals.
+- Slice and Cancel act on their named plate. Review opens its error details
+  with explicit Select plate and Retry slice actions. Print uses the existing
+  Send & Print dialog; the adjacent Send action uploads without starting.
+  Captured output receipts are revalidated before upload, and output actions
+  wait until slicing has finished. These actions do not change plate selection.
+
 ## Material rack
 
 - The Prepare view presents one ordered, one-based rack of filament slots. A

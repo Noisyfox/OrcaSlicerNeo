@@ -394,7 +394,9 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     await page.getByTestId('config-mode-plates').click();
     await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
 
+    await page.getByTestId('plate-menu').click();
     await expect(page.getByTestId('delete-plate')).toBeDisabled();
+    await page.keyboard.press('Escape');
     const readBeds = () => page.evaluate(() =>
       (window as unknown as {
         __orcaE2e?: {
@@ -456,7 +458,9 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     await clickPlateControl(page, 'add-plate');
     await expectCurrentPlate(page, 'Plate 2', 2);
     await page.getByTestId('config-mode-plates').click();
+    await page.getByTestId('plate-menu').click();
     await expect(page.getByTestId('delete-plate')).toBeEnabled();
+    await page.keyboard.press('Escape');
     await expect.poll(readCamera).toEqual(cameraBefore);
 
     // Empty-bed clicks are real viewport interactions. They select either
@@ -513,7 +517,10 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     const panel = page.getByTestId('scoped-configuration-panel');
     const panelBox = (await panel.boundingBox())!;
     const listBox = (await listScroll.boundingBox())!;
-    expect(listBox.y + listBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height / 2 + 1);
+    const optionsBox = (await page.getByTestId('plate-options-section').boundingBox())!;
+    expect(optionsBox.height).toBeLessThanOrEqual((panelBox.y + panelBox.height - listBox.y) / 2 + 1);
+    expect(listBox.y + listBox.height).toBeLessThan(optionsBox.y);
+    expect(listBox.y + listBox.height).toBeGreaterThan(panelBox.y + panelBox.height / 2);
     expect(await listScroll.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     const toolbarBox = (await page.getByTestId('plate-controls').boundingBox())!;
     await listScroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });

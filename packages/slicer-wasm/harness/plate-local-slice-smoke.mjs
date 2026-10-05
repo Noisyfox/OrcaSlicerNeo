@@ -1,5 +1,5 @@
-// Step 7 bridge harness: current-plate slicing uses local coordinates and
-// rejects stale/non-current operation targets without touching the global
+// Plate-targeted slicing uses local coordinates and rejects stale operation
+// targets without touching selection or the global
 // editing model.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
@@ -52,14 +52,16 @@ check('select unsliced plate 2', selectUnslicedSecond.ok === true && selectUnsli
 const unslicedSecondResult = getSliceResult(callJson, resultTarget(secondTarget.id, secondTarget.revision, 1));
 check('unsliced plate 2 result rejected', unslicedSecondResult.ok !== true &&
   unslicedSecondResult.status === 'stale', JSON.stringify(unslicedSecondResult));
-const selectFirst = callJson('orc_select_plate', ['string'], [firstTarget.id]);
-check('select plate 1', selectFirst.ok === true && selectFirst.current_plate_id === firstTarget.id);
 const modelBeforeSlice = callJson('orc_get_model_structure');
 const sliceFirst = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', firstTarget.id, firstTarget.revision]);
 check('slice plate 1', sliceFirst.ok === true, JSON.stringify(sliceFirst));
+check('slice non-current plate preserves selection',
+  callJson('orc_get_plate_session_snapshot').current_plate_id === secondTarget.id);
 const modelAfterSlice = callJson('orc_get_model_structure');
 check('local slice preserves global model', JSON.stringify(modelAfterSlice) === JSON.stringify(modelBeforeSlice));
+const selectFirst = callJson('orc_select_plate', ['string'], [firstTarget.id]);
+check('select plate 1', selectFirst.ok === true && selectFirst.current_plate_id === firstTarget.id);
 const firstPreview = getSliceResult(callJson, sliceFirst.receipt);
 check('preview plate 1 uses its print', firstPreview.ok === true && firstPreview.objects === 1,
   JSON.stringify(firstPreview));
@@ -80,6 +82,10 @@ check('re-slice result refresh restores presentation', refreshedFirstPreview.ok 
   refreshedFirstPreview.objects === 1, JSON.stringify(refreshedFirstPreview));
 
 const selectSecond = callJson('orc_select_plate', ['string'], [secondTarget.id]);
+const inactiveFirstExport = exportGcode(callJson, resliceFirst.receipt);
+check('export a retained non-current plate without switching selection', inactiveFirstExport.ok === true &&
+  callJson('orc_get_plate_session_snapshot').current_plate_id === secondTarget.id,
+  JSON.stringify(inactiveFirstExport));
 check('select plate 2', selectSecond.ok === true && selectSecond.current_plate_id === secondTarget.id);
 const sliceSecond = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', secondTarget.id, secondTarget.revision]);
@@ -94,7 +100,11 @@ check('export plate 2', exportSecond.ok === true, JSON.stringify(exportSecond));
 check('plate generations own distinct immutable G-code files', exportFirst.path !== exportSecond.path &&
   !/\/out\.gcode$/.test(exportFirst.path) && !/\/out\.gcode$/.test(exportSecond.path),
   JSON.stringify({ first: exportFirst.path, second: exportSecond.path }));
-check('equivalent local geometry has equivalent moves', moves(firstGcode) === moves(secondGcode));
+const firstMoves = moves(firstGcode).split('\n');
+const secondMoves = moves(secondGcode).split('\n');
+const differentMove = firstMoves.findIndex((line, index) => line !== secondMoves[index]);
+check('equivalent local geometry has equivalent moves', moves(firstGcode) === moves(secondGcode),
+  differentMove < 0 ? '' : JSON.stringify({ index: differentMove, first: firstMoves[differentMove], second: secondMoves[differentMove] }));
 
 const secondRevisionChange = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Second plate extra']);
 check('second plate state change accepted', secondRevisionChange.ok === true);
@@ -111,7 +121,8 @@ check('stale plate 2 export rejected', staleSecondExport.ok !== true && staleSec
   JSON.stringify(staleSecondExport));
 
 const nonCurrent = exportGcode(callJson, resliceFirst.receipt);
-check('non-current export rejected', nonCurrent.ok !== true && nonCurrent.status === 'unavailable', JSON.stringify(nonCurrent));
+check('other plate mutation preserves non-current export', nonCurrent.ok === true &&
+  callJson('orc_get_plate_session_snapshot').current_plate_id === secondTarget.id, JSON.stringify(nonCurrent));
 check('distinct plate previews have distinct result storage',
   firstPreview.metadata?.result_id !== secondPreview.metadata?.result_id);
 const sliceSecondChanged = await callAsyncTask(callJson, 'orc_slice_plate',

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PlateOperationTarget, SliceResultReceipt } from '@slicer/client';
+import type { PlateOperationTarget, SliceResultReceipt, PreviewAnalysisSummary } from '@slicer/client';
 
 export type SliceStatus = 'idle' | 'slicing' | 'done' | 'error';
 export type PreviewColorScheme = 'feature' | 'filament' | 'speed' | 'volumetricFlow' | 'layerTime' | 'temperature' | 'fanSpeed';
@@ -25,7 +25,10 @@ export interface PlateSliceResult {
   receipt: SliceResultReceipt;
   /** Native advisory warnings scoped to this plate result. */
   warnings: readonly string[];
+  summary: PreviewAnalysisSummary;
 }
+
+export interface PlateSliceFailure { target: PlateOperationTarget; error: string; }
 
 export const DEFAULT_PREVIEW_STATE: PreviewState = {
   visibleLayerStart: 0,
@@ -57,6 +60,8 @@ function resetPreviewProjection(preview: PreviewState): PreviewState {
 interface SlicerState {
   status: SliceStatus;
   progress: number;
+  progressText: string;
+  plateFailures: Readonly<Record<string, PlateSliceFailure>>;
   layers: number;
   error: string | null;
   /** A completed slice remains dirty until its G-code is saved by the host. */
@@ -72,6 +77,8 @@ interface SlicerState {
   preview: PreviewState;
   setStatus: (s: SliceStatus) => void;
   setProgress: (p: number) => void;
+  setProgressText: (text: string) => void;
+  setPlateFailure: (target: PlateOperationTarget, error: string) => void;
   setLayers: (n: number) => void;
   setError: (e: string | null) => void;
   setLayer: (n: number) => void;
@@ -79,7 +86,7 @@ interface SlicerState {
   setResultExported: (exported: boolean) => void;
   setSliceTarget: (target: PlateOperationTarget | null) => void;
   setActiveSliceTarget: (target: PlateOperationTarget | null) => void;
-  setPlateResult: (receipt: SliceResultReceipt, warnings?: readonly string[]) => void;
+  setPlateResult: (receipt: SliceResultReceipt, warnings: readonly string[], summary: PreviewAnalysisSummary) => void;
   activatePlateResult: (plateId: string, inputRevision: number) => boolean;
   invalidatePlateResults: (plateIds: readonly string[]) => void;
   discardPlateResult: (plateId: string) => void;
@@ -110,11 +117,15 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   sliceTarget: null,
   plateResults: {},
   activeSliceTarget: null,
+  progressText: '',
+  plateFailures: {},
   layer: 0,
   maxLayer: 0,
   preview: DEFAULT_PREVIEW_STATE,
   setStatus: (status) => set({ status }),
   setProgress: (progress) => set({ progress }),
+  setProgressText: (progressText) => set({ progressText }),
+  setPlateFailure: (target, error) => set(state => ({ plateFailures: { ...state.plateFailures, [target.plateId]: { target, error } } })),
   setLayers: (layers) => set({ layers }),
   setError: (error) => set({ error }),
   setLayer: (layer) => set((state) => ({
@@ -125,10 +136,12 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setResultExported: (resultExported) => set({ resultExported }),
   setSliceTarget: (sliceTarget) => set({ sliceTarget }),
   setActiveSliceTarget: (activeSliceTarget) => set({ activeSliceTarget }),
-  setPlateResult: (receipt, warnings = []) => set((state) => {
+  setPlateResult: (receipt, warnings, summary) => set((state) => {
     const target = { plateId: receipt.plateId, inputRevision: receipt.inputStamp };
+    const { [target.plateId]: _failure, ...plateFailures } = state.plateFailures;
     return {
-      plateResults: { ...state.plateResults, [target.plateId]: { target, receipt, warnings: [...warnings] } },
+      plateFailures,
+      plateResults: { ...state.plateResults, [target.plateId]: { target, receipt, warnings: [...warnings], summary: { ...summary } } },
       // Publish the selected plate result to the toolbar and active preview.
       ...(state.sliceTarget?.plateId === target.plateId || state.activeSliceTarget?.plateId === target.plateId
         ? {
@@ -179,11 +192,13 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     if (plateIds.length === 0) return state;
     const invalidated = new Set(plateIds);
     const plateResults = Object.fromEntries(Object.entries(state.plateResults).filter(([id]) => !invalidated.has(id)));
+    const plateFailures = Object.fromEntries(Object.entries(state.plateFailures).filter(([id]) => !invalidated.has(id)));
     const activeAffected = state.activeSliceTarget && invalidated.has(state.activeSliceTarget.plateId);
     const currentAffected = state.sliceTarget && invalidated.has(state.sliceTarget.plateId);
     const slicingAffected = activeAffected || (state.status === 'slicing' && currentAffected);
     return {
       plateResults,
+      plateFailures,
       ...(activeAffected ? { activeSliceTarget: null } : {}),
       ...(currentAffected ? {
         sliceTarget: null,
@@ -204,9 +219,11 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   }),
   discardPlateResult: (plateId) => set((state) => {
     const { [plateId]: _discarded, ...plateResults } = state.plateResults;
+    const { [plateId]: _failure, ...plateFailures } = state.plateFailures;
     const current = state.sliceTarget?.plateId === plateId;
     return {
       plateResults,
+      plateFailures,
       ...(state.activeSliceTarget?.plateId === plateId ? { activeSliceTarget: null } : {}),
       ...(current ? {
         sliceTarget: null,
@@ -221,7 +238,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
       } : {}),
     };
   }),
-  clearPlateResults: () => set({ plateResults: {}, sliceTarget: null, activeSliceTarget: null }),
+  clearPlateResults: () => set({ plateResults: {}, plateFailures: {}, progressText: '', sliceTarget: null, activeSliceTarget: null }),
   setPreviewBounds: (maxLayer, maxMove, resultId = null) => set((state) => ({
     maxLayer,
     layer: maxLayer,
@@ -344,6 +361,8 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     resultExported: false,
     sliceTarget: null,
     plateResults: {},
+    plateFailures: {},
+    progressText: '',
     activeSliceTarget: null,
     layer: 0,
     maxLayer: 0,

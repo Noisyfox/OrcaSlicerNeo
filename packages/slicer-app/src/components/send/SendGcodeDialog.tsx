@@ -67,18 +67,24 @@ export interface SendGcodeDialogProps {
   platform?: PlatformCapabilities;
   /** Invoked after a successful auto-close when the user selected Device. */
   onNavigateToDevice?: () => void;
+  /** Captured plate result for card actions; independent of current-plate navigation. */
+  targetReceipt?: import('@slicer/client').SliceResultReceipt;
 }
 
 /**
  * The Send panel owns an ephemeral target selection. It intentionally does
  * not use DevicePanel's selection or write selection to any repository.
  */
-export function SendGcodeDialog({ open, action, onClose, initialSelection = null, platform: injectedPlatform, onNavigateToDevice }: SendGcodeDialogProps) {
+export function SendGcodeDialog({ open, action, onClose, initialSelection = null, platform: injectedPlatform, onNavigateToDevice, targetReceipt }: SendGcodeDialogProps) {
   const contextPlatform = usePlatform();
   const platform = injectedPlatform ?? contextPlatform;
   const sliceStatus = useSlicerStore((state) => state.status);
   const sliceTarget = useSlicerStore((state) => state.sliceTarget);
-  const sliceReady = sliceStatus === 'done';
+  const plateResults = useSlicerStore(s => s.plateResults);
+  const cachedReceipt = targetReceipt ? plateResults[targetReceipt.plateId]?.receipt : undefined;
+  const activeSliceTarget = useSlicerStore(s => s.activeSliceTarget);
+  const sliceReady = activeSliceTarget === null && (targetReceipt ? cachedReceipt?.inputStamp === targetReceipt.inputStamp &&
+    cachedReceipt?.resultGeneration === targetReceipt.resultGeneration && cachedReceipt?.sliceTaskId === targetReceipt.sliceTaskId : sliceStatus === 'done');
   const [document, setDocument] = useState<PrinterConfigurationDocument>({ version: 1, printers: [] });
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [state, setState] = useState<SendState>('idle');
@@ -277,16 +283,20 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     try {
       const currentSession = await platform.runtime.getPlateSessionSnapshot();
       if (!currentSession.ok) throw new Error(currentSession.error);
+      if (useSlicerStore.getState().activeSliceTarget) throw new Error('Wait for slicing to finish before sending G-code.');
       usePlateSessionStore.getState().setSnapshot(currentSession);
-      const currentRevision = currentSession.inputRevisions?.[currentSession.currentPlateId];
-      if (!sliceTarget || sliceTarget.plateId !== currentSession.currentPlateId ||
+      const plateId = targetReceipt?.plateId ?? currentSession.currentPlateId;
+      const currentRevision = currentSession.inputRevisions?.[plateId];
+      if (!targetReceipt && (!sliceTarget || sliceTarget.plateId !== currentSession.currentPlateId ||
           sliceTarget.inputRevision !== currentRevision)
-        throw new Error('current plate slice result is stale or unavailable');
-      const currentPlate = currentSession.plates.find((plate) => plate.plateId === currentSession.currentPlateId);
+        ) throw new Error('current plate slice result is stale or unavailable');
+      const currentPlate = currentSession.plates.find((plate) => plate.plateId === plateId);
       if (!currentPlate || currentPlate.valid === false || !(currentPlate.instanceIds?.length))
         throw new Error(currentPlate?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
-      const receipt = useSlicerStore.getState().plateResults[currentSession.currentPlateId]?.receipt;
-      if (!receipt || receipt.inputStamp !== currentRevision)
+      const liveReceipt = useSlicerStore.getState().plateResults[plateId]?.receipt;
+      const receipt = targetReceipt ?? liveReceipt;
+      if (!receipt || receipt.inputStamp !== currentRevision || !liveReceipt ||
+          receipt.resultGeneration !== liveReceipt.resultGeneration || receipt.sliceTaskId !== liveReceipt.sliceTaskId)
         throw new Error('current plate slice result is stale or unavailable');
       const exported = await platform.runtime.exportGcodePlate(receipt);
       if (!exported.ok) throw new Error('export failed');

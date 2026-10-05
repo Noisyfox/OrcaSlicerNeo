@@ -140,7 +140,7 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
     return out;
 }
 
-PreviewAnalysis build_preview_analysis(const GCodeProcessorResult& result, const ToolpathBuffers& toolpath) {
+PreviewAnalysis build_preview_summary(const GCodeProcessorResult& result) {
     PreviewAnalysis out;
     constexpr double pi = 3.14159265358979323846;
     const auto normal_mode = static_cast<size_t>(Slic3r::PrintEstimatedStatistics::ETimeMode::Normal);
@@ -186,6 +186,12 @@ PreviewAnalysis build_preview_analysis(const GCodeProcessorResult& result, const
     out.has_filament_weight = can_weight;
     out.has_filament_cost = can_cost;
 
+    return out;
+}
+
+PreviewAnalysis build_preview_analysis(const GCodeProcessorResult& result, const ToolpathBuffers& toolpath) {
+    PreviewAnalysis out = build_preview_summary(result);
+    const auto normal_mode = static_cast<size_t>(Slic3r::PrintEstimatedStatistics::ETimeMode::Normal);
     // Time is accumulated over processed moves in the same role order as the
     // local feature palette. Filament figures are taken from the processor's
     // per-role usage cache, which includes its normal flush/support handling.

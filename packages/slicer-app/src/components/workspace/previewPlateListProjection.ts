@@ -1,7 +1,7 @@
-import type { PlateSessionPlate, PlateSessionSnapshot } from '@slicer/client';
-import type { PlateSliceResult } from '@/stores/useSlicerStore';
+import type { PlateOperationTarget, PlateSessionPlate, PlateSessionSnapshot, PreviewAnalysisSummary } from '@slicer/client';
+import type { PlateSliceFailure, PlateSliceResult } from '@/stores/useSlicerStore';
 
-export type PreviewPlateStatus = 'sliced' | 'unsliced' | 'empty' | 'out-of-bounds';
+export type PreviewPlateStatus = 'sliced' | 'slicing' | 'error' | 'unsliced' | 'empty' | 'out-of-bounds';
 
 export interface PreviewPlateListItem {
   plate: PlateSessionPlate;
@@ -9,6 +9,10 @@ export interface PreviewPlateListItem {
   status: PreviewPlateStatus;
   label: string;
   detail: string;
+  summary?: PreviewAnalysisSummary;
+  error?: string;
+  progress?: number;
+  progressText?: string;
 }
 
 function hasMembers(snapshot: PlateSessionSnapshot, plate: PlateSessionPlate): boolean {
@@ -20,6 +24,8 @@ function hasMembers(snapshot: PlateSessionSnapshot, plate: PlateSessionPlate): b
 export function projectPreviewPlateList(
   snapshot: PlateSessionSnapshot | null | undefined,
   results: Readonly<Record<string, PlateSliceResult>> = {},
+  job: { target: PlateOperationTarget | null; progress: number; text: string } = { target: null, progress: 0, text: '' },
+  failures: Readonly<Record<string, PlateSliceFailure>> = {},
 ): PreviewPlateListItem[] {
   if (!snapshot) return [];
   return snapshot.plates
@@ -31,18 +37,24 @@ export function projectPreviewPlateList(
       const empty = !hasMembers(snapshot, plate);
       const revision = snapshot.inputRevisions?.[plate.plateId];
       const result = results[plate.plateId];
+      const slicing = job.target?.plateId === plate.plateId && job.target.inputRevision === revision;
+      const failure = failures[plate.plateId];
+      const error = failure?.target.inputRevision === revision ? failure.error : undefined;
       const sliced = !outOfBounds && !empty && result !== undefined &&
         (revision === undefined || result.target.inputRevision === revision);
       const status: PreviewPlateStatus = outOfBounds
         ? 'out-of-bounds'
         : empty
           ? 'empty'
-          : sliced ? 'sliced' : 'unsliced';
+          : slicing ? 'slicing' : error ? 'error' : sliced ? 'sliced' : 'unsliced';
       const detail = status === 'out-of-bounds'
         ? 'Out of bounds'
         : status === 'empty'
           ? 'Empty'
-          : status === 'sliced' ? 'Sliced' : 'Unsliced';
-      return { plate, current, status, label: plate.name || `Plate ${plate.displayIndex + 1}`, detail };
+          : status === 'slicing' ? 'Slicing' : status === 'error' ? 'Error' : status === 'sliced' ? 'Sliced' : 'Not Sliced';
+      return { plate, current, status, label: plate.name || `Plate ${plate.displayIndex + 1}`, detail,
+        ...(status === 'sliced' ? { summary: result.summary } : {}),
+        ...(status === 'slicing' ? { progress: Math.max(0, Math.min(100, job.progress)), progressText: job.text } : {}),
+        ...(status === 'error' ? { error } : {}) };
     });
 }

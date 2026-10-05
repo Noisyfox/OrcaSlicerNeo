@@ -152,6 +152,7 @@ struct PreviewAnalysis {
 
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette();
 ToolpathBuffers build_toolpath(const Slic3r::GCodeProcessorResult& result);
+PreviewAnalysis build_preview_summary(const Slic3r::GCodeProcessorResult& result);
 PreviewAnalysis build_preview_analysis(const Slic3r::GCodeProcessorResult& result, const ToolpathBuffers& toolpath);
 
 }  // namespace bridge

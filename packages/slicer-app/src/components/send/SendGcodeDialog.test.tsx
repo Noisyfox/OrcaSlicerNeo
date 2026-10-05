@@ -74,12 +74,13 @@ async function render(
   initialSelection: string | null = 'p1',
   onClose: () => void = () => undefined,
   onNavigateToDevice: () => void = () => undefined,
+  targetReceipt?: import('@slicer/client').SliceResultReceipt,
 ) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(<PlatformProvider value={platform}><SendGcodeDialog open action={action} initialSelection={initialSelection} onClose={onClose} onNavigateToDevice={onNavigateToDevice} /></PlatformProvider>);
+    root.render(<PlatformProvider value={platform}><SendGcodeDialog open action={action} initialSelection={initialSelection} onClose={onClose} onNavigateToDevice={onNavigateToDevice} targetReceipt={targetReceipt} /></PlatformProvider>);
   });
   return { container, root };
 }
@@ -109,7 +110,7 @@ describe('SendGcodeDialog', () => {
         plateId: 'plate-1', member: true, unprintable: false, outOfBounds: false }],
       inputRevisions: { 'plate-1': 1 } });
     useSlicerStore.setState({ sliceTarget: { plateId: 'plate-1', inputRevision: 1 },
-      plateResults: { 'plate-1': { target: { plateId: 'plate-1', inputRevision: 1 }, receipt, warnings: [] } } });
+      plateResults: { 'plate-1': { target: { plateId: 'plate-1', inputRevision: 1 }, receipt, warnings: [], summary: {} } } });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -117,6 +118,31 @@ describe('SendGcodeDialog', () => {
     roots = [];
     document.body.innerHTML = '';
     useSlicerStore.setState({ status: 'idle', progress: 0, error: null, resultExported: false });
+  });
+
+  it('sends an explicitly captured non-current plate without changing selection', async () => {
+    const receipt = useSlicerStore.getState().plateResults['plate-1'].receipt;
+    const session = usePlateSessionStore.getState().snapshot!;
+    usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: 'plate-2', inputRevisions: { ...session.inputRevisions, 'plate-2': 0 },
+      plates: [...session.plates, { plateId: 'plate-2', name: 'Plate 2', displayIndex: 1, origin: [264, 0, 0], instanceIds: [] }] });
+    useSlicerStore.setState({ status: 'idle', sliceTarget: null });
+    const transport = new FixtureTransport();
+    const { platform, runtime } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send', 'p1', undefined, undefined, receipt); roots.push(root);
+    await click(container, 'send-submit');
+    expect(runtime.exportGcodePlate).toHaveBeenCalledWith(receipt);
+    expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('plate-2');
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it('rejects a captured receipt superseded while the send dialog is open', async () => {
+    const receipt = useSlicerStore.getState().plateResults['plate-1'].receipt;
+    const { platform, runtime } = makePlatform(new FixtureTransport());
+    const { container, root } = await render(platform, 'send', 'p1', undefined, undefined, receipt); roots.push(root);
+    // The cached result changes before React can commit disabled state.
+    useSlicerStore.getState().setPlateResult({ ...receipt, resultGeneration: '2', sliceTaskId: '2' }, [], {});
+    await click(container, 'send-submit');
+    expect(runtime.exportGcodePlate).not.toHaveBeenCalled();
   });
 
   it('uses upload-only for Send and keeps target selection independent and ephemeral', async () => {

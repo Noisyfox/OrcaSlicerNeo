@@ -110,7 +110,7 @@ describe('useSliceResult', () => {
       plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
       inputRevisions: { 'plate-1': 1 },
     });
-    useSlicerStore.getState().setPlateResult(receipt);
+    useSlicerStore.getState().setPlateResult(receipt, [], {});
     useSlicerStore.getState().activatePlateResult('plate-1', 1);
     const container = document.createElement('div');
     document.body.append(container);
@@ -130,7 +130,7 @@ describe('useSliceResult', () => {
     });
     await act(async () => {
       // A failed edit can restore the same result's availability in Prepare.
-      useSlicerStore.getState().setPlateResult(receipt);
+      useSlicerStore.getState().setPlateResult(receipt, [], {});
       useSlicerStore.getState().activatePlateResult('plate-1', 1);
     });
 
@@ -176,7 +176,7 @@ describe('useSliceResult', () => {
       plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
       inputRevisions: { 'plate-1': 1 },
     });
-    useSlicerStore.getState().setPlateResult(receipt);
+    useSlicerStore.getState().setPlateResult(receipt, [], {});
     useSlicerStore.getState().activatePlateResult('plate-1', 1);
     const container = document.createElement('div');
     document.body.append(container);
@@ -213,7 +213,7 @@ describe('useSliceResult', () => {
       plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
       inputRevisions: { 'plate-1': 1 },
     });
-    useSlicerStore.getState().setPlateResult(receipt);
+    useSlicerStore.getState().setPlateResult(receipt, [], {});
     useSlicerStore.getState().activatePlateResult('plate-1', 1);
     const container = document.createElement('div');
     document.body.append(container);
@@ -264,8 +264,8 @@ describe('useSliceResult', () => {
       inputRevisions: { 'plate-1': 1, 'plate-2': 3 },
     });
     usePlateSessionStore.getState().setSnapshot(plate('plate-1'));
-    useSlicerStore.getState().setPlateResult(oldReceipt);
-    useSlicerStore.getState().setPlateResult(newReceipt);
+    useSlicerStore.getState().setPlateResult(oldReceipt, [], {});
+    useSlicerStore.getState().setPlateResult(newReceipt, [], {});
     useSlicerStore.getState().activatePlateResult('plate-1', 1);
     const container = document.createElement('div');
     document.body.append(container);

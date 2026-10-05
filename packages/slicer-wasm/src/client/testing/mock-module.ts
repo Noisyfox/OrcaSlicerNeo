@@ -1465,7 +1465,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   function runMockSlice(plateId: string, revision: number): unknown {
     if (!modelLoaded) return { error: 'no model loaded' };
-    if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
+    if (!plateIds.includes(plateId)) return { error: 'plate not found' };
     if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
     const taskId = String(nextAsyncTaskId++);
     for (let pct = 0; pct <= 100; pct += 25)
@@ -1483,7 +1483,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     ].join('\n');
     previewSourceBytes = new TextEncoder().encode(gcode);
     files.set(`/tmp/plate-result-${plateId}-${receipt.resultGeneration}.gcode`, previewSourceBytes);
-    const result = { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], receipt: {
+    const result = { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], summary: {
+      estimated_time_seconds: fixture.analysis?.summary?.estimatedTimeSeconds,
+      filament_length_meters: fixture.analysis?.summary?.filamentLengthMeters,
+      filament_weight_grams: fixture.analysis?.summary?.filamentWeightGrams,
+      filament_cost: fixture.analysis?.summary?.filamentCost,
+    }, receipt: {
       plate_id: plateId, input_stamp: receipt.inputStamp,
       result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId,
     } };
@@ -2949,7 +2954,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       };
     },
     orc_export_gcode_plate(plateId: string, revision: number, resultGeneration: number) {
-      if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
+      if (!plateIds.includes(plateId)) return { error: 'plate not found' };
       if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
       const receipt = sliceReceipts.get(plateId);
       if (!receipt || receipt.inputStamp !== revision || receipt.resultGeneration !== String(resultGeneration))

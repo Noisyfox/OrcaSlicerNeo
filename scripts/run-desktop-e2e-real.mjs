@@ -24,6 +24,7 @@ const env = {
 // The focused real run proves native DRC import through Electron without
 // substituting its small fixture into unrelated 20 mm STL regressions.
 const functionalTestRuns = [
+  ['e2e/plate-list.e2e.ts'],
   ['e2e/app.e2e.ts', '-g', 'real DRC flow'],
   ['e2e/app.e2e.ts', '-g', 'real STEP flow'],
   ['e2e/multi-filament.e2e.ts', '-g', 'filament rack remains enabled during history restore'],

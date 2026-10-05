@@ -19,6 +19,7 @@ const SLICE_CONFIG_BLACKLIST: ReadonlySet<string> = new Set([
 ]);
 
 let activeCancellation: { requested: boolean } | null = null;
+let sliceAdmission = false;
 
 /** Request cancellation while retaining the active job until its terminal reply. */
 export async function cancelSlice(platform: PlatformCapabilities): Promise<boolean> {
@@ -40,9 +41,20 @@ export async function cancelSlice(platform: PlatformCapabilities): Promise<boole
  * Run the shared slice flow. SliceButton and menu commands must use this
  * function so validation, transform persistence, and result state cannot drift.
  */
-export async function sliceModel(platform: PlatformCapabilities): Promise<void> {
-  if (!paintingCommandAllowed() || useSlicerStore.getState().status === 'slicing') return;
+export async function sliceModel(platform: PlatformCapabilities, plateId?: string): Promise<void> {
+  if (!paintingCommandAllowed() || sliceAdmission || useSlicerStore.getState().activeSliceTarget || useSlicerStore.getState().status === 'slicing') return;
+  const targetPlateId = plateId ?? usePlateSessionStore.getState().snapshot?.currentPlateId;
+  sliceAdmission = true;
+  try { await sliceRequestedPlate(platform, targetPlateId); }
+  finally { sliceAdmission = false; }
+}
+
+async function sliceRequestedPlate(platform: PlatformCapabilities, requestedPlateId?: string): Promise<void> {
   if (!await closePaintingForCommand()) return;
+  const initialSession = usePlateSessionStore.getState().snapshot;
+  const initialRevision = requestedPlateId ? initialSession?.inputRevisions?.[requestedPlateId] : undefined;
+  let failureTarget: PlateOperationTarget | undefined = requestedPlateId && Number.isSafeInteger(initialRevision)
+    ? { plateId: requestedPlateId, inputRevision: initialRevision! } : undefined;
 
   // Numeric/text fields commit on blur. A Slice click can arrive in the same
   // event turn, so wait for that Worker transaction before reading settings
@@ -59,9 +71,16 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
       meta[key] !== undefined && !SLICE_CONFIG_BLACKLIST.has(key)),
   );
   const setFailure = (message: string) => {
+    const target = useSlicerStore.getState().activeSliceTarget ?? failureTarget;
+    if (target) useSlicerStore.getState().setPlateFailure(target, message);
     useSlicerStore.getState().setActiveSliceTarget(null);
     useSlicerStore.getState().setStatus('error');
     useSlicerStore.getState().setError(message);
+    const selected = usePlateSessionStore.getState().snapshot;
+    if (target && selected && selected.currentPlateId !== target.plateId) {
+      const revision = selected.inputRevisions?.[selected.currentPlateId];
+      if (revision !== undefined) useSlicerStore.getState().activatePlateResult(selected.currentPlateId, revision);
+    }
   };
 
   // Older profile bundles may omit layer_height bounds. It is never valid at
@@ -104,14 +123,16 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   const session = await platform.runtime.getPlateSessionSnapshot();
   if (!session.ok) { setFailure(session.error); return; }
   usePlateSessionStore.getState().setSnapshot(session);
-  const current = session.plates.find((plate) => plate.plateId === session.currentPlateId);
-  const revision = session.inputRevisions?.[session.currentPlateId];
+  const plateId = requestedPlateId ?? session.currentPlateId;
+  const current = session.plates.find((plate) => plate.plateId === plateId);
+  const revision = session.inputRevisions?.[plateId];
+  failureTarget = Number.isSafeInteger(revision) ? { plateId, inputRevision: revision! } : undefined;
   if (!current || current.valid === false || !(current.instanceIds?.length) ||
       !Number.isSafeInteger(revision)) {
-    setFailure(current?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
+    setFailure(current?.valid === false ? 'target plate contains an out-of-bounds instance' : 'target plate is empty or unavailable');
     return;
   }
-  const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: revision as number };
+  const target: PlateOperationTarget = { plateId, inputRevision: revision as number };
 
   const slicer = useSlicerStore.getState();
   // An explicit Slice withdraws only the renderer-facing receipt/projection.
@@ -119,6 +140,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   // processing and publishes a new task-addressed receipt on success.
   slicer.invalidatePlateResults([target.plateId]);
   slicer.setProgress(0);
+  slicer.setProgressText('Preparing slice');
   slicer.setStatus('slicing');
   slicer.setActiveSliceTarget(target);
   slicer.setResultExported(false);
@@ -131,12 +153,19 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     live.setStatus('idle');
     live.setProgress(0);
     live.setError(null);
+    const selected = usePlateSessionStore.getState().snapshot;
+    const revision = selected?.inputRevisions?.[selected.currentPlateId];
+    if (selected && revision !== undefined) live.activatePlateResult(selected.currentPlateId, revision);
   };
   try {
     const result = await platform.runtime.slicePlate(
       target,
       values,
-      (pct) => useSlicerStore.getState().setProgress(pct),
+      (pct, text) => {
+        const live = useSlicerStore.getState();
+        if (live.activeSliceTarget?.plateId !== target.plateId || live.activeSliceTarget.inputRevision !== target.inputRevision) return;
+        live.setProgress(pct); live.setProgressText(text);
+      },
     );
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
@@ -161,16 +190,16 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     // Native Slice completion is the global terminal. Typed-array transfer
     // and GPU construction are a later Preview-local projection and do not
     // keep slicing controls or Export blocked.
-    useSlicerStore.getState().setPlateResult(result.receipt, result.warnings ?? []);
+    useSlicerStore.getState().setPlateResult(result.receipt, result.warnings ?? [], result.summary);
     useSlicerStore.getState().setActiveSliceTarget(null);
-    const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
-    if (current === target.plateId) useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);
+    const selected = usePlateSessionStore.getState().snapshot;
+    const revision = selected?.inputRevisions?.[selected.currentPlateId];
+    if (selected && revision !== undefined) useSlicerStore.getState().activatePlateResult(selected.currentPlateId, revision);
   } catch (err) {
     const live = useSlicerStore.getState();
     if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
         live.activeSliceTarget.inputRevision !== target.inputRevision) return;
     if (cancellation.requested) { finishCancelled(); return; }
-    useSlicerStore.getState().setActiveSliceTarget(null);
     setFailure(errorText(err));
     console.error('slice failed:', err);
   } finally {

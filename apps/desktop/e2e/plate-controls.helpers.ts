@@ -12,6 +12,7 @@ export async function clickPlateControl(page: Page, testId: string, options?: Pa
   const mode = page.getByRole('tablist', { name: 'Configuration mode' });
   const previous = await mode.locator('[aria-selected="true"]').getAttribute('data-testid');
   await page.getByTestId('config-mode-plates').click();
+  if (testId === 'delete-plate') await page.getByTestId('plate-menu').click();
   await page.getByTestId(testId).click(options);
   if (previous && previous !== 'config-mode-plates') await page.getByTestId(previous).click();
 }

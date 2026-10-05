@@ -863,8 +863,7 @@ export interface ModelStructureResult {
   error?: string;
 }
 
-export interface SliceResultStatus {
-  ok: boolean;
+interface SliceResultFields {
   unrecognized_keys: string[];
   /** Native slice-time advisory warnings; these never replace hard errors. */
   warnings?: string[];
@@ -872,6 +871,15 @@ export interface SliceResultStatus {
   receipt?: SliceResultReceipt;
   error?: string;
 }
+
+export type SliceResultStatus = SliceResultFields & (
+  | {
+      ok: true;
+      /** Lightweight plate totals; individual metrics may be unavailable. */
+      summary: PreviewAnalysisSummary;
+    }
+  | { ok: false; summary?: never }
+);
 
 /** One renderer CompositeID transform in an atomic Worker transform command. */
 export interface ModelTransformMutation {

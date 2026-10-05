@@ -600,6 +600,10 @@ check('orc_get_slice_result layers > 0', result.ok === true && result.layers > 0
 
 // 7b. binary slice-result buffers (Preview data v2 contract)
 const res2 = result;
+check('completion carries the same lightweight totals as Preview',
+      sliced.summary && Object.keys(sliced.summary).length > 0 &&
+      JSON.stringify(sliced.summary) === JSON.stringify(res2.metadata?.analysis?.summary),
+      JSON.stringify({ completion: sliced.summary, preview: res2.metadata?.analysis?.summary }));
 check('slice result has v2 segments', res2.ok === true && res2.preview_version === 2
       && res2.toolpath && res2.toolpath.segment_count > 0,
       JSON.stringify(res2).slice(0, 200));

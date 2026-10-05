@@ -2,9 +2,10 @@
 // Contract tests for the typed bridge client, driven against the
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
 // contract that Task 7 implements in C++.
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createMockModule, type MockFeature } from './testing/mock-module';
 import { createClient, normalizeSceneDelta } from './client';
+import { writeBytes } from './heap';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
 
@@ -1978,7 +1979,40 @@ describe('SlicerClient bridge contract', () => {
     expect(events).toContain(100);
   });
 
-  it('binds local slice and export to the current plate identity and revision', async () => {
+  it.each([undefined, null, [], 'invalid'])('rejects a successful slice with invalid summary %j', async (summary) => {
+    const module = createMockModule();
+    const originalCall = module.ccall.bind(module);
+    vi.spyOn(module, 'ccall').mockImplementation((...args) => args[0] === 'orc_slice'
+      ? writeBytes(module, new TextEncoder().encode(JSON.stringify({ ok: true, unrecognized_keys: [], summary }) + '\0')) : originalCall(...args));
+    const client = createClient(async () => module);
+    await expect(client.slice({})).rejects.toThrow('slice bridge returned an invalid result summary');
+  });
+
+  it('accepts an empty successful summary and an error without summary', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall.bind(module);
+    const calls = vi.spyOn(module, 'ccall').mockImplementation((...args) => args[0] === 'orc_slice'
+      ? writeBytes(module, new TextEncoder().encode(JSON.stringify({ ok: true, unrecognized_keys: [], summary: {} }) + '\0')) : originalCall(...args));
+    const client = createClient(async () => module);
+    await expect(client.slice({})).resolves.toMatchObject({ ok: true, summary: {} });
+    calls.mockImplementation((...args) => args[0] === 'orc_slice'
+      ? writeBytes(module, new TextEncoder().encode(JSON.stringify({ error: 'slice failed' }) + '\0')) : originalCall(...args));
+    await expect(client.slice({})).resolves.toMatchObject({ ok: false, error: 'slice failed' });
+  });
+
+  it('returns finite plate totals at completion without fetching a toolpath projection', async () => {
+    const module = createMockModule({ sliceFixture: { layers: 1, toolpathVertices: 4, features: [], analysis: { summary: {
+      estimatedTimeSeconds: 1932, filamentLengthMeters: 2.79, filamentWeightGrams: 8.32, filamentCost: -1,
+    } } } });
+    const calls = vi.spyOn(module, 'ccall');
+    const client = createClient(async () => module);
+    await client.addModel(new Uint8Array(4), 'stl');
+    const result = await client.slice({});
+    expect(result.summary).toEqual({ estimatedTimeSeconds: 1932, filamentLengthMeters: 2.79, filamentWeightGrams: 8.32 });
+    expect(calls.mock.calls.some(call => call[0] === 'orc_get_slice_result')).toBe(false);
+  });
+
+  it('binds local slice and export to explicit plate identity independently of navigation', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
     const session = await c.getPlateSessionSnapshot();
@@ -1989,7 +2023,11 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
     const changed = await c.addPlate();
     if (!changed.ok) throw new Error(changed.error);
-    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
+    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
+    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ ok: true });
+    const after = await c.getPlateSessionSnapshot();
+    if (!after.ok) throw new Error(after.error);
+    expect(after.currentPlateId).toBe(changed.currentPlateId);
   });
 
   it('rejects stale current-plate targets before slicing', async () => {

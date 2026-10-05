@@ -84,8 +84,7 @@ function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
       sliceTaskId: receipt.slice_task_id,
     };
   }
-  return {
-    ok: raw.ok === true,
+  const fields = {
     unrecognized_keys: Array.isArray(raw.unrecognized_keys)
       ? raw.unrecognized_keys.filter((key): key is string => typeof key === 'string') : [],
     ...(Array.isArray(raw.warnings)
@@ -93,6 +92,15 @@ function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
     ...(normalizedReceipt ? { receipt: normalizedReceipt } : {}),
     ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
   };
+  if (raw.ok !== true) return { ...fields, ok: false };
+  if (!isRecord(raw.summary)) throw new Error('slice bridge returned an invalid result summary');
+  const summary = Object.fromEntries([
+    ['estimatedTimeSeconds', raw.summary.estimated_time_seconds],
+    ['filamentLengthMeters', raw.summary.filament_length_meters],
+    ['filamentWeightGrams', raw.summary.filament_weight_grams],
+    ['filamentCost', raw.summary.filament_cost],
+  ].filter(([, value]) => typeof value === 'number' && Number.isFinite(value) && value >= 0));
+  return { ...fields, ok: true, summary };
 }
 
 function normalizeModelTransform(raw: unknown): ModelTransform | undefined {
