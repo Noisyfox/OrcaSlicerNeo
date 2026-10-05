@@ -69,7 +69,11 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       try {
         const previewTab = page.getByRole('tab', { name: 'Preview', exact: true });
         if (await previewTab.getAttribute('aria-selected') === 'true') return;
-        await previewTab.click();
+        // These tabs switch React state in the current document. Electron can
+        // leave Playwright's navigation barrier pending after the click, even
+        // though Preview is already active; wait for the tab state instead.
+        await previewTab.click({ noWaitAfter: true });
+        await expect(previewTab).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
       } catch (error) {
         const pageState = await Promise.race([
           page.evaluate(() => ({
