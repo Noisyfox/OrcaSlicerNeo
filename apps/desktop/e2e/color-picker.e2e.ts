@@ -26,7 +26,11 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' }];
   writeFileSync(preferences, JSON.stringify({ version: 1, selectedProfiles: {}, ui: { sidebarWidth: 320 },
     colorPicker: { favorites: hidden } }));
-  const saved = () => JSON.parse(readFileSync(preferences, 'utf8'));
+  // The main process writes asynchronously; a disk read can overlap truncation
+  // and see incomplete JSON. Retry the read and assertion together.
+  const expectSaved = (expected: Record<string, unknown>) => expect(() => {
+    expect(JSON.parse(readFileSync(preferences, 'utf8'))).toMatchObject(expected);
+  }).toPass({ timeout: 5_000 });
   const first = await launch(preferences);
   try {
     const { page } = first;
@@ -88,7 +92,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('2357AB');
     await expect(page.getByRole('spinbutton', { name: 'R value', exact: true })).toHaveValue('35');
-    await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#2357AB' }, ...hidden]);
+    await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, ...hidden] } });
     await expect(page.getByRole('button', { name: 'Favorite #2357AB', exact: true })).toBeVisible();
     const favorite = page.getByRole('button', { name: 'Favorite #2357AB', exact: true });
     await favorite.hover();
@@ -103,18 +107,18 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     expect(Math.abs(favoriteBox.height - emptyBox.height)).toBeLessThan(1);
     await editHex(page, '#456789');
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
-    await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#456789' }, { kind: 'solid', color: '#2357AB' }, ...hidden]);
+    await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#456789' }, { kind: 'solid', color: '#2357AB' }, ...hidden] } });
     await favorite.click();
     await page.getByRole('textbox', { name: 'HEX color', exact: true }).hover();
     await expect(page.getByRole('button', { name: /^Remove favorite/ })).toHaveCount(0);
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
-    await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#2357AB' }, { kind: 'solid', color: '#456789' }, ...hidden]);
+    await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, { kind: 'solid', color: '#456789' }, ...hidden] } });
     await page.getByRole('button', { name: 'Favorite #456789', exact: true }).click({ button: 'right' });
     await expect(page.getByTestId('filament-edit-1')).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: 'Remove favorite', exact: true })).toHaveAttribute('data-variant', 'destructive');
     await page.getByRole('menuitem', { name: 'Remove favorite', exact: true }).click();
     await expect(popup).toBeVisible();
-    await expect.poll(() => saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#2357AB' }, ...hidden]);
+    await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, ...hidden] } });
     await page.screenshot({ path: test.info().outputPath('color-picker.png') });
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(trigger).toHaveAttribute('value', original!);
@@ -141,8 +145,8 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByTestId('preset-editor-close').click();
     await page.locator('#app-tab-preview').click();
     await page.getByTestId('titlebar-toggle-right-sidebar').click();
-    await expect.poll(() => saved().ui.rightSidebarCollapsed).toBe(true);
-    expect(saved().colorPicker.favorites).toEqual([{ kind: 'solid', color: '#2357AB' }, ...hidden]);
+    await expectSaved({ ui: { rightSidebarCollapsed: true },
+      colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, ...hidden] } });
   } finally { await first.app.close(); }
 
   const second = await launch(preferences);
@@ -152,11 +156,12 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(page.getByRole('button', { name: 'Favorite #2357AB', exact: true })).toBeVisible();
     const favorite = page.getByRole('button', { name: 'Favorite #2357AB', exact: true });
     await favorite.focus();
-    await favorite.press('Shift+F10');
+    // Chromium only emits the native Shift+F10 contextmenu event on Windows/Linux.
+    if (process.platform === 'darwin') await favorite.click({ button: 'right' });
+    else await favorite.press('Shift+F10');
     await expect(page.getByRole('menuitem', { name: 'Remove favorite', exact: true })).toBeVisible();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
-    await expect.poll(() => saved().colorPicker.favorites).toEqual(hidden);
-    expect(saved().ui.sidebarWidth).toBe(320);
+    await expectSaved({ colorPicker: { favorites: hidden }, ui: { sidebarWidth: 320 } });
   } finally { await second.app.close(); }
 });
