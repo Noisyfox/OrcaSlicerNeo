@@ -151,7 +151,8 @@ The initial validation behavior is intentionally limited:
   by normal slicing validation.
 - Bed type is a narrow native exception: project and plate writes must use
   the selected Printer's supported choices. A printer/capability transition
-  selects its native default and removes unsupported plate bed overrides,
+  selects a valid remembered bed choice when explicitly supplied, otherwise
+  its native default, and removes unsupported plate bed overrides,
   restoring inheritance. A printer without bed-type selection cannot own
   local bed overrides. The transition, corrections, and native snapshots
   are committed together as one history action.

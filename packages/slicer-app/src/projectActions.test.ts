@@ -67,6 +67,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     importProjectGeometry: vi.fn(async () => ({ ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
+    mutateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: scopedConfigTransport })),
     getProfileSnapshot: vi.fn(async () => snapshot),
     selectProfile: vi.fn(async () => snapshot),
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
@@ -93,6 +94,20 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
 }
 
 describe('transactional project actions', () => {
+  it('seeds New Project bed memory before baseline, but never applies it to an opened project', async () => {
+    const { platform, runtime, preferences } = platformFor();
+    preferences.load.mockResolvedValue({ version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },
+      rememberedBedTypes: { 'Project printer': 'Textured PEI Plate' } } as UserPreferences);
+    useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
+    useProjectStore.getState().setProject({ systemPresets: { printer: 'Project printer', print: 'Project process' } });
+    expect((await newProject(platform)).status).toBe('ok');
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
+    expect(runtime.mutateNativeScopedConfig.mock.invocationCallOrder[0]).toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
+    runtime.mutateNativeScopedConfig.mockClear();
+    expect((await openProject(platform)).status).toBe('ok');
+    expect(runtime.mutateNativeScopedConfig).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     useProjectStore.getState().reset();
     usePlateSessionStore.getState().reset();

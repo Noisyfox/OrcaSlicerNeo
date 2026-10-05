@@ -19,7 +19,7 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
-import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack } from '@/preferences';
+import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack, loadRememberedBedTypeFromRepository, publishRememberedBedType } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
 import {
   Combobox,
@@ -61,7 +61,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
           const rememberedRack = await loadRememberedFilamentRackFromRepository(
             platform.preferences, name,
           );
-          const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack);
+          const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, name);
+          const transition = await platform.runtime.selectPrinterWithRememberedRack(name, rememberedRack, rememberedBed);
           if (!transition.ok) throw new Error(transition.error ?? 'Printer transition failed');
 
           // This command already committed the single native history entry.
@@ -102,6 +103,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
           await publishRememberedFilamentRack(
             platform.preferences, transition.profileSnapshot.printer.name, transition.filamentSession,
           );
+          await publishRememberedBedType(platform.preferences, transition.profileSnapshot.printer.name,
+            transition.nativeScopedConfig.snapshot.project.curr_bed_type);
           const project = useProjectStore.getState();
           if (project.scope !== 'project') {
             try {

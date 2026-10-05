@@ -1,6 +1,6 @@
 import type { ProfileSnapshot } from '@slicer/client';
 import type { RememberedFilamentRack, UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
-import { updateUserPreferences } from '@orca/platform-contract';
+import { loadUserPreferences, updateUserPreferences } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { resetProjectHistory } from './components/workspace/actions/historyMutation';
@@ -183,12 +183,19 @@ export async function restoreSelections(
  * compatibility, then history is reset so boot exposes one clean baseline. */
 export async function restoreBootstrapSession(
   runtime: Pick<SlicerClient, 'getProfileSnapshot' | 'selectProfile' |
-    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory'>,
+    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory' | 'mutateNativeScopedConfig'>,
   preferences: UserPreferences,
   context: HistoryContext,
 ): Promise<RestoredBootstrapSession> {
   const restored = await restoreSelections(runtime, preferences);
   await applyRememberedFilamentRack(runtime, preferences, restored.snapshot.printer.name);
+  const seeded = await seedRememberedBedType(runtime, preferences.rememberedBedTypes?.[restored.snapshot.printer.name] ?? null);
+  if (seeded) {
+    const snapshot = await runtime.getProfileSnapshot();
+    if (!snapshot.ok) throw new Error(snapshot.error ?? 'seeded boot profile snapshot unavailable');
+    restored.snapshot = snapshot;
+    restored.preferences = resolvedPreferences(preferences, snapshot);
+  }
   const history = await resetProjectHistory(runtime, context);
   const filament = useFilamentSessionStore.getState().snapshot ?? await runtime.getFilamentSessionSnapshot();
   if (!filament.ok) throw new Error(filament.error ?? 'filament session unavailable after bootstrap');
@@ -205,4 +212,39 @@ export async function persistRestoredSelections(
   } catch (error) {
     console.error('restored profile preference save failed; keeping session state', error);
   }
+}
+
+/** Preference memory never belongs to a project-history frame. */
+export async function publishRememberedBedType(repository: UserPreferencesRepository, printer: string, bed: string): Promise<void> {
+  if (!printer || !bed) return;
+  try {
+    await updateUserPreferences(repository, current => ({ ...current,
+      rememberedBedTypes: { ...current.rememberedBedTypes, [printer]: bed },
+    }));
+  } catch (error) { console.error('remembered bed type save failed; keeping session state', error); }
+}
+
+export async function loadRememberedBedTypeFromRepository(repository: UserPreferencesRepository, printer: string): Promise<string | null> {
+  try {
+    const value = (await loadUserPreferences(repository)).rememberedBedTypes?.[printer];
+    return typeof value === 'string' && value.trim() ? value : null;
+  }
+  catch (error) { console.warn('remembered bed type unavailable; using native default', error); return null; }
+}
+
+/** Only bootstrap and New Project seed memory. Project loads/history restore
+ * their own native roots. Invalid memory falls back to the selected Printer's
+ * already-normalized native default. This seed precedes the clean baseline. */
+export async function seedRememberedBedType(
+  runtime: Pick<SlicerClient, 'getProfileSnapshot' | 'mutateNativeScopedConfig'>,
+  bed: string | null,
+): Promise<import('@slicer/client').NativeScopedConfigResult | null> {
+  if (!bed) return null;
+  const snapshot = await runtime.getProfileSnapshot();
+  if (!snapshot.ok) throw new Error(snapshot.error ?? 'Printer capabilities unavailable');
+  if (!snapshot.bedType.supportsSelection || !snapshot.bedType.choices.some(choice => choice.value === bed)) return null;
+  const result = await runtime.mutateNativeScopedConfig({ version: 1, operation: 'set',
+    targets: [{ scope: 'project' }], key: 'curr_bed_type', value: bed });
+  if (!result.ok) throw new Error(result.error);
+  return result;
 }

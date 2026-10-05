@@ -79,7 +79,7 @@ function printerTransition(profileSnapshot = resolvedSnapshot, filamentSession =
     },
     nativeScopedConfig: {
       version: 1, revision: 1, kind: 'full',
-      snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+      snapshot: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: {} }, removedTargets: [],
     },
     mutation: {
       kind: 'select-printer-with-remembered-rack', historyEntryDelta: 1,
@@ -124,7 +124,7 @@ function makePlatform(
         selectPrinterWithRememberedRack: vi.fn(selectPrinterWithRememberedRack),
         revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
           version: 1 as const, revision: 0, kind: 'full' as const,
-          snapshot: { project: {}, objects: {}, parts: {}, plates: {} }, removedTargets: [],
+          snapshot: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: {} }, removedTargets: [],
         } })),
         getFilamentSessionSnapshot: vi.fn(async () => resolvedRack),
         applyRememberedFilamentRack: vi.fn(async () => resolvedRack),
@@ -246,7 +246,7 @@ describe('SettingsPanel preset transitions', () => {
     expect(settings.filamentCatalog).toBe(resolvedSnapshot.filamentCatalog);
     expect([settings.selectedPrinter, settings.selectedPrint])
       .toEqual(['New Printer', 'Resolved Process']);
-    expect(settings.values).toEqual({});
+    expect(settings.values).toEqual({ curr_bed_type: 'Textured PEI Plate' });
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
     expect(runtime.markSharedConfigurationMutation).not.toHaveBeenCalled();
     expect(runtime.getFilamentSessionSnapshot).not.toHaveBeenCalled();
@@ -279,6 +279,7 @@ describe('SettingsPanel preset transitions', () => {
     resetStores();
     const { platform, repository, preferences } = makePlatform(async () => resolvedSnapshot);
     repository.load.mockResolvedValueOnce(preferences).mockResolvedValueOnce(preferences)
+      .mockResolvedValueOnce(preferences).mockResolvedValueOnce(preferences)
       .mockRejectedValueOnce(new Error('storage unavailable'));
     const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { container, root } = await render(platform);
@@ -305,6 +306,7 @@ describe('SettingsPanel preset transitions', () => {
     preferences.rememberedFilamentRacks = {
       'New Printer': { version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233' }] },
     };
+    preferences.rememberedBedTypes = { 'New Printer': 'Textured PEI Plate', 'Old Printer': 'High Temp Plate' };
     repository.load.mockImplementation(async () => { events.push('preference-load'); return preferences; });
     repository.save.mockImplementation(async (next: UserPreferences) => { events.push('preference-save'); Object.assign(preferences, next); });
     const { container, root } = await render(platform);
@@ -315,7 +317,7 @@ describe('SettingsPanel preset transitions', () => {
 
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', {
       version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233' }],
-    });
+    }, 'Textured PEI Plate');
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
     expect(runtime.applyRememberedFilamentRack).not.toHaveBeenCalled();
     expect(runtime.markSharedConfigurationMutation).not.toHaveBeenCalled();

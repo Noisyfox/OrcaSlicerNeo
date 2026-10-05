@@ -1,3 +1,4 @@
+import { publishRememberedBedType } from '@/preferences';
 import { invalidateAffectedPlateResults } from '@/stores/plateResultLifecycle';
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 import { unstable_batchedUpdates } from 'react-dom';
@@ -43,11 +44,13 @@ async function commitScopedConfigurationMutationNow(
   request: NativeScopedConfigMutationRequest,
 ): Promise<PlateSessionMutation | null> {
   let mutation: ConfigurationMutationResult | undefined;
+  let previousBed: string | undefined;
   try {
     const history = await runProjectHistoryMutation<ConfigurationMutationResult>(
       platform.runtime,
       request.operation === 'set' ? 'Change Scoped Configuration' : 'Reset Scoped Configuration',
       async (): Promise<ConfigurationMutationResult> => {
+        previousBed = useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type;
         const result = await platform.runtime.mutateNativeScopedConfig(request);
         if (!result.ok) throw new Error(result.error);
         if (result.configurationStatus?.state === 'ready' && result.configurationStatus.errors.length > 0)
@@ -76,6 +79,12 @@ async function commitScopedConfigurationMutationNow(
           applyPlateSessionTransforms(published, glVolumeCollection.volumes);
           usePlateSessionStore.getState().setSnapshot(published);
           useProjectStore.getState().recordPlateMutation(published);
+          if (request.targets.some(target => target.scope === 'project') &&
+              useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type !== previousBed) {
+            const settings = useSettingsStore.getState();
+            await publishRememberedBedType(platform.preferences, settings.selectedPrinter,
+              settings.nativeScopedConfig.project.curr_bed_type);
+          }
         },
       },
     );
@@ -241,4 +250,11 @@ export async function selectProcessPreset(platform: PlatformCapabilities, name: 
   });
   if (!history.result.ok) throw new Error('Process selection failed');
   return history.result.profile;
+}
+
+/** Global selector action; history/scoped invalidation and preference persistence
+ * are owned by the same successful mutation path as the plate editor. */
+export function commitGlobalBedType(platform: PlatformCapabilities, value: string): Promise<PlateSessionMutation | null> {
+  return commitScopedConfigurationMutation(platform, { version: 1, operation: 'set',
+    targets: [{ scope: 'project' }], key: 'curr_bed_type', value });
 }

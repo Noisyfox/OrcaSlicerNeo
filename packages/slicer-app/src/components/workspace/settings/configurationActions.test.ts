@@ -9,6 +9,7 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
 import {
   commitScopedConfigurationMutation,
+  commitGlobalBedType,
   commitPresetDraftMutation,
   invalidateAfterSharedConfigurationMutation,
   waitForConfigurationMutations,
@@ -373,5 +374,48 @@ describe('commitPresetDraftMutation', () => {
     expect(useSlicerStore.getState().activeSliceTarget).toEqual({ plateId: 'plate-1', inputRevision: 1 });
     expect(useSlicerStore.getState().error).toBe('existing message');
     expect(cancel).not.toHaveBeenCalled();
+  });
+});
+
+describe('global bed preference publication', () => {
+  function platform(result: unknown) {
+    const preferences = { load: vi.fn(async () => ({ version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true }, rememberedBedTypes: { Other: 'Engineering Plate' } })), save: vi.fn(async () => {}) };
+    return { preferences, runtime: { ...historyProjectionRuntime,
+      mutateNativeScopedConfig: vi.fn(async () => result), cancel: vi.fn(async () => {}), runProjectHistoryTransaction,
+    } } as unknown as PlatformCapabilities;
+  }
+  beforeEach(() => {
+    useSettingsStore.getState().applyNativeScopedConfigTransport(baseline);
+    useSettingsStore.setState({ selectedPrinter: 'Printer A', nativeScopedConfigRevision: 0, nativeScopedConfig: baseline.snapshot });
+    useProjectStore.getState().reset(); useHistoryNavigationStore.getState().reset();
+  });
+  it('persists a successful native global choice and preserves other printer memory', async () => {
+    const host = platform({ ok: true, nativeScopedConfig: affected('project', { curr_bed_type: 'High Temp Plate' }), plateSession: mutation });
+    await commitGlobalBedType(host, 'High Temp Plate');
+    expect(host.preferences.save).toHaveBeenCalledWith(expect.objectContaining({ rememberedBedTypes: { Other: 'Engineering Plate', 'Printer A': 'High Temp Plate' } }));
+  });
+  it('persists bulk global resets using the final native value', async () => {
+    const host = platform({ ok: true, nativeScopedConfig: affected('project', { curr_bed_type: 'Textured PEI Plate' }), plateSession: mutation });
+    await commitScopedConfigurationMutation(host, { version: 1, operation: 'reset-all', targets: [{ scope: 'project' }] });
+    expect(host.preferences.save).toHaveBeenCalledOnce();
+  });
+  it('does not persist local, unchanged, or failed native changes', async () => {
+    const local = platform({ ok: true, nativeScopedConfig: affected('plate', { curr_bed_type: 'High Temp Plate' }, 'plate-1'), plateSession: mutation });
+    await commitScopedConfigurationMutation(local, { version: 1, operation: 'set', targets: [{ scope: 'plate', id: 'plate-1' }], key: 'curr_bed_type', value: 'High Temp Plate' });
+    expect(local.preferences.save).not.toHaveBeenCalled();
+    const unchanged = platform({ ok: true, nativeScopedConfig: affected('project', {}) });
+    await commitGlobalBedType(unchanged, 'High Temp Plate');
+    expect(unchanged.preferences.save).not.toHaveBeenCalled();
+    const failed = platform({ ok: false, error: 'unsupported' });
+    await expect(commitGlobalBedType(failed, 'bad')).rejects.toThrow('unsupported');
+    expect(failed.preferences.save).not.toHaveBeenCalled();
+  });
+  it('keeps a native global commit when saving memory fails', async () => {
+    const host = platform({ ok: true, nativeScopedConfig: affected('project', { curr_bed_type: 'High Temp Plate' }), plateSession: mutation });
+    vi.spyOn(host.preferences, 'save').mockRejectedValue(new Error('disk unavailable'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(commitGlobalBedType(host, 'High Temp Plate')).resolves.toMatchObject({ ok: true });
+    expect(useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type).toBe('High Temp Plate');
+    log.mockRestore();
   });
 });

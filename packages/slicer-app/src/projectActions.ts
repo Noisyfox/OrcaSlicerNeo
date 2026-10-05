@@ -15,10 +15,11 @@ import { resetSceneState } from './components/workspace/actions/resetSceneState'
 import {
   runProjectHistoryMutation,
   runProjectSaveOperation,
+  runProjectMutationOperation,
   readProjectHistoryStatus,
   resetProjectHistory,
 } from './components/workspace/actions/historyMutation';
-import { applyRememberedFilamentRackFromRepository } from './preferences';
+import { applyRememberedFilamentRackFromRepository, loadRememberedBedTypeFromRepository, seedRememberedBedType } from './preferences';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -54,7 +55,7 @@ export interface ProjectActionResult {
   load?: ProjectLoadResult;
   loadReceipt?: ProjectLoadReceipt;
 }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getModelScenePatch' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+type Runtime = Pick<SlicerClient, 'loadProject' | 'closeProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getModelScenePatch' | 'mutateNativeScopedConfig' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
   Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'resetHistory'>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
@@ -185,6 +186,14 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
         targetPrinter,
       );
     }
+    await runProjectMutationOperation(async () => {
+      const seeded = await seedRememberedBedType(runtime, await loadRememberedBedTypeFromRepository(platform.preferences, currentPresets().printer));
+      if (seeded) {
+        const outcome = useSettingsStore.getState().applyNativeScopedConfigTransport(seeded.nativeScopedConfig);
+        if (outcome === 'refresh-required') throw new Error('new project bed seed requires scoped refresh');
+        if (seeded.plateSession) usePlateSessionStore.getState().setSnapshot(seeded.plateSession);
+      }
+    });
     // The active system printer already owns its correctly restored rack.
     // New Project preserves that live rack and only establishes a clean model,
     // plate, and history baseline; it never replays a preference as an edit.

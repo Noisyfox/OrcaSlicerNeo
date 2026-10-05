@@ -516,6 +516,8 @@ json select_printer_with_remembered_rack_json(const json& request)
     if (state().history_disabled)
         return transition_error("history_disabled", "project history is disabled");
 
+    if (request.contains("remembered_bed_type") && !request["remembered_bed_type"].is_null() && !request["remembered_bed_type"].is_string())
+        return transition_error("invalid_request", "remembered bed type is invalid");
     const std::string printer_name = request["printer"].get<std::string>();
     const Preset* target = state().presets.printers.find_preset(printer_name, false, true);
     if (target == nullptr) return transition_error("preset_not_found", "Printer preset not found: " + printer_name);
@@ -665,6 +667,20 @@ json select_printer_with_remembered_rack_json(const json& request)
             }
 
             normalize_bed_types(true);
+            // Memory is validated by the final effective Printer's native
+            // capabilities inside this same history transaction.
+            if (request.contains("remembered_bed_type") && request["remembered_bed_type"].is_string()) {
+                const auto capabilities = selected_printer_bed_type_capabilities();
+                const auto remembered = request["remembered_bed_type"].get<std::string>();
+                if (capabilities.supports_selection) {
+                    for (const auto& choice : capabilities.choices) {
+                        if (choice.value == remembered) {
+                            bundle.project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(choice.type));
+                            break;
+                        }
+                    }
+                }
+            }
             validate_profile_transition();
             plate_session = PlateSession::shared_configuration_mutation_snapshot();
             profile_snapshot = preset_snapshot_json();

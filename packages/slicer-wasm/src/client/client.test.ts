@@ -1002,7 +1002,7 @@ describe('SlicerClient bridge contract', () => {
     const before = await c.getHistoryStatus();
     const result = await c.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', {
       version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456' }],
-    });
+    }, 'High Temp Plate');
     expect(result).toMatchObject({
       ok: true,
       profileSnapshot: { printer: { name: 'Bambu Lab P1S 0.4 nozzle' }, print: { name: '0.20mm Standard @BBL P1S' } },
@@ -1010,7 +1010,7 @@ describe('SlicerClient bridge contract', () => {
       mutation: { kind: 'select-printer-with-remembered-rack', historyEntryDelta: 1,
         revisionBefore: before.revision, revisionAfter: before.revision + 1,
         allPlateResultsInvalidated: true, affectedPlateIds: expect.any(Array) },
-      nativeScopedConfig: { kind: 'full', revision: before.revision + 1 },
+      nativeScopedConfig: { kind: 'full', revision: before.revision + 1, snapshot: { project: { curr_bed_type: 'High Temp Plate' } } },
       historyStatus: { revision: before.revision + 1, canUndo: true },
     });
     expect(await c.getHistoryStatus()).toMatchObject({ revision: before.revision + 1, undoEntries: [

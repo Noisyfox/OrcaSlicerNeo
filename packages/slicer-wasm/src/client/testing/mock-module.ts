@@ -2260,6 +2260,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!resolveAfterPrinterChange())
         return { ok: false, error_code: 'native_validation_failure', error: 'no compatible Process preset available' };
 
+      const capabilities = (snapshot() as any).bed_type;
+      const remembered = request.remembered_bed_type;
+      nativeScopedConfig.project.curr_bed_type = capabilities.supports_selection && capabilities.choices.some((choice: any) => choice.value === remembered)
+        ? remembered : capabilities.default_value;
       const current = filamentSessionSnapshot() as any;
       const requestedSlots = request.remembered_rack?.version === 1 && Array.isArray(request.remembered_rack.slots)
         ? request.remembered_rack.slots : undefined;

@@ -44,8 +44,9 @@ multi-filament rack together with the selected Process. Selecting a Process
 updates its compatible candidates and revalidates the rack. If a slot is no
 longer compatible, OrcaSlicer's native fallback is applied by the Worker and
 the complete rack snapshot is returned atomically.
-Printer changes also initialize the project bed type from the new printer's
-native default and remove local bed-type overrides that it cannot support.
+Printer changes initialize the project bed type from a supported remembered
+choice when supplied, otherwise from the new printer's native default, and
+remove local bed-type overrides that it cannot support.
 Editing the selected printer's bed capabilities performs the same corrections
 inside that draft edit's history transaction. Both mutation and history
 restore receipts carry the effective native capability projection.
@@ -72,6 +73,23 @@ For a new project, the selected Printer's remembered rack is then used as a
 seed. An opened project owns its complete rack and always takes priority over
 that remembered seed. There is no single selected-filament preference or
 startup filament-selection call.
+
+`UserPreferences.rememberedBedTypes` stores one native serialized global bed
+choice per canonical Printer name. Successful global bed edits and Printer
+transitions persist their final native value through the existing serialized
+preference repository; local plate overrides and history navigation never
+write this memory. Preference IO failures preserve the native committed state
+and all unrelated preferences.
+
+Explicit Printer transitions accept an optional remembered bed value in the
+same native transaction as Printer/rack compatibility, normalization, history,
+and invalidation. The final effective Printer's native model-filtered choices
+validate that seed. Missing, obsolete, excluded, or disabled-selection memory
+uses the supported native default. Startup and New Project seed memory before
+resetting the clean history baseline; boot then publishes the final native
+scoped snapshot. Opened projects and Undo/Redo own their stored bed roots and
+never replay preference memory. Malformed preference entries are discarded by
+the shared host preference normalizer.
 
 ## Scope
 

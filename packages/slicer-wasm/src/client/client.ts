@@ -2090,10 +2090,12 @@ export function createClient(
 
     async selectPrinterWithRememberedRack(
       printer: string, rememberedRack: RememberedFilamentRackPreference | null,
+      rememberedBedType?: string | null,
     ): Promise<PrinterTransitionResult> {
       const m = await module();
       const request = {
         printer,
+        remembered_bed_type: rememberedBedType ?? null,
         remembered_rack: rememberedRack ? {
           version: rememberedRack.version,
           slots: rememberedRack.slots.map(({ preset, colour }) => ({ preset, colour })),

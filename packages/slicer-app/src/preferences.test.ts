@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections } from './preferences';
+import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections, publishRememberedBedType, loadRememberedBedTypeFromRepository, seedRememberedBedType } from './preferences';
 import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { ProfileSnapshot } from '@slicer/client';
 
@@ -228,17 +228,50 @@ describe('selection restoration', () => {
     const calls: string[] = [];
     const getRack = vi.fn(async () => { calls.push('get-rack'); return getRack.mock.calls.length === 1 ? current : finalRack; });
     const result = await restoreBootstrapSession({
-      getProfileSnapshot: vi.fn(async () => initial),
+      mutateNativeScopedConfig: vi.fn(async () => { calls.push('seed-bed'); return { ok: true, nativeScopedConfig: { kind: 'full' } } as never; }),
+      getProfileSnapshot: vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(resolved),
       selectProfile: vi.fn(async (kind) => { calls.push(`select-${kind}`); return resolved; }),
       getFilamentSessionSnapshot: getRack,
       applyRememberedFilamentRack: vi.fn(async () => { calls.push('apply-rack'); return restoredRack; }),
       resetHistory: vi.fn(async () => { calls.push('reset-history'); return { dirty: false, canUndo: false, undoEntries: [] } as never; }),
-    }, { ...prefs, rememberedFilamentRacks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#abcdef' }] } } }, {
+    }, { ...prefs, rememberedBedTypes: { P: 'Textured PEI Plate' }, rememberedFilamentRacks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#abcdef' }] } } }, {
       selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null,
       nativeScopedConfig: { project: {}, objects: {}, parts: {}, plates: {} },
     });
-    expect(calls).toEqual(['select-printer', 'select-print', 'get-rack', 'apply-rack', 'reset-history', 'get-rack']);
+    expect(calls).toEqual(['select-printer', 'select-print', 'get-rack', 'apply-rack', 'seed-bed', 'reset-history', 'get-rack']);
     expect(result.filament).toBe(finalRack);
     expect(result.history).toMatchObject({ dirty: false, canUndo: false, undoEntries: [] });
+  });
+});
+
+describe('bed preference memory', () => {
+  it('keeps printer memories independent and preserves unrelated preferences across serialized writes', async () => {
+    let stored: UserPreferences = { ...prefs, arrangement: { ignored: true } as never };
+    const repository = { load: vi.fn(async () => stored), save: vi.fn(async (next: UserPreferences) => { stored = next; }) };
+    await Promise.all([publishRememberedBedType(repository, 'A', 'High Temp Plate'), publishRememberedBedType(repository, 'B', 'Textured PEI Plate')]);
+    expect(stored.rememberedBedTypes).toEqual({ A: 'High Temp Plate', B: 'Textured PEI Plate' });
+    expect(stored.selectedProfiles).toEqual(prefs.selectedProfiles);
+    expect(stored.arrangement).toEqual({ ignored: true });
+    const pending = publishRememberedBedType(repository, 'A', 'Engineering Plate');
+    expect(await loadRememberedBedTypeFromRepository(repository, 'A')).toBe('Engineering Plate');
+    await pending;
+  });
+  it('treats failed writes and reads as nonfatal', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const repository = { load: vi.fn(async () => { throw new Error('offline'); }), save: vi.fn() };
+    await expect(publishRememberedBedType(repository, 'A', 'High Temp Plate')).resolves.toBeUndefined();
+    await expect(loadRememberedBedTypeFromRepository(repository, 'A')).resolves.toBeNull();
+    error.mockRestore(); warn.mockRestore();
+  });
+  it('seeds only allowed bed memory before a clean baseline and ignores unsupported or stale choices', async () => {
+    const selected = snapshot('P', 'Q', 'PLA');
+    const runtime = { getProfileSnapshot: vi.fn(async () => selected), mutateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: { kind: 'delta' } } as never)) };
+    await seedRememberedBedType(runtime, 'Textured PEI Plate');
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledWith({ version: 1, operation: 'set', targets: [{ scope: 'project' }], key: 'curr_bed_type', value: 'Textured PEI Plate' });
+    await seedRememberedBedType(runtime, 'obsolete');
+    selected.bedType = { ...selected.bedType, supportsSelection: false };
+    await seedRememberedBedType(runtime, 'Textured PEI Plate');
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
   });
 });
