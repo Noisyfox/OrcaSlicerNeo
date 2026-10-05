@@ -1,6 +1,7 @@
 export * from './contracts';
 export * from './menu';
 export * from './context';
+export * from './colorPicker';
 export type {
   StableObjectId, StablePartId, StableInstanceId, StablePlateId,
   HistorySelectionMode, HistorySelection, HistoryJsonValue, HistoryJsonObject,
