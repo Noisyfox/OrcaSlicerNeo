@@ -124,6 +124,10 @@ test('plate cards render model thumbnails without changing surrounding layout', 
       })).toBeLessThanOrEqual(1);
     }
     const optionsHeight = (await options.boundingBox())!.height;
+    const lastCardBounds = (await page.getByTestId('preview-plate-list').locator('.plate-list-card').last().boundingBox())!;
+    const optionsTop = (await options.boundingBox())!.y;
+    expect(optionsTop - lastCardBounds.y - lastCardBounds.height).toBeLessThanOrEqual(13);
+    expect(optionsTop).toBeGreaterThan(lastCardBounds.y + lastCardBounds.height);
     const listHeight = (await page.getByTestId('configuration-plate-list-scroll').boundingBox())!.height;
     const firstOption = page.getByTestId('config-field-curr_bed_type');
     const collapsedOptionTop = (await firstOption.boundingBox())!.y;

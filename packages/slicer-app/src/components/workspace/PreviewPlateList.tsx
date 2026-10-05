@@ -75,7 +75,7 @@ export function PreviewPlateList({
   const visibleItems = items.filter(item => item.label.toLocaleLowerCase().includes(query));
 
   return (
-    <section className="plate-list pb-2" aria-label="Plates" data-testid="preview-plate-list">
+    <section className="plate-list" aria-label="Plates" data-testid="preview-plate-list">
       <div role="listbox" aria-label="Plates" aria-activedescendant={visibleItems.some(item => item.current) ? `preview-plate-${snapshot.currentPlateId}` : undefined}>
         {visibleItems.map((item) => (
           <Card key={item.plate.plateId} size="sm" className="plate-list-card cursor-pointer ring-0" data-current={item.current} data-plate-status={item.status}

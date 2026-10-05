@@ -237,7 +237,12 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
       const bounds = panel.getBoundingClientRect();
       if (mode === 'plates') {
         // The shared scrolling budget starts below the title and plate toolbar.
-        setPlateOptionsMaxHeight(Math.max(0, (bounds.bottom - list.getBoundingClientRect().top) / 2));
+        const available = Math.max(0, bounds.bottom - list.getBoundingClientRect().top);
+        const optionsHeight = Math.min(PLATE_OPTIONS_SECTION_HEIGHT, available / 2);
+        setPlateOptionsMaxHeight(available / 2);
+        // The list keeps its natural height until it reaches this scroll limit.
+        // Reserve 8px of bottom padding plus the 4px section gap.
+        setListMaxHeight(Math.max(0, available - optionsHeight - 12));
         return;
       }
       // Include the scope header and spacing in the upper half's budget.
@@ -424,7 +429,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
 
   return (
     <section ref={panelRef} data-testid="scoped-configuration-panel" className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">
-      <div className={cn("space-y-1 bg-card pb-1", mode === 'plates' ? 'flex min-h-0 flex-1 flex-col' : 'shrink-0')}>
+      <div className={cn('shrink-0 space-y-1 bg-card', mode === 'plates' ? 'pb-2' : 'pb-1')}>
         <div data-testid="configuration-mode-header" className="shrink-0 bg-panel-header">
           <div role="tablist" aria-label="Configuration mode" className="sidebar-section-header">
             {(['project', 'scoped', 'plates'] as const).map((value) => <Button key={value} type="button" role="tab"
@@ -434,10 +439,10 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
               onClick={() => setConfigurationMode(value)}>{value === 'project' ? 'Project' : value === 'scoped' ? 'Objects' : 'Plates'}</Button>)}
           </div>
         </div>
-        <div className={cn("space-y-1 px-2", mode === 'plates' && 'flex min-h-0 flex-1 flex-col [&>*]:shrink-0')}>
+        <div className="space-y-1 px-2">
         {mode === 'plates' && platesToolbar}
         {scopedContent && <div ref={objectListRef} hidden={mode !== 'scoped'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-object-list-scroll">{scopedContent}</div>}
-        {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} className="min-h-0 flex-1 overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
+        {platesContent && <div ref={plateListRef} hidden={mode !== 'plates'} style={{ maxHeight: listMaxHeight }} className="overflow-y-auto border-b" data-testid="configuration-plate-list-scroll">{platesContent}</div>}
         {mode !== 'plates' && optionsHeader}
         </div>
       </div>
