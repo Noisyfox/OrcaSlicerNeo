@@ -411,6 +411,8 @@ export interface OptionMeta {
   label?: string;
   full_label?: string;
   tooltip?: string;
+  /** Native unit suffix used by Orca option tooltips. */
+  sidetext?: string;
   category?: string;
   mode?: number;
   enum_values?: string[];

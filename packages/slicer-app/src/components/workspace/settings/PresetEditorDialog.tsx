@@ -21,6 +21,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
+import { optionTooltip } from './optionTooltip';
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
   PRINTER_PRESET_EDITOR_MANIFEST,
@@ -220,11 +221,11 @@ function FieldValue({
   onMutate: PresetEditorDialogProps['onMutate'];
 }) {
   const label = labelFor(field, metadata);
-  const tooltip = metadata?.tooltip;
   const binding = snapshot.editorBindings[field.key];
   const sourceValue = binding
     ? projectedValueText(binding.sourceValue, binding.scalarType)
     : valueText(snapshot.sourceValues, field.key);
+  const tooltip = optionTooltip(metadata, '', sourceValue);
   const effectiveValue = binding
     ? inputTextForBinding(binding.effectiveValue, binding.scalarType)
     : snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
@@ -675,7 +676,7 @@ function FieldValue({
             data-testid={`preset-editor-option-label-${field.key}`}
             data-draft-override-highlight={overridden ? 'true' : 'false'}
             className={cn('block truncate text-sm font-medium', overridden && 'config-override-label')}
-            title={label}
+            title={tooltip || label}
           >{label}</Label>
           <code className="break-all text-[0.7rem] text-muted-foreground">{field.key}</code>
         </div>

@@ -337,6 +337,8 @@ describe('PresetEditorDialog', () => {
     expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('230');
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('data-native-min')).toBe('1');
     expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('data-native-max')).toBe('1000');
+    expect(document.querySelector('[data-testid="preset-editor-field-printable_height"]')?.getAttribute('title'))
+      .toBe('Height of the build volume\n\nRange: [1, 1000]');
   });
 
   it('highlights overridden options, groups, and page tabs and clears only the reset category', async () => {

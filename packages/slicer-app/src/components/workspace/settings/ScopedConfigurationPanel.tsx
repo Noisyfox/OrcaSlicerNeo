@@ -16,6 +16,7 @@ import { cn } from 'cn';
 import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, Search } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { printSettingsPages, printSettingPlacement, isVisiblePrintSetting, printSettingsGroups } from './printSettingsLayout';
+import { optionTooltip } from './optionTooltip';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
@@ -106,6 +107,7 @@ export const ScopedField = memo(function ScopedField({
   const displayed = draft;
   const canStep = isScalar(field.meta) || field.meta.type === 'percent' || field.meta.type === 'float_or_percent';
   const step = field.meta.type === 'float' || field.meta.type === 'float_or_percent' ? 0.1 : 1;
+  const numericDraft = /^-?(?:\d+\.?\d*|\.\d+)%?$/.test(draft.trim()) ? Number.parseFloat(draft) : NaN;
   const adjust = (direction: number) => {
     if (!/^-?(?:\d+\.?\d*|\.\d+)%?$/.test(draft.trim())) return;
     const number = Number.parseFloat(draft);
@@ -155,9 +157,9 @@ export const ScopedField = memo(function ScopedField({
       /></TooltipFor>
       {canStep && <div className="flex shrink-0 gap-px pr-0.5">
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-[2px] rounded-r-none [&>svg]:size-3"
-          aria-label={`Decrease ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(-1)}><Minus /></Button>
+          aria-label={`Decrease ${field.label}`} disabled={commitPending || field.mixed || numericDraft <= (field.meta.min ?? -Infinity)} onClick={() => adjust(-1)}><Minus /></Button>
         <Button type="button" variant="number-stepper" size="icon-xs" className="size-[18px] rounded-l-none rounded-r-[2px] [&>svg]:size-3"
-          aria-label={`Increase ${field.label}`} disabled={commitPending || field.mixed} onClick={() => adjust(1)}><Plus /></Button>
+          aria-label={`Increase ${field.label}`} disabled={commitPending || field.mixed || numericDraft >= (field.meta.max ?? Infinity)} onClick={() => adjust(1)}><Plus /></Button>
       </div>}
       </div>;
   }
@@ -165,7 +167,7 @@ export const ScopedField = memo(function ScopedField({
     <div data-testid={`config-field-${field.key}`} className="space-y-0.5">
       <div className={row}>
         <div className="flex min-w-0 items-center gap-1">
-        <TooltipFor content={field.meta.tooltip ?? field.label}>
+        <TooltipFor content={<span className="whitespace-pre-line">{optionTooltip(field.meta, field.label)}</span>}>
           <Label
             htmlFor={`scoped-${field.key}`}
             data-testid={`config-option-label-${field.key}`}

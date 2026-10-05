@@ -110,6 +110,21 @@ test('scoped fields edit mixed drafts and percentages and cancel with Escape', a
     }
     await page.getByTestId('config-page-Strength').click();
     const percent = page.getByTestId('config-input-sparse_infill_density');
+    const sourcePercent = await percent.inputValue();
+    const field = page.getByTestId('config-field-sparse_infill_density');
+    const decrease = field.locator('button[aria-label^="Decrease"]');
+    const increase = field.locator('button[aria-label^="Increase"]');
+    await percent.fill('0%');
+    await expect(decrease).toBeDisabled();
+    await expect(increase).toBeEnabled();
+    await percent.fill('100%');
+    await expect(increase).toBeDisabled();
+    await expect(decrease).toBeEnabled();
+    await percent.press('Escape');
+    await expect(percent).toHaveValue(sourcePercent);
+    await page.getByTestId('config-option-label-sparse_infill_density').hover();
+    await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toContainText('Range: [0%, 100%]');
+    await page.mouse.move(0, 0);
     await percent.fill('22%');
     await percent.press('Enter');
     await settle();

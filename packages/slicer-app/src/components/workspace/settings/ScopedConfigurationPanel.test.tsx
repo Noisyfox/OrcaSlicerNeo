@@ -51,6 +51,42 @@ async function renderField(overrides: Partial<ScopedConfigurationField> = {},
 }
 
 describe('scoped field drafts', () => {
+  it.each(['float', 'int', 'percent', 'float_or_percent'] as const)(
+    'disables only the bounded direction for %s and follows draft and effective changes', async (type) => {
+      const suffix = type === 'percent' || type === 'float_or_percent' ? '%' : '';
+      const view = await renderField({ meta: { type, min: 0, max: 1 }, value: `0${suffix}` }, undefined, undefined, false);
+      const decrease = view.container.querySelector<HTMLButtonElement>('[aria-label="Decrease Layer height"]')!;
+      const increase = view.container.querySelector<HTMLButtonElement>('[aria-label="Increase Layer height"]')!;
+      expect(decrease.disabled).toBe(true);
+      expect(increase.disabled).toBe(false);
+      await act(async () => decrease.click());
+      expect(view.onCommit).not.toHaveBeenCalled();
+      await view.change(`1${suffix}`);
+      expect(decrease.disabled).toBe(false);
+      expect(increase.disabled).toBe(true);
+      await act(async () => increase.click());
+      expect(view.onCommit).not.toHaveBeenCalled();
+      await act(async () => decrease.click());
+      expect(view.onCommit).toHaveBeenCalledOnce();
+      expect(increase.disabled).toBe(false);
+      await view.rerender({ value: `1${suffix}` });
+      expect(increase.disabled).toBe(true);
+      await view.rerender({ value: `0${suffix}` });
+      expect(decrease.disabled).toBe(true);
+    },
+  );
+
+  it('preserves unbounded directions and disables both directions for a fixed range', async () => {
+    const view = await renderField({ meta: { type: 'float', min: 0 }, value: '100' }, undefined, undefined, false);
+    const decrease = view.container.querySelector<HTMLButtonElement>('[aria-label="Decrease Layer height"]')!;
+    const increase = view.container.querySelector<HTMLButtonElement>('[aria-label="Increase Layer height"]')!;
+    expect(decrease.disabled).toBe(false);
+    expect(increase.disabled).toBe(false);
+    await view.rerender({ meta: { type: 'float', min: 100, max: 100 } });
+    expect(decrease.disabled).toBe(true);
+    expect(increase.disabled).toBe(true);
+  });
+
   it.each(['success', 'failure'] as const)('re-enables numeric steppers after commit %s', async (outcome) => {
     let resolve!: (value: string) => void;
     let reject!: (reason: Error) => void;

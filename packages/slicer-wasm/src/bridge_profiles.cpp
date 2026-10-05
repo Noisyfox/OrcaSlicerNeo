@@ -217,6 +217,7 @@ json option_def_to_json(const ConfigOptionDef& def)
     if (!def.label.empty()) result["label"] = def.label;
     if (!def.full_label.empty()) result["full_label"] = def.full_label;
     if (!def.tooltip.empty()) result["tooltip"] = def.tooltip;
+    if (!def.sidetext.empty()) result["sidetext"] = def.sidetext;
     if (!def.category.empty()) result["category"] = def.category;
     result["mode"] = int(def.mode);
     if (!def.enum_values.empty()) result["enum_values"] = def.enum_values;

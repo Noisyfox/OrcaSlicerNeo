@@ -331,8 +331,16 @@ silently reshapes material slots or rewrites related options.
 
 Native option metadata remains authoritative only for facts about a listed
 option: its label, type, tooltip, constraints, and native validation. It does
-not infer a page, group, ordering, or whether an option may be edited. Phase one
-intentionally omits Orca's Simple/Advanced/Expert visibility-mode filter.
+not infer a page, group, ordering, or whether an option may be edited.
+
+Numeric field tooltips append Orca's `Range: [min, max]` only when both native
+bounds are strictly inside the `FLT_MAX` sentinels. Endpoints use up to four
+decimal places without trailing zeros and the native unit suffix; `layers`
+gets a preceding space, and float-or-percent fields use the source value's
+unit choice. This includes scalar controls bound to native vector options.
+
+Phase one intentionally omits Orca's Simple/Advanced/Expert visibility-mode
+filter.
 It also does not port Orca's dynamic GUI `toggle_field` / `toggle_line`
 predicates: every manifest-listed field remains visible regardless of other
 current option values.
