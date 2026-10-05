@@ -8,7 +8,7 @@ import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { UserColorPickerDialog } from '@/components/color/UserColorPickerDialog';
+import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import {
   Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
   ComboboxList, ComboboxTrigger, ComboboxValue,
@@ -71,7 +71,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
       <ContextMenuTrigger render={<article />}
         className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
-        <UserColorPickerDialog open={colourOpen} onOpenChange={setColourOpen}
+        <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
           title={`Slot ${slot.slot} color`} value={{ kind: 'solid', color: authoritativeColour }} disabled={pending}
           onConfirm={next => {
             if (next.kind === 'solid' && next.color.toLowerCase() !== authoritativeColour) onColour(next.color.toLowerCase());

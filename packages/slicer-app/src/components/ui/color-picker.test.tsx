@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ColorValue } from '@orca/platform-contract';
 import { ColorPicker } from './color-picker';
-import { ColorPickerDialog } from './color-picker-dialog';
+import { ColorPickerPopover } from './color-picker-popover';
 import { Button } from './button';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -34,7 +34,7 @@ it('synchronizes RGB/HEX and keyboard spectrum editing without coupling instance
   const first = await mount(<Picker />), second = await mount(<Picker />);
   await fill(first, 'R value', '128');
   expect(changed).toHaveBeenLastCalledWith({ kind: 'solid', color: '#8000FF' });
-  expect(second.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('#0000FF');
+  expect(second.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('0000FF');
   const spectrum = first.querySelector('[aria-label="Color spectrum"]')!;
   await act(async () => spectrum.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })));
   expect(changed).toHaveBeenLastCalledWith({ kind: 'solid', color: '#8305FF' });
@@ -86,10 +86,10 @@ it('preserves RGB at zero alpha and independently edits gradient endpoints', asy
   const container = await mount(<Picker />);
   await fill(container, 'Alpha value', '0');
   expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF000000', end: '#0000FFFF' });
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'End')!.click());
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.getAttribute('aria-label') === 'End')!.click());
   await fill(container, 'Alpha value', '50');
   expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF000000', end: '#0000FF80' });
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Start')!.click());
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.getAttribute('aria-label') === 'Start')!.click());
   await fill(container, 'Alpha value', '100');
   expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF0000FF', end: '#0000FF80' });
 });
@@ -110,7 +110,7 @@ it('dialog commits once, cancels drafts, retains explicit favorites and restores
   const confirm = vi.fn(), favorite = vi.fn();
   function Picker() {
     const [open, setOpen] = useState(false);
-    return <ColorPickerDialog value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
+    return <ColorPickerPopover value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
       onConfirm={confirm} onFavoriteAdd={favorite} trigger={<Button>Open picker</Button>} />;
   }
   const container = await mount(<Picker />);
@@ -122,7 +122,7 @@ it('dialog commits once, cancels drafts, retains explicit favorites and restores
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Cancel')!.click());
   expect(confirm).not.toHaveBeenCalled();
   await act(async () => trigger.click());
-  expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('#123456');
+  expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('123456');
   await fill(document.body, 'HEX color', '#ABCDEF');
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Confirm')!.click());
   expect(confirm).toHaveBeenCalledExactlyOnceWith({ kind: 'solid', color: '#ABCDEF' });
@@ -146,7 +146,7 @@ it('blocks confirmation for invalid HEX and discards the draft on Escape', async
   const confirm = vi.fn();
   function Picker() {
     const [open, setOpen] = useState(false);
-    return <ColorPickerDialog value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
+    return <ColorPickerPopover value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
       onConfirm={confirm} enableAlpha trigger={<Button>Open picker</Button>} />;
   }
   const container = await mount(<Picker />);
@@ -165,8 +165,8 @@ it('applies changed capabilities when confirming an already open dialog', async 
   function Picker() {
     const [enabled, setEnabled] = useState(true);
     disable = () => setEnabled(false);
-    return <ColorPickerDialog value={{ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEFFF' }}
-      open onOpenChange={() => undefined} onConfirm={confirm} enableAlpha={enabled} enableGradient={enabled} />;
+    return <ColorPickerPopover value={{ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEFFF' }}
+      open trigger={<Button>Open picker</Button>} onOpenChange={() => undefined} onConfirm={confirm} enableAlpha={enabled} enableGradient={enabled} />;
   }
   await mount(<Picker />);
   await act(async () => disable());

@@ -16,6 +16,18 @@ test('Web color favorites survive reload and preserve hidden alpha/gradient entr
   const trigger = page.getByTestId('filament-colour-1');
   const original = await trigger.getAttribute('value');
   await trigger.click();
+  const popup = page.locator('[data-slot="popover-content"]');
+  await expect(popup).toBeVisible();
+  await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+  const anchorBounds = (await trigger.boundingBox())!;
+
+  await expect.poll(async () => {
+    const bounds = (await popup.boundingBox())!;
+    return Math.min(Math.abs(bounds.x - anchorBounds.x - anchorBounds.width),
+      Math.abs(bounds.x + bounds.width - anchorBounds.x),
+      Math.abs(bounds.y - anchorBounds.y - anchorBounds.height),
+      Math.abs(bounds.y + bounds.height - anchorBounds.y));
+  }).toBeLessThan(10);
   await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toHaveCount(0);
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#456789');
   await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();

@@ -12,7 +12,7 @@ import type {
 } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { Button } from '@/components/ui/button';
-import { UserColorPickerDialog } from '@/components/color/UserColorPickerDialog';
+import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import { ColorSwatch } from '@/components/ui/color-picker';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -343,7 +343,7 @@ function FieldValue({
     binding?.scalarType === 'percent' || binding?.scalarType === 'float_or_percent';
   const multiline = field.multiline === true || binding?.multiline === true;
   const controlsDisabled = loading || mutationPending;
-  const colorControl = <UserColorPickerDialog open={colourOpen} onOpenChange={setColourOpen} title={label}
+  const colorControl = <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen} title={label}
     value={{ kind: 'solid', color: colourInputValue(displayValue) }} disabled={controlsDisabled || nullValue}
     onConfirm={next => {
       if (next.kind !== 'solid' || next.color.toLowerCase() === colourInputValue(effectiveValue).toLowerCase()) return;

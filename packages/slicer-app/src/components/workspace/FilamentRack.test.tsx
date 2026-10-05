@@ -156,7 +156,7 @@ describe('FilamentRack runtime interaction', () => {
     const input = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
     await act(async () => input.click());
     await editColor('#223344');
-    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('#223344');
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('223344');
     await act(async () => {
       useFilamentSessionStore.setState({ snapshot: makeSnapshot({ slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#abcdef', provenance: 'user' as const } } : slot) }) });
     });

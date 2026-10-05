@@ -34,6 +34,34 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     const original = await trigger.getAttribute('value');
     await trigger.click();
     await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toBeVisible();
+    const popup = page.locator('[data-slot="popover-content"]');
+    await expect(popup).toBeVisible();
+    await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+    const anchorBounds = (await trigger.boundingBox())!;
+
+    await expect.poll(async () => {
+      const bounds = (await popup.boundingBox())!;
+      return Math.min(Math.abs(bounds.x - anchorBounds.x - anchorBounds.width),
+        Math.abs(bounds.x + bounds.width - anchorBounds.x),
+        Math.abs(bounds.y - anchorBounds.y - anchorBounds.height),
+        Math.abs(bounds.y + bounds.height - anchorBounds.y));
+    }).toBeLessThan(10);
+    await expect.poll(async () => {
+      const presets = (await page.getByLabel('Preset colors', { exact: true }).boundingBox())!;
+      const favorites = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
+      return Math.abs(presets.y + presets.height - favorites.y - favorites.height);
+    }).toBeLessThan(2);
+    const presets = page.getByLabel('Preset colors', { exact: true });
+    const favoriteBounds = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
+    await presets.hover();
+    await page.mouse.wheel(0, 320);
+    await expect.poll(() => presets.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    expect(await popup.evaluate(element => element.scrollTop)).toBe(0);
+    expect((await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!.y).toBeCloseTo(favoriteBounds.y, 0);
+    await page.getByRole('combobox', { name: 'Color palette', exact: true }).click();
+    await page.getByPlaceholder('Search palettes…').fill('Basic');
+    await page.getByRole('option', { name: 'Basic colors', exact: true }).click();
+    await expect(popup).toBeVisible();
     await expect(page.getByRole('spinbutton', { name: 'Alpha value', exact: true })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toHaveCount(0);
@@ -47,7 +75,12 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(trigger).toHaveAttribute('value', original!);
     await expect(trigger).toBeFocused();
     await trigger.click();
-    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue(original!.toUpperCase());
+    await editHex(page, '#654321');
+    await page.getByTestId('slicer-status').click();
+    await expect(popup).toHaveCount(0);
+    await expect(trigger).toHaveAttribute('value', original!);
+    await trigger.click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue(original!.slice(1).toUpperCase());
     await page.getByRole('button', { name: 'Favorite #2357AB', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(trigger).toHaveAttribute('value', '#2357ab');

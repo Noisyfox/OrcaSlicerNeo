@@ -13,10 +13,14 @@ handled by configuration normalization, not an internal API compatibility layer.
 
 The UI belongs to `packages/slicer-app/src/components/ui/`. A controlled
 `ColorPicker` panel receives its value, change callback, palettes, favorites,
-and favorite actions. `ColorPickerDialog` owns a draft and commits only on
+and favorite actions. `ColorPickerPopover` owns a draft and commits only on
 Confirm. Cancel, Escape, and dismissal discard the color draft; explicit
 favorite additions and removals remain saved. The reusable UI does not read
-platform storage or call the slicer runtime. A Popover wrapper is deferred.
+platform storage or call the slicer runtime. The nonmodal Popover is anchored
+to the clicked color button, aligns to its start edge, and automatically shifts
+or flips to remain inside the viewport. Outside clicks cancel the draft without
+blocking the rest of the application. Nested preset-editor popovers preserve
+their parent dialog when dismissed.
 
 `enableAlpha` and `enableGradient` default to false. Values are discriminated
 solid colors or fixed-direction, two-endpoint linear gradients. Opaque output
@@ -30,8 +34,14 @@ conversion and positioning, with adjustable saturation. Achromatic and fully
 transparent edits preserve useful hue/color information. Controls reuse NEO's
 Base UI wrappers and semantic theme tokens. Preview and translucent swatches
 use a checkerboard. The panel has a scrollable preset palette beside the
-editor, with preview and favorites below. Preset palettes are replaceable
-data; RAL colors from the reference are display approximations.
+editor. The palette selector reuses the settings panel's searchable Combobox,
+including its shared trigger and popup style. Beneath the spectrum, one row
+contains RGB/HSL tabs, optional gradient endpoint tabs, and HEX input. Channel
+controls follow. Favorites occupy the lower-left grid; the add action and
+preview stack on its right. Tabs use NEO's neutral line variant. The preset list stretches to align
+with the bottom of the favorites grid and scrolls independently. The popup
+itself does not scroll; the spectrum can shrink when vertical space is limited.
+Preset palettes are replaceable data; RAL colors from the reference are display approximations.
 
 ## Favorites and configuration
 
@@ -54,7 +64,7 @@ durability is conditional on successful storage.
 
 ## Business integration
 
-Filament rack and preset-editor color controls use the shared dialog with
+Filament rack and preset-editor color controls use the shared popover with
 alpha and gradients disabled. Color drafts remain local until confirmation;
 the existing runtime commands, disabled states, errors, and history ownership
 remain authoritative. This work introduces no C++/WASM changes.
@@ -76,23 +86,24 @@ component layer even though existing business entrances disable it.
 ## Implementation entry points
 
 `components/ui/color-picker.tsx` exports the controlled panel and
-`components/ui/color-picker-dialog.tsx` exports the draft dialog. Both accept
+`components/ui/color-picker-popover.tsx` exports the draft popover. Both accept
 `value`, optional capability flags, custom `palettes`, `favorites`, and
-`onFavoriteAdd`/`onFavoriteRemove`. The panel publishes `onChange`; the dialog
+`onFavoriteAdd`/`onFavoriteRemove`. The panel publishes `onChange`; the popover
 accepts `open`, `onOpenChange`, and `onConfirm`. Capability changes also apply
-when confirming an already open dialog.
+when confirming an already open popover.
 
-`components/color/UserColorPickerDialog.tsx` binds the shared UI to
+`components/color/UserColorPickerPopover.tsx` binds the shared UI to
 `lib/useColorFavorites.ts`. The latter uses the injected preferences repository.
 All application preference writers use `updateUserPreferences` from
 `@orca/platform-contract` to serialize read-modify-save transactions.
 
 ```tsx
-<ColorPickerDialog
+<ColorPickerPopover
   value={{ kind: 'solid', color: '#33669980' }}
   enableAlpha
   open={open}
   onOpenChange={setOpen}
+  trigger={<Button>Choose color</Button>}
   onConfirm={setColor}
 />
 ```
