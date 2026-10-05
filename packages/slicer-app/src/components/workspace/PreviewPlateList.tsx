@@ -89,8 +89,8 @@ export function PreviewPlateList({
                 disabled={disabled} onSelect={() => void handleSelect(item.plate.plateId)} progress={item.progress} />}
             </CardContent>
             <CardHeader className="plate-list-details">
-              <div className="flex min-w-0 flex-wrap items-start justify-between gap-1">
-                <CardTitle className="min-w-0">
+              <div className="flex min-w-0 items-start justify-between gap-1">
+                <CardTitle className="min-w-0 flex-1">
                   <button id={`preview-plate-${item.plate.plateId}`} type="button" role="option" aria-selected={item.current}
                     aria-label={`${item.label}, ${item.detail}${item.current ? ', current plate' : ''}`}
                     data-testid={`preview-plate-${item.plate.plateId}`} data-plate-status={item.status}

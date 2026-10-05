@@ -3,8 +3,9 @@
 /* Plate cards stay inside the existing sidebar list/scroll allocation. */
 .plate-list-card {
   display: grid;
-  grid-template-columns: minmax(64px, 40%) minmax(0, 1fr);
-  grid-template-rows: 1fr auto;
+  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 28px;
+  height: 128px;
   gap: 6px 8px;
   padding: 6px;
   margin-bottom: 8px;
@@ -12,9 +13,10 @@
   --card-spacing: 0px;
 }
 .plate-list-card[data-current="true"] { outline: 1px solid var(--color-primary); }
-.plate-list-thumbnail { grid-column: 1; grid-row: 1 / 3; padding: 0; }
-.plate-list-details { grid-column: 2; grid-row: 1; padding: 0; }
-.plate-list-actions { grid-column: 2; grid-row: 2; padding: 0; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+.plate-list-thumbnail { grid-column: 1; grid-row: 1 / 3; padding: 0; align-self: center; }
+.plate-list-thumbnail > button { width: 96px; height: 96px; }
+.plate-list-details { grid-column: 2; grid-row: 1; padding: 0; overflow: hidden; }
+.plate-list-actions { grid-column: 2; grid-row: 2; padding: 0; justify-content: flex-end; gap: 4px; flex-wrap: nowrap; }
 .plate-list { --plate-slicing: #793b8c; }
 .plate-list-progress { background: color-mix(in srgb, var(--plate-slicing) 60%, transparent); }
 .plate-list [data-plate-state="slicing"] { background: var(--plate-slicing); color: var(--color-foreground); }

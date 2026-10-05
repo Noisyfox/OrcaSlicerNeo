@@ -36,6 +36,23 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     expect(imageEvidence.square).toBe(true);
     expect(imageEvidence.opaque).toBeGreaterThan(100);
     expect(imageEvidence.transparent).toBeGreaterThan(100);
+    const card = page.getByTestId('preview-plate-list').locator('.plate-list-card').first();
+    const initialCard = (await card.boundingBox())!;
+    const initialThumbnail = (await thumbnail.boundingBox())!;
+    const initialImageUrl = await thumbnail.getAttribute('src');
+    const resizer = page.getByTestId('sidebar-resizer');
+    await resizer.focus();
+    for (let index = 0; index < 6; index++) await resizer.press('ArrowRight');
+    const widerCard = (await card.boundingBox())!;
+    expect(widerCard.width).toBeGreaterThan(initialCard.width);
+    expect(widerCard.height).toBe(initialCard.height);
+    expect((await thumbnail.boundingBox())!.width).toBe(initialThumbnail.width);
+    expect((await thumbnail.boundingBox())!.height).toBe(initialThumbnail.height);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await thumbnail.getAttribute('src')).toBe(initialImageUrl);
+    for (let index = 0; index < 6; index++) await resizer.press('ArrowLeft');
+    expect((await card.boundingBox())!.height).toBe(initialCard.height);
+    expect(await thumbnail.getAttribute('src')).toBe(initialImageUrl);
     await expect(page.getByTestId('preview-plate-list').getByRole('option')).toHaveCount(1);
     expect(await page.getByTestId('sidebar-settings-panel').boundingBox()).toEqual(before);
     const originalPlateId = await page.getByTestId('preview-plate-list').getByRole('option').getAttribute('id');
@@ -49,6 +66,23 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     await page.getByTestId(`plate-slice-${plateId}`).click();
     await expect(page.getByTestId('preview-plate-list').locator('[data-plate-state="sliced"]'),
       'Explicit plate slicing should finish successfully').toHaveCount(1, { timeout: 30000 });
+    const initialSidebarWidth = Number(await resizer.getAttribute('aria-valuenow'));
+    for (let index = 0; index < 8; index++) await resizer.press('ArrowLeft');
+    const narrowCard = (await card.boundingBox())!;
+    expect(narrowCard.height).toBe(initialCard.height);
+    expect((await thumbnail.boundingBox())!.width).toBe(initialThumbnail.width);
+    const printBox = (await page.getByTestId(`plate-print-${plateId}`).boundingBox())!;
+    expect(printBox.x + printBox.width).toBeLessThanOrEqual(narrowCard.x + narrowCard.width);
+    while (Number(await resizer.getAttribute('aria-valuenow')) < initialSidebarWidth) await resizer.press('ArrowRight');
+    // Restore exactly when the minimum-width clamp is not aligned to the keyboard step.
+    const restoredSidebarWidth = Number(await resizer.getAttribute('aria-valuenow'));
+    if (restoredSidebarWidth !== initialSidebarWidth) {
+      const divider = (await resizer.boundingBox())!;
+      await page.mouse.move(divider.x + divider.width / 2, divider.y + divider.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(divider.x + divider.width / 2 + initialSidebarWidth - restoredSidebarWidth, divider.y + divider.height / 2);
+      await page.mouse.up();
+    }
     if (process.env.ORCA_E2E_REAL === '1') {
       await expect(page.getByTestId(`plate-time-${plateId}`)).not.toHaveText('—');
       await expect(page.getByTestId('preview-plate-list')).toContainText(/\d+\.\d+m \| \d+\.\d+g/);
