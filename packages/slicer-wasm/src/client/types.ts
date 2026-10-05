@@ -370,6 +370,15 @@ export interface PresetSelection {
  * compatible with the final selection context. Preserve their order; do not
  * re-filter or sort in JavaScript.
  */
+export interface BedTypeCapabilities {
+  /** Orca enables selection for Bambu vendors or support_multi_bed_types. */
+  supportsSelection: boolean;
+  /** Native Preset::get_default_bed_type result, in serialized config form. */
+  defaultValue: string;
+  /** Native order, with printer-model exclusions already applied. */
+  choices: Array<{ value: string; label: string }>;
+}
+
 export interface ProfileSnapshot {
   ok: true;
   printers: PresetInfo[];
@@ -379,6 +388,7 @@ export interface ProfileSnapshot {
   filamentCatalog: FilamentCatalogItem[];
   printer: PresetSelection;
   print: PresetSelection;
+  bedType: BedTypeCapabilities;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printable_area?: Array<[number, number]>;
   /** Native-resolved STL path in the Worker filesystem; empty means generic bed. */

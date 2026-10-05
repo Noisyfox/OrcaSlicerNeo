@@ -967,6 +967,14 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
  * contract, including the engine-filtered filament catalogue. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
+  const bedType = raw.bed_type;
+  if (!isRecord(bedType) || typeof bedType.supports_selection !== 'boolean' ||
+      typeof bedType.default_value !== 'string' || bedType.default_value.length === 0 ||
+      !Array.isArray(bedType.choices) || bedType.choices.some((choice) =>
+        !isRecord(choice) || typeof choice.value !== 'string' || choice.value.length === 0 ||
+        typeof choice.label !== 'string' || choice.label.length === 0) ||
+      new Set(bedType.choices.map((choice) => choice.value)).size !== bedType.choices.length)
+    return { ok: false, error: 'Invalid native bed type capabilities' };
   return {
     ok: true,
     printers: (Array.isArray(raw.printers) ? raw.printers : []) as ProfileSnapshot['printers'],
@@ -974,6 +982,11 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
     filamentCatalog: (Array.isArray(raw.filament_catalog) ? raw.filament_catalog : []) as ProfileSnapshot['filamentCatalog'],
     printer: raw.printer as ProfileSnapshot['printer'],
     print: raw.print as ProfileSnapshot['print'],
+    bedType: {
+      supportsSelection: bedType.supports_selection,
+      defaultValue: bedType.default_value,
+      choices: bedType.choices.map((choice) => ({ value: choice.value as string, label: choice.label as string })),
+    },
     ...(Array.isArray(raw.printable_area) ? { printable_area: raw.printable_area as Array<[number, number]> } : {}),
     ...(typeof raw.bed_model === 'string' ? { bed_model: raw.bed_model } : {}),
     ...(typeof raw.bed_texture === 'string' ? { bed_texture: raw.bed_texture } : {}),

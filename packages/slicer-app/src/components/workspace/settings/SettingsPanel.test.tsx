@@ -33,6 +33,7 @@ const initialSnapshot: ProfileSnapshot = {
   filamentCatalog: [preset('Old Filament')],
   printer: { name: 'Old Printer', idx: 0 },
   print: { name: 'Candidate Process B', idx: 0 },
+  bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
 };
 
 const resolvedSnapshot: ProfileSnapshot = {
@@ -42,6 +43,7 @@ const resolvedSnapshot: ProfileSnapshot = {
   filamentCatalog: [preset('Resolved Filament')],
   printer: { name: 'New Printer', idx: 4 },
   print: { name: 'Resolved Process', idx: 8 },
+  bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
 };
 
 const resolvedRack: FilamentSessionSnapshot = {

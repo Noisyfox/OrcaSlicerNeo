@@ -28,6 +28,14 @@ considers them compatible.
 - The native profile snapshot also provides `filament_catalog`, an
   engine-filtered candidate catalogue consumed by the multi-filament rack.
   Catalogue entries do not carry a selected flag and are not a third selector.
+- The native snapshot includes bed-type capabilities from the selected
+  Printer's effective draft. Bambu vendors and printers with
+  `support_multi_bed_types` enable selection. Choices preserve native enum
+  order and serialized values, with model `not_support_bed_types` exclusions
+  matched against native display labels, including the system-parent fallback.
+  The default is resolved by native `Preset::get_default_bed_type`, including
+  string/numeric profile defaults and Orca's fallback. Shared code consumes
+  this projection without a printer-name table or a second filtering rule.
 
 ### Changing a profile
 

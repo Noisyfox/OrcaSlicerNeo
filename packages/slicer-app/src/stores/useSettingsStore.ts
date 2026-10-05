@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot,
+  BedTypeCapabilities, FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot,
   NativeScopedConfigSnapshot, NativeScopedConfigTransport,
 } from '@slicer/client';
 
@@ -47,6 +47,7 @@ interface SettingsState {
   printableArea: Array<[number, number]>;
   bedModel: string;
   bedTexture: string;
+  bedType: BedTypeCapabilities | null;
   /** Native effective profile/project configuration before local edits. */
   baseValues: Record<string, string>;
   tooltipDefaults: Record<string, string>;
@@ -90,6 +91,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   printableArea: [[0, 0], [220, 0], [220, 220], [0, 220]],
   bedModel: '',
   bedTexture: '',
+  bedType: null,
   baseValues: {},
   tooltipDefaults: {},
   values: {},
@@ -112,6 +114,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       printableArea: snapshot.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
       bedModel: snapshot.bed_model ?? '',
       bedTexture: snapshot.bed_texture ?? '',
+      bedType: snapshot.bedType,
       baseValues,
       tooltipDefaults: snapshot.tooltip_defaults ?? {},
       // A profile/project replacement starts with no scoped local values. The

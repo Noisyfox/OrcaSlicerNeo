@@ -16,6 +16,7 @@ const snapshot: ProfileSnapshot = {
   prints: [{ name: 'Project process', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   filamentCatalog: [{ name: 'Project filament', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
+  bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
 };
 const freshPlateSession: PlateSessionMutation = {
   instances: [],

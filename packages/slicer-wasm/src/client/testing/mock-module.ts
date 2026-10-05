@@ -370,6 +370,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       tooltip_defaults: { layer_height: '0.2', sparse_infill_density: '20%' },
       bed_model: '',
       bed_texture: '',
+      bed_type: {
+        supports_selection: true,
+        default_value: selected.printer.includes('X1 Carbon') ? 'Cool Plate' : 'Textured PEI Plate',
+        choices: [
+          { value: 'Cool Plate', label: 'Smooth Cool Plate' },
+          { value: 'Engineering Plate', label: 'Engineering Plate' },
+          { value: 'High Temp Plate', label: 'Smooth High Temp Plate' },
+          { value: 'Textured PEI Plate', label: 'Textured PEI Plate' },
+          { value: 'Textured Cool Plate', label: 'Textured Cool Plate' },
+          { value: 'Supertack Plate', label: 'Cool Plate (SuperTack)' },
+        ],
+      },
       printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area
         ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
     };

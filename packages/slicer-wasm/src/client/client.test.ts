@@ -880,6 +880,42 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
     expect(snapshot.bed_model).toBe('');
     expect(snapshot.bed_texture).toBe('');
+    expect(snapshot.bedType).toEqual({
+      supportsSelection: true, defaultValue: 'Cool Plate',
+      choices: [
+        { value: 'Cool Plate', label: 'Smooth Cool Plate' },
+        { value: 'Engineering Plate', label: 'Engineering Plate' },
+        { value: 'High Temp Plate', label: 'Smooth High Temp Plate' },
+        { value: 'Textured PEI Plate', label: 'Textured PEI Plate' },
+        { value: 'Textured Cool Plate', label: 'Textured Cool Plate' },
+        { value: 'Supertack Plate', label: 'Cool Plate (SuperTack)' },
+      ],
+    });
+  });
+
+  it.each([
+    undefined,
+    { supports_selection: 'true', default_value: 'Cool Plate', choices: [] },
+    { supports_selection: true, default_value: '', choices: [] },
+    { supports_selection: true, default_value: 'Cool Plate', choices: [{ value: 'Cool Plate' }] },
+    { supports_selection: true, default_value: 'Cool Plate', choices: [{ value: 'Cool Plate', label: 'A' }, { value: 'Cool Plate', label: 'B' }] },
+  ])('rejects malformed native bed capabilities %j', async (bedType) => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, returnType, argTypes, args) => {
+      const pointer = originalCall(name, returnType, argTypes, args);
+      if (name !== 'orc_get_preset_snapshot') return pointer;
+      const snapshot = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      snapshot.bed_type = bedType;
+      const bytes = new TextEncoder().encode(JSON.stringify(snapshot) + '\0');
+      const replacement = module._malloc(bytes.length);
+      module.HEAPU8.set(bytes, replacement);
+      return replacement;
+    };
+    expect(await createClient(async () => module).getProfileSnapshot()).toEqual({
+      ok: false, error: 'Invalid native bed type capabilities',
+    });
   });
 
   it('selectProfile returns the resolved printer-to-process-to-rack snapshot', async () => {

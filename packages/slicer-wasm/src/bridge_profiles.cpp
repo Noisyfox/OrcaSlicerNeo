@@ -403,6 +403,38 @@ const json& option_metadata_json()
     return metadata;
 }
 
+BedTypeCapabilities selected_printer_bed_type_capabilities()
+{
+    auto& bundle = state().presets;
+    // Copy the source so defaults/model identity use the effective draft
+    // without temporarily mutating the collection or its dirty state.
+    Preset printer = bundle.printers.get_selected_preset();
+    printer.config = PresetDrafts::effective_preset_config(
+        bundle, state().preset_drafts, Preset::TYPE_PRINTER, printer.name);
+    const auto* multi = printer.config.opt<ConfigOptionBool>("support_multi_bed_types");
+    BedTypeCapabilities capabilities{
+        bundle.is_bbl_vendor() || (multi != nullptr && multi->value),
+        printer.get_default_bed_type(&bundle), {}};
+    const auto* model = PresetUtils::system_printer_model(printer);
+    if (model == nullptr) {
+        if (const auto* parent = bundle.printers.get_selected_preset_parent())
+            model = PresetUtils::system_printer_model(*parent);
+    }
+    const auto* definition = print_config_def.get("curr_bed_type");
+    if (definition == nullptr || definition->enum_keys_map == nullptr)
+        throw std::runtime_error("native bed type definition is unavailable");
+    for (size_t index = 0; index < definition->enum_values.size(); ++index) {
+        const auto& value = definition->enum_values[index];
+        const auto& label = definition->enum_labels.at(index);
+        if (model != nullptr && std::find(model->not_support_bed_types.begin(),
+                model->not_support_bed_types.end(), label) != model->not_support_bed_types.end())
+            continue;
+        capabilities.choices.push_back({
+            BedType(definition->enum_keys_map->at(value)), value, label});
+    }
+    return capabilities;
+}
+
 json preset_snapshot_json()
 {
     const auto bed_resources = selected_printer_bed_resources();
@@ -411,6 +443,10 @@ json preset_snapshot_json()
         for (const std::string& key : parent->config.keys())
             if (const ConfigOption* option = parent->config.option(key))
                 tooltip_defaults[key] = option->serialize();
+    const auto capabilities = selected_printer_bed_type_capabilities();
+    json choices = json::array();
+    for (const auto& choice : capabilities.choices)
+        choices.push_back({{"value", choice.value}, {"label", choice.label}});
     return json{{"ok", true},
                 {"tooltip_defaults", std::move(tooltip_defaults)},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
@@ -421,6 +457,9 @@ json preset_snapshot_json()
                 {"printable_area", selected_printer_printable_area_json()},
                 {"bed_model", bed_resources.model},
                 {"bed_texture", bed_resources.texture},
+                {"bed_type", {{"supports_selection", capabilities.supports_selection},
+                              {"default_value", ConfigOptionEnum<BedType>(capabilities.default_type).serialize()},
+                              {"choices", std::move(choices)}}},
                 // Embedded project settings and the selected Process preset
                 // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to
