@@ -78,7 +78,12 @@ export function PreviewPlateList({
     <section className="plate-list px-2 py-2" aria-label="Plates" data-testid="preview-plate-list">
       <div role="listbox" aria-label="Plates" aria-activedescendant={visibleItems.some(item => item.current) ? `preview-plate-${snapshot.currentPlateId}` : undefined}>
         {visibleItems.map((item) => (
-          <Card key={item.plate.plateId} size="sm" className="plate-list-card" data-current={item.current} data-plate-status={item.status}>
+          <Card key={item.plate.plateId} size="sm" className="plate-list-card cursor-pointer" data-current={item.current} data-plate-status={item.status}
+            onClick={event => {
+              // Buttons own their actions, including the keyboard-accessible name and thumbnail selectors.
+              if ((event.target as Element).closest('button')) return;
+              void handleSelect(item.plate.plateId);
+            }}>
             <CardContent className="plate-list-thumbnail">
               {thumbnails && <PlateThumbnail plateId={item.plate.plateId} label={item.label} session={snapshot} service={thumbnails}
                 disabled={disabled} onSelect={() => void handleSelect(item.plate.plateId)} progress={item.progress} />}

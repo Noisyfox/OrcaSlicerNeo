@@ -16,7 +16,7 @@ are intentionally not recorded here.
 - The existing Plates list uses square model thumbnails beside each plate's
   name, state, valid slice totals, and plate actions. Its surrounding sidebar
   layout, height allocation, configuration editor, and viewport remain unchanged.
-- Selecting a plate uses its name or thumbnail. Action buttons operate on their
+- Selecting a plate uses its card content, name, or thumbnail. Action buttons operate on their
   explicit plate target and do not also select a plate.
 - Thumbnails use a fixed orthographic isometric view of printable model parts,
   without selection overlays, modifiers, Prime Towers, or bed decorations.

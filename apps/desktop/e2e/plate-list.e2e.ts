@@ -42,6 +42,10 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     const plateId = originalPlateId!.replace('preview-plate-', '');
     await page.getByTestId('add-plate').click();
     await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
+    await page.getByTestId(`plate-time-${plateId}`).click();
+    await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 1');
+    await page.getByTestId('preview-plate-list').getByRole('option', { name: /^Plate 2,/ }).click();
+    await expect(page.getByTestId('preview-plate-list').getByRole('option', { selected: true })).toHaveText('Plate 2');
     await page.getByTestId(`plate-slice-${plateId}`).click();
     await expect(page.getByTestId('preview-plate-list').locator('[data-plate-state="sliced"]'),
       'Explicit plate slicing should finish successfully').toHaveCount(1, { timeout: 30000 });
