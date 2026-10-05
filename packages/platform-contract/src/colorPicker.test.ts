@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { colorValueSupported, normalizeColorFavorites, normalizeColorValue, normalizeHexColor } from './colorPicker';
+import { normalizeUserPreferences } from './contracts';
 
 it('normalizes opaque equivalence, shorthand, transparency and malformed input', () => {
   expect(normalizeHexColor(' #aBcF ')).toBe('#AABBCC');
@@ -23,4 +24,12 @@ it('filters capabilities without mutating stored values', () => {
   expect(colorValueSupported(transparent, true)).toBe(true);
   expect(colorValueSupported(gradient, true)).toBe(false);
   expect(colorValueSupported(gradient, false, true)).toBe(true);
+});
+
+it('keeps old preference documents compatible and filters corrupt favorites independently', () => {
+  expect(normalizeUserPreferences({ version: 1 })).not.toHaveProperty('colorPicker');
+  expect(normalizeUserPreferences({ version: 1, colorPicker: { favorites: [null,
+    { kind: 'solid', color: '#abcd' }, { kind: 'solid', color: '#AABBCCDD' },
+    { kind: 'linear-gradient', start: '#112233', end: 'bad!' }], ignored: true } }).colorPicker)
+    .toEqual({ favorites: [{ kind: 'solid', color: '#AABBCCDD' }] });
 });

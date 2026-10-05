@@ -13,7 +13,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { usePlatform } from '@orca/platform-contract';
+import { updateUserPreferences, usePlatform } from '@orca/platform-contract';
 import { WorkspaceHistoryProbe, trackPrimeTowerProjectionRead } from '@/e2e/WorkspaceHistoryProbe';
 import { ScopedConfigurationGateProbe } from '@/e2e/ScopedConfigurationGateProbe';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
@@ -687,7 +687,7 @@ export function Workspace({
   }, [platform.preferences]);
 
   function persistSidebarWidth(width: number, side: 'left' | 'right') {
-    void platform.preferences.load().then((prefs) => platform.preferences.save({
+    void updateUserPreferences(platform.preferences, prefs => ({
       ...prefs,
       ui: { ...prefs.ui, [side === 'left' ? 'sidebarWidth' : 'rightSidebarWidth']: width },
     })).catch(() => undefined);

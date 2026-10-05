@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { normalizeGcodeTextWindowGeometry, usePlatform, type GcodeTextWindowGeometry } from '@orca/platform-contract';
+import { normalizeGcodeTextWindowGeometry, updateUserPreferences, usePlatform, type GcodeTextWindowGeometry } from '@orca/platform-contract';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { PreviewTextLines, PreviewTextLinesRequest } from '@slicer/client';
 import type { ToolpathGeometry } from './useSliceResult';
@@ -203,14 +203,11 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         const geometryToSave = pendingGeometrySaveRef.current;
         pendingGeometrySaveRef.current = null;
         try {
-          const prefs = await platform.preferences.load();
           // A newer pointer/keyboard gesture arrived while loading. Let the
           // next pass load the latest document and save only that geometry.
-          if (pendingGeometrySaveRef.current) continue;
-          await platform.preferences.save({
-            ...prefs,
-            ui: { ...prefs.ui, gcodeTextWindow: geometryToSave },
-          });
+          await updateUserPreferences(platform.preferences, prefs => pendingGeometrySaveRef.current ? prefs : ({
+            ...prefs, ui: { ...prefs.ui, gcodeTextWindow: geometryToSave },
+          }));
         } catch {
           // Persistence is best-effort; the overlay remains usable if storage
           // is unavailable or the host rejects a write.

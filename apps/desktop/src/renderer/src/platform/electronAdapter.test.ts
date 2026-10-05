@@ -32,6 +32,21 @@ function setup(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Electron adapter', () => {
+  it('round trips normalized alpha and gradient favorites through the host contract', async () => {
+    let json: unknown = null;
+    const { adapter } = setup({ preferences: {
+      load: async () => ({ found: true, json }), save: async (next: unknown) => { json = next; },
+    } });
+    const prefs = await adapter.preferences.load();
+    await adapter.preferences.save({ ...prefs, colorPicker: { favorites: [
+      { kind: 'solid', color: '#12345680' },
+      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FFFF' },
+    ] } });
+    expect((await adapter.preferences.load()).colorPicker).toEqual({ favorites: [
+      { kind: 'solid', color: '#12345680' },
+      { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' },
+    ] });
+  });
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
     expect(await adapter.preferences.load()).toEqual({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });

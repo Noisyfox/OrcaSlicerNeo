@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { normalizeArrangementPreferences, type ArrangementPreferences, type UserPreferencesRepository } from '@orca/platform-contract';
+import { normalizeArrangementPreferences, updateUserPreferences, type ArrangementPreferences, type UserPreferencesRepository } from '@orca/platform-contract';
 import type { ArrangementResult } from '@slicer/client';
 
 export type ArrangementMode = 'byLayer' | 'byObject';
@@ -65,8 +65,7 @@ export function updateArrangementPreferences(repository: UserPreferencesReposito
   const state = useArrangementStore.getState();
   useArrangementStore.setState({ preferences: normalized, alignY: state.alignY && !normalized[state.mode].rotate });
   const task = (writes.get(repository) ?? Promise.resolve()).catch(() => undefined).then(async () => {
-    const current = await repository.load();
-    await repository.save({ ...current, arrangement: normalized });
+    await updateUserPreferences(repository, current => ({ ...current, arrangement: normalized }));
   }).catch(error => { console.error('Could not save arrangement preferences', error); });
   writes.set(repository, task);
   return task;
