@@ -104,10 +104,10 @@ export function ColorPicker({ value, onChange, palettes = DEFAULT_COLOR_PALETTES
   const colorKey = isGradient ? endpoint : 'solid';
   const hexId = useId();
   useEffect(() => {
-    if (emitted.current === `${colorKey}:${hex}:${enableAlpha}`) return;
     const rgb = hexToRgba(hex);
     if (rgb) {
       if (!enableAlpha) rgb.a = 1;
+      if (emitted.current === `${colorKey}:${rgbaToHex(rgb, enableAlpha)}:${enableAlpha}`) return;
       const next = rgbaToHsla(rgb, memories.current[colorKey]);
       memories.current[colorKey] = next; setColor(next); setHexText(rgbaToHex(rgb, enableAlpha));
     }

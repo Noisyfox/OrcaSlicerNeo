@@ -129,3 +129,47 @@ it('dialog commits once, cancels drafts, retains explicit favorites and restores
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
   expect(document.activeElement).toBe(trigger);
 });
+
+it('keeps hue 360 at the right edge when the caller canonicalizes HEX case', async () => {
+  function Picker() {
+    const [value, setValue] = useState<ColorValue>({ kind: 'solid', color: '#0000ff' });
+    return <ColorPicker value={value} onChange={next => next.kind === 'solid' && setValue({ ...next, color: next.color.toLowerCase() })} />;
+  }
+  const container = await mount(<Picker />);
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button => button.textContent === 'HSL')!.click());
+  await fill(container, 'H value', '360');
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="H value"]')!.value).toBe('360');
+  expect(container.querySelector<HTMLElement>('.color-spectrum-pointer')!.style.left).toBe('100%');
+});
+
+it('blocks confirmation for invalid HEX and discards the draft on Escape', async () => {
+  const confirm = vi.fn();
+  function Picker() {
+    const [open, setOpen] = useState(false);
+    return <ColorPickerDialog value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
+      onConfirm={confirm} enableAlpha trigger={<Button>Open picker</Button>} />;
+  }
+  const container = await mount(<Picker />);
+  const trigger = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Open picker')!;
+  await act(async () => trigger.click());
+  await fill(document.body, 'HEX color', 'invalid');
+  expect([...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!.disabled).toBe(true);
+  await act(async () => document.querySelector('input[aria-label="HEX color"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(document.querySelector('input[aria-label="HEX color"]')).toBeNull();
+  expect(confirm).not.toHaveBeenCalled();
+});
+
+it('applies changed capabilities when confirming an already open dialog', async () => {
+  const confirm = vi.fn();
+  let disable: () => void;
+  function Picker() {
+    const [enabled, setEnabled] = useState(true);
+    disable = () => setEnabled(false);
+    return <ColorPickerDialog value={{ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEFFF' }}
+      open onOpenChange={() => undefined} onConfirm={confirm} enableAlpha={enabled} enableGradient={enabled} />;
+  }
+  await mount(<Picker />);
+  await act(async () => disable());
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Confirm')!.click());
+  expect(confirm).toHaveBeenCalledExactlyOnceWith({ kind: 'solid', color: '#123456' });
+});

@@ -1,7 +1,7 @@
 # Reusable Color Picker
 
 Date: 2026-10-05
-Status: Approved design; implementation in progress
+Status: Delivered
 Scope: Shared desktop Electron and Web UI, reusable color editing and favorites
 
 Internal callers and tests use the new component contract directly. No legacy
@@ -37,7 +37,7 @@ data; RAL colors from the reference are display approximations.
 
 Favorites are global user preferences, independent of printers and projects.
 The optional `colorPicker.favorites` field uses the existing version-1
-preferences document and [shared host contract](../spec/Web-Electron%20Shared%20Application%20Architecture.md).
+preferences document and [shared host contract](Web-Electron%20Shared%20Application%20Architecture.md).
 Electron saves `preferences.json` in its user-data directory; Web uses
 `orca-slicer-neo:preferences`. Old documents start with no favorites.
 Normalization filters malformed data, canonicalizes colors, and removes
@@ -66,9 +66,33 @@ touch input but mobile product support remains deferred under the shared
 architecture. Color operations are constant-time; palettes and favorites are
 small data lists, without pixel searches, runtime work, or network services.
 
-Verification follows [testing guidelines](testing_guidelines.md): color
+Verification follows [testing guidelines](../doc/testing_guidelines.md): color
 conversion and normalization tests, real component interaction tests,
 cross-writer preference regression tests, affected package suites/typechecks,
 root suites/typechecks, focused Electron UI and disk-restart tests, and Web
 storage/reload checks. Alpha/gradient behavior is verified at the reusable
 component layer even though existing business entrances disable it.
+
+## Implementation entry points
+
+`components/ui/color-picker.tsx` exports the controlled panel and
+`components/ui/color-picker-dialog.tsx` exports the draft dialog. Both accept
+`value`, optional capability flags, custom `palettes`, `favorites`, and
+`onFavoriteAdd`/`onFavoriteRemove`. The panel publishes `onChange`; the dialog
+accepts `open`, `onOpenChange`, and `onConfirm`. Capability changes also apply
+when confirming an already open dialog.
+
+`components/color/UserColorPickerDialog.tsx` binds the shared UI to
+`lib/useColorFavorites.ts`. The latter uses the injected preferences repository.
+All application preference writers use `updateUserPreferences` from
+`@orca/platform-contract` to serialize read-modify-save transactions.
+
+```tsx
+<ColorPickerDialog
+  value={{ kind: 'solid', color: '#33669980' }}
+  enableAlpha
+  open={open}
+  onOpenChange={setOpen}
+  onConfirm={setColor}
+/>
+```

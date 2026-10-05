@@ -23,7 +23,7 @@ function DraftEditor({ value, onConfirm, onOpenChange, title = 'Choose color', .
     <ColorPicker {...props} value={draft} onChange={setDraft} onValidityChange={setValid} />
     <DialogFooter>
       <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-      <Button disabled={props.disabled || !valid} onClick={() => { onConfirm(draft); onOpenChange(false); }}>Confirm</Button>
+      <Button disabled={props.disabled || !valid} onClick={() => { onConfirm(formatColorValue(draft, props.enableAlpha, props.enableGradient)); onOpenChange(false); }}>Confirm</Button>
     </DialogFooter>
   </DialogContent>;
 }

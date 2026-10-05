@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { hexToRgba, hslaToRgba, rgbaToHex, rgbaToHsla, spectrumColor, spectrumPosition } from './color-picker-model';
+import { formatColorValue, hexToRgba, hslaToRgba, rgbaToHex, rgbaToHsla, spectrumColor, spectrumPosition } from './color-picker-model';
 
 it('round trips RGB through HSL across the color cube, including blue', () => {
   for (const r of [0, 31, 128, 255]) for (const g of [0, 57, 160, 255]) for (const b of [0, 93, 224, 255]) {
@@ -25,4 +25,12 @@ it('maps spectrum boundaries analytically and keeps hue 360 on the right', () =>
   expect(color).toEqual({ h: 360, s: 35, l: 75, a: 0.5 });
   expect(spectrumPosition(color)).toEqual({ x: 1, y: 0.25 });
   expect(rgbaToHex(hslaToRgba({ ...color, s: 100, l: 50 }))).toBe('#FF0000');
+});
+
+it('enforces the instance output format for unchanged values at confirmation', () => {
+  expect(formatColorValue({ kind: 'solid', color: '#123456' }, true)).toEqual({ kind: 'solid', color: '#123456FF' });
+  expect(formatColorValue({ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEF00' }))
+    .toEqual({ kind: 'solid', color: '#123456' });
+  expect(formatColorValue({ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEF' }, true, true))
+    .toEqual({ kind: 'linear-gradient', start: '#12345680', end: '#ABCDEFFF' });
 });
