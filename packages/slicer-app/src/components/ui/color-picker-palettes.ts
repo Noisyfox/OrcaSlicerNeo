@@ -5,6 +5,13 @@ export interface ColorPalette { id: string; name: string; colors: readonly { nam
 // Display swatches from the user-provided ColorDialog reference. RAL values
 // are screen approximations, not authoritative physical color measurements.
 export const DEFAULT_COLOR_PALETTES: readonly ColorPalette[] = [
+  { id: 'gradient', name: 'Gradients', colors: [
+    { name: 'Pearl', value: { kind: 'linear-gradient', start: '#D8FEE7', end: '#FFF5BD' } },
+    { name: 'Gold', value: { kind: 'linear-gradient', start: '#FFF47B', end: '#CD9800' } },
+    { name: 'Silver', value: { kind: 'linear-gradient', start: '#373737', end: '#F5F4F4' } },
+    { name: 'Copper', value: { kind: 'linear-gradient', start: '#C39292', end: '#C73725' } },
+    { name: 'Brass', value: { kind: 'linear-gradient', start: '#DED699', end: '#C99620' } },
+  ] },
   {
     "id": "basic",
     "name": "Basic colors",

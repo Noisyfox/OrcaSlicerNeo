@@ -37,6 +37,14 @@ export function colorValueCss(value: ColorValue): string {
   return value.kind === 'solid' ? value.color : `linear-gradient(to right, ${value.start}, ${value.end})`;
 }
 
+/** Enforce instance capabilities and explicit output format at commit boundaries. */
+export function formatColorValue(value: ColorValue, alpha = false, gradient = false): ColorValue {
+  const format = (hex: string) => rgbaToHex(hexToRgba(hex) ?? { r: 0, g: 0, b: 0, a: 1 }, alpha);
+  return value.kind === 'linear-gradient' && gradient
+    ? { kind: 'linear-gradient', start: format(value.start), end: format(value.end) }
+    : { kind: 'solid', color: format(value.kind === 'solid' ? value.color : value.start) };
+}
+
 export function spectrumColor(x: number, y: number, saturation: number, alpha: number): HslaColor {
   return { h: clamp(x, 0, 1) * 360, s: saturation, l: (1 - clamp(y, 0, 1)) * 100, a: alpha };
 }

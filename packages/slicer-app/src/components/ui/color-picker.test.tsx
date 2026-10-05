@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ColorValue } from '@orca/platform-contract';
 import { ColorPicker } from './color-picker';
+import { ColorPickerDialog } from './color-picker-dialog';
+import { Button } from './button';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const roots: ReturnType<typeof createRoot>[] = [];
@@ -73,4 +75,57 @@ it('uses pointer capture, clamps dragging outside the spectrum and stops on canc
   await dispatch('pointercancel', 500, 200);
   changed.mockClear(); await dispatch('pointermove', 0, 50);
   expect(changed).not.toHaveBeenCalled();
+});
+
+it('preserves RGB at zero alpha and independently edits gradient endpoints', async () => {
+  const changed = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState<ColorValue>({ kind: 'linear-gradient', start: '#FF0000FF', end: '#0000FFFF' });
+    return <ColorPicker value={value} enableAlpha enableGradient onChange={next => { setValue(next); changed(next); }} />;
+  }
+  const container = await mount(<Picker />);
+  await fill(container, 'Alpha value', '0');
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF000000', end: '#0000FFFF' });
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'End')!.click());
+  await fill(container, 'Alpha value', '50');
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF000000', end: '#0000FF80' });
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Start')!.click());
+  await fill(container, 'Alpha value', '100');
+  expect(changed).toHaveBeenLastCalledWith({ kind: 'linear-gradient', start: '#FF0000FF', end: '#0000FF80' });
+});
+
+it('hides unsupported favorites without deleting them and rejects transparent HEX when alpha is disabled', async () => {
+  const favorites: ColorValue[] = [{ kind: 'solid', color: '#11223380' }, { kind: 'linear-gradient', start: '#000000', end: '#FFFFFF' }];
+  const changed = vi.fn(), remove = vi.fn();
+  const container = await mount(<ColorPicker value={{ kind: 'solid', color: '#FFFFFF' }} onChange={changed} favorites={favorites} onFavoriteRemove={remove} />);
+  expect(container.querySelectorAll('button[aria-label^="Favorite "]')).toHaveLength(0);
+  expect(container.querySelector('input[aria-label="Alpha value"]')).toBeNull();
+  await fill(container, 'HEX color', '#11223380');
+  expect(changed).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+  expect(favorites).toHaveLength(2);
+});
+
+it('dialog commits once, cancels drafts, retains explicit favorites and restores focus', async () => {
+  const confirm = vi.fn(), favorite = vi.fn();
+  function Picker() {
+    const [open, setOpen] = useState(false);
+    return <ColorPickerDialog value={{ kind: 'solid', color: '#123456' }} open={open} onOpenChange={setOpen}
+      onConfirm={confirm} onFavoriteAdd={favorite} trigger={<Button>Open picker</Button>} />;
+  }
+  const container = await mount(<Picker />);
+  const trigger = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Open picker')!;
+  await act(async () => trigger.click());
+  await fill(document.body, 'HEX color', '#654321');
+  await act(async () => button(document.body, 'Add favorite color').click());
+  expect(favorite).toHaveBeenCalledWith({ kind: 'solid', color: '#654321' });
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Cancel')!.click());
+  expect(confirm).not.toHaveBeenCalled();
+  await act(async () => trigger.click());
+  expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('#123456');
+  await fill(document.body, 'HEX color', '#ABCDEF');
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Confirm')!.click());
+  expect(confirm).toHaveBeenCalledExactlyOnceWith({ kind: 'solid', color: '#ABCDEF' });
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+  expect(document.activeElement).toBe(trigger);
 });
