@@ -20,6 +20,8 @@ are intentionally not recorded here.
   its header, and expanded search, capped at half the shared scrollable area
   below the top title and plate toolbar (those controls are excluded).
   Filtering does not shrink this section; the plate list uses the remaining space.
+  The height budget includes expanded search, but collapsed search leaves no
+  empty placeholder between the header and options.
 - Selecting a plate uses its card content, name, or thumbnail. Action buttons operate on their
   explicit plate target and do not also select a plate.
 - Thumbnails use a fixed orthographic isometric view of printable model parts,

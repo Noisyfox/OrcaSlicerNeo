@@ -83,12 +83,16 @@ test('plate cards render model thumbnails without changing surrounding layout', 
     }
     const optionsHeight = (await options.boundingBox())!.height;
     const listHeight = (await page.getByTestId('configuration-plate-list-scroll').boundingBox())!.height;
+    const firstOption = page.getByTestId('config-field-curr_bed_type');
+    const collapsedOptionTop = (await firstOption.boundingBox())!.y;
     await options.getByRole('button', { name: 'Search settings', exact: true }).click();
+    expect((await firstOption.boundingBox())!.y).toBeGreaterThan(collapsedOptionTop);
     await page.getByTestId('scoped-config-search').fill('no matching option');
     await expect(page.getByTestId('scoped-config-empty')).toBeVisible();
     expect((await options.boundingBox())!.height).toBe(optionsHeight);
     expect((await page.getByTestId('configuration-plate-list-scroll').boundingBox())!.height).toBe(listHeight);
     await options.getByRole('button', { name: 'Search settings', exact: true }).click();
+    expect((await firstOption.boundingBox())!.y).toBe(collapsedOptionTop);
     await page.getByTestId('sidebar-settings-panel').screenshot({ path: join(desktop, '.vitest/plate-list.png') });
     await test.info().attach('plate-list', { body: await page.getByTestId('sidebar-settings-panel').screenshot(), contentType: 'image/png' });
   } catch (error) { console.error(errors.join('\n')); throw error; }
