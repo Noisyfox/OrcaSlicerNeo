@@ -175,6 +175,20 @@ dialog or browser handles platform restrictions and any user rename. A cancelled
 native save does not mark the slice result as exported. Web cannot observe the
 browser's final saved filename or whether the user cancels its download prompt.
 
+Send retains the first successfully generated basename while retrying an upload
+of the same slice receipt. Each retry still revalidates the native export; a
+stale receipt or filename template error prevents another upload. Reopening the
+dialog or using another receipt creates a new naming operation. Print start and
+its retry use the actual path returned by Moonraker, rather than the local name.
+
+Native multipart header encoding uses quoted-pairs for quotes and backslashes;
+CR/LF are percent-encoded to keep them out of header lines. Web uses browser
+FormData encoding. Chromium percent-encodes a quote as `%22`, and Moonraker's
+StreamingFormDataParser uses Python's HTTP email header parser, which does not
+URL-decode plain `filename` parameters. Consequently browser wire encoding can
+affect the printer-side name of unusual characters; the application does not
+replace those characters or claim identical decoded names across hosts.
+
 The focused real-WASM naming contract is
 `node packages/slicer-wasm/harness/gcode-filename-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
 It covers template defaults, empty/custom formats, real statistics, per-plate

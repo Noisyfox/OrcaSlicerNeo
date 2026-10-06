@@ -274,6 +274,7 @@ test('Send and Send & Print use Moonraker fixture without re-upload on start fai
     fixture.holdUploadResponse();
     await page.getByTestId('send-submit').click();
     await expect.poll(() => fixture.state.uploadBodies.length).toBe(1);
+    expect(fixture.state.uploadBodies[0].toString('utf8')).toMatch(/filename="[^"/\\]+\.gcode"/);
     await expect(page.getByTestId('send-progress-status')).toContainText('Waiting for printer confirmation');
     await expect(page.getByTestId('send-progress-status')).not.toContainText('100%');
     await expect(page.getByTestId('send-transfer-stats')).toContainText('0.0 KiB/s');

@@ -7,7 +7,7 @@ import {
   type PrinterConfigurationDocument,
   type UploadedGcode,
 } from '@orca/printer-control';
-import { updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
+import { gcodeFilenameBasename, updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -101,6 +101,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const operationRef = useRef(0);
   const serviceRef = useRef<PrinterControlService | null>(null);
   const uploadedRef = useRef<UploadedGcode | null>(null);
+  const uploadFilenameRef = useRef<{ receiptKey: string; fileName: string } | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const preferenceRef = useRef<UserPreferences | null>(null);
   const preferenceLoadGenerationRef = useRef(0);
@@ -170,6 +171,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     setUploadSpeed(0);
     uploadMeasurementRef.current = null;
     uploadedRef.current = null;
+    uploadFilenameRef.current = null;
     serviceRef.current = null;
     void platform.printers.configuration.load().then((loaded) => {
       if (!active) return;
@@ -320,7 +322,11 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       const documentSnapshot = normalizePrinterConfigurationDocument(document);
       const service = new PrinterControlService(documentSnapshot, platform.printers.transport);
       serviceRef.current = service;
-      const input = { bytes: exported.bytes, fileName: exported.fileName.split(/[\\/]/).pop()! };
+      const receiptKey = JSON.stringify([receipt.plateId, receipt.inputStamp, receipt.resultGeneration, receipt.sliceTaskId]);
+      if (uploadFilenameRef.current?.receiptKey !== receiptKey) {
+        uploadFilenameRef.current = { receiptKey, fileName: gcodeFilenameBasename(exported.fileName) };
+      }
+      const input = { bytes: exported.bytes, fileName: uploadFilenameRef.current.fileName };
       uploadMeasurementRef.current = { startedAt: performance.now(), loaded: 0 };
       const uploaded = await service.uploadOnly(selectedId, input, (next) => {
         if (operation !== operationRef.current) return;

@@ -35,6 +35,38 @@ class FakeClient implements NativeHttpClient {
 }
 
 describe('Electron printer HTTP main transport', () => {
+  it.each(['cube"quoted.GCODE', '测试 café.custom', 'cube\\part.gcode'])('delivers multipart filename %s and bytes to a real HTTP parser', async (fileName) => {
+    let received: { name: string; bytes: number[] } | undefined;
+    const server = createServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const bytes = Buffer.concat(chunks);
+      const header = bytes.toString('utf8').match(/Content-Disposition: form-data; name="file"; filename="((?:\\.|[^"\\])*)"/);
+      if (!header) { response.writeHead(400); response.end(); return; }
+      // A quoted-pair decoder models Moonraker's Python email header parser;
+      // Node's browser-form parser does not implement this quoted-string form.
+      const name = header[1].replace(/\\(.)/g, '$1');
+      const partStart = bytes.indexOf('Content-Type: application/octet-stream');
+      const bodyStart = bytes.indexOf('\r\n\r\n', partStart) + 4;
+      const bodyEnd = bytes.indexOf('\r\n--', bodyStart);
+      received = { name, bytes: [...bytes.subarray(bodyStart, bodyEnd)] };
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{}');
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No fixture port');
+    const handlers = createPrinterTransportIpcHandlers({ isCurrentRenderer: () => true, sendProgress() {} });
+    try {
+      await handlers.request({}, 'filename', { method: 'POST', url: `http://127.0.0.1:${address.port}/upload`,
+        body: { kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName, bytes: new Uint8Array([0, 71, 49, 255]) } } });
+      expect(received).toEqual({ name: fileName, bytes: [0, 71, 49, 255] });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
   const largeBody = {
     kind: 'multipart' as const, fields: { root: 'gcodes' },
     file: { fileName: 'large.gcode', bytes: new Uint8Array(200_000).fill(42) },
@@ -157,7 +189,9 @@ describe('Electron printer HTTP main transport', () => {
     const multipart = encodePrinterTransportBody({ kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName: 'cube".gcode', bytes: new Uint8Array([1, 2]) } }, 'test-boundary');
     const text = new TextDecoder().decode(multipart.bytes);
     expect(text).toContain('name="root"');
-    expect(text).toContain('filename="cube_.gcode"');
+    expect(text).toContain('filename="cube\\".gcode"');
+    const controls = encodePrinterTransportBody({ kind: 'multipart', fields: {}, file: { fileName: 'line\r\nbreak.GCODE', bytes: new Uint8Array() } });
+    expect(new TextDecoder().decode(controls.bytes)).toContain('filename="line%0D%0Abreak.GCODE"');
     expect(text).toContain('test-boundary');
     expect(text.endsWith('--\r\n')).toBe(true);
   });

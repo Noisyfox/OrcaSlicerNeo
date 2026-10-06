@@ -6,6 +6,7 @@ import { PlatformProvider, type PlatformCapabilities, type UserPreferences } fro
 import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/printer-control';
 import { SendGcodeDialog } from './SendGcodeDialog';
 import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 
 // jsdom does not provide PointerEvent, while Base UI's checkbox click path
@@ -105,6 +106,7 @@ async function choosePrinter(container: HTMLElement, id: string) {
 describe('SendGcodeDialog', () => {
   let roots: Root[] = [];
   beforeEach(() => {
+    useProjectStore.setState({ projectFileName: null });
     const receipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' };
     usePlateSessionStore.getState().setSnapshot({ ok: true, version: 1, currentPlateId: 'plate-1',
       plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'Plate 1', origin: [0, 0, 0], instanceIds: [1] }],
@@ -212,15 +214,52 @@ describe('SendGcodeDialog', () => {
     expect(transport.requests[0].signal?.aborted).toBe(true);
   });
 
-  it('shows native template errors and never uploads a failed export', async () => {
+  it.each(['failed', 'stale'] as const)('shows native %s errors and never uploads a failed export', async (status) => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
     const { platform, runtime } = makePlatform(transport);
-    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: false, status: 'failed', error: 'Processing of the filename_format template failed: unknown variable' } as never);
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: false, status, error: 'Processing of the filename_format template failed: unknown variable' } as never);
     const { container, root } = await render(platform, 'send', 'p1'); roots.push(root);
     await click(container, 'send-submit');
     expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('filename_format template failed: unknown variable');
     expect(transport.requests).toHaveLength(0);
+  });
+
+  it.each([false, true])('passes actual project basename and retains upload retry name unless receipt changed=%s', async (receiptChanged) => {
+    useProjectStore.setState({ projectFileName: 'Real Untitled.3mf' });
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport(); transport.statuses.push(500, 200);
+    const { platform, runtime } = makePlatform(transport);
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: true, fileName: 'folder/generated"<>:?*.GCODE', bytes: new Uint8Array([1]) });
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: true, fileName: 'folder/later-timestamp.GCODE', bytes: new Uint8Array([1]) });
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    if (receiptChanged) {
+      const result = useSlicerStore.getState().plateResults['plate-1'];
+      await act(async () => { useSlicerStore.setState({ plateResults: { 'plate-1': { ...result, receipt: { ...result.receipt, resultGeneration: '2', sliceTaskId: '2' } } } }); });
+    }
+    await click(container, 'send-submit');
+    expect(runtime.exportGcodePlate).toHaveBeenCalledTimes(2);
+    expect(runtime.exportGcodePlate).toHaveBeenNthCalledWith(1, expect.objectContaining({ filenameBase: 'Real Untitled' }));
+    expect(runtime.exportGcodePlate).toHaveBeenNthCalledWith(2, expect.objectContaining({ filenameBase: 'Real Untitled' }));
+    expect(transport.requests.map(request => request.body)).toEqual([
+      { kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName: 'generated"<>:?*.GCODE', bytes: new Uint8Array([1]) } },
+      { kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName: receiptChanged ? 'later-timestamp.GCODE' : 'generated"<>:?*.GCODE', bytes: new Uint8Array([1]) } },
+    ]);
+    expect(container.querySelector('input[type="text"]')).toBeNull();
+  });
+
+  it('revalidates export on upload retry and does not reuse a name after a template failure', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport(); transport.statuses.push(500);
+    const { platform, runtime } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: false, status: 'failed', error: 'filename_format changed and failed' } as never);
+    await click(container, 'send-submit');
+    expect(runtime.exportGcodePlate).toHaveBeenCalledTimes(2);
+    expect(transport.requests).toHaveLength(1);
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('filename_format changed and failed');
   });
 
   it('does not round an incomplete transfer up to 100%', async () => {

@@ -2,9 +2,76 @@ import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-c
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
+
+test('real Web Send preserves browser multipart encoding and starts the server-returned path', async ({ page }) => {
+  let uploadBody = '';
+  let startPath = '';
+  const server = createServer(async (request, response) => {
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    response.setHeader('Access-Control-Allow-Headers', 'content-type');
+    if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = Buffer.concat(chunks).toString('utf8');
+    response.setHeader('Content-Type', 'application/json');
+    if (request.url === '/server/files/upload') {
+      uploadBody = body;
+      response.end(JSON.stringify({ result: { item: { path: 'nested/server-selected.GCODE' } } }));
+    } else if (request.url === '/printer/print/start') {
+      startPath = JSON.parse(body).filename;
+      response.end('{}');
+    } else { response.writeHead(404); response.end('{}'); }
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('No fixture port');
+  const baseUrl = `http://127.0.0.1:${address.port}/`;
+  try {
+    await page.addInitScript(({ baseUrl }) => {
+      localStorage.setItem('orca-slicer-neo:printer-configuration:v1', JSON.stringify({ version: 1, printers: [{
+        id: 'web-fixture', displayName: 'Web fixture', driverId: 'moonraker', apiBaseUrl: baseUrl, consoleUrl: baseUrl, apiKey: '',
+      }] }));
+      localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ version: 1, selectedProfiles: {}, rememberedBedTypes: {}, ui: { switchToDeviceAfterSend: false } }));
+    }, { baseUrl });
+    await page.goto('/');
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('preset-select').click();
+    const picker = page.locator('[data-slot="combobox-content"]');
+    await picker.locator('input').fill('Creality Ender-3 0.4 nozzle');
+    await picker.locator('[data-slot="combobox-item"]').filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByTestId('btn-add-model').click();
+    await (await chooser).setFiles({ name: 'cube"quoted.stl', mimeType: 'application/octet-stream', buffer: await readFile(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl')) });
+    await page.getByTestId('config-mode-project').click();
+    await page.getByTestId('config-page-Other').click();
+    await expect(page.getByTestId('config-input-filename_format')).toBeVisible();
+    await page.getByTestId('config-input-filename_format').fill('wire"quoted.GCODE');
+    await page.getByTestId('config-input-filename_format').press('Enter');
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
+    await page.getByTestId('output-mode-select').click();
+    await page.getByRole('option', { name: 'Send & Print', exact: true }).click();
+    await page.getByTestId('btn-send-and-print').click();
+    await expect(page.getByTestId('send-printer-select')).toBeEnabled();
+    await page.getByTestId('send-printer-select').click();
+    await page.getByTestId('send-printer-web-fixture').click();
+    await page.getByTestId('send-submit').click();
+    await expect(page.getByTestId('send-operation-message')).toContainText('print started');
+    expect(uploadBody.match(/filename="([^"\r\n]*)"/)?.[1]).toBe('wire%22quoted.GCODE');
+    expect(uploadBody).toContain('G1');
+    expect(startPath).toBe('nested/server-selected.GCODE');
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
 
 test('real Web G-code export downloads the native generated basename directly', async ({ page }) => {
   await page.goto('/');

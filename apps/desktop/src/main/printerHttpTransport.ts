@@ -58,7 +58,9 @@ function headerExists(headers: Record<string, string>, wanted: string): boolean 
 }
 
 function headerPart(value: string): string {
-  return value.replace(/[\r\n"]/g, '_');
+  // Quoted-pairs preserve quotes/backslashes for multipart parsers. CR/LF
+  // cannot occur literally in a header; use the browser's percent encoding.
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 }
 
 export interface EncodedPrinterBody {

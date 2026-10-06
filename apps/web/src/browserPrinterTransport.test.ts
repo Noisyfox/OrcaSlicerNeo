@@ -46,18 +46,18 @@ describe('BrowserPrinterTransport', () => {
     await promise;
   });
 
-  it('materializes multipart fields/file and forwards upload progress', async () => {
+  it.each(['cube.gcode', '测试 café.GCODE', 'cube"<>:?*.custom'])('materializes filename %s unchanged in FormData and forwards upload progress', async (fileName) => {
     const progress = vi.fn();
     const promise = new BrowserPrinterTransport().request({
       method: 'POST', url: 'http://printer.local/server/files/upload',
       headers: { 'X-Api-Key': 'key' }, body: {
-        kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName: 'cube.gcode', bytes: new Uint8Array([1, 2, 3]) },
+        kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName, bytes: new Uint8Array([1, 2, 3]) },
       }, onUploadProgress: progress,
     });
     const form = FakeXHR.latest.body as FormData;
     expect(form.get('root')).toBe('gcodes');
     const file = form.get('file') as File;
-    expect(file.name).toBe('cube.gcode');
+    expect(file.name).toBe(fileName);
     expect(file.size).toBe(3);
     const event = new Event('progress') as ProgressEvent;
     Object.defineProperties(event, { loaded: { value: 2 }, total: { value: 3 }, lengthComputable: { value: true } });
