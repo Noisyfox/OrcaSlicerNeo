@@ -111,7 +111,11 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const reason = unavailableReason(sliceReady, document.printers, selectedPrinter);
   const busy = state === 'loading' || state === 'uploading' || state === 'starting';
   const controlsDisabled = busy || state === 'success';
-  const progressValue = progress.fraction === undefined ? undefined : Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100);
+  const awaitingConfirmation = state === 'uploading' && progress.fraction !== undefined && progress.fraction >= 1;
+  const progressValue = state !== 'uploading' || awaitingConfirmation || progress.fraction === undefined
+    ? undefined : Math.min(99, Math.round(Math.max(0, progress.fraction) * 100));
+  const progressLabel = state === 'starting' ? 'Starting print'
+    : awaitingConfirmation ? 'Waiting for printer confirmation' : 'Uploading G-code';
 
   function clearCloseCountdown(resetState = true) {
     if (closeTimerRef.current !== null) {
@@ -292,11 +296,19 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       const service = new PrinterControlService(documentSnapshot, platform.printers.transport);
       serviceRef.current = service;
       const input = { bytes: exported.bytes, fileName: fileNameFromPath(exported.path) };
-      if (action === 'send') {
-        uploadedRef.current = await service.uploadOnly(selectedId, input, setProgress, controller.signal);
-      } else {
-        const result = await service.uploadThenStart(selectedId, input, setProgress, controller.signal);
-        uploadedRef.current = result.uploaded;
+      const uploaded = await service.uploadOnly(selectedId, input, (next) => {
+        if (operation === operationRef.current) setProgress(next);
+      }, controller.signal);
+      uploadedRef.current = uploaded;
+      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (action === 'send-and-print') {
+        setState('starting');
+        try {
+          await service.startPrint(selectedId, uploaded);
+        } catch (error) {
+          throw new PrinterControlError('start-failed-after-upload', 'Print start failed after upload', 'start',
+            error instanceof PrinterControlError ? error.status : undefined, uploaded);
+        }
       }
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       setState('success');
@@ -360,9 +372,9 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         </div>
         {reason && <p className="text-sm text-muted-foreground" role="status" data-testid="send-disabled-reason">{reason}</p>}
         {busy && (
-          <div className="space-y-2" data-testid="send-progress-status" role="status" aria-live="polite">
-            <Progress value={progressValue ?? null} aria-label={state === 'starting' ? 'Starting print' : 'Uploading G-code'} />
-            <p className="text-sm text-muted-foreground">{state === 'starting' ? 'Starting print…' : 'Uploading G-code…'}{progressValue === undefined ? '' : ` ${progressValue}%`}</p>
+          <div className="flex flex-col gap-2" data-testid="send-progress-status" role="status" aria-live="polite">
+            <Progress value={progressValue ?? null} aria-label={progressLabel} />
+            <p className="text-sm text-muted-foreground">{progressLabel}…{progressValue === undefined ? '' : ` ${progressValue}%`}</p>
           </div>
         )}
         {message && !busy && <p className={`text-sm ${state === 'error' || state === 'start-failed-after-upload' ? 'text-destructive' : 'text-muted-foreground'}`} role={state === 'error' || state === 'start-failed-after-upload' ? 'alert' : 'status'} data-testid="send-operation-message" data-error-code={state === 'start-failed-after-upload' ? 'start-failed-after-upload' : undefined}>{message}</p>}
@@ -379,7 +391,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
             <Label htmlFor="send-switch-to-device">Switch to Device page after sending</Label>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{busy ? 'Cancel' : 'Close'}</Button>
+            <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{state === 'uploading' || state === 'loading' ? 'Cancel' : 'Close'}</Button>
             {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}
             <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
           </div>

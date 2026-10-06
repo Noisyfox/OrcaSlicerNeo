@@ -16,7 +16,7 @@ export interface NativeHttpResponse {
 }
 
 export interface NativeHttpRequestHandle {
-  write(bytes: Uint8Array, onAccepted?: () => void): void;
+  write(bytes: Uint8Array, onAccepted?: (error?: Error | null) => void): void;
   end(): void;
   abort(): void;
 }
@@ -193,15 +193,45 @@ export function createPrinterTransportIpcHandlers(deps: PrinterTransportIpcDepen
         state.handle = handle;
         if (state.settled) return;
         if (encoded) {
-          // Native request progress is reported as bytes are accepted by the
-          // destination. The initial zero event makes the IPC pathway usable
-          // with clients that do not emit response data.
-          if (deps.isCurrentRenderer(sender)) deps.sendProgress(sender, requestId, { loaded: 0, total: encoded.bytes.byteLength });
-          handle.write(encoded.bytes, () => {
-            if (deps.isCurrentRenderer(sender)) deps.sendProgress(sender, requestId, { loaded: encoded!.bytes.byteLength, total: encoded!.bytes.byteLength });
-          });
+          // A write callback means the local network stack accepted these
+          // bytes, not that Moonraker accepted the upload. Keep only one
+          // bounded write outstanding so large uploads report intermediate
+          // progress and respect socket backpressure.
+          const bytes = encoded.bytes;
+          let loaded = 0;
+          const report = () => {
+            if (!state.settled && deps.isCurrentRenderer(sender)) {
+              deps.sendProgress(sender, requestId, { loaded, total: bytes.byteLength });
+            }
+          };
+          const writeNext = () => {
+            if (state.settled) return;
+            try {
+              if (loaded === bytes.byteLength) { handle.end(); return; }
+              const chunk = bytes.subarray(loaded, loaded + 64 * 1024);
+              handle.write(chunk, (error) => {
+                if (state.settled) return;
+                if (error) {
+                  finish(() => reject(new Error('Printer request failed')));
+                  handle.abort();
+                  return;
+                }
+                loaded += chunk.byteLength;
+                report();
+                // Also support synchronously completing test/native clients
+                // without recursively consuming the call stack.
+                queueMicrotask(writeNext);
+              });
+            } catch {
+              finish(() => reject(new Error('Printer request failed')));
+              handle.abort();
+            }
+          };
+          report();
+          writeNext();
+        } else {
+          handle.end();
         }
-        handle.end();
       });
     },
     cancel(sender: unknown, requestId: unknown): void {

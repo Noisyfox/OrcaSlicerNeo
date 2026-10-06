@@ -22,6 +22,7 @@ class FixtureTransport implements PrinterTransport {
   responses: unknown[] = [];
   statuses: number[] = [];
   pending = false;
+  finish?: () => void;
   async request(request: PrinterTransportRequest): Promise<PrinterTransportResponse> {
     this.requests.push(request);
     request.onUploadProgress?.({ loaded: 5, total: 10 });
@@ -29,6 +30,7 @@ class FixtureTransport implements PrinterTransport {
       await new Promise<void>((resolve, reject) => {
         const signal = request.signal;
         const done = () => { signal?.removeEventListener('abort', abort); resolve(); };
+        this.finish = done;
         const abort = () => { signal?.removeEventListener('abort', abort); reject(new DOMException('aborted', 'AbortError')); };
         signal?.addEventListener('abort', abort, { once: true });
       });
@@ -208,6 +210,63 @@ describe('SendGcodeDialog', () => {
     await click(container, 'send-close');
     expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('cancelled');
     expect(transport.requests[0].signal?.aborted).toBe(true);
+  });
+
+  it('does not round an incomplete transfer up to 100%', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.pending = true;
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    await act(async () => { transport.requests[0].onUploadProgress?.({ loaded: 999, total: 1000 }); });
+    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('99%');
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('99');
+    await click(container, 'send-close');
+  });
+
+  it.each(['success', 'cancel', 'error'] as const)('waits for printer confirmation before upload %s', async (ending) => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.pending = true;
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    await act(async () => { transport.requests[0].onUploadProgress?.({ loaded: 10, total: 10 }); });
+    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('Waiting for printer confirmation');
+    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).not.toContain('100%');
+    expect(container.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(container.querySelector('[data-testid="send-operation-message"]')).toBeNull();
+    expect(container.querySelector('[data-testid="send-auto-close-countdown"]')).toBeNull();
+    if (ending === 'cancel') {
+      await click(container, 'send-close');
+      expect(transport.requests[0].signal?.aborted).toBe(true);
+      expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('cancelled');
+    } else {
+      if (ending === 'error') transport.statuses.push(500);
+      await act(async () => { transport.finish!(); });
+      expect(container.querySelector('[data-testid="send-progress-status"]')).toBeNull();
+      expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent)
+        .toContain(ending === 'success' ? 'uploaded' : 'Could not send');
+    }
+  });
+
+  it('shows indeterminate print-start status after confirmed upload', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const original = transport.request.bind(transport);
+    transport.request = async (request) => {
+      if (request.url.endsWith('/printer/print/start')) transport.pending = true;
+      return original(request);
+    };
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send-and-print'); roots.push(root);
+    await click(container, 'send-submit');
+    expect(transport.requests).toHaveLength(2);
+    expect(container.querySelector('[data-testid="send-progress-status"] p')?.textContent).toBe('Starting print…');
+    expect(container.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false);
+    await act(async () => { transport.finish!(); });
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('print started');
   });
 
   it('keeps the switch option in the action row and disables editable controls while uploading', async () => {
