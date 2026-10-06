@@ -22,7 +22,7 @@ import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import { commitScopedConfigurationMutation } from './configurationActions';
 import {
   localKeysForTarget,
   projectScopedConfigurationFields,
@@ -318,8 +318,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key, value,
     };
-    const mutation = await commitScopedConfigurationMutation(platform, request);
-    if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    await commitScopedConfigurationMutation(platform, request);
     const current = useSettingsStore.getState();
     const effective = projectScopedConfigurationFields({ mode, metadata: metadata!,
       baseValues: current.baseValues, snapshot: current.nativeScopedConfig, resolution })
@@ -333,8 +332,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key,
     };
-    const mutation = await commitScopedConfigurationMutation(platform, request);
-    if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    await commitScopedConfigurationMutation(platform, request);
   }, [mode, platform, resolution]);
   const resetCategory = async (category: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
@@ -346,8 +344,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         : resolution.targets), category,
     };
     try {
-      const mutation = await commitScopedConfigurationMutation(platform, request);
-      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+      await commitScopedConfigurationMutation(platform, request);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const resetAll = async () => {
@@ -357,8 +354,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     if (!hasLocal) return;
     const request: NativeScopedConfigMutationRequest = { version: 1, operation: 'reset-all', targets: targetRequestTargets(targets) };
     try {
-      const mutation = await commitScopedConfigurationMutation(platform, request);
-      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+      await commitScopedConfigurationMutation(platform, request);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 

@@ -71,11 +71,9 @@ async function commitScopedConfigurationMutationNow(
             }
           }
           mutation = published;
-          const activeJob = useSlicerStore.getState().activeSliceTarget;
-          if (activeJob && (published.affectedPlateIds ?? []).includes(activeJob.plateId)) {
-            useSlicerStore.getState().invalidatePlateResults([activeJob.plateId]);
-            void platform.runtime.cancel().catch(() => undefined);
-          }
+          // Publish result ownership with the native receipt, before slower
+          // preference persistence. Every caller shares this invalidation.
+          invalidateAfterSharedConfigurationMutation(published.affectedPlateIds, platform.runtime);
           applyPlateSessionTransforms(published, glVolumeCollection.volumes);
           usePlateSessionStore.getState().setSnapshot(published);
           useProjectStore.getState().recordPlateMutation(published);

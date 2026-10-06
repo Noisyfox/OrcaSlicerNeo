@@ -162,9 +162,8 @@ describe('commitScopedConfigurationMutation', () => {
       plateSession: { ...mutation, inputRevisions: { 'plate-1': 9 }, affectedPlateIds: ['plate-1'] },
     }));
     const platform = { runtime: { ...historyProjectionRuntime, mutateNativeScopedConfig, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
-    const committed = await commitScopedConfigurationMutation(platform, { version: 1, operation: 'set',
+    await commitScopedConfigurationMutation(platform, { version: 1, operation: 'set',
       targets: [{ scope: 'object', id: 42 }], key: 'layer_height', value: '0.15' });
-    if (committed) invalidateAfterSharedConfigurationMutation(committed.affectedPlateIds);
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-2']);
   });
 
@@ -389,6 +388,61 @@ describe('global bed preference publication', () => {
     useSettingsStore.setState({ selectedPrinter: 'Printer A', nativeScopedConfigRevision: 0, nativeScopedConfig: baseline.snapshot });
     useProjectStore.getState().reset(); useHistoryNavigationStore.getState().reset();
   });
+  function seedCompletedBeds() {
+    const slicer = useSlicerStore.getState();
+    slicer.clearPlateResults();
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' }, [], {});
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '2', sliceTaskId: '2' }, [], {});
+    slicer.setPlateResult({ plateId: 'plate-3', inputStamp: 1, resultGeneration: '3', sliceTaskId: '3' }, [], {});
+    slicer.activatePlateResult('plate-1', 1);
+    useSlicerStore.setState({ activeSliceTarget: null, layers: 8, maxLayer: 7, layer: 4,
+      preview: { ...useSlicerStore.getState().preview, resultId: 7, maxMove: 100, visibleLayerEnd: 7 } });
+    useSettingsStore.setState({ nativeScopedConfig: { ...baseline.snapshot,
+      project: { curr_bed_type: 'High Temp Plate' },
+      plates: { 'plate-1': {}, 'plate-2': { curr_bed_type: 'High Temp Plate' }, 'plate-3': {} } } });
+  }
+  it('global bed publication clears affected completed preview before preference IO and retains local-override cache', async () => {
+    seedCompletedBeds();
+    const retained = useSlicerStore.getState().plateResults['plate-2'];
+    const host = platform({ ok: true, nativeScopedConfig: affected('project', { curr_bed_type: 'Textured PEI Plate' }), plateSession: { ...mutation, affectedPlateIds: ['plate-1', 'plate-3'], inputRevisions: { 'plate-1': 2, 'plate-2': 1, 'plate-3': 2 } } });
+    let release!: () => void, entered!: () => void;
+    const pendingSave = new Promise<void>(resolve => { release = resolve; });
+    const saveEntered = new Promise<void>(resolve => { entered = resolve; });
+    vi.spyOn(host.preferences, 'save').mockImplementation(async () => { entered(); await pendingSave; });
+    const committing = commitGlobalBedType(host, 'Textured PEI Plate');
+    await saveEntered;
+    try {
+      const state = useSlicerStore.getState();
+      expect(Object.keys(state.plateResults)).toEqual(['plate-2']);
+      expect(state.plateResults['plate-2']).toBe(retained);
+      expect(state.sliceTarget).toBeNull();
+      expect(state.preview.resultId).toBeNull();
+      expect(state.preview.maxMove).toBe(0);
+      expect(state.layers).toBe(0);
+      expect(state.status).toBe('idle');
+      expect(host.runtime.cancel).not.toHaveBeenCalled();
+    } finally { release(); await committing; }
+  });
+  it.each(['plate-1', 'plate-2'])('global bed publication handles active %s exactly once using native affected scope', async (activePlate) => {
+    seedCompletedBeds();
+    const host = platform({ ok: true, nativeScopedConfig: affected('project', { curr_bed_type: 'Textured PEI Plate' }), plateSession: { ...mutation, affectedPlateIds: ['plate-1', 'plate-3'], inputRevisions: { 'plate-1': 2, 'plate-2': 1, 'plate-3': 2 } } });
+    Object.assign(host.runtime, { getRuntimeExecutionState: () => ({ threaded: true }) });
+    useSlicerStore.getState().activatePlateResult(activePlate, 1);
+    const active = { plateId: activePlate, inputRevision: 1 };
+    useSlicerStore.setState({ status: 'slicing', activeSliceTarget: active });
+    await commitGlobalBedType(host, 'Textured PEI Plate');
+    expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-2']);
+    if (activePlate === 'plate-1') {
+      expect(host.runtime.cancel).toHaveBeenCalledOnce();
+      expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
+    } else {
+      expect(host.runtime.cancel).not.toHaveBeenCalled();
+      expect(useSlicerStore.getState().activeSliceTarget).toEqual(active);
+      expect(useSlicerStore.getState().sliceTarget?.plateId).toBe('plate-2');
+      expect(useSlicerStore.getState().status).toBe('slicing');
+    }
+  });
+
   it('persists a successful native global choice and preserves other printer memory', async () => {
     const host = platform({ ok: true, nativeScopedConfig: affected('project', { curr_bed_type: 'High Temp Plate' }), plateSession: mutation });
     await commitGlobalBedType(host, 'High Temp Plate');
