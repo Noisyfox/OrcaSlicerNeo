@@ -225,13 +225,17 @@ describe('SendGcodeDialog', () => {
     await click(container, 'send-close');
   });
 
-  it('shows byte counts and sampled KiB/s, drops speed on stalls, and resets on retry', async () => {
+  it('shows cumulative average KiB/s from upload start, includes reporting gaps, and resets on retry', async () => {
     vi.useFakeTimers();
-    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const now = vi.spyOn(performance, 'now').mockReturnValue(100);
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
     transport.pending = true;
-    const { platform } = makePlatform(transport);
+    const { platform, runtime } = makePlatform(transport);
+    runtime.exportGcodePlate.mockImplementationOnce(async () => {
+      now.mockReturnValue(1000);
+      return { ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) };
+    });
     const { container, root } = await render(platform, 'send'); roots.push(root);
     try {
       await click(container, 'send-submit');
@@ -250,9 +254,18 @@ describe('SendGcodeDialog', () => {
         now.mockReturnValue(2000);
         await vi.advanceTimersByTimeAsync(500);
       });
-      expect(stats()).toContain('8.0 KiB/s');
+      expect(stats()).toContain('12.0 KiB/s');
       await act(async () => { now.mockReturnValue(2500); await vi.advanceTimersByTimeAsync(500); });
-      expect(stats()).toContain('0.0 KiB/s');
+      expect(stats()).toContain('8.0 KiB/s');
+      await act(async () => { now.mockReturnValue(3500); await vi.advanceTimersByTimeAsync(1000); });
+      expect(stats()).toContain('4.8 KiB/s');
+      await act(async () => {
+        transport.requests[0].onUploadProgress?.({ loaded: 14336, total: 16384 });
+        now.mockReturnValue(4000);
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      // 14 KiB over the full three seconds since upload began.
+      expect(stats()).toContain('4.7 KiB/s');
       await click(container, 'send-close');
       await click(container, 'send-submit');
       expect(stats()).toContain('5 B / 10 B');

@@ -108,9 +108,11 @@ than by a separate setup check.
 
 The dialog shows upload progress and allows cancellation while an upload is
 in progress. It displays sent/total byte sizes in binary units (B, KiB, MiB,
-GiB), together with recent speed in KiB/s. Speed updates every 500 ms from
-byte deltas and the monotonic clock, excluding G-code export time. Stalled
-intervals show zero speed; each upload resets the measurement. When the browser
+GiB), together with cumulative average speed in KiB/s. Every 500 ms, speed is
+calculated as all bytes sent divided by elapsed time since the upload request
+began, using the monotonic clock and excluding G-code export time. Reporting
+gaps remain part of elapsed time rather than producing zero-byte sampling
+windows. Each upload resets the measurement. When the browser
 cannot determine the total size, the total is displayed as “Unknown”.
 
 Electron writes the HTTP body in bounded chunks and reports intermediate byte
@@ -150,7 +152,7 @@ network or printer failures.
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
 boundaries. The upload tests include a real 32 MiB HTTP request paused at the
 receiver, byte-for-byte multipart fidelity, write failures, cancellation and
-late callbacks. Component tests cover sampled speed, zero speed on stalls,
+late callbacks. Component tests cover sampled speed, delayed progress events,
 reset on retry, unknown totals, confirmation waiting and print-start staging.
 
 The Electron mock validation uses `VITE_USE_MOCK=1` with

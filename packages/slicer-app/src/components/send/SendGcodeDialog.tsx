@@ -97,7 +97,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const [state, setState] = useState<SendState>('idle');
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
   const [uploadSpeed, setUploadSpeed] = useState(0);
-  const speedSampleRef = useRef<{ time: number; loaded: number; latest: number } | null>(null);
+  const uploadMeasurementRef = useRef<{ startedAt: number; loaded: number } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [closeCountdown, setCloseCountdown] = useState<number | null>(null);
   const [switchToDeviceAfterSend, setSwitchToDeviceAfterSend] = useState(true);
@@ -129,14 +129,11 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   useEffect(() => {
     if (state !== 'uploading' || awaitingConfirmation) return;
     const timer = setInterval(() => {
-      const sample = speedSampleRef.current;
-      if (!sample) return;
-      const now = performance.now();
-      const elapsed = now - sample.time;
+      const measurement = uploadMeasurementRef.current;
+      if (!measurement) return;
+      const elapsed = performance.now() - measurement.startedAt;
       if (elapsed <= 0) return;
-      setUploadSpeed(Math.max(0, sample.latest - sample.loaded) * 1000 / elapsed);
-      sample.time = now;
-      sample.loaded = sample.latest;
+      setUploadSpeed(measurement.loaded * 1000 / elapsed);
     }, 500);
     return () => clearInterval(timer);
   }, [state, awaitingConfirmation]);
@@ -176,7 +173,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     setMessage(null);
     setProgress({ loaded: 0 });
     setUploadSpeed(0);
-    speedSampleRef.current = null;
+    uploadMeasurementRef.current = null;
     uploadedRef.current = null;
     serviceRef.current = null;
     void platform.printers.configuration.load().then((loaded) => {
@@ -298,7 +295,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     setMessage(null);
     setProgress({ loaded: 0 });
     setUploadSpeed(0);
-    speedSampleRef.current = null;
+    uploadMeasurementRef.current = null;
     setState('uploading');
     try {
       const currentSession = await platform.runtime.getPlateSessionSnapshot();
@@ -324,10 +321,10 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       const service = new PrinterControlService(documentSnapshot, platform.printers.transport);
       serviceRef.current = service;
       const input = { bytes: exported.bytes, fileName: fileNameFromPath(exported.path) };
+      uploadMeasurementRef.current = { startedAt: performance.now(), loaded: 0 };
       const uploaded = await service.uploadOnly(selectedId, input, (next) => {
         if (operation !== operationRef.current) return;
-        if (!speedSampleRef.current) speedSampleRef.current = { time: performance.now(), loaded: 0, latest: next.loaded };
-        else speedSampleRef.current.latest = next.loaded;
+        uploadMeasurementRef.current!.loaded = next.loaded;
         setProgress(next);
       }, controller.signal);
       uploadedRef.current = uploaded;
