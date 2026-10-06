@@ -1,10 +1,11 @@
-# Device console isolation response headers
+# Device console response headers and debugger Worker startup
 
 **Date:** 2026-10-06
 
 **Status:** Implemented and regression-tested
 
-**Scope:** Electron response-header handling for embedded printer consoles.
+**Scope:** Electron response-header handling and Fluidd Worker startup during
+VS Code debugging.
 
 The Device webview uses Electron's default session. The session previously
 injected COOP `same-origin` and COEP `require-corp` into every response,
@@ -43,8 +44,44 @@ Passed checks:
   cross-origin isolated. API-key reuse, guest reload and printer control pass.
 - `git diff --check`.
 
-Actual Fluidd functionality after the fix remains unverified. A temporary
-standalone Electron probe launch was blocked by execution policy; validation
-used the existing Playwright harness. Native WASM rebuilds, Web E2E and the
-full release matrix were not run because the change only narrows an Electron
-response-header callback and does not alter WASM or Web code.
+A temporary standalone Electron probe launch was blocked by execution policy;
+validation used the existing Playwright harness. Native WASM rebuilds, Web E2E
+and the full release matrix were not run because the change only narrows an
+Electron response-header callback and does not alter WASM or Web code.
+
+## Confirmed VS Code debugging failure
+
+The response-header leak was a separate defect. Restoring the old global
+header injection in an isolated probe still allowed the actual Fluidd parser
+to complete; it did not reproduce the reported preview hang.
+
+An Electron probe with a fresh Chromium session loaded the actual Fluidd
+parser from `u1.lan` and transferred the complete 666,901-byte
+`Cube_PLA_7.5g_14m3s.gcode` buffer. It returned 18,746 moves and 136 layers
+in approximately 1.14 seconds. Fluidd's own `gcodePreview/loadGcode` action
+also completed with the same results. The user confirmed that manual preview
+worked in the probe and failed in their VS Code debugging session.
+
+During the stalled VS Code session, the local 9222 CDP endpoint listed the
+application page, the Fluidd `webview`, and its `parseGcode` Worker. The
+Worker's `self.onmessage` was still null: its initialization had not executed.
+Fluidd reported an active parser, zero progress and no moves or layers.
+Sending only `Runtime.runIfWaitingForDebugger` to that Worker completed the
+existing preview. After two seconds, Fluidd reported no active parser,
+666,901 bytes of progress, 18,746 moves and 136 layers. No file, printer
+configuration or application code was changed for this recovery.
+
+This establishes a debugger startup wait as the immediate cause. The
+[VS Code debugger target manager](https://github.com/microsoft/vscode-js-debug/blob/main/src/targets/browser/browserTargetManager.ts)
+recursively enables auto-attachment with `waitForDebuggerOnStart`, while its
+[supported JavaScript target types](https://github.com/microsoft/vscode-js-debug/blob/main/src/targets/browser/browserTargets.ts)
+do not include Electron's `webview`. That source evidence explains the likely
+debugger integration failure, rather than a Fluidd parser or application
+Worker defect.
+
+For Device/Fluidd testing, use the existing `Desktop Debug Main Process`
+configuration instead of `Desktop Debug All`, which also starts
+`Desktop Debug Renderer Process`. The application renderer can be inspected
+with its Electron DevTools. The configuration names and the 9222 port are
+defined in [the workspace launch configuration](../.vscode/launch.json).
+No speculative debugger configuration or product workaround was added.
