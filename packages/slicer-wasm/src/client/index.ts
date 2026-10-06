@@ -51,7 +51,7 @@ export type {
   PreviewToolpathMetrics, PreviewMetricKey, PreviewMetricRange,
   PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewAnalysis,
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewTextLinesRequest, PreviewTextLines, PreviewSource,
-  ExportGcodeResult, ExportProjectResult, CancelResult,
+  ExportGcodeRequest, ExportGcodeResult, ExportProjectResult, CancelResult,
   FilesystemEntry,
 } from './types';
 export type {

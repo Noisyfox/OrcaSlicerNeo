@@ -29,7 +29,7 @@ function preview(receipt) {
   return result;
 }
 function gcode(receipt) {
-  const result = exportGcode(call, receipt);
+  const result = exportGcode(call, { receipt: receipt, filenameBase: '' });
   if (result.bytes_ptr) Module._free(result.bytes_ptr);
   return result;
 }

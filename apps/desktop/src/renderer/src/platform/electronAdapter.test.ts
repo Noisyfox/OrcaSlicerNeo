@@ -23,8 +23,8 @@ function setup(overrides: Record<string, unknown> = {}) {
       open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
       openMany: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
       openDropped: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
-      save: vi.fn(async () => ({ canceled: false, locationToken: 'project-token' })),
-      saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'project-token' })),
+      save: vi.fn(async () => ({ canceled: false, locationToken: 'project-token', displayName: 'project.3mf' })),
+      saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'project-token', displayName: 'project.3mf' })),
     };
     const host = { preferences: { load, save }, projects, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
@@ -75,16 +75,24 @@ describe('Electron adapter', () => {
     const saveFileDialog = vi.fn(async () => ({ canceled: false, path: 'C:\\out\\slice.gcode' }));
     const writeFile = vi.fn(async () => {});
     const { adapter } = setup({ saveFileDialog, writeFile });
-    await adapter.exports.save('output.gcode', Uint8Array.from([3, 4]));
-    expect(saveFileDialog).toHaveBeenCalled();
+    await expect(adapter.exports.save('output.gcode', Uint8Array.from([3, 4]))).resolves.toEqual({ status: 'saved' });
+    expect(saveFileDialog).toHaveBeenCalledWith('output.gcode', [{ name: 'G-code', extensions: ['gcode'] }]);
     expect(writeFile).toHaveBeenCalledWith('C:\\out\\slice.gcode', expect.any(ArrayBuffer));
   });
 
   it('does not write when export is cancelled', async () => {
     const writeFile = vi.fn();
     const { adapter } = setup({ saveFileDialog: vi.fn(async () => ({ canceled: true, path: null })), writeFile });
-    await adapter.exports.save('output.gcode', Uint8Array.from([3]));
+    await expect(adapter.exports.save('output.gcode', Uint8Array.from([3]))).resolves.toEqual({ status: 'cancelled' });
     expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it('propagates native write failure instead of reporting a saved export', async () => {
+    const { adapter } = setup({
+      saveFileDialog: vi.fn(async () => ({ canceled: false, path: 'C:\\out\\chosen.custom' })),
+      writeFile: vi.fn(async () => { throw new Error('disk full'); }),
+    });
+    await expect(adapter.exports.save('output.custom', new Uint8Array([3]))).rejects.toThrow('disk full');
   });
 
   it('saves arbitrary bytes under the caller name without a G-code filter', async () => {
@@ -126,12 +134,12 @@ describe('Electron adapter', () => {
   });
 
   it('distinguishes project cancellation and failures and saves by opaque token', async () => {
-    const save = vi.fn(async () => ({ canceled: false, locationToken: 'saved-token' }));
+    const save = vi.fn(async () => ({ canceled: false, locationToken: 'saved-token', displayName: 'chosen.3mf' }));
     const { adapter } = setup({
       projects: {
         open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
         save,
-        saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'saved-token' })),
+        saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'saved-token', displayName: 'chosen.3mf' })),
       },
     });
     expect(await adapter.projects.open()).toEqual({ status: 'cancelled' });
@@ -140,18 +148,20 @@ describe('Electron adapter', () => {
     const input = { displayName: 'cube', bytes: Uint8Array.from([3]) };
     const saved = await adapter.projects.save(input);
     expect(saved.status).toBe('ok');
+    expect(saved).toMatchObject({ displayName: 'chosen.3mf' });
     expect(save).not.toHaveBeenCalled(); // Untitled save uses Save As.
   });
 
   it('keeps the native location token private while saving an opened project', async () => {
     const open = vi.fn(async () => ({ canceled: false, locationToken: 'private-token', displayName: 'scene.3mf', bytes: Uint8Array.from([4, 5]).buffer }));
-    const save = vi.fn(async () => ({ canceled: false, locationToken: 'private-token' }));
+    const save = vi.fn(async () => ({ canceled: false, locationToken: 'private-token', displayName: 'scene.3mf' }));
     const { adapter } = setup({ projects: { open, save, saveAs: vi.fn() } });
     const opened = await adapter.projects.open();
     expect(opened.status).toBe('ok');
     if (opened.status !== 'ok') return;
     const result = await adapter.projects.save(opened.input);
     expect(result.status).toBe('ok');
+    expect(result).toMatchObject({ displayName: 'scene.3mf' });
     expect(save).toHaveBeenCalledWith('private-token', 'scene.3mf', expect.any(ArrayBuffer));
     expect(opened.input.location).not.toHaveProperty('token');
     expect(opened.input.location).not.toHaveProperty('path');
@@ -167,11 +177,34 @@ describe('Electron adapter', () => {
     await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array() })).resolves.toMatchObject({ status: 'failed' });
   });
 
+  it.each(['GCODE', 'custom'])('uses generated basename and exact %s extension in the native dialog', async (extension) => {
+    const saveFileDialog = vi.fn(async () => ({ canceled: true, path: null }));
+    const { adapter } = setup({ saveFileDialog });
+    await adapter.exports.save(`folder/output.${extension}`, Uint8Array.from([3]));
+    expect(saveFileDialog).toHaveBeenCalledWith(`output.${extension}`, [{ name: 'G-code', extensions: [extension] }]);
+  });
+
+
+  it('Save As returns the selected name rather than the requested suggestion', async () => {
+    const { adapter } = setup();
+    const saved = await adapter.projects.saveAs({ displayName: 'suggestion.3mf', bytes: new Uint8Array([1]) });
+    expect(saved).toMatchObject({ status: 'ok', displayName: 'project.3mf' });
+    expect(saved).not.toHaveProperty('path');
+  });
+
+  it('rejects successful native saves missing the required display name', async () => {
+    const { adapter } = setup({ projects: {
+      open: vi.fn(), save: vi.fn(),
+      saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'token', displayName: null })),
+    } });
+    await expect(adapter.projects.saveAs({ displayName: 'suggestion.3mf', bytes: new Uint8Array([1]) })).resolves.toMatchObject({ status: 'failed' });
+  });
+
   it('preserves native save cancellation as cancellation', async () => {
     const { adapter } = setup({ projects: {
       open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
-      save: vi.fn(async () => ({ canceled: true, locationToken: null })),
-      saveAs: vi.fn(async () => ({ canceled: true, locationToken: null })),
+      save: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null })),
+      saveAs: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null })),
     } });
     await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array([1]) })).resolves.toEqual({ status: 'cancelled' });
   });

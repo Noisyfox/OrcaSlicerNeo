@@ -301,8 +301,9 @@ function registerIpc(): void {
     if (typeof locationToken !== 'string' || !projectLocations.has(locationToken)) {
       throw new Error('Unknown project location token');
     }
-    await writeFileAtomically(projectLocations.get(locationToken)!, Buffer.from(bytes));
-    return { canceled: false, locationToken };
+    const filePath = projectLocations.get(locationToken)!;
+    await writeFileAtomically(filePath, Buffer.from(bytes));
+    return { canceled: false, locationToken, displayName: filePath.split(/[\\/]/).pop()! };
   });
 
   ipcMain.handle(Ipc.projectSaveAs, async (event, defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult> => {
@@ -310,11 +311,11 @@ function registerIpc(): void {
     const result = e2eProjectSavePath
       ? { canceled: false, filePath: e2eProjectSavePath }
       : await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: projectFilters });
-    if (result.canceled || !result.filePath) return { canceled: true, locationToken: null };
+    if (result.canceled || !result.filePath) return { canceled: true, locationToken: null, displayName: null };
     await writeFileAtomically(result.filePath, Buffer.from(bytes));
     const locationToken = randomUUID();
     projectLocations.set(locationToken, result.filePath);
-    return { canceled: false, locationToken };
+    return { canceled: false, locationToken, displayName: result.filePath.split(/[\\/]/).pop()! };
   });
 
   ipcMain.handle(Ipc.windowCloseDecision, async (event, allow: unknown): Promise<void> => {

@@ -48,10 +48,9 @@ export function getSliceResult(callJson, receipt) {
   ]);
 }
 
-export function exportGcode(callJson, receipt) {
-  return callJson('orc_export_gcode_plate', ['string', 'number', 'number'], [
-    receipt.plate_id,
-    Number(receipt.input_stamp),
-    Number(receipt.result_generation),
-  ]);
+export function exportGcode(callJson, { receipt, filenameBase }) {
+  return callJson('orc_export_gcode_plate', ['string'], [JSON.stringify({
+    receipt: { ...receipt, result_generation: Number(receipt.result_generation) },
+    filename_base: filenameBase,
+  })]);
 }

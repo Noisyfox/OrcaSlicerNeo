@@ -34,7 +34,7 @@ function revisions() {
   return Object.fromEntries(current.plates.map((plate) => [plate.plate_id, current.input_revisions[plate.plate_id]]));
 }
 function exportGcode(receipt) {
-  const result = exportScopedGcode(callJson, receipt);
+  const result = exportScopedGcode(callJson, { receipt: receipt, filenameBase: '' });
   assert.equal(result.ok, true, JSON.stringify(result));
   return Buffer.from(Module.FS.readFile(result.path)).toString('utf8');
 }

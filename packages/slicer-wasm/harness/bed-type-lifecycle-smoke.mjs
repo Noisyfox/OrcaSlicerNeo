@@ -58,7 +58,7 @@ resetHistory();
 await slice(a);
 await slice(b);
 const before = session();
-const exportedBefore = must(exportGcode(call, receipts.get(b)));
+const exportedBefore = must(exportGcode(call, { receipt: receipts.get(b), filenameBase: '' }));
 const retainedGcode = Module.FS.readFile(exportedBefore.path, { encoding: 'utf8' });
 assert.ok((retainedGcode.match(/^G1\b[^\r\n]*\b[XY][-\d.]+[^\r\n]*\bE[\d.]+/gm) ?? []).length > 10,
   'retained result has real extrusion paths');
@@ -69,7 +69,7 @@ assert.equal(session().input_revisions[b], before.input_revisions[b]);
 commit(tx);
 stale(a);
 must(result(b));
-assert.equal(Module.FS.readFile(must(exportGcode(call, receipts.get(b))).path, { encoding: 'utf8' }), retainedGcode);
+assert.equal(Module.FS.readFile(must(exportGcode(call, { receipt: receipts.get(b), filenameBase: '' })).path, { encoding: 'utf8' }), retainedGcode);
 pass('global bed change retains explicit-equal override stamps, result and export bytes');
 
 

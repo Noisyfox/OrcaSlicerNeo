@@ -141,7 +141,7 @@ const firstPreview = tower(id);
 const sliced = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify(sliceSettings), id, session().input_revisions[id]]));
 assert.ok(!(sliced.warnings ?? []).some(warning => /outside the printable area/.test(warning)), JSON.stringify(sliced));
-const exported = must(exportGcode(callJson, sliced.receipt));
+const exported = must(exportGcode(callJson, { receipt: sliced.receipt, filenameBase: '' }));
 const gcode = Module.FS.readFile(exported.path, { encoding: 'utf8' });
 assert.match(gcode, /wipe_tower_x = -60\b/);
 assert.match(gcode, /wipe_tower_y = -50\b/);
@@ -156,7 +156,7 @@ const secondPreview = tower(id);
 assertInside(secondPreview);
 const secondSlice = must(await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify(sliceSettings), id, session().input_revisions[id]]));
-const secondExport = must(exportGcode(callJson, secondSlice.receipt));
+const secondExport = must(exportGcode(callJson, { receipt: secondSlice.receipt, filenameBase: '' }));
 const secondMotion = towerMotion(Module.FS.readFile(secondExport.path, { encoding: 'utf8' }));
 assertMotionMatchesPreview(secondMotion, secondPreview);
 for (const axis of ['x', 'y']) {

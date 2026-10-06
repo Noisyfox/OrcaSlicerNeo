@@ -139,9 +139,11 @@ interface LaunchResult {
 async function launchApp({
   initialTab = 'prepare',
   modelPath = MODEL_PATH,
+  nativeSaveDialog = false,
 }: {
   initialTab?: 'home' | 'prepare';
   modelPath?: string;
+  nativeSaveDialog?: boolean;
 } = {}): Promise<LaunchResult> {
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-e2e-'));
   const exportPath = join(exportDir, 'out.gcode');
@@ -154,6 +156,7 @@ async function launchApp({
   // Ambient shells sometimes carry ELECTRON_RUN_AS_NODE=1, which forces
   // Electron to run as plain node (the app cannot boot) — never valid here.
   delete env.ELECTRON_RUN_AS_NODE;
+  if (nativeSaveDialog) delete env.ORCA_E2E_EXPORT;
   // Headless CI Linux (xvfb): ANGLE-on-Mesa fails WebGL context creation
   // ("BindToCurrentSequence failed", llvmpipe) and three.js throws, unmounting
   // the React root (the Viewport error boundary keeps the app alive, but the
@@ -584,6 +587,38 @@ function selectionBoxWorldSegments(page: Page) {
     }).__orcaE2e?.selectionBoxWorldSegments?.() ?? null,
   );
 }
+
+test('native G-code Save As receives generated suggestion and supports cancellation before saving', async () => {
+  const { app, exportPath } = await launchApp({ nativeSaveDialog: true });
+  try {
+    await app.evaluate(({ dialog }, filePath) => {
+      const state = { calls: [] as Array<{ defaultPath?: string; filters?: unknown }> };
+      (globalThis as unknown as { gcodeSaveTest: typeof state }).gcodeSaveTest = state;
+      dialog.showSaveDialog = (async (_window: unknown, options: { defaultPath?: string; filters?: unknown }) => {
+        state.calls.push(options);
+        return state.calls.length === 1 ? { canceled: true } : { canceled: false, filePath };
+      }) as typeof dialog.showSaveDialog;
+    }, exportPath);
+    const page = await app.firstWindow();
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
+    await page.getByTestId('btn-export').click();
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { gcodeSaveTest: { calls: unknown[] } }).gcodeSaveTest.calls.length)).toBe(1);
+    expect(existsSync(exportPath)).toBe(false);
+    await expect(page.getByTestId('btn-export')).toBeEnabled();
+    await page.getByTestId('btn-export').click();
+    await expect.poll(() => existsSync(exportPath)).toBe(true);
+    const calls = await app.evaluate(() => (globalThis as unknown as { gcodeSaveTest: { calls: Array<{ defaultPath: string; filters: unknown }> } }).gcodeSaveTest.calls);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.defaultPath).toMatch(/^[^/\\]+\.gcode$/);
+      expect(call.filters).toEqual([{ name: 'G-code', extensions: ['gcode'] }]);
+    }
+    expect(readFileSync(exportPath, 'utf8')).toContain(';');
+  } finally { await app.close(); }
+});
 
 test('full v1 flow: add models → slice → preview → export gcode', async () => {
   const { app, exportPath } = await launchApp();

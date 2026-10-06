@@ -7,7 +7,7 @@ import {
   type PrinterConfigurationDocument,
   type UploadedGcode,
 } from '@orca/printer-control';
-import { updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
+import { gcodeFilenameBasename, updateUserPreferences, usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -15,9 +15,17 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
 export type SendGcodeAction = 'send' | 'send-and-print';
 type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled';
+
+function formatUploadBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KiB', 'MiB', 'GiB'];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)) - 1);
+  return `${(bytes / 1024 ** (index + 1)).toFixed(1)} ${units[index]}`;
+}
 
 function safeErrorMessage(error: unknown): string {
   if (error instanceof PrinterControlError) {
@@ -30,12 +38,6 @@ function safeErrorMessage(error: unknown): string {
   // Transport errors are deliberately not rendered. Host/network errors can
   // contain request headers or other sensitive details.
   return 'Could not send G-code. Check the printer configuration and connection.';
-}
-
-function fileNameFromPath(path: string): string {
-  const candidate = path.split(/[\\/]/).pop() ?? '';
-  if (!candidate || candidate === '.' || candidate === '..') return 'output.gcode';
-  return candidate.toLowerCase().endsWith('.gcode') ? candidate : `${candidate}.gcode`;
 }
 
 function unavailableReason(
@@ -89,6 +91,8 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [state, setState] = useState<SendState>('idle');
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
+  const [uploadSpeed, setUploadSpeed] = useState(0);
+  const uploadMeasurementRef = useRef<{ startedAt: number; loaded: number } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [closeCountdown, setCloseCountdown] = useState<number | null>(null);
   const [switchToDeviceAfterSend, setSwitchToDeviceAfterSend] = useState(true);
@@ -97,6 +101,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const operationRef = useRef(0);
   const serviceRef = useRef<PrinterControlService | null>(null);
   const uploadedRef = useRef<UploadedGcode | null>(null);
+  const uploadFilenameRef = useRef<{ receiptKey: string; fileName: string } | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const preferenceRef = useRef<UserPreferences | null>(null);
   const preferenceLoadGenerationRef = useRef(0);
@@ -111,7 +116,23 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const reason = unavailableReason(sliceReady, document.printers, selectedPrinter);
   const busy = state === 'loading' || state === 'uploading' || state === 'starting';
   const controlsDisabled = busy || state === 'success';
-  const progressValue = progress.fraction === undefined ? undefined : Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100);
+  const awaitingConfirmation = state === 'uploading' && progress.fraction !== undefined && progress.fraction >= 1;
+  const progressValue = state !== 'uploading' || progress.fraction === undefined
+    ? undefined : awaitingConfirmation ? 100 : Math.min(99, Math.round(Math.max(0, progress.fraction) * 100));
+  const progressLabel = state === 'starting' ? 'Starting print'
+    : awaitingConfirmation ? 'Waiting for printer confirmation' : 'Uploading G-code';
+
+  useEffect(() => {
+    if (state !== 'uploading' || awaitingConfirmation) return;
+    const timer = setInterval(() => {
+      const measurement = uploadMeasurementRef.current;
+      if (!measurement) return;
+      const elapsed = performance.now() - measurement.startedAt;
+      if (elapsed <= 0) return;
+      setUploadSpeed(measurement.loaded * 1000 / elapsed);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [state, awaitingConfirmation]);
 
   function clearCloseCountdown(resetState = true) {
     if (closeTimerRef.current !== null) {
@@ -147,7 +168,10 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     setState('loading');
     setMessage(null);
     setProgress({ loaded: 0 });
+    setUploadSpeed(0);
+    uploadMeasurementRef.current = null;
     uploadedRef.current = null;
+    uploadFilenameRef.current = null;
     serviceRef.current = null;
     void platform.printers.configuration.load().then((loaded) => {
       if (!active) return;
@@ -267,6 +291,8 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     abortRef.current = controller;
     setMessage(null);
     setProgress({ loaded: 0 });
+    setUploadSpeed(0);
+    uploadMeasurementRef.current = null;
     setState('uploading');
     try {
       const currentSession = await platform.runtime.getPlateSessionSnapshot();
@@ -286,17 +312,37 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       if (!receipt || receipt.inputStamp !== currentRevision || !liveReceipt ||
           receipt.resultGeneration !== liveReceipt.resultGeneration || receipt.sliceTaskId !== liveReceipt.sliceTaskId)
         throw new Error('current plate slice result is stale or unavailable');
-      const exported = await platform.runtime.exportGcodePlate(receipt);
-      if (!exported.ok) throw new Error('export failed');
+      const exported = await platform.runtime.exportGcodePlate({ receipt, filenameBase: projectFilenameBase(useProjectStore.getState()) });
+      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (!exported.ok) {
+        setState('error');
+        setMessage(exported.error);
+        return;
+      }
       const documentSnapshot = normalizePrinterConfigurationDocument(document);
       const service = new PrinterControlService(documentSnapshot, platform.printers.transport);
       serviceRef.current = service;
-      const input = { bytes: exported.bytes, fileName: fileNameFromPath(exported.path) };
-      if (action === 'send') {
-        uploadedRef.current = await service.uploadOnly(selectedId, input, setProgress, controller.signal);
-      } else {
-        const result = await service.uploadThenStart(selectedId, input, setProgress, controller.signal);
-        uploadedRef.current = result.uploaded;
+      const receiptKey = JSON.stringify([receipt.plateId, receipt.inputStamp, receipt.resultGeneration, receipt.sliceTaskId]);
+      if (uploadFilenameRef.current?.receiptKey !== receiptKey) {
+        uploadFilenameRef.current = { receiptKey, fileName: gcodeFilenameBasename(exported.fileName) };
+      }
+      const input = { bytes: exported.bytes, fileName: uploadFilenameRef.current.fileName };
+      uploadMeasurementRef.current = { startedAt: performance.now(), loaded: 0 };
+      const uploaded = await service.uploadOnly(selectedId, input, (next) => {
+        if (operation !== operationRef.current) return;
+        uploadMeasurementRef.current!.loaded = next.loaded;
+        setProgress(next);
+      }, controller.signal);
+      uploadedRef.current = uploaded;
+      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (action === 'send-and-print') {
+        setState('starting');
+        try {
+          await service.startPrint(selectedId, uploaded);
+        } catch (error) {
+          throw new PrinterControlError('start-failed-after-upload', 'Print start failed after upload', 'start',
+            error instanceof PrinterControlError ? error.status : undefined, uploaded);
+        }
       }
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       setState('success');
@@ -360,9 +406,15 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         </div>
         {reason && <p className="text-sm text-muted-foreground" role="status" data-testid="send-disabled-reason">{reason}</p>}
         {busy && (
-          <div className="space-y-2" data-testid="send-progress-status" role="status" aria-live="polite">
-            <Progress value={progressValue ?? null} aria-label={state === 'starting' ? 'Starting print' : 'Uploading G-code'} />
-            <p className="text-sm text-muted-foreground">{state === 'starting' ? 'Starting print…' : 'Uploading G-code…'}{progressValue === undefined ? '' : ` ${progressValue}%`}</p>
+          <div className="flex flex-col gap-2" data-testid="send-progress-status" role="status" aria-live="polite">
+            <Progress value={progressValue ?? null} aria-label={progressLabel} />
+            <p className="text-sm text-muted-foreground">{progressLabel}…{progressValue === undefined ? '' : ` ${progressValue}%`}</p>
+            {state === 'uploading' && (
+              <p className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-muted-foreground tabular-nums" data-testid="send-transfer-stats">
+                <span>{formatUploadBytes(progress.loaded)} / {progress.total === undefined ? 'Unknown' : formatUploadBytes(progress.total)}</span>
+                <span>{((awaitingConfirmation ? 0 : uploadSpeed) / 1024).toFixed(1)} KiB/s</span>
+              </p>
+            )}
           </div>
         )}
         {message && !busy && <p className={`text-sm ${state === 'error' || state === 'start-failed-after-upload' ? 'text-destructive' : 'text-muted-foreground'}`} role={state === 'error' || state === 'start-failed-after-upload' ? 'alert' : 'status'} data-testid="send-operation-message" data-error-code={state === 'start-failed-after-upload' ? 'start-failed-after-upload' : undefined}>{message}</p>}
@@ -379,7 +431,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
             <Label htmlFor="send-switch-to-device">Switch to Device page after sending</Label>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{busy ? 'Cancel' : 'Close'}</Button>
+            <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{state === 'uploading' || state === 'loading' ? 'Cancel' : 'Close'}</Button>
             {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}
             <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
           </div>

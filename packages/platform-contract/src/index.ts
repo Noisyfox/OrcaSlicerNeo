@@ -3,6 +3,7 @@ export * from './menu';
 export * from './context';
 export * from './colorPicker';
 export * from './preferenceUpdates';
+export * from './gcodeFilename';
 export type {
   StableObjectId, StablePartId, StableInstanceId, StablePlateId,
   HistorySelectionMode, HistorySelection, HistoryJsonValue, HistoryJsonObject,

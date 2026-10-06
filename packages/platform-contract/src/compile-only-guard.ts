@@ -9,7 +9,7 @@ import type { MenuCommandId, PlatformMenu } from './menu';
 // platform-contract import guard and must remain free of host/runtime imports.
 export const fakeCapabilities: PlatformCapabilities = {
   models: { async pick() { return null; } } satisfies ModelImporter,
-  exports: { async save() {} } satisfies GcodeExporter,
+  exports: { async save() { return { status: 'saved' as const }; } } satisfies GcodeExporter,
   downloads: { async download() {} } satisfies FileDownloader,
   projects: {
     async open() { return { status: 'cancelled' as const }; },

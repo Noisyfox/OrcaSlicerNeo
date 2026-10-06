@@ -6,6 +6,7 @@ import { PlatformProvider, type PlatformCapabilities, type UserPreferences } fro
 import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/printer-control';
 import { SendGcodeDialog } from './SendGcodeDialog';
 import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useProjectStore } from '@/stores/useProjectStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 
 // jsdom does not provide PointerEvent, while Base UI's checkbox click path
@@ -22,6 +23,7 @@ class FixtureTransport implements PrinterTransport {
   responses: unknown[] = [];
   statuses: number[] = [];
   pending = false;
+  finish?: () => void;
   async request(request: PrinterTransportRequest): Promise<PrinterTransportResponse> {
     this.requests.push(request);
     request.onUploadProgress?.({ loaded: 5, total: 10 });
@@ -29,6 +31,7 @@ class FixtureTransport implements PrinterTransport {
       await new Promise<void>((resolve, reject) => {
         const signal = request.signal;
         const done = () => { signal?.removeEventListener('abort', abort); resolve(); };
+        this.finish = done;
         const abort = () => { signal?.removeEventListener('abort', abort); reject(new DOMException('aborted', 'AbortError')); };
         signal?.addEventListener('abort', abort, { once: true });
       });
@@ -46,7 +49,7 @@ function makePlatform(
   let preferences = preferenceValue;
   const runtime = {
     getPlateSessionSnapshot: vi.fn(async () => usePlateSessionStore.getState().snapshot!),
-    exportGcodePlate: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
+    exportGcodePlate: vi.fn(async () => ({ ok: true, fileName: 'output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
   };
   return {
     platform: {
@@ -103,6 +106,7 @@ async function choosePrinter(container: HTMLElement, id: string) {
 describe('SendGcodeDialog', () => {
   let roots: Root[] = [];
   beforeEach(() => {
+    useProjectStore.setState({ projectFileName: null });
     const receipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' };
     usePlateSessionStore.getState().setSnapshot({ ok: true, version: 1, currentPlateId: 'plate-1',
       plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'Plate 1', origin: [0, 0, 0], instanceIds: [1] }],
@@ -130,7 +134,7 @@ describe('SendGcodeDialog', () => {
     const { platform, runtime } = makePlatform(transport);
     const { container, root } = await render(platform, 'send', 'p1', undefined, undefined, receipt); roots.push(root);
     await click(container, 'send-submit');
-    expect(runtime.exportGcodePlate).toHaveBeenCalledWith(receipt);
+    expect(runtime.exportGcodePlate).toHaveBeenCalledWith({ receipt, filenameBase: '' });
     expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('plate-2');
     expect(transport.requests).toHaveLength(1);
   });
@@ -208,6 +212,167 @@ describe('SendGcodeDialog', () => {
     await click(container, 'send-close');
     expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('cancelled');
     expect(transport.requests[0].signal?.aborted).toBe(true);
+  });
+
+  it.each(['failed', 'stale'] as const)('shows native %s errors and never uploads a failed export', async (status) => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform, runtime } = makePlatform(transport);
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: false, status, error: 'Processing of the filename_format template failed: unknown variable' } as never);
+    const { container, root } = await render(platform, 'send', 'p1'); roots.push(root);
+    await click(container, 'send-submit');
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('filename_format template failed: unknown variable');
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it.each([false, true])('passes actual project basename and retains upload retry name unless receipt changed=%s', async (receiptChanged) => {
+    useProjectStore.setState({ projectFileName: 'Real Untitled.3mf' });
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport(); transport.statuses.push(500, 200);
+    const { platform, runtime } = makePlatform(transport);
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: true, fileName: 'folder/generated"<>:?*.GCODE', bytes: new Uint8Array([1]) });
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: true, fileName: 'folder/later-timestamp.GCODE', bytes: new Uint8Array([1]) });
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    if (receiptChanged) {
+      const result = useSlicerStore.getState().plateResults['plate-1'];
+      await act(async () => { useSlicerStore.setState({ plateResults: { 'plate-1': { ...result, receipt: { ...result.receipt, resultGeneration: '2', sliceTaskId: '2' } } } }); });
+    }
+    await click(container, 'send-submit');
+    expect(runtime.exportGcodePlate).toHaveBeenCalledTimes(2);
+    expect(runtime.exportGcodePlate).toHaveBeenNthCalledWith(1, expect.objectContaining({ filenameBase: 'Real Untitled' }));
+    expect(runtime.exportGcodePlate).toHaveBeenNthCalledWith(2, expect.objectContaining({ filenameBase: 'Real Untitled' }));
+    expect(transport.requests.map(request => request.body)).toEqual([
+      { kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName: 'generated"<>:?*.GCODE', bytes: new Uint8Array([1]) } },
+      { kind: 'multipart', fields: { root: 'gcodes' }, file: { fileName: receiptChanged ? 'later-timestamp.GCODE' : 'generated"<>:?*.GCODE', bytes: new Uint8Array([1]) } },
+    ]);
+    expect(container.querySelector('input[type="text"]')).toBeNull();
+  });
+
+  it('revalidates export on upload retry and does not reuse a name after a template failure', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport(); transport.statuses.push(500);
+    const { platform, runtime } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: false, status: 'failed', error: 'filename_format changed and failed' } as never);
+    await click(container, 'send-submit');
+    expect(runtime.exportGcodePlate).toHaveBeenCalledTimes(2);
+    expect(transport.requests).toHaveLength(1);
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('filename_format changed and failed');
+  });
+
+  it('does not round an incomplete transfer up to 100%', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.pending = true;
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    await act(async () => { transport.requests[0].onUploadProgress?.({ loaded: 999, total: 1000 }); });
+    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('99%');
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('99');
+    await click(container, 'send-close');
+  });
+
+  it('shows cumulative average KiB/s from upload start, includes reporting gaps, and resets on retry', async () => {
+    vi.useFakeTimers();
+    const now = vi.spyOn(performance, 'now').mockReturnValue(100);
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.pending = true;
+    const { platform, runtime } = makePlatform(transport);
+    runtime.exportGcodePlate.mockImplementationOnce(async () => {
+      now.mockReturnValue(1000);
+      return { ok: true, fileName: 'output.gcode', bytes: new Uint8Array([1, 2, 3]) };
+    });
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    try {
+      await click(container, 'send-submit');
+      const stats = () => container.querySelector('[data-testid="send-transfer-stats"]')?.textContent;
+      expect(stats()).toContain('5 B / 10 B');
+      expect(stats()).toContain('0.0 KiB/s');
+      await act(async () => {
+        transport.requests[0].onUploadProgress?.({ loaded: 8192, total: 16384 });
+        now.mockReturnValue(1500);
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(stats()).toContain('8.0 KiB / 16.0 KiB');
+      expect(stats()).toContain('16.0 KiB/s');
+      await act(async () => {
+        transport.requests[0].onUploadProgress?.({ loaded: 12288, total: 16384 });
+        now.mockReturnValue(2000);
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(stats()).toContain('12.0 KiB/s');
+      await act(async () => { now.mockReturnValue(2500); await vi.advanceTimersByTimeAsync(500); });
+      expect(stats()).toContain('8.0 KiB/s');
+      await act(async () => { now.mockReturnValue(3500); await vi.advanceTimersByTimeAsync(1000); });
+      expect(stats()).toContain('4.8 KiB/s');
+      await act(async () => {
+        transport.requests[0].onUploadProgress?.({ loaded: 14336, total: 16384 });
+        now.mockReturnValue(4000);
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      // 14 KiB over the full three seconds since upload began.
+      expect(stats()).toContain('4.7 KiB/s');
+      await click(container, 'send-close');
+      await click(container, 'send-submit');
+      expect(stats()).toContain('5 B / 10 B');
+      expect(stats()).toContain('0.0 KiB/s');
+      await act(async () => {
+        transport.requests[1].onUploadProgress?.({ loaded: 1048576 });
+      });
+      expect(stats()).toContain('1.0 MiB / Unknown');
+      await click(container, 'send-close');
+    } finally { now.mockRestore(); }
+  });
+
+  it.each(['success', 'cancel', 'error'] as const)('waits for printer confirmation before upload %s', async (ending) => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.pending = true;
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    await click(container, 'send-submit');
+    await act(async () => { transport.requests[0].onUploadProgress?.({ loaded: 10, total: 10 }); });
+    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('Waiting for printer confirmation');
+    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('100%');
+    expect(container.querySelector('[data-testid="send-transfer-stats"]')?.textContent).toContain('10 B / 10 B');
+    expect(container.querySelector('[data-testid="send-transfer-stats"]')?.textContent).toContain('0.0 KiB/s');
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('100');
+    expect(container.querySelector('[data-testid="send-operation-message"]')).toBeNull();
+    expect(container.querySelector('[data-testid="send-auto-close-countdown"]')).toBeNull();
+    if (ending === 'cancel') {
+      await click(container, 'send-close');
+      expect(transport.requests[0].signal?.aborted).toBe(true);
+      expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('cancelled');
+    } else {
+      if (ending === 'error') transport.statuses.push(500);
+      await act(async () => { transport.finish!(); });
+      expect(container.querySelector('[data-testid="send-progress-status"]')).toBeNull();
+      expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent)
+        .toContain(ending === 'success' ? 'uploaded' : 'Could not send');
+    }
+  });
+
+  it('shows indeterminate print-start status after confirmed upload', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const original = transport.request.bind(transport);
+    transport.request = async (request) => {
+      if (request.url.endsWith('/printer/print/start')) transport.pending = true;
+      return original(request);
+    };
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send-and-print'); roots.push(root);
+    await click(container, 'send-submit');
+    expect(transport.requests).toHaveLength(2);
+    expect(container.querySelector('[data-testid="send-progress-status"] p')?.textContent).toBe('Starting print…');
+    expect(container.querySelector('[data-testid="send-transfer-stats"]')).toBeNull();
+    expect(container.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false);
+    await act(async () => { transport.finish!(); });
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('print started');
   });
 
   it('keeps the switch option in the action row and disables editable controls while uploading', async () => {

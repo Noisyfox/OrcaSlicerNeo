@@ -66,7 +66,7 @@ function layerSteps(gcode) {
 }
 
 function firstExportedLayerSteps(receipt) {
-  const exported = requireOk('export gcode', exportGcode(callJson, receipt));
+  const exported = requireOk('export gcode', exportGcode(callJson, { receipt: receipt, filenameBase: '' }));
   return { exported, steps: layerSteps(Buffer.from(Module.FS.readFile(exported.path)).toString('utf8')) };
 }
 

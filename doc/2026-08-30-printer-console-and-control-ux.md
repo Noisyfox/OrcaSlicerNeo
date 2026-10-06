@@ -107,7 +107,26 @@ path. Compatibility is determined when the requested operation runs rather
 than by a separate setup check.
 
 The dialog shows upload progress and allows cancellation while an upload is
-in progress. If Send & Print uploads successfully but starting the print
+in progress. It displays sent/total byte sizes in binary units (B, KiB, MiB,
+GiB), together with cumulative average speed in KiB/s. Every 500 ms, speed is
+calculated as all bytes sent divided by elapsed time since the upload request
+began, using the monotonic clock and excluding G-code export time. Reporting
+gaps remain part of elapsed time rather than producing zero-byte sampling
+windows. Each upload resets the measurement. When the browser
+cannot determine the total size, the total is displayed as “Unknown”.
+
+Electron writes the HTTP body in bounded chunks and reports intermediate byte
+counts under socket backpressure. These counts describe bytes accepted by the
+local network stack. After all bytes are sent, the dialog shows a 100% progress
+bar and “Waiting for printer confirmation… 100%” status with complete byte counts and
+0.0 KiB/s. Transfer percentages never round an incomplete transfer up to 100%.
+Upload success requires a successful response with a valid remote file path.
+Send & Print then shows a separate indeterminate “Starting print…” status and
+hides upload statistics. Cancellation remains available while waiting for
+upload confirmation. Web uses browser-native XMLHttpRequest upload progress
+events for byte counts; it does not split the file into separate upload requests.
+
+If Send & Print uploads successfully but starting the print
 fails, the dialog explains that the file is already on the printer and offers
 a start-only retry. Retrying does not upload the file again.
 
@@ -127,3 +146,75 @@ iframe console experience and does not inject scripts into the embedded page.
 Both platforms retain the same printer configuration, independent selections,
 Moonraker Send/Send & Print behavior, and best-effort handling of actual
 network or printer failures.
+
+## G-code filename generation
+
+Export and Send obtain the recommended filename from the completed plate's
+retained native `Print::output_filename()` and original Orca ASCII folding
+(`fold_utf8_to_ascii(..., false)`). The retained Print owns that generation's
+model, configuration and final statistics. Naming validates the slice receipt,
+rejects active slicing and stale results, and reads the existing immutable
+G-code source without another export pass. Timestamp placeholders are evaluated
+for each naming operation. The project's actual opened or saved filename
+supplies a basename override; an unsaved session supplies an empty override so
+Orca derives the name from printable objects.
+
+The typed runtime request requires both `receipt` and `filenameBase`; successful
+results expose only `fileName` and `bytes`. The temporary path remains private
+to the native bridge and typed client. Send uses the generated basename directly
+without a rename control. Existing extensions are preserved by the native naming
+logic; neither ASCII folding nor the naming API performs business-level illegal
+character replacement.
+
+Export suggests the generated basename to the host. Electron uses its native
+Save As dialog with a filter derived from the generated extension and reports
+cancellation separately from a completed write. Web starts a browser download
+directly with the generated basename, preserving arbitrary extensions and their
+case. The application adds no filename validation or replacement; the native
+dialog or browser handles platform restrictions and any user rename. A cancelled
+native save does not mark the slice result as exported. Web cannot observe the
+browser's final saved filename or whether the user cancels its download prompt.
+
+Send retains the first successfully generated basename while retrying an upload
+of the same slice receipt. Each retry still revalidates the native export; a
+stale receipt or filename template error prevents another upload. Reopening the
+dialog or using another receipt creates a new naming operation. Print start and
+its retry use the actual path returned by Moonraker, rather than the local name.
+
+Native multipart header encoding uses quoted-pairs for quotes and backslashes;
+CR/LF are percent-encoded to keep them out of header lines. Web uses browser
+FormData encoding. Chromium percent-encodes a quote as `%22`, and Moonraker's
+StreamingFormDataParser uses Python's HTTP email header parser, which does not
+URL-decode plain `filename` parameters. Consequently browser wire encoding can
+affect the printer-side name of unusual characters; the application does not
+replace those characters or claim identical decoded names across hosts.
+
+The focused real-WASM naming contract is
+`node packages/slicer-wasm/harness/gcode-filename-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+It covers template defaults, empty/custom formats, real statistics, per-plate
+names/numbers, Unicode folding, extensions, template errors, per-operation
+timestamps, generation reuse and stale receipts.
+
+## Upload verification
+
+`pnpm test` and `pnpm typecheck` cover the shared component and both host
+boundaries. The upload tests include a real 32 MiB HTTP request paused at the
+receiver, byte-for-byte multipart fidelity, write failures, cancellation and
+late callbacks. Component tests cover cumulative average speed, delayed progress events,
+reset on retry, unknown totals, confirmation waiting and print-start staging.
+
+The Electron mock validation uses `VITE_USE_MOCK=1` with
+`pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, followed by
+`pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` and
+`pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts e2e/app.e2e.ts --grep 'Send|Device config|full v1 flow'`.
+The fixture holds the upload response until the UI shows complete byte counts,
+zero speed and confirmation waiting at 100%, then verifies success and
+start-only retry. Filename coverage includes project identity, native generated
+names, arbitrary extensions, cancelled saves, upload retries and multipart
+encoding. Handoff verification quick-builds both WASM variants, runs native
+bridge/slicing and filename harnesses, and checks real Web download/Send/project
+save seams using freshly staged artifacts. Electron checks include the primary
+shared application flow, project lifecycle, native Save As and Send; its real
+threaded runtime probe covers host-backed export and temporary-file cleanup.
+Physical-printer and minutes-long real-network transfer verification remain
+outside the available local fixtures.

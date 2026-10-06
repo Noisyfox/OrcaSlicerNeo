@@ -131,7 +131,7 @@ const settle=()=>ok(command('orc_painting_settle',{version:1}));
 async function slice(label){
   const p=plates(),id=p.current_plate_id;
   const result=ok(await callAsyncTask(call,'orc_slice_plate',['string','string','number'],['{}',id,p.input_revisions[id]]));
-  const exported=ok(exportGcode(call,result.receipt));const gcode=Module.FS.readFile(exported.path,{encoding:'utf8'});if(exported.bytes_ptr)Module._free(exported.bytes_ptr);
+  const exported=ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));const gcode=Module.FS.readFile(exported.path,{encoding:'utf8'});if(exported.bytes_ptr)Module._free(exported.bytes_ptr);
   await writeFile(resolve(output,label+'.gcode'),gcode);
   let feature='',count=0,tool=0;const supportTools=new Set();for(const line of gcode.split('\n')){if(/^T\d+$/.test(line))tool=Number(line.slice(1));if(line.startsWith(';TYPE:'))feature=line.slice(6);if(feature.includes('Support')&&/^G[0123] /.test(line)&&/\bE[\d.]+/.test(line)){count++;supportTools.add(tool);}}
   return {count,supportTools:[...supportTools],receipt:result.receipt,warnings:result.warnings};
@@ -143,7 +143,7 @@ for(const p of initialTower.plates)assert.deepEqual(p.used_slots,[1,2],'native m
 stroke('orc_painting_stroke_begin',{tool:'sphere',settings:{state:1,radius:50},event:bottomEvent()});const enforcedCommit=commit();
 assert.ok(refresh().parts[0].facetCounts[1]>0);assert.equal(enforcedCommit.committed,true);
 const afterPlate=plates();for(const id of enforcedCommit.affectedPlateIds)assert.ok(afterPlate.input_revisions[id]>beforePlate.input_revisions[id]);
-assert.equal(afterPlate.input_revisions[unaffectedPlate],beforePlate.input_revisions[unaffectedPlate]);assert.equal(exportGcode(call,baseline.receipt).ok,false,'affected old receipt is stale');ok(call('orc_select_plate',['string'],[unaffectedPlate]));const retainedExport=ok(exportGcode(call,unaffected.receipt));if(retainedExport.bytes_ptr)Module._free(retainedExport.bytes_ptr);ok(call('orc_select_plate',['string'],[originalPlate]));
+assert.equal(afterPlate.input_revisions[unaffectedPlate],beforePlate.input_revisions[unaffectedPlate]);assert.equal(exportGcode(call, { receipt: baseline.receipt, filenameBase: '' }).ok,false,'affected old receipt is stale');ok(call('orc_select_plate',['string'],[unaffectedPlate]));const retainedExport=ok(exportGcode(call, { receipt: unaffected.receipt, filenameBase: '' }));if(retainedExport.bytes_ptr)Module._free(retainedExport.bytes_ptr);ok(call('orc_select_plate',['string'],[originalPlate]));
 assert.deepEqual(unrelated(savedBytes()),fieldsBefore);assert.deepEqual(savedConfig(),configBefore,'brush does not mutate native support configuration/routing');
 const enforcedTower=towers();for(const p of enforcedTower.plates)assert.deepEqual(p.used_slots,[1,2]);const enforcedSettlement=settle();
 assert.deepEqual(enforcedSettlement.projections.materials.revisions.plates,afterPlate.input_revisions);assert.equal(enforcedSettlement.projections.materials.revisions.session,enforcedCommit.history.revision);assert.deepEqual(enforcedSettlement.projections.primeTower,enforcedTower);

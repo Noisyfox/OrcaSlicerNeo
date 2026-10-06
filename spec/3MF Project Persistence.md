@@ -71,11 +71,18 @@
 ## Project identity and unsaved changes
 
 - An opened project uses its source-file base name as its project name. A new
-  session or a geometry-only import uses the project name **Untitled**.
+  session uses the project name **Untitled**. Geometry-only import preserves
+  the current project's name and file identity, including an unsaved session.
 - The suggested name for a first save or Save Project As… is
   `<project-name>.3mf`. A successful Electron save updates the session's
   project path and name. The Web host uses the same suggested download name
   without retaining an overwrite path.
+- The shared session separately retains the actual opened or saved display
+  filename, or no filename for a new unsaved session. Both hosts report the
+  actual filename on successful save. This identity does not depend on an
+  overwrite location or on whether the name is **Untitled**; it supplies the
+  project basename for G-code naming. Cancelling or failing a save preserves
+  the prior name and identity.
 - Model and layout changes, object-structure changes, project-setting changes,
   and preset-selection changes mark the project as having unsaved changes.
   Geometry-only import also marks the existing session as changed.

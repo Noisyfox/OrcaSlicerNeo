@@ -52,8 +52,8 @@ async function setup(preloadFilament = false) {
   frames.shift()?.(); await vi.waitFor(() => expect(controller.getSnapshot().display).not.toBeNull());
   useProjectStore.getState().setProject({ hasContent: true });
   const platform = { runtime,
-    projects: { save: vi.fn(async () => ({ status: 'ok' })), saveAs: vi.fn(async () => ({ status: 'ok' })), open: vi.fn(async () => ({ status: 'cancelled' })) },
-    models: { pick: vi.fn(async () => null) }, exports: { save: vi.fn() }, preferences: { load: vi.fn(async () => ({})) },
+    projects: { save: vi.fn(async () => ({ status: 'ok', displayName: 'Untitled.3mf' })), saveAs: vi.fn(async () => ({ status: 'ok', displayName: 'Untitled.3mf' })), open: vi.fn(async () => ({ status: 'cancelled' })) },
+    models: { pick: vi.fn(async () => null) }, exports: { save: vi.fn(async () => ({ status: 'saved' as const })) }, preferences: { load: vi.fn(async () => ({})) },
   } as unknown as PlatformCapabilities;
   return { runtime, controller, object, platform, filamentReads };
 }
@@ -135,12 +135,12 @@ describe('shared painting command admission', () => {
   });
   it('holds Save reservation through the host write, retaining painter and expanded history', async () => {
     const { runtime, controller: c, platform } = await setup();
-    const write = deferred<{ status: 'ok' }>(); vi.mocked(platform.projects.save).mockReturnValueOnce(write.promise);
+    const write = deferred<{ status: 'ok'; displayName: string }>(); vi.mocked(platform.projects.save).mockReturnValueOnce(write.promise);
     const close = vi.spyOn(runtime, 'closeHistorySession');
     const saved = saveProject(platform);
     await vi.waitFor(() => expect(platform.projects.save).toHaveBeenCalledTimes(1));
     expect(await c.press(event)).toBe('ignored');
-    write.resolve({ status: 'ok' }); expect((await saved).status).toBe('ok');
+    write.resolve({ status: 'ok', displayName: 'Untitled.3mf' }); expect((await saved).status).toBe('ok');
     expect(close).not.toHaveBeenCalled(); expect(c.getSnapshot().phase).toBe('idle');
     expect((await runtime.getHistoryStatus()).dirty).toBe(false);
   });
@@ -197,7 +197,7 @@ describe('shared painting command admission', () => {
     expect(c.getSnapshot().settings.state).toBe(1);
     c.resetProjectPalette(); expect(c.getSnapshot().settings).toMatchObject({ state: 1, radius: 9 });
   });
-  it('exports only an existing valid G-code result after settling and keeps the painter open', async () => {
+  it.each(['saved', 'cancelled'] as const)('exports only an existing valid G-code result with save outcome %s and keeps the painter open', async (status) => {
     const { runtime, controller: c, platform } = await setup();
     const session = await runtime.getPlateSessionSnapshot();
     if (!session.ok) throw new Error('missing plates');
@@ -207,10 +207,12 @@ describe('shared painting command admission', () => {
     store.setPlateResult(receipt, [], {}); store.activatePlateResult(plateId, inputStamp);
     const settle = vi.spyOn(runtime, 'settlePainting');
     const slice = vi.spyOn(runtime, 'slicePlate');
-    const exported = vi.spyOn(runtime, 'exportGcodePlate').mockResolvedValue({ ok: true, path: '/output.gcode', bytes: new Uint8Array([1]) });
+    const exported = vi.spyOn(runtime, 'exportGcodePlate').mockResolvedValue({ ok: true, fileName: 'output.gcode', bytes: new Uint8Array([1]) });
+    vi.mocked(platform.exports.save).mockResolvedValue({ status });
     await exportGcode(platform);
-    expect(settle).toHaveBeenCalledTimes(1); expect(exported).toHaveBeenCalledWith(receipt);
+    expect(settle).toHaveBeenCalledTimes(1); expect(exported).toHaveBeenCalledWith({ receipt, filenameBase: '' });
     expect(platform.exports.save).toHaveBeenCalledTimes(1); expect(c.getSnapshot().phase).toBe('idle');
+    expect(useSlicerStore.getState().resultExported).toBe(status === 'saved');
     store.invalidateSliceResult(); vi.spyOn(console, 'error').mockImplementation(() => {});
     await exportGcode(platform);
     expect(exported).toHaveBeenCalledTimes(1); expect(slice).not.toHaveBeenCalled();

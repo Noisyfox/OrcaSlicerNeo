@@ -22,7 +22,7 @@ import type {
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, ModelScenePatchResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
-  ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  ExportGcodeRequest, ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   AddVolumeRequest, AddVolumeResult, ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
@@ -2827,20 +2827,23 @@ export function createClient(
       };
     },
 
-    async exportGcodePlate(receipt: SliceResultReceipt): Promise<ExportGcodeResult> {
+    async exportGcodePlate({ receipt, filenameBase }: ExportGcodeRequest): Promise<ExportGcodeResult> {
       const m = await module();
       const generation = Number(receipt.resultGeneration);
       if (!Number.isSafeInteger(generation) || generation < 1)
-        return { ok: false, path: '', bytes: new Uint8Array(0), error: 'invalid result generation' };
-      const r = callJson(m, 'orc_export_gcode_plate', ['string', 'number', 'number'], [
-        receipt.plateId, receipt.inputStamp, generation,
-      ]) as { ok: boolean; status?: ResultReadStatus; path?: string; error?: string };
+        return { ok: false, status: 'failed', error: 'invalid result generation' };
+      const r = callJson(m, 'orc_export_gcode_plate', ['string'], [JSON.stringify({
+        receipt: { plate_id: receipt.plateId, input_stamp: receipt.inputStamp, result_generation: generation },
+        filename_base: filenameBase,
+      })]) as { ok: boolean; status?: ResultReadStatus; path?: string; file_name?: string; error?: string };
       if (!r.ok) return {
-        ok: false, status: r.status ?? 'failed', path: '', bytes: new Uint8Array(0), error: r.error,
+        ok: false, status: r.status === 'stale' || r.status === 'unavailable' ? r.status : 'failed', error: r.error ?? 'G-code export failed',
       };
-      const path = r.path ?? '';
+      if (typeof r.path !== 'string' || !r.path || typeof r.file_name !== 'string' || !r.file_name)
+        return { ok: false, status: 'failed', error: 'invalid G-code export response' };
+      const path = r.path;
       const bytes = m.FS.readFile(path);
-      return { ok: true, path, bytes };
+      return { ok: true, fileName: r.file_name, bytes };
     },
 
     async exportProject(): Promise<ExportProjectResult> {

@@ -205,8 +205,8 @@ describe('worker protocol', () => {
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.slice({ layer_height: '0.3' }))
       .resolves.toMatchObject({ error: 'slice_busy' });
-    await expect(workerClient.exportGcodePlate({ plateId: 'plate-1', inputStamp: 0,
-      resultGeneration: '1', sliceTaskId: '1' })).resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.exportGcodePlate({ receipt: { plateId: 'plate-1', inputStamp: 0,
+      resultGeneration: '1', sliceTaskId: '1' }, filenameBase: '' })).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cancel()).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.openHistorySession()).rejects.toThrow('slice_busy');
     await expect(workerClient.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: 'h1', objectId: 1, instanceId: 2 }))

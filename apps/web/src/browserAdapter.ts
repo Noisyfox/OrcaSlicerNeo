@@ -1,5 +1,6 @@
 import {
   MODEL_FILE_ACCEPT,
+  gcodeFilenameBasename,
   normalizeUserPreferences,
   type ProjectFileCapability,
   type ProjectInput,
@@ -99,16 +100,16 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     },
     async save(input) {
       try {
-        await downloadProject(input);
-        return { status: 'ok' as const };
+        const displayName = await downloadProject(input);
+        return { status: 'ok' as const, displayName };
       } catch (error) {
         return { status: 'failed' as const, error };
       }
     },
     async saveAs(input) {
       try {
-        await downloadProject(input);
-        return { status: 'ok' as const };
+        const displayName = await downloadProject(input);
+        return { status: 'ok' as const, displayName };
       } catch (error) {
         return { status: 'failed' as const, error };
       }
@@ -227,18 +228,21 @@ export function pickProjects(): Promise<ProjectInput[]> {
   });
 }
 
-export async function downloadProject(input: ProjectInput): Promise<void> {
+export async function downloadProject(input: ProjectInput): Promise<string> {
   const href = URL.createObjectURL(new Blob([input.bytes.slice().buffer as ArrayBuffer], { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' }));
   const link = document.createElement('a'); link.href = href;
   link.download = input.displayName.toLowerCase().endsWith('.3mf') ? input.displayName : `${input.displayName}.3mf`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(href), 0);
+  return link.download;
 }
 
-export async function downloadGcode(defaultName: string, bytes: Uint8Array): Promise<void> {
+export async function downloadGcode(fileName: string, bytes: Uint8Array): Promise<{ status: 'saved' }> {
+  fileName = gcodeFilenameBasename(fileName);
   const href = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'text/plain;charset=utf-8' }));
-  const link = document.createElement('a'); link.href = href; link.download = defaultName.endsWith('.gcode') ? defaultName : `${defaultName}.gcode`; link.click();
+  const link = document.createElement('a'); link.href = href; link.download = fileName; link.click();
   setTimeout(() => URL.revokeObjectURL(href), 0);
+  return { status: 'saved' };
 }
 
 async function downloadFile(fileName: string, bytes: Uint8Array): Promise<void> {

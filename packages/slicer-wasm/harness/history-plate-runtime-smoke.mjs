@@ -91,10 +91,10 @@ if (!(afterUndoStamps[plateA] > afterEditStamps[plateA]) || afterUndoStamps[plat
   throw new Error(`undo stamp reconciliation failed: ${JSON.stringify({ afterEditStamps, afterUndoStamps })}`);
 requireOk('select retained B after Undo', callJson('orc_select_plate', ['string'], [plateB]));
 requireOk('unaffected B retains its presentation after Undo', getSliceResult(callJson, sliceB.receipt));
-requireOk('unaffected B retains its G-code after Undo', exportGcode(callJson, sliceB.receipt));
+requireOk('unaffected B retains its G-code after Undo', exportGcode(callJson, { receipt: sliceB.receipt, filenameBase: '' }));
 requireOk('select changed A after Undo', callJson('orc_select_plate', ['string'], [plateA]));
 requireStale('A never republishes historical presentation on Undo', getSliceResult(callJson, sliceA.receipt));
-requireStale('A export rejects the pre-history target after Undo', exportGcode(callJson, sliceA.receipt));
+requireStale('A export rejects the pre-history target after Undo', exportGcode(callJson, { receipt: sliceA.receipt, filenameBase: '' }));
 
 const redone = requireStatus('Redo A edit', callJson('orc_history_redo'));
 if (JSON.stringify(redone.affected_plate_ids) !== JSON.stringify([plateA]))
@@ -104,7 +104,7 @@ if (!(afterRedoStamps[plateA] > afterUndoStamps[plateA]) || afterRedoStamps[plat
   throw new Error(`redo stamp reconciliation failed: ${JSON.stringify({ afterUndoStamps, afterRedoStamps })}`);
 requireOk('select retained B after Redo', callJson('orc_select_plate', ['string'], [plateB]));
 requireOk('unaffected B retains its presentation after Redo', getSliceResult(callJson, sliceB.receipt));
-requireOk('unaffected B retains its G-code after Redo', exportGcode(callJson, sliceB.receipt));
+requireOk('unaffected B retains its G-code after Redo', exportGcode(callJson, { receipt: sliceB.receipt, filenameBase: '' }));
 requireOk('select changed A after Redo', callJson('orc_select_plate', ['string'], [plateA]));
 requireStale('A never republishes historical presentation on Redo', getSliceResult(callJson, sliceA.receipt));
 

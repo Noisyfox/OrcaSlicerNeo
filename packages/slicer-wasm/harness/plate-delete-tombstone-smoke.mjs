@@ -77,7 +77,7 @@ const selectedResult = getSliceResult(callJson,
     survivorSession.input_revisions[survivorSession.current_plate_id], 1));
 if (selectedResult.ok || !['stale', 'unavailable'].includes(selectedResult.status))
   throw new Error(`deleted result leaked onto survivor: ${JSON.stringify(selectedResult)}`);
-const deletedExport = exportGcode(callJson, targetSlice.receipt);
+const deletedExport = exportGcode(callJson, { receipt: targetSlice.receipt, filenameBase: '' });
 if (deletedExport.ok ||
     !/not found|not the current plate|stale|unavailable/.test(deletedExport.error ?? ''))
   throw new Error(`deleted receipt remained publishable: ${JSON.stringify(deletedExport)}`);

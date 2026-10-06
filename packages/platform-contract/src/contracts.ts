@@ -57,7 +57,7 @@ export type ProjectOpenResult =
   | { status: 'cancelled' }
   | { status: 'failed'; error: unknown };
 export type ProjectSaveResult =
-  | { status: 'ok'; location?: OpaqueProjectLocation }
+  | { status: 'ok'; displayName: string; location?: OpaqueProjectLocation }
   | { status: 'cancelled' }
   | { status: 'failed'; error: unknown };
 export type ProjectSaveAsResult = ProjectSaveResult;
@@ -90,7 +90,8 @@ export interface PlatformLifecycle {
 }
 
 export interface GcodeExporter {
-  save(defaultName: string, bytes: Uint8Array): Promise<void>;
+  /** Native writes report cancellation; Web reports download initiation as saved. */
+  save(fileName: string, bytes: Uint8Array): Promise<{ status: 'saved' | 'cancelled' }>;
 }
 
 /** Downloads caller-provided bytes under an exact file name, without format inference. */

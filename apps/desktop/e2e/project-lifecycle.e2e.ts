@@ -61,6 +61,7 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     const page = await app.firstWindow();
     await ready(page);
     await openPickerProject(page, app);
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
     if (process.platform === 'darwin') {
       await expect.poll(() => app.evaluate(({ Menu }) => ({ save:Menu.getApplicationMenu()!.getMenuItemById('file-save-project')!.enabled, saveAs:Menu.getApplicationMenu()!.getMenuItemById('file-save-project-as')!.enabled }))).toEqual({save:false,saveAs:true});
       await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.getMenuItemById('file-save-project-as')!.click());
@@ -76,6 +77,7 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     await page.getByTestId('file-save-project-as').click();
     }
     await expect.poll(() => existsSync(savePath)).toBe(true);
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('saved-project');
 
     // A dropped 3MF over the object list enters the same Open Project action.
     // The nested list intentionally stops propagation for its own text drags;

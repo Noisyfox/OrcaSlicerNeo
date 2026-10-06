@@ -20,6 +20,8 @@ interface MoonrakerFixtureState {
 interface MoonrakerFixture {
   baseUrl: string;
   state: MoonrakerFixtureState;
+  holdUploadResponse(): void;
+  releaseUploadResponse(): void;
   close(): Promise<void>;
 }
 
@@ -41,6 +43,8 @@ async function readBody(request: IncomingMessage): Promise<Buffer> {
 }
 
 async function startMoonrakerFixture(startFailures = 1): Promise<MoonrakerFixture> {
+  let uploadResponseGate: Promise<void> | undefined;
+  let releaseUploadResponse = () => {};
   const state: MoonrakerFixtureState = {
     consoleApiKeys: [],
     uploadBodies: [],
@@ -77,6 +81,7 @@ async function startMoonrakerFixture(startFailures = 1): Promise<MoonrakerFixtur
     if (request.method === 'POST' && pathname === '/server/files/upload') {
       state.uploadApiKeys.push(requestApiKey(request));
       state.uploadBodies.push(await readBody(request));
+      await uploadResponseGate;
       sendJson(response, 200, { result: { item: { path: 'gcodes/fixture-output.gcode' } } });
       return;
     }
@@ -113,6 +118,10 @@ async function startMoonrakerFixture(startFailures = 1): Promise<MoonrakerFixtur
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
     state,
+    holdUploadResponse: () => {
+      uploadResponseGate = new Promise<void>((resolve) => { releaseUploadResponse = resolve; });
+    },
+    releaseUploadResponse: () => { releaseUploadResponse(); uploadResponseGate = undefined; },
     close: () => new Promise<void>((resolveClosed, reject) => server.close((error) => error ? reject(error) : resolveClosed())),
   };
 }
@@ -262,7 +271,17 @@ test('Send and Send & Print use Moonraker fixture without re-upload on start fai
     await page.getByRole('option', { name: 'Send', exact: true }).click();
     await page.getByTestId('btn-send').click();
     await chooseSendPrinter(page, printerId);
+    fixture.holdUploadResponse();
     await page.getByTestId('send-submit').click();
+    await expect.poll(() => fixture.state.uploadBodies.length).toBe(1);
+    expect(fixture.state.uploadBodies[0].toString('utf8')).toMatch(/filename="[^"/\\]+\.gcode"/);
+    await expect(page.getByTestId('send-progress-status')).toContainText('Waiting for printer confirmation');
+    await expect(page.getByTestId('send-progress-status')).toContainText('100%');
+    await expect(page.getByTestId('send-transfer-stats')).toContainText('0.0 KiB/s');
+    await expect(page.getByTestId('send-transfer-stats')).toContainText(/\d.* \/ \d/);
+    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+    await expect(page.getByTestId('send-operation-message')).toHaveCount(0);
+    fixture.releaseUploadResponse();
     await expect(page.getByTestId('send-operation-message')).toContainText('uploaded');
     await expect.poll(() => fixture.state.uploadBodies.length).toBe(1);
     await expect.poll(() => fixture.state.startPaths.length).toBe(0);
@@ -285,6 +304,7 @@ test('Send and Send & Print use Moonraker fixture without re-upload on start fai
     await expect.poll(() => fixture.state.startPaths.length).toBe(2);
     await expect(fixture.state.startPaths[1]).toBe('gcodes/fixture-output.gcode');
   } finally {
+    fixture.releaseUploadResponse();
     await app.close();
     await fixture.close();
   }

@@ -401,6 +401,8 @@ set(ORCA_SLICE_SRC
   ${ORCA_BRIDGE_SRC}
 )
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+# Original Orca filename folding is independent of the wxWidgets GUI.
+target_sources(orca_slice PRIVATE "${ORCA_SRC}/src/slic3r/Utils/ASCIIFolding.cpp")
 if(NEO_ARRANGEMENT_TEST)
   # The test state and call sites are private to this TU; core/other bridge
   # objects retain the same layout and need not rebuild when the gate changes.

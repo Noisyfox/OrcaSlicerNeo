@@ -167,6 +167,7 @@ export interface ProjectOpenIpcFile {
 export interface ProjectSaveIpcResult {
   canceled: boolean;
   locationToken: string | null;
+  displayName: string | null;
 }
 
 /** Result for the small versioned shared preferences document. */

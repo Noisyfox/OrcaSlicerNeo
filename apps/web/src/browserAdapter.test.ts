@@ -39,17 +39,18 @@ describe('browser adapter', () => {
     expect([...result!.bytes]).toEqual([1, 2]);
   });
 
-  it('downloads gcode through a Blob URL', async () => {
+  it.each(['cube.gcode', 'cube.GCODE', 'cube.custom', 'cube', 'cube<>:?*.gcode'])('downloads generated name %s unchanged through a Blob URL', async (fileName) => {
     const anchor = document.createElement('a');
     const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
     vi.spyOn(document, 'createElement').mockReturnValue(anchor);
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
-    await downloadGcode('cube', new Uint8Array([71, 49]));
-    expect(anchor.download).toBe('cube.gcode');
+    await expect(downloadGcode(`folder/${fileName}`, new Uint8Array([71, 49]))).resolves.toEqual({ status: 'saved' });
+    expect(anchor.download).toBe(fileName);
     expect(anchor.href).toContain('blob:test');
     expect(click).toHaveBeenCalled();
   });
+
 
   it('downloads arbitrary bytes under the exact caller-supplied file name', async () => {
     const anchor = document.createElement('a');
@@ -114,11 +115,13 @@ describe('browser adapter', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const adapter = createBrowserAdapter({} as never);
     const input = { displayName: 'scene', bytes: Uint8Array.from([1, 2]) };
-    await expect(adapter.projects.save(input)).resolves.toEqual({ status: 'ok' });
+    await expect(adapter.projects.save(input)).resolves.toEqual({ status: 'ok', displayName: 'scene.3mf' });
     await downloadProject(input);
     expect(anchor.download).toBe('scene.3mf');
     expect(click).toHaveBeenCalledTimes(2);
     expect(input).not.toHaveProperty('location');
+    await expect(adapter.projects.saveAs({ ...input, displayName: 'Untitled.3MF' })).resolves.toEqual({ status: 'ok', displayName: 'Untitled.3MF' });
+    expect(anchor.download).toBe('Untitled.3MF');
   });
 
   it('supplies browser menu mode and opens only the fixed source URL', () => {

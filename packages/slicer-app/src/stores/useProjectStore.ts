@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { OpaqueProjectLocation } from '@orca/platform-contract';
+import { projectNameFromDisplayName } from '@orca/slicer-runtime';
 
 export type ProjectPresetScope = 'system' | 'project';
 export type ProjectOperationPhase =
@@ -45,6 +46,9 @@ export type ProjectDirtyReason =
 export interface ProjectSessionState {
   /** Base name only; host paths never enter this store. */
   projectName: string;
+  /** Actual opened/saved display filename; null for an unsaved new session.
+   * Independent of the host's ability to overwrite a file. Never an OS path. */
+  projectFileName: string | null;
   /** Host-private token, opaque to shared code and UI. */
   location?: OpaqueProjectLocation;
   hasContent: boolean;
@@ -64,7 +68,7 @@ export interface ProjectSessionState {
   projectPresets: ProjectPresetSelections | null;
   notices: ProjectNotice[];
   operation: ProjectOperation;
-  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'plateInputRevisions' | 'scope' | 'systemPresets' | 'projectPresets' | 'notices'>>) => void;
+  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'projectFileName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'plateInputRevisions' | 'scope' | 'systemPresets' | 'projectPresets' | 'notices'>>) => void;
   beginProjectMutation: () => void;
   endProjectMutation: () => void;
   /** Compatibility projection for ordinary edits not yet migrated to history. */
@@ -88,6 +92,7 @@ export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
 
 const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'beginProjectMutation' | 'endProjectMutation' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
   projectName: 'Untitled',
+  projectFileName: null,
   location: undefined,
   hasContent: false,
   projectMutationPendingCount: 0,
@@ -141,5 +146,10 @@ export const useProjectStore = create<ProjectSessionState>((set) => ({
 
 export function projectPresetSelections(snapshot: { printer: { name: string }; print: { name: string } }): ProjectPresetSelections {
   return { printer: snapshot.printer.name, print: snapshot.print.name };
+}
+
+/** Empty means Orca should derive input_filename_base from printable objects. */
+export function projectFilenameBase(session: Pick<ProjectSessionState, 'projectFileName'>): string {
+  return session.projectFileName === null ? '' : projectNameFromDisplayName(session.projectFileName);
 }
 

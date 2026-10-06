@@ -78,7 +78,7 @@ async function sliceBed(bed) {
   const stamp = must(call('orc_get_plate_session_snapshot')).input_revisions[plate];
   const result = must(await callAsyncTask(call, 'orc_slice_plate', ['string', 'string', 'number'], ['{}', plate, stamp]));
   must(getSliceResult(call, result.receipt));
-  const path = must(exportGcode(call, result.receipt)).path;
+  const path = must(exportGcode(call, { receipt: result.receipt, filenameBase: '' })).path;
   return Module.FS.readFile(path, { encoding: 'utf8' });
 }
 const hot = await sliceBed('High Temp Plate');

@@ -678,7 +678,7 @@ if (mm2.renderables?.length === 1) {
 }
 
 // 8. export gcode (MEMFS) + validate
-const exported = exportGcode(callJson, sliced.receipt);
+const exported = exportGcode(callJson, { receipt: sliced.receipt, filenameBase: '' });
 check('orc_export_gcode ok', exported.ok === true, JSON.stringify(exported));
 const gcode = validateGcode(Module.FS.readFile(exported.path));
 check('gcode valid', gcode.ok, JSON.stringify(gcode));
@@ -850,7 +850,7 @@ check('slice error surfaces the real message, not the bare category',
     const S = await callSlice('orc_slice', ['string'], [JSON.stringify(configJson)]);
     check('split parts slice to valid G-code', S.ok === true, JSON.stringify(S));
     if (S.ok) {
-      const splitExport = exportGcode(callJson, S.receipt);
+      const splitExport = exportGcode(callJson, { receipt: S.receipt, filenameBase: '' });
       check('split parts result export remains receipt-scoped',
             splitExport.ok === true, JSON.stringify(splitExport));
       const g = validateGcode(Module.FS.readFile(splitExport.path));
