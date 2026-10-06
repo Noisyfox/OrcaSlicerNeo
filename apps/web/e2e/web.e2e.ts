@@ -6,6 +6,22 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('Web project save downloads its suggested filename and establishes a clean named session', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project *');
+  const download = page.waitForEvent('download');
+  await page.keyboard.press('ControlOrMeta+s');
+  expect((await download).suggestedFilename()).toBe('Untitled.3mf');
+  await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project');
+  await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0);
+});
+
 test('real printer bed STL renders and updates with the selected printer', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });

@@ -114,11 +114,13 @@ describe('browser adapter', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const adapter = createBrowserAdapter({} as never);
     const input = { displayName: 'scene', bytes: Uint8Array.from([1, 2]) };
-    await expect(adapter.projects.save(input)).resolves.toEqual({ status: 'ok' });
+    await expect(adapter.projects.save(input)).resolves.toEqual({ status: 'ok', displayName: 'scene.3mf' });
     await downloadProject(input);
     expect(anchor.download).toBe('scene.3mf');
     expect(click).toHaveBeenCalledTimes(2);
     expect(input).not.toHaveProperty('location');
+    await expect(adapter.projects.saveAs({ ...input, displayName: 'Untitled.3MF' })).resolves.toEqual({ status: 'ok', displayName: 'Untitled.3MF' });
+    expect(anchor.download).toBe('Untitled.3MF');
   });
 
   it('supplies browser menu mode and opens only the fixed source URL', () => {

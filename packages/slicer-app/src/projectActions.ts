@@ -24,8 +24,6 @@ import { applyRememberedFilamentRackFromRepository, loadRememberedBedTypeFromRep
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
   inputs?: readonly ProjectInput[];
-  /** Keep the opened project's identity while appending later batch files. */
-  preserveSessionIdentity?: boolean;
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
   /** Explicit acceptance after the closed-session project load reports warnings. */
@@ -160,7 +158,7 @@ async function saveProjectFile(platform: PlatformCapabilities, asCopy: boolean):
         return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error);
       }
       const history = await markSaved();
-      useProjectStore.getState().setProject({ dirty: history.dirty, dirtyReasons: [], location: saved.location ?? session.location });
+      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(saved.displayName), projectFileName: saved.displayName, dirty: history.dirty, dirtyReasons: [], location: saved.location });
       setOperation('completed', 100);
       return { status: 'ok' };
     } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -229,7 +227,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
             useProjectStore.getState().recordPlateMutation(published.plateSession);
           }
           else useProjectStore.getState().markDirty('model-import');
-          useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, scope: existing.scope });
+          useProjectStore.getState().setProject({ hasContent: true, notices, scope: existing.scope });
         },
       },
     );
@@ -304,7 +302,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     if (!history) throw new Error('project load did not return its history status');
     const filament = await refreshFilamentSession(runtime);
     if (!filament.ok) throw new Error(filament.error ?? 'project load filament session refresh failed');
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
     setOperation('completed', 100);
     return {
       status: 'ok',
@@ -359,7 +357,7 @@ export async function openProjectInputs(platform: PlatformCapabilities, inputs: 
   if (result.status !== 'ok') return result;
   const remainder = [...ordered.slice(0, firstIndex), ...ordered.slice(firstIndex + 1)];
   for (const input of remainder) {
-    const imported = await importProjectGeometry(platform, input, { ...options, preserveSessionIdentity: true });
+    const imported = await importProjectGeometry(platform, input, options);
     if (imported.status !== 'ok') return imported;
   }
   return result;

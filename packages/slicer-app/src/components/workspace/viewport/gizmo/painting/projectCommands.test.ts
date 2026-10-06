@@ -52,7 +52,7 @@ async function setup(preloadFilament = false) {
   frames.shift()?.(); await vi.waitFor(() => expect(controller.getSnapshot().display).not.toBeNull());
   useProjectStore.getState().setProject({ hasContent: true });
   const platform = { runtime,
-    projects: { save: vi.fn(async () => ({ status: 'ok' })), saveAs: vi.fn(async () => ({ status: 'ok' })), open: vi.fn(async () => ({ status: 'cancelled' })) },
+    projects: { save: vi.fn(async () => ({ status: 'ok', displayName: 'Untitled.3mf' })), saveAs: vi.fn(async () => ({ status: 'ok', displayName: 'Untitled.3mf' })), open: vi.fn(async () => ({ status: 'cancelled' })) },
     models: { pick: vi.fn(async () => null) }, exports: { save: vi.fn() }, preferences: { load: vi.fn(async () => ({})) },
   } as unknown as PlatformCapabilities;
   return { runtime, controller, object, platform, filamentReads };
@@ -135,12 +135,12 @@ describe('shared painting command admission', () => {
   });
   it('holds Save reservation through the host write, retaining painter and expanded history', async () => {
     const { runtime, controller: c, platform } = await setup();
-    const write = deferred<{ status: 'ok' }>(); vi.mocked(platform.projects.save).mockReturnValueOnce(write.promise);
+    const write = deferred<{ status: 'ok'; displayName: string }>(); vi.mocked(platform.projects.save).mockReturnValueOnce(write.promise);
     const close = vi.spyOn(runtime, 'closeHistorySession');
     const saved = saveProject(platform);
     await vi.waitFor(() => expect(platform.projects.save).toHaveBeenCalledTimes(1));
     expect(await c.press(event)).toBe('ignored');
-    write.resolve({ status: 'ok' }); expect((await saved).status).toBe('ok');
+    write.resolve({ status: 'ok', displayName: 'Untitled.3mf' }); expect((await saved).status).toBe('ok');
     expect(close).not.toHaveBeenCalled(); expect(c.getSnapshot().phase).toBe('idle');
     expect((await runtime.getHistoryStatus()).dirty).toBe(false);
   });

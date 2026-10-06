@@ -136,9 +136,9 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
           ? await host.projects.save(token, projectName(input.displayName), projectBytes(input))
           : await host.projects.saveAs(projectName(input.displayName), projectBytes(input));
         if (result.canceled) return { status: 'cancelled' };
-        if (!result.locationToken) return { status: 'failed', error: new Error('Electron did not return a project location') };
+        if (!result.locationToken || !result.displayName) return { status: 'failed', error: new Error('Electron did not return a project location and display name') };
         const location = createProjectLocation(result.locationToken);
-        return { status: 'ok', location };
+        return { status: 'ok', displayName: result.displayName, location };
       } catch (error) {
         return { status: 'failed', error };
       }
@@ -147,8 +147,8 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       try {
         const result = await host.projects.saveAs(projectName(input.displayName), projectBytes(input));
         if (result.canceled) return { status: 'cancelled' };
-        if (!result.locationToken) return { status: 'failed', error: new Error('Electron did not return a project location') };
-        return { status: 'ok', location: createProjectLocation(result.locationToken) };
+        if (!result.locationToken || !result.displayName) return { status: 'failed', error: new Error('Electron did not return a project location and display name') };
+        return { status: 'ok', displayName: result.displayName, location: createProjectLocation(result.locationToken) };
       } catch (error) {
         return { status: 'failed', error };
       }

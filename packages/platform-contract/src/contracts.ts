@@ -57,7 +57,7 @@ export type ProjectOpenResult =
   | { status: 'cancelled' }
   | { status: 'failed'; error: unknown };
 export type ProjectSaveResult =
-  | { status: 'ok'; location?: OpaqueProjectLocation }
+  | { status: 'ok'; displayName: string; location?: OpaqueProjectLocation }
   | { status: 'cancelled' }
   | { status: 'failed'; error: unknown };
 export type ProjectSaveAsResult = ProjectSaveResult;

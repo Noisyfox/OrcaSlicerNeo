@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities, ProjectInput, UserPreferences } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, PlateSessionMutation, ProfileSnapshot, ProjectLoadResult } from '@slicer/client';
-import { useProjectStore } from './stores/useProjectStore';
+import { useProjectStore, projectFilenameBase } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
-import { noticesFor, importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, sortProjectInputs } from './projectActions';
+import { noticesFor, importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, saveProjectAs, sortProjectInputs } from './projectActions';
 
 const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([80, 75, 3, 4]) };
 const snapshot: ProfileSnapshot = {
@@ -87,8 +87,8 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
   };
   const projects = {
     open: vi.fn(async () => ({ status: 'ok' as const, input })),
-    save: vi.fn(async () => ({ status: 'ok' as const })),
-    saveAs: vi.fn(async () => ({ status: 'ok' as const })),
+    save: vi.fn(async () => ({ status: 'ok' as const, displayName: 'Robot.3mf', location: undefined as ProjectInput['location'] })),
+    saveAs: vi.fn(async () => ({ status: 'ok' as const, displayName: 'Robot.3mf', location: undefined as ProjectInput['location'] })),
   };
   const preferences = { load: vi.fn(async () => ({ version: 1 as const, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } })), save: vi.fn(async () => {}) };
   return { runtime, projects, preferences, platform: { runtime, projects, preferences } as unknown as PlatformCapabilities };
@@ -297,15 +297,60 @@ describe('transactional project actions', () => {
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: true, hasContent: true });
   });
 
+  it('distinguishes an unsaved Untitled session from an opened Untitled.3mf without a host location', async () => {
+    expect(projectFilenameBase(useProjectStore.getState())).toBe('');
+    const { platform } = platformFor();
+    expect((await openProject(platform, { inputs: [{ ...input, displayName: 'Untitled.3mf' }], loadBehaviour: 'load_all' })).status).toBe('ok');
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', projectFileName: 'Untitled.3mf', location: undefined });
+    expect(projectFilenameBase(useProjectStore.getState())).toBe('Untitled');
+    expect((await newProject(platform)).status).toBe('ok');
+    expect(useProjectStore.getState().projectFileName).toBeNull();
+    expect(projectFilenameBase(useProjectStore.getState())).toBe('');
+  });
+
+  it.each([false, true])('save as copy=%s adopts the actual host filename and overwrite location', async (asCopy) => {
+    const { platform, projects } = platformFor();
+    const oldLocation = {} as NonNullable<ProjectInput['location']>;
+    const newLocation = {} as NonNullable<ProjectInput['location']>;
+    useProjectStore.getState().setProject({ projectName: 'Old', projectFileName: 'Old.3mf', location: oldLocation, hasContent: true, dirty: true });
+    const hostSave = asCopy ? projects.saveAs : projects.save;
+    hostSave.mockResolvedValue({ status: 'ok', displayName: 'Chosen.Name.3MF', location: newLocation });
+    expect((await (asCopy ? saveProjectAs : saveProject)(platform)).status).toBe('ok');
+    expect(hostSave).toHaveBeenCalledWith(expect.objectContaining({ displayName: 'Old.3mf', location: oldLocation }));
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Chosen.Name', projectFileName: 'Chosen.Name.3MF', location: newLocation, dirty: false });
+    expect(projectFilenameBase(useProjectStore.getState())).toBe('Chosen.Name');
+  });
+
+  it('first Web save establishes filename identity without an overwrite location', async () => {
+    const { platform, projects } = platformFor();
+    useProjectStore.getState().setProject({ hasContent: true, dirty: true });
+    projects.save.mockResolvedValue({ status: 'ok', displayName: 'Untitled.3mf', location: undefined });
+    expect((await saveProject(platform)).status).toBe('ok');
+    expect(useProjectStore.getState()).toMatchObject({ projectFileName: 'Untitled.3mf', projectName: 'Untitled', location: undefined });
+    expect(projectFilenameBase(useProjectStore.getState())).toBe('Untitled');
+  });
+
+  it('geometry-only Open preserves an existing project filename and location', async () => {
+    const { platform } = platformFor();
+    const location = {} as NonNullable<ProjectInput['location']>;
+    useProjectStore.getState().setProject({ projectName: 'Existing', projectFileName: 'Existing.3mf', location });
+    expect((await openProject(platform, { loadBehaviour: 'load_geometry_only' })).status).toBe('ok');
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Existing', projectFileName: 'Existing.3mf', location, dirty: true });
+    expect(projectFilenameBase(useProjectStore.getState())).toBe('Existing');
+  });
+
   it('cancelled/failed saves leave the clean baseline and dirty state untouched', async () => {
     const cancelled = platformFor(); cancelled.projects.save.mockResolvedValue({ status: 'cancelled' } as never);
-    useProjectStore.getState().setProject({ hasContent: true, dirty: true, projectName: 'Robot' });
+    const location = {} as NonNullable<ProjectInput['location']>;
+    useProjectStore.getState().setProject({ hasContent: true, dirty: true, projectName: 'Robot', projectFileName: 'Robot.3mf', location });
     expect((await saveProject(cancelled.platform)).status).toBe('cancelled');
     expect(useProjectStore.getState().dirty).toBe(true);
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', projectFileName: 'Robot.3mf', location });
 
     const failed = platformFor(); failed.runtime.exportProject.mockResolvedValue({ ok: false, path: '', bytes: new Uint8Array(), error: 'export failed' } as never);
     expect((await saveProject(failed.platform)).status).toBe('failed');
     expect(useProjectStore.getState().dirty).toBe(true);
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', projectFileName: 'Robot.3mf', location });
   });
 
   it('Save then New restores the saved global preset selection', async () => {
