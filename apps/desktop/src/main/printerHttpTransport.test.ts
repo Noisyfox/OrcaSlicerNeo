@@ -16,7 +16,7 @@ class FakeClient implements NativeHttpClient {
   handlers?: Parameters<NativeHttpClient['request']>[1];
   aborted = false;
   writes: Uint8Array[] = [];
-  callbacks: Array<NonNullable<Parameters<NativeHttpRequestHandle['write']>[1]>> = [];
+  callbacks: Array<Parameters<NativeHttpRequestHandle['write']>[1]> = [];
   deferWrites = false;
   ended = false;
   request(options: Parameters<NativeHttpClient['request']>[0], handlers: Parameters<NativeHttpClient['request']>[1]): NativeHttpRequestHandle {
@@ -24,10 +24,8 @@ class FakeClient implements NativeHttpClient {
     return {
       write: (bytes, onAccepted) => {
         this.writes.push(bytes);
-        if (onAccepted) {
-          if (this.deferWrites) this.callbacks.push(onAccepted);
-          else onAccepted();
-        }
+        if (this.deferWrites) this.callbacks.push(onAccepted);
+        else onAccepted();
       },
       end: () => { this.ended = true; },
       abort: () => { this.aborted = true; handlers.error(new Error('aborted')); },

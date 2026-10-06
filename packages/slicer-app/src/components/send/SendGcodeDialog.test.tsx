@@ -225,6 +225,46 @@ describe('SendGcodeDialog', () => {
     await click(container, 'send-close');
   });
 
+  it('shows byte counts and sampled KiB/s, drops speed on stalls, and resets on retry', async () => {
+    vi.useFakeTimers();
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.pending = true;
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send'); roots.push(root);
+    try {
+      await click(container, 'send-submit');
+      const stats = () => container.querySelector('[data-testid="send-transfer-stats"]')?.textContent;
+      expect(stats()).toContain('5 B / 10 B');
+      expect(stats()).toContain('0.0 KiB/s');
+      await act(async () => {
+        transport.requests[0].onUploadProgress?.({ loaded: 8192, total: 16384 });
+        now.mockReturnValue(1500);
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(stats()).toContain('8.0 KiB / 16.0 KiB');
+      expect(stats()).toContain('16.0 KiB/s');
+      await act(async () => {
+        transport.requests[0].onUploadProgress?.({ loaded: 12288, total: 16384 });
+        now.mockReturnValue(2000);
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(stats()).toContain('8.0 KiB/s');
+      await act(async () => { now.mockReturnValue(2500); await vi.advanceTimersByTimeAsync(500); });
+      expect(stats()).toContain('0.0 KiB/s');
+      await click(container, 'send-close');
+      await click(container, 'send-submit');
+      expect(stats()).toContain('5 B / 10 B');
+      expect(stats()).toContain('0.0 KiB/s');
+      await act(async () => {
+        transport.requests[1].onUploadProgress?.({ loaded: 1048576 });
+      });
+      expect(stats()).toContain('1.0 MiB / Unknown');
+      await click(container, 'send-close');
+    } finally { now.mockRestore(); }
+  });
+
   it.each(['success', 'cancel', 'error'] as const)('waits for printer confirmation before upload %s', async (ending) => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
@@ -235,6 +275,8 @@ describe('SendGcodeDialog', () => {
     await act(async () => { transport.requests[0].onUploadProgress?.({ loaded: 10, total: 10 }); });
     expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('Waiting for printer confirmation');
     expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).not.toContain('100%');
+    expect(container.querySelector('[data-testid="send-transfer-stats"]')?.textContent).toContain('10 B / 10 B');
+    expect(container.querySelector('[data-testid="send-transfer-stats"]')?.textContent).toContain('0.0 KiB/s');
     expect(container.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false);
     expect(container.querySelector('[data-testid="send-operation-message"]')).toBeNull();
     expect(container.querySelector('[data-testid="send-auto-close-countdown"]')).toBeNull();
@@ -264,6 +306,7 @@ describe('SendGcodeDialog', () => {
     await click(container, 'send-submit');
     expect(transport.requests).toHaveLength(2);
     expect(container.querySelector('[data-testid="send-progress-status"] p')?.textContent).toBe('Starting print…');
+    expect(container.querySelector('[data-testid="send-transfer-stats"]')).toBeNull();
     expect(container.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false);
     await act(async () => { transport.finish!(); });
     expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('print started');

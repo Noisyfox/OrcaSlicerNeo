@@ -107,7 +107,24 @@ path. Compatibility is determined when the requested operation runs rather
 than by a separate setup check.
 
 The dialog shows upload progress and allows cancellation while an upload is
-in progress. If Send & Print uploads successfully but starting the print
+in progress. It displays sent/total byte sizes in binary units (B, KiB, MiB,
+GiB), together with recent speed in KiB/s. Speed updates every 500 ms from
+byte deltas and the monotonic clock, excluding G-code export time. Stalled
+intervals show zero speed; each upload resets the measurement. When the browser
+cannot determine the total size, the total is displayed as “Unknown”.
+
+Electron writes the HTTP body in bounded chunks and reports intermediate byte
+counts under socket backpressure. These counts describe bytes accepted by the
+local network stack. After all bytes are sent, the dialog shows an indeterminate
+“Waiting for printer confirmation…” status with complete byte counts and
+0.0 KiB/s. Transfer percentages never round an incomplete transfer up to 100%.
+Upload success requires a successful response with a valid remote file path.
+Send & Print then shows a separate indeterminate “Starting print…” status and
+hides upload statistics. Cancellation remains available while waiting for
+upload confirmation. Web uses browser-native XMLHttpRequest upload progress
+events for byte counts; it does not split the file into separate upload requests.
+
+If Send & Print uploads successfully but starting the print
 fails, the dialog explains that the file is already on the printer and offers
 a start-only retry. Retrying does not upload the file again.
 
@@ -127,3 +144,23 @@ iframe console experience and does not inject scripts into the embedded page.
 Both platforms retain the same printer configuration, independent selections,
 Moonraker Send/Send & Print behavior, and best-effort handling of actual
 network or printer failures.
+
+## Upload verification
+
+`pnpm test` and `pnpm typecheck` cover the shared component and both host
+boundaries. The upload tests include a real 32 MiB HTTP request paused at the
+receiver, byte-for-byte multipart fidelity, write failures, cancellation and
+late callbacks. Component tests cover sampled speed, zero speed on stalls,
+reset on retry, unknown totals, confirmation waiting and print-start staging.
+
+The Electron mock validation uses `VITE_USE_MOCK=1` with
+`pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, followed by
+`pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` and
+`pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts e2e/app.e2e.ts --grep 'Send|Device config|full v1 flow'`.
+The fixture holds the upload response until the UI shows complete byte counts,
+zero speed and confirmation waiting without 100%, then verifies success and
+start-only retry. The current checks pass: 1,647 unit tests, all workspace
+typechecks, renderer build/CSS validation and four focused Electron E2E tests.
+Physical-printer and minutes-long real-network transfer
+verification remain unavailable. WASM builds and real Web E2E are outside this
+UI/transport-only correction's scope.

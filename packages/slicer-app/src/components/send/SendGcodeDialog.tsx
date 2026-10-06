@@ -19,6 +19,13 @@ import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 export type SendGcodeAction = 'send' | 'send-and-print';
 type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled';
 
+function formatUploadBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KiB', 'MiB', 'GiB'];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)) - 1);
+  return `${(bytes / 1024 ** (index + 1)).toFixed(1)} ${units[index]}`;
+}
+
 function safeErrorMessage(error: unknown): string {
   if (error instanceof PrinterControlError) {
     if (error.code === 'aborted') return 'Sending was cancelled.';
@@ -89,6 +96,8 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
   const [state, setState] = useState<SendState>('idle');
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
+  const [uploadSpeed, setUploadSpeed] = useState(0);
+  const speedSampleRef = useRef<{ time: number; loaded: number; latest: number } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [closeCountdown, setCloseCountdown] = useState<number | null>(null);
   const [switchToDeviceAfterSend, setSwitchToDeviceAfterSend] = useState(true);
@@ -116,6 +125,21 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     ? undefined : Math.min(99, Math.round(Math.max(0, progress.fraction) * 100));
   const progressLabel = state === 'starting' ? 'Starting print'
     : awaitingConfirmation ? 'Waiting for printer confirmation' : 'Uploading G-code';
+
+  useEffect(() => {
+    if (state !== 'uploading' || awaitingConfirmation) return;
+    const timer = setInterval(() => {
+      const sample = speedSampleRef.current;
+      if (!sample) return;
+      const now = performance.now();
+      const elapsed = now - sample.time;
+      if (elapsed <= 0) return;
+      setUploadSpeed(Math.max(0, sample.latest - sample.loaded) * 1000 / elapsed);
+      sample.time = now;
+      sample.loaded = sample.latest;
+    }, 500);
+    return () => clearInterval(timer);
+  }, [state, awaitingConfirmation]);
 
   function clearCloseCountdown(resetState = true) {
     if (closeTimerRef.current !== null) {
@@ -151,6 +175,8 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     setState('loading');
     setMessage(null);
     setProgress({ loaded: 0 });
+    setUploadSpeed(0);
+    speedSampleRef.current = null;
     uploadedRef.current = null;
     serviceRef.current = null;
     void platform.printers.configuration.load().then((loaded) => {
@@ -271,6 +297,8 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     abortRef.current = controller;
     setMessage(null);
     setProgress({ loaded: 0 });
+    setUploadSpeed(0);
+    speedSampleRef.current = null;
     setState('uploading');
     try {
       const currentSession = await platform.runtime.getPlateSessionSnapshot();
@@ -297,7 +325,10 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       serviceRef.current = service;
       const input = { bytes: exported.bytes, fileName: fileNameFromPath(exported.path) };
       const uploaded = await service.uploadOnly(selectedId, input, (next) => {
-        if (operation === operationRef.current) setProgress(next);
+        if (operation !== operationRef.current) return;
+        if (!speedSampleRef.current) speedSampleRef.current = { time: performance.now(), loaded: 0, latest: next.loaded };
+        else speedSampleRef.current.latest = next.loaded;
+        setProgress(next);
       }, controller.signal);
       uploadedRef.current = uploaded;
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
@@ -375,6 +406,12 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
           <div className="flex flex-col gap-2" data-testid="send-progress-status" role="status" aria-live="polite">
             <Progress value={progressValue ?? null} aria-label={progressLabel} />
             <p className="text-sm text-muted-foreground">{progressLabel}…{progressValue === undefined ? '' : ` ${progressValue}%`}</p>
+            {state === 'uploading' && (
+              <p className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-muted-foreground tabular-nums" data-testid="send-transfer-stats">
+                <span>{formatUploadBytes(progress.loaded)} / {progress.total === undefined ? 'Unknown' : formatUploadBytes(progress.total)}</span>
+                <span>{((awaitingConfirmation ? 0 : uploadSpeed) / 1024).toFixed(1)} KiB/s</span>
+              </p>
+            )}
           </div>
         )}
         {message && !busy && <p className={`text-sm ${state === 'error' || state === 'start-failed-after-upload' ? 'text-destructive' : 'text-muted-foreground'}`} role={state === 'error' || state === 'start-failed-after-upload' ? 'alert' : 'status'} data-testid="send-operation-message" data-error-code={state === 'start-failed-after-upload' ? 'start-failed-after-upload' : undefined}>{message}</p>}

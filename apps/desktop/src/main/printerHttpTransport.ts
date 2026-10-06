@@ -16,7 +16,7 @@ export interface NativeHttpResponse {
 }
 
 export interface NativeHttpRequestHandle {
-  write(bytes: Uint8Array, onAccepted?: (error?: Error | null) => void): void;
+  write(bytes: Uint8Array, onAccepted: (error?: Error | null) => void): void;
   end(): void;
   abort(): void;
 }
