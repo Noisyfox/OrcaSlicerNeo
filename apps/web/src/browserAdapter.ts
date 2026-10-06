@@ -1,5 +1,6 @@
 import {
   MODEL_FILE_ACCEPT,
+  gcodeFilenameBasename,
   normalizeUserPreferences,
   type ProjectFileCapability,
   type ProjectInput,
@@ -236,10 +237,12 @@ export async function downloadProject(input: ProjectInput): Promise<string> {
   return link.download;
 }
 
-export async function downloadGcode(defaultName: string, bytes: Uint8Array): Promise<void> {
+export async function downloadGcode(fileName: string, bytes: Uint8Array): Promise<{ status: 'saved' }> {
+  fileName = gcodeFilenameBasename(fileName);
   const href = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'text/plain;charset=utf-8' }));
-  const link = document.createElement('a'); link.href = href; link.download = defaultName.endsWith('.gcode') ? defaultName : `${defaultName}.gcode`; link.click();
+  const link = document.createElement('a'); link.href = href; link.download = fileName; link.click();
   setTimeout(() => URL.revokeObjectURL(href), 0);
+  return { status: 'saved' };
 }
 
 async function downloadFile(fileName: string, bytes: Uint8Array): Promise<void> {

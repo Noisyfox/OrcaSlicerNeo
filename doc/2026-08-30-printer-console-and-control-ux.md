@@ -166,6 +166,15 @@ without a rename control. Existing extensions are preserved by the native naming
 logic; neither ASCII folding nor the naming API performs business-level illegal
 character replacement.
 
+Export suggests the generated basename to the host. Electron uses its native
+Save As dialog with a filter derived from the generated extension and reports
+cancellation separately from a completed write. Web starts a browser download
+directly with the generated basename, preserving arbitrary extensions and their
+case. The application adds no filename validation or replacement; the native
+dialog or browser handles platform restrictions and any user rename. A cancelled
+native save does not mark the slice result as exported. Web cannot observe the
+browser's final saved filename or whether the user cancels its download prompt.
+
 The focused real-WASM naming contract is
 `node packages/slicer-wasm/harness/gcode-filename-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
 It covers template defaults, empty/custom formats, real statistics, per-plate

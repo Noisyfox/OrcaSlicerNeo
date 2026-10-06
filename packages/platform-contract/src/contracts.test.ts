@@ -87,7 +87,7 @@ describe('host contracts', () => {
     const importer: ModelImporter = {
       async pick() { return { displayName: 'cube.stl', bytes: new Uint8Array([1, 2]) }; },
     };
-    const exporter: GcodeExporter = { async save() {} };
+    const exporter: GcodeExporter = { async save() { return { status: 'saved' }; } };
     let prefs = normalizeUserPreferences(null);
     const preferences: UserPreferencesRepository = {
       async load() { return prefs; },

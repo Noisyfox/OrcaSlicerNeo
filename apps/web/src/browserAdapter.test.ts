@@ -39,17 +39,18 @@ describe('browser adapter', () => {
     expect([...result!.bytes]).toEqual([1, 2]);
   });
 
-  it('downloads gcode through a Blob URL', async () => {
+  it.each(['cube.gcode', 'cube.GCODE', 'cube.custom', 'cube', 'cube<>:?*.gcode'])('downloads generated name %s unchanged through a Blob URL', async (fileName) => {
     const anchor = document.createElement('a');
     const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
     vi.spyOn(document, 'createElement').mockReturnValue(anchor);
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
-    await downloadGcode('cube', new Uint8Array([71, 49]));
-    expect(anchor.download).toBe('cube.gcode');
+    await expect(downloadGcode(`folder/${fileName}`, new Uint8Array([71, 49]))).resolves.toEqual({ status: 'saved' });
+    expect(anchor.download).toBe(fileName);
     expect(anchor.href).toContain('blob:test');
     expect(click).toHaveBeenCalled();
   });
+
 
   it('downloads arbitrary bytes under the exact caller-supplied file name', async () => {
     const anchor = document.createElement('a');

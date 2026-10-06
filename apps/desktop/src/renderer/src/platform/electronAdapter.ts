@@ -2,6 +2,7 @@ import {
   DEFAULT_USER_PREFERENCES,
   MODEL_FILE_EXTENSIONS,
   normalizeUserPreferences,
+  gcodeFilenameBasename,
   type PrinterConfigurationRepository,
   type MenuCommandId,
   type PlatformCapabilities,
@@ -25,10 +26,6 @@ import { createElectronWebViewHost } from './electronWebView';
 const MODEL_FILTERS: FileDialogFilter[] = [
   { name: 'Models', extensions: [...MODEL_FILE_EXTENSIONS] },
   { name: 'All files', extensions: ['*'] },
-];
-
-const GCODE_FILTERS: FileDialogFilter[] = [
-  { name: 'G-code', extensions: ['gcode'] },
 ];
 
 const DOWNLOAD_FILTERS: FileDialogFilter[] = [
@@ -194,12 +191,17 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     },
     exports: {
       async save(defaultName, bytes) {
-        const { path } = await host.saveFileDialog(defaultName, GCODE_FILTERS);
-        if (!path) return;
+        const suggestedName = gcodeFilenameBasename(defaultName);
+        const dot = suggestedName.lastIndexOf('.');
+        const extension = dot >= 0 ? suggestedName.slice(dot + 1) : '';
+        const filters = [{ name: 'G-code', extensions: [extension || '*'] }];
+        const { canceled, path } = await host.saveFileDialog(suggestedName, filters);
+        if (canceled || !path) return { status: 'cancelled' };
         await host.writeFile(path, bytes.buffer.slice(
           bytes.byteOffset,
           bytes.byteOffset + bytes.byteLength,
         ) as ArrayBuffer);
+        return { status: 'saved' };
       },
     },
     downloads: {

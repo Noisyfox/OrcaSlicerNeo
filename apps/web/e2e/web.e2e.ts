@@ -6,6 +6,30 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
+test('real Web G-code export downloads the native generated basename directly', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await page.getByTestId('preset-select').click();
+  const picker = page.locator('[data-slot="combobox-content"]');
+  await picker.locator('input').fill('Creality Ender-3 0.4 nozzle');
+  await picker.locator('[data-slot="combobox-item"]').filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
+  const downloaded = page.waitForEvent('download');
+  await page.getByTestId('btn-export').click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toMatch(/^cube.*\.gcode$/);
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  expect(await readFile(path!, 'utf8')).toContain('G1');
+  await expect(page.getByTestId('btn-export')).toBeEnabled();
+});
+
 test('Web project save downloads its suggested filename and establishes a clean named session', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });

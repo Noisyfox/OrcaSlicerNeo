@@ -75,16 +75,24 @@ describe('Electron adapter', () => {
     const saveFileDialog = vi.fn(async () => ({ canceled: false, path: 'C:\\out\\slice.gcode' }));
     const writeFile = vi.fn(async () => {});
     const { adapter } = setup({ saveFileDialog, writeFile });
-    await adapter.exports.save('output.gcode', Uint8Array.from([3, 4]));
-    expect(saveFileDialog).toHaveBeenCalled();
+    await expect(adapter.exports.save('output.gcode', Uint8Array.from([3, 4]))).resolves.toEqual({ status: 'saved' });
+    expect(saveFileDialog).toHaveBeenCalledWith('output.gcode', [{ name: 'G-code', extensions: ['gcode'] }]);
     expect(writeFile).toHaveBeenCalledWith('C:\\out\\slice.gcode', expect.any(ArrayBuffer));
   });
 
   it('does not write when export is cancelled', async () => {
     const writeFile = vi.fn();
     const { adapter } = setup({ saveFileDialog: vi.fn(async () => ({ canceled: true, path: null })), writeFile });
-    await adapter.exports.save('output.gcode', Uint8Array.from([3]));
+    await expect(adapter.exports.save('output.gcode', Uint8Array.from([3]))).resolves.toEqual({ status: 'cancelled' });
     expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it('propagates native write failure instead of reporting a saved export', async () => {
+    const { adapter } = setup({
+      saveFileDialog: vi.fn(async () => ({ canceled: false, path: 'C:\\out\\chosen.custom' })),
+      writeFile: vi.fn(async () => { throw new Error('disk full'); }),
+    });
+    await expect(adapter.exports.save('output.custom', new Uint8Array([3]))).rejects.toThrow('disk full');
   });
 
   it('saves arbitrary bytes under the caller name without a G-code filter', async () => {
@@ -168,6 +176,14 @@ describe('Electron adapter', () => {
     await expect(adapter.projects.open()).resolves.toMatchObject({ status: 'failed' });
     await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array() })).resolves.toMatchObject({ status: 'failed' });
   });
+
+  it.each(['GCODE', 'custom'])('uses generated basename and exact %s extension in the native dialog', async (extension) => {
+    const saveFileDialog = vi.fn(async () => ({ canceled: true, path: null }));
+    const { adapter } = setup({ saveFileDialog });
+    await adapter.exports.save(`folder/output.${extension}`, Uint8Array.from([3]));
+    expect(saveFileDialog).toHaveBeenCalledWith(`output.${extension}`, [{ name: 'G-code', extensions: [extension] }]);
+  });
+
 
   it('Save As returns the selected name rather than the requested suggestion', async () => {
     const { adapter } = setup();

@@ -233,8 +233,8 @@ export async function exportGcode(platform: PlatformCapabilities): Promise<void>
         throw new Error('current plate slice result is stale or unavailable');
       const fresh = await platform.runtime.exportGcodePlate({ receipt, filenameBase: projectFilenameBase(useProjectStore.getState()) });
       if (!fresh.ok) throw new Error(fresh.error ?? 'export failed');
-      await platform.exports.save(fresh.fileName, fresh.bytes);
-      useSlicerStore.getState().setResultExported(true);
+      const saved = await platform.exports.save(fresh.fileName, fresh.bytes);
+      if (saved.status === 'saved') useSlicerStore.getState().setResultExported(true);
     });
   } catch (err) {
     useSlicerStore.getState().setError(`export: ${errorText(err)}`);
