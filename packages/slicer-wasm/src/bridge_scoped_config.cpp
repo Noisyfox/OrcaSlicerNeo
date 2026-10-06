@@ -25,6 +25,7 @@
 #include "bridge_model_operations.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
+#include "bridge_profiles.hpp"
 #include "libslic3r/Exception.hpp"
 
 using namespace Slic3r;
@@ -598,6 +599,16 @@ void validate_set_keys(const MutationRequest& request)
         (void) definition;
         (void) value;
     }
+    if (request.operation == "set" && request.values.count("curr_bed_type") != 0) {
+        ConfigOptionEnum<BedType> requested;
+        if (!requested.deserialize(request.values.at("curr_bed_type"), false))
+            throw MutationCommandError("native_validation_failure", "invalid bed type");
+        const auto capabilities = Profiles::selected_printer_bed_type_capabilities();
+        for (const auto& target : request.targets)
+            if ((target.scope == "project" || target.scope == "plate") &&
+                !Profiles::bed_type_allowed(capabilities, requested.value, target.scope == "plate"))
+                throw MutationCommandError("native_validation_failure", "bed type is not supported by the selected printer");
+    }
 }
 
 void apply_mutation_to_candidate(const MutationRequest& request, DynamicPrintConfig& candidate)
@@ -1106,6 +1117,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
             if (target.scope == "project") {
                 ScopedConfig::apply_project_mutation_to_candidates(
                     request, resolved.back().project_candidate, resolved.back().print_candidate);
+                if (!resolved.back().project_candidate.has("curr_bed_type") &&
+                    (state().presets.project_config.has("curr_bed_type") ||
+                     (request.operation == "reset" && request.values.count("curr_bed_type") != 0))) {
+                    const auto capabilities = Profiles::selected_printer_bed_type_capabilities();
+                    resolved.back().project_candidate.set_key_value("curr_bed_type",
+                        new ConfigOptionEnum<BedType>(Profiles::supported_default_bed_type(capabilities)));
+                }
                 resolved.back().project_config_changed =
                     resolved.back().project_candidate != state().presets.project_config;
                 resolved.back().print_config_changed =
@@ -1156,15 +1174,35 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                                         {"warnings", json::array()}, {"errors", json::array()}};
         }
         bool project_changed = false;
+        bool global_bed_only = false;
         bool any_changed = false;
         std::set<std::string> affected_plates;
         std::set<std::string> dirty_reasons;
         for (const auto& target : resolved) {
             if (!target.changed) continue;
             any_changed = true;
-            if (target.target.scope == "project") project_changed = true;
+            if (target.target.scope == "project") {
+                project_changed = true;
+                auto candidate_without_bed = target.project_candidate;
+                auto previous_without_bed = state().presets.project_config;
+                candidate_without_bed.erase("curr_bed_type");
+                previous_without_bed.erase("curr_bed_type");
+                global_bed_only = !target.print_config_changed &&
+                    candidate_without_bed == previous_without_bed;
+            }
             affected_plates.insert(target.affected_plates.begin(), target.affected_plates.end());
             dirty_reasons.insert(target.target.scope + "-configuration");
+        }
+
+        if (global_bed_only) {
+            // A local bed override is independent even when its value equals
+            // the global value. Other project settings retain all-plate scope.
+            affected_plates.clear();
+            for (const auto& plate : state().plate_session_plates)
+                if (!plate.settings.has("curr_bed_type")) affected_plates.insert(plate.id);
+            for (const auto& target : resolved)
+                if (target.changed && target.target.scope != "project")
+                    affected_plates.insert(target.affected_plates.begin(), target.affected_plates.end());
         }
 
         if (any_changed) {
@@ -1196,7 +1234,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                     }
                 }
                 const std::vector<std::string> reasons(dirty_reasons.begin(), dirty_reasons.end());
-                const auto mutation = project_changed
+                const auto mutation = project_changed && !global_bed_only
                     ? PlateSession::shared_configuration_mutation_snapshot()
                     : PlateSession::configuration_mutation_snapshot(affected_plates, reasons);
                 result["plate_session"] = mutation;

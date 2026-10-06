@@ -997,6 +997,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             else if (preset->type == Preset::TYPE_FILAMENT) ++filament_preset_count;
         }
         ProjectPresetWarningDetails warning_details;
+        json bed_type_normalization = nullptr;
         if (!geometry_only && (!project_presets.empty() || is_bbl_3mf || is_orca_3mf)) {
             candidate.load_project_embedded_presets(project_presets,
                 ForwardCompatibilitySubstitutionRule::Enable);
@@ -1125,6 +1126,15 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().preset_draft_revision = 0;
                 initialize_plate_session_from_records(plate_data, raw_records);
                 Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(state().plate_session_plates);
+                // Preserve valid archive choices. Unsupported global/local
+                // beds follow the loaded effective Printer's native rules
+                // before establishing this replacement's clean baseline.
+                const auto* imported_bed = state().presets.project_config.option("curr_bed_type");
+                const std::string before_bed = imported_bed ? imported_bed->serialize() : "";
+                const auto removed = Neo::Bridge::Profiles::normalize_bed_types(false);
+                const bool global_changed = before_bed != state().presets.project_config.option("curr_bed_type")->serialize();
+                if (global_changed || !removed.empty())
+                    bed_type_normalization = {{"global_changed", global_changed}, {"removed_plate_override_ids", removed}};
                 extend_imported_plate_filament_maps(state().plate_session_plates,
                                                     requested_filament_slots.size(), state().presets);
                 Neo::Bridge::PlateSession::normalize_coordinate_arrays(
@@ -1224,6 +1234,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             {"multi_plate", !geometry_only && state().plate_session_plates.size() > 1},
             {"plate_count", !geometry_only ? state().plate_session_plates.size() : plate_data.size()},
             {"embedded_preset_warnings", std::move(warning_metadata)},
+            {"bed_type_normalization", std::move(bed_type_normalization)},
         };
         // Include the candidate picker state in this same response. The
         // shared transaction can therefore commit model + presets together;

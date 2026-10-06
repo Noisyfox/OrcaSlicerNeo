@@ -20,7 +20,7 @@ export interface ProjectPresetSelections {
 }
 
 export interface ProjectNotice {
-  kind: 'compatibility-fallback' | 'multi-plate' | 'embedded-presets';
+  kind: 'compatibility-fallback' | 'multi-plate' | 'embedded-presets' | 'bed-type-normalization';
   message: string;
   details?: unknown;
 }

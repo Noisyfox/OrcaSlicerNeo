@@ -403,6 +403,76 @@ const json& option_metadata_json()
     return metadata;
 }
 
+BedTypeCapabilities selected_printer_bed_type_capabilities()
+{
+    auto& bundle = state().presets;
+    // Copy the source so defaults/model identity use the effective draft
+    // without temporarily mutating the collection or its dirty state.
+    Preset printer = bundle.printers.get_selected_preset();
+    printer.config = PresetDrafts::effective_preset_config(
+        bundle, state().preset_drafts, Preset::TYPE_PRINTER, printer.name);
+    const auto* multi = printer.config.opt<ConfigOptionBool>("support_multi_bed_types");
+    BedTypeCapabilities capabilities{
+        bundle.is_bbl_vendor() || (multi != nullptr && multi->value),
+        printer.get_default_bed_type(&bundle), {}};
+    const auto* model = PresetUtils::system_printer_model(printer);
+    if (model == nullptr) {
+        if (const auto* parent = bundle.printers.get_selected_preset_parent())
+            model = PresetUtils::system_printer_model(*parent);
+    }
+    const auto* definition = print_config_def.get("curr_bed_type");
+    if (definition == nullptr || definition->enum_keys_map == nullptr)
+        throw std::runtime_error("native bed type definition is unavailable");
+    for (size_t index = 0; index < definition->enum_values.size(); ++index) {
+        const auto& value = definition->enum_values[index];
+        const auto& label = definition->enum_labels.at(index);
+        if (model != nullptr && std::find(model->not_support_bed_types.begin(),
+                model->not_support_bed_types.end(), label) != model->not_support_bed_types.end())
+            continue;
+        capabilities.choices.push_back({
+            BedType(definition->enum_keys_map->at(value)), value, label});
+    }
+    return capabilities;
+}
+
+bool bed_type_allowed(const BedTypeCapabilities& capabilities, BedType type, bool local)
+{
+    if (!capabilities.supports_selection)
+        return !local && type == capabilities.default_type;
+    return std::any_of(capabilities.choices.begin(), capabilities.choices.end(),
+        [type](const BedTypeChoice& choice) { return choice.type == type; });
+}
+
+BedType supported_default_bed_type(const BedTypeCapabilities& capabilities)
+{
+    if (!capabilities.supports_selection || bed_type_allowed(capabilities, capabilities.default_type, false))
+        return capabilities.default_type;
+    if (capabilities.choices.empty()) throw std::runtime_error("printer supports no selectable bed type");
+    return capabilities.choices.front().type;
+}
+
+std::set<std::string> normalize_bed_types(bool reset_global)
+{
+    const auto capabilities = selected_printer_bed_type_capabilities();
+    auto& project = state().presets.project_config;
+    const auto* global = project.option("curr_bed_type");
+    if (reset_global || global == nullptr || !bed_type_allowed(capabilities, BedType(global->getInt()), false)) {
+        project.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(supported_default_bed_type(capabilities)));
+    }
+    std::set<std::string> removed;
+    for (auto& plate : state().plate_session_plates) {
+        const auto* local = plate.settings.option("curr_bed_type");
+        // Dynamic configs deserialize into ConfigOptionEnumGeneric whereas
+        // native typed defaults use ConfigOptionEnum<BedType>. getInt handles
+        // both, as PartPlate::get_bed_type does through opt_enum.
+        if (local == nullptr || bed_type_allowed(capabilities, BedType(local->getInt()), true)) continue;
+        plate.settings.erase("curr_bed_type");
+        plate.settings_metadata = Filament::State::config_metadata_json(plate.settings);
+        removed.insert(plate.id);
+    }
+    return removed;
+}
+
 json preset_snapshot_json()
 {
     const auto bed_resources = selected_printer_bed_resources();
@@ -411,6 +481,10 @@ json preset_snapshot_json()
         for (const std::string& key : parent->config.keys())
             if (const ConfigOption* option = parent->config.option(key))
                 tooltip_defaults[key] = option->serialize();
+    const auto capabilities = selected_printer_bed_type_capabilities();
+    json choices = json::array();
+    for (const auto& choice : capabilities.choices)
+        choices.push_back({{"value", choice.value}, {"label", choice.label}});
     return json{{"ok", true},
                 {"tooltip_defaults", std::move(tooltip_defaults)},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
@@ -421,6 +495,9 @@ json preset_snapshot_json()
                 {"printable_area", selected_printer_printable_area_json()},
                 {"bed_model", bed_resources.model},
                 {"bed_texture", bed_resources.texture},
+                {"bed_type", {{"supports_selection", capabilities.supports_selection},
+                              {"default_value", ConfigOptionEnum<BedType>(capabilities.default_type).serialize()},
+                              {"choices", std::move(choices)}}},
                 // Embedded project settings and the selected Process preset
                 // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to
@@ -439,6 +516,10 @@ json select_printer_with_remembered_rack_json(const json& request)
     if (state().history_disabled)
         return transition_error("history_disabled", "project history is disabled");
 
+    if (!request.contains("remembered_bed_type") || (!request["remembered_bed_type"].is_null() && !request["remembered_bed_type"].is_string()))
+        return transition_error("invalid_request", "remembered bed type is invalid");
+    if (!request.contains("remembered_rack"))
+        return transition_error("invalid_request", "remembered rack is required (null when absent)");
     const std::string printer_name = request["printer"].get<std::string>();
     const Preset* target = state().presets.printers.find_preset(printer_name, false, true);
     if (target == nullptr) return transition_error("preset_not_found", "Printer preset not found: " + printer_name);
@@ -587,6 +668,21 @@ json select_printer_with_remembered_rack_json(const json& request)
                 }
             }
 
+            normalize_bed_types(true);
+            // Memory is validated by the final effective Printer's native
+            // capabilities inside this same history transaction.
+            if (request["remembered_bed_type"].is_string()) {
+                const auto capabilities = selected_printer_bed_type_capabilities();
+                const auto remembered = request["remembered_bed_type"].get<std::string>();
+                if (capabilities.supports_selection) {
+                    for (const auto& choice : capabilities.choices) {
+                        if (choice.value == remembered) {
+                            bundle.project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(choice.type));
+                            break;
+                        }
+                    }
+                }
+            }
             validate_profile_transition();
             plate_session = PlateSession::shared_configuration_mutation_snapshot();
             profile_snapshot = preset_snapshot_json();
@@ -679,12 +775,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
         if (kind != "printer" && !requested->is_compatible)
             return Profiles::error_json("preset is incompatible: " + name);
         auto before = Profiles::capture_profile_transition_state();
+        const auto before_plates = state().plate_session_plates;
         try {
             if (!collection->select_preset_by_name(name, true))
                 throw std::runtime_error("could not select preset: " + name);
             if (kind == "printer") {
                 state().presets.update_compatible(PresetSelectCompatibleType::Always);
                 state().presets.update_multi_material_filament_presets();
+                Profiles::normalize_bed_types(true);
             } else if (kind == "print") {
                 state().presets.update_compatible(PresetSelectCompatibleType::Never,
                                                    PresetSelectCompatibleType::Always);
@@ -696,6 +794,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
             return Profiles::duplicate_json(response);
         } catch (...) {
             Profiles::restore_profile_transition_state(std::move(before));
+            state().plate_session_plates = before_plates;
             throw;
         }
     } catch (const std::exception& e) {

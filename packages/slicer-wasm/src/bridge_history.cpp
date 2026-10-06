@@ -537,7 +537,7 @@ json restore_timestamped_result(const Runtime& runtime,
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         profile_selection_changed = before_printer_name != bundle.printers.get_selected_preset_name() ||
             before_print_name != bundle.prints.get_selected_preset_name();
-        if (profile_selection_changed)
+        if (profile_selection_changed || preset_drafts_changed)
             restored_profile_snapshot = Neo::Bridge::Profiles::preset_snapshot_json();
         // A history restore publishes only the plates whose native input
         // changed. Project/filament roots fan out to every plate; model
@@ -815,7 +815,7 @@ json restore_timestamped_result(const Runtime& runtime,
                                 {"presetDrafts", preset_drafts_changed},
                                 {"profileSelection", profile_selection_changed},
                                 {"primeTower", true}, {"preview", "all"}}}};
-        if (profile_selection_changed)
+        if (profile_selection_changed || preset_drafts_changed)
             result["profile_snapshot"] = std::move(restored_profile_snapshot);
         Neo::Bridge::Performance::record("history_restore", {
             {"model_staging_deserialization", restore_timings.model_staging_deserialization_ms},

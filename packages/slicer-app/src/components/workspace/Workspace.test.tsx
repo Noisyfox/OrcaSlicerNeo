@@ -104,7 +104,7 @@ describe('Workspace ownership', () => {
 
   it('restores and saves right sidebar width independently of left sidebar width', async () => {
     vi.mocked(platform.preferences.load).mockResolvedValueOnce({
-      version: 1, selectedProfiles: {}, ui: { sidebarWidth: 288, rightSidebarWidth: 400, switchToDeviceAfterSend: true },
+      version: 1, rememberedBedTypes: {}, selectedProfiles: {}, ui: { sidebarWidth: 288, rightSidebarWidth: 400, switchToDeviceAfterSend: true },
     });
     const container = document.createElement('div');
     document.body.append(container);

@@ -14,6 +14,7 @@ const bootSnapshot: ProfileSnapshot = {
   filamentCatalog: [{ name: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'P', idx: 1 },
   print: { name: 'Q', idx: 2 },
+  bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
 };
 
 describe('useSettingsStore', () => {
@@ -51,9 +52,17 @@ describe('useSettingsStore', () => {
     expect(state.printers).toBe(bootSnapshot.printers);
     expect(state.prints).toBe(bootSnapshot.prints);
     expect(state.filamentCatalog).toBe(bootSnapshot.filamentCatalog);
+    expect(state.bedType).toBe(bootSnapshot.bedType);
     expect([state.selectedPrinter, state.selectedPrint]).toEqual(['P', 'Q']);
     expect(state.printableArea).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
     expect(state.values).toEqual({});
+  });
+
+  it('replaces bed capabilities with the authoritative printer snapshot', () => {
+    useSettingsStore.getState().hydrateProfileSnapshot(bootSnapshot);
+    const bedType = { supportsSelection: false, defaultValue: 'Engineering Plate', choices: [] };
+    useSettingsStore.getState().hydrateProfileSnapshot({ ...bootSnapshot, bedType });
+    expect(useSettingsStore.getState().bedType).toBe(bedType);
   });
 
   it('uses native project config as the settings base and applies scoped values', () => {

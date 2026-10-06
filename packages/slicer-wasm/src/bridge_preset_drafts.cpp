@@ -750,6 +750,10 @@ json mutate_draft_json(const json& request)
     }
 
     const auto before_drafts = state().preset_drafts;
+    const auto before_bed_capabilities = type == Preset::TYPE_PRINTER &&
+        canonical_name == state().presets.printers.get_selected_preset_name()
+        ? std::optional<Profiles::BedTypeCapabilities>{Profiles::selected_printer_bed_type_capabilities()}
+        : std::nullopt;
     const auto before_draft_revision = state().preset_draft_revision;
     const auto before_project_config = state().presets.project_config;
     const Model before_model = state().model;
@@ -817,6 +821,17 @@ json mutate_draft_json(const json& request)
             bundle.printers.get_selected_preset().printer_technology() == ptFFF)
             Filament::Commands::recalculate_filament_flush(bundle);
 
+        if (before_bed_capabilities) {
+            const auto current = Profiles::selected_printer_bed_type_capabilities();
+            const auto& previous = *before_bed_capabilities;
+            const bool same_choices = current.choices.size() == previous.choices.size() &&
+                std::equal(current.choices.begin(), current.choices.end(), previous.choices.begin(),
+                    [](const auto& first, const auto& second) { return first.type == second.type; });
+            if (previous.supports_selection != current.supports_selection ||
+                previous.default_type != current.default_type || !same_choices)
+                Profiles::normalize_bed_types(true);
+        }
+
         const json plate_session = refresh_geometry
             ? PlateSession::shared_configuration_mutation_snapshot()
             : PlateSession::configuration_mutation_snapshot(
@@ -834,6 +849,7 @@ json mutate_draft_json(const json& request)
         if (!result.value("ok", false))
             throw std::runtime_error("committed preset draft could not be read back");
         const json native_config = ScopedConfig::native_scoped_config_full_transport(revision_before + 1);
+        const json profile_snapshot = Profiles::preset_snapshot_json();
         json filament_session = Filament::Session::filament_session_snapshot_json();
         if (!filament_session.value("ok", false))
             throw std::runtime_error("preset draft filament snapshot could not be constructed");
@@ -859,6 +875,7 @@ json mutate_draft_json(const json& request)
         result["filament_session"] = std::move(filament_session);
         result["history_status"] = HistoryMetadata::history_status_json(state());
         result["native_scoped_config"] = native_config;
+        result["profile_snapshot"] = profile_snapshot;
         return result;
     } catch (...) {
         rollback();

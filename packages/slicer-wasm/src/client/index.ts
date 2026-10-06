@@ -7,7 +7,7 @@ export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
   ArrangementRequest, ArrangementResult, ArrangementParkingReason, ArrangementPlateSessionMutation,
-  InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot,
+  InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot, BedTypeCapabilities,
   FilamentColourProvenance, FilamentSessionSlot, FilamentNativeMapping,
   FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
   FilamentAssignmentProjection, FilamentAssignmentProjectionSet,

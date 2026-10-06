@@ -475,7 +475,9 @@ function AppContent() {
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
         hydrateProfileSnapshot(restored.snapshot);
-        if (applyNativeScopedConfigTransport(nativeScopedConfig.nativeScopedConfig) === 'stale')
+        const restoredConfig = await platform.runtime.getNativeScopedConfig();
+        if (!restoredConfig.ok) throw new Error(restoredConfig.error);
+        if (applyNativeScopedConfigTransport(restoredConfig.nativeScopedConfig) === 'stale')
           throw new Error('boot scoped configuration snapshot was stale');
         useProjectStore.getState().setProject({
           systemPresets: {

@@ -3,13 +3,29 @@ import { MODEL_FILE_ACCEPT, MODEL_FILE_EXTENSIONS, normalizeGcodeTextWindowGeome
 import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 
 describe('user preferences', () => {
+  it('normalizes independent serialized bed memory without accepting malformed values', () => {
+    const normalized = normalizeUserPreferences({ version: 1, rememberedBedTypes: {
+      A: 'Textured PEI Plate', B: 'High Temp Plate', empty: '', whitespace: '  ', numeric: 3, object: { value: 'x' }, large: 'x'.repeat(257),
+    } });
+    expect(normalized.rememberedBedTypes).toEqual({ A: 'Textured PEI Plate', B: 'High Temp Plate' });
+    expect(normalizeUserPreferences({ version: 1, rememberedBedTypes: ['x'] }).rememberedBedTypes).toEqual({});
+  });
+  it('always owns an independent normalized bed map at the storage boundary', () => {
+    const missing = normalizeUserPreferences({ version: 1 });
+    const invalid = normalizeUserPreferences(null);
+    expect(missing.rememberedBedTypes).toEqual({});
+    expect(invalid.rememberedBedTypes).toEqual({});
+    invalid.rememberedBedTypes.P = 'High Temp Plate';
+    expect(normalizeUserPreferences(null).rememberedBedTypes).toEqual({});
+    expect(missing.rememberedBedTypes).toEqual({});
+  });
   it('discards malformed and unsupported versions', () => {
     expect(normalizeUserPreferences({ version: 2, selectedProfiles: { printer: 'bad' } }).selectedProfiles).toEqual({});
     expect(normalizeUserPreferences('{bad}').ui).toEqual({ switchToDeviceAfterSend: true });
   });
   it('keeps only the typed profile names and UI preferences', () => {
     expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 'Standard', ignored: true }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
-      version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Standard' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
+      version: 1, rememberedBedTypes: {}, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Standard' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
     });
   });
 

@@ -16,3 +16,9 @@ export function updateUserPreferences(
   writes.set(repository, task);
   return task;
 }
+
+/** Read after already queued preference writes, without rewriting the document. */
+export async function loadUserPreferences(repository: UserPreferencesRepository): Promise<UserPreferences> {
+  await (writes.get(repository) ?? Promise.resolve()).catch(() => undefined);
+  return repository.load();
+}

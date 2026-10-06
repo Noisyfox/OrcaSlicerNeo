@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TooltipFor } from '@/components/ui/tooltip';
 import { cn } from 'cn';
 import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw, Search } from 'lucide-react';
@@ -22,7 +22,7 @@ import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { commitScopedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import { commitScopedConfigurationMutation } from './configurationActions';
 import {
   localKeysForTarget,
   projectScopedConfigurationFields,
@@ -63,7 +63,9 @@ export const ScopedField = memo(function ScopedField({
   targets,
   onCommit,
   onReset,
+  disabled = false,
 }: {
+  disabled?: boolean;
   field: ScopedConfigurationField;
   targets: readonly ScopedConfigurationTarget[];
   onCommit: (field: ScopedConfigurationField, value: string) => Promise<string>;
@@ -83,7 +85,7 @@ export const ScopedField = memo(function ScopedField({
     setDraft(initial);
   }, [initial, signature]);
   const commit = async (value: string) => {
-    if (committing.current) return;
+    if (committing.current || disabled) return;
     committing.current = true;
     setCommitPending(true);
     const submittedSignature = signatureRef.current;
@@ -116,6 +118,7 @@ export const ScopedField = memo(function ScopedField({
     const next = Math.max(field.meta.min ?? -Infinity, Math.min(field.meta.max ?? Infinity, Number((number + direction * step).toFixed(6))));
     onDiscrete(`${next}${draft.trim().endsWith('%') ? '%' : ''}`);
   };
+  const controlDisabled = disabled || (field.key === 'curr_bed_type' && commitPending);
   const hasEditableLocalOverride = field.local && field.resettable;
   const tooltip = <span className="whitespace-pre-line">{`${optionHelp}\n\n${valueTooltip(field)}`}</span>;
 
@@ -130,17 +133,18 @@ export const ScopedField = memo(function ScopedField({
   } else if (field.meta.type === 'enum' && field.meta.enum_values?.length && !field.mixed) {
     const selectedIndex = field.meta.enum_values.indexOf(displayed);
     const selectedLabel = field.meta.enum_labels?.[selectedIndex] ?? displayed;
-    control = <Select value={displayed} onValueChange={(value) => value != null && onDiscrete(value)}>
+    control = <Select disabled={controlDisabled} value={displayed} onValueChange={(value) => value != null && onDiscrete(value)}>
       <TooltipFor content={tooltip} nonInteractive>
         <SelectTrigger variant="sidebar" id={`scoped-${field.key}`} size="sm" className="w-full" data-testid={`config-input-${field.key}`}><SelectValue>{selectedLabel}</SelectValue></SelectTrigger>
       </TooltipFor>
-      <SelectContent>{field.meta.enum_values.map((value, index) => <SelectItem key={value} value={value}>{field.meta.enum_labels?.[index] ?? value}</SelectItem>)}</SelectContent>
+      <SelectContent><SelectGroup>{field.meta.enum_values.map((value, index) => <SelectItem key={value} value={value}>{field.meta.enum_labels?.[index] ?? value}</SelectItem>)}</SelectGroup></SelectContent>
     </Select>;
   } else {
     control = <div className="flex h-6 min-w-0 items-center rounded-sm bg-control-background focus-within:ring-1 focus-within:ring-ring"><TooltipFor content={tooltip} nonInteractive><Input
         id={`scoped-${field.key}`}
         data-testid={`config-input-${field.key}`}
         value={displayed}
+        disabled={controlDisabled}
         placeholder={field.mixed ? 'Mixed' : undefined}
         min={field.meta.min}
         max={field.meta.max}
@@ -179,7 +183,7 @@ export const ScopedField = memo(function ScopedField({
         </TooltipFor>
         {field.local && field.resettable && <TooltipFor content="Reset this local override"><Button
           type="button" variant="ghost" size="icon-xs" className="size-4 shrink-0 text-config-override [&>svg]:size-3"
-          aria-label={`Reset ${field.label}`} data-testid={`config-reset-${field.key}`} onClick={reset}><RotateCcw /></Button></TooltipFor>}
+          aria-label={`Reset ${field.label}`} data-testid={`config-reset-${field.key}`} disabled={controlDisabled} onClick={reset}><RotateCcw /></Button></TooltipFor>}
         </div>
         <div className="min-w-0">
           {field.mixed && <span data-testid={`config-mixed-${field.key}`} className="sr-only">Mixed</span>}
@@ -190,7 +194,7 @@ export const ScopedField = memo(function ScopedField({
     </div>
   );
 }, (previous, next) => previous.targets === next.targets
-  && previous.onCommit === next.onCommit && previous.onReset === next.onReset
+  && previous.onCommit === next.onCommit && previous.onReset === next.onReset && previous.disabled === next.disabled
   && (Object.keys(previous.field) as Array<keyof ScopedConfigurationField>)
     .every((key) => previous.field[key] === next.field[key]));
 
@@ -198,8 +202,9 @@ export const ScopedField = memo(function ScopedField({
 // Catalogue content that exceeds the budget scrolls independently.
 const PLATE_OPTIONS_SECTION_HEIGHT = 170;
 
-export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent, platesContent, platesToolbar }: {
+export function ScopedConfigurationPanel({ sceneInteraction, projectContent, scopedContent, platesContent, platesToolbar, bedTypeDisabled = false }: {
   sceneInteraction: SceneInteractionController | null;
+  bedTypeDisabled?: boolean;
   projectContent?: ReactNode;
   scopedContent?: ReactNode;
   platesContent?: ReactNode;
@@ -215,6 +220,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   const selectionRevision = useSyncExternalStore(subscribeSelection, () => mode === 'scoped' ? selection?.revision ?? 0 : 0);
   const metadata = useSettingsStore((state) => state.metadata);
   const baseValues = useSettingsStore((state) => state.baseValues);
+  const bedType = useSettingsStore((state) => state.bedType);
   const snapshot = useSettingsStore((state) => state.nativeScopedConfig);
   const setConfigurationMode = useSettingsStore((state) => state.setConfigurationMode);
   const structure = useObjectListStore((state) => mode === 'scoped' ? state.structure : undefined);
@@ -290,8 +296,12 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
   // Reset actions operate on the whole selected category/catalogue, not just
   // the subset currently visible through the search query.
   const allFields = useMemo(() => metadata
-    ? projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' }).filter((field) => isVisiblePrintSetting(field, mode))
-    : [], [baseValues, metadata, mode, resolution, snapshot]);
+    ? projectScopedConfigurationFields({ mode, metadata, baseValues, snapshot, resolution, search: '' }).filter((field) => isVisiblePrintSetting(field, mode) &&
+      (field.key !== 'curr_bed_type' || (bedType?.supportsSelection && bedType.choices.length > 0)))
+      .map(field => field.key === 'curr_bed_type' && bedType ? { ...field, meta: { ...field.meta,
+        enum_values: bedType.choices.map(choice => choice.value), enum_labels: bedType.choices.map(choice => choice.label),
+      } } : field)
+    : [], [baseValues, bedType, metadata, mode, resolution, snapshot]);
   const availablePages = useMemo(() => printSettingsPages(mode).filter((page) =>
     page.groups.some((group) => group.keys.some((key) => allFields.some((field) => field.key === key)))), [allFields, mode]);
   const selectedPage = availablePages.some((page) => page.title === activePage) ? activePage : availablePages[0]?.title;
@@ -308,8 +318,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key, value,
     };
-    const mutation = await commitScopedConfigurationMutation(platform, request);
-    if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    await commitScopedConfigurationMutation(platform, request);
     const current = useSettingsStore.getState();
     const effective = projectScopedConfigurationFields({ mode, metadata: metadata!,
       baseValues: current.baseValues, snapshot: current.nativeScopedConfig, resolution })
@@ -323,8 +332,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         ? [{ scope: 'project', label: 'Project' }]
         : resolution.targets), key: field.key,
     };
-    const mutation = await commitScopedConfigurationMutation(platform, request);
-    if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+    await commitScopedConfigurationMutation(platform, request);
   }, [mode, platform, resolution]);
   const resetCategory = async (category: string) => {
     if (mode !== 'project' && resolution.scope === 'invalid') return;
@@ -336,8 +344,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
         : resolution.targets), category,
     };
     try {
-      const mutation = await commitScopedConfigurationMutation(platform, request);
-      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+      await commitScopedConfigurationMutation(platform, request);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
   const resetAll = async () => {
@@ -347,8 +354,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
     if (!hasLocal) return;
     const request: NativeScopedConfigMutationRequest = { version: 1, operation: 'reset-all', targets: targetRequestTargets(targets) };
     try {
-      const mutation = await commitScopedConfigurationMutation(platform, request);
-      if (mutation) invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
+      await commitScopedConfigurationMutation(platform, request);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
@@ -421,7 +427,7 @@ export function ScopedConfigurationPanel({ sceneInteraction, projectContent, sco
                   {startsSection && <div data-testid={`config-section-${section}`} className="mt-1 flex items-center gap-2 px-1 text-module font-semibold text-muted-foreground">
                     {section}<span className="h-px flex-1 bg-border" />
                   </div>}
-                  <ScopedField field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
+                  <ScopedField disabled={field.key === 'curr_bed_type' && bedTypeDisabled} field={field} targets={resolution.targets} onCommit={commitField} onReset={resetField} />
                 </div>;
               })}</div>}
             </div>;

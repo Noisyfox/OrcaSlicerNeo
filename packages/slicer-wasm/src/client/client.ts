@@ -963,10 +963,29 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
   return { ok: true, version: 1, result: { mutation: typedMutation, historyStatus } };
 }
 
+/** Internal load receipts always report null or complete normalization diagnostics. */
+function normalizeBedTypeNormalization(raw: unknown): ProjectLoadResult['bedTypeNormalization'] | undefined {
+  if (raw === null) return null;
+  if (!isRecord(raw) || typeof raw.global_changed !== 'boolean' ||
+      !Array.isArray(raw.removed_plate_override_ids) ||
+      raw.removed_plate_override_ids.some(id => typeof id !== 'string' || id.length === 0) ||
+      new Set(raw.removed_plate_override_ids).size !== raw.removed_plate_override_ids.length ||
+      (!raw.global_changed && raw.removed_plate_override_ids.length === 0)) return undefined;
+  return { globalChanged: raw.global_changed, removedPlateOverrideIds: raw.removed_plate_override_ids as string[] };
+}
+
 /** Convert the native profile/catalogue payload into the public profile
  * contract, including the engine-filtered filament catalogue. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
+  const bedType = raw.bed_type;
+  if (!isRecord(bedType) || typeof bedType.supports_selection !== 'boolean' ||
+      typeof bedType.default_value !== 'string' || bedType.default_value.length === 0 ||
+      !Array.isArray(bedType.choices) || bedType.choices.some((choice) =>
+        !isRecord(choice) || typeof choice.value !== 'string' || choice.value.length === 0 ||
+        typeof choice.label !== 'string' || choice.label.length === 0) ||
+      new Set(bedType.choices.map((choice) => choice.value)).size !== bedType.choices.length)
+    return { ok: false, error: 'Invalid native bed type capabilities' };
   return {
     ok: true,
     printers: (Array.isArray(raw.printers) ? raw.printers : []) as ProfileSnapshot['printers'],
@@ -974,6 +993,11 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
     filamentCatalog: (Array.isArray(raw.filament_catalog) ? raw.filament_catalog : []) as ProfileSnapshot['filamentCatalog'],
     printer: raw.printer as ProfileSnapshot['printer'],
     print: raw.print as ProfileSnapshot['print'],
+    bedType: {
+      supportsSelection: bedType.supports_selection,
+      defaultValue: bedType.default_value,
+      choices: bedType.choices.map((choice) => ({ value: choice.value as string, label: choice.label as string })),
+    },
     ...(Array.isArray(raw.printable_area) ? { printable_area: raw.printable_area as Array<[number, number]> } : {}),
     ...(typeof raw.bed_model === 'string' ? { bed_model: raw.bed_model } : {}),
     ...(typeof raw.bed_texture === 'string' ? { bed_texture: raw.bed_texture } : {}),
@@ -1131,6 +1155,9 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
   const snapshot = normalizePresetDraftSnapshot(raw);
   if (!snapshot.ok) return snapshot;
   if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft mutation response', errorCode: 'invalid_response' };
+  const profile = isRecord(raw.profile_snapshot) ? normalizeProfileSnapshot(raw.profile_snapshot) :
+    { ok: false as const, error: 'missing preset draft profile snapshot' };
+  if (!profile.ok) return { ok: false, error: profile.error, errorCode: 'invalid_response' };
   const filamentSession = normalizeFilamentSessionResult(raw.filament_session);
   if (!filamentSession.ok) return { ok: false, error: 'invalid preset draft filament receipt', errorCode: 'invalid_response' };
   const plateSession = normalizePlateMutationResult(raw.plate_session);
@@ -1151,7 +1178,7 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
   return { ...snapshot, historyEntryDelta: 1, revisionBefore: raw.revision_before as number,
     revisionAfter: raw.revision_after as number, dirty: raw.dirty,
     affectedPlateIds: raw.affected_plate_ids as string[], allPlateResultsInvalidated: true,
-    plateSession, filamentSession, historyStatus, nativeScopedConfig };
+    plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile };
 }
 
 function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
@@ -1387,7 +1414,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     if (!profile.ok) return historyFailure(raw, 'invalid history profile snapshot');
     profileSnapshot = profile;
   }
-  if (impact.profileSelection && !profileSnapshot)
+  if ((impact.profileSelection || impact.presetDrafts) && !profileSnapshot)
     return historyFailure(raw, 'history Printer/Process restore omitted its profile snapshot');
   if (!Array.isArray(value.affected_plate_ids) ||
       !(value.affected_plate_ids as unknown[]).every((id) => typeof id === 'string' && id.length > 0) ||
@@ -2074,14 +2101,18 @@ export function createClient(
 
     async selectPrinterWithRememberedRack(
       printer: string, rememberedRack: RememberedFilamentRackPreference | null,
+      rememberedBedType: string | null,
     ): Promise<PrinterTransitionResult> {
+      if (rememberedRack === undefined || rememberedBedType === undefined)
+        return { ok: false, errorCode: 'invalid_request', error: 'Explicit nullable rack and bed memory are required' };
       const m = await module();
       const request = {
         printer,
-        remembered_rack: rememberedRack ? {
+        remembered_bed_type: rememberedBedType,
+        remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
           slots: rememberedRack.slots.map(({ preset, colour }) => ({ preset, colour })),
-        } : null,
+        },
       };
       return normalizePrinterTransition(
         callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
@@ -2125,10 +2156,10 @@ export function createClient(
         let args: unknown[] = [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? ''];
         if (mode === 'project') {
           const closed = callJson(m, 'orc_close_project', [], []) as Record<string, unknown>;
-          if (!closed.ok) return { ok: false, objects: 0, instances: 0,
+          if (!closed.ok) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
             error: typeof closed.error === 'string' ? closed.error : 'project close failed' };
           const plateSession = normalizePlateMutationResult(closed.plate_session);
-          if (!plateSession.ok) return { ok: false, objects: 0, instances: 0,
+          if (!plateSession.ok) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
             error: plateSession.error ?? 'invalid closed project session' };
           geometrySession = crypto.randomUUID();
           onBridgeProjectClosed?.(plateSession);
@@ -2138,24 +2169,26 @@ export function createClient(
           args = [ptr, bytes.length, displayName ?? ''];
         }
         const r = callJson(m, nativeName, argumentTypes, args) as Record<string, unknown>;
-        if (!r.ok) return r as unknown as ProjectLoadResult;
+        if (!r.ok) return { ...r, bedTypeNormalization: null } as unknown as ProjectLoadResult;
+        const bedTypeNormalization = normalizeBedTypeNormalization(r.bed_type_normalization);
+        if (bedTypeNormalization === undefined) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null, error: 'invalid project bed type normalization' };
         let nativeScopedConfig: NativeScopedConfigFullTransport | undefined;
         let historyStatus: HistoryStatus | undefined;
         if (mode === 'project') {
           const parsedConfig = normalizeNativeScopedConfigTransport(r.native_scoped_config);
           if (!parsedConfig || parsedConfig.kind !== 'full') {
-            return { ok: false, objects: 0, instances: 0,
+            return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
               error: 'invalid project scoped configuration transport' };
           }
           nativeScopedConfig = parsedConfig;
           try {
             historyStatus = normalizeHistoryStatus(r.history_status);
           } catch {
-            return { ok: false, objects: 0, instances: 0,
+            return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
               error: 'invalid project history status' };
           }
           if (nativeScopedConfig.revision !== historyStatus.revision) {
-            return { ok: false, objects: 0, instances: 0,
+            return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
               error: 'project scoped configuration revision mismatch' };
           }
         }
@@ -2173,6 +2206,7 @@ export function createClient(
           fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
           multiPlate: r.multi_plate === true,
           plateCount: Number(r.plate_count ?? 0),
+          bedTypeNormalization,
           embeddedPresetWarnings: warnings ? {
             present: warnings.present === true,
             count: Number(warnings.count ?? 0),
@@ -2232,11 +2266,14 @@ export function createClient(
       try {
         const r = callJson(m, 'orc_import_project_geometry', ['pointer', 'number', 'string'],
           [ptr, bytes.length, displayName ?? '']) as Record<string, unknown>;
-        if (!r.ok) return r as unknown as ProjectLoadResult;
+        if (!r.ok) return { ...r, bedTypeNormalization: null } as unknown as ProjectLoadResult;
+        const bedTypeNormalization = normalizeBedTypeNormalization(r.bed_type_normalization);
+        if (bedTypeNormalization === undefined) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null, error: 'invalid project bed type normalization' };
         // Keep the public result shape identical to loadProject's geometry
         // mode without making the worker or callers know a second bridge op.
         return {
           ok: true,
+          bedTypeNormalization,
           objects: Number(r.objects ?? 0),
           instances: Number(r.instances ?? 0),
           mode: 'geometry-only',

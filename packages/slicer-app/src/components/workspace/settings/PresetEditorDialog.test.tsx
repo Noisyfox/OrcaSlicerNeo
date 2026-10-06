@@ -185,6 +185,7 @@ function mutationSuccess(snapshot: PresetDraftSnapshot, request: PresetDraftMuta
     filamentSession: {} as never,
     historyStatus: {} as never,
     nativeScopedConfig: {} as never,
+    profileSnapshot: {} as never,
   } as PresetDraftMutationResult;
 }
 

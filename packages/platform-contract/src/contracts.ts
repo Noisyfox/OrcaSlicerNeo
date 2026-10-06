@@ -122,6 +122,8 @@ export interface UserPreferences {
    * this preference.
    */
   rememberedFilamentRacks?: Record<string, RememberedFilamentRack>;
+  /** Native serialized global bed choice, keyed by canonical printer name. */
+  rememberedBedTypes: Record<string, string>;
   ui: {
     sidebarWidth?: number;
     rightSidebarWidth?: number;
@@ -247,6 +249,7 @@ export interface ProfileSource {
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  rememberedBedTypes: {},
   version: 1,
   projectLoadBehaviour: DEFAULT_PROJECT_LOAD_BEHAVIOUR,
   selectedProfiles: {},
@@ -270,9 +273,9 @@ export function normalizeGcodeTextWindowGeometry(value: unknown): GcodeTextWindo
 
 export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
-    return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
+    return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown };
+  const v = value as { colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
   const gcodeTextWindow = normalizeGcodeTextWindowGeometry(ui.gcodeTextWindow);
@@ -290,8 +293,16 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       if (slots.length === rack.slots.length) rememberedFilamentRacks[printer] = { version: 1, slots };
     }
   }
+  const rememberedBedTypes: Record<string, string> = {};
+  if (v.rememberedBedTypes && typeof v.rememberedBedTypes === 'object' && !Array.isArray(v.rememberedBedTypes)) {
+    for (const [printer, bed] of Object.entries(v.rememberedBedTypes)) {
+      if (printer && typeof bed === 'string' && bed.trim().length > 0 && bed.length <= 256)
+        Object.defineProperty(rememberedBedTypes, printer, { value: bed, enumerable: true, configurable: true, writable: true });
+    }
+  }
   return {
     version: 1,
+    rememberedBedTypes,
     ...(v.colorPicker && typeof v.colorPicker === 'object' ? { colorPicker: { favorites: normalizeColorFavorites(v.colorPicker.favorites) } } : {}),
     projectLoadBehaviour: PROJECT_LOAD_BEHAVIOURS.includes(v.projectLoadBehaviour as ProjectLoadBehaviour)
       ? v.projectLoadBehaviour as ProjectLoadBehaviour

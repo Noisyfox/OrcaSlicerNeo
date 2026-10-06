@@ -22,14 +22,14 @@ afterEach(async () => {
 
 async function renderField(overrides: Partial<ScopedConfigurationField> = {},
   onCommit = vi.fn(async (_field: ScopedConfigurationField, value: string) => value),
-  onReset = vi.fn(async (_field: ScopedConfigurationField) => {}), focusInput = true) {
+  onReset = vi.fn(async (_field: ScopedConfigurationField) => {}), focusInput = true, disabled = false) {
   let field: ScopedConfigurationField = { key: 'layer_height', label: 'Layer height', category: 'Quality',
     meta: { type: 'float' } as ScopedConfigurationField['meta'], value: '0.2', mixed: false,
     source: 'object', local: true, resettable: true, ...overrides };
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
-  const render = async () => act(async () => root!.render(<TooltipProvider><ScopedField field={field}
+  const render = async () => act(async () => root!.render(<TooltipProvider><ScopedField disabled={disabled} field={field}
     targets={[{ scope: 'object', id: '42', label: 'Object' }]}
     onCommit={onCommit} onReset={onReset} /></TooltipProvider>));
   await render();
@@ -87,6 +87,13 @@ describe('scoped field drafts', () => {
     expect(increase.disabled).toBe(true);
   });
 
+  it('disables mixed bed text fallback and its local Reset during guarded operations', async () => {
+    const view = await renderField({ key: 'curr_bed_type', label: 'Bed type', mixed: true, source: 'mixed',
+      meta: { type: 'enum', enum_values: ['Textured PEI Plate'] } }, undefined, undefined, false, true);
+    expect(view.input.disabled).toBe(true);
+    expect(view.container.querySelector<HTMLButtonElement>('[data-testid="config-reset-curr_bed_type"]')!.disabled).toBe(true);
+    expect(view.onCommit).not.toHaveBeenCalled();
+  });
   it.each(['success', 'failure'] as const)('re-enables numeric steppers after commit %s', async (outcome) => {
     let resolve!: (value: string) => void;
     let reject!: (reason: Error) => void;
