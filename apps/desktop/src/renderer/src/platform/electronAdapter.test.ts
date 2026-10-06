@@ -3,7 +3,7 @@ import { createElectronAdapter } from './electronAdapter';
 import type { PrinterConfigurationDocument } from '@orca/printer-control';
 
 function setup(overrides: Record<string, unknown> = {}) {
-    const load = vi.fn(async () => ({ found: true, json: { version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } } }));
+    const load = vi.fn(async () => ({ found: true, json: { version: 1, rememberedBedTypes: {}, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } } }));
     const save = vi.fn(async () => {});
     const menu = {
       syncModel: vi.fn(),
@@ -49,9 +49,9 @@ describe('Electron adapter', () => {
   });
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
-    expect(await adapter.preferences.load()).toEqual({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
-    await adapter.preferences.save({ version: 1, selectedProfiles: { printer: 'P', print: 'Q' }, ui: { switchToDeviceAfterSend: true } });
-    expect(save).toHaveBeenCalledWith({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Q' }, ui: { switchToDeviceAfterSend: true } });
+    expect(await adapter.preferences.load()).toEqual({ version: 1, rememberedBedTypes: {}, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
+    await adapter.preferences.save({ version: 1, rememberedBedTypes: {}, selectedProfiles: { printer: 'P', print: 'Q' }, ui: { switchToDeviceAfterSend: true } });
+    expect(save).toHaveBeenCalledWith({ version: 1, rememberedBedTypes: {}, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Q' }, ui: { switchToDeviceAfterSend: true } });
   });
 
   it('maps native import success to display name and bytes', async () => {
@@ -242,7 +242,7 @@ describe('Electron adapter', () => {
     const load = vi.fn(async () => { throw new Error('unavailable'); });
     const save = vi.fn(async () => { throw new Error('unavailable'); });
     const { adapter } = setup({ preferences: { load, save } });
-    const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } };
+    const value = { version: 1 as const, rememberedBedTypes: {}, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } };
     await adapter.preferences.save(value);
     await expect(adapter.preferences.load()).resolves.toEqual({ ...value, projectLoadBehaviour: 'ask_when_relevant', ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } });
   });

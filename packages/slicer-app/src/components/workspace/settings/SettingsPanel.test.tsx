@@ -119,9 +119,9 @@ function resetStores() {
 
 function makePlatform(
   selectProfile: (kind: 'printer' | 'print', name: string) => Promise<ProfileSnapshotResult>,
-  selectPrinterWithRememberedRack: (printer: string, rack: RememberedFilamentRack | null) => Promise<PrinterTransitionResult> = async () => printerTransition(),
+  selectPrinterWithRememberedRack: (printer: string, rack: RememberedFilamentRack | null, bed: string | null) => Promise<PrinterTransitionResult> = async () => printerTransition(),
 ) {
-  const preferences: UserPreferences = { version: 1, selectedProfiles: { printer: 'saved' }, ui: { switchToDeviceAfterSend: true } };
+  const preferences: UserPreferences = { version: 1, rememberedBedTypes: {}, selectedProfiles: { printer: 'saved' }, ui: { switchToDeviceAfterSend: true } };
   const repository = {
     load: vi.fn(async () => preferences),
     save: vi.fn(async (next: UserPreferences) => { Object.assign(preferences, next); }),

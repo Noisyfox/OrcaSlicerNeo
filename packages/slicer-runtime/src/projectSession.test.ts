@@ -12,10 +12,10 @@ describe('project session policy', () => {
   });
 
   it('reports generic, unsupported, and missing-setting fallback reasons', () => {
-    expect(compatibilityFallback({ ok: true, objects: 1, instances: 1, compatibility: 'generic' })).toContain('generic');
-    expect(compatibilityFallback({ ok: true, objects: 1, instances: 1, compatibility: 'unsupported' })).toContain('unavailable');
-    expect(compatibilityFallback({ ok: true, objects: 1, instances: 1, compatibility: 'orca', projectSettingsAvailable: false })).toContain('unavailable');
-    expect(compatibilityFallback({ ok: true, objects: 1, instances: 1, compatibility: 'bambu', projectSettingsAvailable: true })).toBeNull();
+    expect(compatibilityFallback({ bedTypeNormalization: null, ok: true, objects: 1, instances: 1, compatibility: 'generic' })).toContain('generic');
+    expect(compatibilityFallback({ bedTypeNormalization: null, ok: true, objects: 1, instances: 1, compatibility: 'unsupported' })).toContain('unavailable');
+    expect(compatibilityFallback({ bedTypeNormalization: null, ok: true, objects: 1, instances: 1, compatibility: 'orca', projectSettingsAvailable: false })).toContain('unavailable');
+    expect(compatibilityFallback({ bedTypeNormalization: null, ok: true, objects: 1, instances: 1, compatibility: 'bambu', projectSettingsAvailable: true })).toBeNull();
   });
 
   it('derives a safe project name from a display name', () => {

@@ -599,7 +599,7 @@ export interface ProjectLoadResult {
   fileVersion?: string;
   multiPlate?: boolean;
   plateCount?: number;
-  bedTypeNormalization?: { globalChanged: boolean; removedPlateOverrideIds: string[] };
+  bedTypeNormalization: { globalChanged: boolean; removedPlateOverrideIds: string[] } | null;
   embeddedPresetWarnings?: {
     present: boolean;
     count: number;
@@ -1578,7 +1578,7 @@ export interface SlicerClient extends PaintingApi {
    * committed Worker snapshot, history entry and all-plate invalidation. */
   selectPrinterWithRememberedRack(
     printer: string, rememberedRack: RememberedFilamentRackPreference | null,
-      rememberedBedType?: string | null,
+      rememberedBedType: string | null,
   ): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
   cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;

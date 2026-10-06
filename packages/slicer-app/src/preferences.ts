@@ -189,7 +189,7 @@ export async function restoreBootstrapSession(
 ): Promise<RestoredBootstrapSession> {
   const restored = await restoreSelections(runtime, preferences);
   await applyRememberedFilamentRack(runtime, preferences, restored.snapshot.printer.name);
-  const seeded = await seedRememberedBedType(runtime, preferences.rememberedBedTypes?.[restored.snapshot.printer.name] ?? null);
+  const seeded = await seedRememberedBedType(runtime, preferences.rememberedBedTypes[restored.snapshot.printer.name] ?? null);
   if (seeded) {
     const snapshot = await runtime.getProfileSnapshot();
     if (!snapshot.ok) throw new Error(snapshot.error ?? 'seeded boot profile snapshot unavailable');
@@ -226,7 +226,7 @@ export async function publishRememberedBedType(repository: UserPreferencesReposi
 
 export async function loadRememberedBedTypeFromRepository(repository: UserPreferencesRepository, printer: string): Promise<string | null> {
   try {
-    const value = (await loadUserPreferences(repository)).rememberedBedTypes?.[printer];
+    const value = (await loadUserPreferences(repository)).rememberedBedTypes[printer];
     return typeof value === 'string' && value.trim() ? value : null;
   }
   catch (error) { console.warn('remembered bed type unavailable; using native default', error); return null; }

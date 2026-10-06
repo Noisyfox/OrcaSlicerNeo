@@ -82,7 +82,7 @@ preference repository; local plate overrides and history navigation never
 write this memory. Preference IO failures preserve the native committed state
 and all unrelated preferences.
 
-Explicit Printer transitions accept an optional remembered bed value in the
+Explicit Printer transitions require nullable remembered rack and bed values in the
 same native transaction as Printer/rack compatibility, normalization, history,
 and invalidation. The final effective Printer's native model-filtered choices
 validate that seed. Missing, obsolete, excluded, or disabled-selection memory
@@ -131,3 +131,10 @@ shared project notice displays them. Neo establishes the normalized replacement
 as its clean history baseline; unlike Orca's post-baseline normalization, these
 import corrections do not mark the newly opened project dirty. User preferences
 never seed an opened project.
+
+Internal Printer transition requests require both memory fields explicitly; null
+means no stored preference. Internal project load receipts require a
+`bed_type_normalization` field containing null or complete correction diagnostics.
+Malformed or omitted fields are rejected, without legacy signature adapters.
+Normalized user preferences always include a `rememberedBedTypes` map; persisted
+files with no remembered beds normalize to an empty map at the storage boundary.

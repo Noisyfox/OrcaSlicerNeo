@@ -59,7 +59,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const [printerExpanded, setPrinterExpanded] = useState(true);
 
   const controlsDisabled = presetTransitionPending || mutationPending ||
-    (slicing && platform.runtime.getRuntimeExecutionState?.().threaded === false) ||
+    (slicing && platform.runtime.getRuntimeExecutionState().threaded === false) ||
     ['loading', 'saving', 'model-import', 'waiting-for-dirty-decision'].includes(projectOperation);
   const bedVisible = bedType?.supportsSelection && bedType.choices.length > 0;
   const bedValue = globalBed ?? bedType?.defaultValue ?? '';

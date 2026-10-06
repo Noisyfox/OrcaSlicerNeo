@@ -2253,6 +2253,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       catch { return { ok: false, error_code: 'invalid_request', error: 'invalid Printer transition request' }; }
       if (typeof request?.printer !== 'string' || !request.printer)
         return { ok: false, error_code: 'invalid_request', error: 'invalid Printer transition request' };
+      if (!Object.hasOwn(request, 'remembered_rack') || !Object.hasOwn(request, 'remembered_bed_type') ||
+          (request.remembered_bed_type !== null && typeof request.remembered_bed_type !== 'string'))
+        return { ok: false, error_code: 'invalid_request', error: 'explicit remembered rack and bed are required' };
       const printer = presetFixtures.printer.find((item) => item.name === request.printer && item.is_visible);
       if (!printer) return { ok: false, error_code: 'preset_not_found', error: 'Printer preset not found' };
       const before = historyRevision;
@@ -2373,6 +2376,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         mode: geometryOnly ? 'geometry-only' : 'project',
         display_name: displayName || '', compatibility: 'bambu',
         project_settings_available: !geometryOnly, is_bbl_3mf: true, is_orca_3mf: false,
+        bed_type_normalization: null,
         file_version: '1.0.0', multi_plate: false, plate_count: 1,
         embedded_preset_warnings: {
           present: !geometryOnly && hasProjectWarning, count: !geometryOnly && hasProjectWarning ? 1 : 0,

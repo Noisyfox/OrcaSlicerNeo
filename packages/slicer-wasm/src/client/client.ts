@@ -963,6 +963,17 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
   return { ok: true, version: 1, result: { mutation: typedMutation, historyStatus } };
 }
 
+/** Internal load receipts always report null or complete normalization diagnostics. */
+function normalizeBedTypeNormalization(raw: unknown): ProjectLoadResult['bedTypeNormalization'] | undefined {
+  if (raw === null) return null;
+  if (!isRecord(raw) || typeof raw.global_changed !== 'boolean' ||
+      !Array.isArray(raw.removed_plate_override_ids) ||
+      raw.removed_plate_override_ids.some(id => typeof id !== 'string' || id.length === 0) ||
+      new Set(raw.removed_plate_override_ids).size !== raw.removed_plate_override_ids.length ||
+      (!raw.global_changed && raw.removed_plate_override_ids.length === 0)) return undefined;
+  return { globalChanged: raw.global_changed, removedPlateOverrideIds: raw.removed_plate_override_ids as string[] };
+}
+
 /** Convert the native profile/catalogue payload into the public profile
  * contract, including the engine-filtered filament catalogue. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
@@ -2090,16 +2101,18 @@ export function createClient(
 
     async selectPrinterWithRememberedRack(
       printer: string, rememberedRack: RememberedFilamentRackPreference | null,
-      rememberedBedType?: string | null,
+      rememberedBedType: string | null,
     ): Promise<PrinterTransitionResult> {
+      if (rememberedRack === undefined || rememberedBedType === undefined)
+        return { ok: false, errorCode: 'invalid_request', error: 'Explicit nullable rack and bed memory are required' };
       const m = await module();
       const request = {
         printer,
-        remembered_bed_type: rememberedBedType ?? null,
-        remembered_rack: rememberedRack ? {
+        remembered_bed_type: rememberedBedType,
+        remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
           slots: rememberedRack.slots.map(({ preset, colour }) => ({ preset, colour })),
-        } : null,
+        },
       };
       return normalizePrinterTransition(
         callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
@@ -2143,10 +2156,10 @@ export function createClient(
         let args: unknown[] = [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? ''];
         if (mode === 'project') {
           const closed = callJson(m, 'orc_close_project', [], []) as Record<string, unknown>;
-          if (!closed.ok) return { ok: false, objects: 0, instances: 0,
+          if (!closed.ok) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
             error: typeof closed.error === 'string' ? closed.error : 'project close failed' };
           const plateSession = normalizePlateMutationResult(closed.plate_session);
-          if (!plateSession.ok) return { ok: false, objects: 0, instances: 0,
+          if (!plateSession.ok) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
             error: plateSession.error ?? 'invalid closed project session' };
           geometrySession = crypto.randomUUID();
           onBridgeProjectClosed?.(plateSession);
@@ -2156,24 +2169,26 @@ export function createClient(
           args = [ptr, bytes.length, displayName ?? ''];
         }
         const r = callJson(m, nativeName, argumentTypes, args) as Record<string, unknown>;
-        if (!r.ok) return r as unknown as ProjectLoadResult;
+        if (!r.ok) return { ...r, bedTypeNormalization: null } as unknown as ProjectLoadResult;
+        const bedTypeNormalization = normalizeBedTypeNormalization(r.bed_type_normalization);
+        if (bedTypeNormalization === undefined) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null, error: 'invalid project bed type normalization' };
         let nativeScopedConfig: NativeScopedConfigFullTransport | undefined;
         let historyStatus: HistoryStatus | undefined;
         if (mode === 'project') {
           const parsedConfig = normalizeNativeScopedConfigTransport(r.native_scoped_config);
           if (!parsedConfig || parsedConfig.kind !== 'full') {
-            return { ok: false, objects: 0, instances: 0,
+            return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
               error: 'invalid project scoped configuration transport' };
           }
           nativeScopedConfig = parsedConfig;
           try {
             historyStatus = normalizeHistoryStatus(r.history_status);
           } catch {
-            return { ok: false, objects: 0, instances: 0,
+            return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
               error: 'invalid project history status' };
           }
           if (nativeScopedConfig.revision !== historyStatus.revision) {
-            return { ok: false, objects: 0, instances: 0,
+            return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null,
               error: 'project scoped configuration revision mismatch' };
           }
         }
@@ -2191,11 +2206,7 @@ export function createClient(
           fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
           multiPlate: r.multi_plate === true,
           plateCount: Number(r.plate_count ?? 0),
-          bedTypeNormalization: r.bed_type_normalization && typeof r.bed_type_normalization === 'object' ? {
-            globalChanged: (r.bed_type_normalization as Record<string, unknown>).global_changed === true,
-            removedPlateOverrideIds: Array.isArray((r.bed_type_normalization as Record<string, unknown>).removed_plate_override_ids)
-              ? ((r.bed_type_normalization as Record<string, unknown>).removed_plate_override_ids as unknown[]).filter((id): id is string => typeof id === 'string') : [],
-          } : undefined,
+          bedTypeNormalization,
           embeddedPresetWarnings: warnings ? {
             present: warnings.present === true,
             count: Number(warnings.count ?? 0),
@@ -2255,11 +2266,14 @@ export function createClient(
       try {
         const r = callJson(m, 'orc_import_project_geometry', ['pointer', 'number', 'string'],
           [ptr, bytes.length, displayName ?? '']) as Record<string, unknown>;
-        if (!r.ok) return r as unknown as ProjectLoadResult;
+        if (!r.ok) return { ...r, bedTypeNormalization: null } as unknown as ProjectLoadResult;
+        const bedTypeNormalization = normalizeBedTypeNormalization(r.bed_type_normalization);
+        if (bedTypeNormalization === undefined) return { ok: false, objects: 0, instances: 0, bedTypeNormalization: null, error: 'invalid project bed type normalization' };
         // Keep the public result shape identical to loadProject's geometry
         // mode without making the worker or callers know a second bridge op.
         return {
           ok: true,
+          bedTypeNormalization,
           objects: Number(r.objects ?? 0),
           instances: Number(r.instances ?? 0),
           mode: 'geometry-only',

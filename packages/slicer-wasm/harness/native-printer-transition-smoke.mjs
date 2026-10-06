@@ -57,7 +57,7 @@ function resetHistory() {
 function transition(printer, slots) {
   return request('orc_select_printer_with_remembered_rack', {
     printer,
-    remembered_rack: slots ? { version: 1, slots } : null,
+    remembered_bed_type: null, remembered_rack: slots ? { version: 1, slots } : null,
   });
 }
 function setDraft(kind, canonicalName, key, value) {

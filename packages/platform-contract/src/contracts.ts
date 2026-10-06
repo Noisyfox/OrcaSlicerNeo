@@ -123,7 +123,7 @@ export interface UserPreferences {
    */
   rememberedFilamentRacks?: Record<string, RememberedFilamentRack>;
   /** Native serialized global bed choice, keyed by canonical printer name. */
-  rememberedBedTypes?: Record<string, string>;
+  rememberedBedTypes: Record<string, string>;
   ui: {
     sidebarWidth?: number;
     rightSidebarWidth?: number;
@@ -249,6 +249,7 @@ export interface ProfileSource {
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  rememberedBedTypes: {},
   version: 1,
   projectLoadBehaviour: DEFAULT_PROJECT_LOAD_BEHAVIOUR,
   selectedProfiles: {},
@@ -272,7 +273,7 @@ export function normalizeGcodeTextWindowGeometry(value: unknown): GcodeTextWindo
 
 export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
-    return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
+    return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
   const v = value as { colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
   const selectedProfiles = v.selectedProfiles ?? {};
@@ -301,7 +302,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   }
   return {
     version: 1,
-    ...(Object.keys(rememberedBedTypes).length ? { rememberedBedTypes } : {}),
+    rememberedBedTypes,
     ...(v.colorPicker && typeof v.colorPicker === 'object' ? { colorPicker: { favorites: normalizeColorFavorites(v.colorPicker.favorites) } } : {}),
     projectLoadBehaviour: PROJECT_LOAD_BEHAVIOURS.includes(v.projectLoadBehaviour as ProjectLoadBehaviour)
       ? v.projectLoadBehaviour as ProjectLoadBehaviour

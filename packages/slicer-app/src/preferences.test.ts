@@ -5,7 +5,7 @@ import type { ProfileSnapshot } from '@slicer/client';
 
 const prefs: UserPreferences = {
   version: 1,
-  selectedProfiles: { printer: 'P', print: 'Q' },
+  rememberedBedTypes: {}, selectedProfiles: { printer: 'P', print: 'Q' },
   ui: { switchToDeviceAfterSend: true },
 };
 
@@ -77,7 +77,7 @@ describe('selection restoration', () => {
         calls.push([kind, name]);
         return final;
       },
-    }, { version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } });
+    }, { version: 1, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } });
 
     expect(calls).toEqual([
       ['printer', 'engine-printer'],
@@ -91,7 +91,7 @@ describe('selection restoration', () => {
   it('persists the resolved triple without failing the already-valid boot state on storage errors', async () => {
     const preferences = {
       version: 1 as const,
-      selectedProfiles: { printer: 'resolved-printer', print: 'resolved-print' },
+      rememberedBedTypes: {}, selectedProfiles: { printer: 'resolved-printer', print: 'resolved-print' },
       ui: { switchToDeviceAfterSend: true },
     };
     const repository = { load: vi.fn(async () => preferences), save: vi.fn(async () => {}) };
@@ -173,7 +173,7 @@ describe('selection restoration', () => {
       assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 4, project: 4, result: 0, plates: {} },
       status: { state: 'ready' as const, error: null },
     };
-    let stored: UserPreferences = { version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
+    let stored: UserPreferences = { version: 1, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
     let release!: () => void;
     const saveGate = new Promise<void>((resolve) => { release = resolve; });
     const repository: UserPreferencesRepository = {

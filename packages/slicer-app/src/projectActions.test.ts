@@ -57,14 +57,14 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     loadProject: vi.fn(async (_bytes: Uint8Array, _mode?: string, _displayName?: string, _onProgress?: unknown,
       onProjectClosed?: (plateSession: PlateSessionMutation) => void) => {
       onProjectClosed?.(freshPlateSession);
-      return { ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const,
+      return { bedTypeNormalization: null, ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const,
         projectSettingsAvailable: true, presetSnapshot: snapshot, plateSession: freshPlateSession,
         nativeScopedConfig: scopedConfigTransport, historyStatus: loadedHistoryStatus, ...load,
         ...(load.nativeScopedConfig === undefined ? { nativeScopedConfig: scopedConfigTransport } : {}),
         ...(load.historyStatus === undefined ? { historyStatus: loadedHistoryStatus } : {}) };
     }),
     closeProject: vi.fn(async () => ({ ok: true, plateSession: freshPlateSession })),
-    importProjectGeometry: vi.fn(async () => ({ ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
+    importProjectGeometry: vi.fn(async () => ({ bedTypeNormalization: null, ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
     getNativeScopedConfig: vi.fn(async () => ({ ok: true as const, version: 1 as const, nativeScopedConfig: scopedConfigTransport })),
@@ -90,7 +90,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     save: vi.fn(async () => ({ status: 'ok' as const })),
     saveAs: vi.fn(async () => ({ status: 'ok' as const })),
   };
-  const preferences = { load: vi.fn(async () => ({ version: 1 as const, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } })), save: vi.fn(async () => {}) };
+  const preferences = { load: vi.fn(async () => ({ version: 1 as const, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } })), save: vi.fn(async () => {}) };
   return { runtime, projects, preferences, platform: { runtime, projects, preferences } as unknown as PlatformCapabilities };
 }
 
@@ -188,7 +188,7 @@ describe('transactional project actions', () => {
   });
 
   it('commits an embedded Process preset without opening a confirmation dialog', async () => {
-    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
+    const result: ProjectLoadResult = { bedTypeNormalization: null, ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: true, count: 1, printerCount: 0, processCount: 1, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
     const { platform, runtime } = platformFor(result);
     const confirm = vi.fn(() => true);
@@ -202,7 +202,7 @@ describe('transactional project actions', () => {
 
   it('shows post-close warning confirmation and leaves the fresh empty session on rejection', async () => {
     useProjectStore.getState().setProject({ projectName: 'Prior', hasContent: true, dirty: true });
-    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
+    const result: ProjectLoadResult = { bedTypeNormalization: null, ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: true, count: 1, printerCount: 1, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: true, filamentSlotChanges: [{ slot: 1, before: 'A', after: 'B', reason: 'native-compatibility' }] } };
     const { platform, runtime } = platformFor(result);
     const cancelled = await openProject(platform, { loadBehaviour: 'load_all', decideDirty: () => 'dont-save', confirmProjectLoad: () => false });
@@ -213,7 +213,7 @@ describe('transactional project actions', () => {
   });
 
   it('closes the loaded candidate when warning confirmation throws and keeps failure post-close', async () => {
-    const warning: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
+    const warning: ProjectLoadResult = { bedTypeNormalization: null, ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: true, count: 1, printerCount: 1, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: true } };
     const thrown = platformFor(warning);
     const confirmationError = new Error('dialog closed');
@@ -274,7 +274,7 @@ describe('transactional project actions', () => {
         phase: 'loading', progress: 0, message: 'Opening project',
       });
       onProjectClosed?.(freshPlateSession);
-      return { ok: true, objects: 1, instances: 1, mode: 'project' as const,
+      return { bedTypeNormalization: null, ok: true, objects: 1, instances: 1, mode: 'project' as const,
         compatibility: 'bambu' as const, projectSettingsAvailable: true,
         presetSnapshot: snapshot, plateSession: freshPlateSession,
         nativeScopedConfig: scopedConfigTransport, historyStatus: loadedHistoryStatus };
@@ -344,7 +344,7 @@ describe('transactional project actions', () => {
     const targetRack = { ...filamentSnapshot(6), slots: [{ ...filamentSnapshot(6).slots[0], preset: { id: 'system-pla', name: 'System PLA' } }] };
     runtime.getFilamentSessionSnapshot.mockResolvedValueOnce(beforeRack).mockResolvedValue(targetRack);
     runtime.applyRememberedFilamentRack.mockResolvedValue(targetRack);
-    preferences.load.mockResolvedValue({ version: 1, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },
+    preferences.load.mockResolvedValue({ version: 1, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },
       rememberedFilamentRacks: { 'System printer': { version: 1, slots: [{ preset: 'System PLA', colour: '#112233' }] } } } as UserPreferences);
     useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
     useProjectStore.getState().setProject({ scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' }, hasContent: true, dirty: true });

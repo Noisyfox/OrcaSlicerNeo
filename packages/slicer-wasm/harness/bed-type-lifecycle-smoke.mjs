@@ -28,7 +28,7 @@ function commit(transaction) {
   assert.equal(result.error, undefined, JSON.stringify(result)); return result;
 }
 function set(scope, id, value) { return must(setNativeScopedConfig(call, scope, id, 'curr_bed_type', value)); }
-function transition(printer) { return must(request('orc_select_printer_with_remembered_rack', { printer, remembered_rack: null })); }
+function transition(printer) { return must(request('orc_select_printer_with_remembered_rack', { printer, remembered_bed_type: null, remembered_rack: null })); }
 function draft(key, value) {
   const printer = profiles().printer.name;
   const source = must(call('orc_get_preset_draft', ['string', 'string'], ['printer', printer]));

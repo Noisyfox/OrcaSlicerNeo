@@ -997,6 +997,27 @@ describe('SlicerClient bridge contract', () => {
     expect(m.sparse_infill_pattern?.enum_values).toContain('grid');
   });
 
+  it.each(['remembered_rack', 'remembered_bed_type'])('rejects omitted transition %s atomically', async (field) => {
+    const module = createMockModule();
+    const client = createClient(async () => module);
+    const before = await client.getProfileSnapshot();
+    const history = await client.getHistoryStatus();
+    const request: Record<string, unknown> = { printer: 'Bambu Lab P1S 0.4 nozzle', remembered_rack: null, remembered_bed_type: null };
+    delete request[field];
+    const pointer = Number(module.ccall('orc_select_printer_with_remembered_rack', 'number', ['string'], [JSON.stringify(request)]));
+    expect(JSON.parse(module.UTF8ToString(pointer))).toMatchObject({ ok: false, error_code: 'invalid_request' });
+    module._free(pointer);
+    expect(await client.getProfileSnapshot()).toEqual(before);
+    expect(await client.getHistoryStatus()).toEqual(history);
+  });
+  it('requires explicit null memory at the typed transition call', async () => {
+    const client = makeClient();
+    const legacyCall = client.selectPrinterWithRememberedRack as unknown as (printer: string, rack: null) => ReturnType<typeof client.selectPrinterWithRememberedRack>;
+    expect(await legacyCall('Bambu Lab P1S 0.4 nozzle', null)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
+    expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', undefined as never, null)).toMatchObject({ ok: false, errorCode: 'invalid_request' });
+    expect(await client.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', null, null)).toMatchObject({ ok: true });
+  });
+
   it('selectPrinterWithRememberedRack returns one complete native commit receipt', async () => {
     const c = makeClient();
     const before = await c.getHistoryStatus();
@@ -2333,6 +2354,41 @@ describe('SlicerClient bridge contract', () => {
     const second = await c.exportGcodePlate(sliced.receipt!);
     expect(second.ok).toBe(true);
     expect(new TextDecoder().decode(second.bytes.slice(0, 6))).toBe('; mock');
+  });
+
+  describe.each(['project', 'geometry-only', 'import'] as const)('strict load bed diagnostics (%s)', (route) => {
+    const load = (client: ReturnType<typeof makeClient>) => route === 'import'
+      ? client.importProjectGeometry(new Uint8Array([80, 75]), 'test.3mf')
+      : client.loadProject(new Uint8Array([80, 75]), route, 'test.3mf');
+    const patched = (payload: unknown) => {
+      const module = createMockModule(), original = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = original(name, ret, types, args);
+        if (!['orc_load_project', 'orc_load_project_after_close', 'orc_import_project_geometry'].includes(name)) return pointer;
+        const result = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        result.bed_type_normalization = payload;
+        const bytes = new TextEncoder().encode(JSON.stringify(result) + '\0');
+        const replacement = module._malloc(bytes.length); module.HEAPU8.set(bytes, replacement);
+        return replacement;
+      };
+      return createClient(async () => module);
+    };
+    it.each([undefined, [], false, {}, { global_changed: 1, removed_plate_override_ids: [] },
+      { global_changed: true }, { global_changed: true, removed_plate_override_ids: [1] },
+      { global_changed: true, removed_plate_override_ids: [''] },
+      { global_changed: false, removed_plate_override_ids: [] },
+      { global_changed: false, removed_plate_override_ids: ['p', 'p'] },
+    ])('rejects missing/malformed diagnostics %j', async (payload) => {
+      expect(await load(patched(payload))).toMatchObject({ ok: false, error: 'invalid project bed type normalization' });
+    });
+    it('reports explicit null when no corrections occurred', async () => {
+      expect(await load(patched(null))).toMatchObject({ ok: true, bedTypeNormalization: null });
+    });
+    it('preserves the complete correction report', async () => {
+      expect(await load(patched({ global_changed: true, removed_plate_override_ids: ['p'] })))
+        .toMatchObject({ ok: true, bedTypeNormalization: { globalChanged: true, removedPlateOverrideIds: ['p'] } });
+    });
   });
 
   it('loads BBS projects with typed compatibility and warning metadata', async () => {

@@ -26,6 +26,17 @@ const A = 'Bambu Lab X1 Carbon 0.4 nozzle';
 // Use canonical names from the real bundled catalog (U1 naming can change).
 const u1 = must(call('orc_get_preset_snapshot')).printers.find(p => p.name.includes('Snapmaker U1') && p.name.includes('0.4'))?.name;
 assert.ok(u1, 'bundled U1 printer available');
+for (const omitted of ['remembered_rack', 'remembered_bed_type']) {
+  const beforeProfile = call('orc_get_preset_snapshot');
+  const beforeHistory = call('orc_history_status');
+  const requestBody = { printer: A, remembered_rack: null, remembered_bed_type: null };
+  delete requestBody[omitted];
+  assert.equal(request('orc_select_printer_with_remembered_rack', requestBody).error_code, 'invalid_request');
+  assert.deepEqual(call('orc_get_preset_snapshot'), beforeProfile);
+  assert.deepEqual(call('orc_history_status'), beforeHistory);
+}
+pass('required nullable transition fields reject legacy omission atomically');
+
 transition(A, 'High Temp Plate'); reset();
 const before = call('orc_history_status');
 const second = transition(u1, 'Engineering Plate');
@@ -87,7 +98,10 @@ const exported = must(call('orc_export_project'));
 const bytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length)); Module._free(Number(exported.bytes_ptr));
 transition(A, 'High Temp Plate');
 const ptr = Number(Module._malloc(bytes.length)); Module.HEAPU8.set(bytes, ptr);
-try { must(call('orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, bytes.length, 0, 'bed-memory-priority.3mf'])); }
+try {
+  const loaded = must(call('orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, bytes.length, 0, 'bed-memory-priority.3mf']));
+  assert.equal(loaded.bed_type_normalization, null);
+}
 finally { Module._free(ptr); }
 assert.equal(config(), 'Engineering Plate');
 const loadedConfig = must(call('orc_get_native_scoped_config')).native_scoped_config.snapshot;
