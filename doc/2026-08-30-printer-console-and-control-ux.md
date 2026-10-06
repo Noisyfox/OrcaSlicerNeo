@@ -200,7 +200,7 @@ timestamps, generation reuse and stale receipts.
 `pnpm test` and `pnpm typecheck` cover the shared component and both host
 boundaries. The upload tests include a real 32 MiB HTTP request paused at the
 receiver, byte-for-byte multipart fidelity, write failures, cancellation and
-late callbacks. Component tests cover sampled speed, delayed progress events,
+late callbacks. Component tests cover cumulative average speed, delayed progress events,
 reset on retry, unknown totals, confirmation waiting and print-start staging.
 
 The Electron mock validation uses `VITE_USE_MOCK=1` with
@@ -209,8 +209,12 @@ The Electron mock validation uses `VITE_USE_MOCK=1` with
 `pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts e2e/app.e2e.ts --grep 'Send|Device config|full v1 flow'`.
 The fixture holds the upload response until the UI shows complete byte counts,
 zero speed and confirmation waiting without 100%, then verifies success and
-start-only retry. The current checks pass: 1,647 unit tests, all workspace
-typechecks, renderer build/CSS validation and four focused Electron E2E tests.
-Physical-printer and minutes-long real-network transfer
-verification remain unavailable. WASM builds and real Web E2E are outside this
-UI/transport-only correction's scope.
+start-only retry. Filename coverage includes project identity, native generated
+names, arbitrary extensions, cancelled saves, upload retries and multipart
+encoding. Handoff verification quick-builds both WASM variants, runs native
+bridge/slicing and filename harnesses, and checks real Web download/Send/project
+save seams using freshly staged artifacts. Electron checks include the primary
+shared application flow, project lifecycle, native Save As and Send; its real
+threaded runtime probe covers host-backed export and temporary-file cleanup.
+Physical-printer and minutes-long real-network transfer verification remain
+outside the available local fixtures.

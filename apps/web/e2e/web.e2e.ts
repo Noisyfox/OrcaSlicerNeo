@@ -76,6 +76,12 @@ test('real Web Send preserves browser multipart encoding and starts the server-r
 test('real Web G-code export downloads the native generated basename directly', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
+    await expect(page.getByTestId('serial-fallback-status')).toBeVisible();
+  } else {
+    expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+    await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
+  }
   await page.locator('#app-tab-prepare').click();
   await page.getByTestId('preset-select').click();
   const picker = page.locator('[data-slot="combobox-content"]');
