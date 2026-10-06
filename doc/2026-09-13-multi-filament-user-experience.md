@@ -116,6 +116,16 @@ are intentionally not recorded here.
 - Explicit rack edits, including an Undo/Redo restoration that changes the
   rack, update the remembered rack for the selected printer without affecting
   another printer's defaults.
+- Switching to a Printer with a shorter remembered rack normalizes removed-slot
+  references inside that same native history transaction. Out-of-range object
+  assignments use slot 1; stale part assignments inherit the object. Project
+  support/feature routes use Default, while scoped routes regain inheritance.
+  Native volume normalization limits imported painting; tool events for removed
+  slots are discarded and plate maps/sequences follow the slot-count policy.
+  Surviving slot references stay unchanged. Undo/Redo restores the entire rack,
+  assignments, routing, painting, tool events, and plate settings together.
+  Model-level layer events are retained in the native history model manifest,
+  alongside the existing object archives, so removed events are also undoable.
 
 ## Slicing and G-code preview
 
@@ -223,3 +233,26 @@ are intentionally not recorded here.
   areas remains usable and is preserved through project operations.
 - The product exposes the unified multi-filament experience only; no separate
   legacy single-filament user flow is retained.
+
+## Printer transition verification (2026-10-06)
+
+- `pnpm test`: passed, 1,735 tests. `pnpm typecheck`: passed.
+- `scripts\build-windows.bat quick --variant serial -j 4` and
+  `scripts\build-windows.bat quick --variant threaded -j 4`: passed.
+- `pnpm exec node packages/slicer-wasm/harness/native-printer-transition-smoke.mjs
+  packages/slicer-wasm/out/serial/orca_slice.js`: passed; the same command with
+  `out/threaded/orca_slice.js` passed. Covers shorter remembered racks,
+  assignments/routing, imported painting/tool events/plate maps, and Undo/Redo.
+- `pnpm exec node packages/slicer-wasm/harness/bridge-smoke.mjs
+  packages/slicer-wasm/out/serial/orca_slice.js
+  packages/slicer-wasm/fixtures/cube.stl`: passed.
+- `pnpm exec node packages/slicer-wasm/harness/history-editing-session-smoke.mjs
+  packages/slicer-wasm/out/serial/orca_slice.js`: passed.
+- `pnpm exec node packages/slicer-wasm/harness/bed-type-memory-smoke.mjs
+  packages/slicer-wasm/out/threaded/orca_slice.js`: passed before the layer-event
+  history manifest addition; final threaded Printer transition coverage passed.
+- `pnpm exec node packages/slicer-wasm/harness/history-smoke.mjs
+  packages/slicer-wasm/out/serial/orca_slice.js`: failed at the structural fixture's
+  member/out-of-bounds assertion (line 822). This check remains unresolved.
+- `git diff --check`: passed. Host UI E2E was not run: this correction changes
+  shared native state normalization and history, without host or UI wiring edits.

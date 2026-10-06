@@ -668,6 +668,10 @@ json select_printer_with_remembered_rack_json(const json& request)
                 }
             }
 
+            Filament::Commands::normalize_references_after_rack_restore(
+                bundle, bridge.model, bridge.plate_session_plates,
+                before_profiles.filament_presets.size());
+            bridge.mutable_object_capture_cache.clear();
             normalize_bed_types(true);
             // Memory is validated by the final effective Printer's native
             // capabilities inside this same history transaction.

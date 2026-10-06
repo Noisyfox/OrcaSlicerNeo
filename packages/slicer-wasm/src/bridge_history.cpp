@@ -1214,6 +1214,18 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
     if (timings) timings->immutable_mesh_retention_ms += Neo::Bridge::Performance::now_ms() - immutable_retention_started_at;
 
     ModelState result;
+    // Model-level layer events are outside the keyed object archives. Keep
+    // their small manifest in the model root so rack normalization is undoable.
+    json layer_events = json::array();
+    for (const auto& [plate, info] : model.plates_custom_gcodes) {
+        json items = json::array();
+        for (const auto& item : info.gcodes)
+            items.push_back({{"print_z", item.print_z}, {"type", static_cast<int>(item.type)},
+                {"extruder", item.extruder}, {"color", item.color}, {"extra", item.extra}});
+        layer_events.push_back({{"plate", plate}, {"mode", static_cast<int>(info.mode)}, {"items", std::move(items)}});
+    }
+    const std::string encoded_events = layer_events.dump();
+    result.serialized.assign(encoded_events.begin(), encoded_events.end());
     // Restoration is driven entirely by ObjectID-keyed mutable records and
     // shared immutable mesh records. No complete-model archive is retained as
     // a per-entry equality or restore payload.
@@ -1311,6 +1323,24 @@ Model stage_model(const Model& model_template, const ModelState& restored,
     // retained by history; TimestampedHistory owns only keyed object versions.
     const double mutable_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     Model rebuilt_model = model_template;
+    if (!restored.serialized.empty()) {
+        const auto layer_events = json::parse(std::string(restored.serialized.begin(), restored.serialized.end()));
+        rebuilt_model.plates_custom_gcodes.clear();
+        for (const auto& record : layer_events) {
+            CustomGCode::Info info;
+            info.mode = static_cast<CustomGCode::Mode>(record.at("mode").get<int>());
+            for (const auto& encoded : record.at("items")) {
+                CustomGCode::Item item;
+                item.print_z = encoded.at("print_z").get<double>();
+                item.type = static_cast<CustomGCode::Type>(encoded.at("type").get<int>());
+                item.extruder = encoded.at("extruder").get<int>();
+                item.color = encoded.at("color").get<std::string>();
+                item.extra = encoded.at("extra").get<std::string>();
+                info.gcodes.push_back(std::move(item));
+            }
+            rebuilt_model.plates_custom_gcodes.emplace(record.at("plate").get<int>(), std::move(info));
+        }
+    }
     std::map<ObjectID, ModelObject*> reusable_objects;
     for (ModelObject* object : rebuilt_model.objects)
         reusable_objects.emplace(object->id().id, object);

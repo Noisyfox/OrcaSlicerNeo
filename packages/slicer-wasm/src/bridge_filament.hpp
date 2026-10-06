@@ -70,6 +70,8 @@ void validate_filament_candidate_components(
     bool strict_slot_arrays = true,
     bool require_all_slot_arrays = false);
 void recalculate_filament_flush(PresetBundle& bundle);
+void normalize_references_after_rack_restore(PresetBundle& bundle, Model& model,
+    std::vector<BridgeState::PlateSessionPlate>& plates, std::size_t previous_count);
 std::vector<std::vector<int>> min_flush_volumes_for_config(
     const DynamicPrintConfig& full, std::size_t filament_count,
     std::size_t nozzle_count);

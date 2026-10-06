@@ -7,6 +7,8 @@ import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
+import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
 
 const [moduleArg] = argv.slice(2);
 if (!moduleArg) throw new Error('usage: node harness/native-printer-transition-smoke.mjs <out/serial/orca_slice.js>');
@@ -261,3 +263,126 @@ assert.equal(aborted.impact.model, 'none');
 assert.equal(aborted.impact.profileSelection, false);
 assert.equal(aborted.native_scoped_config.kind, 'full');
 console.log('printer-only restore invalidation and complete no-op abort passed');
+
+// Regression: the target Printer remembers fewer slots than the open model uses.
+assert.equal(callJson('orc_clear_model').ok, true);
+assert.equal(resetHistory().error, undefined);
+const seed = rackProjection()[0];
+const threeSlots = [seed, { ...seed, colour: '#234567' }, { ...seed, colour: '#345678' }];
+const expandedRack = transition('Bambu Lab X1 Carbon 0.4 nozzle', threeSlots);
+assert.equal(expandedRack.ok, true, JSON.stringify(expandedRack));
+for (const name of ['Removed object slot', 'Surviving object slot', 'Removed part slot'])
+  assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', name]).ok, true);
+let refs = session();
+const [removed, surviving, partOwner] = refs.assignments.objects;
+const part = refs.assignments.parts.find(p => p.object_id === partOwner.id);
+function assign(target, slot) {
+  const result = request('orc_assign_filament', { version: 1, revision: session().revisions.session,
+    slot, targets: [target] });
+  assert.equal(result.ok, true, JSON.stringify(result));
+}
+function route(target, selector, slot) {
+  const result = request('orc_set_filament_routing', { version: 1, revision: session().revisions.session,
+    selector, slot, targets: [target] });
+  assert.equal(result.ok, true, JSON.stringify(result));
+}
+assign({ kind: 'object', id: removed.id }, 3);
+assign({ kind: 'object', id: surviving.id }, 2);
+assign({ kind: 'object', id: partOwner.id }, 2);
+assign({ kind: 'model-part', id: part.id }, 3);
+route({ kind: 'project', id: 0 }, 'support-interface', 3);
+route({ kind: 'project', id: 0 }, 'support-base', 2);
+route({ kind: 'object', id: removed.id }, 'outer-wall', 3);
+route({ kind: 'model-part', id: part.id }, 'outer-wall', 3);
+const beforeShortRack = session();
+const beforeShortStatus = resetHistory();
+const shortRack = transition('Bambu Lab X1 0.4 nozzle', threeSlots.slice(0, 2));
+assert.equal(shortRack.ok, true, JSON.stringify(shortRack));
+assert.equal(shortRack.mutation.revision_after, beforeShortStatus.revision + 1);
+assert.equal(shortRack.mutation.history_entry_delta, 1);
+const short = session();
+assert.equal(short.slots.length, 2);
+assert.equal(short.assignments.objects.find(o => o.id === removed.id).effective_slot, 1);
+assert.equal(short.assignments.objects.find(o => o.id === surviving.id).effective_slot, 2);
+assert.equal(short.assignments.parts.find(p => p.id === part.id).explicit_slot, 0);
+assert.equal(short.assignments.parts.find(p => p.id === part.id).effective_slot, 2);
+assert.equal(short.routing.find(r => r.target === 'project' && r.selector === 'support-interface').explicit_slot, 0);
+assert.equal(short.routing.find(r => r.target === 'project' && r.selector === 'support-base').explicit_slot, 2);
+assert.equal(short.routing.find(r => r.id === removed.id && r.selector === 'outer-wall').explicit_slot, 0);
+assert.equal(short.routing.find(r => r.id === part.id && r.selector === 'outer-wall').explicit_slot, 0);
+const referenceProjection = value => ({ rack: rackProjection(value), assignments: value.assignments, routing: value.routing });
+assert.equal(callJson('orc_history_undo').ok, true);
+assert.deepEqual(referenceProjection(session()), referenceProjection(beforeShortRack));
+assert.equal(callJson('orc_history_redo').ok, true);
+assert.deepEqual(referenceProjection(session()), referenceProjection(short));
+const oneSlot = transition('Bambu Lab X1 Carbon 0.4 nozzle', [seed]);
+assert.equal(oneSlot.ok, true, JSON.stringify(oneSlot));
+assert.equal(session().slots.length, 1);
+assert.ok(session().assignments.objects.every(o => o.effective_slot === 1));
+assert.ok(session().assignments.parts.every(p => p.effective_slot === 1));
+console.log('shorter remembered rack normalizes references atomically and round-trips through Undo/Redo');
+
+// Imported painting, tool events and per-plate maps must not retain removed slots.
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+const entries = readZipEntries(buildIndependentReader3mf());
+let facet = 0;
+for (const entry of entries) if (entry.name === '3D/3dmodel.model') {
+  const painted = decoder.decode(entry.content).replace(/<triangle\b[^>]*\/>/g,
+    triangle => triangle.replace('/>', ` paint_color="${facet++ % 2 ? '8' : '4'}"/>`));
+  entry.content = encoder.encode(painted);
+}
+assert.equal(facet, 12);
+entries.push({ name: 'Metadata/custom_gcode_per_layer.xml', content: encoder.encode(
+  '<custom_gcodes_per_layer><plate><plate_info id="1"/>' +
+  '<layer top_z="0.2" type="2" extruder="1" color="#FF0000" extra="" gcode="tool_change"/>' +
+  '<layer top_z="0.4" type="2" extruder="2" color="#00FF00" extra="" gcode="tool_change"/>' +
+  '<mode value="MultiExtruder"/></plate></custom_gcodes_per_layer>') });
+const importedBytes = writeStoredZip(entries);
+const importedPointer = Number(Module._malloc(importedBytes.length));
+Module.HEAPU8.set(importedBytes, importedPointer);
+try {
+  const imported = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [importedPointer, importedBytes.length, 0, 'short-rack-painted.3mf']);
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+} finally { Module._free(importedPointer); }
+// The minimal reader fixture omits newer runtime slot arrays. Establish a
+// complete two-slot native baseline before testing history restoration.
+const importedBaseline = transition('Bambu Lab X1 Carbon 0.4 nozzle', [
+  { ...seed, colour: '#FF0000' }, { ...seed, colour: '#00FF00' },
+]);
+assert.equal(importedBaseline.ok, true, JSON.stringify(importedBaseline));
+function exportedReferences() {
+  const result = callJson('orc_export_project');
+  assert.equal(result.ok, true, JSON.stringify(result));
+  let archive;
+  try {
+    archive = readZipEntries(Module.HEAPU8.slice(Number(result.bytes_ptr),
+      Number(result.bytes_ptr) + Number(result.bytes_length)));
+  } finally { Module._free(Number(result.bytes_ptr)); }
+  const text = name => decoder.decode(archive.find(e => e.name === name).content);
+  return {
+    paint: [...text('3D/3dmodel.model').matchAll(/paint_color="([^"]+)"/g)].map(m => m[1]),
+    tools: [...text('Metadata/custom_gcode_per_layer.xml').matchAll(/extruder="(\d+)"/g)].map(m => Number(m[1])),
+    maps: callJson('orc_get_plate_session_snapshot').plates.map(p => p.settings.filament_map),
+  };
+}
+const importedRefs = exportedReferences();
+assert.ok(importedRefs.paint.includes('8'));
+assert.deepEqual(importedRefs.tools, [1, 2]);
+assert.deepEqual(importedRefs.maps, ['1,1']);
+assert.equal(resetHistory().error, undefined);
+const paintedShortRack = transition('Bambu Lab X1 0.4 nozzle', [seed]);
+assert.equal(paintedShortRack.ok, true, JSON.stringify(paintedShortRack));
+const shortenedRefs = exportedReferences();
+assert.ok(shortenedRefs.paint.length > 0);
+assert.ok(shortenedRefs.paint.every(p => p === '4'));
+assert.deepEqual(shortenedRefs.tools, [1]);
+assert.deepEqual(shortenedRefs.maps, ['1']);
+const importedUndo = callJson('orc_history_undo');
+assert.equal(importedUndo.ok, true, JSON.stringify(importedUndo));
+assert.deepEqual(exportedReferences(), importedRefs);
+const importedRedo = callJson('orc_history_redo');
+assert.equal(importedRedo.ok, true, JSON.stringify(importedRedo));
+assert.deepEqual(exportedReferences(), shortenedRefs);
+console.log('shorter rack normalizes imported painting/tool events/plate maps with complete Undo/Redo');

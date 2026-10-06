@@ -554,6 +554,54 @@ void remap_model_filament_references(Model& model, const std::size_t removed,
     }
 }
 
+void normalize_references_after_rack_restore(PresetBundle& bundle, Model& model,
+    std::vector<BridgeState::PlateSessionPlate>& plates, const std::size_t previous_count)
+{
+    const std::size_t count = bundle.filament_presets.size();
+    if (count == 0) throw std::runtime_error("cannot normalize an empty filament rack");
+    const auto normalize_config = [count](auto& config, const bool project) {
+        for (const auto& key : config.keys()) {
+            if (!is_filament_slot_reference_key(key)) continue;
+            const auto* option = dynamic_cast<const ConfigOptionInt*>(config.option(key));
+            if (option == nullptr || option->value <= static_cast<int>(count)) continue;
+            if (key == "extruder")
+                config.set_key_value(key, new ConfigOptionInt(1));
+            else if (project)
+                config.set_key_value(key, new ConfigOptionInt(key == "wipe_tower_filament" ? 1 : 0));
+            else
+                config.erase(key); // Restore inheritance for scoped support/feature routes.
+        }
+    };
+    normalize_config(bundle.project_config, true);
+    for (ModelObject* object : model.objects) {
+        // Orca's ObjectList resets an out-of-range object assignment to slot 1.
+        normalize_config(object->config, false);
+        for (ModelVolume* volume : object->volumes) {
+            // Native count normalization clears stale part assignments and
+            // limits imported painting before the candidate is validated.
+            volume->update_extruder_count(count);
+            normalize_config(volume->config, false);
+        }
+    }
+    for (auto& [plate_id, info] : model.plates_custom_gcodes) {
+        (void)plate_id;
+        auto& codes = info.gcodes;
+        codes.erase(std::remove_if(codes.begin(), codes.end(), [count](const auto& code) {
+            return code.extruder > static_cast<int>(count);
+        }), codes.end());
+    }
+    // Keep per-plate maps and custom sequences aligned with the restored rack.
+    // Removing only the tail leaves all surviving slot numbers unchanged.
+    for (std::size_t old_count = previous_count; old_count > count; --old_count)
+        remap_plate_filament_references(plates, old_count - 1, std::nullopt, old_count);
+    for (std::size_t old_count = previous_count; old_count < count; ++old_count)
+        add_plate_filament_references(plates, bundle, old_count);
+    for (auto& plate : plates) {
+        normalize_config(plate.settings, false);
+        plate.settings_metadata = config_metadata_json(plate.settings);
+    }
+}
+
 struct FlushColour { unsigned char a = 255, r = 0, g = 0, b = 0; };
 
 std::optional<FlushColour> parse_flush_colour(const std::string& value)
