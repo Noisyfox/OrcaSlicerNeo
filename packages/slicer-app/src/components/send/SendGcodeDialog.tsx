@@ -117,8 +117,8 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const busy = state === 'loading' || state === 'uploading' || state === 'starting';
   const controlsDisabled = busy || state === 'success';
   const awaitingConfirmation = state === 'uploading' && progress.fraction !== undefined && progress.fraction >= 1;
-  const progressValue = state !== 'uploading' || awaitingConfirmation || progress.fraction === undefined
-    ? undefined : Math.min(99, Math.round(Math.max(0, progress.fraction) * 100));
+  const progressValue = state !== 'uploading' || progress.fraction === undefined
+    ? undefined : awaitingConfirmation ? 100 : Math.min(99, Math.round(Math.max(0, progress.fraction) * 100));
   const progressLabel = state === 'starting' ? 'Starting print'
     : awaitingConfirmation ? 'Waiting for printer confirmation' : 'Uploading G-code';
 

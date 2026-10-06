@@ -337,10 +337,10 @@ describe('SendGcodeDialog', () => {
     await click(container, 'send-submit');
     await act(async () => { transport.requests[0].onUploadProgress?.({ loaded: 10, total: 10 }); });
     expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('Waiting for printer confirmation');
-    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).not.toContain('100%');
+    expect(container.querySelector('[data-testid="send-progress-status"]')?.textContent).toContain('100%');
     expect(container.querySelector('[data-testid="send-transfer-stats"]')?.textContent).toContain('10 B / 10 B');
     expect(container.querySelector('[data-testid="send-transfer-stats"]')?.textContent).toContain('0.0 KiB/s');
-    expect(container.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('100');
     expect(container.querySelector('[data-testid="send-operation-message"]')).toBeNull();
     expect(container.querySelector('[data-testid="send-auto-close-countdown"]')).toBeNull();
     if (ending === 'cancel') {

@@ -117,8 +117,8 @@ cannot determine the total size, the total is displayed as “Unknown”.
 
 Electron writes the HTTP body in bounded chunks and reports intermediate byte
 counts under socket backpressure. These counts describe bytes accepted by the
-local network stack. After all bytes are sent, the dialog shows an indeterminate
-“Waiting for printer confirmation…” status with complete byte counts and
+local network stack. After all bytes are sent, the dialog shows a 100% progress
+bar and “Waiting for printer confirmation… 100%” status with complete byte counts and
 0.0 KiB/s. Transfer percentages never round an incomplete transfer up to 100%.
 Upload success requires a successful response with a valid remote file path.
 Send & Print then shows a separate indeterminate “Starting print…” status and
@@ -208,7 +208,7 @@ The Electron mock validation uses `VITE_USE_MOCK=1` with
 `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs` and
 `pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts e2e/app.e2e.ts --grep 'Send|Device config|full v1 flow'`.
 The fixture holds the upload response until the UI shows complete byte counts,
-zero speed and confirmation waiting without 100%, then verifies success and
+zero speed and confirmation waiting at 100%, then verifies success and
 start-only retry. Filename coverage includes project identity, native generated
 names, arbitrary extensions, cancelled saves, upload retries and multipart
 encoding. Handoff verification quick-builds both WASM variants, runs native
