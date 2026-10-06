@@ -15,6 +15,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 
 export type SendGcodeAction = 'send' | 'send-and-print';
 type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled';
@@ -37,12 +38,6 @@ function safeErrorMessage(error: unknown): string {
   // Transport errors are deliberately not rendered. Host/network errors can
   // contain request headers or other sensitive details.
   return 'Could not send G-code. Check the printer configuration and connection.';
-}
-
-function fileNameFromPath(path: string): string {
-  const candidate = path.split(/[\\/]/).pop() ?? '';
-  if (!candidate || candidate === '.' || candidate === '..') return 'output.gcode';
-  return candidate.toLowerCase().endsWith('.gcode') ? candidate : `${candidate}.gcode`;
 }
 
 function unavailableReason(
@@ -315,12 +310,17 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       if (!receipt || receipt.inputStamp !== currentRevision || !liveReceipt ||
           receipt.resultGeneration !== liveReceipt.resultGeneration || receipt.sliceTaskId !== liveReceipt.sliceTaskId)
         throw new Error('current plate slice result is stale or unavailable');
-      const exported = await platform.runtime.exportGcodePlate(receipt);
-      if (!exported.ok) throw new Error('export failed');
+      const exported = await platform.runtime.exportGcodePlate({ receipt, filenameBase: projectFilenameBase(useProjectStore.getState()) });
+      if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
+      if (!exported.ok) {
+        setState('error');
+        setMessage(exported.error);
+        return;
+      }
       const documentSnapshot = normalizePrinterConfigurationDocument(document);
       const service = new PrinterControlService(documentSnapshot, platform.printers.transport);
       serviceRef.current = service;
-      const input = { bytes: exported.bytes, fileName: fileNameFromPath(exported.path) };
+      const input = { bytes: exported.bytes, fileName: exported.fileName.split(/[\\/]/).pop()! };
       uploadMeasurementRef.current = { startedAt: performance.now(), loaded: 0 };
       const uploaded = await service.uploadOnly(selectedId, input, (next) => {
         if (operation !== operationRef.current) return;

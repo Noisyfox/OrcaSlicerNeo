@@ -2103,10 +2103,10 @@ describe('SlicerClient bridge contract', () => {
     const target = { plateId: session.currentPlateId, inputRevision: session.inputRevisions?.[session.currentPlateId] ?? 0 };
     const sliced = await c.slicePlate(target, {});
     expect(sliced.ok).toBe(true);
-    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
+    await expect(c.exportGcodePlate({ receipt: sliced.receipt!, filenameBase: '' })).resolves.toMatchObject({ ok: true });
     const changed = await c.addPlate();
     if (!changed.ok) throw new Error(changed.error);
-    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
+    await expect(c.exportGcodePlate({ receipt: sliced.receipt!, filenameBase: '' })).resolves.toMatchObject({ ok: true });
     await expect(c.slicePlate(target, {})).resolves.toMatchObject({ ok: true });
     const after = await c.getPlateSessionSnapshot();
     if (!after.ok) throw new Error(after.error);
@@ -2347,13 +2347,40 @@ describe('SlicerClient bridge contract', () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
     const sliced = await c.slice({});
-    const first = await c.exportGcodePlate(sliced.receipt!);
+    const first = await c.exportGcodePlate({ receipt: sliced.receipt!, filenameBase: '' });
     expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error(first.error);
+    expect(first.fileName).toBe('output.gcode');
+    expect(first).not.toHaveProperty('path');
     expect(new TextDecoder().decode(first.bytes.slice(0, 6))).toBe('; mock');
     first.bytes.fill(0);
-    const second = await c.exportGcodePlate(sliced.receipt!);
+    const second = await c.exportGcodePlate({ receipt: sliced.receipt!, filenameBase: 'ActualProject' });
     expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error(second.error);
+    expect(second.fileName).toBe('ActualProject.gcode');
     expect(new TextDecoder().decode(second.bytes.slice(0, 6))).toBe('; mock');
+  });
+
+  it.each([
+    { ok: true, file_name: 'name.gcode' },
+    { ok: true, path: '', file_name: 'name.gcode' },
+    { ok: true, path: '/tmp/source.gcode' },
+    { ok: true, path: '/tmp/source.gcode', file_name: '' },
+  ])('rejects incomplete export responses without reading an arbitrary source: %j', async (payload) => {
+    const module = createMockModule();
+    const c = createClient(async () => module);
+    await c.addModel(new Uint8Array(4), 'stl');
+    const sliced = await c.slice({});
+    const original = module.ccall;
+    module.ccall = (name, ret, types, args) => {
+      if (name !== 'orc_export_gcode_plate') return original(name, ret, types, args);
+      const bytes = new TextEncoder().encode(JSON.stringify(payload) + '\0');
+      const ptr = module._malloc(bytes.length); module.HEAPU8.set(bytes, ptr);
+      return ptr;
+    };
+    const readFile = vi.spyOn(module.FS, 'readFile');
+    await expect(c.exportGcodePlate({ receipt: sliced.receipt!, filenameBase: '' })).resolves.toEqual({ ok: false, status: 'failed', error: 'invalid G-code export response' });
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   describe.each(['project', 'geometry-only', 'import'] as const)('strict load bed diagnostics (%s)', (route) => {

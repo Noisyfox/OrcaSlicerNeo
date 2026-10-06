@@ -7,6 +7,7 @@ import { glVolumeCollection } from '../viewport/GLVolume';
 import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
+import { projectFilenameBase, useProjectStore } from '@/stores/useProjectStore';
 import { syncModelTransforms } from './syncModelTransforms';
 import { applyPlateResultMutation } from '@/stores/plateResultLifecycle';
 import { waitForConfigurationMutations } from '../settings/configurationActions';
@@ -230,9 +231,9 @@ export async function exportGcode(platform: PlatformCapabilities): Promise<void>
       const receipt = slicerState.plateResults[target.plateId]?.receipt;
       if (!receipt || receipt.inputStamp !== target.inputRevision)
         throw new Error('current plate slice result is stale or unavailable');
-      const fresh = await platform.runtime.exportGcodePlate(receipt);
+      const fresh = await platform.runtime.exportGcodePlate({ receipt, filenameBase: projectFilenameBase(useProjectStore.getState()) });
       if (!fresh.ok) throw new Error(fresh.error ?? 'export failed');
-      await platform.exports.save('output.gcode', fresh.bytes);
+      await platform.exports.save(fresh.fileName, fresh.bytes);
       useSlicerStore.getState().setResultExported(true);
     });
   } catch (err) {

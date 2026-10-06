@@ -147,7 +147,7 @@ assert.notDeepEqual(
   JSON.stringify(palette),
 );
 
-const exported = exportGcode(callJson, validForPreview.receipt);
+const exported = exportGcode(callJson, { receipt: validForPreview.receipt, filenameBase: '' });
 assert.equal(exported.ok, true, JSON.stringify(exported));
 const gcode = Buffer.from(Module.FS.readFile(exported.path)).toString('utf8');
 const toolChanges = [...gcode.matchAll(/^T(\d+)\s*$/gm)]

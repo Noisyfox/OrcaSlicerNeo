@@ -48,7 +48,7 @@ function makePlatform(
   let preferences = preferenceValue;
   const runtime = {
     getPlateSessionSnapshot: vi.fn(async () => usePlateSessionStore.getState().snapshot!),
-    exportGcodePlate: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
+    exportGcodePlate: vi.fn(async () => ({ ok: true, fileName: 'output.gcode', bytes: new Uint8Array([1, 2, 3]) })),
   };
   return {
     platform: {
@@ -132,7 +132,7 @@ describe('SendGcodeDialog', () => {
     const { platform, runtime } = makePlatform(transport);
     const { container, root } = await render(platform, 'send', 'p1', undefined, undefined, receipt); roots.push(root);
     await click(container, 'send-submit');
-    expect(runtime.exportGcodePlate).toHaveBeenCalledWith(receipt);
+    expect(runtime.exportGcodePlate).toHaveBeenCalledWith({ receipt, filenameBase: '' });
     expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('plate-2');
     expect(transport.requests).toHaveLength(1);
   });
@@ -212,6 +212,17 @@ describe('SendGcodeDialog', () => {
     expect(transport.requests[0].signal?.aborted).toBe(true);
   });
 
+  it('shows native template errors and never uploads a failed export', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform, runtime } = makePlatform(transport);
+    runtime.exportGcodePlate.mockResolvedValueOnce({ ok: false, status: 'failed', error: 'Processing of the filename_format template failed: unknown variable' } as never);
+    const { container, root } = await render(platform, 'send', 'p1'); roots.push(root);
+    await click(container, 'send-submit');
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('filename_format template failed: unknown variable');
+    expect(transport.requests).toHaveLength(0);
+  });
+
   it('does not round an incomplete transfer up to 100%', async () => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
@@ -234,7 +245,7 @@ describe('SendGcodeDialog', () => {
     const { platform, runtime } = makePlatform(transport);
     runtime.exportGcodePlate.mockImplementationOnce(async () => {
       now.mockReturnValue(1000);
-      return { ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) };
+      return { ok: true, fileName: 'output.gcode', bytes: new Uint8Array([1, 2, 3]) };
     });
     const { container, root } = await render(platform, 'send'); roots.push(root);
     try {

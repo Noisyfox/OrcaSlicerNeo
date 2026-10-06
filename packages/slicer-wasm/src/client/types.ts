@@ -1088,13 +1088,14 @@ export interface ClientSliceResult {
   error?: string;
 }
 
-export interface ExportGcodeResult {
-  ok: boolean;
-  status?: ResultReadStatus;
-  path: string;
-  bytes: Uint8Array;
-  error?: string;
+export interface ExportGcodeRequest {
+  receipt: SliceResultReceipt;
+  /** Empty delegates the input basename to Orca's printable object logic. */
+  filenameBase: string;
 }
+export type ExportGcodeResult =
+  | { ok: true; fileName: string; bytes: Uint8Array }
+  | { ok: false; status: Exclude<ResultReadStatus, 'ok'>; error: string };
 
 export interface ExportProjectResult {
   ok: boolean;
@@ -1592,7 +1593,7 @@ export interface SlicerClient extends PaintingApi {
   /** Read a bounded, seekable source-text page from the current result. */
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   /** Export only the captured current plate's completed result. */
-  exportGcodePlate(receipt: SliceResultReceipt): Promise<ExportGcodeResult>;
+  exportGcodePlate(request: ExportGcodeRequest): Promise<ExportGcodeResult>;
   /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;

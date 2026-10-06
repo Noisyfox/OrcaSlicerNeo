@@ -124,7 +124,7 @@ function extrusion(gcode) { return gcode.split('\n').filter(line=>/^G[0123] /.te
 async function slice(label) {
   const plates=ok(call('orc_get_plate_session_snapshot')), id=plates.current_plate_id;
   const messages=[]; const result=ok(await awaitAsyncTask(call,call('orc_slice_plate',['string','string','number'],['{}',id,plates.input_revisions[id]]),120000,batch=>messages.push(...batch))); 
-  const exported=ok(exportGcode(call,result.receipt));
+  const exported=ok(exportGcode(call, { receipt: result.receipt, filenameBase: '' }));
   const gcode=Module.FS.readFile(exported.path,{encoding:'utf8'}); if(exported.bytes_ptr)Module._free(exported.bytes_ptr);
   await writeFile(resolve(output,`${label}.gcode`),gcode);
   const lines=extrusion(gcode); assert.ok(lines.length>10); return {gcode,lines,warnings:result.warnings??[],progress:messages.filter(m=>m.type==='task-progress').map(m=>m.text),receipt:result.receipt};

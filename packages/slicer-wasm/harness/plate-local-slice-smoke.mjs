@@ -65,7 +65,7 @@ check('select plate 1', selectFirst.ok === true && selectFirst.current_plate_id 
 const firstPreview = getSliceResult(callJson, sliceFirst.receipt);
 check('preview plate 1 uses its print', firstPreview.ok === true && firstPreview.objects === 1,
   JSON.stringify(firstPreview));
-const exportFirst = exportGcode(callJson, sliceFirst.receipt);
+const exportFirst = exportGcode(callJson, { receipt: sliceFirst.receipt, filenameBase: '' });
 const firstGcode = exportFirst.ok ? Buffer.from(Module.FS.readFile(exportFirst.path)).toString('utf8') : '';
 check('export plate 1', exportFirst.ok === true, JSON.stringify(exportFirst));
 
@@ -75,14 +75,14 @@ check('explicit re-slice keeps plate 1 revision', resliceFirst.ok === true, JSON
 const staleFirstGeneration = getSliceResult(callJson, sliceFirst.receipt);
 check('re-slice retires the prior result generation', staleFirstGeneration.ok !== true,
   JSON.stringify(staleFirstGeneration));
-const refreshedFirstExport = exportGcode(callJson, resliceFirst.receipt);
+const refreshedFirstExport = exportGcode(callJson, { receipt: resliceFirst.receipt, filenameBase: '' });
 check('re-slice refreshes presentation through export', refreshedFirstExport.ok === true, JSON.stringify(refreshedFirstExport));
 const refreshedFirstPreview = getSliceResult(callJson, resliceFirst.receipt);
 check('re-slice result refresh restores presentation', refreshedFirstPreview.ok === true &&
   refreshedFirstPreview.objects === 1, JSON.stringify(refreshedFirstPreview));
 
 const selectSecond = callJson('orc_select_plate', ['string'], [secondTarget.id]);
-const inactiveFirstExport = exportGcode(callJson, resliceFirst.receipt);
+const inactiveFirstExport = exportGcode(callJson, { receipt: resliceFirst.receipt, filenameBase: '' });
 check('export a retained non-current plate without switching selection', inactiveFirstExport.ok === true &&
   callJson('orc_get_plate_session_snapshot').current_plate_id === secondTarget.id,
   JSON.stringify(inactiveFirstExport));
@@ -93,7 +93,7 @@ check('slice plate 2', sliceSecond.ok === true, JSON.stringify(sliceSecond));
 const secondPreview = getSliceResult(callJson, sliceSecond.receipt);
 check('preview plate 2 uses its print', secondPreview.ok === true && secondPreview.objects === 1,
   JSON.stringify(secondPreview));
-const exportSecond = exportGcode(callJson, sliceSecond.receipt);
+const exportSecond = exportGcode(callJson, { receipt: sliceSecond.receipt, filenameBase: '' });
 const secondGcode = exportSecond.ok ? Buffer.from(Module.FS.readFile(exportSecond.path)).toString('utf8') : '';
 const moves = (gcode) => gcode.split('\n').filter((line) => /^G[01]\s/.test(line)).join('\n');
 check('export plate 2', exportSecond.ok === true, JSON.stringify(exportSecond));
@@ -116,11 +116,11 @@ const secondChangedTarget = {
 const staleSecondResult = getSliceResult(callJson, sliceSecond.receipt);
 check('stale plate 2 result rejected', staleSecondResult.ok !== true &&
   staleSecondResult.status === 'stale', JSON.stringify(staleSecondResult));
-const staleSecondExport = exportGcode(callJson, sliceSecond.receipt);
+const staleSecondExport = exportGcode(callJson, { receipt: sliceSecond.receipt, filenameBase: '' });
 check('stale plate 2 export rejected', staleSecondExport.ok !== true && staleSecondExport.status === 'stale',
   JSON.stringify(staleSecondExport));
 
-const nonCurrent = exportGcode(callJson, resliceFirst.receipt);
+const nonCurrent = exportGcode(callJson, { receipt: resliceFirst.receipt, filenameBase: '' });
 check('other plate mutation preserves non-current export', nonCurrent.ok === true &&
   callJson('orc_get_plate_session_snapshot').current_plate_id === secondTarget.id, JSON.stringify(nonCurrent));
 check('distinct plate previews have distinct result storage',
@@ -177,7 +177,7 @@ check('delete current plate parks its models immediately', deleteTargetInstances
   deleteTargetInstances.every((instanceId) => deletedCurrent.instances.some((instance) =>
     instance.instance_id === instanceId && instance.plate_id === '' && instance.unprintable === true)),
   JSON.stringify(deletedCurrent.instances));
-const deletedReceiptExport = exportGcode(callJson, freshBeforeDelete.receipt);
+const deletedReceiptExport = exportGcode(callJson, { receipt: freshBeforeDelete.receipt, filenameBase: '' });
 check('deleted plate result can no longer publish', deletedReceiptExport.ok !== true &&
   /not found|not the current plate|stale|unavailable/.test(deletedReceiptExport.error ?? ''),
   JSON.stringify(deletedReceiptExport));

@@ -24,7 +24,7 @@ interface SliceReceipt {
 interface ProtocolEvidence {
   threaded: boolean | null;
   slices: SliceReceipt[];
-  exports: Array<{ path: string; byteLength: number }>;
+  exports: Array<{ fileName: string; byteLength: number }>;
   projectExports: Array<{ path: string; byteLength: number }>;
 }
 
@@ -55,8 +55,11 @@ function observeRuntimeProtocol(): void {
             evidence.slices.push({ plateId, resultGeneration });
           }
           if (operation === 'exportGcodePlate' || operation === 'exportProject') {
-            const result = { path: reply.result.path, byteLength: reply.result.bytes.byteLength };
-            (operation === 'exportGcodePlate' ? evidence.exports : evidence.projectExports).push(result);
+            if (operation === 'exportGcodePlate') {
+              evidence.exports.push({ fileName: reply.result.fileName, byteLength: reply.result.bytes.byteLength });
+            } else {
+              evidence.projectExports.push({ path: reply.result.path, byteLength: reply.result.bytes.byteLength });
+            }
           }
         });
       }
@@ -126,16 +129,18 @@ async function exportAndCompare(page: Page, output: string, directory: string, r
   const exports = (await protocol(page)).exports;
   expect(exports).toHaveLength(previous + 1);
   const result = exports.at(-1)!;
-  expect(result.path).toMatch(/^\/tmp\/plate-result-.+\.gcode$/);
-  expect(result.path).toMatch(new RegExp(`-${receipt.resultGeneration}\\.gcode$`));
+  expect(result.fileName).toMatch(/\.gcode$/);
   expect(result.byteLength).toBe(exported.byteLength);
-  const nativePath = join(directory, basename(result.path));
+  let nativePath = '';
   if (NODEFS) {
+    const sources = readdirSync(directory).filter((name) => /^plate-result-.*\.gcode$/.test(name));
+    expect(sources).toHaveLength(1);
+    expect(sources[0]).toMatch(new RegExp(`-${receipt.resultGeneration}\\.gcode$`));
+    nativePath = join(directory, sources[0]!);
     expect(readFileSync(nativePath).equals(exported)).toBe(true);
     expect(readdirSync(directory).filter((name) => /^plate-result-.*\.gcode$/.test(name)))
-      .toEqual([basename(result.path)]);
+      .toEqual(sources);
   } else {
-    expect(existsSync(nativePath)).toBe(false);
     assertBackingDirectory(directory);
   }
   return { nativePath, bytes: exported, sha256: createHash('sha256').update(exported).digest('hex') };
@@ -255,8 +260,10 @@ test(`real ${EXPECTED_VARIANT} runtime validates temporary files, preview and se
       expect(secondReceipt.plateId).toBe(firstReceipt.plateId);
       expect(secondReceipt.resultGeneration).not.toBe(firstReceipt.resultGeneration);
       const secondExport = await exportAndCompare(page, output, activeSession, secondReceipt);
-      expect(secondExport.nativePath).not.toBe(firstExport.nativePath);
-      await expect.poll(() => existsSync(firstExport.nativePath)).toBe(false);
+      if (NODEFS) {
+        expect(secondExport.nativePath).not.toBe(firstExport.nativePath);
+        await expect.poll(() => existsSync(firstExport.nativePath)).toBe(false);
+      }
       await assertPagedSourceMatches(page, secondExport.bytes);
       evidence.secondResult = { receipt: secondReceipt, byteLength: secondExport.bytes.byteLength, sha256: secondExport.sha256 };
 

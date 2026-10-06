@@ -2996,14 +2996,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         },
       };
     },
-    orc_export_gcode_plate(plateId: string, revision: number, resultGeneration: number) {
+    orc_export_gcode_plate(requestJson: string) {
+      const request = JSON.parse(requestJson);
+      const { plate_id: plateId, input_stamp: revision, result_generation: resultGeneration } = request.receipt;
+      if (typeof request.filename_base !== 'string') return { error: 'filename_base is required' };
       if (!plateIds.includes(plateId)) return { error: 'plate not found' };
       if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
       const receipt = sliceReceipts.get(plateId);
       if (!receipt || receipt.inputStamp !== revision || receipt.resultGeneration !== String(resultGeneration))
         return { error: 'plate slice result is stale or unavailable' };
       const path = `/tmp/plate-result-${plateId}-${receipt.resultGeneration}.gcode`;
-      return { ok: true, path };
+      return { ok: true, path, file_name: `${request.filename_base || 'output'}.gcode` };
     },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
@@ -3212,7 +3215,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_cancel_arrangement: { ret: 'number', args: ['string'] },
     orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
     orc_get_slice_result: { ret: 'number', args: ['string', 'number', 'number'] },
-    orc_export_gcode_plate: { ret: 'number', args: ['string', 'number', 'number'] },
+    orc_export_gcode_plate: { ret: 'number', args: ['string'] },
     orc_export_project: { ret: 'number', args: [] },
     orc_read_gcode_chunk: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },
     orc_read_gcode_lines: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },

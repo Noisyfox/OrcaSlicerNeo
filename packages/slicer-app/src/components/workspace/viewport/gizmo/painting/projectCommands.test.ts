@@ -207,9 +207,9 @@ describe('shared painting command admission', () => {
     store.setPlateResult(receipt, [], {}); store.activatePlateResult(plateId, inputStamp);
     const settle = vi.spyOn(runtime, 'settlePainting');
     const slice = vi.spyOn(runtime, 'slicePlate');
-    const exported = vi.spyOn(runtime, 'exportGcodePlate').mockResolvedValue({ ok: true, path: '/output.gcode', bytes: new Uint8Array([1]) });
+    const exported = vi.spyOn(runtime, 'exportGcodePlate').mockResolvedValue({ ok: true, fileName: 'output.gcode', bytes: new Uint8Array([1]) });
     await exportGcode(platform);
-    expect(settle).toHaveBeenCalledTimes(1); expect(exported).toHaveBeenCalledWith(receipt);
+    expect(settle).toHaveBeenCalledTimes(1); expect(exported).toHaveBeenCalledWith({ receipt, filenameBase: '' });
     expect(platform.exports.save).toHaveBeenCalledTimes(1); expect(c.getSnapshot().phase).toBe('idle');
     store.invalidateSliceResult(); vi.spyOn(console, 'error').mockImplementation(() => {});
     await exportGcode(platform);

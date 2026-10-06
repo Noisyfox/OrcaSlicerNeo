@@ -45,6 +45,7 @@
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Print.hpp"
+#include "slic3r/Utils/ASCIIFolding.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -872,6 +873,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // world-space Model.  The binding supplies both per-plate config
         // selection and the target BuildVolume context used by apply/process.
         print.set_plate_index(target_plate->display_index);
+        print.set_plate_name(target_plate->name);
         print.set_plate_origin(target_plate->origin);
         // Apply and process the authoritative world-space model directly.
         // Membership is maintained incrementally on the model's instances;
@@ -1442,7 +1444,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(const char* pla
 
 const char* export_gcode_for_target(const std::string& plate_id,
                                     const std::uint64_t revision,
-                                    const std::uint64_t result_generation) {
+                                    const std::uint64_t result_generation,
+                                    const std::string& filename_base) {
     try {
         std::string target_error;
         auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
@@ -1457,7 +1460,14 @@ const char* export_gcode_for_target(const std::string& plate_id,
             *runtime_entry->completed_input_revision != revision ||
             runtime_entry->gcode_path.empty())
             return result_unavailable_error();
+        // The entry's Print owns the model/configuration and final statistics
+        // of this generation. Only a new slice applies another input to it,
+        // and that first makes the retained generation unpublishable. Do not
+        // use the live project configuration or export the G-code again here.
+        const std::string file_name = fold_utf8_to_ascii(
+            runtime_entry->print->output_filename(filename_base), false);
         return dup_json(json{{"ok", true}, {"status", "ok"},
+                             {"file_name", file_name},
                              {"path", runtime_entry->gcode_path},
                              {"receipt", projection_receipt(*runtime_entry)}}.dump());
     } catch (const std::exception& e) {
@@ -1470,11 +1480,19 @@ const char* export_gcode_for_target(const std::string& plate_id,
     }
 }
 
-extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* plate_id,
-                                                         double revision_number,
-                                                         double result_generation_number) {
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* request_json) {
     try {
-        if (!plate_id || !std::isfinite(revision_number) || revision_number < 0.0 ||
+        std::lock_guard<std::mutex> job_lock(g_slice_job_mutex);
+        if (g_active_slice_task)
+            return dup_json(json{{"ok", false}, {"status", "failed"}, {"error", "slice_busy"}}.dump());
+        const json request = json::parse(request_json ? request_json : "");
+        const json& receipt = request.at("receipt");
+        const std::string plate_id = receipt.at("plate_id").get<std::string>();
+        const double revision_number = receipt.at("input_stamp").get<double>();
+        const double result_generation_number = receipt.at("result_generation").get<double>();
+        const std::string filename_base = request.at("filename_base").get<std::string>();
+        if (plate_id.empty() || filename_base.find('\0') != std::string::npos ||
+            !std::isfinite(revision_number) || revision_number < 0.0 ||
             std::floor(revision_number) != revision_number ||
             revision_number > static_cast<double>(std::numeric_limits<std::uint64_t>::max()) ||
             !std::isfinite(result_generation_number) || result_generation_number <= 0.0 ||
@@ -1483,7 +1501,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* p
             return error_json("invalid plate operation target");
         return export_gcode_for_target(plate_id,
                                        static_cast<std::uint64_t>(revision_number),
-                                       static_cast<std::uint64_t>(result_generation_number));
+                                       static_cast<std::uint64_t>(result_generation_number), filename_base);
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

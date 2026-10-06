@@ -143,7 +143,7 @@ const config = {
 const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'], [JSON.stringify(config)]);
 check('valid STEP slices successfully', sliceInput.ok === true && sliced.ok === true,
       JSON.stringify(sliced));
-const exported = exportGcode(callJson, sliced.receipt);
+const exported = exportGcode(callJson, { receipt: sliced.receipt, filenameBase: '' });
 const gcode = validateGcode(Module.FS.readFile(exported.path));
 check('valid STEP exports non-empty G-code', exported.ok === true && gcode.ok,
       JSON.stringify(gcode));
@@ -152,7 +152,7 @@ check('valid STEP exports non-empty G-code', exported.ok === true && gcode.ok,
 const beforeSlicedStructure = JSON.stringify(callJson('orc_get_model_structure', [], []));
 const rejectedAfterSlice = addModel(malformed, 'stp', 'malformed-after-slice.stp');
 const afterSlicedStructure = JSON.stringify(callJson('orc_get_model_structure', [], []));
-const exportAfterReject = exportGcode(callJson, sliced.receipt);
+const exportAfterReject = exportGcode(callJson, { receipt: sliced.receipt, filenameBase: '' });
 const gcodeAfterReject = validateGcode(Module.FS.readFile(exportAfterReject.path));
 check('malformed STEP leaves sliced scene and result unchanged',
       rejectedAfterSlice.ok !== true && afterSlicedStructure === beforeSlicedStructure

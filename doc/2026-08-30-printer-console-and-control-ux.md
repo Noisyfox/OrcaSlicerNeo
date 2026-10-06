@@ -147,6 +147,31 @@ Both platforms retain the same printer configuration, independent selections,
 Moonraker Send/Send & Print behavior, and best-effort handling of actual
 network or printer failures.
 
+## G-code filename generation
+
+Export and Send obtain the recommended filename from the completed plate's
+retained native `Print::output_filename()` and original Orca ASCII folding
+(`fold_utf8_to_ascii(..., false)`). The retained Print owns that generation's
+model, configuration and final statistics. Naming validates the slice receipt,
+rejects active slicing and stale results, and reads the existing immutable
+G-code source without another export pass. Timestamp placeholders are evaluated
+for each naming operation. The project's actual opened or saved filename
+supplies a basename override; an unsaved session supplies an empty override so
+Orca derives the name from printable objects.
+
+The typed runtime request requires both `receipt` and `filenameBase`; successful
+results expose only `fileName` and `bytes`. The temporary path remains private
+to the native bridge and typed client. Send uses the generated basename directly
+without a rename control. Existing extensions are preserved by the native naming
+logic; neither ASCII folding nor the naming API performs business-level illegal
+character replacement.
+
+The focused real-WASM naming contract is
+`node packages/slicer-wasm/harness/gcode-filename-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`.
+It covers template defaults, empty/custom formats, real statistics, per-plate
+names/numbers, Unicode folding, extensions, template errors, per-operation
+timestamps, generation reuse and stale receipts.
+
 ## Upload verification
 
 `pnpm test` and `pnpm typecheck` cover the shared component and both host

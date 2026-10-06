@@ -190,7 +190,7 @@ const config = {
 const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'], [JSON.stringify(config)]);
 check('DRC model slices successfully', sliceInput.ok === true && sliced.ok === true, JSON.stringify(sliced));
 if (sliced.ok) {
-  const exported = exportGcode(callJson, sliced.receipt);
+  const exported = exportGcode(callJson, { receipt: sliced.receipt, filenameBase: '' });
   const gcode = validateGcode(Module.FS.readFile(exported.path));
   check('DRC model exports non-empty G-code', exported.ok === true && gcode.ok, JSON.stringify(gcode));
 }

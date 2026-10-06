@@ -54,7 +54,7 @@ export function ToolpathLinesProbe({ activeRef, diagnosticRef, dataRef }: Toolpa
           // diagnostic is requested, then retain just the tool-change numbers.
           let bytes = latest.sourceTextBytes;
           if (!bytes) {
-            const exported = await platform.runtime.exportGcodePlate(latest.receipt);
+            const exported = await platform.runtime.exportGcodePlate({ receipt: latest.receipt, filenameBase: '' });
             if (disposed || dataRef.current !== latest || activeRef.current !== current) return null;
             if (!exported.ok)
               throw new Error(`preview G-code export failed: ${exported.status ?? exported.error ?? 'unknown error'}`);
