@@ -57,6 +57,11 @@ async function startMoonrakerFixture(startFailures = 1): Promise<MoonrakerFixtur
 
   const server: Server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+    if (request.method === 'GET' && pathname === '/console-worker.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript' });
+      response.end("postMessage('console-worker-ready')");
+      return;
+    }
     if (request.method === 'GET' && pathname === '/console') {
       const body = `<!doctype html><meta charset="utf-8"><title>Local printer console</title>
         <script>window.addEventListener('load',function(){(function waitForOrcaKey(){if(window.__orcaSlicerNeoMoonrakerFetchV1){fetch('/console-receipt',{cache:'no-store'});}else{setTimeout(waitForOrcaKey,0);}})();});</script>
@@ -217,6 +222,23 @@ test('Device config and Electron console fixture inject the API key', async () =
 
     await rows.filter({ hasText: 'Fixture A' }).locator('button[data-testid^="device-select-"]').click();
     await waitForConsoleKey(fixture, API_KEY);
+    // The console and its Workers must retain the printer's policy rather
+    // than receiving the slicer's cross-origin isolation response headers.
+    const guestProbe = await page.locator('webview').evaluate(async (element) => {
+      const guest = element as unknown as { executeJavaScript<T>(script: string): Promise<T> };
+      return guest.executeJavaScript<{ coop: string | null; coep: string | null; worker: string }>(`(async () => {
+        const response = await fetch('/console-worker.js');
+        const worker = await new Promise((resolve, reject) => {
+          const instance = new Worker('/console-worker.js');
+          const timer = setTimeout(() => { instance.terminate(); reject(new Error('console Worker timed out')); }, 5000);
+          instance.onmessage = (event) => { clearTimeout(timer); instance.terminate(); resolve(event.data); };
+          instance.onerror = (event) => { clearTimeout(timer); instance.terminate(); reject(new Error(event.message)); };
+        });
+        return { coop: response.headers.get('cross-origin-opener-policy'), coep: response.headers.get('cross-origin-embedder-policy'), worker };
+      })()`);
+    });
+    expect(guestProbe).toEqual({ coop: null, coep: null, worker: 'console-worker-ready' });
+    expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
     await expect(page.getByTestId('device-console-status')).toHaveCount(0);
 
     // A guest reload creates a new document without another panel.load().
