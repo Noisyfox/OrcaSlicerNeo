@@ -148,6 +148,8 @@ pnpm --filter @orca/web test:e2e:serial   # Chrome e2e against the serial fallba
 pnpm --filter @orca/web test:non-root    # production build served from a subpath
 ```
 
+For Device/Fluidd testing in VS Code, use `Desktop Debug Main Process` instead of `Desktop Debug All`, as renderer debugging can leave Fluidd Workers waiting for the debugger and stall G-code preview.
+
 **Profile packages.** Both hosts' `predev` hooks stage the profile packages
 (manifest + core/vendor ZIPs) from `packages/profile-resources/dist` into the
 shared renderer public dir, so build them before starting the app or the e2e

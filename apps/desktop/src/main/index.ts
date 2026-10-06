@@ -20,6 +20,7 @@ import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSe
 import { writeFileAtomically } from './atomicFile';
 import { summarizeElectronMemory } from './memoryIpc';
 import { attachSlicerUtility, stopSlicerUtilities } from './slicerUtility';
+import { rendererIsolationHeaders } from './sessionHeaders';
 
 // Chromium documents this as a preference for a discrete GPU when multiple
 // adapters are available. It does not name or require a particular GPU; the
@@ -423,18 +424,15 @@ function installNativeMenu(): void {
 }
 
 function setupSessionHeaders(): void {
-  // COOP/COEP: same-origin isolation (SharedArrayBuffer headroom for
-  // Milestone 4 threading). Applies to the renderer session — with the http
-  // origin these ARE applied to every response the renderer and its worker
-  // fetch (webRequest sees real http now, unlike the custom-scheme responses
-  // it used to miss — electron#20730/#45168 no longer apply).
+  // The printer-console webview shares this session. Only the application
+  // origin needs isolation for threaded WASM; preserve remote console policy.
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Cross-Origin-Opener-Policy': ['same-origin'],
-        'Cross-Origin-Embedder-Policy': ['require-corp'],
-      },
+      responseHeaders: rendererIsolationHeaders(
+        details.url,
+        process.env.ELECTRON_RENDERER_URL || `http://127.0.0.1:${rendererPort}`,
+        details.responseHeaders,
+      ),
     });
   });
 }

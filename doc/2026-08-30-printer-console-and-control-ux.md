@@ -80,6 +80,14 @@ API-key wrapper is installed on each guest `dom-ready` event, including
 guest-initiated reloads and navigations. This fallback cannot guarantee
 injection before the console's earliest page scripts run.
 
+The Electron webview shares the application's default session. COOP
+`same-origin` and COEP `require-corp` are injected only for the exact
+application renderer origin, including its Worker and WASM resources.
+Development uses the configured Vite origin; built applications use the
+bound loopback server origin. Printer-console responses retain their own
+headers. This avoids applying application isolation policy to remote Fluidd
+pages, including untrustworthy HTTP origins where Chromium ignores COOP.
+
 Web embedding is best effort. Browser and printer policies, local-network
 access, HTTPS/mixed-content rules, CORS, or a console's own framing policy may
 prevent the console from displaying. The application reports the console
@@ -218,3 +226,41 @@ shared application flow, project lifecycle, native Save As and Send; its real
 threaded runtime probe covers host-backed export and temporary-file cleanup.
 Physical-printer and minutes-long real-network transfer verification remain
 outside the available local fixtures.
+
+## Electron debugging and Worker verification
+
+VS Code renderer debugging can leave a Fluidd G-code parsing Worker waiting
+for the debugger before its initialization runs. The console then remains at
+"Parsing file" with zero progress. In the confirmed 2026-10-06 incident, the
+9222 CDP endpoint listed the Fluidd `webview` and its `parseGcode` Worker,
+whose `self.onmessage` was still null. Sending
+`Runtime.runIfWaitingForDebugger` to that Worker completed the existing
+preview: 666,901 bytes, 18,746 moves and 136 layers. The same file parsed in
+approximately 1.14 seconds in a fresh Electron session, and Fluidd's own
+`gcodePreview/loadGcode` action and manual preview also succeeded there.
+Restoring the old global isolation-header injection in an isolated probe
+still allowed parsing, so the header leak was a separate defect.
+
+The [VS Code debugger target manager](https://github.com/microsoft/vscode-js-debug/blob/main/src/targets/browser/browserTargetManager.ts)
+recursively enables auto-attachment with `waitForDebuggerOnStart`; its
+[supported JavaScript target types](https://github.com/microsoft/vscode-js-debug/blob/main/src/targets/browser/browserTargets.ts)
+do not include Electron's `webview`. This supports a debugger integration
+failure as the explanation for the observed startup wait. For Device/Fluidd
+testing, use `Desktop Debug Main Process` instead of `Desktop Debug All`,
+which also starts `Desktop Debug Renderer Process`. Inspect the application
+renderer through Electron DevTools. These configuration names and the 9222
+port are defined in [the workspace launch configuration](../.vscode/launch.json).
+
+The 2026-10-06 header-scope change passed `pnpm test` (1,649 tests),
+`pnpm typecheck`, and the three tests selected by
+`pnpm --filter @orca/desktop exec playwright test e2e/printer-control.e2e.ts`.
+The E2E build used `VITE_USE_MOCK=1` with
+`pnpm --filter @orca/desktop exec electron-vite build --mode e2e`; its emitted
+slicer Worker was checked for `const useMock = true`. The Device regression
+test executes a guest Worker, verifies that its response lacks injected
+COOP/COEP, and confirms that the application remains cross-origin isolated.
+Unit coverage also checks renderer resources, development origins, external
+console and Worker resources, distinct ports/protocols, invalid origins and
+case-insensitive header replacement. API-key reuse, guest reload and printer
+control passed. Native WASM rebuilds, Web E2E and the full release matrix were
+not run for this Electron-only response-header change.
