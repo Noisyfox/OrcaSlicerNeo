@@ -969,9 +969,17 @@ export interface PreviewFeatureStatistics {
   filamentWeightGrams?: number;
 }
 
+export interface PreviewMoveStatistics {
+  moveType: number;
+  timeSeconds: number;
+  distanceMm: number;
+  count: number;
+}
+
 export interface PreviewAnalysis {
   summary: PreviewAnalysisSummary;
   featureStatistics: PreviewFeatureStatistics[];
+  moveStatistics: PreviewMoveStatistics[];
   metricRanges: Partial<Record<PreviewMetricKey, PreviewMetricRange>>;
 }
 

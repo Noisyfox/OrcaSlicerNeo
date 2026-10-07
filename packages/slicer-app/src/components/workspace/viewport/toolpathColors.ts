@@ -1,7 +1,7 @@
 import type { PreviewAnalysis, PreviewPaletteEntry, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
 import type { PreviewColorScheme } from '@/stores/useSlicerStore';
 import { adjustRgbForRendering } from './renderColor';
-import { TRAVEL_MOVE_TYPE, WIPE_MOVE_TYPE, previewMoveOption } from './previewMoveTypes';
+import { EXTRUDE_MOVE_TYPE, TRAVEL_MOVE_TYPE, WIPE_MOVE_TYPE, previewMoveOption } from './previewMoveTypes';
 
 /** libvgcode's DEFAULT_OPTIONS_COLORS entry for EOptionType::Travels. */
 export const ORCA_TRAVEL_COLOR: readonly [number, number, number] = [56 / 255, 72 / 255, 155 / 255];
@@ -110,11 +110,21 @@ export function colorForPreviewValue(value: number, min: number, max: number): [
   ];
 }
 
+/** Orca collects roles and used extruders only from Extrude moves. */
+function extrusionCategoryIds(source: PreviewColorSource, values: Uint32Array | Uint8Array): number[] {
+  const ids = new Set<number>();
+  for (let index = 0; index < values.length; index += 1) {
+    if (source.moveTypes[index] === EXTRUDE_MOVE_TYPE) ids.add(values[index]!);
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
 export function previewSchemeAvailable(source: PreviewColorSource, scheme: PreviewColorScheme): boolean {
-  if (scheme === 'feature') return source.features.length > 0;
+  if (scheme === 'feature') return source.moveTypes.includes(EXTRUDE_MOVE_TYPE);
   if (scheme === 'filament') {
     if (!source.extruderPalette?.length) return false;
-    return [...new Set(Array.from(source.extruderIds))].every((tool) => filamentEntry(source, tool) !== undefined);
+    const tools = extrusionCategoryIds(source, source.extruderIds);
+    return tools.length > 0 && tools.every((tool) => filamentEntry(source, tool) !== undefined);
   }
   return rangeForScheme(source, scheme) !== null;
 }
@@ -122,14 +132,14 @@ export function previewSchemeAvailable(source: PreviewColorSource, scheme: Previ
 export function describePreviewScheme(source: PreviewColorSource, scheme: PreviewColorScheme): PreviewSchemeDescriptor | null {
   if (!previewSchemeAvailable(source, scheme)) return null;
   if (scheme === 'feature') {
-    const ids = [...new Set(Array.from(source.features))];
+    const ids = extrusionCategoryIds(source, source.features);
     return { scheme, label: PREVIEW_SCHEME_LABELS[scheme], kind: 'categorical', items: ids.map((id) => {
       const entry = source.palette.find((candidate) => candidate.id === id);
       return { id, label: entry?.name ?? `Feature ${id}`, color: paletteColor(entry) };
     }) };
   }
   if (scheme === 'filament') {
-    const ids = [...new Set(Array.from(source.extruderIds))].sort((a, b) => a - b);
+    const ids = extrusionCategoryIds(source, source.extruderIds);
     return { scheme, label: PREVIEW_SCHEME_LABELS[scheme], kind: 'categorical', items: ids.map((id) => {
       const entry = filamentEntry(source, id);
       return { id, label: entry?.name ?? `Tool ${id + 1}`, color: paletteColor(entry) };

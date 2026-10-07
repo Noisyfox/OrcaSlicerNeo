@@ -10,6 +10,24 @@ import { PREVIEW_MOVE_OPTIONS, TRAVEL_MOVE_TYPE } from './previewMoveTypes';
 import { describePreviewScheme, PREVIEW_SCHEME_LABELS, ORCA_TRAVEL_COLOR, previewSchemeAvailable, formatPreviewValue, type PreviewColorSource } from './toolpathColors';
 import { PreviewInspectionPanel, formatPreviewTime } from './PreviewInspectionPanel';
 
+function formatMoveDistance(distanceMm: number): string {
+  return Math.abs(distanceMm) < 1000 ? `${distanceMm.toFixed(0)}mm` : `${(distanceMm / 1000).toFixed(2)}m`;
+}
+
+function formatMoveCount(count: number): string {
+  const suffixes = ['', 'K', 'M', 'B', 'T', 'P', 'E'];
+  let divisor = 1;
+  let suffix = 0;
+  while (suffix < suffixes.length - 1 && count / divisor >= 1000) { divisor *= 1000; suffix += 1; }
+  const value = Math.floor(count / divisor * 10) / 10;
+  return `${value}${suffixes[suffix]}`;
+}
+
+function formatTimePercentage(time: number, total: number): string {
+  if (time === 0) return '0';
+  return time / total > 0.001 ? (time / total * 100).toFixed(1) : '<0.1';
+}
+
 /** Compact native slice totals, matching the reference's icon summary row. */
 function PreviewStatisticsFooter({ data }: { data: ToolpathGeometry }) {
   const summary = data.analysis?.summary;
@@ -73,6 +91,7 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
   );
   const visibility = preview.schemeVisibility[activeScheme] ?? {};
   const featureStatistics = useMemo(() => new Map(data.analysis?.featureStatistics.map((entry) => [entry.featureId, entry])), [data.analysis]);
+  const moveStatistics = useMemo(() => new Map(data.analysis?.moveStatistics.map((entry) => [entry.moveType, entry])), [data.analysis]);
   const totalTime = data.analysis?.summary.estimatedTimeSeconds;
   return (
     <Collapsible
@@ -128,7 +147,7 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
             const statistics = activeScheme === 'feature' ? featureStatistics.get(item.id) : undefined;
             const time = statistics?.timeSeconds;
             const percentage = time !== undefined && Number.isFinite(time) && totalTime !== undefined && Number.isFinite(totalTime) && totalTime > 0
-              ? (time / totalTime * 100).toFixed(1) : '—';
+              ? formatTimePercentage(time, totalTime) : '—';
             const usage = [
               statistics?.filamentLengthMeters !== undefined && Number.isFinite(statistics.filamentLengthMeters) ? `${statistics.filamentLengthMeters.toFixed(2)}m` : undefined,
               statistics?.filamentWeightGrams !== undefined && Number.isFinite(statistics.filamentWeightGrams) ? `${statistics.filamentWeightGrams.toFixed(2)}g` : undefined,
@@ -157,13 +176,26 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
           {moveOptions.map((option) => {
             const travel = option.type === TRAVEL_MOVE_TYPE;
             const enabled = travel ? preview.showTravel : preview.moveVisibility[option.type] !== false;
+            const statistics = moveStatistics.get(option.type);
+            const time = statistics?.timeSeconds;
+            const percentage = time !== undefined && totalTime !== undefined && totalTime > 0
+              ? formatTimePercentage(time, totalTime) : '';
+            const usage = statistics ? [
+              option.type === 4 ? '' : formatMoveDistance(statistics.distanceMm),
+              formatMoveCount(statistics.count),
+            ].filter(Boolean).join(' ') : '';
             return <Button variant="ghost" size="xs" key={option.type} aria-pressed={enabled}
               data-testid={travel ? 'preview-travel-toggle' : `preview-move-visibility-${option.type}`}
               onClick={() => { if (travel) setShowTravel(!enabled); else setMoveVisibility(option.type, !enabled); }}
-              className="sidebar-list-row grid grid-cols-[12px_10px_minmax(0,1fr)] w-full px-1 text-left">
+              className={`sidebar-list-row grid w-full px-1 text-left ${activeScheme === 'feature' ? 'grid-cols-[12px_10px_minmax(0,1fr)_40px_24px_60px]' : 'grid-cols-[12px_10px_minmax(0,1fr)]'}`}>
               {enabled ? <Eye className="size-3 shrink-0 text-muted-foreground" /> : <EyeOff className="size-3 shrink-0 text-muted-foreground" />}
                 <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${option.color.join(',')})` }} />
               <span className="text-[10px]">{option.label}</span>
+              {activeScheme === 'feature' && <>
+                <span className="text-right text-[10px] tabular-nums">{time !== undefined && time > 0 ? formatPreviewTime(time)?.replaceAll(' ', '') : ''}</span>
+                <span className="text-right text-[10px] tabular-nums">{percentage}</span>
+                <span className="text-right text-[10px] tabular-nums">{usage}</span>
+              </>}
             </Button>;
           })}
           </div>

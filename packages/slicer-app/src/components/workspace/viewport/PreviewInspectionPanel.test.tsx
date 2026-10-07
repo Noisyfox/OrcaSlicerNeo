@@ -30,13 +30,13 @@ const data: ToolpathGeometry = {
     sourceLineMapping: { available: true, lineCount: 30 },
     analysis: {
       summary: { estimatedTimeSeconds: 3661, filamentLengthMeters: 1.25, filamentWeightGrams: 3.5, filamentCost: 0.07 },
-      featureStatistics: [{ featureId: 0, timeSeconds: 3600, filamentLengthMeters: 1.25 }],
+      moveStatistics: [], featureStatistics: [{ featureId: 0, timeSeconds: 3600, filamentLengthMeters: 1.25 }],
       metricRanges: { feedrate: { min: 10, max: 30 } },
     },
   },
   analysis: {
     summary: { estimatedTimeSeconds: 3661, filamentLengthMeters: 1.25, filamentWeightGrams: 3.5, filamentCost: 0.07 },
-    featureStatistics: [{ featureId: 0, timeSeconds: 3600, filamentLengthMeters: 1.25 }],
+    moveStatistics: [], featureStatistics: [{ featureId: 0, timeSeconds: 3600, filamentLengthMeters: 1.25 }],
     metricRanges: { feedrate: { min: 10, max: 30 } },
   },
   dispose: () => undefined,

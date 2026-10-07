@@ -1228,9 +1228,15 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result(const char* pla
             }
             feature_statistics.push_back(std::move(entry));
         }
+        json move_statistics = json::array();
+        for (const auto& stats : analysis.move_statistics) {
+            move_statistics.push_back({{"move_type", stats.move_type}, {"time_seconds", stats.time_seconds},
+                {"distance_mm", stats.distance_mm}, {"count", stats.count}});
+        }
         out["metadata"]["analysis"] = {
             {"summary", std::move(summary)},
             {"feature_statistics", std::move(feature_statistics)},
+            {"move_statistics", std::move(move_statistics)},
         };
         out["toolpath"] = {
             {"segment_count", tp.segmentCount},

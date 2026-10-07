@@ -138,6 +138,13 @@ struct PreviewFeatureStatistics {
     bool has_filament = false;
 };
 
+struct PreviewMoveStatistics {
+    std::uint32_t move_type = 0;
+    double time_seconds = 0.0;
+    double distance_mm = 0.0;
+    std::uint32_t count = 0;
+};
+
 struct PreviewAnalysis {
     double estimated_time_seconds = 0.0;
     bool has_estimated_time = false;
@@ -148,6 +155,7 @@ struct PreviewAnalysis {
     double filament_cost = 0.0;
     bool has_filament_cost = false;
     std::vector<PreviewFeatureStatistics> feature_statistics;
+    std::vector<PreviewMoveStatistics> move_statistics;
 };
 
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette();
