@@ -825,6 +825,15 @@ The deterministic fixture set covers at least:
 - Add through 64 slots, rejection of slot 65, complete 64-slot matrix and 3MF
   persistence, and Delete/Merge remapping at the first, middle, and last slot;
 - imported painting and per-layer colour/tool-change preservation and remap;
+- imported solid, partitioned multi-colour, and ordered gradient metadata
+  retained through snapshots, slot transitions, remembered racks, Printer
+  transitions, 3MF export/reopen, and Undo/Redo; explicit editing validates
+  opaque endpoints, converts partitions or extra stops only on confirmation,
+  and rolls back all three native colour fields on rejection;
+- shared rack and assignment swatches render partitions and gradients while
+  model/toolpath colours retain the representative; focused Electron and both
+  real Web runtime variants verify browser storage, reload, and first/last
+  endpoint editing;
 - imported custom flushing-matrix preservation followed by automatic
   replacement after the first flushing-input edit;
 - Prepare-only estimated prime-tower proxies for every eligible plate,

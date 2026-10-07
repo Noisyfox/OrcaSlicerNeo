@@ -98,10 +98,11 @@ small data lists, without pixel searches, runtime work, or network services.
 Verification follows [testing guidelines](../doc/testing_guidelines.md): color
 conversion and normalization tests, real component interaction tests,
 cross-writer preference regression tests, affected package suites/typechecks,
-root suites/typechecks, focused Electron UI and disk-restart tests, and Web
-storage/reload checks. Alpha/gradient behavior is verified at the reusable
-component layer; the filament rack also verifies gradient editing through its
-business entrance.
+root suites/typechecks, focused Electron UI and disk-restart tests, and real
+Web serial/threaded storage/reload checks. Alpha/gradient behavior is verified
+at the reusable component layer; the filament rack also verifies both gradient
+endpoints, cancellation, conversion of imported multi-colour metadata, and
+representative-colour persistence through its business entrance.
 
 ## Implementation entry points
 
