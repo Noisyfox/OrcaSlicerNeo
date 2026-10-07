@@ -73,6 +73,45 @@ assert.equal(session.assignments.parts.length, 1, JSON.stringify(session));
 assert.equal(session.assignments.objects[0].effective_slot, 2, JSON.stringify(session));
 assert.equal(session.assignments.parts[0].effective_slot, 2, JSON.stringify(session));
 
+// Orca's Plater resizes these project maps to the colour count after load.
+// Exercise the native reader with independent archives, including non-default
+// retained values and non-zero stale tails (not just all-zero volume maps).
+for (const [name, maps, expected] of [
+  ['long', [[1, 1, 2], [1, 0, 1], [0, 0, 1]], [[1, 1], [1, 0], [0, 0]]],
+  ['short', [[1], [1], [0]], [[1, 1], [1, 0], [0, 0]]],
+  ['exact', [[1, 1], [1, 0], [0, 0]], [[1, 1], [1, 0], [0, 0]]],
+]) {
+  const entries = readZipEntries(bytes);
+  const projectEntry = entries.find((entry) => entry.name === 'Metadata/project_settings.config');
+  const project = JSON.parse(new TextDecoder().decode(projectEntry.content));
+  const keys = ['filament_map', 'filament_volume_map', 'filament_nozzle_map'];
+  keys.forEach((key, index) => { project[key] = maps[index].map(String); });
+  projectEntry.content = new TextEncoder().encode(JSON.stringify(project));
+  const archive = writeStoredZip(entries);
+  const archivePointer = Number(Module._malloc(archive.byteLength));
+  Module.HEAPU8.set(archive, archivePointer);
+  const result = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [archivePointer, archive.byteLength, 0, `${name}-filament-maps.3mf`]);
+  Module._free(archivePointer);
+  assert.equal(result.ok, true, `${name}: ${JSON.stringify(result)}`);
+  const snapshot = callJson('orc_get_filament_session_snapshot');
+  assert.equal(snapshot.ok, true, `${name}: ${JSON.stringify(snapshot)}`);
+  assert.deepEqual(snapshot.slots.map((slot) => slot.colour.effective), ['#FF0000', '#00FF00']);
+  assert.deepEqual([snapshot.mappings.filament, snapshot.mappings.volume, snapshot.mappings.nozzle], expected, name);
+  assert.equal(snapshot.assignments.parts[0].effective_slot, 2, name);
+
+  // Check persisted state too: projection-only padding would leave short maps
+  // in the project, especially nozzle maps whose snapshot fallback is 1.
+  const exported = callJson('orc_export_project');
+  assert.equal(exported.ok, true, `${name}: ${JSON.stringify(exported)}`);
+  const savedBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr),
+    Number(exported.bytes_ptr) + Number(exported.bytes_length));
+  Module._free(Number(exported.bytes_ptr));
+  const savedEntry = readZipEntries(savedBytes).find((entry) => entry.name === 'Metadata/project_settings.config');
+  const saved = JSON.parse(new TextDecoder().decode(savedEntry.content));
+  assert.deepEqual(keys.map((key) => saved[key].map(Number)), expected, `${name}: saved maps`);
+}
+
 // A multi-nozzle project can name two source filaments while native preset
 // compatibility grows the active rack. Preserve the two saved plate mappings
 // and fill only the new slots, as the Orca Plater does after preset loading.

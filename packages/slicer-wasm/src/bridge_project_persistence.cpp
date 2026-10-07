@@ -1028,6 +1028,19 @@ static const char* orc_load_project_impl(const char* data, int len,
             reconstruct_active_project_drafts(candidate, imported_config,
                 native_requested_filament_slots, diff_keys, embedded_printers,
                 embedded_filaments, staged_preset_drafts);
+
+            // Match Plater's post-load project-map synchronization. This GUI
+            // step is not performed by load_config_model: stale trailing entries
+            // are dropped, while missing entries receive Orca's native defaults.
+            // Normalize the staged project before validation and publication.
+            auto& project = candidate.project_config;
+            if (const auto* colours = project.option<ConfigOptionStrings>("filament_colour")) {
+                const auto count = colours->size();
+                project.option<ConfigOptionInts>("filament_map", true)->values.resize(count, 1);
+                project.option<ConfigOptionInts>("filament_nozzle_map", true)->values.resize(count, 0);
+                project.option<ConfigOptionInts>("filament_volume_map", true)->values.resize(
+                    count, static_cast<int>(NozzleVolumeType::nvtStandard));
+            }
         }
         publish_slicer_progress(75, geometry_only ? "Finalizing geometry import" : "Applying project settings");
 

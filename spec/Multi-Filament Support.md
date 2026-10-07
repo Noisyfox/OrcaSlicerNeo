@@ -610,6 +610,13 @@ filament presets are project-session resources:
 - rejecting the warning or failing restoration leaves the previous project,
   history, and remembered rack unchanged.
 
+After preset restoration, project import follows OrcaSlicer's post-load
+normalization: `filament_map`, `filament_nozzle_map`, and `filament_volume_map`
+are resized to the project colour count. Existing entries are retained, excess
+trailing entries are removed, and missing entries use the native defaults
+(`1`, `0`, and Standard respectively). This runs before publishing the project;
+geometry-only import does not apply it to the current project's mappings.
+
 Project save writes every effective slot preset, colour, native map, flushing
 configuration, and model/plate assignment needed for native OrcaSlicer and Neo
 to reproduce the project. Derived G-code and preview buffers remain outside
