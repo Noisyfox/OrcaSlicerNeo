@@ -305,13 +305,16 @@ test('sidebar panels resize independently and configuration controls keep their 
     await expect(process).toHaveCSS('background-color', 'rgb(39, 39, 42)');
     await page.mouse.move(0, 0);
 
-    for (const control of [device.getByTestId('preset-select'), process, page.getByTestId('filament-preset-1')]) {
+    const printerPreset = device.getByTestId('preset-select');
+    const filamentPreset = page.getByTestId('filament-preset-1');
+    for (const control of [printerPreset, process, filamentPreset]) {
       await expect(control).toHaveCSS('height', '24px');
       await expect(control).toHaveCSS('font-size', '13px');
       await expect(control).toHaveCSS('background-color', 'rgb(27, 27, 29)');
-      await expect(control).toHaveCSS('border-radius', '3px');
       await expect(control.locator('.sidebar-dropdown-arrow')).toHaveCSS('width', '20px');
     }
+    for (const control of [printerPreset, process]) await expect(control).toHaveCSS('border-radius', '3px');
+    await expect(filamentPreset).toHaveCSS('border-radius', '0px 3px 3px 0px');
     const tabs = settings.getByRole('tablist', { name: 'Settings category' });
     const quality = page.getByTestId('config-page-Quality');
     await expect(quality).toHaveCSS('font-size', '11px');

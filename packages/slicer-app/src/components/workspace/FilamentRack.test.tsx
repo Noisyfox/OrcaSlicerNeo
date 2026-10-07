@@ -117,6 +117,29 @@ describe('FilamentRack runtime interaction', () => {
     expect(gradient.title).toContain('Gradient: #ffffff → #000000');
   });
 
+  it('normalizes only the button value for imported uppercase opaque RGBA', async () => {
+    const initial = makeSnapshot();
+    const imported = { ...initial.slots[0], colour: { ...initial.slots[0].colour,
+      effective: '#E72F1DFF',
+      native: { representative: '#E72F1DFF', multiColour: '#E72F1DFF', type: '1' },
+      display: { mode: 'solid' as const, colors: ['#E72F1DFF'] },
+    } };
+    const snapshot = makeSnapshot({ slots: [imported, initial.slots[1]] });
+    const setColour = vi.fn();
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    expect(trigger.value).toBe('#e72f1d');
+    expect(trigger.title).toBe('Solid: #E72F1DFF');
+    expect(trigger.style.backgroundColor).toMatch(/231, 47, 29/);
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native).toEqual(imported.colour.native);
+    await act(async () => trigger.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Cancel')!.click());
+    expect(setColour).not.toHaveBeenCalled();
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native).toEqual(imported.colour.native);
+  });
+
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({
