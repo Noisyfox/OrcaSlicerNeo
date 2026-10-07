@@ -58,9 +58,11 @@ describe('FilamentAssignmentCell semantics', () => {
     expect(document.body.querySelector('[data-slot="select-content"]')).not.toBeNull();
     expect(document.body.querySelector('[data-slot="select-group"] [data-slot="select-item"]')).not.toBeNull();
     expect([...document.body.querySelectorAll('[data-slot="select-item"]')].map((item) => item.textContent)).toEqual([
-      'Slot 1 · inherited',
-      'Slot 2',
+      '1 - PLA',
+      '2 - PETG',
     ]);
+    const swatches = [...document.body.querySelectorAll<HTMLElement>('[data-slot="select-item"] [aria-hidden="true"][style]')];
+    expect(swatches.map((swatch) => swatch.style.backgroundColor)).toEqual(['rgb(17, 34, 51)', 'rgb(68, 85, 102)']);
   });
 
   it('assigns numeric slots without Default for model parts and objects', async () => {
@@ -73,13 +75,13 @@ describe('FilamentAssignmentCell semantics', () => {
     const partTrigger = container.querySelector('[data-testid="filament-cell-part-20"]') as HTMLElement;
     const objectTrigger = container.querySelector('[data-testid="filament-cell-object-10"]') as HTMLElement;
 
-    await choose(partTrigger, 'Slot 2');
+    await choose(partTrigger, '2 - PETG');
     expect(onPartAssign).toHaveBeenCalledWith(2);
     await act(async () => { objectTrigger.click(); await new Promise((resolve) => setTimeout(resolve, 0)); });
     const objectContent = document.getElementById(objectTrigger.getAttribute('aria-controls') ?? '') as HTMLElement;
     const objectItems = [...objectContent.querySelectorAll('[data-slot="select-item"]')];
     expect(objectItems.some((item) => item.textContent === 'Default')).toBe(false);
-    const slot2 = objectItems.find((item) => item.textContent === 'Slot 2') as HTMLElement;
+    const slot2 = objectItems.find((item) => item.textContent === '2 - PETG') as HTMLElement;
     await act(async () => {
       slot2.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       slot2.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
@@ -114,7 +116,7 @@ describe('FilamentAssignmentCell semantics', () => {
     expect(trigger.getAttribute('role')).toBe('combobox');
     expect(trigger.textContent).toBe('2');
     expect(trigger.style.backgroundColor).toBe('rgb(68, 85, 102)');
-    await choose(trigger, 'Slot 1');
+    await choose(trigger, '1 - PLA');
     expect(onAssign).toHaveBeenLastCalledWith(1);
     await choose(trigger, 'Default');
     expect(onAssign).toHaveBeenLastCalledWith(0);
@@ -147,7 +149,7 @@ describe('FilamentAssignmentCell semantics', () => {
     const trigger = container.querySelector('[data-testid="filament-cell-object-10"]') as HTMLElement;
 
     await act(async () => { trigger.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })); });
-    await choose(trigger, 'Slot 2');
+    await choose(trigger, '2 - PETG');
     expect(onAssign).toHaveBeenCalledWith(2);
     expect(onRowContextMenu).not.toHaveBeenCalled();
     expect(onRowPointerDown).not.toHaveBeenCalled();

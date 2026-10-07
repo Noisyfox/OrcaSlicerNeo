@@ -516,3 +516,10 @@ Validation for main CI plate-card clipping repair (2026-10-05):
 - Explicitly rebuilt the e2e app with `VITE_USE_MOCK=1` using `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, verified the compiled utility worker's mock mode, and passed `pnpm --filter @orca/desktop exec node scripts/check-renderer-css.mjs`. An initial full mock-suite attempt was stopped because its built utility worker actually used the real runtime, producing real G-code and mismatching mock assertions.
 - Ran the complete Playwright file set from the desktop `test:e2e` script against the confirmed mock build — 49 passed and 12 skipped by their runtime/host gates, including plate-list, the main flow, typography, gizmo, printer-console, and utility-runtime coverage.
 - `git diff --check` — passed. No local native WASM rebuild or release matrix was run for this card layout fix.
+
+### 2026-10-07 PR dropdown and Slice Info regression validation
+
+- Updated filament assignment unit and native multi-filament E2E expectations to use `N - filament name` options and numeric-only triggers. Added effective-colour swatch assertions.
+- Extended the Preview E2E journey to verify that the Slice Info G-code toggle, C shortcut, and window close button share visibility state.
+- Passed `pnpm test` (1690 tests), `pnpm typecheck`, and the focused filament assignment suite (6 tests). Built Electron with `VITE_USE_MOCK=1`, verified the compiled utility worker uses the mock, and passed the renderer CSS check.
+- Passed three focused Electron E2E journeys: full v1 flow, Preview overlay, and Select popup scroll anchoring. Native multi-filament E2E was updated but not run locally; no WASM code changed.

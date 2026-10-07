@@ -1172,9 +1172,18 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     // Phase-C source inspection is a separate, virtualized read-only overlay.
     // It is toggled only while the viewport itself owns keyboard focus, so C
     // cannot hijack the sliders or any text input.
+    const gcodeToggle = page.getByTestId('preview-gcode-text-toggle');
+    await expect(gcodeToggle).toHaveAttribute('aria-pressed', 'false');
+    await gcodeToggle.click();
+    await expect(page.getByTestId('gcode-text-window')).toBeVisible();
+    await expect(gcodeToggle).toHaveAttribute('aria-pressed', 'true');
     await page.getByTestId('viewport').focus();
     await page.keyboard.press('c');
+    await expect(page.getByTestId('gcode-text-window')).toBeHidden();
+    await expect(gcodeToggle).toHaveAttribute('aria-pressed', 'false');
+    await page.keyboard.press('c');
     await expect(page.getByTestId('gcode-text-window')).toBeVisible();
+    await expect(gcodeToggle).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('gcode-text-scroll')).toBeVisible();
     const textWindow = page.getByTestId('gcode-text-window');
     expect(await textWindow.evaluate((el) => el.parentElement?.id)).toBe('app-panel-workspace');
@@ -1195,6 +1204,7 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     expect(renderedSourceRows).toBeLessThan(2401);
     await page.getByTestId('gcode-text-close').click();
     await expect(page.getByTestId('gcode-text-window')).toBeHidden();
+    await expect(gcodeToggle).toHaveAttribute('aria-pressed', 'false');
   } finally {
     await app.close();
   }
