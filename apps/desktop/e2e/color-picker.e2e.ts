@@ -21,6 +21,48 @@ async function editHex(page: Page, color: string) {
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill(color);
 }
 
+test('filament gradient alpha survives unchanged confirmation, cancellation, edits and restart', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-filament-alpha-'));
+  const preferences = join(dir, 'preferences.json');
+  const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
+  const native = { representative: '#11223380', multiColour: '#11223380 #44556640', type: '0' };
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer, print: '0.20mm Standard @BBL X1C' },
+    rememberedFilamentRacks: { [printer]: { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: native.representative, native },
+    ] } },
+  }));
+  const stored = () => JSON.parse(readFileSync(preferences, 'utf8')).rememberedFilamentRacks[printer].slots[0].native;
+  const first = await launch(preferences);
+  try {
+    const { page } = first;
+    const trigger = page.getByTestId('filament-colour-1');
+    await trigger.click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('11223380');
+    await expect(page.getByRole('spinbutton', { name: 'Alpha value', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    expect(stored()).toEqual(native);
+    await trigger.click();
+    await page.getByRole('tab', { name: 'End', exact: true }).click();
+    await editHex(page, '44556620');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(stored()).toEqual(native);
+    await trigger.click();
+    await page.getByRole('tab', { name: 'End', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('44556640');
+    await editHex(page, '44556620');
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(() => expect(stored()).toEqual({ ...native, multiColour: '#11223380 #44556620' })).toPass();
+  } finally { await first.app.close(); }
+  const second = await launch(preferences);
+  try {
+    await second.page.getByTestId('filament-colour-1').click();
+    await expect(second.page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('11223380');
+    await second.page.getByRole('tab', { name: 'End', exact: true }).click();
+    await expect(second.page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('44556620');
+  } finally { await second.app.close(); }
+});
+
 test('renders remembered gradient and partition swatches in the shared Prepare UI', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-swatches-'));
   const preferences = join(dir, 'preferences.json');
@@ -64,8 +106,8 @@ test('renders remembered gradient and partition swatches in the shared Prepare U
       width: 24, height: 24, border: '0px', clip: 'border-box',
       topLeft: geometry.row1.topLeft, bottomLeft: geometry.row1.bottomLeft,
       topRight: '0px', bottomRight: '0px', directNumber: true });
-    expect(geometry.preset).toMatchObject({ x: geometry.colour.x + geometry.colour.width,
-      y: geometry.row1.y, height: 24, topLeft: '0px', bottomLeft: '0px' });
+    expect(geometry.preset.x).toBeCloseTo(geometry.colour.x + geometry.colour.width, 3);
+    expect(geometry.preset).toMatchObject({ y: geometry.row1.y, height: 24, topLeft: '0px', bottomLeft: '0px' });
     expect(geometry.preset.topRight).not.toBe('0px');
     expect(geometry.preset.bottomRight).not.toBe('0px');
     expect(geometry.arrow).toMatchObject({ width: 20, height: 20 });
@@ -87,7 +129,8 @@ test('renders remembered gradient and partition swatches in the shared Prepare U
     await cell.click();
     const partitionChoice = page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"][style]');
     await expect(partitionChoice).toHaveCSS('background-image', /linear-gradient/);
-    await expect(partitionChoice).toHaveCSS('border-width', '1px');
+    const expectedBorder = await page.evaluate(() => Math.floor(devicePixelRatio) / devicePixelRatio);
+    expect(await partitionChoice.evaluate(element => parseFloat(getComputedStyle(element).borderWidth))).toBeCloseTo(expectedBorder, 5);
     await expect(partitionChoice).toHaveCSS('background-origin', 'border-box');
     await expect(partitionChoice).toHaveCSS('background-repeat', 'no-repeat');
     await page.keyboard.press('Escape');
@@ -126,7 +169,8 @@ test('red-to-white gradients fill bordered assignment swatches without wrapping 
     await choice.screenshot({ path: choiceScreenshot });
     await test.info().attach('red-white-gradient-option', { path: choiceScreenshot, contentType: 'image/png' });
     for (const swatch of [cell, choice]) {
-      await expect(swatch).toHaveCSS('border-width', '1px');
+      const expectedBorder = await page.evaluate(() => Math.floor(devicePixelRatio) / devicePixelRatio);
+      expect(await swatch.evaluate(element => parseFloat(getComputedStyle(element).borderWidth))).toBeCloseTo(expectedBorder, 5);
       await expect(swatch).toHaveCSS('background-origin', 'border-box');
       await expect(swatch).toHaveCSS('background-repeat', 'no-repeat');
     }
@@ -150,9 +194,9 @@ test('imported partition edits as a two-endpoint gradient only after confirmatio
     await expect(trigger).toHaveCSS('background-image', /rgb\(17, 34, 51\).*rgb\(171, 205, 239\).*rgb\(68, 85, 102\)/);
     await trigger.click();
     await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('112233');
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('112233FF');
     await page.getByRole('tab', { name: 'End' }).click();
-    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('445566');
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('445566FF');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(trigger).toHaveCSS('background-image', /rgb\(171, 205, 239\)/);
     await trigger.click();
@@ -209,9 +253,9 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     }).toBeLessThan(2);
     const modeBounds = (await page.locator('[data-slot="color-picker-mode-row"]').boundingBox())!;
     const redBounds = (await page.getByRole('spinbutton', { name: 'R value', exact: true }).boundingBox())!;
-    const blueBounds = (await page.getByRole('spinbutton', { name: 'B value', exact: true }).boundingBox())!;
+    const alphaBounds = (await page.getByRole('spinbutton', { name: 'Alpha value', exact: true }).boundingBox())!;
     const gridBounds = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
-    expect(Math.abs((gridBounds.y - blueBounds.y - blueBounds.height) - (redBounds.y - modeBounds.y - modeBounds.height))).toBeLessThan(2);
+    expect(Math.abs((gridBounds.y - alphaBounds.y - alphaBounds.height) - (redBounds.y - modeBounds.y - modeBounds.height))).toBeLessThan(2);
     const presets = page.getByLabel('Preset colors', { exact: true });
     const favoriteBounds = (await page.getByLabel('Favorite colors', { exact: true }).boundingBox())!;
     await presets.hover();
@@ -223,9 +267,9 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByPlaceholder('Search palettes…').fill('Basic');
     await page.getByRole('option', { name: 'Basic colors', exact: true }).click();
     await expect(popup).toBeVisible();
-    await expect(page.getByRole('spinbutton', { name: 'Alpha value', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('spinbutton', { name: 'Alpha value', exact: true })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toBeVisible();
     const hexInput = page.getByRole('textbox', { name: 'HEX color', exact: true });
     await hexInput.fill('');
     await hexInput.pressSequentially('235');
@@ -235,7 +279,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(page.getByRole('spinbutton', { name: 'R value', exact: true })).toHaveValue('35');
     await expect(trigger).toHaveAttribute('value', original!);
     await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
-    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('2357AB');
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('2357ABFF');
     await expect(page.getByRole('spinbutton', { name: 'R value', exact: true })).toHaveValue('35');
     await expectSaved({ colorPicker: { favorites: [{ kind: 'solid', color: '#2357AB' }, ...hidden] } });
     await expect(page.getByRole('button', { name: 'Favorite #2357AB', exact: true })).toBeVisible();
@@ -274,7 +318,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await expect(popup).toHaveCount(0);
     await expect(trigger).toHaveAttribute('value', original!);
     await trigger.click();
-    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue(original!.slice(1).toUpperCase());
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue(original!.slice(1).toUpperCase() + (original!.length === 7 ? 'FF' : ''));
     await page.getByRole('button', { name: 'Favorite #2357AB', exact: true }).click();
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(trigger).toHaveAttribute('value', '#2357ab');

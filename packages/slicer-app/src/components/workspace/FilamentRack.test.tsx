@@ -130,7 +130,7 @@ describe('FilamentRack runtime interaction', () => {
     const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
     const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
-    expect(trigger.value).toBe('#e72f1d');
+    expect(trigger.value).toBe('#e72f1dff');
     expect(trigger.title).toBe('Solid: #E72F1DFF');
     expect(trigger.style.backgroundColor).toMatch(/231, 47, 29/);
     expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native).toEqual(imported.colour.native);
@@ -138,6 +138,41 @@ describe('FilamentRack runtime interaction', () => {
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Cancel')!.click());
     expect(setColour).not.toHaveBeenCalled();
     expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native).toEqual(imported.colour.native);
+    await act(async () => trigger.click());
+    await confirmColor();
+    expect(setColour).not.toHaveBeenCalled();
+  });
+
+  it.each(['solid', 'gradient'] as const)('preserves imported %s alpha on cancel and unchanged confirmation, then commits an alpha-only edit', async (mode) => {
+    const initial = makeSnapshot();
+    const colors = mode === 'solid' ? ['#11223380'] : ['#11223380', '#44556640'];
+    const imported = { ...initial.slots[0], colour: { ...initial.slots[0].colour,
+      effective: colors[0], native: { representative: colors[0], multiColour: colors.join(' '), type: mode === 'solid' ? '1' : '0' },
+      display: { mode, colors },
+    } };
+    const snapshot = makeSnapshot({ slots: [imported, initial.slots[1]] });
+    const setColour = vi.fn(async () => mutation(snapshot, 'set-colour'));
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    await act(async () => trigger.click());
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')?.value).toBe('11223380');
+    expect(document.querySelector('input[aria-label="Alpha value"]')).not.toBeNull();
+    await editColor('#11223320');
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Cancel')!.click());
+    expect(setColour).not.toHaveBeenCalled();
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native).toEqual(imported.colour.native);
+    await act(async () => trigger.click());
+    await confirmColor();
+    expect(setColour).not.toHaveBeenCalled();
+    await act(async () => trigger.click());
+    if (mode === 'gradient') await act(async () => (document.querySelector('[role="tab"][aria-label="End"]') as HTMLButtonElement).click());
+    await editColor(mode === 'solid' ? '#11223320' : '#44556620');
+    await confirmColor();
+    expect(setColour).toHaveBeenCalledExactlyOnceWith({ version: 1, revision: 4, slot: 1,
+      colour: mode === 'solid' ? { kind: 'solid', color: '#11223320' }
+        : { kind: 'linear-gradient', start: '#11223380', end: '#44556620' } });
   });
 
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
@@ -205,7 +240,7 @@ describe('FilamentRack runtime interaction', () => {
     const input = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
     await act(async () => input.click());
     await editColor('#223344');
-    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('223344');
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('223344FF');
     await act(async () => {
       useFilamentSessionStore.setState({ snapshot: makeSnapshot({ slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#abcdef', provenance: 'user' as const, native: { representative: '#abcdef', multiColour: '#abcdef', type: '1' }, display: { mode: 'solid' as const, colors: ['#abcdef'] } } } : slot) }) });
     });
@@ -246,7 +281,7 @@ describe('FilamentRack runtime interaction', () => {
     await act(async () => trigger.click());
     expect(document.querySelector('[role="tab"][aria-label="Start"]')).not.toBeNull();
     await act(async () => (document.querySelector('[role="tab"][aria-label="End"]') as HTMLButtonElement).click());
-    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')?.value).toBe('445566');
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')?.value).toBe('445566FF');
     await act(async () => (document.querySelector('button') && [...document.querySelectorAll('button')].find((button) => button.textContent === 'Cancel'))?.click());
     expect(setColour).not.toHaveBeenCalled();
     expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native.multiColour).toBe('#112233 #abcdef #445566');

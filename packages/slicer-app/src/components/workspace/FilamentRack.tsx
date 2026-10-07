@@ -1,6 +1,6 @@
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
-import { usePlatform, type ColorValue } from '@orca/platform-contract';
+import { normalizeHexColor, usePlatform, type ColorValue } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError, FilamentSessionSlot } from '@slicer/client';
@@ -26,17 +26,18 @@ function editorValue(slot: FilamentSessionSlot): ColorValue {
   // The editor owns only two endpoints. Imported partitions and extra stops
   // become a two-endpoint draft without changing native state until Confirm.
   return mode === 'solid'
-    ? { kind: 'solid', color: colors[0].slice(0, 7) }
-    : { kind: 'linear-gradient', start: colors[0].slice(0, 7), end: colors.at(-1)!.slice(0, 7) };
+    ? { kind: 'solid', color: colors[0] }
+    : { kind: 'linear-gradient', start: colors[0], end: colors.at(-1)! };
 }
 
 function matchesCanonicalColour(slot: FilamentSessionSlot, value: ColorValue): boolean {
   const native = slot.colour.native;
-  const equal = (a: string | null, b: string) => a?.toLowerCase() === b.toLowerCase();
+  const equal = (a: string | null, b: string) => normalizeHexColor(a) === normalizeHexColor(b);
+  const normalizedMulti = native.multiColour?.split(' ').map(normalizeHexColor).join(' ');
   if (value.kind === 'solid')
     return native.type === '1' && equal(native.representative, value.color) && equal(native.multiColour, value.color);
   return native.type === '0' && equal(native.representative, value.start) &&
-    equal(native.multiColour, `${value.start} ${value.end}`);
+    normalizedMulti === `${normalizeHexColor(value.start)} ${normalizeHexColor(value.end)}`;
 }
 
 function ImpactDialog({ impact, onCancel, onConfirm }: {
@@ -93,11 +94,11 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
         className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
         <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
-          title={`Slot ${slot.slot} color`} value={draft} enableGradient disabled={pending}
+          title={`Slot ${slot.slot} color`} value={draft} enableAlpha enableGradient disabled={pending}
           onConfirm={next => {
             const colour: ColorValue = next.kind === 'solid'
-              ? { kind: 'solid', color: next.color.toLowerCase() }
-              : { kind: 'linear-gradient', start: next.start.toLowerCase(), end: next.end.toLowerCase() };
+              ? { kind: 'solid', color: normalizeHexColor(next.color)!.toLowerCase() }
+              : { kind: 'linear-gradient', start: normalizeHexColor(next.start)!.toLowerCase(), end: normalizeHexColor(next.end)!.toLowerCase() };
             if (!matchesCanonicalColour(slot, colour)) onColour(colour);
           }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
