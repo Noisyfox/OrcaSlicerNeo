@@ -19,7 +19,7 @@ const structure: ModelObjectStructure[] = [{
 }];
 const snapshot = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-2', slot: 2, preset: { id: 'p', name: 'PETG' }, colour: { effective: '#123456', provenance: 'user' } }],
+  slots: [{ logicalId: 'filament-2', slot: 2, preset: { id: 'p', name: 'PETG' }, colour: { effective: '#123456', provenance: 'user', native: { representative: '#123456', multiColour: '#123456', type: '1' }, display: { mode: 'solid' as const, colors: ['#123456'] } } }],
   mappings: { filament: [2], volume: [0], nozzle: [2], filament2: [2], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -63,7 +63,7 @@ describe('Prepare colour projection', () => {
   it('retains imported eight-digit filament colours and alpha', () => {
     const imported = {
       ...snapshot,
-      slots: [{ ...snapshot.slots[0], colour: { effective: '#E72F1DFF', provenance: 'user' } }],
+      slots: [{ ...snapshot.slots[0], colour: { effective: '#E72F1DFF', provenance: 'user', native: { representative: '#E72F1DFF', multiColour: '#E72F1DFF', type: '1' }, display: { mode: 'solid' as const, colors: ['#E72F1DFF'] } } }],
     } as FilamentSessionSnapshot;
     expect(prepareColourForVolume(volume(0), structure, imported)).toBe('#E72F1DFF');
     expect(resolvePrepareMaterial({ baseColour: '#F4C032FF' }).colour).toBe('#f4c032');
@@ -109,8 +109,8 @@ describe('Prepare colour projection', () => {
     const twoSlots = {
       ...snapshot,
       slots: [
-        { ...snapshot.slots[0], logicalId: 'filament-1', slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
-        { ...snapshot.slots[0], logicalId: 'filament-2', slot: 2, colour: { effective: '#123456', provenance: 'user' } },
+        { ...snapshot.slots[0], logicalId: 'filament-1', slot: 1, colour: { effective: '#ff0000', provenance: 'user', native: { representative: '#ff0000', multiColour: '#ff0000', type: '1' }, display: { mode: 'solid' as const, colors: ['#ff0000'] } } },
+        { ...snapshot.slots[0], logicalId: 'filament-2', slot: 2, colour: { effective: '#123456', provenance: 'user', native: { representative: '#123456', multiColour: '#123456', type: '1' }, display: { mode: 'solid' as const, colors: ['#123456'] } } },
       ],
       assignments: {
         ...snapshot.assignments,
@@ -137,8 +137,8 @@ describe('Prepare colour projection', () => {
     const twoSlots = {
       ...snapshot,
       slots: [
-        { ...snapshot.slots[0], logicalId: 'filament-1', slot: 1, colour: { effective: '#ff0000', provenance: 'user' } },
-        { ...snapshot.slots[0], logicalId: 'filament-2', slot: 2, colour: { effective: '#123456', provenance: 'user' } },
+        { ...snapshot.slots[0], logicalId: 'filament-1', slot: 1, colour: { effective: '#ff0000', provenance: 'user', native: { representative: '#ff0000', multiColour: '#ff0000', type: '1' }, display: { mode: 'solid' as const, colors: ['#ff0000'] } } },
+        { ...snapshot.slots[0], logicalId: 'filament-2', slot: 2, colour: { effective: '#123456', provenance: 'user', native: { representative: '#123456', multiColour: '#123456', type: '1' }, display: { mode: 'solid' as const, colors: ['#123456'] } } },
       ],
       assignments: {
         ...snapshot.assignments,

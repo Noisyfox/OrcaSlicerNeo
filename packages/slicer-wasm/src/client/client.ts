@@ -348,10 +348,26 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
         !colour || typeof colour !== 'object') return null;
     const p = preset as Record<string, unknown>;
     const c = colour as Record<string, unknown>;
+    const native = c.native;
+    const display = c.display;
+    if (!native || typeof native !== 'object' || !display || typeof display !== 'object') return null;
+    const n = native as Record<string, unknown>;
+    const d = display as Record<string, unknown>;
+    const rawString = (key: string) => Object.hasOwn(n, key) && (n[key] === null || typeof n[key] === 'string');
+    const validHex = (value: unknown): value is string =>
+      typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
+    if (!rawString('representative') || !rawString('multi_colour') || !rawString('type') ||
+        (d.mode !== 'solid' && d.mode !== 'multicolor' && d.mode !== 'gradient') ||
+        !Array.isArray(d.colors) || !d.colors.every(validHex) ||
+        d.colors.length < (d.mode === 'solid' ? 1 : 2) ||
+        (d.mode === 'solid' && d.colors.length !== 1)) return null;
     if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
     return { logicalId: item.logical_id as string, slot: item.slot as number, preset: { id: p.id, name: p.name },
-      colour: { effective: c.effective, provenance: c.provenance } };
+      colour: { effective: c.effective, provenance: c.provenance,
+        native: { representative: n.representative as string | null,
+          multiColour: n.multi_colour as string | null, type: n.type as string | null },
+        display: { mode: d.mode, colors: d.colors as string[] } } };
   });
   if (slots.some((slot) => slot === null)) return { ok: false, error: 'invalid filament session slots' };
   const orderedSlots = slots as FilamentSessionSlot[];

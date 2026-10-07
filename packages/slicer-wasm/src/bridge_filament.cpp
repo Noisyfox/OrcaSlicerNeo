@@ -1762,6 +1762,24 @@ std::vector<std::string> config_strings(const DynamicPrintConfig& config, const 
     return {};
 }
 
+json filament_colour_display(const std::string& effective, const json& multi, const json& type)
+{
+    const std::string representative = valid_filament_colour(effective) ? effective : "#26A69A";
+    const json solid = {{"mode", "solid"}, {"colors", json::array({representative})}};
+    if (!multi.is_string() || !type.is_string()) return solid;
+    const std::string kind = type.get<std::string>();
+    if (kind != "0" && kind != "1") return solid;
+    std::istringstream stream(multi.get<std::string>());
+    std::vector<std::string> colors;
+    std::string token;
+    while (stream >> token) {
+        if (!valid_filament_colour(token)) return solid;
+        colors.push_back(token);
+    }
+    if (colors.size() < 2) return solid;
+    return {{"mode", kind == "0" ? "gradient" : "multicolor"}, {"colors", colors}};
+}
+
 std::vector<int> config_ints(const DynamicPrintConfig& config, const char* key)
 {
     if (const auto* option = config.opt<ConfigOptionInts>(key)) return option->values;
@@ -1801,6 +1819,9 @@ json filament_session_snapshot_json()
     const DynamicPrintConfig& filament = bundle.filaments.get_edited_preset().config;
 
     std::vector<std::string> preset_names = bundle.filament_presets;
+    const auto project_colours = config_strings(project, "filament_colour");
+    const auto project_multi_colours = config_strings(project, "filament_multi_colour");
+    const auto project_colour_types = config_strings(project, "filament_colour_type");
     std::vector<std::string> colours = config_strings(project, "filament_colour");
     if (colours.empty()) colours = config_strings(filament, "filament_colour");
     if (preset_names.empty())
@@ -1837,11 +1858,19 @@ json filament_session_snapshot_json()
     for (size_t i = 0; i < slot_count; ++i) {
         const std::string& name = preset_names[i];
         const bool preset_equivalent = !preset_colours[i].empty() && colours[i] == preset_colours[i];
+        const auto native_value = [i](const std::vector<std::string>& values) -> json {
+            return i < values.size() ? json(values[i]) : json(nullptr);
+        };
+        const json multi = native_value(project_multi_colours);
+        const json type = native_value(project_colour_types);
         slots.push_back({
             {"slot", i + 1},
             {"logical_id", slot_ids[i]},
             {"preset", {{"id", name}, {"name", name}}},
-            {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"}}},
+            {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"},
+                        {"native", {{"representative", native_value(project_colours)},
+                                    {"multi_colour", multi}, {"type", type}}},
+                        {"display", filament_colour_display(colours[i], multi, type)}}},
         });
     }
 

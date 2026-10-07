@@ -121,6 +121,27 @@ loaded in that slot.
 Colour editing does not edit or create a filament preset. It changes the
 project/session slot only.
 
+### Native multi-colour projection
+
+The slot snapshot retains `colour.effective` as the representative colour used
+by existing single-colour consumers. It also exposes the exact project-array
+entries for `filament_colour`, `filament_multi_colour`, and
+`filament_colour_type` as `colour.native.representative`, `multi_colour`, and
+`type`. A missing entry is `null`, distinct from an empty string; reading a
+snapshot never repairs or rewrites the project config. The typed client maps
+`multi_colour` to `multiColour` without changing the stored value.
+
+The separate `colour.display` projection contains ordered HEX colours and a
+`solid`, `multicolor`, or `gradient` mode. Native type `0` with two or more
+valid colours means a gradient; type `1` with two or more means partitioned
+multi-colour. Invalid tokens, unknown or missing types, and fewer than two
+colours display as a solid representative. If the representative is invalid,
+the display falls back to `#26A69A`. These display fallbacks leave the raw
+project entries intact, including values that a future native version might
+understand. The typed client requires complete wire fields and validates the
+display shape and HEX tokens. The display order remains the native list order;
+visual sorting, if wanted, belongs solely to the future swatch component.
+
 ## 6. Architectural Boundary
 
 The authoritative multi-filament state lives in the stateful C++/WASM Worker

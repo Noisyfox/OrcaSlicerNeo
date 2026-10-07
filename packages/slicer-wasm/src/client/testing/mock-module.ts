@@ -1218,7 +1218,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return {
       ok: true, version: 1,
       slots: [{ logical_id: 'filament-1', slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
-        colour: { effective: '#F2754E', provenance: 'preset' } }],
+        colour: { effective: '#F2754E', provenance: 'preset',
+          native: { representative: '#F2754E', multi_colour: '', type: '1' },
+          display: { mode: 'solid', colors: ['#F2754E'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true,
@@ -1257,13 +1259,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       } else {
         if (typeof request.colour !== 'string' || !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(request.colour))
           return fail('native filament colour validation failed', 'native_validation_failure');
-        next.slots[index].colour = { effective: request.colour, provenance: 'user' };
+        next.slots[index].colour = { effective: request.colour, provenance: 'user',
+          native: { representative: request.colour, multi_colour: request.colour, type: '1' },
+          display: { mode: 'solid', colors: [request.colour] } };
       }
     } else if (kind === 'add') {
       if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)
         return fail('filament slot capacity or capability rejected', 'capability_rejected');
       const colour = next.slots.at(-1)?.colour?.effective ?? '#26A69A';
-      next.slots.push({ logical_id: `filament-${nextFilamentIdentity++}`, slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: { effective: colour, provenance: 'preset' } });
+      next.slots.push({ logical_id: `filament-${nextFilamentIdentity++}`, slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: {
+        effective: colour, provenance: 'preset',
+        native: { representative: colour, multi_colour: colour, type: '1' },
+        display: { mode: 'solid', colors: [colour] } } });
       for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key].push(key === 'volume' ? 0 : 1);
       const n = next.slots.length;
       const planes = next.flushing.plane_count;
@@ -1945,7 +1952,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return { ok: false, version: 1, error: 'filament session revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'filament session revision is stale' } };
       const next: any = clone(current);
       next.slots = request.slots.map((slot: any, index: number) => ({ logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
-        preset: { id: slot.preset, name: slot.preset }, colour: { effective: slot.colour, provenance: 'user' } }));
+        preset: { id: slot.preset, name: slot.preset }, colour: { effective: slot.colour, provenance: 'user',
+          native: { representative: slot.colour, multi_colour: slot.colour, type: '1' },
+          display: { mode: 'solid', colors: [slot.colour] } } }));
       const slotCount = next.slots.length;
       next.mappings.filament = Array(slotCount).fill(1);
       next.mappings.volume = Array(slotCount).fill(0);
@@ -2275,7 +2284,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const slots = requestedSlots.map((item: any, index: number) => ({
           logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
           preset: { id: item.preset, name: item.preset },
-          colour: { effective: item.colour, provenance: 'user' },
+          colour: { effective: item.colour, provenance: 'user',
+            native: { representative: item.colour, multi_colour: item.colour, type: '1' },
+            display: { mode: 'solid', colors: [item.colour] } },
         }));
         const size = slots.length;
         current.slots = slots;

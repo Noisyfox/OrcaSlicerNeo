@@ -1137,6 +1137,19 @@ export interface ReadLogResult {
  */
 export type FilamentColourProvenance = 'preset' | 'user';
 
+/** Exact per-slot project array entries. Null means the native entry is absent. */
+export interface FilamentNativeColour {
+  readonly representative: string | null;
+  readonly multiColour: string | null;
+  readonly type: string | null;
+}
+
+/** Native display interpretation, separate from the unmodified project values. */
+export interface FilamentColourDisplay {
+  readonly mode: 'solid' | 'multicolor' | 'gradient';
+  readonly colors: readonly string[];
+}
+
 /** One ordered, one-based material slot owned by the native session. */
 export interface FilamentSessionSlot {
   /** Opaque runtime identity restored with native history, never persisted to 3MF. */
@@ -1146,6 +1159,8 @@ export interface FilamentSessionSlot {
   readonly colour: {
     readonly effective: string;
     readonly provenance: FilamentColourProvenance;
+    readonly native: FilamentNativeColour;
+    readonly display: FilamentColourDisplay;
   };
 }
 

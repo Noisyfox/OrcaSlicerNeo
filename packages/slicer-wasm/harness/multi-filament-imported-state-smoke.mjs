@@ -52,8 +52,8 @@ function buildImportedStateArchive() {
       'Generic PLA @Project', 'Generic PETG @Project',
     ],
     filament_colour: ['#FF0000', '#00FF00', '#0000FF', '#FFFF00'],
-    filament_multi_colour: ['', '', '', ''],
-    filament_colour_type: ['RGB', 'RGB', 'RGB', 'RGB'],
+    filament_multi_colour: ['#FF0000 #FFFFFF #0000FF', '#00FF00 #0000FF', '', '#FFFF00 invalid'],
+    filament_colour_type: ['1', '0', '1', 'future'],
     filament_map: ['1', '1', '1', '1'],
     filament_volume_map: ['0', '0', '0', '0'],
     filament_nozzle_map: ['0', '0', '0', '0'],
@@ -177,13 +177,32 @@ const legacyNotes = loadArchive(legacyEmptyNotesArchive(archive), 'legacy-empty-
 assert.equal(legacyNotes.ok, true, JSON.stringify(legacyNotes));
 const loaded = loadImportedArchive();
 assert.equal(loaded.ok, true, JSON.stringify(loaded));
+const colourArrays = ['filament_colour', 'filament_multi_colour', 'filament_colour_type'];
+const beforeProjection = JSON.parse(exportedText(exportProject(), 'Metadata/project_settings.config'));
+const importedSession = callJson('orc_get_filament_session_snapshot');
+assert.equal(importedSession.slots.length, 4, JSON.stringify(importedSession));
+assert.deepEqual(importedSession.slots.map((slot) => slot.colour.display), [
+  { mode: 'multicolor', colors: ['#FF0000', '#FFFFFF', '#0000FF'] },
+  { mode: 'gradient', colors: ['#00FF00', '#0000FF'] },
+  { mode: 'solid', colors: ['#0000FF'] },
+  { mode: 'solid', colors: ['#FFFF00'] },
+]);
+assert.deepEqual(importedSession.slots.map((slot) => slot.colour.native), [
+  { representative: '#FF0000', multi_colour: '#FF0000 #FFFFFF #0000FF', type: '1' },
+  { representative: '#00FF00', multi_colour: '#00FF00 #0000FF', type: '0' },
+  { representative: '#0000FF', multi_colour: '', type: '1' },
+  { representative: '#FFFF00', multi_colour: '#FFFF00 invalid', type: 'future' },
+]);
+assert.deepEqual(callJson('orc_get_filament_session_snapshot').slots.map((slot) => slot.colour.native),
+  importedSession.slots.map((slot) => slot.colour.native), 'read-only snapshots must preserve native colour arrays');
+const afterProjection = JSON.parse(exportedText(exportProject(), 'Metadata/project_settings.config'));
+for (const key of colourArrays)
+  assert.deepEqual(afterProjection[key], beforeProjection[key], `${key} changed while reading a snapshot`);
 if (options['load-only'] === 'true') {
   console.log('PASS imported multi-filament legacy-vector load smoke');
   process.exit(0);
 }
 
-const importedSession = callJson('orc_get_filament_session_snapshot');
-assert.equal(importedSession.slots.length, 4, JSON.stringify(importedSession));
 const importedPaintKey = paintedModelKey();
 const importedPlates = callJson('orc_get_plate_session_snapshot');
 const importedPlate = importedPlates.plates.find((plate) => plate.plate_id === importedPlates.current_plate_id);
