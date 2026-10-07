@@ -80,9 +80,13 @@ durability is conditional on successful storage.
 ## Business integration
 
 Filament rack and preset-editor color controls use the shared popover with
-alpha and gradients disabled. Color drafts remain local until confirmation;
-the existing runtime commands, disabled states, errors, and history ownership
-remain authoritative. This work introduces no C++/WASM changes.
+alpha disabled. The filament rack enables its solid and two-endpoint gradient
+modes; the preset editor remains solid-only. Filament colour drafts remain
+local until confirmation, when one typed native command changes the full slot
+colour tuple and records one history operation. Imported multi-colour lists
+open with their first and last colours as gradient endpoints; only confirmation
+replaces the raw list and type. Disabled states and errors remain controlled by
+the runtime.
 
 ## Support and verification
 
@@ -96,7 +100,8 @@ conversion and normalization tests, real component interaction tests,
 cross-writer preference regression tests, affected package suites/typechecks,
 root suites/typechecks, focused Electron UI and disk-restart tests, and Web
 storage/reload checks. Alpha/gradient behavior is verified at the reusable
-component layer even though existing business entrances disable it.
+component layer; the filament rack also verifies gradient editing through its
+business entrance.
 
 ## Implementation entry points
 

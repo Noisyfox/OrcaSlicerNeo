@@ -1665,22 +1665,45 @@ json set_filament_slot_colour_command(const json& request, const Runtime& runtim
         std::string error;
         const auto slot = filament_command_slot(request, "slot", count, error);
         if (!slot) throw FilamentCommandFailure("unsupported_reference", error);
-        if (!request.contains("colour") || !request["colour"].is_string() ||
-            !valid_filament_colour(request["colour"].get<std::string>()))
+        if (!request.contains("colour") || !request["colour"].is_object())
             throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
+        const auto& colour = request["colour"];
+        if (!colour.contains("kind") || !colour["kind"].is_string())
+            throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
+        const std::string kind = colour["kind"].get<std::string>();
+        const auto opaque = [](const json& value) {
+            return value.is_string() && value.get<std::string>().size() == 7 &&
+                   valid_filament_colour(value.get<std::string>());
+        };
+        std::string representative;
+        std::string multi_colour;
+        std::string colour_type;
+        if (kind == "solid" && colour.size() == 2 && colour.contains("color") && opaque(colour["color"])) {
+            representative = colour["color"].get<std::string>();
+            multi_colour = representative;
+            colour_type = "1";
+        } else if (kind == "linear-gradient" && colour.size() == 3 &&
+                   colour.contains("start") && colour.contains("end") &&
+                   opaque(colour["start"]) && opaque(colour["end"])) {
+            representative = colour["start"].get<std::string>();
+            multi_colour = representative + " " + colour["end"].get<std::string>();
+            colour_type = "0";
+        } else {
+            throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
+        }
         auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
         colours->values.resize(count, "#26A69A");
-        colours->values[*slot] = request["colour"].get<std::string>();
+        colours->values[*slot] = representative;
         if (auto* multi = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true)) {
             multi->values.resize(count, "#26A69A");
-            multi->values[*slot] = colours->values[*slot];
+            multi->values[*slot] = multi_colour;
         }
         if (auto* types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true)) {
             types->values.resize(count, "1");
-            types->values[*slot] = "1";
+            types->values[*slot] = colour_type;
         }
         recalculate_filament_flush(bundle);
-        return json{{"kind", "set-colour"}, {"slot", *slot + 1}, {"colour", colours->values[*slot]}};
+        return json{{"kind", "set-colour"}, {"slot", *slot + 1}, {"colour", colour}};
     });
 }
 

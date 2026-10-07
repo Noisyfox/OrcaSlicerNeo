@@ -257,6 +257,58 @@ if (options['memory-only'] === 'true') {
   console.log('PASS remembered raw filament rack native apply, Printer transition, and 3MF round-trip');
   process.exit(0);
 }
+if (options['edit-only'] === 'true') {
+  const session = () => callJson('orc_get_filament_session_snapshot');
+  const native = () => session().slots.map((slot) => slot.colour.native);
+  const original = native();
+  const revision = () => session().revisions.session;
+  const command = (colour, extra = {}) => request('orc_set_filament_slot_colour', {
+    version: 1, revision: revision(), slot: 1, colour, ...extra,
+  });
+  for (const colour of ['#112233', { kind: 'solid', color: '#11223380' },
+    { kind: 'linear-gradient', start: '#112233', end: '#0000FF80' },
+    { kind: 'linear-gradient', start: '#112233', end: '#0000FF', middle: '#abcdef' }]) {
+    const rejected = command(colour);
+    assert.equal(rejected.error_code, 'native_validation_failure', JSON.stringify(rejected));
+    assert.deepEqual(native(), original, 'invalid colour command must not mutate any raw slot');
+  }
+  const colour = { kind: 'linear-gradient', start: '#FFEEDD', end: '#0000FF' };
+  for (const extra of [{ inject_failure: true }, { inject_failure_stage: 'before-history' },
+    { inject_failure_stage: 'during-history' }]) {
+    const rejected = command(colour, extra);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    assert.deepEqual(native(), original, 'failed gradient edit rolls back complete native colours');
+  }
+  const before = session();
+  const edited = command(colour);
+  assert.equal(edited.ok, true, JSON.stringify(edited));
+  assert.deepEqual(edited.result.mutation.colour, colour);
+  assert.deepEqual(native()[0], { representative: '#FFEEDD', multi_colour: '#FFEEDD #0000FF', type: '0' });
+  assert.deepEqual(session().slots[0].colour.display, { mode: 'gradient', colors: ['#FFEEDD', '#0000FF'] });
+  assert.deepEqual(native().slice(1), original.slice(1), 'unrelated imported slots stay raw-identical');
+  assert.equal(edited.result.mutation.history_entry_delta, 1);
+  const after = session();
+  const stale = request('orc_set_filament_slot_colour', { version: 1, revision: before.revisions.session, slot: 1,
+    colour: { kind: 'solid', color: '#ABCDEF' } });
+  assert.equal(stale.error_code, 'stale_revision');
+  assert.deepEqual(native()[0], after.slots[0].colour.native);
+  const undo = callJson('orc_history_undo');
+  assert.equal(undo.ok, true, JSON.stringify(undo));
+  assert.deepEqual(native(), original, 'Undo restores all imported raw metadata');
+  const redo = callJson('orc_history_redo');
+  assert.equal(redo.ok, true, JSON.stringify(redo));
+  assert.deepEqual(native()[0], after.slots[0].colour.native, 'Redo restores complete two-endpoint gradient');
+  const saved = exportProject();
+  const settings = JSON.parse(exportedText(saved, 'Metadata/project_settings.config'));
+  assert.deepEqual(settings.filament_colour[0], '#FFEEDD');
+  assert.deepEqual(settings.filament_multi_colour[0], '#FFEEDD #0000FF');
+  assert.deepEqual(settings.filament_colour_type[0], '0');
+  const reopened = loadArchive(saved, 'edited-gradient.3mf');
+  assert.equal(reopened.ok, true, JSON.stringify(reopened));
+  assert.deepEqual(native()[0], after.slots[0].colour.native, 'standard 3MF reader reopens edited gradient');
+  console.log('PASS imported multicolor to gradient edit, validation, rollback, history, and 3MF round-trip');
+  process.exit(0);
+}
 if (options['lifecycle-only'] === 'true') {
   const native = () => callJson('orc_get_filament_session_snapshot').slots.map((slot) => slot.colour.native);
   const revision = () => callJson('orc_get_filament_session_snapshot').revisions.session;
@@ -329,7 +381,7 @@ if (options['lifecycle-only'] === 'true') {
   undo(original, 'Undo Printer transition retains raw colours');
   redo(original, 'Redo Printer transition retains raw colours');
 
-  const solid = request('orc_set_filament_slot_colour', { version: 1, revision: revision(), slot: 1, colour: '#ABCDEF' });
+  const solid = request('orc_set_filament_slot_colour', { version: 1, revision: revision(), slot: 1, colour: { kind: 'solid', color: '#ABCDEF' } });
   assert.equal(solid.ok, true, JSON.stringify(solid));
   assert.deepEqual(native()[0], { representative: '#ABCDEF', multi_colour: '#ABCDEF', type: '1' });
   undo(original, 'Undo solid edit restores imported multi-colour');

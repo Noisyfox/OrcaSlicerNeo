@@ -387,7 +387,7 @@ describe('SlicerClient bridge contract', () => {
     } } });
     if (!added.ok) throw new Error(added.error);
     expect(added.result.snapshot.slots).toHaveLength(2);
-    const edited = await c.setFilamentSlotColour({ version: 1, revision: added.result.snapshot.revisions.session, slot: 2, colour: '#112233' });
+    const edited = await c.setFilamentSlotColour({ version: 1, revision: added.result.snapshot.revisions.session, slot: 2, colour: { kind: 'solid', color: '#112233' } });
     expect(edited).toMatchObject({ ok: true, result: { snapshot: { slots: [
       {}, { colour: { effective: '#112233', provenance: 'user' } },
     ] } } });
@@ -399,6 +399,25 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.deleteFilamentSlot({ version: 1, revision: beforeInjected.revisions.session - 1, slot: 1 }))
       .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
+  });
+
+  it('commits a complete gradient colour and rejects the former string command', async () => {
+    const client = makeClient();
+    const before = await client.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const old = await client.setFilamentSlotColour({ version: 1, revision: before.revisions.session,
+      slot: 1, colour: '#112233' } as never);
+    expect(old).toMatchObject({ ok: false, errorCode: 'native_validation_failure' });
+    expect(await client.getFilamentSessionSnapshot()).toEqual(before);
+    const colour = { kind: 'linear-gradient' as const, start: '#112233', end: '#445566' };
+    const result = await client.setFilamentSlotColour({ version: 1, revision: before.revisions.session, slot: 1, colour });
+    expect(result).toMatchObject({ ok: true, result: { mutation: { kind: 'set-colour', colour }, snapshot: {
+      slots: [{ colour: { effective: '#112233', native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
+        display: { mode: 'gradient', colors: ['#112233', '#445566'] } } }],
+    } } });
+    if (!result.ok) throw new Error(result.error);
+    await expect(client.setFilamentSlotColour({ version: 1, revision: before.revisions.session, slot: 1, colour }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
   });
 
   it('applies a remembered rack as a revision-fenced session baseline', async () => {

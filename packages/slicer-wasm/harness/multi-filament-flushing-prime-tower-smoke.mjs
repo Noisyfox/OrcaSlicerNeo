@@ -81,8 +81,15 @@ let before = installImportedMatrix(2, 210);
 let changed = request('orc_select_filament_slot_preset', { version: 1, revision: before.revisions.session, slot: 1, preset: alternatePreset.name });
 assert.equal(changed.ok, true, JSON.stringify(changed)); assertReplaced(before.flushing.matrix, changed.result.snapshot, 2); snapshot = changed.result.snapshot;
 before = installImportedMatrix(2, 310);
-changed = request('orc_set_filament_slot_colour', { version: 1, revision: before.revisions.session, slot: 2, colour: '#123456' });
+changed = request('orc_set_filament_slot_colour', { version: 1, revision: before.revisions.session, slot: 2, colour: { kind: 'solid', color: '#123456' } });
 assert.equal(changed.ok, true, JSON.stringify(changed)); assertReplaced(before.flushing.matrix, changed.result.snapshot, 2); snapshot = changed.result.snapshot;
+before = installImportedMatrix(2, 360);
+changed = request('orc_set_filament_slot_colour', { version: 1, revision: before.revisions.session, slot: 2,
+  colour: { kind: 'linear-gradient', start: '#112233', end: '#445566' } });
+assert.equal(changed.ok, true, JSON.stringify(changed)); assertReplaced(before.flushing.matrix, changed.result.snapshot, 2);
+assert.deepEqual(changed.result.snapshot.slots[1].colour.native,
+  { representative: '#112233', multi_colour: '#112233 #445566', type: '0' });
+snapshot = changed.result.snapshot;
 before = installImportedMatrix(2, 410);
 changed = request('orc_add_filament_slot', { version: 1, revision: before.revisions.session });
 assert.equal(changed.ok, true, JSON.stringify(changed)); assertReplaced(before.flushing.matrix, changed.result.snapshot, 3); snapshot = changed.result.snapshot;
@@ -121,7 +128,7 @@ markStage('native-flush-input-recalculation');
 // An injected native rejection must preserve the complete matrix and session.
 const rejectedBefore = installImportedMatrix(2, 910);
 const rejected = request('orc_set_filament_slot_colour', { version: 1, revision: rejectedBefore.revisions.session,
-  slot: 1, colour: '#ABCDEF', inject_failure: true });
+  slot: 1, colour: { kind: 'solid', color: '#ABCDEF' }, inject_failure: true });
 assert.equal(rejected.ok, false, JSON.stringify(rejected));
 assert.deepEqual(callJson('orc_get_filament_session_snapshot').flushing.matrix, rejectedBefore.flushing.matrix);
 

@@ -1,6 +1,6 @@
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
-import { usePlatform } from '@orca/platform-contract';
+import { usePlatform, type ColorValue } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError, FilamentSessionSlot } from '@slicer/client';
@@ -20,6 +20,24 @@ import {
 } from '@/components/ui/context-menu';
 
 type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary } | null;
+
+function editorValue(slot: FilamentSessionSlot): ColorValue {
+  const { mode, colors } = slot.colour.display;
+  // The editor owns only two endpoints. Imported partitions and extra stops
+  // become a two-endpoint draft without changing native state until Confirm.
+  return mode === 'solid'
+    ? { kind: 'solid', color: colors[0].slice(0, 7) }
+    : { kind: 'linear-gradient', start: colors[0].slice(0, 7), end: colors.at(-1)!.slice(0, 7) };
+}
+
+function matchesCanonicalColour(slot: FilamentSessionSlot, value: ColorValue): boolean {
+  const native = slot.colour.native;
+  const equal = (a: string | null, b: string) => a?.toLowerCase() === b.toLowerCase();
+  if (value.kind === 'solid')
+    return native.type === '1' && equal(native.representative, value.color) && equal(native.multiColour, value.color);
+  return native.type === '0' && equal(native.representative, value.start) &&
+    equal(native.multiColour, `${value.start} ${value.end}`);
+}
 
 function ImpactDialog({ impact, onCancel, onConfirm }: {
   impact: PendingImpact;
@@ -53,27 +71,31 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   canMerge: boolean;
   pending: boolean;
   onPreset: (name: string) => void;
-  onColour: (colour: string) => void;
+  onColour: (colour: ColorValue) => void;
   onEdit?: () => void;
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
   const [search, setSearch] = useState('');
   const [colourOpen, setColourOpen] = useState(false);
-  const authoritativeColour = slot.colour.effective.slice(0, 7).toLowerCase();
+  const colourSignature = JSON.stringify(slot.colour);
   useEffect(() => {
     setColourOpen(false);
-  }, [authoritativeColour]);
-  const displayedColour = authoritativeColour;
+  }, [colourSignature]);
+  const draft = editorValue(slot);
+  const displayedColour = draft.kind === 'solid' ? draft.color : draft.start;
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}
         className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
         <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
-          title={`Slot ${slot.slot} color`} value={{ kind: 'solid', color: authoritativeColour }} disabled={pending}
+          title={`Slot ${slot.slot} color`} value={draft} enableGradient disabled={pending}
           onConfirm={next => {
-            if (next.kind === 'solid' && next.color.toLowerCase() !== authoritativeColour) onColour(next.color.toLowerCase());
+            const colour: ColorValue = next.kind === 'solid'
+              ? { kind: 'solid', color: next.color.toLowerCase() }
+              : { kind: 'linear-gradient', start: next.start.toLowerCase(), end: next.end.toLowerCase() };
+            if (!matchesCanonicalColour(slot, colour)) onColour(colour);
           }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0 rounded-none"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
             title={filamentSwatchTitle(slot.colour.display)}

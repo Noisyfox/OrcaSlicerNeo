@@ -69,7 +69,7 @@ describe('shared painting command admission', () => {
     expect(before.revisions.session).toBe(native.revisions.session);
     const result = await useFilamentSessionStore.getState().run(runtime, () => runtime.setFilamentSlotColour({
       version: 1, revision: useFilamentSessionStore.getState().snapshot!.revisions.session,
-      slot: 2, colour: '#445566',
+      slot: 2, colour: { kind: 'solid', color: '#445566' },
     }));
     expect(result.ok).toBe(true);
     expect(useFilamentSessionStore.getState().snapshot?.slots[1].colour.effective).toBe('#445566');
@@ -86,7 +86,7 @@ describe('shared painting command admission', () => {
     expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(native.revisions.session);
     const result = await useFilamentSessionStore.getState().run(runtime, () => runtime.setFilamentSlotColour({
       version: 1, revision: useFilamentSessionStore.getState().snapshot!.revisions.session,
-      slot: 2, colour: '#445566',
+      slot: 2, colour: { kind: 'solid', color: '#445566' },
     }));
     expect(result.ok).toBe(true);
     expect(c.getSnapshot().phase).toBe('idle');

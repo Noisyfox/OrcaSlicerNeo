@@ -160,8 +160,11 @@ representative still match that slot; a changed source or representative starts
 with a solid entry using the selected colour. Preset changes likewise retain a
 user's full colour override even when its representative matches the old
 preset. History restoration preserves the arrays when only the rack root
-changes and the project-config root is unchanged. An explicit single-colour
-edit clears any prior gradient type by setting type `1` with one colour.
+changes and the project-config root is unchanged. An explicit solid edit
+writes the representative and one-colour list with type `1`. An explicit
+gradient edit writes its first endpoint as the representative, its two ordered
+endpoints as the list, and type `0`. Both edits are one atomic native history
+operation; rejected edits leave the prior three fields intact.
 
 ## 6. Architectural Boundary
 
@@ -329,8 +332,15 @@ show one colour, dual and multi-colour slots show equal hard-edged partitions
 in source order, and gradient slots interpolate continuously through their
 ordered colours. The number sits on a neutral dark badge so it remains legible
 across mixed light and dark sections; the colour block tooltip names the mode
-and complete colour sequence. This display change does not alter the slot
-colour editor or the representative colour used by model and toolpath rendering.
+and complete colour sequence. The slot editor uses the shared opaque solid or
+two-endpoint gradient picker. Imported dual/multi-colour partitions and
+gradients with extra stops open as a draft from their first and last displayed
+colours. Cancel leaves all raw metadata untouched; Confirm commits a
+two-endpoint gradient and discards intermediate colours and the partition type,
+even when those endpoints were not changed in the draft. An unchanged canonical
+solid or two-endpoint gradient does not create a mutation. A change to any slot
+colour metadata closes an open draft. Model and toolpath rendering continue to
+use the representative colour.
 
 Add, Delete, and other commands are enabled from the capability fields in the
 Worker-provided filament-session snapshot. The UI does not infer device type

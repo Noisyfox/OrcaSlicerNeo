@@ -57,6 +57,37 @@ test('renders remembered gradient and partition swatches in the shared Prepare U
   } finally { await app.close(); }
 });
 
+test('imported partition edits as a two-endpoint gradient only after confirmation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-edit-'));
+  const preferences = join(dir, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
+    rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: '#998877', native: {
+        representative: '#998877', multiColour: '#112233 #abcdef #445566', type: '1',
+      } },
+    ] } },
+  }));
+  const { app, page } = await launch(preferences);
+  try {
+    const trigger = page.getByTestId('filament-colour-1');
+    await expect(trigger).toHaveCSS('background-image', /rgb\(17, 34, 51\).*rgb\(171, 205, 239\).*rgb\(68, 85, 102\)/);
+    await trigger.click();
+    await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('112233');
+    await page.getByRole('tab', { name: 'End' }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('445566');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toHaveCSS('background-image', /rgb\(171, 205, 239\)/);
+    await trigger.click();
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(17, 34, 51\), rgb\(68, 85, 102\)\)/);
+    await expect.poll(() => JSON.parse(readFileSync(preferences, 'utf8'))
+      .rememberedFilamentRacks['Bambu Lab X1 Carbon 0.4 nozzle'].slots[0].native)
+      .toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
+  } finally { await app.close(); }
+});
+
 test('color drafts commit once; shared favorites survive cancellation and an Electron restart', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'neo-color-picker-'));
   const preferences = join(dir, 'preferences.json');
@@ -117,7 +148,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByRole('option', { name: 'Basic colors', exact: true }).click();
     await expect(popup).toBeVisible();
     await expect(page.getByRole('spinbutton', { name: 'Alpha value', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toHaveCount(0);
     const hexInput = page.getByRole('textbox', { name: 'HEX color', exact: true });
     await hexInput.fill('');
@@ -197,9 +228,10 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     // Chromium only emits the native Shift+F10 contextmenu event on Windows/Linux.
     if (process.platform === 'darwin') await favorite.click({ button: 'right' });
     else await favorite.press('Shift+F10');
-    await expect(page.getByRole('menuitem', { name: 'Remove favorite', exact: true })).toBeVisible();
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('Enter');
+    const removeFavorite = page.getByRole('menuitem', { name: 'Remove favorite', exact: true });
+    await expect(removeFavorite).toBeVisible();
+    await removeFavorite.click();
+    await expect(favorite).toHaveCount(0);
     await expectSaved({ colorPicker: { favorites: hidden }, ui: { sidebarWidth: 320 } });
   } finally { await second.app.close(); }
 });

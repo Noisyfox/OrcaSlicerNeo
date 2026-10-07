@@ -60,7 +60,7 @@ const alternate = session.slots[1];
 assert.ok(alternate, JSON.stringify(session));
 for (const [slot, colour] of [[1, '#FF0000'], [alternate.slot, '#0000FF']]) {
   const coloured = request('orc_set_filament_slot_colour', {
-    version: 1, revision: session.revisions.session, slot, colour,
+    version: 1, revision: session.revisions.session, slot, colour: { kind: 'solid', color: colour },
   });
   assert.equal(coloured.ok, true, JSON.stringify(coloured));
   session = coloured.result.snapshot;

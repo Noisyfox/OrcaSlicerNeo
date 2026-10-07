@@ -1267,7 +1267,7 @@ export interface FilamentMutationSummary {
   readonly source?: number;
   readonly destination?: number | null;
   readonly preset?: string;
-  readonly colour?: string;
+  readonly colour?: FilamentSlotColourValue;
   readonly slotCount?: number;
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
@@ -1297,9 +1297,13 @@ export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
   readonly preset: string;
 }
 
+export type FilamentSlotColourValue =
+  | { readonly kind: 'solid'; readonly color: string }
+  | { readonly kind: 'linear-gradient'; readonly start: string; readonly end: string };
+
 export interface FilamentSlotColourRequest extends FilamentCommandRequest {
   readonly slot: number;
-  readonly colour: string;
+  readonly colour: FilamentSlotColourValue;
 }
 
 export interface FilamentSlotDeleteRequest extends FilamentCommandRequest {
