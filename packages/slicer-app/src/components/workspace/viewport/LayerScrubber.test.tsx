@@ -26,7 +26,7 @@ const data: ToolpathGeometry = {
   layerIds: Uint32Array.from([0, 0, 1, 1]), moveOrders: Uint32Array.from([0, 1, 0, 1]),
   features: Uint32Array.from([0, 1, 0, 1]), moveTypes: Uint8Array.from([10, 8, 10, 10]), extruderIds: Uint8Array.from([0, 0, 1, 1]), metrics: { feedrate: Float32Array.from([10, 20, 30, 40]) },
   extruderPalette: [{ id: 0, tool: 0, name: 'Red PLA', color: [255, 0, 0] }, { id: 1, tool: 1, name: 'Blue PLA', color: [0, 0, 255] }],
-  analysis: { summary: {}, featureStatistics: [], metricRanges: { feedrate: { min: 10, max: 40 } } },
+  analysis: { summary: {}, moveStatistics: [], featureStatistics: [], metricRanges: { feedrate: { min: 10, max: 40 } } },
   ends: Float32Array.from([0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0]), dispose: () => undefined,
 };
 

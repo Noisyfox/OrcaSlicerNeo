@@ -49,7 +49,7 @@ export type {
   ClientSliceResult, ClientToolpath,
   ToolpathFeature, PreviewLayerRange, PreviewPaletteEntry, PreviewMetadata,
   PreviewToolpathMetrics, PreviewMetricKey, PreviewMetricRange,
-  PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewAnalysis,
+  PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewMoveStatistics, PreviewAnalysis,
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewTextLinesRequest, PreviewTextLines, PreviewSource,
   ExportGcodeRequest, ExportGcodeResult, ExportProjectResult, CancelResult,
   FilesystemEntry,

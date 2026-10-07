@@ -1,6 +1,7 @@
 /** Pinned libslic3r EMoveType values and libvgcode DEFAULT_OPTIONS_COLORS. */
 export const TRAVEL_MOVE_TYPE = 8;
 export const WIPE_MOVE_TYPE = 9;
+export const EXTRUDE_MOVE_TYPE = 10;
 export type PreviewMoveVisibility = Readonly<Partial<Record<number, boolean>>>;
 
 export const PREVIEW_MOVE_OPTIONS = [

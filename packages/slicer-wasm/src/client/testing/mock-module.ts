@@ -33,6 +33,7 @@ export interface MockSliceFixture {
   sourceFilename?: string;
   sourceText?: string;
   analysis?: {
+    moveStatistics?: Array<{ moveType: number; timeSeconds: number; distanceMm: number; count: number }>;
     summary?: {
       estimatedTimeSeconds?: number;
       filamentLengthMeters?: number;
@@ -2984,6 +2985,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
                   ...(stats.filamentWeightGrams === undefined ? {} : { filament_weight_grams: stats.filamentWeightGrams }),
                 })),
               } : {}),
+              move_statistics: (fixture.analysis.moveStatistics ?? []).map((stats) => ({
+                move_type: stats.moveType, time_seconds: stats.timeSeconds,
+                distance_mm: stats.distanceMm, count: stats.count,
+              })),
             },
           } : {}),
         },

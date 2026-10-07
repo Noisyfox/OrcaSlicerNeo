@@ -28,7 +28,7 @@ function source(overrides: Partial<PreviewColorSource> = {}): PreviewColorSource
       { id: 1, tool: 1, name: 'Blue PLA', color: [0, 0, 255] },
     ],
     analysis: {
-      summary: {}, featureStatistics: [], metricRanges: {
+      summary: {}, moveStatistics: [], featureStatistics: [], metricRanges: {
         feedrate: { min: 10, max: 30 }, volumetricFlow: { min: 1, max: 3 },
         layerDuration: { min: 4, max: 8 }, temperature: { min: 200, max: 220 }, fanSpeed: { min: 0, max: 100 },
       },
@@ -71,7 +71,7 @@ describe('Phase-C preview color schemes', () => {
   });
 
   it('exposes only schemes backed by the result', () => {
-    const noMetrics = source({ metrics: {}, analysis: { summary: {}, featureStatistics: [], metricRanges: {} }, extruderPalette: undefined });
+    const noMetrics = source({ metrics: {}, analysis: { summary: {}, moveStatistics: [], featureStatistics: [], metricRanges: {} }, extruderPalette: undefined });
     expect(previewSchemeAvailable(noMetrics, 'feature')).toBe(true);
     expect(previewSchemeAvailable(noMetrics, 'filament')).toBe(false);
     expect(previewSchemeAvailable(noMetrics, 'speed')).toBe(false);

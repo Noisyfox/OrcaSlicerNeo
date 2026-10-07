@@ -19,6 +19,7 @@ namespace bridge {
 
 using Slic3r::ExtrusionRole;
 using Slic3r::GCodeProcessorResult;
+using Slic3r::EMoveType;
 
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette() {
     static const std::map<ExtrusionRole, FeatureInfo> palette = {
@@ -196,10 +197,37 @@ PreviewAnalysis build_preview_analysis(const GCodeProcessorResult& result, const
     // local feature palette. Filament figures are taken from the processor's
     // per-role usage cache, which includes its normal flush/support handling.
     std::map<ExtrusionRole, double> role_times;
+    std::map<EMoveType, PreviewMoveStatistics> move_statistics;
     for (size_t i = 1; i < result.moves.size(); ++i) {
         const auto& move = result.moves[i];
-        if (std::isfinite(move.time[normal_mode]))
+        if (move.internal_only) continue;
+        if (move.type == EMoveType::Extrude && std::isfinite(move.time[normal_mode]))
             role_times[move.extrusion_role] += std::max(0.0f, move.time[normal_mode]);
+        if (move.type == EMoveType::Travel || move.type == EMoveType::Retract ||
+            move.type == EMoveType::Unretract || move.type == EMoveType::Wipe ||
+            move.type == EMoveType::Seam || move.type == EMoveType::Tool_change) {
+            auto& stats = move_statistics[move.type];
+            stats.move_type = static_cast<std::uint32_t>(move.type);
+            ++stats.count;
+            if (std::isfinite(move.time[normal_mode]))
+                stats.time_seconds += std::max(0.0f, move.time[normal_mode]);
+            const double distance = move.type == EMoveType::Retract || move.type == EMoveType::Unretract
+                ? std::fabs(move.delta_extruder) : move.travel_dist;
+            if (std::isfinite(distance)) stats.distance_mm += std::max(0.0, distance);
+        }
+    }
+    for (auto& [type, stats] : move_statistics) {
+        if (type == EMoveType::Travel) {
+            stats.distance_mm = result.print_statistics.total_travel_distance;
+            stats.count = result.print_statistics.total_travel_moves;
+        } else if (type == EMoveType::Seam) {
+            const double seam_distance = result.print_statistics.total_seam_gap_distance + result.print_statistics.total_seam_scarf_distance;
+            if (seam_distance > 0.0) stats.distance_mm = seam_distance;
+        } else if (type == EMoveType::Tool_change) {
+            stats.time_seconds = result.print_statistics.total_filament_load_time +
+                result.print_statistics.total_filament_unload_time + result.print_statistics.total_tool_change_time;
+        }
+        out.move_statistics.push_back(stats);
     }
     out.feature_statistics.reserve(toolpath.palette_used.size());
     for (size_t feature_id = 0; feature_id < toolpath.palette_used.size(); ++feature_id) {

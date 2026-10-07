@@ -2598,6 +2598,7 @@ export function createClient(
               filament_length_meters?: number;
               filament_weight_grams?: number;
             }>;
+            move_statistics: Array<{ move_type: number; time_seconds: number; distance_mm: number; count: number }>;
           };
         };
         toolpath?: {
@@ -2760,9 +2761,13 @@ export function createClient(
           ...(Number.isFinite(stats.filament_length_meters) ? { filamentLengthMeters: stats.filament_length_meters } : {}),
           ...(Number.isFinite(stats.filament_weight_grams) ? { filamentWeightGrams: stats.filament_weight_grams } : {}),
         })),
+        moveStatistics: rawAnalysis.move_statistics.map((stats) => ({
+          moveType: stats.move_type, timeSeconds: stats.time_seconds,
+          distanceMm: stats.distance_mm, count: stats.count,
+        })),
         metricRanges,
       } : (Object.keys(metricRanges).length > 0 ? {
-        summary: {}, featureStatistics: [], metricRanges,
+        summary: {}, featureStatistics: [], moveStatistics: [], metricRanges,
       } : undefined);
       const sourceText = metadataRaw.source_text;
       const sourceByteLength = sourceText?.byte_length;
