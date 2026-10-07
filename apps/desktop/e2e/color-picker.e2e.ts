@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
+const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
-async function launch(preferences: string) {
-  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+async function launch(preferences: string, modelPath?: string) {
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences,
+    ...(modelPath ? { ORCA_E2E_MODEL: modelPath } : {}) } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   const page = await app.firstWindow();
@@ -18,6 +20,42 @@ async function launch(preferences: string) {
 async function editHex(page: Page, color: string) {
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill(color);
 }
+
+test('renders remembered gradient and partition swatches in the shared Prepare UI', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-swatches-'));
+  const preferences = join(dir, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
+    ui: { switchToDeviceAfterSend: true },
+    rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: '#111111', native: { representative: '#111111', multiColour: '#000000 #FFFFFF', type: '0' } },
+      { preset: 'Generic PLA @System', colour: '#ff0000', native: { representative: '#ff0000', multiColour: '#ff0000 #00ff00 #0000ff', type: '1' } },
+    ] } },
+  }));
+  const { app, page } = await launch(preferences, MODEL_PATH);
+  try {
+    const gradient = page.getByTestId('filament-colour-1');
+    const partitions = page.getByTestId('filament-colour-2');
+    await expect(partitions).toBeVisible();
+    await expect.poll(() => gradient.evaluate((element) => getComputedStyle(element).backgroundImage))
+      .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
+    await expect.poll(() => partitions.evaluate((element) => getComputedStyle(element).backgroundImage))
+      .toContain('rgb(255, 0, 0) 0%, rgb(255, 0, 0) 33.3333');
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('config-mode-scoped').click();
+    const cell = page.locator('[data-testid^="filament-cell-object-"]').first();
+    await expect(cell).toBeVisible();
+    await expect.poll(() => cell.evaluate((element) => getComputedStyle(element).backgroundImage))
+      .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
+    await cell.click();
+    await expect(page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"]'))
+      .toHaveCSS('background-image', /linear-gradient/);
+    await page.keyboard.press('Escape');
+    const screenshot = join(dir, 'swatches.png');
+    await page.screenshot({ path: screenshot, fullPage: true });
+    await test.info().attach('gradient-swatches', { path: screenshot, contentType: 'image/png' });
+  } finally { await app.close(); }
+});
 
 test('color drafts commit once; shared favorites survive cancellation and an Electron restart', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'neo-color-picker-'));

@@ -16,7 +16,7 @@ const object: ModelObjectStructure = {
 };
 const snapshot = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' } }, { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG' }, colour: { effective: '#445566', provenance: 'preset' } }],
+  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid', colors: ['#112233'] } } }, { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG' }, colour: { effective: '#445566', provenance: 'preset', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid', colors: ['#445566'] } } }],
   mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -38,6 +38,19 @@ async function openSubmenu(testid: string) {
 describe('Object List filament context command', () => {
   let root: Root | undefined;
   afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = ''; useFilamentSessionStore.getState().reset(); });
+
+  it('shows native multicolor partitions in Change Filament choices', async () => {
+    const multi = { ...snapshot, slots: snapshot.slots.map((slot) => slot.slot === 2
+      ? { ...slot, colour: { ...slot.colour, display: { mode: 'multicolor' as const, colors: ['#ff0000', '#00ff00'] } } }
+      : slot) };
+    useFilamentSessionStore.setState({ snapshot: multi });
+    const rendered = renderMenu({ kind: 'object', object }, vi.fn()); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    await openSubmenu('objectlist-change-filament');
+    const item = document.querySelector('[data-testid="objectlist-change-filament-2"]') as HTMLElement;
+    const swatch = item.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+    expect(swatch.style.backgroundImage).toContain('#ff0000 0%, #ff0000 50%, #00ff00 50%, #00ff00 100%');
+  });
 
   it('dispatches the object command and deduplicates instance targets', async () => {
     const assignFilament = vi.fn(async () => ({ ok: false, version: 1, error: 'done', errorCode: 'test' }));

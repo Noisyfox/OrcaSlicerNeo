@@ -92,6 +92,25 @@ describe('FilamentRack runtime interaction', () => {
     useProjectStore.getState().reset();
   });
 
+  it('shows native partition order and a continuous gradient with readable slot badges', async () => {
+    const initial = makeSnapshot();
+    const slots = initial.slots.map((slot) => slot.slot === 1
+      ? { ...slot, colour: { ...slot.colour, display: { mode: 'multicolor' as const, colors: ['#000000', '#ffffff', '#ff0000'] } } }
+      : { ...slot, colour: { ...slot.colour, display: { mode: 'gradient' as const, colors: ['#ffffff', '#000000'] } } });
+    const snapshot = makeSnapshot({ slots });
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot) }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const partition = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    const gradient = rendered.container.querySelector('[data-testid="filament-colour-2"]') as HTMLButtonElement;
+    expect(partition.style.backgroundImage).toContain('#000000 0%, #000000 33.33333333333333%');
+    expect(partition.style.backgroundImage).toContain('#ffffff 33.33333333333333%, #ffffff 66.66666666666666%');
+    expect(gradient.style.backgroundImage).toContain('linear-gradient(90deg, #ffffff, #000000)');
+    expect(partition.querySelector('span')?.className).toContain('bg-black/70');
+    expect(gradient.querySelector('span')?.textContent).toBe('2');
+    expect(gradient.title).toContain('Gradient: #ffffff → #000000');
+  });
+
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({

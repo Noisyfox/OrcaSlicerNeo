@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import type { FilamentMutationResultOrError } from '@slicer/client';
+import type { FilamentMutationResultOrError, FilamentSessionSlot } from '@slicer/client';
+import { filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
@@ -45,7 +46,7 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
 }
 
 function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
-  slot: { slot: number; preset: { name: string }; colour: { effective: string } };
+  slot: FilamentSessionSlot;
   presetNames: readonly string[];
   mergeDestinations: readonly number[];
   canDelete: boolean;
@@ -64,8 +65,6 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
     setColourOpen(false);
   }, [authoritativeColour]);
   const displayedColour = authoritativeColour;
-  const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(displayedColour.slice(offset, offset + 2), 16));
-  const numberColour = red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}
@@ -77,7 +76,8 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
             if (next.kind === 'solid' && next.color.toLowerCase() !== authoritativeColour) onColour(next.color.toLowerCase());
           }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0 rounded-none"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
-            style={{ backgroundColor: displayedColour, color: numberColour }}>{slot.slot}</Button>} />
+            title={filamentSwatchTitle(slot.colour.display)}
+            style={filamentSwatchStyle(slot.colour.display)}><span className="rounded-sm bg-black/70 px-0.5 text-[10px] font-semibold leading-none text-white ring-1 ring-white/30">{slot.slot}</span></Button>} />
         <Combobox inputValue={search} onInputValueChange={setSearch} value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
           <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
             aria-label={`Filament preset for slot ${slot.slot}`}

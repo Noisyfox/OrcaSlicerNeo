@@ -324,6 +324,14 @@ minus and plus buttons sit above the grid at the right; minus removes the last
 slot using the existing reference-impact confirmation. Electron and Web render
 the same component and command model.
 
+Colour blocks use the native filament-session display projection. Solid slots
+show one colour, dual and multi-colour slots show equal hard-edged partitions
+in source order, and gradient slots interpolate continuously through their
+ordered colours. The number sits on a neutral dark badge so it remains legible
+across mixed light and dark sections; the colour block tooltip names the mode
+and complete colour sequence. This display change does not alter the slot
+colour editor or the representative colour used by model and toolpath rendering.
+
 Add, Delete, and other commands are enabled from the capability fields in the
 Worker-provided filament-session snapshot. The UI does not infer device type
 or native slot-count constraints.
@@ -349,6 +357,9 @@ Filament assignment is available through both native-style entry points:
 Both entry points dispatch the same typed atomic command and produce the same
 history entry. The context menu does not maintain a separate selection or
 assignment model.
+The assignment cell and both assignment menus reuse the same native slot
+display swatch. MMU painting filament choices also show that swatch; painting
+geometry and its cursor continue to use the slot's representative colour.
 
 ### 9.3 Prepare viewport colour
 

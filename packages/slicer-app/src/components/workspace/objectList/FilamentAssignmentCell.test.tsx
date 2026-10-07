@@ -10,7 +10,7 @@ if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value:
 
 const base = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' } }, { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG' }, colour: { effective: '#445566', provenance: 'preset' } }],
+  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid', colors: ['#112233'] } } }, { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG' }, colour: { effective: '#445566', provenance: 'preset', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid', colors: ['#445566'] } } }],
   mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -63,6 +63,21 @@ describe('FilamentAssignmentCell semantics', () => {
     ]);
     const swatches = [...document.body.querySelectorAll<HTMLElement>('[data-slot="select-item"] [aria-hidden="true"][style]')];
     expect(swatches.map((swatch) => swatch.style.backgroundColor)).toEqual(['rgb(17, 34, 51)', 'rgb(68, 85, 102)']);
+  });
+
+  it('uses native gradient and partition displays in the cell and assignment choices', async () => {
+    const slots = base.slots.map((slot) => slot.slot === 1
+      ? { ...slot, colour: { ...slot.colour, display: { mode: 'gradient' as const, colors: ['#000000', '#ffffff'] } } }
+      : { ...slot, colour: { ...slot.colour, display: { mode: 'multicolor' as const, colors: ['#ff0000', '#00ff00'] } } });
+    const snapshot = { ...base, slots };
+    const container = await render(<FilamentAssignmentCell snapshot={snapshot} kind="part" id={20} />);
+    const trigger = container.querySelector('[data-testid="filament-cell-part-20"]') as HTMLElement;
+    expect(trigger.style.backgroundImage).toContain('linear-gradient(90deg, #000000, #ffffff)');
+    expect(trigger.querySelector('span')?.className).toContain('bg-black/70');
+    await act(async () => { trigger.click(); });
+    const swatches = [...document.body.querySelectorAll<HTMLElement>('[data-slot="select-item"] [aria-hidden="true"][style]')];
+    expect(swatches[0].style.backgroundImage).toContain('#000000, #ffffff');
+    expect(swatches[1].style.backgroundImage).toContain('#ff0000 0%, #ff0000 50%, #00ff00 50%, #00ff00 100%');
   });
 
   it('assigns numeric slots without Default for model parts and objects', async () => {
