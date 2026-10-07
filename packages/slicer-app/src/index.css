@@ -325,6 +325,11 @@
   column-gap: 4px;
 }
 
+#preview-legend-content .sidebar-list-row {
+  height: 16px;
+  line-height: 1;
+}
+
 /* Preview ranges use slim cross-line thumbs instead of round input knobs. */
 [data-slot="slider"][data-variant="preview"] [data-slot="slider-control"] {
   min-height: 0;

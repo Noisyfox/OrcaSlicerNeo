@@ -112,7 +112,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   const setPreviewLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
   const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
-  const [showGcodeText, setShowGcodeText] = useState(false);
+  const showGcodeText = useSlicerStore((s) => s.showGcodeText);
+  const setShowGcodeText = useSlicerStore((s) => s.setShowGcodeText);
   const [arrangementOpen, setArrangementOpen] = useState(false);
   const closeArrangement = useCallback(() => setArrangementOpen(false), []);
   const [plateActionPending, setPlateActionPending] = useState(false);
@@ -249,12 +250,12 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
       }
       if (event.key.toLowerCase() === 'c' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
-        setShowGcodeText((visible) => !visible);
+        setShowGcodeText(!useSlicerStore.getState().showGcodeText);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [previewState, previewTab, sceneInteraction, setPreviewLayerEnd, setPreviewMoveEnd, setPreviewSingleLayer, toolpath]);
+  }, [previewState, previewTab, sceneInteraction, setPreviewLayerEnd, setPreviewMoveEnd, setPreviewSingleLayer, setShowGcodeText, toolpath]);
 
   const viewportPointOf = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current.getBoundingClientRect();
