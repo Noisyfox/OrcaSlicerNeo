@@ -3,6 +3,8 @@
 #include "bridge_history.hpp"
 #include "bridge_preset_drafts.hpp"
 
+#include <algorithm>
+#include <array>
 #include <stdexcept>
 #include <limits>
 #include <charconv>
@@ -48,6 +50,24 @@ json history_state_json(const PresetBundle& bundle)
     };
     state().filament_slot_ids.swap(ids);
     return result;
+}
+
+void resize_slots_preserving_colours(PresetBundle& bundle, unsigned int count,
+                                     const std::string& new_colour)
+{
+    constexpr const char* keys[] = {
+        "filament_colour", "filament_multi_colour", "filament_colour_type",
+    };
+    std::array<std::vector<std::string>, 3> before;
+    for (std::size_t key = 0; key < before.size(); ++key)
+        if (const auto* option = bundle.project_config.opt<ConfigOptionStrings>(keys[key]))
+            before[key] = option->values;
+    bundle.set_num_filaments(count, new_colour);
+    for (std::size_t key = 0; key < before.size(); ++key) {
+        auto* option = bundle.project_config.option<ConfigOptionStrings>(keys[key], true);
+        for (std::size_t slot = 0; slot < std::min<std::size_t>(count, before[key].size()); ++slot)
+            option->values[slot] = before[key][slot];
+    }
 }
 
 static void apply_serialized_config_values(DynamicPrintConfig& config, const json& values)
@@ -110,7 +130,7 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
 void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
                    StagedMutableState&& staged)
 {
-    bundle.set_num_filaments(static_cast<unsigned int>(staged.names.size()));
+    resize_slots_preserving_colours(bundle, static_cast<unsigned int>(staged.names.size()));
     bundle.filament_presets = std::move(staged.names);
     bridge.filament_slot_ids = std::move(staged.slot_ids);
     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index)
@@ -251,13 +271,28 @@ std::string filament_preset_colour(const PresetBundle& bundle, const std::size_t
     return "#26A69A";
 }
 
-std::optional<std::string> user_filament_colour_override(const PresetBundle& bundle, const std::size_t slot)
+struct FilamentColourState {
+    std::string representative;
+    std::string multi;
+    std::string type;
+};
+
+std::optional<FilamentColourState> user_filament_colour_override(const PresetBundle& bundle, const std::size_t slot)
 {
     const auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour");
-    if (colours == nullptr || slot >= colours->values.size() || !valid_filament_colour(colours->values[slot]))
+    if (colours == nullptr || slot >= colours->values.size())
         return std::nullopt;
-    const std::string native = filament_preset_colour(bundle, slot);
-    return colours->values[slot] == native ? std::nullopt : std::optional<std::string>(colours->values[slot]);
+    const auto* multi = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour");
+    const auto* types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type");
+    const FilamentColourState current{
+        colours->values[slot],
+        multi != nullptr && slot < multi->values.size() ? multi->values[slot] : std::string{},
+        types != nullptr && slot < types->values.size() ? types->values[slot] : std::string{},
+    };
+    const bool has_custom_multi = !current.multi.empty() && current.multi != current.representative;
+    if (current.representative == filament_preset_colour(bundle, slot) &&
+        !has_custom_multi && current.type == "1") return std::nullopt;
+    return current;
 }
 
 int remap_filament_reference(const int value, const std::size_t removed,
@@ -1174,7 +1209,7 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
         try {
             std::vector<std::string> colours;
             colours.reserve(request["slots"].size());
-            bundle.set_num_filaments(static_cast<unsigned int>(request["slots"].size()));
+            State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(request["slots"].size()));
             for (std::size_t index = 0; index < request["slots"].size(); ++index) {
                 const auto& slot = request["slots"][index];
                 if (!slot.is_object() || !slot.contains("preset") || !slot["preset"].is_string() ||
@@ -1188,6 +1223,9 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
                 colours.push_back(slot["colour"].get<std::string>());
             }
             bundle.project_config.set_key_value("filament_colour", new ConfigOptionStrings(colours));
+            bundle.project_config.set_key_value("filament_multi_colour", new ConfigOptionStrings(colours));
+            bundle.project_config.set_key_value("filament_colour_type",
+                                                new ConfigOptionStrings(std::vector<std::string>(colours.size(), "1")));
             recalculate_filament_flush(bundle);
             validate_filament_candidate(bundle, state().model, state().plate_session_plates,
                                         Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);
@@ -1592,10 +1630,14 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
         bundle.set_filament_preset(*slot, name);
         auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
         colours->values.resize(count, "#26A69A");
-        colours->values[*slot] = user_override.value_or(filament_preset_colour(bundle, *slot));
+        colours->values[*slot] = user_override ? user_override->representative : filament_preset_colour(bundle, *slot);
         if (auto* multi = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true)) {
             multi->values.resize(count, "#26A69A");
-            multi->values[*slot] = colours->values[*slot];
+            multi->values[*slot] = user_override ? user_override->multi : colours->values[*slot];
+        }
+        if (auto* types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true)) {
+            types->values.resize(count, "1");
+            types->values[*slot] = user_override ? user_override->type : "1";
         }
         recalculate_filament_flush(bundle);
         return json{{"kind", "select-preset"}, {"slot", *slot + 1}, {"preset", name}};
@@ -1619,6 +1661,10 @@ json set_filament_slot_colour_command(const json& request, const Runtime& runtim
             multi->values.resize(count, "#26A69A");
             multi->values[*slot] = colours->values[*slot];
         }
+        if (auto* types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true)) {
+            types->values.resize(count, "1");
+            types->values[*slot] = "1";
+        }
         recalculate_filament_flush(bundle);
         return json{{"kind", "set-colour"}, {"slot", *slot + 1}, {"colour", colours->values[*slot]}};
     });
@@ -1639,7 +1685,7 @@ json add_filament_command(const json& request, const Runtime& runtime)
         const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
         if (!flexible || count >= 64) throw FilamentCommandFailure("capability_rejected", "filament slot capacity or capability rejected");
         const std::string colour = kNativeFilamentColours[state().next_filament_colour_index++ % kNativeFilamentColours.size()];
-        bundle.set_num_filaments(static_cast<unsigned int>(count + 1), colour);
+        State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(count + 1), colour);
         auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
         colours->values.resize(count + 1, "#26A69A");
         colours->values[count] = colour;

@@ -142,6 +142,20 @@ understand. The typed client requires complete wire fields and validates the
 display shape and HEX tokens. The display order remains the native list order;
 visual sorting, if wanted, belongs solely to the future swatch component.
 
+Slot transitions keep the three project colour arrays aligned. The Neo bridge
+restores existing raw entries after Orca's native slot resizer, which otherwise
+replaces each `filament_multi_colour` entry with its representative. Adding a
+slot retains every existing colour entry and initializes only the new slot as
+solid. Deleting or merging removes the source entry at the same index as the
+native slot; a merge retains the destination entry. A compatible Printer
+transition retains the complete current colour entry when the preset and
+representative still match that slot; a changed source or representative starts
+with a solid entry using the selected colour. Preset changes likewise retain a
+user's full colour override even when its representative matches the old
+preset. History restoration preserves the arrays when only the rack root
+changes and the project-config root is unchanged. An explicit single-colour
+edit clears any prior gradient type by setting type `1` with one colour.
+
 ## 6. Architectural Boundary
 
 The authoritative multi-filament state lives in the stateful C++/WASM Worker
