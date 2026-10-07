@@ -401,7 +401,13 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
   });
 
-  it('commits a complete gradient colour and rejects the former string command', async () => {
+  it.each([
+    { kind: 'solid' as const, color: '#11223380' },
+    { kind: 'solid' as const, color: '#11223300' },
+    { kind: 'solid' as const, color: '#112233FF' },
+    { kind: 'linear-gradient' as const, start: '#11223380', end: '#44556640' },
+    { kind: 'linear-gradient' as const, start: '#112233', end: '#445566' },
+  ])('commits complete colour $kind and rejects the former string command', async (colour) => {
     const client = makeClient();
     const before = await client.getFilamentSessionSnapshot();
     if (!before.ok) throw new Error(before.error);
@@ -409,11 +415,12 @@ describe('SlicerClient bridge contract', () => {
       slot: 1, colour: '#112233' } as never);
     expect(old).toMatchObject({ ok: false, errorCode: 'native_validation_failure' });
     expect(await client.getFilamentSessionSnapshot()).toEqual(before);
-    const colour = { kind: 'linear-gradient' as const, start: '#112233', end: '#445566' };
+    const first = colour.kind === 'solid' ? colour.color : colour.start;
+    const multi = colour.kind === 'solid' ? first : `${first} ${colour.end}`;
     const result = await client.setFilamentSlotColour({ version: 1, revision: before.revisions.session, slot: 1, colour });
     expect(result).toMatchObject({ ok: true, result: { mutation: { kind: 'set-colour', colour }, snapshot: {
-      slots: [{ colour: { effective: '#112233', native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
-        display: { mode: 'gradient', colors: ['#112233', '#445566'] } } }],
+      slots: [{ colour: { effective: first, native: { representative: first, multiColour: multi, type: colour.kind === 'solid' ? '1' : '0' },
+        display: { mode: colour.kind === 'solid' ? 'solid' : 'gradient', colors: colour.kind === 'solid' ? [first] : [first, colour.end] } } }],
     } } });
     if (!result.ok) throw new Error(result.error);
     await expect(client.setFilamentSlotColour({ version: 1, revision: before.revisions.session, slot: 1, colour }))

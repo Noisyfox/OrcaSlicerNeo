@@ -1671,20 +1671,19 @@ json set_filament_slot_colour_command(const json& request, const Runtime& runtim
         if (!colour.contains("kind") || !colour["kind"].is_string())
             throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
         const std::string kind = colour["kind"].get<std::string>();
-        const auto opaque = [](const json& value) {
-            return value.is_string() && value.get<std::string>().size() == 7 &&
-                   valid_filament_colour(value.get<std::string>());
+        const auto valid_colour = [](const json& value) {
+            return value.is_string() && valid_filament_colour(value.get<std::string>());
         };
         std::string representative;
         std::string multi_colour;
         std::string colour_type;
-        if (kind == "solid" && colour.size() == 2 && colour.contains("color") && opaque(colour["color"])) {
+        if (kind == "solid" && colour.size() == 2 && colour.contains("color") && valid_colour(colour["color"])) {
             representative = colour["color"].get<std::string>();
             multi_colour = representative;
             colour_type = "1";
         } else if (kind == "linear-gradient" && colour.size() == 3 &&
                    colour.contains("start") && colour.contains("end") &&
-                   opaque(colour["start"]) && opaque(colour["end"])) {
+                    valid_colour(colour["start"]) && valid_colour(colour["end"])) {
             representative = colour["start"].get<std::string>();
             multi_colour = representative + " " + colour["end"].get<std::string>();
             colour_type = "0";

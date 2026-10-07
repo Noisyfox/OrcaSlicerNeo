@@ -588,10 +588,10 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'invalid filament mutation preset', errorCode: 'invalid_response' };
   if (mutation.kind === 'set-colour') {
     const colour = mutation.colour as Record<string, unknown> | null;
-    const opaque = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+    const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
     const valid = colour && typeof colour === 'object' && !Array.isArray(colour) &&
-      ((colour.kind === 'solid' && Object.keys(colour).length === 2 && opaque(colour.color)) ||
-       (colour.kind === 'linear-gradient' && Object.keys(colour).length === 3 && opaque(colour.start) && opaque(colour.end)));
+      ((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
+       (colour.kind === 'linear-gradient' && Object.keys(colour).length === 3 && validColour(colour.start) && validColour(colour.end)));
     if (!valid) return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
     const native = snapshot.slots[Number(mutation.slot) - 1].colour.native;
     const first = colour.kind === 'solid' ? colour.color : colour.start;
