@@ -73,11 +73,26 @@ describe('FilamentAssignmentCell semantics', () => {
     const container = await render(<FilamentAssignmentCell snapshot={snapshot} kind="part" id={20} />);
     const trigger = container.querySelector('[data-testid="filament-cell-part-20"]') as HTMLElement;
     expect(trigger.style.backgroundImage).toContain('linear-gradient(90deg, #000000, #ffffff)');
-    expect(trigger.querySelector('span')?.className).toContain('bg-black/70');
+    expect(trigger.textContent).toBe('1');
+    expect(trigger.querySelector('span')).toBeNull();
+    expect(trigger.style.color).toBe('var(--color-foreground)');
     await act(async () => { trigger.click(); });
     const swatches = [...document.body.querySelectorAll<HTMLElement>('[data-slot="select-item"] [aria-hidden="true"][style]')];
     expect(swatches[0].style.backgroundImage).toContain('#000000, #ffffff');
     expect(swatches[1].style.backgroundImage).toContain('#ff0000 0%, #ff0000 50%, #00ff00 50%, #00ff00 100%');
+  });
+
+  it('keeps the original light-representative contrast without adding a number badge', async () => {
+    const light = { ...base.slots[0], colour: { ...base.slots[0].colour,
+      effective: '#ffffff', display: { mode: 'gradient' as const, colors: ['#000000', '#ffffff'] },
+    } };
+    const snapshot = { ...base, slots: [light, base.slots[1]] };
+    const container = await render(<FilamentAssignmentCell snapshot={snapshot} kind="part" id={20} />);
+    const trigger = container.querySelector('[data-testid="filament-cell-part-20"]') as HTMLElement;
+    expect(trigger.style.backgroundImage).toContain('linear-gradient(90deg, #000000, #ffffff)');
+    expect(trigger.textContent).toBe('1');
+    expect(trigger.querySelector('span')).toBeNull();
+    expect(trigger.style.color).toBe('var(--color-control-background)');
   });
 
   it('assigns numeric slots without Default for model parts and objects', async () => {

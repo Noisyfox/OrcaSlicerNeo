@@ -84,6 +84,9 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   }, [colourSignature]);
   const draft = editorValue(slot);
   const displayedColour = draft.kind === 'solid' ? draft.color : draft.start;
+  const representative = slot.colour.effective.slice(0, 7);
+  const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(representative.slice(offset, offset + 2), 16));
+  const numberColour = red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<article />}
@@ -99,7 +102,7 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
           }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0 rounded-none"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
             title={filamentSwatchTitle(slot.colour.display)}
-            style={filamentSwatchStyle(slot.colour.display)}><span className="rounded-sm bg-black/70 px-0.5 text-[10px] font-semibold leading-none text-white ring-1 ring-white/30">{slot.slot}</span></Button>} />
+            style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour }}>{slot.slot}</Button>} />
         <Combobox inputValue={search} onInputValueChange={setSearch} value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
           <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
             aria-label={`Filament preset for slot ${slot.slot}`}

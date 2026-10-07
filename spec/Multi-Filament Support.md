@@ -330,12 +330,13 @@ the same component and command model.
 Colour blocks use the native filament-session display projection. Solid slots
 show one colour, dual and multi-colour slots show equal hard-edged partitions
 in source order, and gradient slots interpolate continuously through their
-ordered colours. The number sits on a neutral dark badge so it remains legible
-across mixed light and dark sections; the colour block tooltip names the mode
-and complete colour sequence. The slot editor uses the shared opaque solid or
-two-endpoint gradient picker. Imported dual/multi-colour partitions and
-gradients with extra stops open as a draft from their first and last displayed
-colours. Cancel leaves all raw metadata untouched; Confirm commits a
+ordered colours. Existing swatch dimensions, borders, radii, hover behaviour,
+and layout remain unchanged. The slot number retains the original direct text
+styling and representative-colour luminance contrast rule. The colour block
+tooltip names the mode and complete colour sequence. The slot editor uses the
+shared opaque solid or two-endpoint gradient picker. Imported dual/multi-colour
+partitions and gradients with extra stops open as a draft from their first and
+last displayed colours. Cancel leaves all raw metadata untouched; Confirm commits a
 two-endpoint gradient and discards intermediate colours and the partition type,
 even when those endpoints were not changed in the draft. An unchanged canonical
 solid or two-endpoint gradient does not create a mutation. A change to any slot

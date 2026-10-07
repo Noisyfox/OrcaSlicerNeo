@@ -41,12 +41,15 @@ test('renders remembered gradient and partition swatches in the shared Prepare U
       .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
     await expect.poll(() => partitions.evaluate((element) => getComputedStyle(element).backgroundImage))
       .toContain('rgb(255, 0, 0) 0%, rgb(255, 0, 0) 33.3333');
+    expect(await gradient.evaluate((element) => element.firstChild?.nodeType)).toBe(3);
+    await expect(gradient).toHaveCSS('color', 'rgb(255, 255, 255)');
     await page.getByTestId('btn-add-model').click();
     await page.getByTestId('config-mode-scoped').click();
     const cell = page.locator('[data-testid^="filament-cell-object-"]').first();
     await expect(cell).toBeVisible();
     await expect.poll(() => cell.evaluate((element) => getComputedStyle(element).backgroundImage))
       .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
+    expect(await cell.evaluate((element) => element.querySelector('span'))).toBeNull();
     await cell.click();
     await expect(page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"]'))
       .toHaveCSS('background-image', /linear-gradient/);
