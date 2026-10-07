@@ -92,8 +92,8 @@ test('new project slots remain assignable from the ObjectList select and context
     await expect(page.locator('select[data-testid^="filament-cell-object-"]')).toHaveCount(0);
 
     await filamentSelect.click();
-    await page.getByRole('option', { name: 'Slot 2', exact: true }).click();
-    await expect(filamentSelect).toContainText('Slot 2');
+    await page.getByRole('option', { name: /^2 - / }).click();
+    await expect(filamentSelect).toHaveText('2');
     await expect(page.getByTestId('objectlist-ctx-menu')).toBeHidden();
 
     await objectRow.click({ button: 'right' });
@@ -103,7 +103,7 @@ test('new project slots remain assignable from the ObjectList select and context
     await page.getByTestId('objectlist-change-filament-3').click();
     await expect(page.getByTestId('objectlist-ctx-menu')).toBeHidden();
     await expect(page.getByTestId('filament-rejected')).toBeHidden();
-    await expect(filamentSelect).toContainText('Slot 3');
+    await expect(filamentSelect).toHaveText('3');
   } finally {
     const page = await app.firstWindow();
     await test.info().attach('rack-native-receipts', {body:JSON.stringify(await readSliceReceipts(page)),contentType:'application/json'});
@@ -245,11 +245,11 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
     await page.getByTestId('config-mode-scoped').click();
     const assignments = page.locator('[data-testid^="filament-cell-object-"]');
     await assignments.nth(0).click();
-    await page.locator('[role="option"]:visible').filter({ hasText: /^Slot 1$/ }).first().click();
+    await page.locator('[role="option"]:visible').filter({ hasText: /^1 - / }).first().click();
     await expect(page.locator('[role="option"]:visible')).toHaveCount(0);
     await assignments.nth(1).click();
-    await page.locator('[role="option"]:visible').filter({ hasText: /^Slot 2$/ }).last().click();
-    await expect(assignments.nth(1)).toContainText('Slot 2');
+    await page.locator('[role="option"]:visible').filter({ hasText: /^2 - / }).last().click();
+    await expect(assignments.nth(1)).toHaveText('2');
 
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 300_000 });

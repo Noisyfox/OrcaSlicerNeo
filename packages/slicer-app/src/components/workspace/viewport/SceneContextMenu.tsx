@@ -20,8 +20,7 @@ import {
 } from 'react';
 import type { RootState } from '@react-three/fiber';
 import {
-  Box, Boxes, Circle, Cone, Cylinder, Disc3, Donut, FolderPlus, Shapes, Trash2,
-  type LucideIcon,
+  Boxes, FolderPlus, Shapes, Trash2,
 } from 'lucide-react';
 import * as THREE from 'three';
 import {
@@ -46,17 +45,7 @@ import { ObjectListContextMenu, type ObjectListCtxTarget } from '../objectList/O
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { pickTopmostModelVolume, topmostPrimeTowerHit } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
-
-// Icon per primitive matching the engine's label; the labels equal the
-// shapes' type strings (OrcaSlicer's menu items are the localized labels).
-const PRIMITIVE_ICONS: Record<PrimitiveType, LucideIcon> = {
-  Cube: Box,
-  Cylinder: Cylinder,
-  Sphere: Circle,
-  Cone: Cone,
-  Disc: Disc3,
-  Torus: Donut,
-};
+import { PRIMITIVE_ICONS } from '../primitiveIcons';
 
 const RIGHT_DRAG_THRESHOLD_PX = 4;
 

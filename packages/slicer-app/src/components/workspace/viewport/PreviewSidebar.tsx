@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronDownIcon, Eye, EyeOff, Clock3, Weight, Coins } from 'lucide-react';
+import { ChevronDownIcon, Eye, EyeOff, Clock3, Weight, Coins, SquareCode } from 'lucide-react';
 import { useSlicerStore, type PreviewColorScheme } from '@/stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import { PREVIEW_MOVE_OPTIONS, TRAVEL_MOVE_TYPE } from './previewMoveTypes';
@@ -15,19 +15,19 @@ function PreviewStatisticsFooter({ data }: { data: ToolpathGeometry }) {
   const summary = data.analysis?.summary;
   const formatMetric = (value: number | undefined, suffix = '') =>
     value !== undefined && Number.isFinite(value) ? `${value.toFixed(2)}${suffix}` : '—';
-  return <div data-testid="preview-statistics" className="space-y-2">
+  return <div data-testid="preview-statistics" className="flex flex-col gap-1">
     <Separator />
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs tabular-nums">
+    <div className="flex min-h-4 flex-wrap items-center justify-between gap-x-2 gap-y-1 px-1 text-[10px] font-normal leading-none text-muted-foreground tabular-nums">
       <span className="flex items-center gap-1" title="Estimated time" aria-label="Estimated time">
-        <Clock3 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <Clock3 className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span data-testid="preview-summary-estimated-time">{formatPreviewTime(summary?.estimatedTimeSeconds)?.replaceAll(' ', '') ?? '—'}</span>
       </span>
       <span className="flex items-center gap-1" title="Filament length and weight" aria-label="Filament length and weight">
-        <Weight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <Weight className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span><span data-testid="preview-summary-filament-length">{formatMetric(summary?.filamentLengthMeters, 'm')}</span> | <span data-testid="preview-summary-filament-weight">{formatMetric(summary?.filamentWeightGrams, 'g')}</span></span>
       </span>
       <span className="flex items-center gap-1" title="Filament cost" aria-label="Filament cost">
-        <Coins className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <Coins className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span data-testid="preview-summary-filament-cost">{formatMetric(summary?.filamentCost)}</span>
       </span>
     </div>
@@ -38,6 +38,8 @@ function PreviewStatisticsFooter({ data }: { data: ToolpathGeometry }) {
 export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: ToolpathGeometry }) {
   const [previewExpanded, setPreviewExpanded] = useState(true);
   const preview = useSlicerStore((s) => s.preview);
+  const showGcodeText = useSlicerStore((s) => s.showGcodeText);
+  const setShowGcodeText = useSlicerStore((s) => s.setShowGcodeText);
   const moveOptions = useMemo(() => {
     const present = new Set(data.moveTypes);
     return [
@@ -94,7 +96,18 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
         <ChevronDownIcon className="absolute right-2 size-3 transition-transform group-aria-expanded/button:rotate-0 group-not-aria-expanded/button:-rotate-90" aria-hidden="true" />
       </CollapsibleTrigger>
       <CollapsibleContent id="preview-controls-content" className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-        <div className="space-y-1 text-xs">
+        <div className="flex items-center gap-1 text-xs">
+          <Button
+            variant="settings"
+            size="icon-sm"
+            aria-label="Show G-code text"
+            title="Show G-code text (C)"
+            aria-pressed={showGcodeText}
+            data-testid="preview-gcode-text-toggle"
+            onClick={() => setShowGcodeText(!showGcodeText)}
+          >
+            <SquareCode aria-hidden="true" />
+          </Button>
           <span className="sr-only">Color scheme</span>
           <Select value={activeScheme} items={schemes.map((scheme) => ({ value: scheme, label: PREVIEW_SCHEME_LABELS[scheme] }))} onValueChange={(value) => setColorScheme(value as PreviewColorScheme)}>
             <SelectTrigger id="preview-color-scheme" aria-label="Preview color scheme" data-testid="preview-color-scheme" variant="sidebar" className="w-full">
@@ -105,8 +118,8 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
             </SelectContent>
           </Select>
         </div>
-        <div data-testid="preview-legend" className="space-y-1">
-          <div data-testid="preview-legend-header" className="px-1 py-1 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+        <div data-testid="preview-legend" className="flex flex-col">
+          <div data-testid="preview-legend-header" className="border-b border-border px-1 py-1 text-[10px] font-normal leading-none text-muted-foreground">
             {activeScheme === 'feature' ? <div className="grid grid-cols-[minmax(0,1fr)_40px_24px_60px] gap-1"><span>Type</span><span className="text-right">Time</span><span className="text-right">%</span><span className="text-right">Usage</span></div> : descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}
           </div>
           <div id="preview-legend-content">
@@ -127,7 +140,7 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
                 className={`sidebar-list-row grid w-full px-1 text-left ${activeScheme === 'feature' ? 'grid-cols-[12px_10px_minmax(0,1fr)_40px_24px_60px]' : 'grid-cols-[12px_10px_minmax(0,1fr)]'}`}>
                 {enabled ? <Eye className="size-3 shrink-0 text-muted-foreground" /> : <EyeOff className="size-3 shrink-0 text-muted-foreground" />}
                 <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})` }} />
-                <span className="truncate" title={item.label}>{item.label}</span>
+                <span className="truncate text-[10px]" title={item.label}>{item.label}</span>
                 {activeScheme === 'feature' && <>
                   <span className="text-right text-[10px] tabular-nums">{formatPreviewTime(time)?.replaceAll(' ', '') ?? '—'}</span>
                   <span className="text-right text-[10px] tabular-nums">{percentage}</span>
@@ -150,7 +163,7 @@ export const PreviewSidebar = memo(function PreviewSidebar({ data }: { data: Too
               className="sidebar-list-row grid grid-cols-[12px_10px_minmax(0,1fr)] w-full px-1 text-left">
               {enabled ? <Eye className="size-3 shrink-0 text-muted-foreground" /> : <EyeOff className="size-3 shrink-0 text-muted-foreground" />}
                 <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${option.color.join(',')})` }} />
-              <span>{option.label}</span>
+              <span className="text-[10px]">{option.label}</span>
             </Button>;
           })}
           </div>

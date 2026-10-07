@@ -75,6 +75,8 @@ interface SlicerState {
   layer: number; // scrubber position (0-based, default = max)
   maxLayer: number;
   preview: PreviewState;
+  showGcodeText: boolean;
+  setShowGcodeText: (visible: boolean) => void;
   setStatus: (s: SliceStatus) => void;
   setProgress: (p: number) => void;
   setProgressText: (text: string) => void;
@@ -122,6 +124,8 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   layer: 0,
   maxLayer: 0,
   preview: DEFAULT_PREVIEW_STATE,
+  showGcodeText: false,
+  setShowGcodeText: (showGcodeText) => set({ showGcodeText }),
   setStatus: (status) => set({ status }),
   setProgress: (progress) => set({ progress }),
   setProgressText: (progressText) => set({ progressText }),

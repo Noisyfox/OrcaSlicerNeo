@@ -1,5 +1,6 @@
 import type { FilamentAssignmentTargetRequest, ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
 import type { ReactNode } from 'react';
+import { FolderPlus } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import {
   ContextMenuContent,
@@ -23,6 +24,7 @@ import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { ADD_VOLUME_MENUS, addVolumeAnchor, addVolumeInList } from './addVolumeActions';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { PRIMITIVE_TYPES } from '../actions/sceneActions';
+import { PRIMITIVE_ICONS } from '../primitiveIcons';
 
 export type ObjectListCtxTarget =
   | { kind: 'list' }
@@ -36,7 +38,7 @@ const VOLUME_TYPES: VolumeType[] = [
 ];
 
 function MenuItem({ label, testid, onClick, danger, disabled }: {
-  label: string;
+  label: ReactNode;
   testid: string;
   onClick: () => void;
   danger?: boolean;
@@ -100,13 +102,19 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
           })
         : [];
     if (targets.length === 0) return [];
+    const slotChoices = filamentSnapshot.slots.map((slot) => ({
+      slot: slot.slot, label: `${slot.slot} - ${slot.preset.name}`, colour: slot.colour.effective,
+    }));
     const choices = target.kind === 'part'
-      ? [{ slot: 0, label: 'Default' }, ...filamentSnapshot.slots.map((slot) => ({ slot: slot.slot, label: `Slot ${slot.slot}` }))]
-      : filamentSnapshot.slots.map((slot) => ({ slot: slot.slot, label: `Slot ${slot.slot}` }));
-    const entries = choices.map(({ slot, label }) => (
+      ? [{ slot: 0, label: 'Default', colour: null }, ...slotChoices]
+      : slotChoices;
+    const entries = choices.map(({ slot, label, colour }) => (
       <MenuItem
         key={`filament-${slot}`}
-        label={label}
+        label={<>
+          {colour !== null && <span aria-hidden="true" className="size-3.5 shrink-0 rounded-xs border border-foreground/20" style={{ backgroundColor: colour }} />}
+          {label}
+        </>}
         testid={`objectlist-change-filament-${slot === 0 ? 'default' : slot}`}
         onClick={() => {
           void runFilament(runtime, () => {
@@ -131,16 +139,17 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
       <ContextMenuSubTrigger data-testid={`objectlist-add-${type}`}>{label}</ContextMenuSubTrigger>
       <ContextMenuSubContent data-testid={`objectlist-add-${type}-menu`}>
         <ContextMenuGroup>
-          <MenuItem label="Load..." testid={`objectlist-add-${type}-load`} onClick={() => {
+          <MenuItem label={<><FolderPlus />Load...</>} testid={`objectlist-add-${type}-load`} onClick={() => {
             onClose(); void addVolumeInList(platform, { objectId: target.object.id, instanceId: anchor, volumeType: type }, undefined, sceneInteraction);
           }} />
         </ContextMenuGroup>
         <ContextMenuSeparator />
-        <ContextMenuGroup>{PRIMITIVE_TYPES.map((shape) => (
-          <MenuItem key={shape} label={shape} testid={`objectlist-add-${type}-${shape}`} onClick={() => {
+        <ContextMenuGroup>{PRIMITIVE_TYPES.map((shape) => {
+          const Icon = PRIMITIVE_ICONS[shape];
+          return <MenuItem key={shape} label={<><Icon />{shape}</>} testid={`objectlist-add-${type}-${shape}`} onClick={() => {
             onClose(); void addVolumeInList(platform, { objectId: target.object.id, instanceId: anchor, volumeType: type }, shape, sceneInteraction);
-          }} />
-        ))}</ContextMenuGroup>
+          }} />;
+        })}</ContextMenuGroup>
       </ContextMenuSubContent>
     </ContextMenuSub>
   )) : [];
