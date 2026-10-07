@@ -1,9 +1,10 @@
 import { paintingCommandAllowed } from './viewport/gizmo/painting/projectCommands';
 import { useEffect, useMemo, useState } from 'react';
-import { usePlatform } from '@orca/platform-contract';
+import { usePlatform, type ColorValue } from '@orca/platform-contract';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
-import type { FilamentMutationResultOrError } from '@slicer/client';
+import type { FilamentMutationResultOrError, FilamentSessionSlot } from '@slicer/client';
+import { filamentSwatchStyle, filamentSwatchTitle } from './FilamentSwatch';
 import { publishRememberedFilamentRack } from '@/preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
@@ -19,6 +20,24 @@ import {
 } from '@/components/ui/context-menu';
 
 type PendingImpact = { kind: 'delete' | 'merge'; summary: FilamentImpactSummary } | null;
+
+function editorValue(slot: FilamentSessionSlot): ColorValue {
+  const { mode, colors } = slot.colour.display;
+  // The editor owns only two endpoints. Imported partitions and extra stops
+  // become a two-endpoint draft without changing native state until Confirm.
+  return mode === 'solid'
+    ? { kind: 'solid', color: colors[0].slice(0, 7) }
+    : { kind: 'linear-gradient', start: colors[0].slice(0, 7), end: colors.at(-1)!.slice(0, 7) };
+}
+
+function matchesCanonicalColour(slot: FilamentSessionSlot, value: ColorValue): boolean {
+  const native = slot.colour.native;
+  const equal = (a: string | null, b: string) => a?.toLowerCase() === b.toLowerCase();
+  if (value.kind === 'solid')
+    return native.type === '1' && equal(native.representative, value.color) && equal(native.multiColour, value.color);
+  return native.type === '0' && equal(native.representative, value.start) &&
+    equal(native.multiColour, `${value.start} ${value.end}`);
+}
 
 function ImpactDialog({ impact, onCancel, onConfirm }: {
   impact: PendingImpact;
@@ -45,26 +64,28 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
 }
 
 function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
-  slot: { slot: number; preset: { name: string }; colour: { effective: string } };
+  slot: FilamentSessionSlot;
   presetNames: readonly string[];
   mergeDestinations: readonly number[];
   canDelete: boolean;
   canMerge: boolean;
   pending: boolean;
   onPreset: (name: string) => void;
-  onColour: (colour: string) => void;
+  onColour: (colour: ColorValue) => void;
   onEdit?: () => void;
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
   const [search, setSearch] = useState('');
   const [colourOpen, setColourOpen] = useState(false);
-  const authoritativeColour = slot.colour.effective.slice(0, 7).toLowerCase();
+  const colourSignature = JSON.stringify(slot.colour);
   useEffect(() => {
     setColourOpen(false);
-  }, [authoritativeColour]);
-  const displayedColour = authoritativeColour;
-  const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(displayedColour.slice(offset, offset + 2), 16));
+  }, [colourSignature]);
+  const draft = editorValue(slot);
+  const displayedColour = (draft.kind === 'solid' ? draft.color : draft.start).toLowerCase();
+  const representative = slot.colour.effective.slice(0, 7);
+  const [red, green, blue] = [1, 3, 5].map((offset) => parseInt(representative.slice(offset, offset + 2), 16));
   const numberColour = red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#171717' : '#ffffff';
   return (
     <ContextMenu>
@@ -72,16 +93,22 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
         className="flex h-6 min-w-0 items-center overflow-hidden rounded-sm bg-control-background"
         data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
         <UserColorPickerPopover open={colourOpen} onOpenChange={setColourOpen}
-          title={`Slot ${slot.slot} color`} value={{ kind: 'solid', color: authoritativeColour }} disabled={pending}
+          title={`Slot ${slot.slot} color`} value={draft} enableGradient disabled={pending}
           onConfirm={next => {
-            if (next.kind === 'solid' && next.color.toLowerCase() !== authoritativeColour) onColour(next.color.toLowerCase());
-          }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0 rounded-none"
+            const colour: ColorValue = next.kind === 'solid'
+              ? { kind: 'solid', color: next.color.toLowerCase() }
+              : { kind: 'linear-gradient', start: next.start.toLowerCase(), end: next.end.toLowerCase() };
+            if (!matchesCanonicalColour(slot, colour)) onColour(colour);
+          }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
-            style={{ backgroundColor: displayedColour, color: numberColour }}>{slot.slot}</Button>} />
+            title={filamentSwatchTitle(slot.colour.display)}
+            style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour,
+              border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
         <Combobox inputValue={search} onInputValueChange={setSearch} value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
           <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
             aria-label={`Filament preset for slot ${slot.slot}`}
             title={slot.preset.name}
+            style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
             render={<Button variant="ghost" size="sm" />}>
             <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue /></span>
           </ComboboxTrigger>

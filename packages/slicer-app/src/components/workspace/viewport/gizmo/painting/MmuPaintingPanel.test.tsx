@@ -15,12 +15,22 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('PointerEvent', MouseEvent);
   mocked.state = { phase: 'idle', channel: 'mmu', session: null, tool: 'circle', settings: { state: 1, erase: false, vertical: false, radius: 2, height: 1, angle: 30, gapArea: 0, overhangAngle: 0, restrictToOverhangs: false }, error: null, display: null, epoch: 0 };
-  useFilamentSessionStore.setState({ snapshot: { slots: Array.from({ length: 18 }, (_, i) => ({ slot: i + 1, preset: { name: 'PLA', id: `${i}` }, colour: { effective: '#ff0000', provenance: 'explicit' } })) } as unknown as FilamentSessionSnapshot });
+  useFilamentSessionStore.setState({ snapshot: { slots: Array.from({ length: 18 }, (_, i) => ({ slot: i + 1, preset: { name: 'PLA', id: `${i}` }, colour: { effective: '#ff0000', provenance: 'user', native: { representative: '#ff0000', multiColour: '#ff0000', type: '1' }, display: { mode: 'solid', colors: ['#ff0000'] } } })) } as unknown as FilamentSessionSnapshot });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); useFilamentSessionStore.getState().reset(); vi.unstubAllGlobals(); });
 const render = () => act(async () => root.render(<MmuPaintingPanel />));
 describe('surface painting panel', () => {
+  it('shows the native gradient in a filament painting choice', async () => {
+    const snapshot = useFilamentSessionStore.getState().snapshot!;
+    useFilamentSessionStore.setState({ snapshot: { ...snapshot, slots: snapshot.slots.map((slot) => slot.slot === 1
+      ? { ...slot, colour: { ...slot.colour, display: { mode: 'gradient' as const, colors: ['#ff0000', '#0000ff'] } } } : slot) } });
+    await render();
+    const choice = container.querySelector('[aria-label="Painting filament"] label') as HTMLElement;
+    expect(choice.title).toContain('Gradient: #ff0000 → #0000ff');
+    expect([...choice.querySelectorAll<HTMLElement>('span[style]')].map((span) => span.style.backgroundImage))
+      .toContain('linear-gradient(90deg, #ff0000, #0000ff)');
+  });
   it('offers all six tools, first sixteen palette entries and the limit explanation', async () => {
     await render();
     expect(container.querySelectorAll('[aria-label="Painting tool"] [role="radio"]')).toHaveLength(6);

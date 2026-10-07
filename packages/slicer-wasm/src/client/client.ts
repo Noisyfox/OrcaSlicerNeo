@@ -34,7 +34,7 @@ import type {
   FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
   FilamentAssignmentProjection, FilamentRoutingProjection,
   FilamentMutationResultOrError, FilamentMutationResult,
-  FilamentSlotPresetRequest, FilamentSlotColourRequest,
+  FilamentSlotPresetRequest, FilamentSlotColourRequest, FilamentSlotColourValue,
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
   RememberedFilamentRackRequest,
   RememberedFilamentRackPreference, PrinterTransitionResult,
@@ -348,10 +348,26 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
         !colour || typeof colour !== 'object') return null;
     const p = preset as Record<string, unknown>;
     const c = colour as Record<string, unknown>;
+    const native = c.native;
+    const display = c.display;
+    if (!native || typeof native !== 'object' || !display || typeof display !== 'object') return null;
+    const n = native as Record<string, unknown>;
+    const d = display as Record<string, unknown>;
+    const rawString = (key: string) => Object.hasOwn(n, key) && (n[key] === null || typeof n[key] === 'string');
+    const validHex = (value: unknown): value is string =>
+      typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
+    if (!rawString('representative') || !rawString('multi_colour') || !rawString('type') ||
+        (d.mode !== 'solid' && d.mode !== 'multicolor' && d.mode !== 'gradient') ||
+        !Array.isArray(d.colors) || !d.colors.every(validHex) ||
+        d.colors.length < (d.mode === 'solid' ? 1 : 2) ||
+        (d.mode === 'solid' && d.colors.length !== 1)) return null;
     if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
     return { logicalId: item.logical_id as string, slot: item.slot as number, preset: { id: p.id, name: p.name },
-      colour: { effective: c.effective, provenance: c.provenance } };
+      colour: { effective: c.effective, provenance: c.provenance,
+        native: { representative: n.representative as string | null,
+          multiColour: n.multi_colour as string | null, type: n.type as string | null },
+        display: { mode: d.mode, colors: d.colors as string[] } } };
   });
   if (slots.some((slot) => slot === null)) return { ok: false, error: 'invalid filament session slots' };
   const orderedSlots = slots as FilamentSessionSlot[];
@@ -570,9 +586,20 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'invalid filament add slot', errorCode: 'invalid_response' };
   if (mutation.kind === 'select-preset' && (!has('preset') || typeof mutation.preset !== 'string' || mutation.preset.length === 0))
     return { ok: false, version: 1, error: 'invalid filament mutation preset', errorCode: 'invalid_response' };
-  if (mutation.kind === 'set-colour' && (!has('colour') || typeof mutation.colour !== 'string' ||
-      !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(mutation.colour)))
-    return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
+  if (mutation.kind === 'set-colour') {
+    const colour = mutation.colour as Record<string, unknown> | null;
+    const opaque = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+    const valid = colour && typeof colour === 'object' && !Array.isArray(colour) &&
+      ((colour.kind === 'solid' && Object.keys(colour).length === 2 && opaque(colour.color)) ||
+       (colour.kind === 'linear-gradient' && Object.keys(colour).length === 3 && opaque(colour.start) && opaque(colour.end)));
+    if (!valid) return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
+    const native = snapshot.slots[Number(mutation.slot) - 1].colour.native;
+    const first = colour.kind === 'solid' ? colour.color : colour.start;
+    const multi = colour.kind === 'solid' ? first : `${first} ${colour.end}`;
+    if (native.representative !== first || native.multiColour !== multi ||
+        native.type !== (colour.kind === 'solid' ? '1' : '0'))
+      return { ok: false, version: 1, error: 'filament mutation colour does not match snapshot', errorCode: 'invalid_response' };
+  }
   if (mutation.kind === 'delete' || mutation.kind === 'merge') {
     if (!has('slot_count') || !Number.isSafeInteger(mutation.slot_count) ||
         Number(mutation.slot_count) !== snapshot.slots.length)
@@ -636,7 +663,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     ...(mutation.destination === null || Number.isSafeInteger(mutation.destination)
       ? { destination: mutation.destination as number | null } : {}),
     ...(typeof mutation.preset === 'string' ? { preset: mutation.preset } : {}),
-    ...(typeof mutation.colour === 'string' ? { colour: mutation.colour } : {}),
+    ...(mutation.kind === 'set-colour' ? { colour: mutation.colour as FilamentSlotColourValue } : {}),
     ...(Number.isSafeInteger(mutation.slot_count) ? { slotCount: mutation.slot_count as number } : {}),
     historyEntryDelta: 1 as const,
     revisionBefore: mutation.revision_before as number,
@@ -1949,7 +1976,12 @@ export function createClient(
 
     async applyRememberedFilamentRack(request: RememberedFilamentRackRequest): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
-      return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify(request)]));
+      return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify({
+        version: request.version, revision: request.revision,
+        slots: request.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
+          representative: native.representative, multi_colour: native.multiColour, type: native.type,
+        } })),
+      })]));
     },
 
     async assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError> {
@@ -2111,7 +2143,9 @@ export function createClient(
         remembered_bed_type: rememberedBedType,
         remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
-          slots: rememberedRack.slots.map(({ preset, colour }) => ({ preset, colour })),
+          slots: rememberedRack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
+            representative: native.representative, multi_colour: native.multiColour, type: native.type,
+          } })),
         },
       };
       return normalizePrinterTransition(

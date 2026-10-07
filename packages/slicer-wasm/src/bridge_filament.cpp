@@ -3,6 +3,8 @@
 #include "bridge_history.hpp"
 #include "bridge_preset_drafts.hpp"
 
+#include <algorithm>
+#include <array>
 #include <stdexcept>
 #include <limits>
 #include <charconv>
@@ -48,6 +50,24 @@ json history_state_json(const PresetBundle& bundle)
     };
     state().filament_slot_ids.swap(ids);
     return result;
+}
+
+void resize_slots_preserving_colours(PresetBundle& bundle, unsigned int count,
+                                     const std::string& new_colour)
+{
+    constexpr const char* keys[] = {
+        "filament_colour", "filament_multi_colour", "filament_colour_type",
+    };
+    std::array<std::vector<std::string>, 3> before;
+    for (std::size_t key = 0; key < before.size(); ++key)
+        if (const auto* option = bundle.project_config.opt<ConfigOptionStrings>(keys[key]))
+            before[key] = option->values;
+    bundle.set_num_filaments(count, new_colour);
+    for (std::size_t key = 0; key < before.size(); ++key) {
+        auto* option = bundle.project_config.option<ConfigOptionStrings>(keys[key], true);
+        for (std::size_t slot = 0; slot < std::min<std::size_t>(count, before[key].size()); ++slot)
+            option->values[slot] = before[key][slot];
+    }
 }
 
 static void apply_serialized_config_values(DynamicPrintConfig& config, const json& values)
@@ -110,7 +130,7 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
 void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
                    StagedMutableState&& staged)
 {
-    bundle.set_num_filaments(static_cast<unsigned int>(staged.names.size()));
+    resize_slots_preserving_colours(bundle, static_cast<unsigned int>(staged.names.size()));
     bundle.filament_presets = std::move(staged.names);
     bridge.filament_slot_ids = std::move(staged.slot_ids);
     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index)
@@ -251,13 +271,28 @@ std::string filament_preset_colour(const PresetBundle& bundle, const std::size_t
     return "#26A69A";
 }
 
-std::optional<std::string> user_filament_colour_override(const PresetBundle& bundle, const std::size_t slot)
+struct FilamentColourState {
+    std::string representative;
+    std::string multi;
+    std::string type;
+};
+
+std::optional<FilamentColourState> user_filament_colour_override(const PresetBundle& bundle, const std::size_t slot)
 {
     const auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour");
-    if (colours == nullptr || slot >= colours->values.size() || !valid_filament_colour(colours->values[slot]))
+    if (colours == nullptr || slot >= colours->values.size())
         return std::nullopt;
-    const std::string native = filament_preset_colour(bundle, slot);
-    return colours->values[slot] == native ? std::nullopt : std::optional<std::string>(colours->values[slot]);
+    const auto* multi = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour");
+    const auto* types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type");
+    const FilamentColourState current{
+        colours->values[slot],
+        multi != nullptr && slot < multi->values.size() ? multi->values[slot] : std::string{},
+        types != nullptr && slot < types->values.size() ? types->values[slot] : std::string{},
+    };
+    const bool has_custom_multi = !current.multi.empty() && current.multi != current.representative;
+    if (current.representative == filament_preset_colour(bundle, slot) &&
+        !has_custom_multi && current.type == "1") return std::nullopt;
+    return current;
 }
 
 int remap_filament_reference(const int value, const std::size_t removed,
@@ -1173,21 +1208,38 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
         const auto before_revision = state().history_revision;
         try {
             std::vector<std::string> colours;
+            std::vector<std::string> multi_colours;
+            std::vector<std::string> colour_types;
             colours.reserve(request["slots"].size());
-            bundle.set_num_filaments(static_cast<unsigned int>(request["slots"].size()));
+            multi_colours.reserve(request["slots"].size());
+            colour_types.reserve(request["slots"].size());
+            State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(request["slots"].size()));
             for (std::size_t index = 0; index < request["slots"].size(); ++index) {
                 const auto& slot = request["slots"][index];
                 if (!slot.is_object() || !slot.contains("preset") || !slot["preset"].is_string() ||
                     slot["preset"].get<std::string>().empty() || !slot.contains("colour") || !slot["colour"].is_string() ||
                     !valid_filament_colour(slot["colour"].get<std::string>()))
                     throw FilamentCommandFailure("invalid_command", "invalid remembered filament slot");
+                if (!slot.contains("native") || !slot["native"].is_object())
+                    throw FilamentCommandFailure("invalid_command", "remembered filament native colours are required");
+                const auto& native = slot["native"];
+                for (const char* key : {"representative", "multi_colour", "type"})
+                    if (!native.contains(key) || (!native[key].is_null() && !native[key].is_string()))
+                        throw FilamentCommandFailure("invalid_command", "invalid remembered filament native colour");
                 const std::string preset = slot["preset"].get<std::string>();
                 if (bundle.filaments.find_preset(preset, false, true) == nullptr)
                     throw FilamentCommandFailure("incompatible_preset", "remembered filament preset is unavailable: " + preset);
                 bundle.set_filament_preset(index, preset);
-                colours.push_back(slot["colour"].get<std::string>());
+                const std::string representative = native["representative"].is_string()
+                    ? native["representative"].get<std::string>() : slot["colour"].get<std::string>();
+                colours.push_back(representative);
+                multi_colours.push_back(native["multi_colour"].is_string()
+                    ? native["multi_colour"].get<std::string>() : representative);
+                colour_types.push_back(native["type"].is_string() ? native["type"].get<std::string>() : "1");
             }
             bundle.project_config.set_key_value("filament_colour", new ConfigOptionStrings(colours));
+            bundle.project_config.set_key_value("filament_multi_colour", new ConfigOptionStrings(multi_colours));
+            bundle.project_config.set_key_value("filament_colour_type", new ConfigOptionStrings(colour_types));
             recalculate_filament_flush(bundle);
             validate_filament_candidate(bundle, state().model, state().plate_session_plates,
                                         Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);
@@ -1592,10 +1644,14 @@ json select_filament_slot_preset_command(const json& request, const Runtime& run
         bundle.set_filament_preset(*slot, name);
         auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
         colours->values.resize(count, "#26A69A");
-        colours->values[*slot] = user_override.value_or(filament_preset_colour(bundle, *slot));
+        colours->values[*slot] = user_override ? user_override->representative : filament_preset_colour(bundle, *slot);
         if (auto* multi = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true)) {
             multi->values.resize(count, "#26A69A");
-            multi->values[*slot] = colours->values[*slot];
+            multi->values[*slot] = user_override ? user_override->multi : colours->values[*slot];
+        }
+        if (auto* types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true)) {
+            types->values.resize(count, "1");
+            types->values[*slot] = user_override ? user_override->type : "1";
         }
         recalculate_filament_flush(bundle);
         return json{{"kind", "select-preset"}, {"slot", *slot + 1}, {"preset", name}};
@@ -1609,18 +1665,45 @@ json set_filament_slot_colour_command(const json& request, const Runtime& runtim
         std::string error;
         const auto slot = filament_command_slot(request, "slot", count, error);
         if (!slot) throw FilamentCommandFailure("unsupported_reference", error);
-        if (!request.contains("colour") || !request["colour"].is_string() ||
-            !valid_filament_colour(request["colour"].get<std::string>()))
+        if (!request.contains("colour") || !request["colour"].is_object())
             throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
+        const auto& colour = request["colour"];
+        if (!colour.contains("kind") || !colour["kind"].is_string())
+            throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
+        const std::string kind = colour["kind"].get<std::string>();
+        const auto opaque = [](const json& value) {
+            return value.is_string() && value.get<std::string>().size() == 7 &&
+                   valid_filament_colour(value.get<std::string>());
+        };
+        std::string representative;
+        std::string multi_colour;
+        std::string colour_type;
+        if (kind == "solid" && colour.size() == 2 && colour.contains("color") && opaque(colour["color"])) {
+            representative = colour["color"].get<std::string>();
+            multi_colour = representative;
+            colour_type = "1";
+        } else if (kind == "linear-gradient" && colour.size() == 3 &&
+                   colour.contains("start") && colour.contains("end") &&
+                   opaque(colour["start"]) && opaque(colour["end"])) {
+            representative = colour["start"].get<std::string>();
+            multi_colour = representative + " " + colour["end"].get<std::string>();
+            colour_type = "0";
+        } else {
+            throw FilamentCommandFailure("native_validation_failure", "native filament colour validation failed");
+        }
         auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
         colours->values.resize(count, "#26A69A");
-        colours->values[*slot] = request["colour"].get<std::string>();
+        colours->values[*slot] = representative;
         if (auto* multi = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true)) {
             multi->values.resize(count, "#26A69A");
-            multi->values[*slot] = colours->values[*slot];
+            multi->values[*slot] = multi_colour;
+        }
+        if (auto* types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true)) {
+            types->values.resize(count, "1");
+            types->values[*slot] = colour_type;
         }
         recalculate_filament_flush(bundle);
-        return json{{"kind", "set-colour"}, {"slot", *slot + 1}, {"colour", colours->values[*slot]}};
+        return json{{"kind", "set-colour"}, {"slot", *slot + 1}, {"colour", colour}};
     });
 }
 
@@ -1639,7 +1722,7 @@ json add_filament_command(const json& request, const Runtime& runtime)
         const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
         if (!flexible || count >= 64) throw FilamentCommandFailure("capability_rejected", "filament slot capacity or capability rejected");
         const std::string colour = kNativeFilamentColours[state().next_filament_colour_index++ % kNativeFilamentColours.size()];
-        bundle.set_num_filaments(static_cast<unsigned int>(count + 1), colour);
+        State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(count + 1), colour);
         auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
         colours->values.resize(count + 1, "#26A69A");
         colours->values[count] = colour;
@@ -1762,6 +1845,24 @@ std::vector<std::string> config_strings(const DynamicPrintConfig& config, const 
     return {};
 }
 
+json filament_colour_display(const std::string& effective, const json& multi, const json& type)
+{
+    const std::string representative = valid_filament_colour(effective) ? effective : "#26A69A";
+    const json solid = {{"mode", "solid"}, {"colors", json::array({representative})}};
+    if (!multi.is_string() || !type.is_string()) return solid;
+    const std::string kind = type.get<std::string>();
+    if (kind != "0" && kind != "1") return solid;
+    std::istringstream stream(multi.get<std::string>());
+    std::vector<std::string> colors;
+    std::string token;
+    while (stream >> token) {
+        if (!valid_filament_colour(token)) return solid;
+        colors.push_back(token);
+    }
+    if (colors.size() < 2) return solid;
+    return {{"mode", kind == "0" ? "gradient" : "multicolor"}, {"colors", colors}};
+}
+
 std::vector<int> config_ints(const DynamicPrintConfig& config, const char* key)
 {
     if (const auto* option = config.opt<ConfigOptionInts>(key)) return option->values;
@@ -1801,6 +1902,9 @@ json filament_session_snapshot_json()
     const DynamicPrintConfig& filament = bundle.filaments.get_edited_preset().config;
 
     std::vector<std::string> preset_names = bundle.filament_presets;
+    const auto project_colours = config_strings(project, "filament_colour");
+    const auto project_multi_colours = config_strings(project, "filament_multi_colour");
+    const auto project_colour_types = config_strings(project, "filament_colour_type");
     std::vector<std::string> colours = config_strings(project, "filament_colour");
     if (colours.empty()) colours = config_strings(filament, "filament_colour");
     if (preset_names.empty())
@@ -1837,11 +1941,19 @@ json filament_session_snapshot_json()
     for (size_t i = 0; i < slot_count; ++i) {
         const std::string& name = preset_names[i];
         const bool preset_equivalent = !preset_colours[i].empty() && colours[i] == preset_colours[i];
+        const auto native_value = [i](const std::vector<std::string>& values) -> json {
+            return i < values.size() ? json(values[i]) : json(nullptr);
+        };
+        const json multi = native_value(project_multi_colours);
+        const json type = native_value(project_colour_types);
         slots.push_back({
             {"slot", i + 1},
             {"logical_id", slot_ids[i]},
             {"preset", {{"id", name}, {"name", name}}},
-            {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"}}},
+            {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"},
+                        {"native", {{"representative", native_value(project_colours)},
+                                    {"multi_colour", multi}, {"type", type}}},
+                        {"display", filament_colour_display(colours[i], multi, type)}}},
         });
     }
 

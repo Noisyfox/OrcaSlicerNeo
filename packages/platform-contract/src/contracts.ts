@@ -161,6 +161,7 @@ export interface RememberedFilamentRack {
   slots: Array<{
     preset: string;
     colour: string;
+    native: { representative: string | null; multiColour: string | null; type: string | null };
   }>;
 }
 
@@ -286,12 +287,24 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       if (!printer || !candidate || typeof candidate !== 'object') continue;
       const rack = candidate as { version?: unknown; slots?: unknown };
       if (rack.version !== 1 || !Array.isArray(rack.slots) || rack.slots.length === 0 || rack.slots.length > 64) continue;
-      const slots = rack.slots.filter((slot): slot is { preset: string; colour: string } => {
-        if (!slot || typeof slot !== 'object') return false;
-        const item = slot as { preset?: unknown; colour?: unknown };
-        return typeof item.preset === 'string' && item.preset.length > 0 && typeof item.colour === 'string' && /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(item.colour);
-      }).map((slot) => ({ preset: slot.preset, colour: slot.colour }));
-      if (slots.length === rack.slots.length) rememberedFilamentRacks[printer] = { version: 1, slots };
+      const slots = rack.slots.map((slot) => {
+        if (!slot || typeof slot !== 'object') return null;
+        const item = slot as { preset?: unknown; colour?: unknown; native?: unknown };
+        if (typeof item.preset !== 'string' || !item.preset || typeof item.colour !== 'string' ||
+            !/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(item.colour)) return null;
+        // Previously saved racks had only a HEX colour. Upgrade that durable
+        // format once at the host boundary; native commands stay strict.
+        if (item.native === undefined) return { preset: item.preset, colour: item.colour,
+          native: { representative: item.colour, multiColour: item.colour, type: '1' } };
+        if (!item.native || typeof item.native !== 'object' || Array.isArray(item.native)) return null;
+        const native = item.native as Record<string, unknown>;
+        if (!(['representative', 'multiColour', 'type'] as const).every((key) =>
+          Object.hasOwn(native, key) && (native[key] === null || typeof native[key] === 'string'))) return null;
+        return { preset: item.preset, colour: item.colour,
+          native: { representative: native.representative as string | null,
+            multiColour: native.multiColour as string | null, type: native.type as string | null } };
+      });
+      if (slots.every((slot) => slot !== null)) rememberedFilamentRacks[printer] = { version: 1, slots: slots as RememberedFilamentRack['slots'] };
     }
   }
   const rememberedBedTypes: Record<string, string> = {};

@@ -6,6 +6,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
 import { usePaintingController, usePaintingState } from './PaintingProvider';
 import type { PaintTool } from './PaintingController';
+import { FilamentSwatch, filamentSwatchTitle } from '../../../FilamentSwatch';
 
 const tools: readonly [PaintTool, string][] = [['circle', 'Circle'], ['sphere', 'Sphere'], ['triangle', 'Triangle'], ['height', 'Height range'], ['region', 'Region fill'], ['gap', 'Gap fill']];
 export function MmuPaintingPanel() {
@@ -22,7 +23,7 @@ export function MmuPaintingPanel() {
     </fieldset>
     {state.tool !== 'gap' && <fieldset><legend className="mb-2 text-module text-muted-foreground">Filament</legend>
       <RadioGroup value={String(s.state)} onValueChange={(v) => controller.setSettings({ state: Number(v) })} className="grid-cols-4 gap-2" aria-label="Painting filament">
-        {slots.slice(0, 16).map((slot) => <Label key={slot.slot} className="flex items-center gap-1" title={slot.preset.name}><RadioGroupItem value={String(slot.slot)} /><span className="size-3 rounded-full border" style={{ backgroundColor: slot.colour.effective }} /><span className="sr-only">Paint filament </span>{slot.slot}</Label>)}
+        {slots.slice(0, 16).map((slot) => <Label key={slot.slot} className="flex items-center gap-1" title={`${slot.preset.name} · ${filamentSwatchTitle(slot.colour.display)}`}><RadioGroupItem value={String(slot.slot)} /><FilamentSwatch display={slot.colour.display} className="size-3 rounded-full border" /><span className="sr-only">Paint filament </span>{slot.slot}</Label>)}
       </RadioGroup>
       {slots.length > 16 && <p className="mt-2 text-xs text-muted-foreground">Explicit painting supports filaments 1–16. Unpainted areas keep their assigned material.</p>}
     </fieldset>}

@@ -52,8 +52,8 @@ function buildImportedStateArchive() {
       'Generic PLA @Project', 'Generic PETG @Project',
     ],
     filament_colour: ['#FF0000', '#00FF00', '#0000FF', '#FFFF00'],
-    filament_multi_colour: ['', '', '', ''],
-    filament_colour_type: ['RGB', 'RGB', 'RGB', 'RGB'],
+    filament_multi_colour: ['#FF0000 #FFFFFF #0000FF', '#00FF00 #0000FF', '', '#FFFF00 invalid'],
+    filament_colour_type: ['1', '0', '1', 'future'],
     filament_map: ['1', '1', '1', '1'],
     filament_volume_map: ['0', '0', '0', '0'],
     filament_nozzle_map: ['0', '0', '0', '0'],
@@ -177,13 +177,222 @@ const legacyNotes = loadArchive(legacyEmptyNotesArchive(archive), 'legacy-empty-
 assert.equal(legacyNotes.ok, true, JSON.stringify(legacyNotes));
 const loaded = loadImportedArchive();
 assert.equal(loaded.ok, true, JSON.stringify(loaded));
+const colourArrays = ['filament_colour', 'filament_multi_colour', 'filament_colour_type'];
+const beforeProjection = JSON.parse(exportedText(exportProject(), 'Metadata/project_settings.config'));
+const importedSession = callJson('orc_get_filament_session_snapshot');
+assert.equal(importedSession.slots.length, 4, JSON.stringify(importedSession));
+assert.deepEqual(importedSession.slots.map((slot) => slot.colour.display), [
+  { mode: 'multicolor', colors: ['#FF0000', '#FFFFFF', '#0000FF'] },
+  { mode: 'gradient', colors: ['#00FF00', '#0000FF'] },
+  { mode: 'solid', colors: ['#0000FF'] },
+  { mode: 'solid', colors: ['#FFFF00'] },
+]);
+assert.deepEqual(importedSession.slots.map((slot) => slot.colour.native), [
+  { representative: '#FF0000', multi_colour: '#FF0000 #FFFFFF #0000FF', type: '1' },
+  { representative: '#00FF00', multi_colour: '#00FF00 #0000FF', type: '0' },
+  { representative: '#0000FF', multi_colour: '', type: '1' },
+  { representative: '#FFFF00', multi_colour: '#FFFF00 invalid', type: 'future' },
+]);
+assert.deepEqual(callJson('orc_get_filament_session_snapshot').slots.map((slot) => slot.colour.native),
+  importedSession.slots.map((slot) => slot.colour.native), 'read-only snapshots must preserve native colour arrays');
+const afterProjection = JSON.parse(exportedText(exportProject(), 'Metadata/project_settings.config'));
+for (const key of colourArrays)
+  assert.deepEqual(afterProjection[key], beforeProjection[key], `${key} changed while reading a snapshot`);
+if (options['memory-only'] === 'true') {
+  const native = () => callJson('orc_get_filament_session_snapshot').slots.map((slot) => slot.colour.native);
+  const original = native();
+  const slots = importedSession.slots.map((slot) => ({
+    preset: slot.preset.name, colour: slot.colour.effective, native: slot.colour.native,
+  }));
+  const missingNative = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: importedSession.revisions.session,
+    slots: slots.map(({ native: _native, ...slot }) => slot),
+  });
+  assert.equal(missingNative.error_code, 'invalid_command', 'internal rack command requires complete native metadata');
+  assert.deepEqual(native(), original, 'invalid internal rack leaves all imported raw values intact');
+  const restored = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: importedSession.revisions.session, slots,
+  });
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+  assert.deepEqual(native(), original, 'native remembered apply retains all raw colour fields');
+  const printer = callJson('orc_get_preset_snapshot').printer.name;
+  const rejectedPrinter = request('orc_select_printer_with_remembered_rack', {
+    printer, remembered_rack: { version: 1, slots: slots.map(({ native: _native, ...slot }) => slot) },
+    remembered_bed_type: null,
+  });
+  assert.equal(rejectedPrinter.error_code, 'invalid_request', 'Printer transition also requires complete internal metadata');
+  assert.deepEqual(native(), original, 'invalid Printer transition does not mutate raw colours');
+  const switched = request('orc_select_printer_with_remembered_rack', {
+    printer, remembered_rack: { version: 1, slots }, remembered_bed_type: null,
+  });
+  assert.equal(switched.ok, true, JSON.stringify(switched));
+  assert.deepEqual(native(), original, 'Printer transition applies remembered raw metadata');
+  const exported = exportProject();
+  const config = JSON.parse(exportedText(exported, 'Metadata/project_settings.config'));
+  for (const key of colourArrays)
+    assert.deepEqual(config[key], beforeProjection[key], `3MF writer changed ${key}`);
+  const reopened = loadArchive(exported, 'remembered-colours.3mf');
+  assert.equal(reopened.ok, true, JSON.stringify(reopened));
+  assert.deepEqual(native(), original, 'standard 3MF reader reopens every remembered raw colour field');
+  const reopenedSlots = callJson('orc_get_filament_session_snapshot').slots.map((slot) => ({
+    preset: slot.preset.name, colour: slot.colour.effective, native: slot.colour.native,
+  }));
+  const malformed = reopenedSlots.map((slot, index) => index === 0 ? { ...slot,
+    native: { representative: 'not-a-colour', multi_colour: 'unparsed-list', type: 'future' },
+  } : slot);
+  const revised = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slots: malformed,
+  });
+  assert.equal(revised.ok, true, JSON.stringify(revised));
+  assert.deepEqual(native()[0], malformed[0].native, 'native restore must retain malformed raw metadata');
+  const nullEntry = malformed.map((slot, index) => index === 0 ? { ...slot,
+    native: { representative: null, multi_colour: null, type: null },
+  } : slot);
+  const restoredNull = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slots: nullEntry,
+  });
+  assert.equal(restoredNull.ok, true, JSON.stringify(restoredNull));
+  assert.deepEqual(native()[0], { representative: nullEntry[0].colour,
+    multi_colour: nullEntry[0].colour, type: '1' }, 'missing native array entries use documented solid fallback');
+  console.log('PASS remembered raw filament rack native apply, Printer transition, and 3MF round-trip');
+  process.exit(0);
+}
+if (options['edit-only'] === 'true') {
+  const session = () => callJson('orc_get_filament_session_snapshot');
+  const native = () => session().slots.map((slot) => slot.colour.native);
+  const original = native();
+  const revision = () => session().revisions.session;
+  const command = (colour, extra = {}) => request('orc_set_filament_slot_colour', {
+    version: 1, revision: revision(), slot: 1, colour, ...extra,
+  });
+  for (const colour of ['#112233', { kind: 'solid', color: '#11223380' },
+    { kind: 'linear-gradient', start: '#112233', end: '#0000FF80' },
+    { kind: 'linear-gradient', start: '#112233', end: '#0000FF', middle: '#abcdef' }]) {
+    const rejected = command(colour);
+    assert.equal(rejected.error_code, 'native_validation_failure', JSON.stringify(rejected));
+    assert.deepEqual(native(), original, 'invalid colour command must not mutate any raw slot');
+  }
+  const colour = { kind: 'linear-gradient', start: '#FFEEDD', end: '#0000FF' };
+  for (const extra of [{ inject_failure: true }, { inject_failure_stage: 'before-history' },
+    { inject_failure_stage: 'during-history' }]) {
+    const rejected = command(colour, extra);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    assert.deepEqual(native(), original, 'failed gradient edit rolls back complete native colours');
+  }
+  const before = session();
+  const edited = command(colour);
+  assert.equal(edited.ok, true, JSON.stringify(edited));
+  assert.deepEqual(edited.result.mutation.colour, colour);
+  assert.deepEqual(native()[0], { representative: '#FFEEDD', multi_colour: '#FFEEDD #0000FF', type: '0' });
+  assert.deepEqual(session().slots[0].colour.display, { mode: 'gradient', colors: ['#FFEEDD', '#0000FF'] });
+  assert.deepEqual(native().slice(1), original.slice(1), 'unrelated imported slots stay raw-identical');
+  assert.equal(edited.result.mutation.history_entry_delta, 1);
+  const after = session();
+  const stale = request('orc_set_filament_slot_colour', { version: 1, revision: before.revisions.session, slot: 1,
+    colour: { kind: 'solid', color: '#ABCDEF' } });
+  assert.equal(stale.error_code, 'stale_revision');
+  assert.deepEqual(native()[0], after.slots[0].colour.native);
+  const undo = callJson('orc_history_undo');
+  assert.equal(undo.ok, true, JSON.stringify(undo));
+  assert.deepEqual(native(), original, 'Undo restores all imported raw metadata');
+  const redo = callJson('orc_history_redo');
+  assert.equal(redo.ok, true, JSON.stringify(redo));
+  assert.deepEqual(native()[0], after.slots[0].colour.native, 'Redo restores complete two-endpoint gradient');
+  const saved = exportProject();
+  const settings = JSON.parse(exportedText(saved, 'Metadata/project_settings.config'));
+  assert.deepEqual(settings.filament_colour[0], '#FFEEDD');
+  assert.deepEqual(settings.filament_multi_colour[0], '#FFEEDD #0000FF');
+  assert.deepEqual(settings.filament_colour_type[0], '0');
+  const reopened = loadArchive(saved, 'edited-gradient.3mf');
+  assert.equal(reopened.ok, true, JSON.stringify(reopened));
+  assert.deepEqual(native()[0], after.slots[0].colour.native, 'standard 3MF reader reopens edited gradient');
+  console.log('PASS imported multicolor to gradient edit, validation, rollback, history, and 3MF round-trip');
+  process.exit(0);
+}
+if (options['lifecycle-only'] === 'true') {
+  const native = () => callJson('orc_get_filament_session_snapshot').slots.map((slot) => slot.colour.native);
+  const revision = () => callJson('orc_get_filament_session_snapshot').revisions.session;
+  const original = native();
+  const check = (expected, label) => assert.deepEqual(native(), expected, label);
+  const undo = (expected, label) => {
+    const result = callJson('orc_history_undo');
+    assert.equal(result.ok, true, `${label}: ${JSON.stringify(result)}`);
+    check(expected, label);
+  };
+  const redo = (expected, label) => {
+    const result = callJson('orc_history_redo');
+    assert.equal(result.ok, true, `${label}: ${JSON.stringify(result)}`);
+    check(expected, label);
+  };
+
+  const added = request('orc_add_filament_slot', { version: 1, revision: revision() });
+  assert.equal(added.ok, true, JSON.stringify(added));
+  assert.deepEqual(native().slice(0, 4), original, 'Add retains every old raw colour');
+  assert.equal(native()[4].type, '1', 'new slot starts solid');
+  const afterAdd = native();
+  const stale = request('orc_delete_filament_slot', { version: 1, revision: importedSession.revisions.session, slot: 2 });
+  assert.equal(stale.error_code, 'stale_revision');
+  check(afterAdd, 'stale command leaves all raw colours intact');
+  const rejected = request('orc_delete_filament_slot', { version: 1, revision: revision(), slot: 2, inject_failure: true });
+  assert.equal(rejected.ok, false);
+  check(afterAdd, 'failed mutation rolls back all raw colours');
+  undo(original, 'Undo Add restores imported entries');
+  redo(afterAdd, 'Redo Add retains imported entries');
+  undo(original, 'Undo Add again restores imported entries');
+
+  const selected = request('orc_select_filament_slot_preset', {
+    version: 1, revision: revision(), slot: 1, preset: importedSession.slots[1].preset.name,
+  });
+  assert.equal(selected.ok, true, JSON.stringify(selected));
+  assert.notEqual(importedSession.slots[0].preset.name, importedSession.slots[1].preset.name);
+  assert.equal(callJson('orc_get_filament_session_snapshot').slots[0].preset.name, importedSession.slots[1].preset.name);
+  check(original, 'changing a preset retains multi-colour even when representative equals its old default');
+  undo(original, 'Undo preset selection retains raw entries');
+  redo(original, 'Redo preset selection retains raw entries');
+
+  const unknownTypePreset = request('orc_select_filament_slot_preset', {
+    version: 1, revision: revision(), slot: 4, preset: importedSession.slots[0].preset.name,
+  });
+  assert.equal(unknownTypePreset.ok, true, JSON.stringify(unknownTypePreset));
+  check(original, 'changing another preset retains unknown type and malformed list verbatim');
+  undo(original, 'Undo unknown-type preset selection retains raw entries');
+  redo(original, 'Redo unknown-type preset selection retains raw entries');
+
+  const deleted = request('orc_delete_filament_slot', { version: 1, revision: revision(), slot: 2 });
+  assert.equal(deleted.ok, true, JSON.stringify(deleted));
+  check([original[0], original[2], original[3]], 'Delete shifts complete raw entries');
+  undo(original, 'Undo Delete restores complete entries');
+  redo([original[0], original[2], original[3]], 'Redo Delete shifts complete entries');
+  undo(original, 'Undo Delete again restores imported entries');
+
+  const merged = request('orc_merge_filament_slots', { version: 1, revision: revision(), source: 2, destination: 4 });
+  assert.equal(merged.ok, true, JSON.stringify(merged));
+  check([original[0], original[2], original[3]], 'Merge retains destination complete entry');
+  undo(original, 'Undo Merge restores complete entries');
+  redo([original[0], original[2], original[3]], 'Redo Merge retains destination entry');
+  undo(original, 'Undo Merge again restores imported entries');
+
+  const currentPrinter = callJson('orc_get_preset_snapshot').printer.name;
+  const transitioned = request('orc_select_printer_with_remembered_rack', {
+    printer: currentPrinter, remembered_rack: null, remembered_bed_type: null,
+  });
+  assert.equal(transitioned.ok, true, JSON.stringify(transitioned));
+  check(original, 'compatible Printer transition retains raw colours');
+  undo(original, 'Undo Printer transition retains raw colours');
+  redo(original, 'Redo Printer transition retains raw colours');
+
+  const solid = request('orc_set_filament_slot_colour', { version: 1, revision: revision(), slot: 1, colour: { kind: 'solid', color: '#ABCDEF' } });
+  assert.equal(solid.ok, true, JSON.stringify(solid));
+  assert.deepEqual(native()[0], { representative: '#ABCDEF', multi_colour: '#ABCDEF', type: '1' });
+  undo(original, 'Undo solid edit restores imported multi-colour');
+  console.log('PASS imported multi-filament colour lifecycle smoke');
+  process.exit(0);
+}
 if (options['load-only'] === 'true') {
   console.log('PASS imported multi-filament legacy-vector load smoke');
   process.exit(0);
 }
 
-const importedSession = callJson('orc_get_filament_session_snapshot');
-assert.equal(importedSession.slots.length, 4, JSON.stringify(importedSession));
 const importedPaintKey = paintedModelKey();
 const importedPlates = callJson('orc_get_plate_session_snapshot');
 const importedPlate = importedPlates.plates.find((plate) => plate.plate_id === importedPlates.current_plate_id);

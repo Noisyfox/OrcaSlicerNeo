@@ -32,6 +32,8 @@ namespace State {
 json config_metadata_json(const DynamicPrintConfig& config);
 std::vector<std::string> project_slot_identities(std::size_t count);
 json history_state_json(const PresetBundle& bundle);
+void resize_slots_preserving_colours(PresetBundle& bundle, unsigned int count,
+                                     const std::string& new_colour = {});
 
 struct StagedMutableState {
     std::vector<std::string> names;

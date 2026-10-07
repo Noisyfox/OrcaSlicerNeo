@@ -230,11 +230,11 @@ for (const slot of [1, 2, 4]) {
 }
 for (const [source, destination] of [[1, 2], [2, 1], [4, 1]]) {
   const destinationColour = request('orc_set_filament_slot_colour', {
-    version: 1, revision: snapshot.revisions.session, slot: destination, colour: '#AABBCC',
+    version: 1, revision: snapshot.revisions.session, slot: destination, colour: { kind: 'solid', color: '#AABBCC' },
   });
   assert.equal(destinationColour.ok, true, JSON.stringify(destinationColour)); snapshot = destinationColour.result.snapshot;
   const sourceColour = request('orc_set_filament_slot_colour', {
-    version: 1, revision: snapshot.revisions.session, slot: source, colour: '#112233',
+    version: 1, revision: snapshot.revisions.session, slot: source, colour: { kind: 'solid', color: '#112233' },
   });
   assert.equal(sourceColour.ok, true, JSON.stringify(sourceColour)); snapshot = sourceColour.result.snapshot;
   const merge = request('orc_merge_filament_slots', { version: 1, revision: snapshot.revisions.session, source, destination });
@@ -293,7 +293,7 @@ await assertUndoRedo('select-preset', (before) => {
   }));
 });
 await assertUndoRedo('set-colour', (before) => Promise.resolve(request('orc_set_filament_slot_colour', {
-  version: 1, revision: before.revisions.session, slot: 1, colour: '#A1B2C3',
+  version: 1, revision: before.revisions.session, slot: 1, colour: { kind: 'solid', color: '#A1B2C3' },
 })));
 await assertUndoRedo('add', (before) => Promise.resolve(request('orc_add_filament_slot', {
   version: 1, revision: before.revisions.session,
@@ -410,7 +410,7 @@ const retentionContext = { selection: { mode: 'object', objectIds: [], partIds: 
   activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 assert.equal(callJson('orc_history_reset', ['string'], [JSON.stringify(retentionContext)]).canUndo, false);
 snapshot = withSlots(1);
-const userColour = request('orc_set_filament_slot_colour', { version: 1, revision: snapshot.revisions.session, slot: 1, colour: '#DDAA11' });
+const userColour = request('orc_set_filament_slot_colour', { version: 1, revision: snapshot.revisions.session, slot: 1, colour: { kind: 'solid', color: '#DDAA11' } });
 assert.equal(userColour.ok, true, JSON.stringify(userColour));
 const userPresetSnapshot = userColour.result.snapshot;
 const retained = request('orc_select_filament_slot_preset', { version: 1, revision: userPresetSnapshot.revisions.session, slot: 1, preset: alternateFilament(userPresetSnapshot.slots[0].preset.name) });
@@ -446,7 +446,7 @@ assert.equal(fallbackDiagnosticsAfter.fullPresetBundleCopyCount,
   `direct-missing history fallback must not copy PresetBundle: ${JSON.stringify(fallbackDiagnosticsAfter)}`);
 const ordinaryBeforeFilament = semantic(callJson('orc_get_filament_session_snapshot'));
 const ordinaryMutation = request('orc_set_filament_slot_colour', {
-  version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slot: 1, colour: '#123456',
+  version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slot: 1, colour: { kind: 'solid', color: '#123456' },
 });
 assert.equal(ordinaryMutation.ok, true, JSON.stringify(ordinaryMutation));
 const filamentUndo = callJson('orc_history_undo');
@@ -506,7 +506,7 @@ assert.equal(fixedAdd.ok, false); assert.equal(fixedAdd.error_code, 'capability_
 // commands. Every physical nozzle plane is recalculated independently.
 const fixedBefore = fixedSnapshot.flushing.matrix.slice();
 const fixedColour = request('orc_set_filament_slot_colour', {
-  version: 1, revision: fixedSnapshot.revisions.session, slot: 1, colour: '#010203',
+  version: 1, revision: fixedSnapshot.revisions.session, slot: 1, colour: { kind: 'solid', color: '#010203' },
 });
 assert.equal(fixedColour.ok, true, JSON.stringify(fixedColour));
 assert.equal(fixedColour.result.snapshot.flushing.plane_count, fixedSnapshot.capabilities.nozzle_count);

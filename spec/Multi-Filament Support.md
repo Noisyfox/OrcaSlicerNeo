@@ -87,8 +87,15 @@ Project state has priority over remembered defaults:
    Undo/Redo restoration that changes that state. It never alters another
    printer's defaults.
 
-The remembered rack records source-preset selections and actual slot colours;
-it never records a Preset Editor runtime draft or its overrides. Restoring a
+The remembered rack records source-preset selections, a valid effective HEX
+colour, and each slot's raw native representative, multi-colour list, and
+colour type (including unknown strings and null entries). A raw null entry
+is retained in the preference; restoring to a full native slot array uses
+the effective colour for a missing representative, that representative for
+a missing multi-colour list, and solid type `1` for a missing type. Existing
+stored racks with only a HEX colour normalize to these solid native fields at
+the preference boundary. Internal rack commands require the complete fields.
+The rack never records a Preset Editor runtime draft or its overrides. Restoring a
 remembered rack is always followed by native compatibility normalization. A
 compatible restored source is retained; a missing or incompatible source is
 replaced using the selected Printer's corresponding default filament profile,
@@ -120,6 +127,44 @@ loaded in that slot.
 
 Colour editing does not edit or create a filament preset. It changes the
 project/session slot only.
+
+### Native multi-colour projection
+
+The slot snapshot retains `colour.effective` as the representative colour used
+by existing single-colour consumers. It also exposes the exact project-array
+entries for `filament_colour`, `filament_multi_colour`, and
+`filament_colour_type` as `colour.native.representative`, `multi_colour`, and
+`type`. A missing entry is `null`, distinct from an empty string; reading a
+snapshot never repairs or rewrites the project config. The typed client maps
+`multi_colour` to `multiColour` without changing the stored value.
+
+The separate `colour.display` projection contains ordered HEX colours and a
+`solid`, `multicolor`, or `gradient` mode. Native type `0` with two or more
+valid colours means a gradient; type `1` with two or more means partitioned
+multi-colour. Invalid tokens, unknown or missing types, and fewer than two
+colours display as a solid representative. If the representative is invalid,
+the display falls back to `#26A69A`. These display fallbacks leave the raw
+project entries intact, including values that a future native version might
+understand. The typed client requires complete wire fields and validates the
+display shape and HEX tokens. The display order remains the native list order;
+visual sorting, if wanted, belongs solely to the future swatch component.
+
+Slot transitions keep the three project colour arrays aligned. The Neo bridge
+restores existing raw entries after Orca's native slot resizer, which otherwise
+replaces each `filament_multi_colour` entry with its representative. Adding a
+slot retains every existing colour entry and initializes only the new slot as
+solid. Deleting or merging removes the source entry at the same index as the
+native slot; a merge retains the destination entry. A compatible Printer
+transition retains the complete current colour entry when the preset and
+representative still match that slot; a changed source or representative starts
+with a solid entry using the selected colour. Preset changes likewise retain a
+user's full colour override even when its representative matches the old
+preset. History restoration preserves the arrays when only the rack root
+changes and the project-config root is unchanged. An explicit solid edit
+writes the representative and one-colour list with type `1`. An explicit
+gradient edit writes its first endpoint as the representative, its two ordered
+endpoints as the list, and type `0`. Both edits are one atomic native history
+operation; rejected edits leave the prior three fields intact.
 
 ## 6. Architectural Boundary
 
@@ -282,6 +327,25 @@ minus and plus buttons sit above the grid at the right; minus removes the last
 slot using the existing reference-impact confirmation. Electron and Web render
 the same component and command model.
 
+Colour blocks use the native filament-session display projection. Solid slots
+show one colour, dual and multi-colour slots show equal hard-edged partitions
+in source order, and gradient slots interpolate continuously through their
+ordered colours. The rack keeps two columns of 24px-high rows: each colour
+fills a 24px square with rounded outer-left corners, no inset border, and a
+straight edge against the dark preset name field; the small dark dropdown
+remains at the right. Existing row layout and hover behaviour remain unchanged.
+The slot number retains the original direct text styling and
+representative-colour luminance contrast rule. The colour block
+tooltip names the mode and complete colour sequence. The slot editor uses the
+shared opaque solid or two-endpoint gradient picker. Imported dual/multi-colour
+partitions and gradients with extra stops open as a draft from their first and
+last displayed colours. Cancel leaves all raw metadata untouched; Confirm commits a
+two-endpoint gradient and discards intermediate colours and the partition type,
+even when those endpoints were not changed in the draft. An unchanged canonical
+solid or two-endpoint gradient does not create a mutation. A change to any slot
+colour metadata closes an open draft. Model and toolpath rendering continue to
+use the representative colour.
+
 Add, Delete, and other commands are enabled from the capability fields in the
 Worker-provided filament-session snapshot. The UI does not infer device type
 or native slot-count constraints.
@@ -307,6 +371,9 @@ Filament assignment is available through both native-style entry points:
 Both entry points dispatch the same typed atomic command and produce the same
 history entry. The context menu does not maintain a separate selection or
 assignment model.
+The assignment cell and both assignment menus reuse the same native slot
+display swatch. MMU painting filament choices also show that swatch; painting
+geometry and its cursor continue to use the slot's representative colour.
 
 ### 9.3 Prepare viewport colour
 
@@ -663,7 +730,8 @@ The selected printer has a versioned remembered-rack preference used only to
 seed a new project or a session without explicit project slot state. The live
 project remains authoritative while it is open.
 
-The remembered rack always mirrors the current effective filament session:
+The remembered rack mirrors the current filament session's effective colours
+and unmodified native colour metadata:
 
 - a successful explicit slot preset, colour, Add, Delete, or Merge with
   operation writes the resulting projection;
@@ -761,6 +829,15 @@ The deterministic fixture set covers at least:
 - Add through 64 slots, rejection of slot 65, complete 64-slot matrix and 3MF
   persistence, and Delete/Merge remapping at the first, middle, and last slot;
 - imported painting and per-layer colour/tool-change preservation and remap;
+- imported solid, partitioned multi-colour, and ordered gradient metadata
+  retained through snapshots, slot transitions, remembered racks, Printer
+  transitions, 3MF export/reopen, and Undo/Redo; explicit editing validates
+  opaque endpoints, converts partitions or extra stops only on confirmation,
+  and rolls back all three native colour fields on rejection;
+- shared rack and assignment swatches render partitions and gradients while
+  model/toolpath colours retain the representative; focused Electron and both
+  real Web runtime variants verify browser storage, reload, and first/last
+  endpoint editing;
 - imported custom flushing-matrix preservation followed by automatic
   replacement after the first flushing-input edit;
 - Prepare-only estimated prime-tower proxies for every eligible plate,

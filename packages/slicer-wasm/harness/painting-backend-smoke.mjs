@@ -273,7 +273,7 @@ slotCommand('orc_add_filament_slot');
 let identical = slotSnapshot();
 for (const slot of identical.slots.slice(1)) {
   slotCommand('orc_select_filament_slot_preset', { slot: slot.slot, preset: identical.slots[0].preset.name });
-  slotCommand('orc_set_filament_slot_colour', { slot: slot.slot, colour: identical.slots[0].colour.effective });
+  slotCommand('orc_set_filament_slot_colour', { slot: slot.slot, colour: { kind: 'solid', color: identical.slots[0].colour.effective } });
 }
 identical = slotSnapshot();
 const ids = identical.slots.map(slot => slot.logical_id);

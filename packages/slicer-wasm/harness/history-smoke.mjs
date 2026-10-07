@@ -1411,7 +1411,7 @@ for (const [key, value, preservesUsage] of [
   }
 }
 for (const [operation, payload] of [
-  ['orc_set_filament_slot_colour', { slot: 1, colour: '#123456' }],
+  ['orc_set_filament_slot_colour', { slot: 1, colour: { kind: 'solid', color: '#123456' } }],
   ['orc_set_filament_routing', { selector: 'support-base', slot: 1, targets: [{ kind: 'project', id: 0 }] }],
   ['orc_set_filament_routing', { selector: 'support-interface', slot: 1, targets: [{ kind: 'object', id: usageObjectId }] }],
 ]) {

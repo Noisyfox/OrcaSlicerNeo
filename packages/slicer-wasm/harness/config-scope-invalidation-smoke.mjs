@@ -210,7 +210,7 @@ await slice(plateB);
 before = stamps();
 const filament = requireOk('filament snapshot', callJson('orc_get_filament_session_snapshot'));
 const filamentEdit = requireOk('filament colour edit', callJson('orc_set_filament_slot_colour', ['string'],
-  [JSON.stringify({ version: 1, revision: filament.revisions.session, slot: 1, colour: '#A1B2C3' })]));
+  [JSON.stringify({ version: 1, revision: filament.revisions.session, slot: 1, colour: { kind: 'solid', color: '#A1B2C3' } })]));
 after = stamps();
 expectScope('filament edit', before, after, [plateA, plateB, plateC], []);
 for (const plateId of [plateA, plateB, plateC]) requireStale(`plate stale after filament edit ${plateId}`, result(plateId));

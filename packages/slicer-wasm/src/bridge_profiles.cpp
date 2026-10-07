@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -95,7 +96,8 @@ void validate_profile_transition()
     // printer is selected, but that helper updates only the preset-name list.
     // Drive the canonical slot resizer at the final count so every project
     // slot array is aligned before flushing and session validation.
-    bundle.set_num_filaments(static_cast<unsigned int>(bundle.filament_presets.size()));
+    Filament::State::resize_slots_preserving_colours(
+        bundle, static_cast<unsigned int>(bundle.filament_presets.size()));
     for (const auto& name : bundle.filament_presets)
         if (name.empty() || bundle.filaments.find_preset(name, false, true) == nullptr)
             throw std::runtime_error("printer transition produced an incompatible filament rack");
@@ -124,7 +126,25 @@ struct RememberedSlot {
     std::string preset;
     std::string colour;
     bool retain_colour = false;
+    std::optional<std::string> multi_colour;
+    std::optional<std::string> colour_type;
 };
+
+void retain_matching_native_colour(RememberedSlot& slot, const ProfileTransitionState& previous,
+                                   std::size_t index)
+{
+    if (index >= previous.filament_presets.size() ||
+        slot.preset != previous.filament_presets[index]) return;
+    const auto* representatives = previous.project_config.opt<ConfigOptionStrings>("filament_colour");
+    if (representatives == nullptr || index >= representatives->values.size() ||
+        slot.colour != representatives->values[index]) return;
+    if (const auto* multi = previous.project_config.opt<ConfigOptionStrings>("filament_multi_colour");
+        multi != nullptr && index < multi->values.size())
+        slot.multi_colour = multi->values[index];
+    if (const auto* types = previous.project_config.opt<ConfigOptionStrings>("filament_colour_type");
+        types != nullptr && index < types->values.size())
+        slot.colour_type = types->values[index];
+}
 
 class EffectivePrinterDraftGuard {
 public:
@@ -544,7 +564,20 @@ json select_printer_with_remembered_rack_json(const json& request)
             const std::string name = slot["preset"].get<std::string>();
             if (Preset::remove_suffix_modified(name) != name)
                 return transition_error("invalid_request", "remembered filament preset name must be canonical");
-            slots.push_back({name, slot["colour"].get<std::string>(), true});
+            if (!slot.contains("native") || !slot["native"].is_object())
+                return transition_error("invalid_request", "remembered filament native colours are required");
+            const auto& native = slot["native"];
+            for (const char* key : {"representative", "multi_colour", "type"})
+                if (!native.contains(key) || (!native[key].is_null() && !native[key].is_string()))
+                    return transition_error("invalid_request", "remembered filament native colour is invalid");
+            const std::string representative = native["representative"].is_string()
+                ? native["representative"].get<std::string>() : slot["colour"].get<std::string>();
+            RememberedSlot remembered{name, representative, true};
+            if (native["multi_colour"].is_string())
+                remembered.multi_colour = native["multi_colour"].get<std::string>();
+            if (native["type"].is_string())
+                remembered.colour_type = native["type"].get<std::string>();
+            slots.push_back(std::move(remembered));
         }
         remembered_slots = std::move(slots);
     }
@@ -613,17 +646,21 @@ json select_printer_with_remembered_rack_json(const json& request)
                                      PresetSelectCompatibleType::Never);
 
             if (bundle.printers.get_edited_preset().printer_technology() == ptFFF) {
-                const auto* current_colours = bundle.project_config.opt<ConfigOptionStrings>("filament_colour");
+                const auto* current_colours = before_profiles.project_config.opt<ConfigOptionStrings>("filament_colour");
                 std::vector<RememberedSlot> slots;
                 if (remembered_slots.has_value()) {
                     slots = *remembered_slots;
                 } else {
                     slots.reserve(bundle.filament_presets.size());
                     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
-                        const std::string colour = current_colours != nullptr && index < current_colours->values.size()
+                        const bool same_previous_source = index < before_profiles.filament_presets.size() &&
+                            bundle.filament_presets[index] == before_profiles.filament_presets[index];
+                        const std::string colour = same_previous_source && current_colours != nullptr && index < current_colours->values.size()
                             ? current_colours->values[index]
                             : effective_filament_default_colour(bundle, bundle.filament_presets[index]);
                         slots.push_back({bundle.filament_presets[index], colour, true});
+                        if (same_previous_source)
+                            retain_matching_native_colour(slots.back(), before_profiles, index);
                     }
                 }
                 if (slots.empty()) throw std::runtime_error("Printer transition has no filament slots");
@@ -635,7 +672,7 @@ json select_printer_with_remembered_rack_json(const json& request)
 
                 // Resize while the old rack still contains valid catalog
                 // names; set_num_filaments invokes Orca's native rack sizing.
-                bundle.set_num_filaments(static_cast<unsigned int>(final_count));
+                Filament::State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(final_count));
                 while (slots.size() < final_count) {
                     const std::size_t index = slots.size();
                     const std::string name = index < bundle.filament_presets.size()
@@ -655,8 +692,10 @@ json select_printer_with_remembered_rack_json(const json& request)
 
                 auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
                 auto* multi_colours = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true);
+                auto* colour_types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true);
                 colours->values.resize(bundle.filament_presets.size(), "#26A69A");
                 multi_colours->values.resize(bundle.filament_presets.size(), "#26A69A");
+                colour_types->values.resize(bundle.filament_presets.size(), "1");
                 for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
                     const bool same_source = index < slots.size() &&
                         slots[index].preset == bundle.filament_presets[index];
@@ -664,7 +703,10 @@ json select_printer_with_remembered_rack_json(const json& request)
                         ? slots[index].colour
                         : effective_filament_default_colour(bundle, bundle.filament_presets[index]);
                     colours->values[index] = colour;
-                    multi_colours->values[index] = colour;
+                    multi_colours->values[index] = same_source && slots[index].retain_colour && slots[index].multi_colour
+                        ? *slots[index].multi_colour : colour;
+                    colour_types->values[index] = same_source && slots[index].retain_colour && slots[index].colour_type
+                        ? *slots[index].colour_type : "1";
                 }
             }
 

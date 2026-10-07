@@ -146,7 +146,7 @@ assert.equal(assignmentCommit.undoEntries.length, assignmentHistoryBefore.undoEn
 filament = callJson('orc_get_filament_session_snapshot');
 const colourHistoryBefore = callJson('orc_history_status');
 const colour = request('orc_set_filament_slot_colour', {
-  version: 1, revision: filament.revisions.session, slot: 2, colour: '#121212',
+  version: 1, revision: filament.revisions.session, slot: 2, colour: { kind: 'solid', color: '#121212' },
 });
 assert.equal(colour.ok, true, JSON.stringify(colour));
 const colourCommit = callJson('orc_history_status');

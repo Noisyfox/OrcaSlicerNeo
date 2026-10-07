@@ -1137,6 +1137,19 @@ export interface ReadLogResult {
  */
 export type FilamentColourProvenance = 'preset' | 'user';
 
+/** Exact per-slot project array entries. Null means the native entry is absent. */
+export interface FilamentNativeColour {
+  readonly representative: string | null;
+  readonly multiColour: string | null;
+  readonly type: string | null;
+}
+
+/** Native display interpretation, separate from the unmodified project values. */
+export interface FilamentColourDisplay {
+  readonly mode: 'solid' | 'multicolor' | 'gradient';
+  readonly colors: readonly string[];
+}
+
 /** One ordered, one-based material slot owned by the native session. */
 export interface FilamentSessionSlot {
   /** Opaque runtime identity restored with native history, never persisted to 3MF. */
@@ -1146,6 +1159,8 @@ export interface FilamentSessionSlot {
   readonly colour: {
     readonly effective: string;
     readonly provenance: FilamentColourProvenance;
+    readonly native: FilamentNativeColour;
+    readonly display: FilamentColourDisplay;
   };
 }
 
@@ -1252,7 +1267,7 @@ export interface FilamentMutationSummary {
   readonly source?: number;
   readonly destination?: number | null;
   readonly preset?: string;
-  readonly colour?: string;
+  readonly colour?: FilamentSlotColourValue;
   readonly slotCount?: number;
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
@@ -1282,9 +1297,13 @@ export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
   readonly preset: string;
 }
 
+export type FilamentSlotColourValue =
+  | { readonly kind: 'solid'; readonly color: string }
+  | { readonly kind: 'linear-gradient'; readonly start: string; readonly end: string };
+
 export interface FilamentSlotColourRequest extends FilamentCommandRequest {
   readonly slot: number;
-  readonly colour: string;
+  readonly colour: FilamentSlotColourValue;
 }
 
 export interface FilamentSlotDeleteRequest extends FilamentCommandRequest {
@@ -1297,13 +1316,19 @@ export interface FilamentSlotMergeRequest extends FilamentCommandRequest {
 }
 
 export interface RememberedFilamentRackRequest extends FilamentCommandRequest {
-  readonly slots: readonly { preset: string; colour: string }[];
+  readonly slots: readonly RememberedFilamentSlot[];
+}
+
+export interface RememberedFilamentSlot {
+  readonly preset: string;
+  readonly colour: string;
+  readonly native: { readonly representative: string | null; readonly multiColour: string | null; readonly type: string | null };
 }
 
 /** Durable rack preference supplied to an explicit Printer selection. */
 export interface RememberedFilamentRackPreference {
   readonly version: 1;
-  readonly slots: readonly { readonly preset: string; readonly colour: string }[];
+  readonly slots: readonly RememberedFilamentSlot[];
 }
 
 export interface PrinterTransitionMutationReceipt {

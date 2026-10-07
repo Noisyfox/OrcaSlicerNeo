@@ -50,3 +50,55 @@ test('Web color favorites survive reload and preserve hidden alpha/gradient entr
   await expect.poll(async () => (await stored()).colorPicker.favorites).toEqual(hidden);
   expect((await stored()).ui.sidebarWidth).toBe(320);
 });
+
+test('Web converts imported multicolour to edited gradient across local storage and reload', async ({ page }) => {
+  const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
+  const original = { representative: '#998877', multiColour: '#112233 #abcdef #445566', type: '1' };
+  await page.addInitScript(({ printer, original }) => {
+    if (!localStorage.getItem('orca-slicer-neo:preferences')) localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+      version: 1, selectedProfiles: { printer, print: '0.20mm Standard @BBL X1C' },
+      rememberedFilamentRacks: { [printer]: { version: 1, slots: [
+        { preset: 'Generic PLA @System', colour: '#998877', native: original },
+      ] } },
+    }));
+  }, { printer, original });
+  const native = () => page.evaluate((printer) => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!)
+    .rememberedFilamentRacks[printer].slots[0].native, printer);
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
+    expect(await page.evaluate(() => crossOriginIsolated)).toBe(false);
+    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial wasm64 fallback');
+  } else {
+    expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+    await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
+  }
+  await page.locator('#app-tab-prepare').click();
+  const trigger = page.getByTestId('filament-colour-1');
+  await expect(trigger).toHaveCSS('background-image', /rgb\(17, 34, 51\).*rgb\(171, 205, 239\).*rgb\(68, 85, 102\)/);
+  await trigger.click();
+  await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('112233');
+  await page.getByRole('tab', { name: 'End' }).click();
+  await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('445566');
+  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#778899');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await native()).toEqual(original);
+  await page.reload();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(trigger).toHaveCSS('background-image', /rgb\(171, 205, 239\)/);
+  await trigger.click();
+  await page.getByRole('tab', { name: 'Start' }).click();
+  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#224466');
+  await page.getByRole('tab', { name: 'End' }).click();
+  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#778899');
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(34, 68, 102\), rgb\(119, 136, 153\)\)/);
+  await expect.poll(native).toEqual({ representative: '#224466', multiColour: '#224466 #778899', type: '0' });
+  await page.reload();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(34, 68, 102\), rgb\(119, 136, 153\)\)/);
+  expect(await native()).toEqual({ representative: '#224466', multiColour: '#224466 #778899', type: '0' });
+});

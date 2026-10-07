@@ -30,7 +30,9 @@ export function rememberedRackFromSnapshot(snapshot: FilamentSessionSnapshot): R
     version: 1,
     slots: snapshot.slots.map((slot) => ({
       preset: slot.preset.name,
-      colour: slot.colour.effective,
+      colour: /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(slot.colour.effective)
+        ? slot.colour.effective : slot.colour.display.colors.find((value) => /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(value)) ?? '#26A69A',
+      native: { ...slot.colour.native },
     })),
   };
 }

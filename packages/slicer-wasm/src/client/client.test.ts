@@ -13,6 +13,12 @@ function makeClient() {
   return createClient(async () => createMockModule());
 }
 
+function wireColour(effective: string, provenance: 'preset' | 'user' = 'preset') {
+  return { effective, provenance,
+    native: { representative: effective, multi_colour: effective, type: '1' },
+    display: { mode: 'solid', colors: [effective] } };
+}
+
 describe('SlicerClient bridge contract', () => {
   const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,
     context: { selection: { mode: 'object' as const, objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} } };
@@ -240,7 +246,9 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot.slots).toEqual([{
       logicalId: 'filament-1', slot: 1,
       preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
-      colour: { effective: '#F2754E', provenance: 'preset' },
+      colour: { effective: '#F2754E', provenance: 'preset',
+        native: { representative: '#F2754E', multiColour: '', type: '1' },
+        display: { mode: 'solid', colors: ['#F2754E'] } },
     }]);
     expect(snapshot.mappings).toEqual({ filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] });
     expect(snapshot.assignments.objects).toEqual([]);
@@ -303,8 +311,8 @@ describe('SlicerClient bridge contract', () => {
     const payload = {
       ok: true, version: 1,
       slots: [
-        { logical_id: 'filament-1', slot: 1, preset: { id: 'preset-a', name: 'preset-a' }, colour: { effective: '#26A69A', provenance: 'preset' } },
-        { logical_id: 'filament-2', slot: 2, preset: { id: 'preset-b', name: 'preset-b' }, colour: { effective: '#112233', provenance: 'user' } },
+        { logical_id: 'filament-1', slot: 1, preset: { id: 'preset-a', name: 'preset-a' }, colour: wireColour('#26A69A') },
+        { logical_id: 'filament-2', slot: 2, preset: { id: 'preset-b', name: 'preset-b' }, colour: wireColour('#112233', 'user') },
       ],
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'native' },
@@ -317,6 +325,48 @@ describe('SlicerClient bridge contract', () => {
       { colour: { effective: '#26A69A', provenance: 'preset' } },
       { colour: { effective: '#112233', provenance: 'user' } },
     ] });
+  });
+
+  it('preserves native colour fields and display interpretations without losing source order', async () => {
+    const module = createMockModule();
+    const pointer = Number(module.ccall('orc_get_filament_session_snapshot', 'number', [], []));
+    const wire = JSON.parse(module.UTF8ToString(pointer));
+    module._free(pointer);
+    wire.slots = [
+      { ...wire.slots[0], colour: { effective: '#FF0000', provenance: 'user',
+        native: { representative: '#FF0000', multi_colour: '#FF0000 #00FF00 #0000FF', type: '1' },
+        display: { mode: 'multicolor', colors: ['#FF0000', '#00FF00', '#0000FF'] } } },
+      { ...wire.slots[0], logical_id: 'filament-2', slot: 2,
+        colour: { effective: '#123456', provenance: 'user',
+          native: { representative: '#123456', multi_colour: '#123456 #ABCDEF', type: '0' },
+          display: { mode: 'gradient', colors: ['#123456', '#ABCDEF'] } } },
+      { ...wire.slots[0], logical_id: 'filament-3', slot: 3,
+        colour: { effective: '#345678', provenance: 'preset',
+          native: { representative: '#345678', multi_colour: '#345678 bad', type: 'future' },
+          display: { mode: 'solid', colors: ['#345678'] } } },
+    ];
+    wire.mappings.filament = [1, 1, 1]; wire.mappings.volume = [0, 0, 0];
+    wire.mappings.nozzle = [1, 1, 1]; wire.mappings.filament2 = [1, 1, 1];
+    wire.flushing.matrix = Array(9).fill(0); wire.flushing.matrix_dimension = 3;
+    wire.capabilities.can_delete = true; wire.capabilities.can_merge = true;
+    const result = await createClient(async () => createMockModule({ filamentSession: wire })).getFilamentSessionSnapshot();
+    if (!result.ok) throw new Error(result.error);
+    expect(result.slots.map((slot) => slot.colour.display)).toEqual([
+      { mode: 'multicolor', colors: ['#FF0000', '#00FF00', '#0000FF'] },
+      { mode: 'gradient', colors: ['#123456', '#ABCDEF'] },
+      { mode: 'solid', colors: ['#345678'] },
+    ]);
+    expect(result.slots[2].colour.native).toEqual({ representative: '#345678', multiColour: '#345678 bad', type: 'future' });
+    expect(wire.slots[2].colour.native).toEqual({ representative: '#345678', multi_colour: '#345678 bad', type: 'future' });
+    const absent = structuredClone(wire);
+    absent.slots[2].colour.native = { representative: null, multi_colour: null, type: null };
+    const absentResult = await createClient(async () => createMockModule({ filamentSession: absent })).getFilamentSessionSnapshot();
+    if (!absentResult.ok) throw new Error(absentResult.error);
+    expect(absentResult.slots[2].colour.native).toEqual({ representative: null, multiColour: null, type: null });
+    const incomplete = structuredClone(wire);
+    delete incomplete.slots[0].colour.native.multi_colour;
+    await expect(createClient(async () => createMockModule({ filamentSession: incomplete })).getFilamentSessionSnapshot())
+      .resolves.toEqual({ ok: false, error: 'invalid filament session slots' });
   });
 
   it('executes atomic filament commands and rejects stale or injected mutations without changing the snapshot', async () => {
@@ -337,7 +387,7 @@ describe('SlicerClient bridge contract', () => {
     } } });
     if (!added.ok) throw new Error(added.error);
     expect(added.result.snapshot.slots).toHaveLength(2);
-    const edited = await c.setFilamentSlotColour({ version: 1, revision: added.result.snapshot.revisions.session, slot: 2, colour: '#112233' });
+    const edited = await c.setFilamentSlotColour({ version: 1, revision: added.result.snapshot.revisions.session, slot: 2, colour: { kind: 'solid', color: '#112233' } });
     expect(edited).toMatchObject({ ok: true, result: { snapshot: { slots: [
       {}, { colour: { effective: '#112233', provenance: 'user' } },
     ] } } });
@@ -351,24 +401,60 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
   });
 
+  it('commits a complete gradient colour and rejects the former string command', async () => {
+    const client = makeClient();
+    const before = await client.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const old = await client.setFilamentSlotColour({ version: 1, revision: before.revisions.session,
+      slot: 1, colour: '#112233' } as never);
+    expect(old).toMatchObject({ ok: false, errorCode: 'native_validation_failure' });
+    expect(await client.getFilamentSessionSnapshot()).toEqual(before);
+    const colour = { kind: 'linear-gradient' as const, start: '#112233', end: '#445566' };
+    const result = await client.setFilamentSlotColour({ version: 1, revision: before.revisions.session, slot: 1, colour });
+    expect(result).toMatchObject({ ok: true, result: { mutation: { kind: 'set-colour', colour }, snapshot: {
+      slots: [{ colour: { effective: '#112233', native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
+        display: { mode: 'gradient', colors: ['#112233', '#445566'] } } }],
+    } } });
+    if (!result.ok) throw new Error(result.error);
+    await expect(client.setFilamentSlotColour({ version: 1, revision: before.revisions.session, slot: 1, colour }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+  });
+
   it('applies a remembered rack as a revision-fenced session baseline', async () => {
     const c = makeClient();
     const before = await c.getFilamentSessionSnapshot();
     if (!before.ok) throw new Error(before.error);
     const applied = await c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
       slots: [
-        { preset: 'Generic PLA @System', colour: '#112233' },
-        { preset: 'Generic PETG @System', colour: '#445566' },
+        { preset: 'Generic PLA @System', colour: '#112233', native: { representative: '#112233', multiColour: '#ff0000 #00ff00', type: '0' } },
+        { preset: 'Generic PETG @System', colour: '#445566', native: { representative: '#445566', multiColour: '#445566', type: '1' } },
       ] });
     expect(applied).toMatchObject({ ok: true, slots: [
-      { slot: 1, preset: { name: 'Generic PLA @System' }, colour: { effective: '#112233', provenance: 'user' } },
+      { slot: 1, preset: { name: 'Generic PLA @System' }, colour: { effective: '#112233', provenance: 'user',
+        native: { representative: '#112233', multiColour: '#ff0000 #00ff00', type: '0' },
+        display: { mode: 'gradient', colors: ['#ff0000', '#00ff00'] } } },
       { slot: 2, preset: { name: 'Generic PETG @System' }, colour: { effective: '#445566', provenance: 'user' } },
     ] });
     if (!applied.ok) throw new Error(applied.error);
     await expect(c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
-      slots: [{ preset: 'Generic PLA @System', colour: '#112233' }] }))
+      slots: [{ preset: 'Generic PLA @System', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] }))
       .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(applied);
+  });
+
+  it('keeps unknown remembered raw metadata and a safe display fallback', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const applied = await c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
+      slots: [{ preset: 'Generic PLA @System', colour: '#112233', native: {
+        representative: 'unparsed', multiColour: '#112233 invalid', type: 'future',
+      } }],
+    });
+    expect(applied).toMatchObject({ ok: true, slots: [{ colour: {
+      effective: 'unparsed', native: { representative: 'unparsed', multiColour: '#112233 invalid', type: 'future' },
+      display: { mode: 'solid', colors: ['#26A69A'] },
+    } }] });
   });
 
   it('keeps the filament command fence stable without standalone context history', async () => {
@@ -388,7 +474,8 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const toWire = (snapshot: typeof base) => ({ ...snapshot,
-      slots: snapshot.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId })),
+      slots: snapshot.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId,
+        colour: { ...slot.colour, native: { ...slot.colour.native, multi_colour: slot.colour.native.multiColour } } })),
       mappings: { ...snapshot.mappings, physical_extruder: snapshot.mappings.physicalExtruder },
       flushing: { ...snapshot.flushing, matrix_dimension: snapshot.flushing.matrixDimension, plane_count: snapshot.flushing.planeCount },
       capabilities: { min_slots: snapshot.capabilities.minSlots, max_slots: snapshot.capabilities.maxSlots,
@@ -517,7 +604,7 @@ describe('SlicerClient bridge contract', () => {
   it('remaps middle merge and preserves destination colour in the atomic client contract', async () => {
     const payload = {
       ok: true, version: 1,
-      slots: [1, 2, 3].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: `#00000${slot}`, provenance: slot === 2 ? 'user' : 'preset' } })),
+      slots: [1, 2, 3].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: wireColour(`#00000${slot}`, slot === 2 ? 'user' : 'preset') })),
       mappings: { filament: [1, 1, 1], volume: [0, 0, 0], nozzle: [1, 1, 1], filament2: [1, 1, 1], physical_extruder: [0] },
       flushing: { matrix: Array(9).fill(0), vector: [], matrix_dimension: 3, plane_count: 1, source: 'native' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -534,7 +621,7 @@ describe('SlicerClient bridge contract', () => {
   it('rejects a flush plane count that does not match native nozzle count', async () => {
     const payload = {
       ok: true, version: 1,
-      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: wireColour('#000000') })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0, 0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 2, source: 'native' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -552,7 +639,7 @@ describe('SlicerClient bridge contract', () => {
   ])('rejects %s native slot ordering without sorting', async (_label, slots) => {
     const payload = {
       ok: true, version: 1, slots: slots.map((entry, index) => ({ ...entry, logical_id: `filament-${index}`,
-        preset: { id: 'p', name: 'p' }, colour: { effective: '#000000', provenance: 'preset' } })),
+        preset: { id: 'p', name: 'p' }, colour: wireColour('#000000') })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
       flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'default' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
@@ -567,7 +654,7 @@ describe('SlicerClient bridge contract', () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const withSlots = (capabilities: Record<string, unknown>) => ({ ...base,
-      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      slots: [1, 2].map((slot) => ({ logical_id: `filament-${slot}`, slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: wireColour('#000000') })),
       mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: (capabilities.nozzle_count === 2 ? [0, 1] : [0]) },
       flushing: { matrix: Array.from({ length: 4 * Number(capabilities.nozzle_count) }, () => 0), vector: [], matrix_dimension: 2,
         plane_count: Number(capabilities.nozzle_count), source: 'default' },
@@ -591,7 +678,8 @@ describe('SlicerClient bridge contract', () => {
     const base = await c.getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);
     const payload = { ...base,
-      slots: base.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId })),
+      slots: base.slots.map(({ logicalId, ...slot }) => ({ ...slot, logical_id: logicalId,
+        colour: { ...slot.colour, native: { ...slot.colour.native, multi_colour: slot.colour.native.multiColour } } })),
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: false, can_merge: false },
@@ -1022,7 +1110,7 @@ describe('SlicerClient bridge contract', () => {
     const c = makeClient();
     const before = await c.getHistoryStatus();
     const result = await c.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', {
-      version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456' }],
+      version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456', native: { representative: '#123456', multiColour: '#123456', type: '1' } }],
     }, 'High Temp Plate');
     expect(result).toMatchObject({
       ok: true,

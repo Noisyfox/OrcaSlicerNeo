@@ -14,8 +14,8 @@ function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): Filamen
   return {
     ok: true, version: 1,
     slots: [
-      { logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' } },
-      { logicalId: 'filament-2', slot: 2, preset: { id: 'petg', name: 'PETG' }, colour: { effective: '#445566', provenance: 'user' } },
+      { logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
+      { logicalId: 'filament-2', slot: 2, preset: { id: 'petg', name: 'PETG' }, colour: { effective: '#445566', provenance: 'user', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
     ],
     mappings: { filament: [1, 2], volume: [0, 0], nozzle: [1, 2], filament2: [1, 2], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
@@ -92,10 +92,58 @@ describe('FilamentRack runtime interaction', () => {
     useProjectStore.getState().reset();
   });
 
+  it('shows native partition order and a continuous gradient with original direct slot numbers', async () => {
+    const initial = makeSnapshot();
+    const slots = initial.slots.map((slot) => slot.slot === 1
+      ? { ...slot, colour: { ...slot.colour, display: { mode: 'multicolor' as const, colors: ['#000000', '#ffffff', '#ff0000'] } } }
+      : { ...slot, colour: { ...slot.colour, effective: '#ffffff', display: { mode: 'gradient' as const, colors: ['#ffffff', '#000000'] } } });
+    const snapshot = makeSnapshot({ slots });
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot) }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const partition = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    const gradient = rendered.container.querySelector('[data-testid="filament-colour-2"]') as HTMLButtonElement;
+    expect(partition.style.backgroundImage).toContain('#000000 0%, #000000 33.33333333333333%');
+    expect(partition.style.backgroundImage).toContain('#ffffff 33.33333333333333%, #ffffff 66.66666666666666%');
+    expect(gradient.style.backgroundImage).toContain('linear-gradient(90deg, #ffffff, #000000)');
+    expect(partition.childNodes).toHaveLength(1);
+    expect(partition.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    expect(partition.textContent).toBe('1');
+    expect(partition.style.color).toBe('rgb(255, 255, 255)');
+    expect(gradient.childNodes).toHaveLength(1);
+    expect(gradient.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    expect(gradient.textContent).toBe('2');
+    expect(gradient.style.color).toBe('rgb(23, 23, 23)');
+    expect(gradient.title).toContain('Gradient: #ffffff → #000000');
+  });
+
+  it('normalizes only the button value for imported uppercase opaque RGBA', async () => {
+    const initial = makeSnapshot();
+    const imported = { ...initial.slots[0], colour: { ...initial.slots[0].colour,
+      effective: '#E72F1DFF',
+      native: { representative: '#E72F1DFF', multiColour: '#E72F1DFF', type: '1' },
+      display: { mode: 'solid' as const, colors: ['#E72F1DFF'] },
+    } };
+    const snapshot = makeSnapshot({ slots: [imported, initial.slots[1]] });
+    const setColour = vi.fn();
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    expect(trigger.value).toBe('#e72f1d');
+    expect(trigger.title).toBe('Solid: #E72F1DFF');
+    expect(trigger.style.backgroundColor).toMatch(/231, 47, 29/);
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native).toEqual(imported.colour.native);
+    await act(async () => trigger.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Cancel')!.click());
+    expect(setColour).not.toHaveBeenCalled();
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native).toEqual(imported.colour.native);
+  });
+
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({
-      slots: [...initial.slots, { logicalId: 'filament-3', slot: 3, preset: { id: 'abs', name: 'ABS' }, colour: { effective: '#778899', provenance: 'preset' } }],
+      slots: [...initial.slots, { logicalId: 'filament-3', slot: 3, preset: { id: 'abs', name: 'ABS' }, colour: { effective: '#778899', provenance: 'preset', native: { representative: '#778899', multiColour: '#778899', type: '1' }, display: { mode: 'solid' as const, colors: ['#778899'] } } }],
       revisions: { ...initial.revisions, session: 5 },
     });
     const add = vi.fn(async () => mutation(returned));
@@ -127,7 +175,7 @@ describe('FilamentRack runtime interaction', () => {
   it('keeps dialog color drafts local and commits one confirmed mutation', async () => {
     const initial = makeSnapshot();
     const returned = makeSnapshot({
-      slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#445566', provenance: 'user' as const } } : slot),
+      slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#445566', provenance: 'user' as const, native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } } : slot),
       revisions: { ...initial.revisions, session: 5, project: 5 },
     });
     const setColour = vi.fn(async () => mutation(returned, 'set-colour'));
@@ -144,7 +192,7 @@ describe('FilamentRack runtime interaction', () => {
     await editColor('#445566');
     await confirmColor();
     expect(setColour).toHaveBeenCalledTimes(1);
-    expect(setColour).toHaveBeenCalledWith({ version: 1, revision: 4, slot: 1, colour: '#445566' });
+    expect(setColour).toHaveBeenCalledWith({ version: 1, revision: 4, slot: 1, colour: { kind: 'solid', color: '#445566' } });
     expect(useFilamentSessionStore.getState().snapshot?.revisions.project).toBe(5);
   });
 
@@ -159,7 +207,7 @@ describe('FilamentRack runtime interaction', () => {
     await editColor('#223344');
     expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')!.value).toBe('223344');
     await act(async () => {
-      useFilamentSessionStore.setState({ snapshot: makeSnapshot({ slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#abcdef', provenance: 'user' as const } } : slot) }) });
+      useFilamentSessionStore.setState({ snapshot: makeSnapshot({ slots: initial.slots.map((slot) => slot.slot === 1 ? { ...slot, colour: { effective: '#abcdef', provenance: 'user' as const, native: { representative: '#abcdef', multiColour: '#abcdef', type: '1' }, display: { mode: 'solid' as const, colors: ['#abcdef'] } } } : slot) }) });
     });
     expect(input.value).toBe('#abcdef');
     expect(document.querySelector('input[aria-label="HEX color"]')).toBeNull();
@@ -176,6 +224,87 @@ describe('FilamentRack runtime interaction', () => {
     await act(async () => input.click());
     await confirmColor();
     expect(setColour).not.toHaveBeenCalled();
+  });
+
+  it('cancels imported multicolor unchanged, then confirms its first and last colours as a gradient', async () => {
+    const initial = makeSnapshot();
+    const source = initial.slots[0];
+    const imported = { ...source, colour: { ...source.colour,
+      native: { representative: '#112233', multiColour: '#112233 #abcdef #445566', type: '1' },
+      display: { mode: 'multicolor' as const, colors: ['#112233', '#abcdef', '#445566'] },
+    } };
+    const snapshot = makeSnapshot({ slots: [imported, initial.slots[1]] });
+    const returned = makeSnapshot({ slots: [{ ...imported, colour: { ...imported.colour,
+      native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
+      display: { mode: 'gradient' as const, colors: ['#112233', '#445566'] },
+    } }, initial.slots[1]], revisions: { ...snapshot.revisions, session: 5, project: 5 } });
+    const setColour = vi.fn(async () => mutation(returned, 'set-colour'));
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    await act(async () => trigger.click());
+    expect(document.querySelector('[role="tab"][aria-label="Start"]')).not.toBeNull();
+    await act(async () => (document.querySelector('[role="tab"][aria-label="End"]') as HTMLButtonElement).click());
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="HEX color"]')?.value).toBe('445566');
+    await act(async () => (document.querySelector('button') && [...document.querySelectorAll('button')].find((button) => button.textContent === 'Cancel'))?.click());
+    expect(setColour).not.toHaveBeenCalled();
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native.multiColour).toBe('#112233 #abcdef #445566');
+    await act(async () => trigger.click());
+    await confirmColor();
+    expect(setColour).toHaveBeenCalledWith({ version: 1, revision: 4, slot: 1,
+      colour: { kind: 'linear-gradient', start: '#112233', end: '#445566' } });
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native)
+      .toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
+  });
+
+  it('skips unchanged canonical gradients but closes a draft when only native metadata changes', async () => {
+    const initial = makeSnapshot();
+    const canonical = { ...initial.slots[0], colour: { ...initial.slots[0].colour,
+      native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
+      display: { mode: 'gradient' as const, colors: ['#112233', '#445566'] },
+    } };
+    const snapshot = makeSnapshot({ slots: [canonical, initial.slots[1]] });
+    const setColour = vi.fn();
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    await act(async () => trigger.click());
+    await confirmColor();
+    expect(setColour).not.toHaveBeenCalled();
+    await act(async () => trigger.click());
+    await act(async () => useFilamentSessionStore.setState({ snapshot: makeSnapshot({ slots: [
+      { ...canonical, colour: { ...canonical.colour, native: { ...canonical.colour.native, multiColour: '#112233 #abcdef #445566' } } },
+      initial.slots[1],
+    ] }) }));
+    expect(document.querySelector('input[aria-label="HEX color"]')).toBeNull();
+  });
+
+  it('confirms a three-stop gradient with unchanged endpoints and corrects its representative', async () => {
+    const initial = makeSnapshot();
+    const imported = { ...initial.slots[0], colour: { ...initial.slots[0].colour,
+      effective: '#998877',
+      native: { representative: '#998877', multiColour: '#112233 #abcdef #445566', type: '0' },
+      display: { mode: 'gradient' as const, colors: ['#112233', '#abcdef', '#445566'] },
+    } };
+    const snapshot = makeSnapshot({ slots: [imported, initial.slots[1]] });
+    const returned = makeSnapshot({ slots: [{ ...imported, colour: { ...imported.colour,
+      effective: '#112233',
+      native: { representative: '#112233', multiColour: '#112233 #445566', type: '0' },
+      display: { mode: 'gradient' as const, colors: ['#112233', '#445566'] },
+    } }, initial.slots[1]], revisions: { ...snapshot.revisions, session: 5, project: 5 } });
+    const setColour = vi.fn(async () => mutation(returned, 'set-colour'));
+    useFilamentSessionStore.setState({ snapshot });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => snapshot), setFilamentSlotColour: setColour }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const trigger = rendered.container.querySelector('[data-testid="filament-colour-1"]') as HTMLButtonElement;
+    await act(async () => trigger.click());
+    await confirmColor();
+    expect(setColour).toHaveBeenCalledExactlyOnceWith({ version: 1, revision: 4, slot: 1,
+      colour: { kind: 'linear-gradient', start: '#112233', end: '#445566' } });
+    expect(useFilamentSessionStore.getState().snapshot?.slots[0].colour.native)
+      .toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
   });
 
   it('cancels a referenced Delete without dispatching mutation or changing the snapshot', async () => {

@@ -43,7 +43,7 @@ const loadedHistoryStatus = {
 function filamentSnapshot(revision: number): FilamentSessionSnapshot {
   return {
     ok: true, version: 1,
-    slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset' } }],
+    slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
     mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
     capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -390,7 +390,7 @@ describe('transactional project actions', () => {
     runtime.getFilamentSessionSnapshot.mockResolvedValueOnce(beforeRack).mockResolvedValue(targetRack);
     runtime.applyRememberedFilamentRack.mockResolvedValue(targetRack);
     preferences.load.mockResolvedValue({ version: 1, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },
-      rememberedFilamentRacks: { 'System printer': { version: 1, slots: [{ preset: 'System PLA', colour: '#112233' }] } } } as UserPreferences);
+      rememberedFilamentRacks: { 'System printer': { version: 1, slots: [{ preset: 'System PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] } } } as UserPreferences);
     useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
     useProjectStore.getState().setProject({ scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' }, hasContent: true, dirty: true });
 
@@ -398,7 +398,7 @@ describe('transactional project actions', () => {
 
     expect(result.status).toBe('ok');
     expect(runtime.applyRememberedFilamentRack).toHaveBeenCalledWith({ version: 1, revision: 5,
-      slots: [{ preset: 'System PLA', colour: '#112233' }] });
+      slots: [{ preset: 'System PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] });
     expect(runtime.applyRememberedFilamentRack.mock.invocationCallOrder[0])
       .toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
     expect(runtime.resetHistory.mock.invocationCallOrder[0])

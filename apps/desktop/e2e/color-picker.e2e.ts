@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
+const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
-async function launch(preferences: string) {
-  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+async function launch(preferences: string, modelPath?: string) {
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences,
+    ...(modelPath ? { ORCA_E2E_MODEL: modelPath } : {}) } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   const page = await app.firstWindow();
@@ -18,6 +20,149 @@ async function launch(preferences: string) {
 async function editHex(page: Page, color: string) {
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill(color);
 }
+
+test('renders remembered gradient and partition swatches in the shared Prepare UI', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-swatches-'));
+  const preferences = join(dir, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
+    ui: { switchToDeviceAfterSend: true },
+    rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: '#111111', native: { representative: '#111111', multiColour: '#000000 #FFFFFF', type: '0' } },
+      { preset: 'Generic PLA @System', colour: '#ff0000', native: { representative: '#ff0000', multiColour: '#ff0000 #00ff00 #0000ff', type: '1' } },
+    ] } },
+  }));
+  const { app, page } = await launch(preferences, MODEL_PATH);
+  try {
+    const gradient = page.getByTestId('filament-colour-1');
+    const partitions = page.getByTestId('filament-colour-2');
+    await expect(partitions).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const dimensions = (selector: string) => {
+        const element = document.querySelector(selector)!;
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return { x: box.x, y: box.y, width: box.width, height: box.height,
+          border: style.borderWidth, clip: style.backgroundClip,
+          backgroundColor: style.backgroundColor,
+          topLeft: style.borderTopLeftRadius, bottomLeft: style.borderBottomLeftRadius,
+          topRight: style.borderTopRightRadius, bottomRight: style.borderBottomRightRadius,
+          directNumber: element.firstChild?.nodeType === Node.TEXT_NODE };
+      };
+      return {
+        row1: dimensions('[data-testid="filament-slot-1"]'),
+        row2: dimensions('[data-testid="filament-slot-2"]'),
+        colour: dimensions('[data-testid="filament-colour-1"]'),
+        preset: dimensions('[data-testid="filament-preset-1"]'),
+        arrow: dimensions('[data-testid="filament-preset-1"] .sidebar-dropdown-arrow'),
+      };
+    });
+    expect(geometry.row1.height).toBe(24);
+    expect(geometry.row2.y).toBe(geometry.row1.y);
+    expect(geometry.row2.x).toBeGreaterThan(geometry.row1.x + geometry.row1.width);
+    expect(geometry.colour).toMatchObject({ x: geometry.row1.x, y: geometry.row1.y,
+      width: 24, height: 24, border: '0px', clip: 'border-box',
+      topLeft: geometry.row1.topLeft, bottomLeft: geometry.row1.bottomLeft,
+      topRight: '0px', bottomRight: '0px', directNumber: true });
+    expect(geometry.preset).toMatchObject({ x: geometry.colour.x + geometry.colour.width,
+      y: geometry.row1.y, height: 24, topLeft: '0px', bottomLeft: '0px' });
+    expect(geometry.preset.topRight).not.toBe('0px');
+    expect(geometry.preset.bottomRight).not.toBe('0px');
+    expect(geometry.arrow).toMatchObject({ width: 20, height: 20 });
+    expect(geometry.arrow.x).toBeGreaterThan(geometry.preset.x);
+    expect(geometry.arrow.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    await expect.poll(() => gradient.evaluate((element) => getComputedStyle(element).backgroundImage))
+      .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
+    await expect.poll(() => partitions.evaluate((element) => getComputedStyle(element).backgroundImage))
+      .toContain('rgb(255, 0, 0) 0%, rgb(255, 0, 0) 33.3333');
+    expect(await gradient.evaluate((element) => element.firstChild?.nodeType)).toBe(3);
+    await expect(gradient).toHaveCSS('color', 'rgb(255, 255, 255)');
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('config-mode-scoped').click();
+    const cell = page.locator('[data-testid^="filament-cell-object-"]').first();
+    await expect(cell).toBeVisible();
+    await expect.poll(() => cell.evaluate((element) => getComputedStyle(element).backgroundImage))
+      .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
+    expect(await cell.evaluate((element) => element.querySelector('span'))).toBeNull();
+    await cell.click();
+    const partitionChoice = page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"][style]');
+    await expect(partitionChoice).toHaveCSS('background-image', /linear-gradient/);
+    await expect(partitionChoice).toHaveCSS('border-width', '1px');
+    await expect(partitionChoice).toHaveCSS('background-origin', 'border-box');
+    await expect(partitionChoice).toHaveCSS('background-repeat', 'no-repeat');
+    await page.keyboard.press('Escape');
+    const screenshot = join(dir, 'swatches.png');
+    await page.screenshot({ path: screenshot, fullPage: true });
+    await test.info().attach('gradient-swatches', { path: screenshot, contentType: 'image/png' });
+  } finally { await app.close(); }
+});
+
+test('red-to-white gradients fill bordered assignment swatches without wrapping the white end to the left', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-edge-'));
+  const preferences = join(dir, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
+    rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: '#00aaaa', native: { representative: '#00aaaa', multiColour: '#00aaaa', type: '1' } },
+      { preset: 'Generic PLA @System', colour: '#ff0000', native: { representative: '#ff0000', multiColour: '#ff0000 #ffffff', type: '0' } },
+    ] } },
+  }));
+  const { app, page } = await launch(preferences, MODEL_PATH);
+  try {
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('config-mode-scoped').click();
+    const cell = page.locator('[data-testid^="filament-cell-object-"]').first();
+    await cell.click();
+    await page.getByRole('option', { name: /^2 - / }).click();
+    await expect(cell).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(255, 0, 0\), rgb\(255, 255, 255\)\)/);
+    await cell.click();
+    const choice = page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"][style]');
+    await expect(choice).toBeVisible();
+    await expect(choice).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(255, 0, 0\), rgb\(255, 255, 255\)\)/);
+    const screenshot = join(dir, 'red-white-swatches.png');
+    await page.screenshot({ path: screenshot, fullPage: true });
+    await test.info().attach('red-white-gradient-edges', { path: screenshot, contentType: 'image/png' });
+    const choiceScreenshot = join(dir, 'red-white-option.png');
+    await choice.screenshot({ path: choiceScreenshot });
+    await test.info().attach('red-white-gradient-option', { path: choiceScreenshot, contentType: 'image/png' });
+    for (const swatch of [cell, choice]) {
+      await expect(swatch).toHaveCSS('border-width', '1px');
+      await expect(swatch).toHaveCSS('background-origin', 'border-box');
+      await expect(swatch).toHaveCSS('background-repeat', 'no-repeat');
+    }
+  } finally { await app.close(); }
+});
+
+test('imported partition edits as a two-endpoint gradient only after confirmation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-edit-'));
+  const preferences = join(dir, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
+    rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: '#998877', native: {
+        representative: '#998877', multiColour: '#112233 #abcdef #445566', type: '1',
+      } },
+    ] } },
+  }));
+  const { app, page } = await launch(preferences);
+  try {
+    const trigger = page.getByTestId('filament-colour-1');
+    await expect(trigger).toHaveCSS('background-image', /rgb\(17, 34, 51\).*rgb\(171, 205, 239\).*rgb\(68, 85, 102\)/);
+    await trigger.click();
+    await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('112233');
+    await page.getByRole('tab', { name: 'End' }).click();
+    await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('445566');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(trigger).toHaveCSS('background-image', /rgb\(171, 205, 239\)/);
+    await trigger.click();
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(17, 34, 51\), rgb\(68, 85, 102\)\)/);
+    await expect.poll(() => JSON.parse(readFileSync(preferences, 'utf8'))
+      .rememberedFilamentRacks['Bambu Lab X1 Carbon 0.4 nozzle'].slots[0].native)
+      .toEqual({ representative: '#112233', multiColour: '#112233 #445566', type: '0' });
+  } finally { await app.close(); }
+});
 
 test('color drafts commit once; shared favorites survive cancellation and an Electron restart', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'neo-color-picker-'));
@@ -79,7 +224,7 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     await page.getByRole('option', { name: 'Basic colors', exact: true }).click();
     await expect(popup).toBeVisible();
     await expect(page.getByRole('spinbutton', { name: 'Alpha value', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toHaveCount(0);
     const hexInput = page.getByRole('textbox', { name: 'HEX color', exact: true });
     await hexInput.fill('');
@@ -159,9 +304,10 @@ test('color drafts commit once; shared favorites survive cancellation and an Ele
     // Chromium only emits the native Shift+F10 contextmenu event on Windows/Linux.
     if (process.platform === 'darwin') await favorite.click({ button: 'right' });
     else await favorite.press('Shift+F10');
-    await expect(page.getByRole('menuitem', { name: 'Remove favorite', exact: true })).toBeVisible();
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('Enter');
+    const removeFavorite = page.getByRole('menuitem', { name: 'Remove favorite', exact: true });
+    await expect(removeFavorite).toBeVisible();
+    await removeFavorite.click();
+    await expect(favorite).toHaveCount(0);
     await expectSaved({ colorPicker: { favorites: hidden }, ui: { sidebarWidth: 320 } });
   } finally { await second.app.close(); }
 });
