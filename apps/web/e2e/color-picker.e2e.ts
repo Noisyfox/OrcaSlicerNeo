@@ -1,7 +1,7 @@
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 
-test('Web color favorites survive reload and preserve hidden alpha/gradient entries', async ({ page }) => {
+test('Web color favorites survive reload and expose alpha/gradient entries', async ({ page }) => {
   const hidden = [{ kind: 'solid', color: '#11223380' },
     { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' }];
   await page.addInitScript((favorites) => {
@@ -28,7 +28,7 @@ test('Web color favorites survive reload and preserve hidden alpha/gradient entr
       Math.abs(bounds.y - anchorBounds.y - anchorBounds.height),
       Math.abs(bounds.y + bounds.height - anchorBounds.y));
   }).toBeLessThan(10);
-  await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Favorite #11223380', exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#456789');
   await page.getByRole('button', { name: 'Add favorite color', exact: true }).click();
   await expect.poll(async () => (await stored()).colorPicker.favorites).toEqual([{ kind: 'solid', color: '#456789' }, ...hidden]);
@@ -53,7 +53,7 @@ test('Web color favorites survive reload and preserve hidden alpha/gradient entr
 
 test('Web converts imported multicolour to edited gradient across local storage and reload', async ({ page }) => {
   const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
-  const original = { representative: '#998877', multiColour: '#112233 #abcdef #445566', type: '1' };
+  const original = { representative: '#998877', multiColour: '#11223380 #abcdef #44556640', type: '1' };
   await page.addInitScript(({ printer, original }) => {
     if (!localStorage.getItem('orca-slicer-neo:preferences')) localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
       version: 1, selectedProfiles: { printer, print: '0.20mm Standard @BBL X1C' },
@@ -75,13 +75,13 @@ test('Web converts imported multicolour to edited gradient across local storage 
   }
   await page.locator('#app-tab-prepare').click();
   const trigger = page.getByTestId('filament-colour-1');
-  await expect(trigger).toHaveCSS('background-image', /rgb\(17, 34, 51\).*rgb\(171, 205, 239\).*rgb\(68, 85, 102\)/);
+  await expect(trigger).toHaveCSS('background-image', /rgba\(17, 34, 51, [\d.]+\).*rgb\(171, 205, 239\).*rgba\(68, 85, 102, [\d.]+\)/);
   await trigger.click();
   await expect(page.getByRole('tab', { name: 'Gradient', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('112233');
+  await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('11223380');
   await page.getByRole('tab', { name: 'End' }).click();
-  await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('445566');
-  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#778899');
+  await expect(page.getByRole('textbox', { name: 'HEX color', exact: true })).toHaveValue('44556640');
+  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#77889940');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await native()).toEqual(original);
   await page.reload();
@@ -90,15 +90,15 @@ test('Web converts imported multicolour to edited gradient across local storage 
   await expect(trigger).toHaveCSS('background-image', /rgb\(171, 205, 239\)/);
   await trigger.click();
   await page.getByRole('tab', { name: 'Start' }).click();
-  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#224466');
+  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#22446680');
   await page.getByRole('tab', { name: 'End' }).click();
-  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#778899');
+  await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#77889940');
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(34, 68, 102\), rgb\(119, 136, 153\)\)/);
-  await expect.poll(native).toEqual({ representative: '#224466', multiColour: '#224466 #778899', type: '0' });
+  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgba\(34, 68, 102, [\d.]+\), rgba\(119, 136, 153, [\d.]+\)\)/);
+  await expect.poll(native).toEqual({ representative: '#22446680', multiColour: '#22446680 #77889940', type: '0' });
   await page.reload();
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
-  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(34, 68, 102\), rgb\(119, 136, 153\)\)/);
-  expect(await native()).toEqual({ representative: '#224466', multiColour: '#224466 #778899', type: '0' });
+  await expect(trigger).toHaveCSS('background-image', /linear-gradient\(90deg, rgba\(34, 68, 102, [\d.]+\), rgba\(119, 136, 153, [\d.]+\)\)/);
+  expect(await native()).toEqual({ representative: '#22446680', multiColour: '#22446680 #77889940', type: '0' });
 });

@@ -272,6 +272,18 @@ if (options['edit-only'] === 'true') {
     assert.equal(rejected.error_code, 'native_validation_failure', JSON.stringify(rejected));
     assert.deepEqual(native(), original, 'invalid colour command must not mutate any raw slot');
   }
+  for (const color of ['#11223300', '#11223380', '#112233FF']) {
+    const solid = command({ kind: 'solid', color });
+    assert.equal(solid.ok, true, JSON.stringify(solid));
+    assert.deepEqual(native()[0], { representative: color, multi_colour: color, type: '1' });
+    assert.deepEqual(session().slots[0].colour.display, { mode: 'solid', colors: [color] });
+    const savedSolid = exportProject();
+    const settings = JSON.parse(exportedText(savedSolid, 'Metadata/project_settings.config'));
+    assert.equal(settings.filament_colour[0], color, 'solid alpha survives native 3MF export');
+    const undo = callJson('orc_history_undo');
+    assert.equal(undo.ok, true, JSON.stringify(undo));
+    assert.deepEqual(native(), original, 'Undo restores raw colours after a solid RGBA edit');
+  }
   const colour = { kind: 'linear-gradient', start: '#FFEEDD80', end: '#0000FF40' };
   for (const extra of [{ inject_failure: true }, { inject_failure_stage: 'before-history' },
     { inject_failure_stage: 'during-history' }]) {
