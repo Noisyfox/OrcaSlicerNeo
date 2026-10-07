@@ -1,6 +1,6 @@
 import type { FilamentSessionSnapshot, ModelObjectStructure, ModelPaintDrawGroup, PlateSessionSnapshot } from '@slicer/client';
 import type { LoadedObject } from './useModelLoader';
-import { adjustRgbForRendering } from './renderColor';
+import { adjustRgbaForRendering } from './renderColor';
 
 export const PREPARE_DEFAULT_COLOUR = '#cbd5e1';
 export const PREPARE_DEFAULT_SLOT_COLOURS: Readonly<Record<number, string>> = {};
@@ -40,10 +40,11 @@ export function resolvePrepareMaterial(options: {
 }): PrepareMaterialOverlay {
   const dimmed = options.disabled || options.outOfBounds;
   const configuredColour = normalizeHex(options.baseColour);
-  const baseColour = adjustHexForRendering(configuredColour.slice(0, 7));
-  const alpha = configuredColour.length === 9
+  const configuredAlpha = configuredColour.length === 9
     ? Number.parseInt(configuredColour.slice(7), 16) / 255
     : 1;
+  const [r, g, b, alpha] = adjustRgbaForRendering([...hexToRgb(configuredColour), configuredAlpha]);
+  const baseColour = rgbToHex(r, g, b);
   return {
     colour: options.selected
       ? brightenForSelection(baseColour)
@@ -65,11 +66,6 @@ function shade(hex: string, factor: number): string {
   const value = colour.slice(1, 7);
   const channels = [0, 2, 4].map((offset) => Math.max(0, Math.min(255, Math.round(Number.parseInt(value.slice(offset, offset + 2), 16) * factor))));
   return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}${colour.slice(7)}`;
-}
-
-function adjustHexForRendering(hex: string): string {
-  const [r, g, b] = adjustRgbForRendering(hexToRgb(hex));
-  return rgbToHex(r, g, b);
 }
 
 /**

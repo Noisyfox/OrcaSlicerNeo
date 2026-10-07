@@ -90,6 +90,11 @@ edits commit once. Rack commands store opaque colours as `#RRGGBB` and
 translucent colours as `#RRGGBBAA`; the native command and typed client accept
 both formats. Disabled states and errors remain controlled by the runtime.
 
+Prepare model and painted-facet materials use filament alpha. Following Orca's
+render-colour adjustment, alpha below 0.1 displays as white at opacity 0.3 so
+the model remains visible. Preview shells retain their independent opacity
+0.15 overlay; toolpath colours remain RGB.
+
 ## Support and verification
 
 Desktop Electron and desktop Chrome are supported. Pointer events permit
