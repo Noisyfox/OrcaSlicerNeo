@@ -85,12 +85,51 @@ test('renders remembered gradient and partition swatches in the shared Prepare U
       .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
     expect(await cell.evaluate((element) => element.querySelector('span'))).toBeNull();
     await cell.click();
-    await expect(page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"]'))
-      .toHaveCSS('background-image', /linear-gradient/);
+    const partitionChoice = page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"][style]');
+    await expect(partitionChoice).toHaveCSS('background-image', /linear-gradient/);
+    await expect(partitionChoice).toHaveCSS('border-width', '1px');
+    await expect(partitionChoice).toHaveCSS('background-origin', 'border-box');
+    await expect(partitionChoice).toHaveCSS('background-repeat', 'no-repeat');
     await page.keyboard.press('Escape');
     const screenshot = join(dir, 'swatches.png');
     await page.screenshot({ path: screenshot, fullPage: true });
     await test.info().attach('gradient-swatches', { path: screenshot, contentType: 'image/png' });
+  } finally { await app.close(); }
+});
+
+test('red-to-white gradients fill bordered assignment swatches without wrapping the white end to the left', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neo-gradient-edge-'));
+  const preferences = join(dir, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1,
+    selectedProfiles: { printer: 'Bambu Lab X1 Carbon 0.4 nozzle', print: '0.20mm Standard @BBL X1C' },
+    rememberedFilamentRacks: { 'Bambu Lab X1 Carbon 0.4 nozzle': { version: 1, slots: [
+      { preset: 'Generic PLA @System', colour: '#00aaaa', native: { representative: '#00aaaa', multiColour: '#00aaaa', type: '1' } },
+      { preset: 'Generic PLA @System', colour: '#ff0000', native: { representative: '#ff0000', multiColour: '#ff0000 #ffffff', type: '0' } },
+    ] } },
+  }));
+  const { app, page } = await launch(preferences, MODEL_PATH);
+  try {
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('config-mode-scoped').click();
+    const cell = page.locator('[data-testid^="filament-cell-object-"]').first();
+    await cell.click();
+    await page.getByRole('option', { name: /^2 - / }).click();
+    await expect(cell).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(255, 0, 0\), rgb\(255, 255, 255\)\)/);
+    await cell.click();
+    const choice = page.getByRole('option', { name: /^2 - / }).locator('span[aria-hidden="true"][style]');
+    await expect(choice).toBeVisible();
+    await expect(choice).toHaveCSS('background-image', /linear-gradient\(90deg, rgb\(255, 0, 0\), rgb\(255, 255, 255\)\)/);
+    const screenshot = join(dir, 'red-white-swatches.png');
+    await page.screenshot({ path: screenshot, fullPage: true });
+    await test.info().attach('red-white-gradient-edges', { path: screenshot, contentType: 'image/png' });
+    const choiceScreenshot = join(dir, 'red-white-option.png');
+    await choice.screenshot({ path: choiceScreenshot });
+    await test.info().attach('red-white-gradient-option', { path: choiceScreenshot, contentType: 'image/png' });
+    for (const swatch of [cell, choice]) {
+      await expect(swatch).toHaveCSS('border-width', '1px');
+      await expect(swatch).toHaveCSS('background-origin', 'border-box');
+      await expect(swatch).toHaveCSS('background-repeat', 'no-repeat');
+    }
   } finally { await app.close(); }
 });
 

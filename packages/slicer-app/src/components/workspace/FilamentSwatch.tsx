@@ -7,14 +7,17 @@ type Display = FilamentSessionSlot['colour']['display'];
 export function filamentSwatchStyle(display: Display): CSSProperties {
   const colors = display.colors;
   if (display.mode === 'solid') return { backgroundColor: colors[0] };
+  // Bordered cells and menu swatches must draw the first/last colour through
+  // their border box without repeating the last gradient tile at the left.
+  const fill: CSSProperties = { backgroundColor: colors[0], backgroundOrigin: 'border-box', backgroundRepeat: 'no-repeat' };
   if (display.mode === 'gradient')
-    return { backgroundColor: colors[0], backgroundImage: `linear-gradient(90deg, ${colors.join(', ')})` };
+    return { ...fill, backgroundImage: `linear-gradient(90deg, ${colors.join(', ')})` };
   const stops = colors.flatMap((color, index) => {
     const start = (index / colors.length) * 100;
     const end = ((index + 1) / colors.length) * 100;
     return [`${color} ${start}%`, `${color} ${end}%`];
   });
-  return { backgroundColor: colors[0], backgroundImage: `linear-gradient(90deg, ${stops.join(', ')})` };
+  return { ...fill, backgroundImage: `linear-gradient(90deg, ${stops.join(', ')})` };
 }
 
 export function filamentSwatchTitle(display: Display): string {
