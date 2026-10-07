@@ -60,13 +60,12 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
         </SelectTrigger>
       </TooltipFor>
       <SelectContent
-        className="w-max max-w-[calc(100vw-1rem)]"
         onClick={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
         <SelectGroup>
-          {items.map((item) => <SelectItem key={item.value} value={item.value} className="pr-8">
+          {items.map((item) => <SelectItem key={item.value} value={item.value}>
             {item.colour !== null && <span aria-hidden="true" className="size-3.5 shrink-0 rounded-xs border border-foreground/20" style={{ backgroundColor: item.colour }} />}
             {item.label}
           </SelectItem>)}
