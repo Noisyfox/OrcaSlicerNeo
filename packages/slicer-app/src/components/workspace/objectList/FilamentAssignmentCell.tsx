@@ -8,7 +8,7 @@ import {
   SelectTrigger,
 } from '@/components/ui/select';
 import { TooltipFor } from '@/components/ui/tooltip';
-import { assignmentForRow, assignmentSlotOptions } from './filamentAssignment';
+import { assignmentForRow } from './filamentAssignment';
 import type { FilamentSessionSnapshot, FilamentAssignmentTargetRequest } from '@slicer/client';
 
 export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, allowDefault = false, pending = false, onAssign }: {
@@ -30,10 +30,11 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
   const lightColour = rgb && (Number.parseInt(rgb[1], 16) * 0.299 + Number.parseInt(rgb[2], 16) * 0.587 + Number.parseInt(rgb[3], 16) * 0.114) > 150;
   const label = selectedSlot > 0 ? `Slot ${selectedSlot}${assignment.inherited ? ' · inherited' : ''}` : 'Default';
   const items = [
-    ...(allowDefault ? [{ value: '0', label: 'Default' }] : []),
-    ...assignmentSlotOptions(snapshot).map((slot) => ({
-      value: String(slot),
-      label: `Slot ${slot}${!allowDefault && assignment.inherited && slot === assignment.effectiveSlot ? ' · inherited' : ''}`,
+    ...(allowDefault ? [{ value: '0', label: 'Default', colour: null }] : []),
+    ...snapshot.slots.map((slot) => ({
+      value: String(slot.slot),
+      label: `${slot.slot} - ${slot.preset.name}`,
+      colour: slot.colour.effective,
     })),
   ];
   return (
@@ -59,12 +60,16 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
         </SelectTrigger>
       </TooltipFor>
       <SelectContent
+        className="w-max max-w-[calc(100vw-1rem)]"
         onClick={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
         <SelectGroup>
-          {items.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+          {items.map((item) => <SelectItem key={item.value} value={item.value} className="pr-8">
+            {item.colour !== null && <span aria-hidden="true" className="size-3.5 shrink-0 rounded-xs border border-foreground/20" style={{ backgroundColor: item.colour }} />}
+            {item.label}
+          </SelectItem>)}
         </SelectGroup>
       </SelectContent>
     </Select>
