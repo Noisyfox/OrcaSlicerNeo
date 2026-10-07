@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon } from "lucide-react"
 
 import { cn } from "cn"
 import { buttonVariants } from "@/components/ui/button"
@@ -116,14 +116,12 @@ function SelectContent({
             // popup consume the whole viewport. A bounded popup also leaves
             // enough room below a scrolled settings trigger for Base UI's
             // collision/anchor lifecycle to retain the bottom placement.
-            "relative isolate z-50 max-h-40 w-max max-w-[calc(100vw-1rem)] min-w-[max(var(--anchor-width),8rem)] origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-card text-card-foreground shadow-md ring-1 ring-foreground/10 transition-none data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "relative isolate z-50 flex max-h-40 w-max flex-col max-w-[calc(100vw-1rem)] min-w-[max(var(--anchor-width),8rem)] origin-(--transform-origin) overflow-hidden rounded-lg bg-card text-card-foreground shadow-md ring-1 ring-foreground/10 transition-none data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className
           )}
           {...props}
         >
-          <SelectScrollUpButton />
-          <SelectPrimitive.List>{children}</SelectPrimitive.List>
-          <SelectScrollDownButton />
+          <SelectPrimitive.List className="min-h-0 overflow-x-hidden overflow-y-auto">{children}</SelectPrimitive.List>
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>
     </SelectPrimitive.Portal>
@@ -187,50 +185,12 @@ function SelectSeparator({
   )
 }
 
-function SelectScrollUpButton({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.ScrollUpArrow>) {
-  return (
-    <SelectPrimitive.ScrollUpArrow
-      data-slot="select-scroll-up-button"
-      className={cn(
-        "top-0 z-10 flex w-full cursor-default items-center justify-center bg-card py-1 [&_svg:not([class*='size-'])]:size-3.5",
-        className
-      )}
-      {...props}
-    >
-      <ChevronUpIcon />
-    </SelectPrimitive.ScrollUpArrow>
-  )
-}
-
-function SelectScrollDownButton({
-  className,
-  ...props
-}: React.ComponentProps<typeof SelectPrimitive.ScrollDownArrow>) {
-  return (
-    <SelectPrimitive.ScrollDownArrow
-      data-slot="select-scroll-down-button"
-      className={cn(
-        "bottom-0 z-10 flex w-full cursor-default items-center justify-center bg-card py-1 [&_svg:not([class*='size-'])]:size-3.5",
-        className
-      )}
-      {...props}
-    >
-      <ChevronDownIcon />
-    </SelectPrimitive.ScrollDownArrow>
-  )
-}
-
 export {
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectLabel,
-  SelectScrollDownButton,
-  SelectScrollUpButton,
   SelectSeparator,
   SelectTrigger,
   SelectValue,
