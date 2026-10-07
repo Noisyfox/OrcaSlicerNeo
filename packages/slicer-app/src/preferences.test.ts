@@ -119,12 +119,24 @@ describe('selection restoration', () => {
       status: { state: 'ready' as const, error: null },
     };
     const rack = rememberedRackFromSnapshot(snapshot);
-    expect(rack).toEqual({ version: 1, slots: [{ preset: 'PLA', colour: '#112233' }, { preset: 'PETG', colour: '#445566' }] });
+    expect(rack).toEqual({ version: 1, slots: [
+      { preset: 'PLA', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } },
+      { preset: 'PETG', colour: '#445566', native: { representative: '#445566', multiColour: '#445566', type: '1' } },
+    ] });
     const repository = { load: vi.fn(async () => prefs), save: vi.fn(async () => {}) };
     await publishRememberedFilamentRack(repository, 'Printer A', snapshot);
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ rememberedFilamentRacks: { 'Printer A': rack } }));
     expect(rememberedFilamentRack({ ...prefs, rememberedFilamentRacks: { 'Printer A': rack } }, 'Printer A')).toEqual(rack);
     expect(rememberedFilamentRack({ ...prefs, rememberedFilamentRacks: { 'Printer A': rack } }, 'Printer B')).toBeNull();
+  });
+
+  it('keeps malformed imported raw fields while persisting a safe effective colour', () => {
+    const snapshot = { ok: true, slots: [{ preset: { name: 'PLA' }, colour: {
+      effective: 'malformed', native: { representative: 'raw-unknown', multiColour: 'unparsed', type: 'future' },
+      display: { mode: 'solid', colors: ['#26A69A'] },
+    } }] } as never;
+    expect(rememberedRackFromSnapshot(snapshot).slots[0]).toEqual({ preset: 'PLA', colour: '#26A69A',
+      native: { representative: 'raw-unknown', multiColour: 'unparsed', type: 'future' } });
   });
 
   it('treats remembered-rack persistence failure as non-fatal', async () => {
@@ -194,7 +206,7 @@ describe('selection restoration', () => {
     await publish;
     await transition;
     expect(apply).toHaveBeenCalledWith({ version: 1, revision: 4,
-      slots: [{ preset: 'Newest', colour: '#112233' }] });
+      slots: [{ preset: 'Newest', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] });
   });
 
   it('keeps the native printer defaults when its remembered rack cannot be read', async () => {
@@ -234,7 +246,7 @@ describe('selection restoration', () => {
       getFilamentSessionSnapshot: getRack,
       applyRememberedFilamentRack: vi.fn(async () => { calls.push('apply-rack'); return restoredRack; }),
       resetHistory: vi.fn(async () => { calls.push('reset-history'); return { dirty: false, canUndo: false, undoEntries: [] } as never; }),
-    }, { ...prefs, rememberedBedTypes: { P: 'Textured PEI Plate' }, rememberedFilamentRacks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#abcdef' }] } } }, {
+    }, { ...prefs, rememberedBedTypes: { P: 'Textured PEI Plate' }, rememberedFilamentRacks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#abcdef', native: { representative: '#abcdef', multiColour: '#abcdef', type: '1' } }] } } }, {
       selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null,
       nativeScopedConfig: { project: {}, objects: {}, parts: {}, plates: {} },
     });

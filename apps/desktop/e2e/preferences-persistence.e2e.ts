@@ -95,6 +95,30 @@ test('persists independent titlebar sidebar toggles and restores their widths on
   } finally { await second.app.close(); }
 });
 
+test('persists complete remembered filament colours on disk across restart', async () => {
+  test.setTimeout(360_000);
+  const dir = mkdtempSync(join(tmpdir(), 'orca-filament-memory-'));
+  const preferences = join(dir, 'preferences.json');
+  const rack = { version: 1, slots: [{ preset: 'Generic PLA @System', colour: '#11223388',
+    native: { representative: '#11223388', multiColour: '#FF000088 #00FF00AA', type: '0' } }] };
+  const first = await launch(preferences, join(dir, 'first.gcode'));
+  try {
+    await first.page.evaluate(async (value) => {
+      const host = (window as unknown as { orca: { preferences: { load(): Promise<{ found: boolean; json: Record<string, unknown> }>; save(value: unknown): Promise<void> } } }).orca;
+      const current = await host.preferences.load();
+      await host.preferences.save({ ...current.json, version: 1, rememberedFilamentRacks: { 'Memory-only Printer': value } });
+    }, rack);
+    await expect.poll(() => JSON.parse(readFileSync(preferences, 'utf8')).rememberedFilamentRacks?.['Memory-only Printer']).toEqual(rack);
+  } finally { await first.app.close(); }
+  const second = await launch(preferences, join(dir, 'second.gcode'));
+  try {
+    const restored = await second.page.evaluate(async () =>
+      (window as unknown as { orca: { preferences: { load(): Promise<{ json: { rememberedFilamentRacks: Record<string, unknown> } }> } } }).orca
+        .preferences.load());
+    expect(restored.json.rememberedFilamentRacks['Memory-only Printer']).toEqual(rack);
+  } finally { await second.app.close(); }
+});
+
 test('persists shared profile/sidebar preferences but not session work', async () => {
   test.setTimeout(360_000);
   const dir = mkdtempSync(join(tmpdir(), 'orca-preferences-e2e-'));

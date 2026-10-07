@@ -564,7 +564,20 @@ json select_printer_with_remembered_rack_json(const json& request)
             const std::string name = slot["preset"].get<std::string>();
             if (Preset::remove_suffix_modified(name) != name)
                 return transition_error("invalid_request", "remembered filament preset name must be canonical");
-            slots.push_back({name, slot["colour"].get<std::string>(), true});
+            if (!slot.contains("native") || !slot["native"].is_object())
+                return transition_error("invalid_request", "remembered filament native colours are required");
+            const auto& native = slot["native"];
+            for (const char* key : {"representative", "multi_colour", "type"})
+                if (!native.contains(key) || (!native[key].is_null() && !native[key].is_string()))
+                    return transition_error("invalid_request", "remembered filament native colour is invalid");
+            const std::string representative = native["representative"].is_string()
+                ? native["representative"].get<std::string>() : slot["colour"].get<std::string>();
+            RememberedSlot remembered{name, representative, true};
+            if (native["multi_colour"].is_string())
+                remembered.multi_colour = native["multi_colour"].get<std::string>();
+            if (native["type"].is_string())
+                remembered.colour_type = native["type"].get<std::string>();
+            slots.push_back(std::move(remembered));
         }
         remembered_slots = std::move(slots);
     }
@@ -637,8 +650,6 @@ json select_printer_with_remembered_rack_json(const json& request)
                 std::vector<RememberedSlot> slots;
                 if (remembered_slots.has_value()) {
                     slots = *remembered_slots;
-                    for (std::size_t index = 0; index < slots.size(); ++index)
-                        retain_matching_native_colour(slots[index], before_profiles, index);
                 } else {
                     slots.reserve(bundle.filament_presets.size());
                     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {

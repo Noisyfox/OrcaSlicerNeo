@@ -62,6 +62,9 @@ function transition(printer, slots) {
     remembered_bed_type: null, remembered_rack: slots ? { version: 1, slots } : null,
   });
 }
+function solidSlot(preset, colour) {
+  return { preset, colour, native: { representative: colour, multi_colour: colour, type: '1' } };
+}
 function setDraft(kind, canonicalName, key, value) {
   const source = draft(kind, canonicalName);
   const result = request('orc_mutate_preset_draft', {
@@ -125,7 +128,7 @@ const baselinePrintName = baselineSelection.print.name;
 const baselineRack = rackProjection();
 const beforeTransitionStatus = resetHistory();
 const rememberedColour = '#13579B';
-const first = transition(targetName, [{ preset: compatiblePreset, colour: rememberedColour }]);
+const first = transition(targetName, [solidSlot(compatiblePreset, rememberedColour)]);
 assert.equal(first.ok, true, JSON.stringify(first));
 must(first.mutation.history_entry_delta === 1 &&
   first.mutation.revision_after === beforeTransitionStatus.revision + 1 &&
@@ -176,7 +179,7 @@ const targetDraftNow = draft('printer', targetName);
 const canSetDefault = Object.hasOwn(targetDraftNow.source_values, 'default_filament_profile');
 if (canSetDefault && !knownDefault)
   setDraft('printer', targetName, 'default_filament_profile', compatiblePreset);
-const defaultResult = transition(targetName, [{ preset: 'Missing remembered preset for default path', colour: incompatibleColour }]);
+const defaultResult = transition(targetName, [solidSlot('Missing remembered preset for default path', incompatibleColour)]);
 assert.equal(defaultResult.ok, true, JSON.stringify(defaultResult));
 const defaultSlot = defaultResult.filament_session.slots[0];
 must(defaultSlot.preset.name !== 'Missing remembered preset for default path' &&
@@ -194,7 +197,7 @@ must(defaultSlot.colour.effective === replacementDefaultColour && defaultSlot.co
 // compatible-candidate fallback instead of the configured default branch.
 if (canSetDefault) {
   setDraft('printer', targetName, 'default_filament_profile', 'Missing configured default for fallback path');
-  const fallback = transition(targetName, [{ preset: 'Missing remembered preset for fallback path', colour: incompatibleColour }]);
+  const fallback = transition(targetName, [solidSlot('Missing remembered preset for fallback path', incompatibleColour)]);
   assert.equal(fallback.ok, true, JSON.stringify(fallback));
   const fallbackSlot = fallback.filament_session.slots[0];
   must(fallbackSlot.preset.name !== 'Missing remembered preset for fallback path' &&
@@ -268,7 +271,7 @@ console.log('printer-only restore invalidation and complete no-op abort passed')
 assert.equal(callJson('orc_clear_model').ok, true);
 assert.equal(resetHistory().error, undefined);
 const seed = rackProjection()[0];
-const threeSlots = [seed, { ...seed, colour: '#234567' }, { ...seed, colour: '#345678' }];
+const threeSlots = [solidSlot(seed.preset, seed.colour), solidSlot(seed.preset, '#234567'), solidSlot(seed.preset, '#345678')];
 const expandedRack = transition('Bambu Lab X1 Carbon 0.4 nozzle', threeSlots);
 assert.equal(expandedRack.ok, true, JSON.stringify(expandedRack));
 for (const name of ['Removed object slot', 'Surviving object slot', 'Removed part slot'])
@@ -315,7 +318,7 @@ assert.equal(callJson('orc_history_undo').ok, true);
 assert.deepEqual(referenceProjection(session()), referenceProjection(beforeShortRack));
 assert.equal(callJson('orc_history_redo').ok, true);
 assert.deepEqual(referenceProjection(session()), referenceProjection(short));
-const oneSlot = transition('Bambu Lab X1 Carbon 0.4 nozzle', [seed]);
+const oneSlot = transition('Bambu Lab X1 Carbon 0.4 nozzle', [solidSlot(seed.preset, seed.colour)]);
 assert.equal(oneSlot.ok, true, JSON.stringify(oneSlot));
 assert.equal(session().slots.length, 1);
 assert.ok(session().assignments.objects.every(o => o.effective_slot === 1));
@@ -349,7 +352,7 @@ try {
 // The minimal reader fixture omits newer runtime slot arrays. Establish a
 // complete two-slot native baseline before testing history restoration.
 const importedBaseline = transition('Bambu Lab X1 Carbon 0.4 nozzle', [
-  { ...seed, colour: '#FF0000' }, { ...seed, colour: '#00FF00' },
+  solidSlot(seed.preset, '#FF0000'), solidSlot(seed.preset, '#00FF00'),
 ]);
 assert.equal(importedBaseline.ok, true, JSON.stringify(importedBaseline));
 function exportedReferences() {
@@ -372,7 +375,7 @@ assert.ok(importedRefs.paint.includes('8'));
 assert.deepEqual(importedRefs.tools, [1, 2]);
 assert.deepEqual(importedRefs.maps, ['1,1']);
 assert.equal(resetHistory().error, undefined);
-const paintedShortRack = transition('Bambu Lab X1 0.4 nozzle', [seed]);
+const paintedShortRack = transition('Bambu Lab X1 0.4 nozzle', [solidSlot(seed.preset, seed.colour)]);
 assert.equal(paintedShortRack.ok, true, JSON.stringify(paintedShortRack));
 const shortenedRefs = exportedReferences();
 assert.ok(shortenedRefs.paint.length > 0);

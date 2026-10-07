@@ -51,6 +51,24 @@ export interface MockSliceFixture {
 
 const HEAP_BYTES = 64 * 1024 * 1024;
 
+function rememberedSlotColour(slot: any) {
+  const native = slot?.native;
+  if (typeof slot?.preset !== 'string' || !slot.preset || typeof slot.colour !== 'string' ||
+      !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(slot.colour) || !native || typeof native !== 'object' ||
+      !(['representative', 'multi_colour', 'type'] as const).every((key) =>
+        Object.hasOwn(native, key) && (native[key] === null || typeof native[key] === 'string'))) return null;
+  const representative = native.representative ?? slot.colour;
+  const multi = native.multi_colour ?? representative;
+  const type = native.type ?? '1';
+  const effective = representative;
+  const displayRepresentative = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(effective) ? effective : '#26A69A';
+  const colors = typeof multi === 'string' ? multi.trim().split(/\s+/) : [];
+  const display = (type === '0' || type === '1') && colors.length >= 2 && colors.every((color) => /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(color))
+    ? { mode: type === '0' ? 'gradient' : 'multicolor', colors }
+    : { mode: 'solid', colors: [displayRepresentative] };
+  return { effective, provenance: 'user', native: { representative, multi_colour: multi, type }, display };
+}
+
 export interface MockModule {
   ccall: (name: string, ret: string, argTypes: string[], args: unknown[]) => unknown;
   UTF8ToString: (ptr: number) => string;
@@ -1950,11 +1968,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return { ok: false, version: 1, error: 'invalid remembered filament rack', error_code: 'invalid_command', status: { state: 'error', error: 'invalid remembered filament rack' } };
       if (!Number.isSafeInteger(request.revision) || request.revision !== current.revisions.session)
         return { ok: false, version: 1, error: 'filament session revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'filament session revision is stale' } };
+      if (request.slots.some((slot: any) => !rememberedSlotColour(slot)))
+        return { ok: false, version: 1, error: 'invalid remembered filament slot', error_code: 'invalid_command', status: { state: 'error', error: 'invalid remembered filament slot' } };
       const next: any = clone(current);
       next.slots = request.slots.map((slot: any, index: number) => ({ logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
-        preset: { id: slot.preset, name: slot.preset }, colour: { effective: slot.colour, provenance: 'user',
-          native: { representative: slot.colour, multi_colour: slot.colour, type: '1' },
-          display: { mode: 'solid', colors: [slot.colour] } } }));
+        preset: { id: slot.preset, name: slot.preset }, colour: rememberedSlotColour(slot) }));
       const slotCount = next.slots.length;
       next.mappings.filament = Array(slotCount).fill(1);
       next.mappings.volume = Array(slotCount).fill(0);
@@ -2268,6 +2286,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return { ok: false, error_code: 'invalid_request', error: 'explicit remembered rack and bed are required' };
       const printer = presetFixtures.printer.find((item) => item.name === request.printer && item.is_visible);
       if (!printer) return { ok: false, error_code: 'preset_not_found', error: 'Printer preset not found' };
+      if (request.remembered_rack !== null &&
+          (request.remembered_rack?.version !== 1 || !Array.isArray(request.remembered_rack.slots) ||
+            request.remembered_rack.slots.length === 0 || request.remembered_rack.slots.length > 64 ||
+            request.remembered_rack.slots.some((item: any) => !rememberedSlotColour(item))))
+        return { ok: false, error_code: 'invalid_request', error: 'remembered filament rack is invalid' };
       const before = historyRevision;
       selected.printer = request.printer;
       if (!resolveAfterPrinterChange())
@@ -2284,9 +2307,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const slots = requestedSlots.map((item: any, index: number) => ({
           logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
           preset: { id: item.preset, name: item.preset },
-          colour: { effective: item.colour, provenance: 'user',
-            native: { representative: item.colour, multi_colour: item.colour, type: '1' },
-            display: { mode: 'solid', colors: [item.colour] } },
+          colour: rememberedSlotColour(item),
         }));
         const size = slots.length;
         current.slots = slots;

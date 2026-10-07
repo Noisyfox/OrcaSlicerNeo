@@ -198,6 +198,65 @@ assert.deepEqual(callJson('orc_get_filament_session_snapshot').slots.map((slot) 
 const afterProjection = JSON.parse(exportedText(exportProject(), 'Metadata/project_settings.config'));
 for (const key of colourArrays)
   assert.deepEqual(afterProjection[key], beforeProjection[key], `${key} changed while reading a snapshot`);
+if (options['memory-only'] === 'true') {
+  const native = () => callJson('orc_get_filament_session_snapshot').slots.map((slot) => slot.colour.native);
+  const original = native();
+  const slots = importedSession.slots.map((slot) => ({
+    preset: slot.preset.name, colour: slot.colour.effective, native: slot.colour.native,
+  }));
+  const missingNative = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: importedSession.revisions.session,
+    slots: slots.map(({ native: _native, ...slot }) => slot),
+  });
+  assert.equal(missingNative.error_code, 'invalid_command', 'internal rack command requires complete native metadata');
+  assert.deepEqual(native(), original, 'invalid internal rack leaves all imported raw values intact');
+  const restored = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: importedSession.revisions.session, slots,
+  });
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+  assert.deepEqual(native(), original, 'native remembered apply retains all raw colour fields');
+  const printer = callJson('orc_get_preset_snapshot').printer.name;
+  const rejectedPrinter = request('orc_select_printer_with_remembered_rack', {
+    printer, remembered_rack: { version: 1, slots: slots.map(({ native: _native, ...slot }) => slot) },
+    remembered_bed_type: null,
+  });
+  assert.equal(rejectedPrinter.error_code, 'invalid_request', 'Printer transition also requires complete internal metadata');
+  assert.deepEqual(native(), original, 'invalid Printer transition does not mutate raw colours');
+  const switched = request('orc_select_printer_with_remembered_rack', {
+    printer, remembered_rack: { version: 1, slots }, remembered_bed_type: null,
+  });
+  assert.equal(switched.ok, true, JSON.stringify(switched));
+  assert.deepEqual(native(), original, 'Printer transition applies remembered raw metadata');
+  const exported = exportProject();
+  const config = JSON.parse(exportedText(exported, 'Metadata/project_settings.config'));
+  for (const key of colourArrays)
+    assert.deepEqual(config[key], beforeProjection[key], `3MF writer changed ${key}`);
+  const reopened = loadArchive(exported, 'remembered-colours.3mf');
+  assert.equal(reopened.ok, true, JSON.stringify(reopened));
+  assert.deepEqual(native(), original, 'standard 3MF reader reopens every remembered raw colour field');
+  const reopenedSlots = callJson('orc_get_filament_session_snapshot').slots.map((slot) => ({
+    preset: slot.preset.name, colour: slot.colour.effective, native: slot.colour.native,
+  }));
+  const malformed = reopenedSlots.map((slot, index) => index === 0 ? { ...slot,
+    native: { representative: 'not-a-colour', multi_colour: 'unparsed-list', type: 'future' },
+  } : slot);
+  const revised = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slots: malformed,
+  });
+  assert.equal(revised.ok, true, JSON.stringify(revised));
+  assert.deepEqual(native()[0], malformed[0].native, 'native restore must retain malformed raw metadata');
+  const nullEntry = malformed.map((slot, index) => index === 0 ? { ...slot,
+    native: { representative: null, multi_colour: null, type: null },
+  } : slot);
+  const restoredNull = request('orc_apply_remembered_filament_rack', {
+    version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slots: nullEntry,
+  });
+  assert.equal(restoredNull.ok, true, JSON.stringify(restoredNull));
+  assert.deepEqual(native()[0], { representative: nullEntry[0].colour,
+    multi_colour: nullEntry[0].colour, type: '1' }, 'missing native array entries use documented solid fallback');
+  console.log('PASS remembered raw filament rack native apply, Printer transition, and 3MF round-trip');
+  process.exit(0);
+}
 if (options['lifecycle-only'] === 'true') {
   const native = () => callJson('orc_get_filament_session_snapshot').slots.map((slot) => slot.colour.native);
   const revision = () => callJson('orc_get_filament_session_snapshot').revisions.session;

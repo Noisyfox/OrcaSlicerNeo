@@ -47,6 +47,16 @@ describe('Electron adapter', () => {
       { kind: 'linear-gradient', start: '#FF000000', end: '#0000FF' },
     ] });
   });
+  it('round trips complete remembered filament colours through the host contract', async () => {
+    let json: unknown = null;
+    const { adapter } = setup({ preferences: {
+      load: async () => ({ found: true, json }), save: async (next: unknown) => { json = next; },
+    } });
+    const rack = { version: 1 as const, slots: [{ preset: 'PLA', colour: '#112233',
+      native: { representative: '#bad-native', multiColour: '#ff0000 #00ff00', type: 'future' } }] };
+    await adapter.preferences.save({ ...await adapter.preferences.load(), rememberedFilamentRacks: { Printer: rack } });
+    expect((await adapter.preferences.load()).rememberedFilamentRacks?.Printer).toEqual(rack);
+  });
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
     expect(await adapter.preferences.load()).toEqual({ version: 1, rememberedBedTypes: {}, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });

@@ -87,8 +87,15 @@ Project state has priority over remembered defaults:
    Undo/Redo restoration that changes that state. It never alters another
    printer's defaults.
 
-The remembered rack records source-preset selections and actual slot colours;
-it never records a Preset Editor runtime draft or its overrides. Restoring a
+The remembered rack records source-preset selections, a valid effective HEX
+colour, and each slot's raw native representative, multi-colour list, and
+colour type (including unknown strings and null entries). A raw null entry
+is retained in the preference; restoring to a full native slot array uses
+the effective colour for a missing representative, that representative for
+a missing multi-colour list, and solid type `1` for a missing type. Existing
+stored racks with only a HEX colour normalize to these solid native fields at
+the preference boundary. Internal rack commands require the complete fields.
+The rack never records a Preset Editor runtime draft or its overrides. Restoring a
 remembered rack is always followed by native compatibility normalization. A
 compatible restored source is retained; a missing or incompatible source is
 replaced using the selected Printer's corresponding default filament profile,
@@ -698,7 +705,8 @@ The selected printer has a versioned remembered-rack preference used only to
 seed a new project or a session without explicit project slot state. The live
 project remains authoritative while it is open.
 
-The remembered rack always mirrors the current effective filament session:
+The remembered rack mirrors the current filament session's effective colours
+and unmodified native colour metadata:
 
 - a successful explicit slot preset, colour, Add, Delete, or Merge with
   operation writes the resulting projection;

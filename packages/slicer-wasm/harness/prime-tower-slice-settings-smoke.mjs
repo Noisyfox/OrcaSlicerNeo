@@ -101,8 +101,8 @@ function assertMotionMatchesPreview(motion, projection) {
 must(callJson('orc_init', ['string'], ['']));
 must(request('orc_select_printer_with_remembered_rack', { printer: 'DeltaMaker 2 0.35 nozzle',
   remembered_bed_type: null, remembered_rack: { version: 1, slots: [
-    { preset: 'Generic PLA @DeltaMaker', colour: '#FF0000' },
-    { preset: 'Generic PLA @DeltaMaker', colour: '#00FF00' },
+    { preset: 'Generic PLA @DeltaMaker', colour: '#FF0000', native: { representative: '#FF0000', multi_colour: '#FF0000', type: '1' } },
+    { preset: 'Generic PLA @DeltaMaker', colour: '#00FF00', native: { representative: '#00FF00', multi_colour: '#00FF00', type: '1' } },
   ] } }));
 // Enable a multi-material attachment in the native Printer draft for slicing.
 const printerDraft = must(callJson('orc_get_preset_draft', ['string', 'string'], ['printer', 'DeltaMaker 2 0.35 nozzle']));

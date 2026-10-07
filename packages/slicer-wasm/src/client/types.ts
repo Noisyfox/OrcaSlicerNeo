@@ -1312,13 +1312,19 @@ export interface FilamentSlotMergeRequest extends FilamentCommandRequest {
 }
 
 export interface RememberedFilamentRackRequest extends FilamentCommandRequest {
-  readonly slots: readonly { preset: string; colour: string }[];
+  readonly slots: readonly RememberedFilamentSlot[];
+}
+
+export interface RememberedFilamentSlot {
+  readonly preset: string;
+  readonly colour: string;
+  readonly native: { readonly representative: string | null; readonly multiColour: string | null; readonly type: string | null };
 }
 
 /** Durable rack preference supplied to an explicit Printer selection. */
 export interface RememberedFilamentRackPreference {
   readonly version: 1;
-  readonly slots: readonly { readonly preset: string; readonly colour: string }[];
+  readonly slots: readonly RememberedFilamentSlot[];
 }
 
 export interface PrinterTransitionMutationReceipt {

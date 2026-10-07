@@ -1965,7 +1965,12 @@ export function createClient(
 
     async applyRememberedFilamentRack(request: RememberedFilamentRackRequest): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
-      return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify(request)]));
+      return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify({
+        version: request.version, revision: request.revision,
+        slots: request.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
+          representative: native.representative, multi_colour: native.multiColour, type: native.type,
+        } })),
+      })]));
     },
 
     async assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError> {
@@ -2127,7 +2132,9 @@ export function createClient(
         remembered_bed_type: rememberedBedType,
         remembered_rack: rememberedRack === null ? null : {
           version: rememberedRack.version,
-          slots: rememberedRack.slots.map(({ preset, colour }) => ({ preset, colour })),
+          slots: rememberedRack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
+            representative: native.representative, multi_colour: native.multiColour, type: native.type,
+          } })),
         },
       };
       return normalizePrinterTransition(

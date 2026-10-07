@@ -80,7 +80,11 @@ assert.deepEqual(historyAfterProfiles.redoEntries, historyAtStart.redoEntries);
 
 const historyBefore = callJson('orc_history_status');
 const request = { version: 1, revision: rack.revisions.session,
-  slots: rack.slots.map((slot, index) => ({ preset: slot.preset.name, colour: index === 0 ? '#123456' : slot.colour.effective })) };
+  slots: rack.slots.map((slot, index) => {
+    const colour = index === 0 ? '#123456' : slot.colour.effective;
+    return { preset: slot.preset.name, colour,
+      native: { representative: colour, multi_colour: colour, type: '1' } };
+  }) };
 const applied = callJson('orc_apply_remembered_filament_rack', ['string'], [JSON.stringify(request)]);
 assert.equal(applied.ok, true, JSON.stringify(applied));
 assert.equal(applied.slots[0].colour.effective, '#123456');

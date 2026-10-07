@@ -27,6 +27,16 @@ describe('browser adapter', () => {
     expect((await createBrowserAdapter({} as never).preferences.load()).colorPicker).toEqual(expected);
   });
 
+  it('restores raw remembered filament colours through recreated storage', async () => {
+    const first = createBrowserAdapter({} as never);
+    const prefs = await first.preferences.load();
+    const rack = { version: 1 as const, slots: [{ preset: 'PLA', colour: '#11223388',
+      native: { representative: '#11223388', multiColour: '#ff000088 #00ff00aa', type: '0' } }] };
+    await first.preferences.save({ ...prefs, rememberedFilamentRacks: { Printer: rack } });
+    expect(JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!).rememberedFilamentRacks.Printer).toEqual(rack);
+    expect((await createBrowserAdapter({} as never).preferences.load()).rememberedFilamentRacks?.Printer).toEqual(rack);
+  });
+
   it('uses a file input for model selection', async () => {
     const input = document.createElement('input');
     Object.defineProperty(input, 'files', { value: [{ name: 'cube.stl', arrayBuffer: async () => new Uint8Array([1, 2]).buffer }] });

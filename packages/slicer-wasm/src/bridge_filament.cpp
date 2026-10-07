@@ -1208,7 +1208,11 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
         const auto before_revision = state().history_revision;
         try {
             std::vector<std::string> colours;
+            std::vector<std::string> multi_colours;
+            std::vector<std::string> colour_types;
             colours.reserve(request["slots"].size());
+            multi_colours.reserve(request["slots"].size());
+            colour_types.reserve(request["slots"].size());
             State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(request["slots"].size()));
             for (std::size_t index = 0; index < request["slots"].size(); ++index) {
                 const auto& slot = request["slots"][index];
@@ -1216,16 +1220,26 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
                     slot["preset"].get<std::string>().empty() || !slot.contains("colour") || !slot["colour"].is_string() ||
                     !valid_filament_colour(slot["colour"].get<std::string>()))
                     throw FilamentCommandFailure("invalid_command", "invalid remembered filament slot");
+                if (!slot.contains("native") || !slot["native"].is_object())
+                    throw FilamentCommandFailure("invalid_command", "remembered filament native colours are required");
+                const auto& native = slot["native"];
+                for (const char* key : {"representative", "multi_colour", "type"})
+                    if (!native.contains(key) || (!native[key].is_null() && !native[key].is_string()))
+                        throw FilamentCommandFailure("invalid_command", "invalid remembered filament native colour");
                 const std::string preset = slot["preset"].get<std::string>();
                 if (bundle.filaments.find_preset(preset, false, true) == nullptr)
                     throw FilamentCommandFailure("incompatible_preset", "remembered filament preset is unavailable: " + preset);
                 bundle.set_filament_preset(index, preset);
-                colours.push_back(slot["colour"].get<std::string>());
+                const std::string representative = native["representative"].is_string()
+                    ? native["representative"].get<std::string>() : slot["colour"].get<std::string>();
+                colours.push_back(representative);
+                multi_colours.push_back(native["multi_colour"].is_string()
+                    ? native["multi_colour"].get<std::string>() : representative);
+                colour_types.push_back(native["type"].is_string() ? native["type"].get<std::string>() : "1");
             }
             bundle.project_config.set_key_value("filament_colour", new ConfigOptionStrings(colours));
-            bundle.project_config.set_key_value("filament_multi_colour", new ConfigOptionStrings(colours));
-            bundle.project_config.set_key_value("filament_colour_type",
-                                                new ConfigOptionStrings(std::vector<std::string>(colours.size(), "1")));
+            bundle.project_config.set_key_value("filament_multi_colour", new ConfigOptionStrings(multi_colours));
+            bundle.project_config.set_key_value("filament_colour_type", new ConfigOptionStrings(colour_types));
             recalculate_filament_flush(bundle);
             validate_filament_candidate(bundle, state().model, state().plate_session_plates,
                                         Neo::Bridge::ScopedConfig::native_scoped_config_snapshot(), true, true);

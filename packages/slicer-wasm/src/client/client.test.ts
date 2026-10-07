@@ -407,18 +407,35 @@ describe('SlicerClient bridge contract', () => {
     if (!before.ok) throw new Error(before.error);
     const applied = await c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
       slots: [
-        { preset: 'Generic PLA @System', colour: '#112233' },
-        { preset: 'Generic PETG @System', colour: '#445566' },
+        { preset: 'Generic PLA @System', colour: '#112233', native: { representative: '#112233', multiColour: '#ff0000 #00ff00', type: '0' } },
+        { preset: 'Generic PETG @System', colour: '#445566', native: { representative: '#445566', multiColour: '#445566', type: '1' } },
       ] });
     expect(applied).toMatchObject({ ok: true, slots: [
-      { slot: 1, preset: { name: 'Generic PLA @System' }, colour: { effective: '#112233', provenance: 'user' } },
+      { slot: 1, preset: { name: 'Generic PLA @System' }, colour: { effective: '#112233', provenance: 'user',
+        native: { representative: '#112233', multiColour: '#ff0000 #00ff00', type: '0' },
+        display: { mode: 'gradient', colors: ['#ff0000', '#00ff00'] } } },
       { slot: 2, preset: { name: 'Generic PETG @System' }, colour: { effective: '#445566', provenance: 'user' } },
     ] });
     if (!applied.ok) throw new Error(applied.error);
     await expect(c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
-      slots: [{ preset: 'Generic PLA @System', colour: '#112233' }] }))
+      slots: [{ preset: 'Generic PLA @System', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] }))
       .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(applied);
+  });
+
+  it('keeps unknown remembered raw metadata and a safe display fallback', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const applied = await c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
+      slots: [{ preset: 'Generic PLA @System', colour: '#112233', native: {
+        representative: 'unparsed', multiColour: '#112233 invalid', type: 'future',
+      } }],
+    });
+    expect(applied).toMatchObject({ ok: true, slots: [{ colour: {
+      effective: 'unparsed', native: { representative: 'unparsed', multiColour: '#112233 invalid', type: 'future' },
+      display: { mode: 'solid', colors: ['#26A69A'] },
+    } }] });
   });
 
   it('keeps the filament command fence stable without standalone context history', async () => {
@@ -1074,7 +1091,7 @@ describe('SlicerClient bridge contract', () => {
     const c = makeClient();
     const before = await c.getHistoryStatus();
     const result = await c.selectPrinterWithRememberedRack('Bambu Lab P1S 0.4 nozzle', {
-      version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456' }],
+      version: 1, slots: [{ preset: 'Bambu PLA Basic @BBL P1S', colour: '#123456', native: { representative: '#123456', multiColour: '#123456', type: '1' } }],
     }, 'High Temp Plate');
     expect(result).toMatchObject({
       ok: true,

@@ -386,7 +386,7 @@ describe('SettingsPanel preset transitions', () => {
     }));
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       rememberedFilamentRacks: { 'New Printer': { version: 1, slots: [
-        { preset: 'Resolved Filament', colour: '#112233' },
+        { preset: 'Resolved Filament', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } },
       ] } },
     }));
     expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('false');
@@ -420,9 +420,9 @@ describe('SettingsPanel preset transitions', () => {
     resetStores();
     const events: string[] = [];
     const { platform, runtime, preferences, repository } = makePlatform(async () => resolvedSnapshot,
-      async (_printer, rack) => { events.push('native-transition'); expect(rack?.slots[0]).toEqual({ preset: 'Resolved Filament', colour: '#112233' }); return printerTransition(); });
+      async (_printer, rack) => { events.push('native-transition'); expect(rack?.slots[0]).toEqual({ preset: 'Resolved Filament', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }); return printerTransition(); });
     preferences.rememberedFilamentRacks = {
-      'New Printer': { version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233' }] },
+      'New Printer': { version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }] },
     };
     preferences.rememberedBedTypes = { 'New Printer': 'Textured PEI Plate', 'Old Printer': 'High Temp Plate' };
     repository.load.mockImplementation(async () => { events.push('preference-load'); return preferences; });
@@ -434,7 +434,7 @@ describe('SettingsPanel preset transitions', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', {
-      version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233' }],
+      version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233', native: { representative: '#112233', multiColour: '#112233', type: '1' } }],
     }, 'Textured PEI Plate');
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledOnce();
     expect(runtime.applyRememberedFilamentRack).not.toHaveBeenCalled();
