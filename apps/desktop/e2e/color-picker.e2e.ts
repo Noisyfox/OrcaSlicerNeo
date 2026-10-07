@@ -37,6 +37,40 @@ test('renders remembered gradient and partition swatches in the shared Prepare U
     const gradient = page.getByTestId('filament-colour-1');
     const partitions = page.getByTestId('filament-colour-2');
     await expect(partitions).toBeVisible();
+    const geometry = await page.evaluate(() => {
+      const dimensions = (selector: string) => {
+        const element = document.querySelector(selector)!;
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return { x: box.x, y: box.y, width: box.width, height: box.height,
+          border: style.borderWidth, clip: style.backgroundClip,
+          backgroundColor: style.backgroundColor,
+          topLeft: style.borderTopLeftRadius, bottomLeft: style.borderBottomLeftRadius,
+          topRight: style.borderTopRightRadius, bottomRight: style.borderBottomRightRadius,
+          directNumber: element.firstChild?.nodeType === Node.TEXT_NODE };
+      };
+      return {
+        row1: dimensions('[data-testid="filament-slot-1"]'),
+        row2: dimensions('[data-testid="filament-slot-2"]'),
+        colour: dimensions('[data-testid="filament-colour-1"]'),
+        preset: dimensions('[data-testid="filament-preset-1"]'),
+        arrow: dimensions('[data-testid="filament-preset-1"] .sidebar-dropdown-arrow'),
+      };
+    });
+    expect(geometry.row1.height).toBe(24);
+    expect(geometry.row2.y).toBe(geometry.row1.y);
+    expect(geometry.row2.x).toBeGreaterThan(geometry.row1.x + geometry.row1.width);
+    expect(geometry.colour).toMatchObject({ x: geometry.row1.x, y: geometry.row1.y,
+      width: 24, height: 24, border: '0px', clip: 'border-box',
+      topLeft: geometry.row1.topLeft, bottomLeft: geometry.row1.bottomLeft,
+      topRight: '0px', bottomRight: '0px', directNumber: true });
+    expect(geometry.preset).toMatchObject({ x: geometry.colour.x + geometry.colour.width,
+      y: geometry.row1.y, height: 24, topLeft: '0px', bottomLeft: '0px' });
+    expect(geometry.preset.topRight).not.toBe('0px');
+    expect(geometry.preset.bottomRight).not.toBe('0px');
+    expect(geometry.arrow).toMatchObject({ width: 20, height: 20 });
+    expect(geometry.arrow.x).toBeGreaterThan(geometry.preset.x);
+    expect(geometry.arrow.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
     await expect.poll(() => gradient.evaluate((element) => getComputedStyle(element).backgroundImage))
       .toContain('linear-gradient(90deg, rgb(0, 0, 0), rgb(255, 255, 255))');
     await expect.poll(() => partitions.evaluate((element) => getComputedStyle(element).backgroundImage))

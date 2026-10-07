@@ -330,9 +330,12 @@ the same component and command model.
 Colour blocks use the native filament-session display projection. Solid slots
 show one colour, dual and multi-colour slots show equal hard-edged partitions
 in source order, and gradient slots interpolate continuously through their
-ordered colours. Existing swatch dimensions, borders, radii, hover behaviour,
-and layout remain unchanged. The slot number retains the original direct text
-styling and representative-colour luminance contrast rule. The colour block
+ordered colours. The rack keeps two columns of 24px-high rows: each colour
+fills a 24px square with rounded outer-left corners, no inset border, and a
+straight edge against the dark preset name field; the small dark dropdown
+remains at the right. Existing row layout and hover behaviour remain unchanged.
+The slot number retains the original direct text styling and
+representative-colour luminance contrast rule. The colour block
 tooltip names the mode and complete colour sequence. The slot editor uses the
 shared opaque solid or two-endpoint gradient picker. Imported dual/multi-colour
 partitions and gradients with extra stops open as a draft from their first and

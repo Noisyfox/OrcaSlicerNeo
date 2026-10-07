@@ -99,14 +99,16 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
               ? { kind: 'solid', color: next.color.toLowerCase() }
               : { kind: 'linear-gradient', start: next.start.toLowerCase(), end: next.end.toLowerCase() };
             if (!matchesCanonicalColour(slot, colour)) onColour(colour);
-          }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0 rounded-none"
+          }} trigger={<Button variant="ghost" size="icon-sm" className="h-full w-6 shrink-0"
             aria-label={`Slot ${slot.slot} colour`} data-testid={`filament-colour-${slot.slot}`} value={displayedColour}
             title={filamentSwatchTitle(slot.colour.display)}
-            style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour }}>{slot.slot}</Button>} />
+            style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour,
+              border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
         <Combobox inputValue={search} onInputValueChange={setSearch} value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
           <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
             aria-label={`Filament preset for slot ${slot.slot}`}
             title={slot.preset.name}
+            style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
             render={<Button variant="ghost" size="sm" />}>
             <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue /></span>
           </ComboboxTrigger>
