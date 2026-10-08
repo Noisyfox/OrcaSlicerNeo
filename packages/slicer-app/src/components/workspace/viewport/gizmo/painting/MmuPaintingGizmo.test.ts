@@ -13,6 +13,8 @@ function display(colours: string[]): PaintingDisplay {
 const linear = (channel: number) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
 it.each([
   ['#445566', [85 / 255, 106.25 / 255, 127.5 / 255]],
+  ['#44556680', [85 / 255, 106.25 / 255, 127.5 / 255]],
+  ['#ff000000', [1, 0, 0]],
   ['#ffcc80', [1, 1, 160 / 255]],
   ['#000000', [0, 0, 0]], ['#ffffff', [1, 1, 1]], ['#ff0000', [1, 0, 0]],
 ] as const)('matches Orca encoded-RGB highlight and linear conversion for %s', (source, expected) => {

@@ -32,6 +32,10 @@ separate draft resources.
 - Ordinary and painted model surfaces cull back faces in Prepare. Preview
   model shells retain double-sided rendering. Transparent materials keep
   depth testing enabled and depth writing disabled in both modes.
+- Active MMU painting draft surfaces use the same RGB/RGBA colour adjustment,
+  alpha, depth and Prepare back-face rules as ordinary model surfaces. Candidate
+  overlays and brush cursors retain their tool-specific opacity; cursor RGB is
+  resolved correctly from RGBA filament colours.
 - In Prepare, selecting a painted model brightens each colour group using
   Neo's existing selection treatment, so the groups remain distinguishable.
 - Facet state `0` uses the part's current effective filament assignment.

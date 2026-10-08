@@ -13,6 +13,58 @@ type VisualFrame = { at: number; ordinary: string[]; painting: string[]; colors:
   draws: Array<{ kind: string; geometry: string; renderOrder: number; groupOrder: number; cursor?: CursorDraw; candidate?: { positions: number[]; color: string; opacity: number; depthWrite: boolean; polygonOffsetFactor: number }; contour?: { color: string; depthTest: boolean; depthWrite: boolean; positions: number[] } }> };
 type Committed = { paint: { groups: { stateId: number; indexCount: number }[] }[] };
 
+test('real MMU painting preserves translucent filament materials', async () => {
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-painting-alpha-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_REAL: '1', ORCA_E2E_MODEL: project!, ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
+    await page.locator('#app-tab-prepare').click();
+    if (process.platform === 'darwin') {
+      await app.evaluate(({ Menu, BrowserWindow }) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('file-open-project');
+        if (!item?.enabled) throw new Error('Open Project native menu is unavailable');
+        item.click(item, BrowserWindow.getFocusedWindow() ?? undefined, {} as Electron.KeyboardEvent);
+      });
+    } else {
+      await page.getByTestId('titlebar-menu-trigger').click();
+      await page.getByTestId('menu-file-trigger').hover();
+      await page.locator('[data-slot="menubar-sub-content"]').hover({ position: { x: 8, y: 8 } });
+      await page.getByTestId('file-open-project').click();
+    }
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e?.modelWorldCenters?.().length ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
+    await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0);
+    const center = await page.evaluate(() => {
+      const hooks = (window as any).__orcaE2e;
+      return hooks.projectWorldToScreen(hooks.modelWorldCenters()[0]);
+    });
+    const bounds = await page.getByTestId('viewport').boundingBox();
+    await page.mouse.click(bounds!.x + center.x, bounds!.y + center.y);
+    const target = await page.evaluate(() => (window as any).__orcaE2e.modelSelectionIdentities()[0]);
+    await page.getByTestId('gizmo-btn-paint').click();
+    await expect(page.getByTestId('painting-panel')).toBeVisible();
+    for (const [style, rgb, opacity] of [['#2048c080', '2048c0', 128 / 255], ['#2048c000', 'ffffff', 0.3]] as const) {
+      await page.getByTestId('filament-colour-2').click();
+      await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill(style);
+      await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+      await page.evaluate(({ objectId, instanceId }) => (window as any).__orcaE2e.paintingVisualStart(objectId, instanceId), target);
+      await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.paintingVisualFrames()
+        .flatMap((frame: any) => frame.draws).filter((draw: any) => draw.kind === 'painting').map((draw: any) => draw.modelMaterial)), { timeout: 15_000 }).toContainEqual({
+        color: rgb, opacity, transparent: true, depthTest: true, depthWrite: false, side: 0,
+      });
+      await page.evaluate(() => (window as any).__orcaE2e.paintingVisualStop());
+    }
+    await page.screenshot({ path: test.info().outputPath('painting-alpha.png') });
+    await page.getByRole('button', { name: 'Close painting', exact: true }).click();
+    await expect(page.getByTestId('painting-panel')).toHaveCount(0);
+  } finally { await app.close(); }
+});
+
 test('real painting history jump to empty then Cube Redo removes Prime Tower', async () => {
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-painting-history-')), 'preferences.json');
   writeFileSync(preferences, JSON.stringify({ version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {} }));
