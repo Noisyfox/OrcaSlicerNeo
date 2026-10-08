@@ -55,7 +55,7 @@ test('real MMU painting preserves translucent filament materials', async () => {
       await page.evaluate(({ objectId, instanceId }) => (window as any).__orcaE2e.paintingVisualStart(objectId, instanceId), target);
       await expect.poll(() => page.evaluate(() => (window as any).__orcaE2e.paintingVisualFrames()
         .flatMap((frame: any) => frame.draws).filter((draw: any) => draw.kind === 'painting').map((draw: any) => draw.modelMaterial)), { timeout: 15_000 }).toContainEqual({
-        color: rgb, opacity, transparent: true, depthTest: true, depthWrite: false, side: 0,
+        color: rgb, opacity, transparent: true, depthTest: true, depthWrite: false, side: 2,
       });
       await page.evaluate(() => (window as any).__orcaE2e.paintingVisualStop());
     }

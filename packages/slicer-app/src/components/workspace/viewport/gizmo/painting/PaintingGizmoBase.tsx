@@ -22,7 +22,7 @@ export function paintingSurfaceMaterial(style: string, region: boolean, overhang
   const model = resolvePrepareMaterial({ baseColour: style });
   return new THREE.MeshStandardMaterial({
     color: paintingModelColor(overhang ? '#ffb347' : region ? '#ffffff' : style),
-    side: overlay ? THREE.DoubleSide : THREE.FrontSide,
+    side: THREE.DoubleSide,
     transparent: region || model.transparent,
     opacity: overhang ? 0.25 : region ? 0.35 : model.opacity,
     depthWrite: !overlay && model.depthWrite,

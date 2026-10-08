@@ -163,7 +163,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
                 roughness={0.6}
                 flatShading
                 metalness={0.1}
-                side={preview ? THREE.DoubleSide : THREE.FrontSide}
+                side={THREE.DoubleSide}
                 transparent={paintMaterial.transparent}
                 opacity={paintMaterial.opacity}
                 depthWrite={paintMaterial.depthWrite}
@@ -181,7 +181,7 @@ export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = tru
           roughness={0.6}
           flatShading
           metalness={0.1}
-          side={auxiliaryMaterial || !preview ? THREE.FrontSide : THREE.DoubleSide}
+          side={auxiliaryMaterial ? THREE.FrontSide : THREE.DoubleSide}
           transparent={material.transparent}
           opacity={material.opacity}
           depthWrite={material.depthWrite}

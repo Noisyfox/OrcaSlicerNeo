@@ -42,7 +42,7 @@ it.each([
   expect(material.transparent).toBe(opacity < 1);
   expect(material.depthWrite).toBe(depthWrite);
   expect(material.depthTest).toBe(true);
-  expect(material.side).toBe(THREE.FrontSide);
+  expect(material.side).toBe(THREE.DoubleSide);
   material.dispose();
 });
 it('keeps candidate overlay opacity independent of translucent filament alpha', () => {
