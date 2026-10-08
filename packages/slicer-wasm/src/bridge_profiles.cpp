@@ -328,8 +328,8 @@ json preset_candidates_json(const PresetCollection& collection, bool require_com
         candidates.push_back(preset_entry_json(*it, collection, include_selection));
     }
     if (collection.type() == Preset::TYPE_FILAMENT) {
-        const std::vector<std::string> vendors{"", "Generic"};
-        const std::vector<std::string> types{"PLA", "PETG", "ABS", "TPU"};
+        static const std::vector<std::string> vendors{"", "Generic"};
+        static const std::vector<std::string> types{"PLA", "PETG", "ABS", "TPU"};
         auto rank = [](const auto& values, const std::string& value) {
             return std::distance(values.begin(), std::find(values.begin(), values.end(), value));
         };
