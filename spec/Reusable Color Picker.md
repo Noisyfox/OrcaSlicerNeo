@@ -28,8 +28,7 @@ context menu. Native input editing menus retain their established behavior.
 solid colors or fixed-direction, two-endpoint linear gradients. Opaque output
 is `#RRGGBB`; alpha-enabled output is `#RRGGBBAA`. Alpha is the last byte,
 internally 0–1 and displayed as 0–100%. Each gradient endpoint has independent
-color and alpha. No gradient angles, extra stops, or business transparency
-support is included.
+color and alpha. No gradient angles or extra stops are included.
 
 RGB/HSL inputs, HEX, and the hue/lightness spectrum share mathematical color
 conversion and positioning, with adjustable saturation. Achromatic and fully
@@ -79,14 +78,30 @@ durability is conditional on successful storage.
 
 ## Business integration
 
-Filament rack and preset-editor color controls use the shared popover with
-alpha disabled. The filament rack enables its solid and two-endpoint gradient
-modes; the preset editor remains solid-only. Filament colour drafts remain
+Filament rack color controls enable alpha in solid and two-endpoint gradient
+modes; the preset editor remains solid-only with alpha disabled. Filament colour drafts remain
 local until confirmation, when one typed native command changes the full slot
 colour tuple and records one history operation. Imported multi-colour lists
 open with their first and last colours as gradient endpoints; only confirmation
-replaces the raw list and type. Disabled states and errors remain controlled by
-the runtime.
+replaces the raw list and type. Imported solid colours and both gradient
+endpoints retain alpha in the draft. Cancellation and unchanged confirmation
+preserve native values, including opaque six/eight-digit equivalence. Alpha-only
+edits commit once. Rack commands store opaque colours as `#RRGGBB` and
+translucent colours as `#RRGGBBAA`; the native command and typed client accept
+both formats. Disabled states and errors remain controlled by the runtime.
+
+Translucent filament swatches display the colour over the same checkerboard
+used by the picker. This applies to the rack, object-list assignment cells and
+choices, Change Filament context menus, and painting-panel filament choices.
+Solid, gradient, and partitioned swatches preserve their native colour order;
+any translucent colour enables the checkerboard underneath the full swatch.
+Opaque swatches retain their existing appearance. This background affects UI
+swatches only and does not change model rendering.
+
+Prepare model and painted-facet materials use filament alpha. Following Orca's
+render-colour adjustment, alpha below 0.1 displays as white at opacity 0.3 so
+the model remains visible. Preview shells retain their independent opacity
+0.15 overlay; toolpath colours remain RGB.
 
 ## Support and verification
 
@@ -102,7 +117,10 @@ root suites/typechecks, focused Electron UI and disk-restart tests, and real
 Web serial/threaded storage/reload checks. Alpha/gradient behavior is verified
 at the reusable component layer; the filament rack also verifies both gradient
 endpoints, cancellation, conversion of imported multi-colour metadata, and
-representative-colour persistence through its business entrance.
+representative-colour persistence through its business entrance. Rack tests
+also cover imported alpha, unchanged confirmation and alpha-only edits. Native
+WASM verification exercises independent gradient alpha, rollback, Undo/Redo,
+and standard 3MF export/reopen preservation.
 
 ## Implementation entry points
 

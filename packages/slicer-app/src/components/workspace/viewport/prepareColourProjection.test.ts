@@ -70,6 +70,26 @@ describe('Prepare colour projection', () => {
     expect(resolvePrepareMaterial({ baseColour: '#F4C032FF' })).toMatchObject({ opacity: 1, transparent: false, depthWrite: true });
     expect(resolvePrepareMaterial({ baseColour: '#F4C03280' })).toMatchObject({ colour: '#f4c032', opacity: 128 / 255, transparent: true, depthWrite: false });
   });
+
+  it.each(['00', '19'])('keeps nearly invisible alpha %s models and painted facets visible like Orca', (alpha) => {
+    const colour = `#123456${alpha}`;
+    expect(resolvePrepareMaterial({ baseColour: colour })).toEqual({
+      colour: '#ffffff', opacity: 0.3, transparent: true, depthWrite: false,
+    });
+    expect(resolvePrepareMaterial({ baseColour: colour, selected: true }).opacity).toBe(0.3);
+    const imported = { ...snapshot, slots: [{ ...snapshot.slots[0], colour: { ...snapshot.slots[0].colour, effective: colour } }] } as FilamentSessionSnapshot;
+    expect(preparePaintMaterialOverlays(volume(0), [{ stateId: 2, startIndex: 0, indexCount: 3 }], structure, imported)).toMatchObject([
+      { stateId: 2, colour: '#ffffff', opacity: 0.3, transparent: true, depthWrite: false },
+    ]);
+    expect(resolvePrepareMaterial({ baseColour: colour, transparent: true })).toMatchObject({ opacity: 0.15, transparent: true, depthWrite: false });
+  });
+
+  it('preserves colour and alpha just above Orca visibility threshold', () => {
+    expect(resolvePrepareMaterial({ baseColour: '#1234561A' })).toEqual({
+      colour: '#123456', opacity: 26 / 255, transparent: true, depthWrite: false,
+    });
+    expect(resolvePrepareMaterial({ baseColour: '#00000080' })).toMatchObject({ colour: '#333333', opacity: 128 / 255 });
+  });
   it('does not colour modifiers from ordinary printable-volume state', () => {
     expect(prepareColourForVolume(volume(1), structure, snapshot)).toBe('#cbd5e1');
   });

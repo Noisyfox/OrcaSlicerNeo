@@ -46,8 +46,8 @@ test('imported opaque RGBA slots colour Prepare models like the filament rack', 
         nativeResult: { ok: true, mode: 'project' },
       },
     });
-    await expect(page.getByTestId('filament-colour-1')).toHaveAttribute('value', '#e72f1d');
-    await expect(page.getByTestId('filament-colour-2')).toHaveAttribute('value', '#f4c032');
+    await expect(page.getByTestId('filament-colour-1')).toHaveAttribute('value', '#e72f1dff');
+    await expect(page.getByTestId('filament-colour-2')).toHaveAttribute('value', '#f4c032ff');
     await expect(page.getByTestId('filament-colour-3')).toHaveAttribute('value', '#e5e5e5');
 
     await expect.poll(() => page.evaluate(() =>

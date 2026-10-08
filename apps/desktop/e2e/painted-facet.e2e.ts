@@ -134,15 +134,12 @@ test('Prepare painted model uses original BVH for selection and dragging', async
     expect(beforeColours).toHaveLength(1);
     expect(beforeColours[0]).toMatchObject({ id: before.id, stateId: 1, flatShading: true });
 
-    // Change the authoritative slot colour through FilamentRack's real input
-    // event path, then confirm React updates the material while both geometry
+    // Change the authoritative slot colour through FilamentRack's picker,
+    // then confirm React updates the material while both geometry
     // resources and the original BVH-backed object stay in place.
-    await page.getByTestId('filament-colour-1').evaluate((input) => {
-      const colour = input as HTMLInputElement;
-      colour.value = '#2048c0';
-      colour.dispatchEvent(new Event('input', { bubbles: true }));
-      colour.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await page.getByTestId('filament-colour-1').click();
+    await page.getByRole('textbox', { name: 'HEX color', exact: true }).fill('#2048c0');
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect.poll(() => readVolumeColours(before.id), { timeout: 15_000 }).not.toEqual(beforeColours);
     const afterPalette = (await readResources())[0];
     expect(afterPalette).toMatchObject({

@@ -1276,10 +1276,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         next.slots[index].preset = { id: request.preset, name: request.preset };
       } else {
         const colour = request.colour;
-        const opaque = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+        const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
         if (!colour || typeof colour !== 'object' || Array.isArray(colour) ||
-            !((colour.kind === 'solid' && Object.keys(colour).length === 2 && opaque(colour.color)) ||
-              (colour.kind === 'linear-gradient' && Object.keys(colour).length === 3 && opaque(colour.start) && opaque(colour.end))))
+            !((colour.kind === 'solid' && Object.keys(colour).length === 2 && validColour(colour.color)) ||
+              (colour.kind === 'linear-gradient' && Object.keys(colour).length === 3 && validColour(colour.start) && validColour(colour.end))))
           return fail('native filament colour validation failed', 'native_validation_failure');
         const representative = colour.kind === 'solid' ? colour.color : colour.start;
         const multi = colour.kind === 'solid' ? representative : `${colour.start} ${colour.end}`;

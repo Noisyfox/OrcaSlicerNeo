@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { PaintingController, type PaintingPorts, type PaintingState } from './PaintingController';
 import type { LoadedObject } from '@/components/workspace/viewport/useModelLoader';
-import { PaintingGizmoBase, paintingModelColor, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
+import { PaintingGizmoBase, paintingModelColor, paintingSurfaceMaterial, paintingStartMiss, paintingModelBounds, paintingCursorMeshes, rotatePaintingCamera, panPaintingCamera, triangleContourMaterial } from './PaintingGizmoBase';
 
 const mocked = vi.hoisted(() => ({ state: null as PaintingState | null, owner: null as any, three: null as any }));
 vi.mock('./PaintingProvider', () => ({ usePaintingState: () => mocked.state, usePaintingController: () => mocked.owner }));
@@ -30,6 +30,30 @@ it.each([
   expected.forEach((channel, i) => expect(colour.toArray()[i]).toBeCloseTo(linear(channel), 6));
 });
 let source: LoadedObject, replacement: THREE.BufferGeometry;
+it.each([
+  ['#2048c080', '2048c0', 128 / 255, false],
+  ['#2048c0ff', '2048c0', 1, true],
+  ['#2048c000', 'ffffff', 0.3, false],
+  ['#00000080', '333333', 128 / 255, false],
+] as const)('preserves painting model RGB and adjusted alpha for %s', (style, rgb, opacity, depthWrite) => {
+  const material = paintingSurfaceMaterial(style, false, false, false);
+  expect(material.color.getHexString()).toBe(rgb);
+  expect(material.opacity).toBeCloseTo(opacity);
+  expect(material.transparent).toBe(opacity < 1);
+  expect(material.depthWrite).toBe(depthWrite);
+  expect(material.depthTest).toBe(true);
+  expect(material.side).toBe(THREE.DoubleSide);
+  material.dispose();
+});
+it('keeps candidate overlay opacity independent of translucent filament alpha', () => {
+  const material = paintingSurfaceMaterial('#2048c080', true, false, true);
+  expect(material.color.getHexString()).toBe('ffffff');
+  expect(material.opacity).toBe(0.35);
+  expect(material.transparent).toBe(true);
+  expect(material.depthWrite).toBe(false);
+  expect(material.side).toBe(THREE.DoubleSide);
+  material.dispose();
+});
 beforeEach(() => {
   resolveCursorColor.mockClear();
   vi.stubGlobal('__ORCA_E2E__', false); vi.stubGlobal('PointerEvent', MouseEvent);

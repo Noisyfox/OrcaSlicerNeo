@@ -21,7 +21,9 @@ function mmuSlotColor(rack: FilamentSessionSnapshot | null, state: number): stri
 export function mmuPaintingCursorColor(display: PaintingDisplay, state: number): THREE.Color {
   // Treat the source style channels as raw encoded values, avoiding an
   // unnecessary sRGB -> linear -> approximate sRGB round trip before highlight.
-  const encoded = new THREE.Color().setStyle(mmuSlotColor(display.palette, state), THREE.LinearSRGBColorSpace);
+  const style = mmuSlotColor(display.palette, state);
+  const rgb = /^#[\da-f]{8}$/i.test(style) ? style.slice(0, 7) : style;
+  const encoded = new THREE.Color().setStyle(rgb, THREE.LinearSRGBColorSpace);
   return new THREE.Color().setRGB(Math.min(encoded.r * 1.25, 1), Math.min(encoded.g * 1.25, 1), Math.min(encoded.b * 1.25, 1), THREE.SRGBColorSpace);
 }
 export function MmuPaintingGizmo({ volumes, openingVisual }: { volumes: readonly LoadedObject[]; openingVisual: ReactNode }) {
