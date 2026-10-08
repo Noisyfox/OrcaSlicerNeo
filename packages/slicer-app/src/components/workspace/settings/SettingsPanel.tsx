@@ -22,16 +22,7 @@ import { glVolumeCollection } from '../viewport/GLVolume';
 import { projectHistoryStatus, runProjectMutationOperation } from '../actions/historyMutation';
 import { loadRememberedFilamentRackFromRepository, publishRememberedFilamentRack, loadRememberedBedTypeFromRepository, publishRememberedBedType } from '@/preferences';
 import { ScopedConfigurationPanel } from './ScopedConfigurationPanel';
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxTrigger,
-  ComboboxValue,
-} from '@/components/ui/combobox';
+import { PresetCombobox, type PresetComboItem } from '../PresetCombobox';
 
 type PresetKind = 'printer' | 'print';
 
@@ -195,9 +186,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             <PresetRow
               compact
               label="Printer"
-              items={printerPicker?.items.map(item => ({ name: item.id, label: item.label })) ?? []}
+              items={printerPicker?.items.map(item => ({ id: item.id, name: item.preset, label: item.label })) ?? []}
               value={printerPicker?.selectedId ?? ''}
-              tooltip={selectedPrinter}
               onValue={(id) => {
                 const target = printerPicker?.items.find(item => item.id === id);
                 if (target && target.preset !== selectedPrinter) void handleSelectPreset('printer', target.preset);
@@ -249,7 +239,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       <ScopedConfigurationPanel
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
-        projectContent={<PresetRow compact label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
+        projectContent={<PresetRow compact label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
         platesContent={platesContent}
         platesToolbar={sceneInteraction && <PlateToolbar sceneInteraction={sceneInteraction} />}
@@ -264,75 +254,23 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-function PresetRow({ label, items, value, tooltip, onValue, onEdit, disabled, testId, compact = false }: {
+function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false }: {
   compact?: boolean;
   label: string;
-  items: Array<{ name: string; label?: string }>;
+  items: PresetComboItem[];
   value: string;
-  tooltip?: string;
-  onValue: (name: string) => void;
+  onValue: (id: string) => void;
   onEdit?: () => void;
   disabled: boolean;
   testId?: string;
 }) {
-  const [search, setSearch] = useState('');
-  const labels = new Map(items.map(item => [item.name, item.label ?? item.name]));
-  const itemLabel = (name: string) => labels.get(name) ?? name;
   if (items.length === 0) return null;
-  return (
-    <div className={cn(compact ? "min-w-0" : "flex flex-col gap-1 py-1")}>
-      <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
-      {/*
-        Filtering is items-prop driven in base-ui 1.7 — rendered children are
-        NOT auto-filtered. The List's function child becomes a Collection that
-        maps the root's filtered items, so search actually narrows the list.
-      */}
-      <Combobox
-        inputValue={search} onInputValueChange={setSearch}
-        value={value || null}
-        onValueChange={(v) => v != null && onValue(v)}
-        items={items.map((p) => p.name)}
-        itemToStringLabel={itemLabel}
-        disabled={disabled}
-      >
-        <div className="flex min-w-0 gap-1">
-          {onEdit && <Button
-            type="button"
-            variant="settings"
-            size="icon-sm"
-            aria-label="Edit Printer"
-            title="Printer settings"
-            data-testid="preset-edit-printer"
-            disabled={disabled || value.length === 0}
-            onClick={onEdit}
-          ><SlidersHorizontal /></Button>}
-          <ComboboxTrigger
-            variant="sidebar"
-            aria-label={label}
-            title={tooltip ?? itemLabel(value)}
-            className="min-w-0 flex-1"
-            data-testid={testId}
-            disabled={disabled}
-            render={<Button variant="ghost" size="sm" />}
-          >
-            <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue placeholder="— select —" /></span>
-          </ComboboxTrigger>
-        </div>
-        <ComboboxContent>
-          {/* showTrigger={false} — official popup-style anatomy: the only
-              ComboboxTrigger is the root button. Rendering the chevron
-              trigger inside the popup overwrites the store's triggerElement
-              with an element INSIDE the popup, so the positioner anchors to
-              itself and oscillates forever (2026-08-16). */}
-          <ComboboxInput placeholder="Search presets…" showTrigger={false} searchValue={search} onClearSearch={() => setSearch('')} />
-          <ComboboxList>
-            {(name) => (
-              <ComboboxItem key={name} value={name}>{itemLabel(name)}</ComboboxItem>
-            )}
-          </ComboboxList>
-          <ComboboxEmpty>No matching presets</ComboboxEmpty>
-        </ComboboxContent>
-      </Combobox>
-    </div>
-  );
+  return <div className={cn(compact ? "min-w-0" : "flex flex-col gap-1 py-1")}>
+    <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
+    <PresetCombobox items={items} value={value} onValue={onValue} disabled={disabled}
+      ariaLabel={label} testId={testId} searchPlaceholder="Search presets…" emptyText="No matching presets"
+      leading={onEdit && <Button type="button" variant="settings" size="icon-sm"
+        aria-label="Edit Printer" title="Printer settings" data-testid="preset-edit-printer"
+        disabled={disabled || value.length === 0} onClick={onEdit}><SlidersHorizontal /></Button>} />
+  </div>;
 }

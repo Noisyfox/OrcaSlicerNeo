@@ -236,6 +236,7 @@ describe('SettingsPanel preset transitions', () => {
 
   it('uses native model labels and canonical targets, with inert Sync and actual-profile editing', async () => {
     resetStores();
+    useSettingsStore.setState({ prints: initialSnapshot.prints.map(item => ({ ...item, label: 'Process alias' })) });
     useSettingsStore.setState({ printerPicker: {
       ...initialSnapshot.printerPicker,
       items: initialSnapshot.printerPicker.items.map(item => ({ ...item, label: `${item.label} Model` })),
@@ -243,6 +244,8 @@ describe('SettingsPanel preset transitions', () => {
     const edit = vi.fn();
     const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
     const { container, root } = await render(platform, edit); roots.push(root);
+    expect(container.querySelector('[data-testid="process-preset-select"]')?.textContent).toBe('Process alias');
+    expect(container.querySelector('[data-testid="process-preset-select"]')?.getAttribute('title')).toBe('Candidate Process B');
     expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('Old Printer Model');
     expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Old Printer');
     await act(async () => (container.querySelector('[data-testid="nozzle-sync-placeholder"]') as HTMLElement).click());
