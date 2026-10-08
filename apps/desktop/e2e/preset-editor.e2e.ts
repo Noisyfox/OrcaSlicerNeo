@@ -4,12 +4,12 @@ import { resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
-async function selectFilamentPreset(page: Page, name: string): Promise<void> {
+async function selectFilamentPreset(page: Page, name: string, label: string): Promise<void> {
   const preset = page.getByTestId('filament-preset-1');
   await preset.click();
-  await page.getByPlaceholder('Search compatible presets…').fill(name);
-  await page.getByRole('option', { name, exact: true }).click();
-  await expect(preset).toContainText(name);
+  await page.getByPlaceholder('Search compatible presets…').fill(label);
+  await page.getByRole('option').and(page.getByTitle(name, { exact: true })).click();
+  await expect(preset).toHaveAttribute('title', name);
 }
 
 async function editNumericField(
@@ -61,7 +61,7 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
-    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System');
+    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
     for (const [id, placeholder] of [
       ['preset-select', 'Search presets…'],
       ['process-preset-select', 'Search presets…'],

@@ -307,6 +307,7 @@ json preset_entry_json(const Preset& preset, const PresetCollection& collection,
                        bool include_selection = true)
 {
     json entry{{"name", preset.name},
+               {"label", preset.label(false)},
                {"is_visible", preset.is_visible},
                {"is_default", preset.is_default}};
     if (include_selection)

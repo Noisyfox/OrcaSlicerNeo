@@ -5,6 +5,15 @@ test('native printer grouping and nozzle variants preserve canonical history and
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
+  const filament = page.getByTestId('filament-preset-1');
+  await expect(filament).toHaveText('Generic PLA');
+  await expect(filament).toHaveAttribute('title', 'Generic PLA @System');
+  await filament.click();
+  const filamentPopup = page.locator('[data-slot="combobox-content"]');
+  await filamentPopup.getByPlaceholder('Search compatible presets…').fill('Generic PLA');
+  const systemPla = filamentPopup.getByRole('option').and(page.getByTitle('Generic PLA @System', { exact: true }));
+  await expect(systemPla).toHaveText('Generic PLA');
+  await page.keyboard.press('Escape');
   const printer = page.getByTestId('preset-select');
   await printer.click();
   const popup = page.locator('[data-slot="combobox-content"]');

@@ -10,9 +10,9 @@ function full(snapshot: ReturnType<typeof emptyNativeScopedConfig>, revision = 1
 const bootSnapshot: ProfileSnapshot = {
   ok: true,
   printerPicker: { items: [], selectedId: '', variants: [], selectedVariant: '' },
-  printers: [{ name: 'P', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
-  prints: [{ name: 'Q', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
-  filamentCatalog: [{ name: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
+  printers: [{ name: 'P', label: 'P', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  prints: [{ name: 'Q', label: 'Q', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  filamentCatalog: [{ name: 'F', label: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'P', idx: 1 },
   print: { name: 'Q', idx: 2 },
   bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },

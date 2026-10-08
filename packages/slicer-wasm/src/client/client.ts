@@ -361,9 +361,10 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
         !Array.isArray(d.colors) || !d.colors.every(validHex) ||
         d.colors.length < (d.mode === 'solid' ? 1 : 2) ||
         (d.mode === 'solid' && d.colors.length !== 1)) return null;
-    if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof c.effective !== 'string' ||
+    if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.label !== 'string' || typeof c.effective !== 'string' ||
         (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
-    return { logicalId: item.logical_id as string, slot: item.slot as number, preset: { id: p.id, name: p.name },
+    return { logicalId: item.logical_id as string, slot: item.slot as number,
+      preset: { id: p.id, name: p.name, label: p.label },
       colour: { effective: c.effective, provenance: c.provenance,
         native: { representative: n.representative as string | null,
           multiColour: n.multi_colour as string | null, type: n.type as string | null },
@@ -1005,6 +1006,9 @@ function normalizeBedTypeNormalization(raw: unknown): ProjectLoadResult['bedType
  * contract, including the engine-filtered filament catalogue. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
+  if (['printers', 'prints', 'filament_catalog'].some(key =>
+    !Array.isArray(raw[key]) || raw[key].some(item => !isRecord(item) || typeof item.label !== 'string')))
+    return { ok: false, error: 'Invalid native preset display labels' };
   const picker = raw.printer_picker;
   const selectedPrinterName = isRecord(raw.printer) ? raw.printer.name : undefined;
   const printerNames = new Set((Array.isArray(raw.printers) ? raw.printers : [])

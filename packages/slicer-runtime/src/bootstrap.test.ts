@@ -150,7 +150,7 @@ describe('portable runtime bootstrap', () => {
         if (message.type === 'request' && message.op === 'getFilamentSessionSnapshot') {
           receive({ type: 'response', id: message.id, ok: true, result: {
             ok: true, version: 1,
-            slots: [{ slot: 1, preset: { id: 'Generic PLA', name: 'Generic PLA' },
+            slots: [{ slot: 1, preset: { id: 'Generic PLA', name: 'Generic PLA', label: 'Generic PLA' },
               colour: { effective: '#F2754E', provenance: 'preset' } }],
             mappings: { filament: [1], volume: [0], nozzle: [0], filament2: [0], physicalExtruder: [0] },
             flushing: { matrix: [0], vector: [], matrixDimension: 1, source: 'native' },
@@ -176,7 +176,7 @@ describe('portable runtime bootstrap', () => {
   it('keeps the filament-session wire contract identical for serial and threaded hosts', async () => {
     const wireSnapshot = {
       ok: true, version: 1,
-      slots: [{ slot: 1, preset: { id: 'Generic PLA', name: 'Generic PLA' },
+      slots: [{ slot: 1, preset: { id: 'Generic PLA', name: 'Generic PLA', label: 'Generic PLA' },
         colour: { effective: '#F2754E', provenance: 'preset' } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },

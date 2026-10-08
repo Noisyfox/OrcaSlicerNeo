@@ -10,6 +10,7 @@ import type { PresetInfo } from '@slicer/client';
 function preset(name: string, opts: Partial<PresetInfo> = {}): PresetInfo {
   return {
     name,
+    label: name,
     is_visible: true,
     is_default: false,
     vendor_id: 'v',

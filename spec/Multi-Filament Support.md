@@ -35,6 +35,13 @@ same slot model covers:
 - multi-nozzle, IDEX, and toolchanger printers; and
 - ordinary single-filament printers, represented by one slot.
 
+Filament combo triggers and list entries use native `Preset::label(false)`:
+the profile alias when available, otherwise its complete name. Their tooltips
+show complete canonical names, including suffixes. Equal aliases remain
+separate canonical choices; selection, editing, and persistence use full names.
+Display labels are required in the internal catalogue and slot snapshot
+contracts. Missing labels are rejected rather than reconstructed by React.
+
 The first release does not expose an advanced manual filament-to-physical-
 extruder mapping editor. It uses the selected printer preset and OrcaSlicer's
 native configuration rules to map material slots to physical extruders,
