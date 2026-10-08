@@ -57,7 +57,8 @@ considers them compatible.
 - Incompatible profiles are hidden. There is no option to reveal or select
   them in this release.
 - Printer and Process profiles keep native source order. Filament catalogue
-  order is supplied by the native Orca-style vendor/type/name projection.
+  order is supplied by the native vendor/type/name projection without
+  Bambu-specific priorities.
   The application preserves that order when constructing vendor groups.
 - The native profile snapshot also provides `filament_catalog`, an
   engine-filtered candidate catalogue consumed by the multi-filament rack.

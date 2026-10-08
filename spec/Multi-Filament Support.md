@@ -42,12 +42,18 @@ separate canonical choices; selection, editing, and persistence use full names.
 Display labels are required in the internal catalogue and slot snapshot
 contracts. Missing labels are rejected rather than reconstructed by React.
 Filament lists group entries by native `filament_vendor`, independently of the
-profile resource vendor id. Orca's `Bambu Lab` to `Bambu` normalization and
-`Unspecified` label for empty vendors apply. Native catalogue order follows
-Orca's system filament name, vendor, type, and canonical-name priorities;
-group and item order preserve that projection. Search retains only matching
-groups, with headers that cannot be selected. Current imported or incompatible
-slot profiles remain available in their own vendor group.
+profile resource vendor id. Vendor names are retained verbatim, including
+`Bambu Lab`; empty vendors display as `Unspecified`. Native catalogue order
+retains empty-vendor and Generic priority, then PLA/PETG/ABS/TPU priority
+and canonical-name ordering. Bambu vendor priority and named Bambu profile
+priorities are omitted. Group and item order preserve that projection.
+The first menu level contains vendor submenu triggers; each second-level
+menu contains that vendor's
+profiles. Pointer hover/click and keyboard navigation open vendor submenus.
+Search retains only vendors and profiles with matching display labels.
+Selecting a profile closes the menu and returns focus to its slot trigger.
+Current imported or incompatible slot profiles remain available in their own
+vendor group.
 
 The first release does not expose an advanced manual filament-to-physical-
 extruder mapping editor. It uses the selected printer preset and OrcaSlicer's

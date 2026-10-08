@@ -8,7 +8,8 @@ async function selectFilamentPreset(page: Page, name: string, label: string): Pr
   const preset = page.getByTestId('filament-preset-1');
   await preset.click();
   await page.getByPlaceholder('Search compatible presets…').fill(label);
-  await page.getByRole('option').and(page.getByTitle(name, { exact: true })).click();
+  await page.getByRole('menuitem', { name: 'Generic', exact: true }).hover();
+  await page.getByRole('menuitemradio').and(page.getByTitle(name, { exact: true })).click();
   await expect(preset).toHaveAttribute('title', name);
 }
 
@@ -70,13 +71,15 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
       const picker = page.getByTestId(id);
       const selected = await picker.textContent();
       await picker.click();
-      const search = page.getByPlaceholder(placeholder).and(page.locator('input[aria-expanded="true"]'));
+      const search = id === 'filament-preset-1'
+        ? page.getByRole('menu', { name: 'Filament preset for slot 1', exact: true }).getByPlaceholder(placeholder)
+        : page.getByPlaceholder(placeholder).and(page.locator('input[aria-expanded="true"]'));
       await search.fill('no-such-preset');
       await page.getByRole('button', { name: 'Clear search', exact: true }).click();
       await expect(search).toHaveValue('');
       await expect(search).toBeFocused();
       await expect(picker).toHaveText(selected!);
-      await expect(page.getByRole('option').first()).toBeVisible();
+      await expect(page.getByRole(id === 'filament-preset-1' ? 'menuitem' : 'option').first()).toBeVisible();
       await page.keyboard.press('Escape');
     }
 

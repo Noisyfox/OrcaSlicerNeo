@@ -43,7 +43,6 @@ assert.equal(defaultSession.slots[0].preset.vendor, 'Generic', JSON.stringify(de
 const profiles = callJson('orc_get_preset_snapshot');
 assert.equal(profiles.filament_catalog.find(item => item.name === 'Generic PLA @System').label, 'Generic PLA');
 assert.equal(profiles.filament_catalog.find(item => item.name === 'Generic PLA @System').vendor, 'Generic');
-assert.ok(profiles.filament_catalog.every(item => item.vendor !== 'Bambu Lab'));
 assert.equal(defaultSession.slots[0].colour.effective, '#26A69A', JSON.stringify(defaultSession));
 assert.equal(defaultSession.slots[0].colour.provenance, 'preset', JSON.stringify(defaultSession));
 assert.equal(defaultSession.flushing.plane_count, defaultSession.capabilities.nozzle_count, JSON.stringify(defaultSession));

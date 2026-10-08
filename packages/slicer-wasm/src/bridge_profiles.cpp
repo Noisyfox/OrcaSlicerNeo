@@ -316,7 +316,6 @@ json preset_entry_json(const Preset& preset, const PresetCollection& collection,
     entry["vendor_id"] = preset.vendor ? preset.vendor->id : "";
     entry["model"] = preset.config.opt_string("printer_model");
     entry["variant"] = preset.config.opt_string("printer_variant");
-    if (entry["vendor"] == "Bambu Lab") entry["vendor"] = "Bambu";
     return entry;
 }
 
@@ -329,17 +328,12 @@ json preset_candidates_json(const PresetCollection& collection, bool require_com
         candidates.push_back(preset_entry_json(*it, collection, include_selection));
     }
     if (collection.type() == Preset::TYPE_FILAMENT) {
-        // Orca's system filament ordering, before vendor submenus are populated.
-        const std::vector<std::string> orders{"Bambu PLA Basic", "Bambu PLA Matte", "Bambu PETG HF", "Bambu ABS", "Bambu PLA Silk", "Bambu PLA-CF",
-            "Bambu PLA Galaxy", "Bambu PLA Metal", "Bambu PLA Marble", "Bambu PETG-CF", "Bambu PETG Translucent", "Bambu ABS-GF"};
-        const std::vector<std::string> vendors{"", "Bambu", "Generic"};
+        const std::vector<std::string> vendors{"", "Generic"};
         const std::vector<std::string> types{"PLA", "PETG", "ABS", "TPU"};
         auto rank = [](const auto& values, const std::string& value) {
             return std::distance(values.begin(), std::find(values.begin(), values.end(), value));
         };
         std::sort(candidates.begin(), candidates.end(), [&](const json& a, const json& b) {
-            const auto order_a = rank(orders, a["name"]), order_b = rank(orders, b["name"]);
-            if (order_a != order_b) return order_a < order_b;
             const auto vendor_a = rank(vendors, a["vendor"]), vendor_b = rank(vendors, b["vendor"]);
             if (vendor_a != vendor_b) return vendor_a < vendor_b;
             const Preset* preset_a = collection.find_preset(a["name"].get<std::string>(), false);

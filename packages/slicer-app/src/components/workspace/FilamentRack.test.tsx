@@ -96,7 +96,7 @@ describe('FilamentRack runtime interaction', () => {
 
   it('displays native aliases while distinct canonical names remain selectable and visible in tooltips', async () => {
     const initial = makeSnapshot({ slots: makeSnapshot().slots.map(slot => ({ ...slot, preset: {
-      id: `Generic PLA @Printer${slot.slot}`, name: `Generic PLA @Printer${slot.slot}`, label: 'Generic PLA', vendor: slot.slot === 1 ? 'Bambu' : 'Generic',
+      id: `Generic PLA @Printer${slot.slot}`, name: `Generic PLA @Printer${slot.slot}`, label: 'Generic PLA', vendor: slot.slot === 1 ? 'Bambu Lab' : 'Generic',
     } })) });
     useFilamentSessionStore.setState({ snapshot: initial });
     const catalog = initial.slots.map(slot => ({
@@ -113,18 +113,20 @@ describe('FilamentRack runtime interaction', () => {
     expect(trigger.textContent).toBe('Generic PLA');
     expect(trigger.title).toBe('Generic PLA @Printer1');
     await act(async () => trigger.click());
-    const groupLabels = () => [...document.querySelectorAll('[data-slot="combobox-label"]')].map(item => item.textContent);
-    expect(groupLabels()).toEqual(['Bambu', 'Generic', 'eSun', 'Unspecified']);
+    const groupLabels = () => [...document.querySelectorAll('[data-slot="dropdown-menu-sub-trigger"]')].map(item => item.textContent);
+    expect(groupLabels()).toEqual(['Bambu Lab', 'Generic', 'eSun', 'Unspecified']);
+    expect(document.querySelector('[data-slot="dropdown-menu-radio-item"]')).toBeNull();
     const search = document.querySelector<HTMLInputElement>('input[placeholder="Search compatible presets…"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'Generic');
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    expect(groupLabels()).toEqual(['Bambu', 'Generic']);
-    const choices = [...document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]')];
-    expect(choices.map(item => item.textContent)).toEqual(['Generic PLA', 'Generic PLA']);
-    expect(choices.map(item => item.title)).toEqual(['Generic PLA @Printer1', 'Generic PLA @Printer2']);
-    await act(async () => choices[1].click());
+    expect(groupLabels()).toEqual(['Bambu Lab', 'Generic']);
+    await act(async () => (document.querySelectorAll<HTMLElement>('[data-slot="dropdown-menu-sub-trigger"]')[1]).click());
+    const choices = [...document.querySelectorAll<HTMLElement>('[data-slot="dropdown-menu-radio-item"]')];
+    expect(choices.map(item => item.textContent)).toEqual(['Generic PLA']);
+    expect(choices.map(item => item.title)).toEqual(['Generic PLA @Printer2']);
+    await act(async () => choices[0].click());
     expect(selectFilamentSlotPreset).toHaveBeenCalledWith(expect.objectContaining({ slot: 1, preset: 'Generic PLA @Printer2' }));
   });
 

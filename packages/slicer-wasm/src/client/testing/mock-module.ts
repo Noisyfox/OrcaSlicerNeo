@@ -314,8 +314,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   };
   const presetFixtures: Record<PresetKind, PresetFixture[]> = {
     printer: [
-      { name: 'Bambu Lab X1 Carbon 0.4 nozzle', label: 'Bambu Lab X1 Carbon 0.4 nozzle', vendor: 'Bambu', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4', printable_area: [[0, 0], [220, 0], [220, 220], [0, 220]] },
-      { name: 'Bambu Lab P1S 0.4 nozzle', label: 'Bambu Lab P1S 0.4 nozzle', vendor: 'Bambu', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4', printable_area: [[0, 0], [256, 0], [256, 256], [0, 256]] },
+      { name: 'Bambu Lab X1 Carbon 0.4 nozzle', label: 'Bambu Lab X1 Carbon 0.4 nozzle', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4', printable_area: [[0, 0], [220, 0], [220, 220], [0, 220]] },
+      { name: 'Bambu Lab P1S 0.4 nozzle', label: 'Bambu Lab P1S 0.4 nozzle', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4', printable_area: [[0, 0], [256, 0], [256, 256], [0, 256]] },
       { name: 'Afinia H+1(HS)', label: 'Afinia H+1(HS)', vendor: '', is_visible: false, is_default: false, vendor_id: 'afinia', model: 'H+1(HS)', variant: '0.4' },
     ],
     print: [
@@ -325,10 +325,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { name: 'Hidden process', label: 'Hidden process', vendor: '', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
     ],
     filament: [
-      { name: 'Bambu PLA Basic @BBL X1C', label: 'Bambu PLA Basic', vendor: 'Bambu', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C', '0.16mm Optimal @BBL X1C'] },
-      { name: 'Bambu PLA Matte @BBL X1C', label: 'Bambu PLA Matte', vendor: 'Bambu', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
-      { name: 'Bambu PLA Silk @BBL X1C', label: 'Bambu PLA Silk', vendor: 'Bambu', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.16mm Optimal @BBL X1C'] },
-      { name: 'Bambu PLA Basic @BBL P1S', label: 'Bambu PLA Basic', vendor: 'Bambu', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL P1S'] },
+      { name: 'Bambu PLA Basic @BBL X1C', label: 'Bambu PLA Basic', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C', '0.16mm Optimal @BBL X1C'] },
+      { name: 'Bambu PLA Matte @BBL X1C', label: 'Bambu PLA Matte', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
+      { name: 'Bambu PLA Silk @BBL X1C', label: 'Bambu PLA Silk', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.16mm Optimal @BBL X1C'] },
+      { name: 'Bambu PLA Basic @BBL P1S', label: 'Bambu PLA Basic', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL P1S'] },
       { name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic', is_visible: true, is_default: false, vendor_id: 'OrcaFilamentLibrary', model: '', variant: '' },
       { name: 'Hidden filament', label: 'Hidden filament', vendor: '', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
     ],
