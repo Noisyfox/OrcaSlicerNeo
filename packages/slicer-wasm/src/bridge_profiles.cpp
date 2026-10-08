@@ -558,13 +558,28 @@ json printer_picker_json(const DynamicPrintConfig& effective)
         items.push_back({{"id", group.id}, {"label", group.label}, {"preset", target->name}});
         if (group.id != selected_id) continue;
         std::set<std::string> values;
-        for (const Preset* preset : group.presets) {
-            const std::string value = preset->config.opt_string("printer_variant");
-            if (!value.empty()) values.insert(value);
+        // Reuse Orca's variant enumeration/order, then apply Neo's admission
+        // boundary: the native method includes hidden and cross-vendor presets.
+        // A draft can edit printer_model; the picker retains its source identity.
+        if (bundle.printers.get_edited_preset().config.opt_string("printer_model") ==
+            selected.config.opt_string("printer_model")) {
+            for (const auto& value : bundle.printers.diameters_of_selected_printer())
+                if (!value.empty() && std::any_of(group.presets.begin(), group.presets.end(),
+                    [&](const Preset* preset) { return preset->config.opt_string("printer_variant") == value; }))
+                    values.insert(value);
+        } else {
+            for (const Preset* preset : group.presets) {
+                const std::string value = preset->config.opt_string("printer_variant");
+                if (!value.empty()) values.insert(value);
+            }
         }
         if (!current_variant.empty()) values.insert(current_variant);
         for (const auto& value : values) {
             const Preset* variant_target = resolve(group, value);
+            // Reactivating the current source retains its runtime draft. Do
+            // not advertise its original variant as a way to reset that draft.
+            if (variant_target && variant_target->name == selected.name && value != current_variant)
+                variant_target = nullptr;
             variants.push_back({{"value", value},
                                 {"preset", variant_target ? json(variant_target->name) : json(nullptr)}});
         }

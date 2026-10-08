@@ -81,7 +81,21 @@ try {
   })]);
   assert.equal(rejected.ok, false);
   assert.deepEqual(snapshot(), before);
-  console.log('printer picker smoke OK: grouping, named/mixed variants, preserve/fallback, atomic transition, rejection');
+  current = select('Compatibility Alpha 0.4 nozzle');
+  const draft = call('orc_get_preset_draft', ['string', 'string'], ['printer', current.printer.name]);
+  assert.equal(draft.ok, true, JSON.stringify(draft));
+  const customized = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+    action: 'set', kind: 'printer', canonical_name: current.printer.name,
+    expected_revision: draft.revision, key: 'nozzle_diameter', value: '0.5',
+  })]);
+  assert.equal(customized.ok, true, JSON.stringify(customized));
+  const customizedPicker = snapshot().printer_picker;
+  assert.equal(customizedPicker.selected_variant, '0.5');
+  assert.equal(customizedPicker.variants.find(item => item.value === '0.5').preset, null,
+    'custom effective diameter never invents a canonical profile');
+  assert.equal(customizedPicker.variants.find(item => item.value === '0.4').preset, null,
+    'reactivating the source cannot silently reset its retained draft');
+  console.log('printer picker smoke OK: grouping, named/mixed variants, preserve/fallback, atomic transition, rejection, effective draft');
 } finally {
   await rm(root, { recursive: true, force: true });
 }
