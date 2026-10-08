@@ -29,6 +29,9 @@ separate draft resources.
 - A Preview model shell preserves the Prepare model's unselected facet colours
   with shell opacity `0.15`. Preview toolpaths retain their independent
   slice-result colour source; the shell does not obscure them.
+- Ordinary and painted model surfaces cull back faces in Prepare. Preview
+  model shells retain double-sided rendering. Transparent materials keep
+  depth testing enabled and depth writing disabled in both modes.
 - In Prepare, selecting a painted model brightens each colour group using
   Neo's existing selection treatment, so the groups remain distinguishable.
 - Facet state `0` uses the part's current effective filament assignment.
