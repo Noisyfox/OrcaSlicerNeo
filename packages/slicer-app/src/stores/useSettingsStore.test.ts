@@ -50,6 +50,7 @@ describe('useSettingsStore', () => {
     useSettingsStore.getState().setValues({ layer_height: '0.12' });
     useSettingsStore.getState().hydrateProfileSnapshot(bootSnapshot);
     const state = useSettingsStore.getState();
+    expect(state.printerPicker).toEqual(bootSnapshot.printerPicker);
     expect(state.printers).toBe(bootSnapshot.printers);
     expect(state.prints).toBe(bootSnapshot.prints);
     expect(state.filamentCatalog).toBe(bootSnapshot.filamentCatalog);

@@ -1,6 +1,51 @@
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 
+test('native printer grouping and nozzle variants preserve canonical history and startup selection', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  const printer = page.getByTestId('preset-select');
+  await printer.click();
+  const popup = page.locator('[data-slot="combobox-content"]');
+  await popup.getByPlaceholder('Search presets…').fill('Snapmaker U1');
+  await expect(popup.getByRole('option')).toHaveCount(1);
+  await popup.getByRole('option', { name: 'Snapmaker U1', exact: true }).click();
+  const nozzle = page.getByTestId('nozzle-variant-select');
+  await expect(nozzle).toBeEnabled();
+  await nozzle.click();
+  expect(await page.getByRole('option').allTextContents()).toEqual(['0.2', '0.4', '0.4+0.6', '0.6', '0.8']);
+  await page.getByRole('option', { name: '0.4', exact: true }).click();
+  await expect(nozzle).toBeEnabled();
+  await nozzle.click();
+  await page.getByRole('option', { name: '0.6', exact: true }).click();
+  await expect(nozzle).toContainText('0.6');
+  await expect(nozzle).toBeEnabled();
+  await expect(printer).toContainText('Snapmaker U1');
+  await page.getByTestId('preset-edit-printer').click();
+  await expect(page.getByRole('dialog')).toContainText('Snapmaker U1 (0.6 nozzle)');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('history-undo').click();
+  await expect(nozzle).toContainText('0.4');
+  await page.getByTestId('history-redo').click();
+  await expect(nozzle).toContainText('0.6');
+  const beforeSync = await page.getByTestId('history-undo').getAttribute('title');
+  await page.getByTestId('nozzle-sync-placeholder').click();
+  expect(await page.getByTestId('history-undo').getAttribute('title')).toBe(beforeSync);
+  const row = (await page.getByTestId('printer-nozzle-row').boundingBox())!;
+  const button = (await page.getByTestId('nozzle-sync-placeholder').boundingBox())!;
+  const trigger = (await nozzle.boundingBox())!;
+  expect(trigger.x).toBeGreaterThanOrEqual(button.x + button.width);
+  expect(trigger.x + trigger.width).toBeLessThanOrEqual(row.x + row.width + 1);
+  expect(await nozzle.locator('.sidebar-dropdown-arrow').count()).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath('printer-nozzle.png') });
+  await page.reload();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(printer).toContainText('Snapmaker U1');
+  await expect(nozzle).toContainText('0.6');
+});
+
 test('real bed selector uses native labels, global/local scope, keyboard and compact row layout', async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on('pageerror', error => pageErrors.push(error.message));
@@ -13,16 +58,25 @@ test('real bed selector uses native labels, global/local scope, keyboard and com
   await printer.click();
   const popup = page.locator('[data-slot="combobox-content"]');
   await popup.getByPlaceholder('Search presets…').fill('Snapmaker U1');
-  const u1 = popup.getByRole('option').filter({ hasText: '0.4 nozzle' }).first();
+  const u1 = popup.getByRole('option', { name: 'Snapmaker U1', exact: true });
   const name = await u1.innerText();
   await u1.click();
   await expect(printer).toContainText(name);
+  await expect(printer).toBeEnabled();
+  const nozzle = page.getByTestId('nozzle-variant-select');
+  if ((await nozzle.locator('[data-slot="select-value"]').innerText()).trim() !== '0.4') {
+    await nozzle.click();
+    await page.getByRole('option', { name: '0.4', exact: true }).click();
+    await expect(nozzle).toBeEnabled();
+  }
   const global = page.getByTestId('global-bed-type-select');
   await expect(global).toContainText('Textured PEI Plate');
   await expect(global).toBeEnabled();
   expect(await global.getAttribute('title')).toContain('plates without a local override inherit');
   await global.focus(); await global.press('Space');
-  const labels = await page.getByRole('option').allTextContents();
+  const globalPopup = page.locator('[data-slot="select-content"][data-open]');
+  await expect(globalPopup).toBeVisible();
+  const labels = await globalPopup.getByRole('option').allTextContents();
   expect(labels).toContain('Smooth High Temp Plate');
   expect(labels).not.toContain('High Temp Plate');
   const last = labels.at(-1)!;

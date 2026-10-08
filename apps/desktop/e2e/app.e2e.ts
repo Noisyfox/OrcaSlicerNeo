@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from './printer-selection';
 import { expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
 // apps/desktop/e2e/app.e2e.ts — the full v1 flow against the built app.
 // Mock mode (default): expects the mock gcode marker. Real mode
@@ -551,16 +552,7 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
 });
 
 async function selectStableRealPrinter(page: Page): Promise<void> {
-  await page.getByTestId('preset-select').click();
-  await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();
-  await page.locator('[data-slot="combobox-content"] input').fill(PRINTER_PROFILE);
-  const printer = page
-    .locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
-    .filter({ hasText: PRINTER_PROFILE });
-  await expect(printer).toHaveCount(1);
-  await printer.click();
-  await expect(page.getByTestId('preset-select')).toContainText(PRINTER_PROFILE);
-  await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
+  await selectFixturePrinter(page, PRINTER_PROFILE);
 }
 
 /** Select a mock instance once the model's mock volumes are live (the Slice

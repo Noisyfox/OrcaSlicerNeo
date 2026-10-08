@@ -1,11 +1,10 @@
 import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, ChevronUp, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import { ObjectList } from '../objectList/ObjectList';
 import { PlateToolbar } from '../PlateToolbar';
 import { unstable_batchedUpdates } from 'react-dom';
-import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '@/stores/useSettingsStore';
 import { useSlicerStore } from '@/stores/useSlicerStore';
 import { useProjectStore } from '@/stores/useProjectStore';
@@ -44,7 +43,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 }) {
   const platform = usePlatform();
   const metadata = useSettingsStore((s) => s.metadata);
-  const printers = useSettingsStore((s) => s.printers);
+  const printerPicker = useSettingsStore((s) => s.printerPicker);
   const prints = useSettingsStore((s) => s.prints);
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
@@ -196,9 +195,12 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             <PresetRow
               compact
               label="Printer"
-              items={printers}
-              value={selectedPrinter}
-              onValue={(v) => handleSelectPreset('printer', v)}
+              items={printerPicker?.items.map(item => ({ name: item.id, label: item.label })) ?? []}
+              value={printerPicker?.selectedId ?? ''}
+              onValue={(id) => {
+                const target = printerPicker?.items.find(item => item.id === id);
+                if (target && target.preset !== selectedPrinter) void handleSelectPreset('printer', target.preset);
+              }}
               onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
               disabled={controlsDisabled}
               testId="preset-select"
@@ -216,6 +218,28 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             </Select>
           </div>}
         </div>
+        {printerPicker && <div data-testid="printer-nozzle-row" className="flex min-w-0 items-center gap-1 pt-1">
+          <Button type="button" variant="settings" size="icon-sm"
+            aria-label="Sync nozzle" title="Sync nozzle" data-testid="nozzle-sync-placeholder"
+            disabled={controlsDisabled}><RefreshCw data-icon="inline-start" /></Button>
+          <Select items={printerPicker.variants.map(item => ({ value: item.value, label: item.value }))}
+            value={printerPicker.selectedVariant || null}
+            disabled={controlsDisabled || printerPicker.variants.length === 0}
+            onValueChange={(value) => {
+              const target = printerPicker.variants.find(item => item.value === value);
+              if (target?.preset && value !== printerPicker.selectedVariant)
+                void handleSelectPreset('printer', target.preset);
+            }}>
+            <SelectTrigger variant="sidebar" className="min-w-0 flex-1" data-testid="nozzle-variant-select"
+              aria-label="Nozzle diameter and variant" title={printerPicker.selectedVariant}>
+              <span className="shrink-0">Nozzle</span>
+              <SelectValue className="pl-4">{printerPicker.selectedVariant || '—'}</SelectValue>
+            </SelectTrigger>
+            <SelectContent><SelectGroup>{printerPicker.variants.map(item =>
+              <SelectItem key={item.value} value={item.value} disabled={item.preset === null}>{item.value}</SelectItem>
+            )}</SelectGroup></SelectContent>
+          </Select>
+        </div>}
       </div>
     </section>
   );
@@ -242,7 +266,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false }: {
   compact?: boolean;
   label: string;
-  items: PresetInfo[];
+  items: Array<{ name: string; label?: string }>;
   value: string;
   onValue: (name: string) => void;
   onEdit?: () => void;
@@ -250,6 +274,8 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
   testId?: string;
 }) {
   const [search, setSearch] = useState('');
+  const labels = new Map(items.map(item => [item.name, item.label ?? item.name]));
+  const itemLabel = (name: string) => labels.get(name) ?? name;
   if (items.length === 0) return null;
   return (
     <div className={cn(compact ? "min-w-0" : "flex flex-col gap-1 py-1")}>
@@ -264,6 +290,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
         value={value || null}
         onValueChange={(v) => v != null && onValue(v)}
         items={items.map((p) => p.name)}
+        itemToStringLabel={itemLabel}
         disabled={disabled}
       >
         <div className="flex min-w-0 gap-1">
@@ -280,7 +307,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
           <ComboboxTrigger
             variant="sidebar"
             aria-label={label}
-            title={value}
+            title={itemLabel(value)}
             className="min-w-0 flex-1"
             data-testid={testId}
             disabled={disabled}
@@ -298,7 +325,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
           <ComboboxInput placeholder="Search presets…" showTrigger={false} searchValue={search} onClearSearch={() => setSearch('')} />
           <ComboboxList>
             {(name) => (
-              <ComboboxItem key={name} value={name}>{name}</ComboboxItem>
+              <ComboboxItem key={name} value={name}>{itemLabel(name)}</ComboboxItem>
             )}
           </ComboboxList>
           <ComboboxEmpty>No matching presets</ComboboxEmpty>

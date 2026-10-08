@@ -112,6 +112,7 @@ function resetStores() {
       nativeScopedConfig: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: { 'plate-1': { curr_bed_type: 'High Temp Plate' } } },
       metadata: {},
     printers: initialSnapshot.printers,
+    printerPicker: initialSnapshot.printerPicker,
     prints: initialSnapshot.prints,
     filamentCatalog: initialSnapshot.filamentCatalog,
     selectedPrinter: initialSnapshot.printer.name,
@@ -221,6 +222,80 @@ describe('SettingsPanel preset transitions', () => {
       expect(option).toBeDefined(); option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     });
   }
+
+  async function chooseNozzle(container: HTMLElement, value: string) {
+    await act(async () => (container.querySelector('[data-testid="nozzle-variant-select"]') as HTMLElement).click());
+    const option = [...document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')]
+      .find(item => item.textContent === value)!;
+    expect(option).toBeDefined();
+    await act(async () => {
+      option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+  }
+
+  it('uses native model labels and canonical targets, with inert Sync and actual-profile editing', async () => {
+    resetStores();
+    useSettingsStore.setState({ printerPicker: {
+      ...initialSnapshot.printerPicker,
+      items: initialSnapshot.printerPicker.items.map(item => ({ ...item, label: `${item.label} Model` })),
+    } });
+    const edit = vi.fn();
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform, edit); roots.push(root);
+    expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('Old Printer Model');
+    await act(async () => (container.querySelector('[data-testid="nozzle-sync-placeholder"]') as HTMLElement).click());
+    expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
+    await act(async () => (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLElement).click());
+    expect(edit).toHaveBeenCalledWith('Old Printer');
+    await selectOption(container, 'preset-select', 'New Printer Model');
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null);
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
+  });
+
+  it('switches a named/mixed variant through the existing atomic Printer transaction and locks Nozzle', async () => {
+    resetStores();
+    const picker = { items: [{ id: 'model', label: 'One Printer', preset: 'Old Printer' }], selectedId: 'model',
+      variants: [{ value: '0.4', preset: 'Old Printer' }, { value: '0.4+0.6', preset: 'Mixed Profile' }], selectedVariant: '0.4' };
+    useSettingsStore.setState({ printerPicker: picker });
+    const profile: ProfileSnapshot = { ...resolvedSnapshot, printer: { name: 'Mixed Profile', idx: 2 }, printerPicker: {
+      ...picker, items: [{ ...picker.items[0], preset: 'Mixed Profile' }], selectedVariant: '0.4+0.6',
+    } };
+    let finish!: (value: PrinterTransitionResult) => void;
+    const pending = new Promise<PrinterTransitionResult>(resolve => { finish = resolve; });
+    const { platform, runtime, preferences } = makePlatform(async () => resolvedSnapshot, async () => pending);
+    const { container, root } = await render(platform); roots.push(root);
+    await chooseNozzle(container, '0.4+0.6');
+    for (const id of ['preset-select', 'nozzle-variant-select', 'process-preset-select', 'global-bed-type-select'])
+      expect((container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { finish(printerTransition(profile)); await pending; });
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledExactlyOnceWith('Mixed Profile', null, null);
+    expect(runtime.selectProfile).not.toHaveBeenCalled();
+    expect(preferences.selectedProfiles.printer).toBe('Mixed Profile');
+    expect(useSettingsStore.getState().selectedPrinter).toBe('Mixed Profile');
+    expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('One Printer');
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4+0.6');
+    expect(useSlicerStore.getState().status).toBe('idle');
+    // Restores replace the projection rather than replaying a selection command.
+    await act(async () => useSettingsStore.getState().hydrateProfileSnapshot(initialSnapshot));
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4');
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the previous Nozzle and releases locks when a variant transition is rejected', async () => {
+    resetStores();
+    useSettingsStore.setState({ printerPicker: { ...initialSnapshot.printerPicker,
+      variants: [...initialSnapshot.printerPicker.variants, { value: '0.6HS', preset: 'Rejected Profile' }],
+    } });
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot,
+      async () => ({ ok: false, errorCode: 'preset_not_visible', error: 'profile unavailable' }));
+    const { container, root } = await render(platform); roots.push(root);
+    await chooseNozzle(container, '0.6HS');
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4');
+    expect((container.querySelector('[data-testid="nozzle-variant-select"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(useSettingsStore.getState().selectedPrinter).toBe('Old Printer');
+  });
 
   it('shows global scope independently of plate override and sends native serialized values with official labels', async () => {
     resetStores();

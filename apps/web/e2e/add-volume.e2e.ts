@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 import { resolve } from 'node:path';
 const { test, expect } = playwright;
@@ -6,8 +7,7 @@ test('real WASM adds object volumes from primitives and the browser file picker'
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
-  await page.getByTestId('preset-select').click();
-  await page.getByRole('option', { name: 'Bambu Lab P1P 0.4 nozzle', exact: true }).click();
+  await selectFixturePrinter(page, 'Bambu Lab P1P 0.4 nozzle');
   await page.getByTestId('filament-add').click();
   await expect(page.getByTestId('filament-slot-2')).toBeVisible();
   const cube = resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl');
@@ -88,8 +88,7 @@ test('standalone Cube and Cube Part use the same Orca bed-relative size', async 
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
-  await page.getByTestId('preset-select').click();
-  await page.getByRole('option', { name: 'Bambu Lab P1P 0.4 nozzle', exact: true }).click();
+  await selectFixturePrinter(page, 'Bambu Lab P1P 0.4 nozzle');
   const canvas = await page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]').boundingBox();
   if (!canvas) throw new Error('missing canvas');
   await page.mouse.click(canvas.x + canvas.width - 40, canvas.y + 80, { button: 'right' });
