@@ -61,10 +61,11 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
   );
 }
 
-function SlotCard({ slot, presetNames, presetLabels, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
+function SlotCard({ slot, presetNames, presetLabels, presetVendors, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
   slot: FilamentSessionSlot;
   presetNames: readonly string[];
   presetLabels: ReadonlyMap<string, string>;
+  presetVendors: ReadonlyMap<string, string>;
   mergeDestinations: readonly number[];
   canDelete: boolean;
   canMerge: boolean;
@@ -106,6 +107,7 @@ function SlotCard({ slot, presetNames, presetLabels, mergeDestinations, canDelet
           value={slot.preset.name} onValue={onPreset} disabled={pending}
           ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}
           searchPlaceholder="Search compatible presets…" emptyText="No compatible preset"
+          groupBy={item => presetVendors.get(item.id)! || 'Unspecified'}
           triggerStyle={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} />
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -148,6 +150,10 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
   const presetLabels = useMemo(() => new Map([
     ...filamentCatalog.map(preset => [preset.name, preset.label] as const),
     ...(snapshot?.slots.map(slot => [slot.preset.name, slot.preset.label] as const) ?? []),
+  ]), [filamentCatalog, snapshot]);
+  const presetVendors = useMemo(() => new Map([
+    ...filamentCatalog.map(preset => [preset.name, preset.vendor] as const),
+    ...(snapshot?.slots.map(slot => [slot.preset.name, slot.preset.vendor] as const) ?? []),
   ]), [filamentCatalog, snapshot]);
   // The project mutation fence is a safety/ordering mechanism, not a rack
   // presentation state. Filament commands are queued behind model/history
@@ -223,6 +229,7 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
               slot={slot}
               presetNames={presetNames}
               presetLabels={presetLabels}
+              presetVendors={presetVendors}
               canDelete={snapshot.capabilities.canDelete}
               canMerge={snapshot.capabilities.canMerge}
               mergeDestinations={snapshot.slots.map((entry) => entry.slot)}

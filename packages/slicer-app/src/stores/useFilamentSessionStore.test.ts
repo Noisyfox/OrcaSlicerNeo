@@ -12,7 +12,7 @@ import { projectFullModelMesh } from '../components/workspace/viewport/modelMesh
 
 function snapshot(revision: number): FilamentSessionSnapshot {
   return {
-    ok: true, version: 1, slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: `PLA ${revision}`, label: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+    ok: true, version: 1, slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: `PLA ${revision}`, label: `PLA ${revision}`, vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
     mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
     capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },

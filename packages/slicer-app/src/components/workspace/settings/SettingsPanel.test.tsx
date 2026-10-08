@@ -22,7 +22,7 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, con
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 
 function preset(name: string, isVisible = true): PresetInfo {
-  return { name, label: name, is_visible: isVisible, is_default: false, vendor_id: '', model: '', variant: '', selected: false };
+  return { name, label: name, vendor: '', is_visible: isVisible, is_default: false, vendor_id: '', model: '', variant: '', selected: false };
 }
 
 const initialSnapshot: ProfileSnapshot = {
@@ -57,7 +57,7 @@ const resolvedSnapshot: ProfileSnapshot = {
 
 const resolvedRack: FilamentSessionSnapshot = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament', label: 'Resolved Filament' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament', label: 'Resolved Filament', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
   mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },

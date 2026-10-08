@@ -1940,6 +1940,8 @@ json filament_session_snapshot_json()
     for (size_t i = 0; i < slot_count; ++i) {
         const std::string& name = preset_names[i];
         const Preset* source = bundle.filaments.find_preset(name, false, true);
+        std::string vendor = source ? source->config.opt_string("filament_vendor", 0) : "";
+        if (vendor == "Bambu Lab") vendor = "Bambu";
         const bool preset_equivalent = !preset_colours[i].empty() && colours[i] == preset_colours[i];
         const auto native_value = [i](const std::vector<std::string>& values) -> json {
             return i < values.size() ? json(values[i]) : json(nullptr);
@@ -1949,7 +1951,7 @@ json filament_session_snapshot_json()
         slots.push_back({
             {"slot", i + 1},
             {"logical_id", slot_ids[i]},
-            {"preset", {{"id", name}, {"name", name}, {"label", source ? source->label(false) : name}}},
+            {"preset", {{"id", name}, {"name", name}, {"label", source ? source->label(false) : name}, {"vendor", vendor}}},
             {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"},
                         {"native", {{"representative", native_value(project_colours)},
                                     {"multi_colour", multi}, {"type", type}}},

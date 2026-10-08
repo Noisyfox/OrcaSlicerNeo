@@ -41,6 +41,9 @@ function assertSnapshot(snapshot, expected) {
   assert.deepEqual(names(snapshot, 'printer'), expected.printers, 'printer candidates/order');
   assert.deepEqual(names(snapshot, 'print'), expected.prints, 'process candidates/order');
   assert.deepEqual(names(snapshot, 'filament'), expected.filamentCatalog, 'filament catalogue/order');
+  for (const item of snapshot.filament_catalog)
+    assert.equal(item.vendor, item.name.startsWith('Generic PLA') ? 'Generic' : 'Bambu',
+      'material vendor derives from filament_vendor, not resource ownership');
   assert.equal(snapshot.printer.name, expected.printer, 'resolved printer');
   assert.equal(snapshot.print.name, expected.print, 'resolved process');
   assert.equal(Object.hasOwn(snapshot, 'filament'), false,
@@ -72,7 +75,7 @@ try {
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Alpha Condition Process', 'Alpha Explicit Process'],
-    filamentCatalog: ['Generic PLA @Compatibility Alpha', 'Alpha Explicit Filament'],
+    filamentCatalog: ['Alpha Explicit Filament', 'Generic PLA @Compatibility Alpha'],
     printer: 'Compatibility Alpha 0.4 nozzle',
     print: 'Alpha Explicit Process',
   });
@@ -85,7 +88,7 @@ try {
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Alpha Condition Process', 'Alpha Explicit Process'],
-    filamentCatalog: ['Generic PLA @Compatibility Alpha', 'Alpha Condition Filament'],
+    filamentCatalog: ['Alpha Condition Filament', 'Generic PLA @Compatibility Alpha'],
     printer: 'Compatibility Alpha 0.4 nozzle',
     print: 'Alpha Condition Process',
   });
@@ -99,7 +102,7 @@ try {
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Beta Explicit Process'],
-    filamentCatalog: ['Generic PLA @System', 'Beta Explicit Filament'],
+    filamentCatalog: ['Beta Explicit Filament', 'Generic PLA @System'],
     printer: 'Compatibility Beta 0.4 nozzle',
     print: 'Beta Explicit Process',
   });

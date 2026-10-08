@@ -10,7 +10,7 @@ if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value:
 
 const base = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA', label: 'PLA' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid', colors: ['#112233'] } } }, { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG', label: 'PETG' }, colour: { effective: '#445566', provenance: 'preset', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid', colors: ['#445566'] } } }],
+  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid', colors: ['#112233'] } } }, { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'preset', native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid', colors: ['#445566'] } } }],
   mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },

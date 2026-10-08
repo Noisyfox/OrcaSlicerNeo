@@ -41,6 +41,13 @@ show complete canonical names, including suffixes. Equal aliases remain
 separate canonical choices; selection, editing, and persistence use full names.
 Display labels are required in the internal catalogue and slot snapshot
 contracts. Missing labels are rejected rather than reconstructed by React.
+Filament lists group entries by native `filament_vendor`, independently of the
+profile resource vendor id. Orca's `Bambu Lab` to `Bambu` normalization and
+`Unspecified` label for empty vendors apply. Native catalogue order follows
+Orca's system filament name, vendor, type, and canonical-name priorities;
+group and item order preserve that projection. Search retains only matching
+groups, with headers that cannot be selected. Current imported or incompatible
+slot profiles remain available in their own vendor group.
 
 The first release does not expose an advanced manual filament-to-physical-
 extruder mapping editor. It uses the selected printer preset and OrcaSlicer's

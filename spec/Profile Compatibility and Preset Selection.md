@@ -56,7 +56,9 @@ considers them compatible.
   the selected Printer.
 - Incompatible profiles are hidden. There is no option to reveal or select
   them in this release.
-- Profiles keep OrcaSlicer's source order. The application does not sort them.
+- Printer and Process profiles keep native source order. Filament catalogue
+  order is supplied by the native Orca-style vendor/type/name projection.
+  The application preserves that order when constructing vendor groups.
 - The native profile snapshot also provides `filament_catalog`, an
   engine-filtered candidate catalogue consumed by the multi-filament rack.
   Catalogue entries do not carry a selected flag and are not a third selector.

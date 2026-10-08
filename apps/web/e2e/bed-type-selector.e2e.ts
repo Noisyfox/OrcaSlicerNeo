@@ -13,6 +13,9 @@ test('native printer grouping and nozzle variants preserve canonical history and
   await filamentPopup.getByPlaceholder('Search compatible presets…').fill('Generic PLA');
   const systemPla = filamentPopup.getByRole('option').and(page.getByTitle('Generic PLA @System', { exact: true }));
   await expect(systemPla).toHaveText('Generic PLA');
+  const genericGroup = filamentPopup.getByRole('group', { name: 'Generic', exact: true });
+  await expect(genericGroup).toContainText('Generic PLA');
+  await expect(genericGroup.getByRole('option').and(page.getByTitle('Generic PLA @System', { exact: true }))).toBeVisible();
   await page.keyboard.press('Escape');
   const printer = page.getByTestId('preset-select');
   await printer.click();

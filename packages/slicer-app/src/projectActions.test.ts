@@ -13,9 +13,9 @@ const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([8
 const snapshot: ProfileSnapshot = {
   ok: true,
   printerPicker: { items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], selectedVariant: '' },
-  printers: [{ name: 'Project printer', label: 'Project printer', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  prints: [{ name: 'Project process', label: 'Project process', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  filamentCatalog: [{ name: 'Project filament', label: 'Project filament', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
+  printers: [{ name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  prints: [{ name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  filamentCatalog: [{ name: 'Project filament', label: 'Project filament', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
   bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
 };
@@ -44,7 +44,7 @@ const loadedHistoryStatus = {
 function filamentSnapshot(revision: number): FilamentSessionSnapshot {
   return {
     ok: true, version: 1,
-    slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: `PLA ${revision}`, label: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+    slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'pla', name: `PLA ${revision}`, label: `PLA ${revision}`, vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
     mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
     flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
     capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -387,7 +387,7 @@ describe('transactional project actions', () => {
       printer: { name: 'System printer', idx: 1 }, print: { name: 'System process', idx: 1 } };
     runtime.selectProfile.mockResolvedValue(systemSnapshot);
     const beforeRack = filamentSnapshot(5);
-    const targetRack = { ...filamentSnapshot(6), slots: [{ ...filamentSnapshot(6).slots[0], preset: { id: 'system-pla', name: 'System PLA', label: 'System PLA' } }] };
+    const targetRack = { ...filamentSnapshot(6), slots: [{ ...filamentSnapshot(6).slots[0], preset: { id: 'system-pla', name: 'System PLA', label: 'System PLA', vendor: '' } }] };
     runtime.getFilamentSessionSnapshot.mockResolvedValueOnce(beforeRack).mockResolvedValue(targetRack);
     runtime.applyRememberedFilamentRack.mockResolvedValue(targetRack);
     preferences.load.mockResolvedValue({ version: 1, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true },

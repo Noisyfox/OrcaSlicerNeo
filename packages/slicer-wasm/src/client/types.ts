@@ -343,6 +343,8 @@ export interface FilamentCatalogItem {
   name: string;
   /** Orca's alias-aware display label; canonical name remains the identity. */
   label: string;
+  /** Normalized filament_vendor; distinct from the profile resource vendor_id. */
+  vendor: string;
   /** Real preset visibility result from the bundled profile state. */
   is_visible: boolean;
   is_default: boolean;
@@ -1166,7 +1168,7 @@ export interface FilamentSessionSlot {
   /** Opaque runtime identity restored with native history, never persisted to 3MF. */
   readonly logicalId: string;
   readonly slot: number;
-  readonly preset: { readonly id: string; readonly name: string; readonly label: string };
+  readonly preset: { readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
   readonly colour: {
     readonly effective: string;
     readonly provenance: FilamentColourProvenance;

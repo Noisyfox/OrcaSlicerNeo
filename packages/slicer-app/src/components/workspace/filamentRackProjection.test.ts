@@ -5,8 +5,8 @@ import type { FilamentSessionSnapshot } from '@slicer/client';
 const snapshot = {
   ok: true, version: 1,
   slots: [
-    { logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA', label: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' } },
-    { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG', label: 'PETG' }, colour: { effective: '#445566', provenance: 'user' } },
+    { logicalId: 'filament-1', slot: 1, preset: { id: 'a', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset' } },
+    { logicalId: 'filament-2', slot: 2, preset: { id: 'b', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user' } },
   ],
   mappings: { filament: [1, 2], volume: [1, 0], nozzle: [2], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },

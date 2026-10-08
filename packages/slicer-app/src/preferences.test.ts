@@ -13,9 +13,9 @@ function snapshot(printer: string, print: string, filament: string): ProfileSnap
   return {
     ok: true,
     printerPicker: { items: [{ id: printer, label: printer, preset: printer }], selectedId: printer, variants: [], selectedVariant: '' },
-    printers: [{ name: printer, label: printer, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-    prints: [{ name: print, label: print, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-    filamentCatalog: [{ name: filament, label: filament, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
+    printers: [{ name: printer, label: printer, vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+    prints: [{ name: print, label: print, vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+    filamentCatalog: [{ name: filament, label: filament, vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
     printer: { name: printer, idx: 0 },
     print: { name: print, idx: 0 },
     bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
@@ -109,8 +109,8 @@ describe('selection restoration', () => {
       ok: true as const,
       version: 1 as const,
       slots: [
-        { logicalId: 'filament-1', slot: 1, preset: { id: 'p1', name: 'PLA', label: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
-        { logicalId: 'filament-2', slot: 2, preset: { id: 'p2', name: 'PETG', label: 'PETG' }, colour: { effective: '#445566', provenance: 'user' as const, native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
+        { logicalId: 'filament-1', slot: 1, preset: { id: 'p1', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } },
+        { logicalId: 'filament-2', slot: 2, preset: { id: 'p2', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#445566', provenance: 'user' as const, native: { representative: '#445566', multiColour: '#445566', type: '1' }, display: { mode: 'solid' as const, colors: ['#445566'] } } },
       ],
       mappings: { filament: [1, 2], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physicalExtruder: [0, 0] },
       flushing: { matrix: [0, 1, 2, 0], vector: [0, 0], matrixDimension: 2, planeCount: 1, source: 'native' as const },
@@ -144,7 +144,7 @@ describe('selection restoration', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const repository = { load: vi.fn(async () => prefs), save: vi.fn(async () => { throw new Error('storage unavailable'); }) };
     const snapshot = ({
-      ok: true, version: 1, slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'p', name: 'PLA', label: 'PLA' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+      ok: true, version: 1, slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'p', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -156,7 +156,7 @@ describe('selection restoration', () => {
   it('serializes concurrent rack writes so the newest slot projection wins', async () => {
     const makeSnapshot = (name: string) => ({
       ok: true as const, version: 1 as const,
-      slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'p', name, label: name }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+      slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'p', name, label: name, vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' as const },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
@@ -179,7 +179,7 @@ describe('selection restoration', () => {
   it('waits for the newest queued rack write before a printer transition reads it', async () => {
     const current = {
       ok: true as const, version: 1 as const,
-      slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'old', name: 'Old', label: 'Old' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+      slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'old', name: 'Old', label: 'Old', vendor: '' }, colour: { effective: '#112233', provenance: 'preset' as const, native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' as const },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
@@ -193,7 +193,7 @@ describe('selection restoration', () => {
       load: vi.fn(async () => stored),
       save: vi.fn(async (value) => { await saveGate; stored = value; }),
     };
-    const newest = { ...current, slots: [{ ...current.slots[0], preset: { id: 'new', name: 'Newest', label: 'Newest' } }] };
+    const newest = { ...current, slots: [{ ...current.slots[0], preset: { id: 'new', name: 'Newest', label: 'Newest', vendor: '' } }] };
     const publish = publishRememberedFilamentRack(repository, 'Printer A', newest);
     await Promise.resolve();
     const apply = vi.fn(async () => ({ ...newest, revisions: { ...newest.revisions, session: 5, project: 5 } }));
@@ -229,7 +229,7 @@ describe('selection restoration', () => {
     const resolved = snapshot('P', 'Q', 'PLA');
     const current = {
       ok: true as const, version: 1 as const,
-      slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'PLA', name: 'PLA', label: 'PLA' }, colour: { effective: '#111111', provenance: 'preset' as const, native: { representative: '#111111', multiColour: '#111111', type: '1' }, display: { mode: 'solid' as const, colors: ['#111111'] } } }],
+      slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'PLA', name: 'PLA', label: 'PLA', vendor: '' }, colour: { effective: '#111111', provenance: 'preset' as const, native: { representative: '#111111', multiColour: '#111111', type: '1' }, display: { mode: 'solid' as const, colors: ['#111111'] } } }],
       mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
       flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' as const },
       capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
