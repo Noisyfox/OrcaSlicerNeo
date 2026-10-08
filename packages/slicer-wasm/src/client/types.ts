@@ -379,8 +379,17 @@ export interface BedTypeCapabilities {
   choices: Array<{ value: string; label: string }>;
 }
 
+/** Native presentation projection; all targets remain canonical profile names. */
+export interface PrinterPicker {
+  items: Array<{ id: string; label: string; preset: string }>;
+  selectedId: string;
+  variants: Array<{ value: string; preset: string | null }>;
+  selectedVariant: string;
+}
+
 export interface ProfileSnapshot {
   ok: true;
+  printerPicker: PrinterPicker;
   printers: PresetInfo[];
   prints: PresetInfo[];
   /** Engine-filtered filament catalogue consumed by the multi-filament rack. */

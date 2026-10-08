@@ -9,6 +9,7 @@ function full(snapshot: ReturnType<typeof emptyNativeScopedConfig>, revision = 1
 
 const bootSnapshot: ProfileSnapshot = {
   ok: true,
+  printerPicker: { items: [], selectedId: '', variants: [], selectedVariant: '' },
   printers: [{ name: 'P', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
   prints: [{ name: 'Q', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
   filamentCatalog: [{ name: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],

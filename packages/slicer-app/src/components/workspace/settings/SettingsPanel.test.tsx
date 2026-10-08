@@ -27,6 +27,10 @@ function preset(name: string, isVisible = true): PresetInfo {
 
 const initialSnapshot: ProfileSnapshot = {
   ok: true,
+  printerPicker: { items: [
+    { id: 'old', label: 'Old Printer', preset: 'Old Printer' },
+    { id: 'new', label: 'New Printer', preset: 'New Printer' },
+  ], selectedId: 'old', variants: [{ value: '0.4', preset: 'Old Printer' }], selectedVariant: '0.4' },
   printers: [preset('Old Printer'), preset('New Printer')],
   // The false flag is deliberately retained: picker arrays are already bridge
   // candidates and must not be re-filtered by React.
@@ -39,6 +43,10 @@ const initialSnapshot: ProfileSnapshot = {
 
 const resolvedSnapshot: ProfileSnapshot = {
   ok: true,
+  printerPicker: { items: [
+    { id: 'new', label: 'New Printer', preset: 'New Printer' },
+    { id: 'other', label: 'Other Printer', preset: 'Other Printer' },
+  ], selectedId: 'new', variants: [{ value: '0.6', preset: 'New Printer' }], selectedVariant: '0.6' },
   printers: [preset('New Printer'), preset('Other Printer')],
   prints: [preset('Resolved Process')],
   filamentCatalog: [preset('Resolved Filament')],

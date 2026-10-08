@@ -1005,6 +1005,24 @@ function normalizeBedTypeNormalization(raw: unknown): ProjectLoadResult['bedType
  * contract, including the engine-filtered filament catalogue. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
+  const picker = raw.printer_picker;
+  const selectedPrinterName = isRecord(raw.printer) ? raw.printer.name : undefined;
+  const printerNames = new Set((Array.isArray(raw.printers) ? raw.printers : [])
+    .filter(isRecord).map((printer) => printer.name));
+  if (!isRecord(picker) || !Array.isArray(picker.items) ||
+      typeof picker.selected_id !== 'string' || typeof picker.selected_variant !== 'string' ||
+      !Array.isArray(picker.variants) || picker.items.some((item) =>
+        !isRecord(item) || typeof item.id !== 'string' || !item.id ||
+        typeof item.label !== 'string' || !item.label || typeof item.preset !== 'string' ||
+        !printerNames.has(item.preset)) || picker.variants.some((variant) =>
+        !isRecord(variant) || typeof variant.value !== 'string' || !variant.value ||
+        (variant.preset !== null && (typeof variant.preset !== 'string' || !printerNames.has(variant.preset)))) ||
+      new Set(picker.items.map((item) => item.id)).size !== picker.items.length ||
+      new Set(picker.variants.map((variant) => variant.value)).size !== picker.variants.length ||
+      (picker.items.length > 0 &&
+        !picker.items.some((item) => item.id === picker.selected_id && item.preset === selectedPrinterName)) ||
+      (picker.selected_variant !== '' && !picker.variants.some((variant) => variant.value === picker.selected_variant)))
+    return { ok: false, error: 'Invalid native printer picker' };
   const bedType = raw.bed_type;
   if (!isRecord(bedType) || typeof bedType.supports_selection !== 'boolean' ||
       typeof bedType.default_value !== 'string' || bedType.default_value.length === 0 ||
@@ -1015,6 +1033,12 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
     return { ok: false, error: 'Invalid native bed type capabilities' };
   return {
     ok: true,
+    printerPicker: {
+      items: picker.items.map((item) => ({ id: item.id as string, label: item.label as string, preset: item.preset as string })),
+      selectedId: picker.selected_id,
+      variants: picker.variants.map((variant) => ({ value: variant.value as string, preset: variant.preset as string | null })),
+      selectedVariant: picker.selected_variant,
+    },
     printers: (Array.isArray(raw.printers) ? raw.printers : []) as ProfileSnapshot['printers'],
     prints: (Array.isArray(raw.prints) ? raw.prints : []) as ProfileSnapshot['prints'],
     filamentCatalog: (Array.isArray(raw.filament_catalog) ? raw.filament_catalog : []) as ProfileSnapshot['filamentCatalog'],

@@ -12,6 +12,7 @@ const prefs: UserPreferences = {
 function snapshot(printer: string, print: string, filament: string): ProfileSnapshot {
   return {
     ok: true,
+    printerPicker: { items: [{ id: printer, label: printer, preset: printer }], selectedId: printer, variants: [], selectedVariant: '' },
     printers: [{ name: printer, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
     prints: [{ name: print, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
     filamentCatalog: [{ name: filament, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],

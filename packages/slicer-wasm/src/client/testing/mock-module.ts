@@ -379,8 +379,22 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       selected: preset.name === selected[kind],
     });
     const filamentEntry = (preset: PresetFixture) => ({ ...preset });
+    // Only deterministic fixture presentation; native matching is exercised by
+    // the real-WASM nozzle smoke, never copied into the application.
+    const current = presetFixtures.printer.find((preset) => preset.name === selected.printer)!;
+    const pickerItems = candidates('printer').map((preset) => ({
+      id: JSON.stringify(['model', preset.vendor_id, preset.model]),
+      label: preset.vendor_id === 'bambulab' ? `Bambu Lab ${preset.model}` : preset.model,
+      preset: preset.name,
+    }));
     return {
       ok: true,
+      printer_picker: {
+        items: pickerItems,
+        selected_id: JSON.stringify(['model', current.vendor_id, current.model]),
+        variants: [{ value: current.variant, preset: current.name }],
+        selected_variant: current.variant,
+      },
       printers: candidates('printer').map((preset) => selectableEntry('printer', preset)),
       prints: candidates('print').map((preset) => selectableEntry('print', preset)),
       filament_catalog: candidates('filament').map(filamentEntry),

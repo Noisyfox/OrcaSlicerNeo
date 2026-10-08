@@ -971,6 +971,9 @@ describe('SlicerClient bridge contract', () => {
     ]);
     expect(snapshot.filamentCatalog.every((preset) => !Object.hasOwn(preset, 'selected'))).toBe(true);
     expect(snapshot.printer.name).toBe('Bambu Lab X1 Carbon 0.4 nozzle');
+    expect(snapshot.printerPicker.items.map(item => item.label)).toEqual(['Bambu Lab X1 Carbon', 'Bambu Lab P1S']);
+    expect(snapshot.printerPicker.variants).toEqual([{ value: '0.4', preset: snapshot.printer.name }]);
+    expect(snapshot.printerPicker.selectedVariant).toBe('0.4');
     expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
     expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
     expect(snapshot.bed_model).toBe('');
@@ -1012,6 +1015,31 @@ describe('SlicerClient bridge contract', () => {
     const rejected = await client.setNativeScopedConfig({ scope: 'project' }, 'curr_bed_type', 'invented-bed');
     expect(rejected).toMatchObject({ ok: false, errorCode: 'native_validation_failure' });
     expect(await client.getPlateSessionSnapshot()).toEqual(after);
+  });
+
+  it.each([
+    undefined,
+    { items: [], selected_id: 4, variants: [], selected_variant: '' },
+    { items: [{ id: 'a', label: 'A', preset: 'missing' }], selected_id: 'a', variants: [], selected_variant: '' },
+    { items: [], selected_id: '', variants: [{ value: '0.4', preset: 'missing' }], selected_variant: '0.4' },
+    { items: [], selected_id: '', variants: [{ value: '0.4', preset: null }, { value: '0.4', preset: null }], selected_variant: '0.4' },
+  ])('rejects malformed native printer picker %j', async (picker) => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, returnType, argTypes, args) => {
+      const pointer = originalCall(name, returnType, argTypes, args);
+      if (name !== 'orc_get_preset_snapshot') return pointer;
+      const snapshot = JSON.parse(module.UTF8ToString(Number(pointer)));
+      module._free(Number(pointer));
+      snapshot.printer_picker = picker;
+      const bytes = new TextEncoder().encode(JSON.stringify(snapshot) + '\0');
+      const replacement = module._malloc(bytes.length);
+      module.HEAPU8.set(bytes, replacement);
+      return replacement;
+    };
+    expect(await createClient(async () => module).getProfileSnapshot()).toEqual({
+      ok: false, error: 'Invalid native printer picker',
+    });
   });
 
   it.each([
