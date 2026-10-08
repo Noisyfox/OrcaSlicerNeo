@@ -244,12 +244,14 @@ describe('SettingsPanel preset transitions', () => {
     const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
     const { container, root } = await render(platform, edit); roots.push(root);
     expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('Old Printer Model');
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Old Printer');
     await act(async () => (container.querySelector('[data-testid="nozzle-sync-placeholder"]') as HTMLElement).click());
     expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
     await act(async () => (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLElement).click());
     expect(edit).toHaveBeenCalledWith('Old Printer');
     await selectOption(container, 'preset-select', 'New Printer Model');
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null);
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('New Printer');
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
   });
 
@@ -274,10 +276,12 @@ describe('SettingsPanel preset transitions', () => {
     expect(preferences.selectedProfiles.printer).toBe('Mixed Profile');
     expect(useSettingsStore.getState().selectedPrinter).toBe('Mixed Profile');
     expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('One Printer');
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Mixed Profile');
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4+0.6');
     expect(useSlicerStore.getState().status).toBe('idle');
     // Restores replace the projection rather than replaying a selection command.
     await act(async () => useSettingsStore.getState().hydrateProfileSnapshot(initialSnapshot));
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Old Printer');
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4');
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledTimes(1);
   });

@@ -197,6 +197,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               label="Printer"
               items={printerPicker?.items.map(item => ({ name: item.id, label: item.label })) ?? []}
               value={printerPicker?.selectedId ?? ''}
+              tooltip={selectedPrinter}
               onValue={(id) => {
                 const target = printerPicker?.items.find(item => item.id === id);
                 if (target && target.preset !== selectedPrinter) void handleSelectPreset('printer', target.preset);
@@ -263,11 +264,12 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false }: {
+function PresetRow({ label, items, value, tooltip, onValue, onEdit, disabled, testId, compact = false }: {
   compact?: boolean;
   label: string;
   items: Array<{ name: string; label?: string }>;
   value: string;
+  tooltip?: string;
   onValue: (name: string) => void;
   onEdit?: () => void;
   disabled: boolean;
@@ -307,7 +309,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
           <ComboboxTrigger
             variant="sidebar"
             aria-label={label}
-            title={itemLabel(value)}
+            title={tooltip ?? itemLabel(value)}
             className="min-w-0 flex-1"
             data-testid={testId}
             disabled={disabled}

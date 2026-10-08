@@ -22,6 +22,9 @@ considers them compatible.
 - The Printer selector shows installed, visible FDM printers. System profiles
   are grouped by vendor and `printer_model` in native candidate order. User,
   project-embedded, and model-less profiles retain individual entries.
+- The Printer trigger tooltip shows the selected canonical profile's complete
+  name, including nozzle and variant suffixes, like Orca's `get_tooltip(preset)`.
+  The visible trigger label remains the grouped model name.
 - Native `printer_picker` supplies stable item identities, display labels,
   canonical transition targets, and current model/variant selection. React
   never parses profile names or reproduces native matching rules.

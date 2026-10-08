@@ -22,13 +22,16 @@ test('native printer grouping and nozzle variants preserve canonical history and
   await expect(nozzle).toContainText('0.6');
   await expect(nozzle).toBeEnabled();
   await expect(printer).toContainText('Snapmaker U1');
+  await expect(printer).toHaveAttribute('title', 'Snapmaker U1 (0.6 nozzle)');
   await page.getByTestId('preset-edit-printer').click();
   await expect(page.getByRole('dialog')).toContainText('Snapmaker U1 (0.6 nozzle)');
   await page.keyboard.press('Escape');
   await page.getByTestId('history-undo').click();
   await expect(nozzle).toContainText('0.4');
+  await expect(printer).toHaveAttribute('title', 'Snapmaker U1 (0.4 nozzle)');
   await page.getByTestId('history-redo').click();
   await expect(nozzle).toContainText('0.6');
+  await expect(printer).toHaveAttribute('title', 'Snapmaker U1 (0.6 nozzle)');
   const beforeSync = await page.getByTestId('history-undo').getAttribute('title');
   await page.getByTestId('nozzle-sync-placeholder').click();
   expect(await page.getByTestId('history-undo').getAttribute('title')).toBe(beforeSync);
