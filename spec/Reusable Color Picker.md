@@ -90,6 +90,14 @@ edits commit once. Rack commands store opaque colours as `#RRGGBB` and
 translucent colours as `#RRGGBBAA`; the native command and typed client accept
 both formats. Disabled states and errors remain controlled by the runtime.
 
+Translucent filament swatches display the colour over the same checkerboard
+used by the picker. This applies to the rack, object-list assignment cells and
+choices, Change Filament context menus, and painting-panel filament choices.
+Solid, gradient, and partitioned swatches preserve their native colour order;
+any translucent colour enables the checkerboard underneath the full swatch.
+Opaque swatches retain their existing appearance. This background affects UI
+swatches only and does not change model rendering.
+
 Prepare model and painted-facet materials use filament alpha. Following Orca's
 render-colour adjustment, alpha below 0.1 displays as white at opacity 0.3 so
 the model remains visible. Preview shells retain their independent opacity
