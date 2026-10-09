@@ -153,8 +153,33 @@ choices in Section 5 must still be resolved before implementation.
   native result; the initial UI selection is not necessarily the final
   supplemented activation set.
 
-These rules apply to the full Printer/Filament setup flow. Dedicated single-page
-entry points and their validation remain part of the next clarification group.
+These rules apply to the full Printer/Filament setup flow. There are no
+dedicated single-page entry points in this release.
+
+### Accepted first-use and entry policies
+
+- Automatically open setup when there is no activation record, or when no
+  usable enabled printer remains. Existing-installation migration and invalid
+  record recovery details remain in the persistence/recovery group.
+- First-use setup cannot be cancelled or skipped. Users must complete valid
+  Printer/Filament selection before entering the workspace. Do not silently
+  install a default printer as a shortcut around this requirement.
+- Provide one menu entry, Setup Wizard, for later management of both Printer
+  and Filament activation. Do not add separate Printer-only or Filament-only
+  entries, or management buttons beside workspace selectors.
+- A later wizard opened from the menu can be cancelled. Cancellation discards
+  its activation draft and leaves the current configuration unchanged.
+- Show first-use setup before opening files. While first-use setup is pending,
+  silently discard file-open requests, including startup requests. Do not queue
+  them, show a notice, or automatically retry them after setup. Introduce no
+  special pending-file handling for this flow; users can open files normally
+  after completing setup.
+
+For reference, Orca automatically invokes setup when its configuration is
+absent or only built-in default printers remain, supports additional
+single-page entry points, and loads startup files before scheduling its wizard
+check. Neo adopts the automatic-setup principle but uses the simpler entry and
+first-use file policies above.
 
 ## 5. Decisions still required
 
@@ -163,7 +188,6 @@ accepted requirements or a fixed implementation sequence.
 
 | Group | Outstanding decisions |
 | --- | --- |
-| First use and entry points | First-run trigger; first-run cancellation or skipping; default usable configuration; full wizard and Printer-only/Filament-only reopening; interaction with project opening during startup. |
 | Applying to an existing project | Removing the active Printer or a material used by a slot; preserving preset drafts and temporary overrides; confirmation and fallback policy; project dirty state, slice invalidation, and Undo/Redo semantics. |
 | Persistence and recovery | Activation schema and repository; existing installations without activation records; renamed or missing profiles; missing vendor packages; apply/save failure ordering and rollback. |
 | Catalogue and runtime lifecycle | Separate native bundle versus isolated catalogue runtime; reuse while open or between openings; cancellation and loading feedback; interaction with New Project/runtime replacement and project-required vendors. |
