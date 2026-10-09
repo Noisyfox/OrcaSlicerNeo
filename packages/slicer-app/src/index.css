@@ -233,6 +233,54 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.printer-nozzle-multi-row > [data-slot="button"] {
+  height: 52px;
+}
+.printer-nozzle-multi-controls {
+  height: 52px;
+  padding: 4px;
+  border-radius: 5px;
+  background: var(--color-control-background);
+}
+.sidebar-dropdown.printer-nozzle-multi-selector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  grid-template-rows: 1fr 20px;
+  height: 44px;
+  padding: 0 2px 0 4px;
+  column-gap: 4px;
+}
+.printer-nozzle-multi-selector > :first-child {
+  grid-column: 1 / -1;
+  text-align: left;
+}
+.printer-nozzle-multi-selector > .sidebar-dropdown-arrow {
+  grid-column: 2;
+  grid-row: 2;
+}
+.printer-nozzle-extruders {
+  display: flex;
+  flex: 2;
+  min-width: 0;
+  gap: 4px;
+}
+.printer-nozzle-extruder {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: var(--color-input-button-background);
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  line-height: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .sidebar-dropdown > .sidebar-dropdown-arrow {
   width: 20px;
   height: 20px;

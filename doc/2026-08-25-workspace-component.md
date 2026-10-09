@@ -214,7 +214,7 @@ tokens, including Select/Combobox arrows and inline Combobox clear buttons.
 Checkboxes use a borderless dark rounded outer square in both states. The
 checked indicator occupies 70% of that square, with a teal fill, a fixed 2px
 corner radius, and a white checkmark. Focus and disabled behavior are retained.
-The Printer preset editor opens from a 24px square settings button to the left
+For printers whose effective nozzle diameter vector contains multiple extruders, the Nozzle row uses a 52px-tall Sync button and a shared dark rounded container. Its left variant selector places the Nozzle label above the current variant; the right side shows equal-width read-only cards with each extruder number, actual diameter, and nozzle flow abbreviation (SF/HF/XHF and the other native flow variants). Values come from the effective native nozzle_diameter and nozzle_volume_type vectors; flow types beyond the serialized vector length repeat its first entry, matching native ConfigOptionVector::get_at semantics, retaining the canonical preset transition and existing Sync placeholder. Single-extruder rows retain their compact layout. The Printer preset editor opens from a 24px square settings button to the left
 of the selector, using a gray sliders icon and a dark-gray rounded background.
 The device/material reference palette is sampled directly from the supplied
 image: panel `#27272A`, controls `#1B1B1D`, headers `#171719`, action buttons
@@ -232,7 +232,7 @@ to the configuration panel. Both collapsed headers remain visible.
 Before a section toggle changes content, the combined Printer + Material
 scroll area's overflow state is captured. If it had
 no vertical scrollbar, expanding content also resizes the panel to its new
-maximum, subject to the configuration panel's minimum size. A previously
+maximum, subject to the configuration panel's minimum size. Content growth from printer transitions follows the same rule: the last measured content and viewport heights determine whether the combined panel fitted before the change, so taller multi-extruder rows or material lists expand it without testing the already-grown DOM for overflow. A previously
 scrolling panel keeps its user-selected split when content expands.
 
 The lower configuration panel uses a full-width dark mode header without a

@@ -35,6 +35,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const platform = usePlatform();
   const metadata = useSettingsStore((s) => s.metadata);
   const printerPicker = useSettingsStore((s) => s.printerPicker);
+  const nozzleDiameter = useSettingsStore((s) => s.values.nozzle_diameter);
+  const nozzleVolumeType = useSettingsStore((s) => s.values.nozzle_volume_type);
   const prints = useSettingsStore((s) => s.prints);
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
@@ -56,6 +58,13 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const bedVisible = bedType?.supportsSelection && bedType.choices.length > 0;
   const bedValue = globalBed ?? bedType?.defaultValue ?? '';
   const bedLabel = bedType?.choices.find(choice => choice.value === bedValue)?.label ?? '—';
+  const nozzleDiameters = nozzleDiameter ? nozzleDiameter.split(',').map(value => value.trim()) : [];
+  const nozzleVolumeTypes = nozzleVolumeType ? nozzleVolumeType.split(',').map(value => value.trim()) : [];
+  const multiExtruder = nozzleDiameters.length > 1;
+  const flowLabels: Record<string, string> = {
+    Standard: 'SF', 'High Flow': 'HF', 'Extra High Flow': 'XHF',
+    'TPU High Flow': 'TPU HF', Hybrid: 'Hybrid', 'E3D High Flow': 'E3D HF',
+  };
 
   async function handleSelectBed(value: string) {
     if (selectionPending.current || controlsDisabled || !paintingCommandAllowed() || value === bedValue) return;
@@ -211,10 +220,11 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             </Select>
           </div>}
         </div>
-        <div data-testid="printer-nozzle-row" className="flex min-w-0 items-center gap-1 pt-1">
+        <div data-testid="printer-nozzle-row" className={cn('flex min-w-0 items-center gap-1 pt-1', multiExtruder && 'printer-nozzle-multi-row')}>
           <Button type="button" variant="settings" size="icon-sm"
             aria-label="Sync nozzle" title="Sync nozzle" data-testid="nozzle-sync-placeholder"
             disabled={controlsDisabled}><RefreshCw data-icon="inline-start" /></Button>
+          <div className={cn('flex min-w-0 flex-1 items-center gap-1', multiExtruder && 'printer-nozzle-multi-controls')}>
           <Select items={printerPicker.variants.map(item => ({ value: item.value, label: item.value }))}
             value={printerPicker.selectedVariant || null}
             disabled={controlsDisabled || printerPicker.variants.length === 0}
@@ -223,15 +233,29 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               if (target?.preset && value !== printerPicker.selectedVariant)
                 void handleSelectPreset('printer', target.preset);
             }}>
-            <SelectTrigger variant="sidebar" className="min-w-0 flex-1" data-testid="nozzle-variant-select"
+            <SelectTrigger variant="sidebar" className={cn('min-w-0 flex-1', multiExtruder && 'printer-nozzle-multi-selector')} data-testid="nozzle-variant-select"
               aria-label="Nozzle diameter and variant" title={printerPicker.selectedVariant}>
-              <span className="shrink-0">Nozzle</span>
-              <SelectValue className="pl-4">{printerPicker.selectedVariant || '—'}</SelectValue>
+              <span className={cn('shrink-0', multiExtruder && 'text-muted-foreground font-semibold')}>Nozzle</span>
+              <SelectValue className={multiExtruder ? undefined : 'pl-4'}>{printerPicker.selectedVariant || '—'}</SelectValue>
             </SelectTrigger>
             <SelectContent><SelectGroup>{printerPicker.variants.map(item =>
               <SelectItem key={item.value} value={item.value} disabled={item.preset === null}>{item.value}</SelectItem>
             )}</SelectGroup></SelectContent>
           </Select>
+          {multiExtruder && <div className="printer-nozzle-extruders" aria-label="Extruder nozzles">
+            {nozzleDiameters.map((diameter, index) => {
+              // Native ConfigOptionVector::get_at repeats its first value for
+              // extruders beyond the serialized vector length.
+              const flow = nozzleVolumeTypes[index] ?? nozzleVolumeTypes[0];
+              return <div key={index} data-testid={`nozzle-extruder-${index + 1}`} className="printer-nozzle-extruder"
+                title={`Extruder ${index + 1}: ${diameter} mm${flow ? `, ${flow}` : ''}`}>
+                <span className="text-foreground">{index + 1}</span>
+                <span>{diameter}</span>
+                <span>{flow ? flowLabels[flow] ?? flow : '—'}</span>
+              </div>;
+            })}
+          </div>}
+          </div>
         </div>
       </div>
     </section>
