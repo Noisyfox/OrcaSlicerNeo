@@ -172,6 +172,7 @@ export function startWorker(
   // It rejects overlap; it never queues work or spans an editing session.
   let historyTransitionInFlight = false;
   let arrangementActive = false;
+  let catalogueOpening = false;
   const historyTransactionStartedAts: number[] = [];
 
   onMessage(async (msg) => {
@@ -184,8 +185,15 @@ export function startWorker(
     let ownsTransition = false;
     let ownsTransactionStart = false;
     let ownsArrangement = false;
+    let ownsCatalogueOpen = false;
     try {
       const callArgs = args ?? [];
+      if ((op === 'openSetupWizardCatalogue' || op === 'closeSetupWizardCatalogue') && catalogueOpening)
+        throw new Error('setup_catalogue_loading');
+      if (op === 'openSetupWizardCatalogue') {
+        catalogueOpening = true;
+        ownsCatalogueOpen = true;
+      }
       if (arrangementActive && restrictedWhileSerialSlicing.has(op)) throw new Error('arrangement_busy');
       if (op === 'arrange') {
         if (historyTransitionInFlight || transactionStarting || activeTransactionIds.length) throw new Error('Finish the current editing operation before arranging');
@@ -268,6 +276,7 @@ export function startWorker(
       if (ownsTransactionStart) transactionStarting = false;
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
     } finally {
+      if (ownsCatalogueOpen) catalogueOpening = false;
       if (ownsArrangement) arrangementActive = false;
       if (ownsTransition) historyTransitionInFlight = false;
     }
@@ -285,6 +294,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   const progressListeners = new Set<(pct: number, text: string) => void>();
   const arrangementListeners = new Set<(pct: number, text: string) => void>();
   let arrangementActive = false;
+  let catalogueOpening = false;
   const projectClosedListeners = new Set<ProjectClosedCallback>();
   let runtimeThreaded: boolean | undefined;
   let fatalError: Error | undefined;
@@ -319,6 +329,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       activeSliceRequests = 0;
       serialSliceActive = false;
       arrangementActive = false;
+      catalogueOpening = false;
       return;
     }
     if (msg.type === 'history-diagnostic') {
@@ -348,6 +359,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     if (!p) return;
     pending.delete(msg.id);
     if (p.op === 'arrange') arrangementActive = false;
+    if (p.op === 'openSetupWizardCatalogue') catalogueOpening = false;
     if (REAL_PROJECT_PROFILE_BUILD && isRestoreOperation(p.op))
       profileLastRestoreSliceActive = activeSliceRequests > 0;
     if (p.op === 'slice' || p.op === 'slicePlate') activeSliceRequests -= 1;
@@ -369,6 +381,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
 
   function call(op: string, args: unknown[]): Promise<unknown> {
     if (fatalError) return Promise.reject(fatalError);
+    if ((op === 'openSetupWizardCatalogue' || op === 'closeSetupWizardCatalogue') && catalogueOpening)
+      return Promise.reject(new Error('setup_catalogue_loading'));
     const id = nextId++;
     if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
@@ -380,6 +394,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       if (runtimeThreaded !== true) serialSliceActive = true;
     }
     if (op === 'arrange') arrangementActive = true;
+    if (op === 'openSetupWizardCatalogue') catalogueOpening = true;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, op, startedAt: historyNow() });
       try {
@@ -387,6 +402,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       } catch (error) {
         pending.delete(id);
         if (op === 'arrange') arrangementActive = false;
+        if (op === 'openSetupWizardCatalogue') catalogueOpening = false;
         if (op === 'slice' || op === 'slicePlate') {
           activeSliceRequests -= 1;
           serialSliceActive = false;

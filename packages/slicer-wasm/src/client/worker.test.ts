@@ -75,8 +75,41 @@ describe('worker protocol', () => {
 
   it('does not silently succeed when setup native exports are absent', async () => {
     const { workerClient } = setup();
-    await expect(workerClient.openSetupWizardCatalogue()).rejects.toThrow('unknown bridge fn');
+    await expect(workerClient.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('unknown bridge fn');
     await expect(workerClient.applyProfileActivation()).rejects.toThrow('unknown bridge fn');
+  });
+
+  it('rejects catalogue close/reopen before posting while open awaits a Worker response, releasing on terminal error', async () => {
+    const transport = new RecordingTransport();
+    const client = createWorkerClient(transport);
+    const opening = client.openSetupWizardCatalogue();
+    await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
+    await expect(client.openSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
+    expect(transport.posted).toHaveLength(1);
+    const request = transport.posted[0] as Extract<WorkerMessage, { type: 'request' }>;
+    transport.emit({ type: 'response', id: request.id, ok: false, result: undefined, error: 'catalogue failed' });
+    await expect(opening).rejects.toThrow('catalogue failed');
+    const closing = client.closeSetupWizardCatalogue();
+    const closeRequest = transport.posted[1] as Extract<WorkerMessage, { type: 'request' }>;
+    transport.emit({ type: 'response', id: closeRequest.id, ok: true, result: { ok: true } });
+    expect(await closing).toEqual({ ok: true });
+  });
+
+  it('releases catalogue admission after transport failure and rejects pending open on fatal failure', async () => {
+    const transport = new RecordingTransport();
+    const client = createWorkerClient(transport);
+    const post = transport.post.bind(transport);
+    transport.post = () => { throw new Error('post failed'); };
+    await expect(client.openSetupWizardCatalogue()).rejects.toThrow('post failed');
+    transport.post = post;
+    const closing = client.closeSetupWizardCatalogue();
+    const request = transport.posted[0] as Extract<WorkerMessage, { type: 'request' }>;
+    transport.emit({ type: 'response', id: request.id, ok: true, result: { ok: true } });
+    expect(await closing).toEqual({ ok: true });
+    const opening = client.openSetupWizardCatalogue();
+    transport.emit({ type: 'fatal', error: 'worker terminated' });
+    await expect(opening).rejects.toThrow('worker terminated');
+    await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('worker terminated');
   });
 
   const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,

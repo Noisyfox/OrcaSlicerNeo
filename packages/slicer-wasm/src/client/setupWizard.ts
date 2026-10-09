@@ -11,9 +11,11 @@ export interface SetupWizardCatalogue {
   /** Resource vendor, never the material's display manufacturer. */
   models: Array<{ vendor: string; model: string; name: string; image: string;
     nozzle_diameter: string[]; default_materials: string[] }>;
-  /** Concrete members are already filtered using Orca's explicit mapping. */
+  /** Display manufacturer/type/short-name groups from resolved system presets. */
   filaments: Array<{ vendor: string; type: string; name: string;
-    presets: Array<{ name: string; compatible_models: ProfileActivation['models'] }> }>;
+    presets: Array<{ name: string; resource_vendor: string;
+      /** Empty mapping is unrestricted, matching Orca wizard behaviour. */
+      compatible_models: ProfileActivation['models'] }> }>;
 }
 
 export interface SetupWizardError { ok: false; error: string }

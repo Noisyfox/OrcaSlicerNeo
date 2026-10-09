@@ -1,4 +1,4 @@
-import type { ProfileActivation } from '../setupWizard';
+import type { SetupWizardCatalogue, ProfileActivation } from '../setupWizard';
 import { paintingMock } from './painting-mock';
 // packages/slicer-wasm/src/client/testing/mock-module.ts
 // ----------------------------------------------------------------
@@ -1756,8 +1756,37 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = false;
   }
 
+  let wizardCatalogue: SetupWizardCatalogue | null = null;
+  function buildWizardCatalogue(): SetupWizardCatalogue {
+    const models = presetFixtures.printer.filter(preset => preset.vendor_id).map(preset => ({
+      vendor: preset.vendor_id, model: preset.model, name: preset.model, image: '',
+      nozzle_diameter: [preset.variant], default_materials: ['Generic PLA @System'],
+    }));
+    const groups = new Map<string, SetupWizardCatalogue['filaments'][number]>();
+    for (const preset of presetFixtures.filament.filter(preset => preset.vendor_id)) {
+      const name = preset.name.split('@')[0].trim();
+      const key = JSON.stringify([preset.vendor, 'PLA', name]);
+      const group = groups.get(key) ?? { vendor: preset.vendor, type: 'PLA', name, presets: [] };
+      const printers = presetFixtures.printer.filter(printer => preset.compatible_printers?.includes(printer.name));
+      group.presets.push({ name: preset.name, resource_vendor: preset.vendor_id,
+        compatible_models: printers.map(printer => ({ vendor: printer.vendor_id, model: printer.model,
+          nozzle_diameter: [printer.variant] })) });
+      groups.set(key, group);
+    }
+    return { models, filaments: [...groups.values()] };
+  }
+
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
+    orc_open_setup_wizard_catalogue() {
+      wizardCatalogue = null;
+      wizardCatalogue = buildWizardCatalogue();
+      return { ok: true, catalogue: wizardCatalogue };
+    },
+    orc_close_setup_wizard_catalogue() {
+      wizardCatalogue = null;
+      return { ok: true };
+    },
     orc_init(optionsJson: string) {
       const options = JSON.parse(optionsJson);
       if (!Object.hasOwn(options, 'profile_activation')) return { ok: false, error: 'explicit activation required' };
@@ -3224,6 +3253,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
+    orc_open_setup_wizard_catalogue: { ret: 'number', args: [] },
+    orc_close_setup_wizard_catalogue: { ret: 'number', args: [] },
     orc_init: { ret: 'number', args: ['string'] },
     orc_history_begin: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
     orc_history_commit: { ret: 'number', args: ['string', 'string'] },

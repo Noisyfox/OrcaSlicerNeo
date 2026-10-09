@@ -1591,6 +1591,7 @@ export function createClient(
   onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
 ): SlicerClient {
   let geometrySession = crypto.randomUUID();
+  let catalogueOpening = false;
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
   // React StrictMode double-mounts the boot effect in dev, sending init
@@ -2154,14 +2155,18 @@ export function createClient(
       return normalizeNativeScopedConfig(callJson(m, 'orc_revalidate_native_scoped_config', [], []));
     },
 
-    // Native implementations arrive in the catalogue/application pieces. Missing
-    // exports fail normally; there is no compatibility or success fallback.
     async openSetupWizardCatalogue(): Promise<SetupWizardCatalogueResult> {
-      return callJson(await module(), 'orc_open_setup_wizard_catalogue', [], []) as SetupWizardCatalogueResult;
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      catalogueOpening = true;
+      try {
+        return callJson(await module(), 'orc_open_setup_wizard_catalogue', [], []) as SetupWizardCatalogueResult;
+      } finally { catalogueOpening = false; }
     },
     async closeSetupWizardCatalogue(): Promise<SetupWizardCloseResult> {
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
       return callJson(await module(), 'orc_close_setup_wizard_catalogue', [], []) as SetupWizardCloseResult;
     },
+    // Application exports arrive in the next piece, with no success fallback.
     async prepareProfileActivation(activation: ProfileActivation): Promise<ProfileActivationPreparationResult> {
       return callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify(activation)]) as ProfileActivationPreparationResult;
     },

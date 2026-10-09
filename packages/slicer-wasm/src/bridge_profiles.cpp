@@ -10,6 +10,9 @@
 #include <cstring>
 #include <cctype>
 #include <optional>
+#include <memory>
+#include <tuple>
+#include <boost/filesystem.hpp>
 #include <map>
 #include <sstream>
 #include <set>
@@ -915,9 +918,123 @@ const char* init_profiles(const json& activation)
                          {"printers", state().presets.printers.size()}}.dump());
 }
 
+// Owned only by the open wizard; every open destroys the previous projection
+// before parsing raw resources again. Never installs into the live system view.
+namespace {
+std::unique_ptr<PresetBundle> wizard_bundle;
+json wizard_catalogue;
+
+std::string wizard_short_name(const std::string& name)
+{
+    std::string value = name.substr(0, name.find('@'));
+    const auto first = value.find_first_not_of(" \t\n\r\f\v");
+    if (first == std::string::npos) return {};
+    return value.substr(first, value.find_last_not_of(" \t\n\r\f\v") - first + 1);
+}
+}
+
+json close_wizard_catalogue()
+{
+    wizard_bundle.reset();
+    wizard_catalogue = json();
+    return {{"ok", true}};
+}
+
+json open_wizard_catalogue()
+{
+    close_wizard_catalogue();
+    auto bundle = std::make_unique<PresetBundle>();
+    std::map<std::string, boost::filesystem::path> sources;
+    const boost::filesystem::path root("/profiles");
+    if (boost::filesystem::exists(root)) {
+        for (const auto& entry : boost::filesystem::directory_iterator(root))
+            if (boost::filesystem::is_regular_file(entry.path()) && entry.path().extension() == ".json")
+                sources.emplace(entry.path().stem().string(), root);
+    }
+    std::vector<PresetBundle::VendorSource> ordered;
+    const std::string library(PresetBundle::ORCA_FILAMENT_LIBRARY);
+    if (auto found = sources.find(library); found != sources.end())
+        ordered.push_back({found->first, found->second});
+    for (const auto& [name, directory] : sources)
+        if (name != library) ordered.push_back({name, directory});
+    const auto loaded = bundle->load_vendors(ordered,
+        ForwardCompatibilitySubstitutionRule::EnableSilent, /*allow_cache=*/false);
+    if (!loaded.second.empty()) BOOST_LOG_TRIVIAL(warning) << "Setup catalogue: " << loaded.second;
+
+    json catalogue = {{"models", json::array()}, {"filaments", json::array()}};
+    for (const auto& [vendor_id, vendor] : bundle->vendors) {
+        for (const auto& model : vendor.models) {
+            json nozzles = json::array();
+            for (const auto& variant : model.variants) nozzles.push_back(variant.name);
+            const auto cover = root / vendor.id / (model.id + "_cover.png");
+            catalogue["models"].push_back({{"vendor", vendor.id}, {"model", model.id},
+                {"name", model.name}, {"image", boost::filesystem::exists(cover) ? cover.string() : ""},
+                {"nozzle_diameter", std::move(nozzles)}, {"default_materials", model.default_materials}});
+        }
+    }
+    // Orca's wizard explicitly maps printer names, without evaluating the live
+    // workspace compatibility expressions or filtering printer visibility.
+    struct Machine { std::string vendor; std::string model; std::string nozzle; };
+    std::map<std::string, Machine> machines;
+    for (const Preset& preset : bundle->printers()) {
+        if (!preset.is_system || !preset.vendor) continue;
+        const auto* model = preset.config.option<ConfigOptionString>("printer_model");
+        const auto* variant = preset.config.option<ConfigOptionString>("printer_variant");
+        if (model && !model->value.empty() && variant)
+            machines.emplace(preset.name, Machine{preset.vendor->id, model->value, variant->value});
+    }
+    using Group = std::tuple<std::string, std::string, std::string>;
+    std::map<Group, json> groups;
+    for (const Preset& preset : bundle->filaments()) {
+        if (!preset.is_system || !preset.vendor) continue;
+        const auto* manufacturer = preset.config.option<ConfigOptionStrings>("filament_vendor");
+        const auto* material = preset.config.option<ConfigOptionStrings>("filament_type");
+        const auto* compatible = preset.config.option<ConfigOptionStrings>("compatible_printers");
+        const std::string vendor = manufacturer && !manufacturer->values.empty() ? manufacturer->values.front() : "";
+        const std::string type = material && !material->values.empty() ? material->values.front() : "";
+        const std::string name = wizard_short_name(preset.name);
+        std::map<std::pair<std::string, std::string>, std::set<std::string>> mapping;
+        if (compatible) for (const auto& printer : compatible->values) {
+            const auto found = machines.find(printer);
+            if (found != machines.end()) mapping[{found->second.vendor, found->second.model}].insert(found->second.nozzle);
+        }
+        json models = json::array();
+        for (const auto& [identity, nozzles] : mapping)
+            models.push_back({{"vendor", identity.first}, {"model", identity.second}, {"nozzle_diameter", nozzles}});
+        auto [group, inserted] = groups.try_emplace(Group{vendor, type, name}, json{
+            {"vendor", vendor}, {"type", type}, {"name", name}, {"presets", json::array()}});
+        group->second["presets"].push_back({{"name", preset.name}, {"resource_vendor", preset.vendor->id},
+            {"compatible_models", std::move(models)}});
+    }
+    for (auto& [identity, group] : groups) catalogue["filaments"].push_back(std::move(group));
+    wizard_bundle = std::move(bundle);
+    wizard_catalogue = std::move(catalogue);
+    return {{"ok", true}, {"catalogue", wizard_catalogue}};
+}
+
 } // namespace Slic3r::Neo::Bridge::Profiles
 
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE const char* orc_open_setup_wizard_catalogue()
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(open_wizard_catalogue().dump()); }
+    catch (const std::exception& error) {
+        close_wizard_catalogue();
+        return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump());
+    }
+    catch (...) {
+        close_wizard_catalogue();
+        return duplicate_json(json{{"ok", false}, {"error", "unknown catalogue exception"}}.dump());
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_close_setup_wizard_catalogue()
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    return duplicate_json(close_wizard_catalogue().dump());
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_get_preset_snapshot()
 {

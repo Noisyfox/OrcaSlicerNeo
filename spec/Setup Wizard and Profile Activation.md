@@ -4,9 +4,9 @@
 
 **Status:** Major specification; resource, product, session, and UI policies
 accepted through interactive clarification. Step 1 contracts and persistence
-are implemented. Steps 2–3 JSON-only vendor loading and activation-aware
-startup are implemented and self-verified; catalogue/application and UI
-implementation remain pending.
+are implemented. Steps 2–4 JSON-only vendor loading, activation-aware
+startup, and the temporary full catalogue are implemented and self-verified;
+application and UI implementation remain pending.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -597,6 +597,79 @@ or lightweight between-opening cache.
 project state, or `/system` links. Repeated openings generate equivalent
 contents, and closing releases temporary catalogue allocations. Test loading
 feedback and the prohibition on mid-load cancellation.
+
+### Step 4 implementation and verification — 2026-10-09
+
+`orc_open_setup_wizard_catalogue()` creates an independent `PresetBundle` from
+all root JSON manifests in `/profiles`, with `OrcaFilamentLibrary` loaded first
+and vendor errors logged/skipped by the native loader. Loading explicitly
+passes `allow_cache=false`; the accepted Neo cache macro remains active.
+Opening first destroys any prior wizard bundle/projection, then regenerates
+both. Closing resets the owning `unique_ptr` and projected JSON; no catalogue
+or source-vendor projection survives between openings. Raw resource files and
+live `/system` links are retained.
+
+The projection follows current Orca `GuideFrame::BuildProfileJson()` and
+`resources/web/guide/22/common.js`: vendor models supply IDs, display names,
+nozzle variants, and native-parsed default materials. System printer names map
+to explicit vendor/model/nozzle identities. Resolved system filament settings
+supply display manufacturer/type, and the trimmed name before `@` supplies the
+group name. Every concrete member carries its canonical name and resource
+vendor separately from its display manufacturer. Only `compatible_printers`
+name mappings are projected, without evaluating workspace compatibility
+expressions or filtering by current native visibility. Unknown printer names
+produce no mapping; an empty mapping has Orca's unrestricted meaning. Resource
+vendor membership will constrain UI eligibility in Step 7 and never expands
+startup links.
+
+Available model covers are Worker filesystem paths under `/profiles`, including
+excluded vendors. The existing `readFilesystemFile()` client/Worker transport
+reads their bytes without installing vendor links; missing covers are empty
+paths for the UI placeholder. No additional image or fallback API is added.
+The typed contract changes together and the mock provides a full deterministic
+fixture catalogue. Preparation/application exports remain absent until Step 5.
+
+Client and Worker admission reject closing or another opening while catalogue
+loading is in flight, including at the sending endpoint before posting a
+request. The gate clears on terminal responses, native/module errors, fatal
+Worker failure, and transport posting failure. Loading feedback and menu/modal
+presentation remain Step 7 UI work.
+
+Self-verification:
+
+- `scripts\build-windows.bat quick --variant serial -j 4` and the threaded
+  equivalent: passed. The only subsequent native edit removes a blank line.
+- `pnpm --filter @orca/slicer-wasm setup-wizard-catalogue-smoke` and
+  `setup-wizard-catalogue-smoke:threaded`: passed. Real fixtures cover unlinked
+  vendor models, inherited manufacturer/type grouping, library-first cross-vendor
+  inheritance, explicit nozzle mapping, condition-only and unknown-name empty
+  mappings, cover paths, skipped malformed vendors, repeated identical opens,
+  reparsing source changes after close, and retry after directory-discovery failure.
+  Full live profile, filament-session, native scoped configuration, model, plate,
+  and nonempty Undo/history snapshots plus `/system` directory/link targets
+  remain identical across successful and failed catalogue operations.
+- `scripts\build-windows.bat smoke --variant serial` and the threaded equivalent:
+  passed (slice, bridge, DRC, STEP).
+- `pnpm --filter @orca/slicer-wasm test`: 392 passed. Coverage includes sender-side
+  rejection before posting, Worker admission, direct-client failure release,
+  full mock catalogue/state isolation, absent preparation/application exports,
+  and excluded-vendor cover transport.
+- `pnpm --filter @orca/slicer-runtime test`: 42 passed.
+- Typechecks for slicer-wasm, slicer-runtime, slicer-app, Web, and desktop: passed.
+- New native harness syntax check, `git diff --check`, and specification local
+  links: passed.
+
+Allocation lifetime is enforced by native ownership/destruction and verified
+through source-change/reparse tests; allocator byte measurements and full-package
+catalogue performance remain Step 8 work. No claim is made that linear-memory
+capacity shrinks after closing. Host wizard UI/E2E is pending Step 7. Native
+loading/application for Steps 5–6 has not been implemented in this piece.
+
+Parent independent acceptance reviewed the native projection and ownership,
+loading gates, cover-byte transport and isolation harness; both real catalogue
+smokes, 33 focused Worker/client tests and client typecheck were rerun
+successfully. A sender-side loading gate found during review was repaired and
+verified before acceptance.
 
 ### Step 5 — Prepare, save, and apply
 
