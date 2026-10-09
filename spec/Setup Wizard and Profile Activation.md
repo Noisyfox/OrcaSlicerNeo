@@ -113,8 +113,9 @@ model's declared default materials.
 
 The current web wizard's material-to-machine projection uses explicit
 `compatible_printers` mappings. This must not be conflated with the complete
-native workspace compatibility rules, which also support conditions. Exact
-wizard parity versus a native-compatible catalogue is an open decision.
+native workspace compatibility rules, which also support conditions. Neo's
+wizard follows the current Orca web-wizard projection; the workspace continues
+to use the full native compatibility rules.
 
 Desktop startup loads the vendor packages installed in its user `system`
 directory, then applies AppConfig visibility, selection, and compatibility.
@@ -124,7 +125,36 @@ Neo preserves this separation using MEMFS links rather than copying installed
 vendor resources to a persistent user directory.
 
 The reference is evidence for clarification, not approval of every Orca UI or
-fallback policy. Outstanding choices below must be resolved before implementation.
+fallback policy. The following selection policies are accepted; outstanding
+choices in Section 5 must still be resolved before implementation.
+
+### Accepted Printer and Filament selection policies
+
+- Select a complete printer model, enabling every nozzle variant listed for
+  that model. Do not add per-nozzle activation controls.
+- Group filament rows by resolved `filament_vendor[0]`, resolved
+  `filament_type[0]`, and the concrete preset name trimmed at the first `@`.
+  These values come from parsed configuration, including inherited values;
+  they are not filenames or resource-package vendor identities. Selecting a
+  row enables its associated concrete preset names admitted by the wizard's
+  catalogue projection, rather than creating a new material profile.
+- Generate wizard filament candidates using Orca's explicit
+  `compatible_printers` model/nozzle mapping. Do not substitute the broader
+  workspace condition-expression evaluation in this UI.
+- On submitting the selected printer models, automatically check their
+  declared `default_materials`. Users may subsequently uncheck them on the
+  Filament page. Returning to and resubmitting Printer selection can check
+  the defaults again; do not add a special policy remembering their previous
+  deselection.
+- Before completing the full wizard, require at least one selected printer
+  model and one selected filament row. Do not add a page-level check requiring
+  compatible-material coverage for every model. Preserve the native default
+  material supplementation during profile loading and return the effective
+  native result; the initial UI selection is not necessarily the final
+  supplemented activation set.
+
+These rules apply to the full Printer/Filament setup flow. Dedicated single-page
+entry points and their validation remain part of the next clarification group.
 
 ## 5. Decisions still required
 
@@ -133,12 +163,11 @@ accepted requirements or a fixed implementation sequence.
 
 | Group | Outstanding decisions |
 | --- | --- |
-| Printer and material selection | Whole-model selection versus individual nozzle variants; exact material grouping and mixed selection state; wizard compatibility projection; automatic default-material selection and completion validation. |
 | First use and entry points | First-run trigger; first-run cancellation or skipping; default usable configuration; full wizard and Printer-only/Filament-only reopening; interaction with project opening during startup. |
 | Applying to an existing project | Removing the active Printer or a material used by a slot; preserving preset drafts and temporary overrides; confirmation and fallback policy; project dirty state, slice invalidation, and Undo/Redo semantics. |
 | Persistence and recovery | Activation schema and repository; existing installations without activation records; renamed or missing profiles; missing vendor packages; apply/save failure ordering and rollback. |
 | Catalogue and runtime lifecycle | Separate native bundle versus isolated catalogue runtime; reuse while open or between openings; cancellation and loading feedback; interaction with New Project/runtime replacement and project-required vendors. |
-| UI and acceptance | Visual parity scope; search and select-all semantics; keyboard/accessibility behaviour; desktop sizing and deferred mobile support; measured startup, repeated-wizard and memory acceptance criteria. |
+| UI and acceptance | Visual parity scope; partially enabled material-group display; search and select-all semantics; keyboard/accessibility behaviour; desktop sizing and deferred mobile support; measured startup, repeated-wizard and memory acceptance criteria. |
 
 For every clarification question, explain the current Orca behaviour and the
 relevant Neo choices together. Resolve one question at a time. Update this
