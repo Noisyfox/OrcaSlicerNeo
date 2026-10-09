@@ -221,6 +221,9 @@ jobs:
         run: node packages/slicer-wasm/harness/arrangement-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - name: Smoke — serial fallback slices cube.stl
         run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
+      - uses: pnpm/action-setup@v6
+      - name: Install native profile-fixture packaging dependencies
+        run: pnpm install --frozen-lockfile --filter @orca/profile-resources
       - name: Printer picker — exact toolhead combinations and indexed fallback
         run: node packages/slicer-wasm/harness/printer-picker-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
       - name: Arrangement — explicit test build verifies publication rollback
