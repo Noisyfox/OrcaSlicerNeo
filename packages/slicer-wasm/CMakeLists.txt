@@ -70,6 +70,8 @@ endif()
 # is excluded by patch 0006 for both WASM variants; the ABI-compatible no-op
 # entry points live in stubs/backup-manager-stub.cpp.
 add_compile_definitions(ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER=1)
+# MEMFS resets on each run. Neo uses source JSON only in both WASM variants.
+add_compile_definitions(NEO_DISABLE_VENDOR_CACHE=1)
 if(WASM_DEBUG)
   message(STATUS "WASM debug: libslic3r + bridge at -g -O0 (embedded DWARF); deps stay -O3 without debug info")
 endif()
@@ -139,15 +141,6 @@ endforeach()
 file(GLOB STUB_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/stubs/*.cpp")
 
 add_library(slic3r_core STATIC ${LIBSLIC3R_SRC} ${STUB_SRC})
-
-# MEMFS resets on each run. Neo uses source JSON only in both WASM variants.
-# Scope the policy to the three TUs that discover, plan, or perform cache IO.
-set_source_files_properties(
-  "${LIBSLIC3R_ROOT}/PresetBundle.cpp"
-  "${LIBSLIC3R_ROOT}/PresetCacheFormat.cpp"
-  "${LIBSLIC3R_ROOT}/utils.cpp"
-  PROPERTIES COMPILE_DEFINITIONS NEO_DISABLE_VENDOR_CACHE=1
-)
 
 if(WASM_THREADING)
   # Real oneTBB must precede the generic compatibility shim. The shim still

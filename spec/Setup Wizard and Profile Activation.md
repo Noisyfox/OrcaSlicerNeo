@@ -441,10 +441,9 @@ The intentional core adaptation is on submodule branch
 commit: `b5dd4979cfce248e88a547c3dcddb6eb6e3132cc`; the superproject explicitly
 pins this adaptation.
 
-`NEO_DISABLE_VENDOR_CACHE=1` is applied by the WASM CMake scaffold to
-`PresetBundle.cpp`, `PresetCacheFormat.cpp`, and `utils.cpp` in both variants.
-Source-scoped definitions keep the policy within the discovery/loading/IO
-translation units without rebuilding unrelated core files. Load planning and
+`NEO_DISABLE_VENDOR_CACHE=1` is applied globally by the WASM CMake scaffold
+through `add_compile_definitions` in both variants. The cache policy therefore
+covers every target and translation unit built by this scaffold. Load planning and
 vendor reads force caching off, the five vendor-cache IO entry points compile
 to disabled results, and vendor discovery/installation requires source JSON.
 The macro-off conditional source text is equivalent to the pinned base after
@@ -475,8 +474,10 @@ Self-verification:
   DRC, STEP).
 - `pnpm --filter @orca/slicer-wasm test`: 380 tests passed.
 - `pnpm --filter @orca/slicer-wasm typecheck`: passed.
-- Both build trees contain the macro on exactly the three intended source
-  compile rules. Macro-off conditional-text equivalence: passed.
+- The original Step 2 build trees contained the macro on the three cache-related
+  source compile rules. The subsequent PR review revision makes this a global
+  scaffold definition for both variants. Macro-off conditional-text equivalence
+  from Step 2: passed.
 - Superproject and submodule `git diff --check`: passed.
 
 Build output contains existing Boost macro/deprecation warnings and the
@@ -485,6 +486,31 @@ this piece changes WASM vendor policy, with no application/UI changes. Parent
 independent acceptance reran both variant quick builds and both real
 cache-disabled harnesses successfully, reviewed all three native diffs and
 the build definitions, and confirmed the macro-off paths retain desktop logic.
+
+The subsequent PR #65 review revision moves `NEO_DISABLE_VENDOR_CACHE=1` to
+global `add_compile_definitions` alongside the scaffold's other global WASM
+policies, removing the three-source property block. Self-verification passed:
+
+- `scripts\build-windows.bat quick --variant both -j 4`: both variants rebuilt
+  and staged successfully (298 build steps each).
+- Actual `ninja -t compdb` output: all 297 compilation commands in each variant
+  contain the macro, covering core, compiled dependencies and bridge sources.
+- `node packages/slicer-wasm/harness/vendor-cache-disabled-smoke.mjs
+  packages/slicer-wasm/out/threaded/orca_slice.js` and its serial equivalent:
+  passed JSON loading, no cache IO/generation, malformed-source rejection and
+  cache-only vendor exclusion.
+- `node packages/slicer-wasm/harness/profile-activation-startup-smoke.mjs
+  packages/slicer-wasm/out/threaded/orca_slice.js` and its serial equivalent:
+  passed permanent base inclusion, model visibility, excluded vendors, stale
+  records and runtime recreation.
+- Parent independent root checks: 1,785 tests passed with one opt-in measurement
+  skipped, and all typechecks passed. Parent threaded comprehensive bridge
+  smoke: 201 passed, zero failed. Parent serial cache/startup smoke both passed;
+  independent inspection also confirmed 297/297 compilation commands carry
+  the macro in each variant. Parent final review accepted this revision.
+- `git diff --check` and this document's local links: passed. The pinned
+  submodule is unchanged and clean. No full host E2E or performance rerun is
+  claimed for this compile-definition scope revision.
 
 ### Step 3 — Resource layout and activation-aware startup
 
