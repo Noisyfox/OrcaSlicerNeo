@@ -338,18 +338,199 @@ replacing global activation settings. Neo retains that separation.
   Reassess optimization needs from measured results. Releasing allocations
   does not require the WASM heap's high-water capacity to shrink.
 
-## 5. Remaining implementation design
+## 5. Implementation sequence
 
-The accepted product decisions above define the implementation scope. Native
-application and pre-save validation/normalization still need a concrete design
-that preserves save-before-apply ordering, existing source-draft behaviour,
-native supplementation, and the new history-baseline rule. This specification
-records no implementation as delivered.
+Implement the following eight pieces in order, validating and committing each
+complete, independently testable piece. These steps describe planned work;
+none is recorded as implemented. Keep this specification as the authoritative
+feature record rather than introducing parallel phase documents.
 
-For any further product clarification, explain current Orca behaviour and the
-relevant Neo choices together, resolve one question at a time, and update this
-specification after a related group is settled. Preserve one authoritative
-record rather than parallel phase notes.
+Internal APIs change together across the native bridge, typed client, runtime,
+and application callers. Do not add legacy adapters, protocol-version
+negotiation, dual execution paths, or old-interface fallbacks. Persisted
+preference validation remains subject to the accepted recovery policies;
+it is distinct from internal API compatibility.
+
+### Step 1 — Activation data and internal contracts
+
+Extend `UserPreferences` with the activation record using the accepted
+`models` and `filaments` payload. Every printer-model record explicitly carries
+its resource vendor. Reuse the existing preference repository and host adapters.
+
+Define typed operations for opening and closing the catalogue, validating and
+preparing activation, and applying activation. Carry them through the existing
+bridge/client/runtime boundary and Worker transport. Final operation names are
+implementation details; application code must not access the module or FS.
+
+**Validation:** preference round trips, missing/malformed activation handling,
+preservation of other preference fields, and serialized preference updates
+that do not overwrite concurrent changes. Typecheck affected contracts and
+callers together.
+
+### Step 2 — Disable native vendor caches
+
+On a dedicated submodule development branch, add the Neo WASM macro that
+excludes `.opc` reads, generation, and cache-only vendor discovery. Enable it
+for both serial and threaded WASM in the superproject build scaffold; leave
+native desktop behaviour unchanged when the macro is absent.
+
+Commit the deliberate upstream-core adaptation directly in the submodule,
+then explicitly update and document the superproject's pinned commit. Do not
+introduce a patch-based adaptation for this work.
+
+**Validation:** source-JSON loading succeeds, loads generate no `.opc` files,
+and an existing `.opc` cannot make an unlinked vendor loadable. Run the affected
+native quick build and focused smoke; prove both variants before handoff.
+
+### Step 3 — Resource layout and activation-aware startup
+
+Change profile installation so core extracts directly into `/system` and all
+vendor packages extract into `/profiles`. Continue fetching every package on
+every application startup, preserving vendor-skip and core-failure behaviour.
+
+Add Worker-side link management encapsulated behind the typed client. Always
+link OrcaFilamentLibrary, then link each optional vendor's root JSON and whole
+resource directory according to `models[].vendor`. Filament records must not
+expand the optional vendor load set.
+
+Load preferences and pass activation to the Worker before native profile
+initialization. Replace unconditional `install_all_printers()` with conversion
+of the saved activation into native profile configuration. Restore current
+selections within the admitted candidates using the existing native rules.
+
+**Validation:** every vendor is downloaded/extracted, while normal startup
+parses only printer-enabled vendors plus the permanent library. Verify core
+and library inclusion, stale records, missing vendors, first-use detection,
+and initialization from saved activation after runtime recreation.
+
+### Step 4 — Temporary full wizard catalogue
+
+Create an independent temporary native `PresetBundle` on the existing Worker
+and parse the complete `/profiles` set. Project printer models, nozzle variants,
+default materials, and grouped filament candidates using Orca's explicit
+compatibility mapping and grouping rules. Do not use the live project bundle
+as the full catalogue.
+
+Retain catalogue state only while the wizard is open. Closing destroys the
+temporary bundle and projected data; reopening regenerates them from source.
+The extracted resource tree remains available. Do not add a parsed catalogue
+or lightweight between-opening cache.
+
+**Validation:** catalogue opening and browsing do not change live selections,
+project state, or `/system` links. Repeated openings generate equivalent
+contents, and closing releases temporary catalogue allocations. Test loading
+feedback and the prohibition on mid-load cancellation.
+
+### Step 5 — Prepare, save, and apply
+
+Implement this completion sequence:
+
+```text
+UI selection
+  -> native validation and default-material supplementation
+  -> normalized activation returned for persistence
+  -> preference repository save
+  -> native activation application
+  -> application state refresh
+```
+
+The preparation phase constructs and validates a candidate bundle for the
+target vendor set without mutating the live project. The normalized activation
+must preserve the accepted stale-record policy. Keep prepared state within the
+current wizard lifetime; it is not a reusable catalogue cache.
+
+Only after saving succeeds, update the `/system` view and apply the prepared
+native result to the running session. Complete validation and response-snapshot
+preparation before replacing live state where practical, so failure handling
+does not expose inconsistent selections. Do not call `orc_init()` for this
+operation and do not introduce cross-storage/runtime rollback.
+
+A save failure leaves live activation untouched and keeps the wizard open.
+An application failure retains the saved record, reports failure, and permits
+application retry. The next startup uses that saved record. The precise staged
+bundle transfer and native publication mechanics must be resolved in this
+piece and validated before its commit.
+
+**Validation:** saving precedes application, persistence failure prevents
+application, application failure preserves the saved record and history, and
+retry succeeds without duplicate project mutations. Verify native defaults,
+name resolution, and equivalence between the successfully applied candidate
+set and the next normal startup.
+
+### Step 6 — Project transition and history baseline
+
+Reuse Printer-transition, remembered-rack, compatibility-normalization,
+source-draft, and colour mechanisms to apply activation to the existing
+project. Preserve model and plate data and project-embedded configurations.
+Replace unavailable active sources according to the accepted native rules.
+
+Keep dormant source drafts as session identities and overrides; do not add
+complete source presets solely for restoration of pre-application history.
+Separate unavailable dormant overlays from history restoration paths that
+require a resolvable source. Re-enabling an available source restores its own
+draft under the existing draft policy.
+
+After successful application, clear Undo/Redo and establish the resulting
+project state as the new baseline. Preserve the correct dirty state separately
+from history clearing. The existing `orc_history_reset()` marks the current
+state as saved, so its implementation cannot be reused unchanged for this
+operation. Synchronize history revisions and application-visible state.
+
+Invalidate slice results only when effective slicing configuration changes;
+otherwise preserve the existing dirty state and results. Failed application
+must not clear history.
+
+**Validation:** model/plate preservation, Printer and rack replacements,
+colours, embedded profiles, dormant drafts, cleared Undo/Redo, correct dirty
+state, and conditional slice invalidation. Exercise subsequent project edits
+and Undo/Redo from the new baseline.
+
+### Step 7 — Shared wizard UI and entry gates
+
+Build the Printer and Filament pages with Neo's existing visual system and
+the accepted Orca information structure. Implement grouping, default-material
+selection, filters, search, visible-result bulk actions, and standard keyboard
+controls. Material groups use the accepted two-state selection rule.
+
+Add the single Setup Wizard menu entry and modal operation lock. Disable the
+entry during conflicting operations and disable controls during catalogue
+loading/application. Present save/application errors with retry.
+
+Gate workspace entry on mandatory first-use completion and silently discard
+file-open requests during that gate. Permit cancellation for menu-opened setup
+when idle. New Project and runtime recreation use saved activation without
+unnecessarily showing setup or initiating an extra New Project download.
+
+**Validation:** mandatory completion, menu cancellation, disabled/busy states,
+keyboard input, hidden-selection preservation, grouped selection expansion,
+reopening, and both host entry/persistence boundaries.
+
+### Step 8 — Integration acceptance and performance evidence
+
+During each piece, run the directly affected tests and typechecks, adding
+native quick-build/smoke for bridge or build changes. Before handoff, run root
+unit tests and typechecks, quick-build both WASM variants, exercise a complete
+real native contract on one variant and variant-specific startup/threading
+smoke on the other, and cover affected Electron/Web host seams.
+
+Prove the complete startup-to-wizard-to-application journey, persistence and
+application failure paths, reopening, project preservation, and subsequent
+slice/export. Use real WASM evidence for native loading and application;
+mock UI tests alone do not establish those behaviours.
+
+Measure full-package download/extraction separately from normal native loading,
+first/repeated catalogue construction, and WASM memory before construction,
+after construction, and after close. Verify temporary allocations are released
+without requiring the heap's high-water capacity to shrink. Report measured
+results rather than inventing timing or memory pass thresholds.
+
+Update this specification's implementation/verification status with the
+submodule commit, actual checks, measured results, and any unavailable checks.
+Update roadmap documents only when delivered milestone status actually changes.
+
+For further product clarification, explain current Orca behaviour and Neo's
+choices together, resolve one question at a time, and update this specification
+after a related group is settled.
 
 ## 6. Boundaries and verification
 
@@ -357,7 +538,8 @@ Application code uses the shared runtime. New direct Emscripten/FS operations
 are encapsulated by the typed client on the Worker side. No wxWidgets GUI is
 ported. Catalogue enumeration and activation must not reset the live project
 through `orc_init()`, which clears project-related runtime state and history.
-The safe immediate-application mechanism is still to be designed.
+The staged preparation and save-before-apply mechanism is planned in Step 5;
+its native publication mechanics remain implementation work.
 
 Existing serial-WASM exploration established that root JSON and directory
 symlinks permit native vendor loading, that unlinked resource vendors do not
@@ -369,11 +551,9 @@ acceptance or cross-host/threaded verification.
 
 Implementation verification must cover the startup vendor load set, permanent
 core/library inclusion, printer-derived vendor inclusion, JSON-only loading,
-reopening
-and cancelling the wizard, activation persistence, application failures,
+reopening and cancelling the wizard, activation persistence, application failures,
 successful-application history clearing, project-embedded configurations, and
-the agreed existing-project and filtered-selection policies. Follow the
-repository
+the agreed existing-project and filtered-selection policies. Follow the repository
 [testing guidelines](../doc/testing_guidelines.md) for unit/typecheck,
 affected-host E2E, native quick-build/smoke, and handoff scope.
 
