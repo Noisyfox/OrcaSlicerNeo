@@ -56,6 +56,37 @@ for (const method of ['window close', 'Exit'] as const) {
   });
 }
 
+test('real native wizard loads printer covers only inside its scroll viewport', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'Requires real production WASM covers');
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-setup-covers-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_FIRST_USE: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow(), list = page.getByTestId('setup-printers');
+    await expect(list).toBeVisible({ timeout: 60_000 });
+    await expect.poll(() => list.locator('[data-setup-cover="loaded"] img').count()).toBeGreaterThan(0);
+    const index = await list.locator('[data-slot="card"]').evaluateAll(cards => {
+      const root = document.querySelector('[data-testid="setup-printers"]')!.getBoundingClientRect();
+      return cards.findIndex(card => card.getBoundingClientRect().top > root.bottom + 50
+        && card.querySelector('[data-setup-cover="unrequested"]'));
+    });
+    expect(index).toBeGreaterThanOrEqual(0);
+    const card = list.locator('[data-slot="card"]').nth(index);
+    await expect(card.locator('[data-setup-cover]')).toHaveAttribute('data-setup-cover', 'unrequested');
+    await expect(card.locator('img')).toHaveCount(0);
+    // Scroll the real nested list; the dialog and window remain stationary.
+    await card.evaluate(element => {
+      const root = element.closest('[data-testid="setup-printers"]')!;
+      root.scrollTop += element.getBoundingClientRect().top - root.getBoundingClientRect().top;
+    });
+    await expect(card.locator('[data-setup-cover]')).toHaveAttribute('data-setup-cover', 'loaded');
+    await expect.poll(() => card.locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    expect(await card.locator('img').getAttribute('src')).toMatch(/^blob:/);
+  } finally { await app.close(); }
+});
+
 test('real native first-use defaults establish a clean empty project', async () => {
   test.skip(process.env.ORCA_E2E_REAL !== '1', 'Requires real production WASM');
   const preferences = join(mkdtempSync(join(tmpdir(), 'orca-setup-initial-clean-')), 'preferences.json');

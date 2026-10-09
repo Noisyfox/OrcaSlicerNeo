@@ -1153,7 +1153,7 @@ wizard tests against the production build: two passed in 34.0 seconds.
 
 ### Application source organisation (2026-10-09)
 
-The ten Setup Wizard component and helper source/test files are colocated in
+Setup Wizard component and helper source/test files are colocated in
 `packages/slicer-app/src/components/wizard/`: the `SetupWizard` component and
 its test, catalogue-session and selection helpers/tests, completion and
 publication helpers/tests. `useSetupWizardStore.ts` remains in the shared
@@ -1179,6 +1179,51 @@ Parent independent acceptance reviewed the detected renames and confirmed that
 source differences contain only import-path changes. Root `pnpm test` passed
 1791 tests with one opt-in measurement skipped; root `pnpm typecheck` passed.
 The staged diff check and pinned-submodule status check passed.
+
+### Visible printer covers (2026-10-09)
+
+Printer covers are loaded when their cards intersect the actual Printer-page
+scroll container (`setup-printers`), using that element as the
+`IntersectionObserver` root. Offscreen cards and cards hidden by filtering do
+not request image bytes. Available cover bytes still come through the existing
+runtime filesystem API, including unlinked vendor resources under `/profiles`.
+Missing paths or failed reads retain the printer placeholder.
+
+`WizardPrinterCover.tsx` and `setupWizardImages.ts` live alongside the wizard.
+Each catalogue opening owns one image session: successful and failed reads are
+deduplicated by resource path within that session, including search changes and
+Filament-page Back navigation. Completion, cancellation and unmount release its
+Blob URLs; a read resolving after disposal cannot create a URL or publish into a
+later session. Reopening creates a fresh session and reads visible covers again.
+There is no cross-session image cache or new runtime/client/native API.
+
+Self-verification:
+
+- `pnpm --filter @orca/slicer-app test`: 126 files / 1146 tests passed,
+  including import-direction, history and multi-filament boundary guards.
+- `pnpm --filter @orca/slicer-app typecheck`: passed.
+- Cover and existing wizard component suites: 11 tests passed. They cover
+  offscreen non-reads, card/root observer wiring, visible reads, failed/missing
+  placeholders, same-session remount deduplication, fresh reopen reads, URL
+  release and disposal during an outstanding read.
+- Real Electron focused regression: one test passed in 9.1 seconds. The actual
+  native catalogue exposes a card below the scroll viewport with no image and
+  `unrequested` state; scrolling the nested list loads a decoded Blob image.
+  Build with `VITE_USE_MOCK=0 VITE_E2E=1 pnpm --filter @orca/desktop exec
+  electron-vite build --mode e2e`, then copy the existing staged
+  `apps/desktop/src/renderer/public/` contents into `apps/desktop/out/renderer/`.
+  Run `ORCA_E2E_REAL=1 pnpm --filter @orca/desktop exec playwright test
+  e2e/setup-wizard.e2e.ts --grep "loads printer covers only"` (set environment
+  variables with PowerShell `$env:` on Windows). Build/test logs are
+  `packages/slicer-wasm/.work/setup-lazy-covers-{build,e2e}.log`.
+- `git diff --check`: passed. No WASM rebuild, full host E2E matrix or second
+  host run was needed for this shared observer-only change; the pinned core
+  submodule is unchanged.
+
+Parent independent acceptance reviewed observer-root wiring, session ownership
+and disposal, then repeated root `pnpm test` (1795 passed, one opt-in measurement
+skipped), root `pnpm typecheck` and the focused real Electron scroll test (one
+passed in 9.8 seconds). Diff checks passed and the pinned submodule stayed clean.
 
 ### Step 8 — Integration acceptance and performance evidence
 

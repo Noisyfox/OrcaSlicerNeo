@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { loadUserPreferences } from '@orca/platform-contract';
 import type { ProfileActivation, SetupWizardCatalogue } from '@slicer/client';
-import { LoaderCircle, Printer } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -12,6 +12,8 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/componen
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createWizardCatalogueSession } from './setupWizardCatalogueSession';
+import { createWizardImageSession, type WizardImageSession } from './setupWizardImages';
+import { WizardPrinterCover } from './WizardPrinterCover';
 import { completeSetupWizard, retrySetupWizardApplication, type SetupCompletionResult } from './setupWizardCompletion';
 import { activationFromSelection, checkDefaultFilaments, checkedFilaments, eligibleFilaments, filamentKey,
   modelKey, printerMatches, visibleFilaments, wizardModels, type FilamentFilters } from './setupWizardSelection';
@@ -38,14 +40,15 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
   const [original, setOriginal] = useState<ProfileActivation>(emptyActivation);
   const [models, setModels] = useState<Set<string>>(new Set());
   const [groups, setGroups] = useState<Set<string>>(new Set());
-  const [images, setImages] = useState<Record<string, string>>({});
+  const [imageSession, setImageSession] = useState<WizardImageSession | null>(null);
+  const [imageRoot, setImageRoot] = useState<HTMLDivElement | null>(null);
   const [page, setPage] = useState<'printer' | 'filament'>('printer');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState(emptyFilters);
   const [phase, setPhase] = useState<'loading' | 'selection' | 'applying' | 'retry' | 'publication-retry' | 'closing'>('loading');
   const [error, setError] = useState<string | null>(null);
   const operation = useRef(false);
-  const urls = useRef<string[]>([]);
+  const imageSessionRef = useRef<WizardImageSession | null>(null);
   const closed = useRef(false);
   const sessionRef = useRef<ReturnType<typeof createWizardCatalogueSession> | null>(null);
   const canCancel = !mandatory && phase === 'selection';
@@ -53,6 +56,8 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
   useEffect(() => {
     let disposed = false;
     const session = createWizardCatalogueSession(platform.runtime);
+    const covers = createWizardImageSession(platform.runtime);
+    imageSessionRef.current = covers;
     sessionRef.current = session;
     void (async () => {
       try {
@@ -65,22 +70,13 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
         setCatalogue(result.catalogue); setOriginal(activation);
         setModels(new Set(activation.models.map(modelKey)));
         setGroups(checkedFilaments(result.catalogue.filaments, activation));
+        setImageSession(covers);
         setPhase('selection');
-        // Covers may belong to unlinked vendors; raw resources remain in /profiles.
-        for (const model of wizardModels(result.catalogue)) {
-          if (!model.image) continue;
-          try {
-            const bytes = await platform.runtime.readFilesystemFile(model.image);
-            if (disposed) return;
-            const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: model.image.endsWith('.svg') ? 'image/svg+xml' : 'image/png' }));
-            urls.current.push(url); setImages(current => ({ ...current, [modelKey(model)]: url }));
-          } catch { /* Missing vendor covers use the standard printer placeholder. */ }
-        }
       } catch (error) { if (!disposed) { setError(String(error)); setPhase('selection'); } }
     })();
     return () => {
       disposed = true;
-      urls.current.forEach(url => URL.revokeObjectURL(url)); urls.current = [];
+      covers.dispose();
       if (!closed.current) void session.close().catch(() => undefined);
     };
   }, [platform, loadAttempt]);
@@ -100,7 +96,7 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
     const result = await sessionRef.current!.close().catch(error => ({ ok: false as const, error: String(error) }));
     operation.current = false;
     if (!result.ok) { setError(result.error); setPhase('selection'); return; }
-    closed.current = true; onClose();
+    closed.current = true; imageSessionRef.current?.dispose(); onClose();
   };
   const finish = async () => {
     if (!catalogue || operation.current || (!selected.length || !eligible.some(group => groups.has(filamentKey(group))))) return;
@@ -114,7 +110,7 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
       await onApplied(result);
       const closeResult = await sessionRef.current!.close();
       if (!closeResult.ok) throw new Error(closeResult.error);
-      closed.current = true; onClose();
+      closed.current = true; imageSessionRef.current?.dispose(); onClose();
     } catch (error) { setError(String(error)); setPhase('publication-retry'); }
     finally { operation.current = false; }
   };
@@ -132,14 +128,14 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
         <fieldset disabled={disabled} className="flex min-h-0 flex-1 flex-col gap-3">
           {page === 'printer' ? <>
             <FieldGroup><Field><FieldLabel htmlFor="setup-printer-search">Search printers</FieldLabel><Input disabled={disabled} id="setup-printer-search" value={search} onChange={event => setSearch(event.target.value)} /></Field></FieldGroup>
-            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto" data-testid="setup-printers">
+            <div ref={setImageRoot} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto" data-testid="setup-printers">
               {vendors.map(vendor => <FieldSet key={vendor} className="gap-2"><FieldLegend>{vendor}</FieldLegend>
                 <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setModels(toggle(models, displayedModels.filter(model => model.vendor === vendor).map(modelKey), true))}>Select visible {vendor}</Button>
                   <Button variant="outline" size="sm" onClick={() => setModels(toggle(models, displayedModels.filter(model => model.vendor === vendor).map(modelKey), false))}>Deselect visible {vendor}</Button></div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{displayedModels.filter(model => model.vendor === vendor).map(model => {
                   const key = modelKey(model), id = `setup-model-${encodeURIComponent(key)}`;
                   return <Card key={key} size="sm"><CardHeader><CardTitle>{model.name}</CardTitle></CardHeader><CardContent>
-                    {images[key] ? <img src={images[key]} alt="" className="mx-auto h-24 max-w-full object-contain" /> : <Printer className="mx-auto size-24 text-muted-foreground" />}
+                    <WizardPrinterCover path={model.image} root={imageRoot} session={imageSession} />
                   </CardContent><CardFooter className="flex-col items-start gap-2"><Field orientation="horizontal"><Checkbox disabled={disabled} id={id} checked={models.has(key)} onCheckedChange={checked => setModels(toggle(models, [key], checked))} /><FieldLabel htmlFor={id}>{model.name}</FieldLabel></Field>
                     <span className="text-muted-foreground">Nozzles: {model.nozzle_diameter.join(', ')} mm</span></CardFooter></Card>;
                 })}</div></FieldSet>)}
