@@ -4,9 +4,10 @@
 
 **Status:** Major specification; resource, product, session, and UI policies
 accepted through interactive clarification. Step 1 contracts and persistence
-are implemented. Steps 2–4 JSON-only vendor loading, activation-aware
-startup, and the temporary full catalogue are implemented and self-verified;
-application and UI implementation remain pending.
+are implemented. Steps 2–5 JSON-only vendor loading, activation-aware
+startup, temporary full catalogue, and prepare/save/apply are implemented and
+self-verified. Detailed project-transition acceptance in Step 6 and the UI
+remain pending.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -707,6 +708,87 @@ retry succeeds without duplicate project mutations. Verify native defaults,
 name resolution, and equivalence between the successfully applied candidate
 set and the next normal startup.
 
+### Step 5 implementation and verification — 2026-10-09
+
+Preparation loads an independent bundle from `/profiles`, with
+`OrcaFilamentLibrary` first and optional vendors derived only from selected
+`models[].vendor`. Native AppConfig normalization deduplicates nozzle sets,
+preserves stale model/material records, and supplements defaults from this
+candidate bundle. Strict validation rejects unsafe vendor identifiers, malformed
+records, and candidates without a usable visible printer. Preparation never
+changes the live bundle, project, history, or `/system`. Reprepare invalidates
+its previous candidate even when parsing fails; close releases prepared state.
+
+The shared application completion helper prepares, saves through the existing
+serialized preference-repository update, then applies. It preserves unrelated
+preferences and prevents overlapping completion/retry operations from replacing
+the candidate during a save. Preparation or persistence failure prevents
+application. Application failure keeps the saved activation and prepared
+candidate; retry applies without saving again. There is no storage rollback.
+The typed client changes `/system` links only when apply is invoked after save;
+a link-operation failure leaves native state unchanged and retry reconstructs
+the saved view. Partial filesystem link changes are not rolled back.
+
+Native application stages the target bundle and preserves project models,
+plates, embedded profiles, project configuration, and available source edits.
+It publishes actual profile, filament, plate, scoped-configuration, and history
+snapshots through synchronized typed contracts. It does not call `orc_init()`.
+Snapshots and serialized response allocation precede the irreversible history
+publication. Failure restores the live bundle, selection pointers, sparse
+drafts, filament IDs, plate revisions, lifecycle snapshots, history context,
+and mutable/mesh capture caches; existing Undo/Redo and dirty state survive.
+
+A necessary part of Step 6 was included here to make publication coherent:
+successful application clears history to a new baseline, retaining prior dirty
+state or an effective configuration change. Unavailable source drafts remain
+sparse identities and overrides outside restorable history, and re-enabling a
+source restores its draft. Project initialization/close/import clear these
+session overlays, with import rollback restoring them. No full removed source
+is retained solely for old history. Detailed remembered-rack, multi-extruder
+colour, bed/spatial-transition, and broader plate-invalidation acceptance remain
+Step 6 work; this record does not claim those regressions are complete.
+
+The one-shot late-publication fault export follows the existing unguarded
+`orc_test_inject_project_commit_failure` harness precedent. It has no typed
+client, runtime, or application API and exists only for direct native harness
+verification.
+
+Successful checks:
+
+- `scripts\build-windows.bat quick --variant serial -j 4` and the threaded
+  variant passed; `scripts\build-windows.bat smoke --variant serial` and the
+  threaded variant passed (slice, bridge, DRC, and STEP).
+- `pnpm --filter @orca/slicer-wasm setup-wizard-activation-smoke` and its
+  `setup-wizard-activation-smoke:threaded` counterpart passed. They cover strict
+  prepare failure/live invariance, target-only supplementation, stale records,
+  save/application boundary simulation, late-publication rollback with full
+  snapshots and subsequent Undo/Redo, embedded override/model preservation,
+  post-apply edit/Undo, dormant-source disable/re-enable, idempotent retry,
+  dirty preservation, and next-startup candidate/system-view equivalence.
+- `pnpm --filter @orca/slicer-wasm setup-wizard-catalogue-smoke` and its
+  `:threaded` counterpart passed.
+- `pnpm --filter @orca/slicer-wasm test`: 393 passed;
+  `pnpm --filter @orca/slicer-runtime test`: 42 passed;
+  `pnpm --filter @orca/slicer-app test`: 1,121 passed across 121 files.
+  `pnpm --filter @orca/slicer-app exec vitest run src/setupWizard.test.ts`
+  reran the five completion tests after final client fixture adjustments and passed.
+- `pnpm --filter <package> typecheck` passed for `@orca/slicer-wasm`,
+  `@orca/slicer-runtime`, `@orca/slicer-app`, `@orca/web`, and `@orca/desktop`.
+- `node --check packages/slicer-wasm/harness/setup-wizard-activation-smoke.mjs`,
+  `git diff --check`, and all eight local specification links passed validation.
+  The pinned native submodule remained clean.
+
+Initial compile errors in the editing-session accessor and collection pointer
+initializer, a mock rack variable error, and a scalar draft fixture action were
+corrected before final successful checks. Host wizard UI/E2E verification is
+reserved for Step 7; full performance/release qualification is Step 8 work.
+
+Parent independent acceptance reviewed target-only preparation, save ordering,
+client link publication, staged bundle pointer ownership, sparse dormant drafts,
+rollback caches and dirty-aware baseline replacement. Both real activation
+smokes, 5 completion-helper tests, 34 Worker/client tests, and client/application
+typechecks were rerun successfully. Diff checks passed before commit.
+
 ### Step 6 — Project transition and history baseline
 
 Reuse Printer-transition, remembered-rack, compatibility-normalization,
@@ -788,8 +870,8 @@ Application code uses the shared runtime. New direct Emscripten/FS operations
 are encapsulated by the typed client on the Worker side. No wxWidgets GUI is
 ported. Catalogue enumeration and activation must not reset the live project
 through `orc_init()`, which clears project-related runtime state and history.
-The staged preparation and save-before-apply mechanism is planned in Step 5;
-its native publication mechanics remain implementation work.
+The staged preparation and save-before-apply mechanism is implemented in
+Step 5. Detailed project-transition regression acceptance remains Step 6 work.
 
 Existing serial-WASM exploration established that root JSON and directory
 symlinks permit native vendor loading, that unlinked resource vendors do not

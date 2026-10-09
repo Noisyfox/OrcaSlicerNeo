@@ -73,10 +73,10 @@ describe('worker protocol', () => {
     ]);
   });
 
-  it('does not silently succeed when setup native exports are absent', async () => {
+  it('does not silently apply without an open and prepared wizard', async () => {
     const { workerClient } = setup();
-    await expect(workerClient.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('unknown bridge fn');
-    await expect(workerClient.applyProfileActivation()).rejects.toThrow('unknown bridge fn');
+    expect(await workerClient.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).toEqual({ ok: false, error: 'setup catalogue is not open' });
+    await expect(workerClient.applyProfileActivation()).rejects.toThrow('activation is not prepared');
   });
 
   it('rejects catalogue close/reopen before posting while open awaits a Worker response, releasing on terminal error', async () => {

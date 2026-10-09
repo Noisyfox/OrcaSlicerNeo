@@ -109,6 +109,7 @@ json close_project_session()
     // not keep the old registry alive while the new archive is parsed.
     bridge_state.plate_runtime_registry.clear();
     bridge_state.preset_drafts.clear();
+    bridge_state.dormant_preset_drafts.clear();
     bridge_state.preset_draft_revision = 0;
     invalidate_preview_source();
 
@@ -1088,6 +1089,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 Model model;
                 PresetBundle presets;
                 PresetDraftRegistry preset_drafts;
+                PresetDraftRegistry dormant_preset_drafts;
                 std::uint64_t preset_draft_revision { 0 };
                 Neo::History::TimestampedHistory history;
                 json history_live_context;
@@ -1108,6 +1110,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             rollback.model = std::move(state().model);
             rollback.presets = std::move(state().presets);
             rollback.preset_drafts = std::move(state().preset_drafts);
+            rollback.dormant_preset_drafts = std::move(state().dormant_preset_drafts);
             rollback.preset_draft_revision = state().preset_draft_revision;
             rollback.history = std::move(state().history);
             // TimestampedHistory is move-only. Keep the publication target
@@ -1136,6 +1139,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 // bridge staging boundary.
                 state().presets = candidate;
                 state().preset_drafts = std::move(staged_preset_drafts);
+                state().dormant_preset_drafts.clear();
                 state().preset_draft_revision = 0;
                 initialize_plate_session_from_records(plate_data, raw_records);
                 Neo::Bridge::ScopedConfig::apply_plate_metadata_to_configs(state().plate_session_plates);
@@ -1171,6 +1175,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().mutable_object_capture_cache.clear();
                 state().presets = std::move(rollback.presets);
                 state().preset_drafts = std::move(rollback.preset_drafts);
+                state().dormant_preset_drafts = std::move(rollback.dormant_preset_drafts);
                 state().preset_draft_revision = rollback.preset_draft_revision;
                 state().history = std::move(rollback.history);
                 state().history_live_context = std::move(rollback.history_live_context);

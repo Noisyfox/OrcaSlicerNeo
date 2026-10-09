@@ -33,8 +33,8 @@ describe('temporary setup catalogue', () => {
     expect(await client.closeSetupWizardCatalogue()).toEqual({ ok: true });
     expect({ profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(), filaments: await client.getFilamentSessionSnapshot(),
       model: await client.getModelStructure(), system: module.FS.readdir('/system') }).toEqual(before);
-    await expect(client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('unknown bridge fn');
-    await expect(client.applyProfileActivation()).rejects.toThrow('unknown bridge fn');
+    expect((await client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).ok).toBe(false);
+    await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
   });
 
   it('rejects close and a second open while the Worker loading hook is pending, then releases the gate', async () => {
@@ -48,6 +48,8 @@ describe('temporary setup catalogue', () => {
     const opening = client.openSetupWizardCatalogue();
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
     await expect(client.openSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
+    await expect(client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('setup_catalogue_loading');
+    await expect(client.applyProfileActivation()).rejects.toThrow('setup_catalogue_loading');
     release();
     expect((await opening).ok).toBe(true);
     expect(await client.closeSetupWizardCatalogue()).toEqual({ ok: true });
@@ -61,6 +63,35 @@ describe('temporary setup catalogue', () => {
     reject(new Error('module unavailable'));
     await expect(opening).rejects.toThrow('module unavailable');
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('module unavailable');
+  });
+
+  it('keeps preparation outside filesystem publication, retains it for apply retry, and invalidates it on failed reprepare/close', async () => {
+    const module = createMockModule();
+    const client = createClient(async () => module);
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    await client.openSetupWizardCatalogue();
+    const before = { profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(),
+      model: await client.getModelStructure(), links: module.FS.readdir('/system') };
+    expect((await client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).ok).toBe(true);
+    expect({ profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(),
+      model: await client.getModelStructure(), links: module.FS.readdir('/system') }).toEqual(before);
+    const symlink = module.FS.symlink;
+    module.FS.symlink = () => { throw new Error('link failed'); };
+    await expect(client.applyProfileActivation()).rejects.toThrow('link failed');
+    expect(await client.getProfileSnapshot()).toEqual(before.profiles);
+    expect(await client.getHistoryStatus()).toEqual(before.history);
+    module.FS.symlink = symlink;
+    const applied = await client.applyProfileActivation();
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) throw new Error(applied.error);
+    expect(applied.profileSnapshot).toEqual(await client.getProfileSnapshot());
+    expect(applied.filamentSession).toEqual(await client.getFilamentSessionSnapshot());
+    expect(applied.historyStatus).toEqual(await client.getHistoryStatus());
+    expect((await client.prepareProfileActivation({ models: [], filaments: [] })).ok).toBe(false);
+    await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
+    expect((await client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).ok).toBe(true);
+    await client.closeSetupWizardCatalogue();
+    await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
   });
 
   it('reads excluded-vendor cover bytes through the existing client filesystem transport', async () => {

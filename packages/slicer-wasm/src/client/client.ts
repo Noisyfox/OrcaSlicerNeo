@@ -1592,6 +1592,7 @@ export function createClient(
 ): SlicerClient {
   let geometrySession = crypto.randomUUID();
   let catalogueOpening = false;
+  let preparedActivation: ProfileActivation | null = null;
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
   // React StrictMode double-mounts the boot effect in dev, sending init
@@ -2158,20 +2159,39 @@ export function createClient(
     async openSetupWizardCatalogue(): Promise<SetupWizardCatalogueResult> {
       if (catalogueOpening) throw new Error('setup_catalogue_loading');
       catalogueOpening = true;
+      preparedActivation = null;
       try {
         return callJson(await module(), 'orc_open_setup_wizard_catalogue', [], []) as SetupWizardCatalogueResult;
       } finally { catalogueOpening = false; }
     },
     async closeSetupWizardCatalogue(): Promise<SetupWizardCloseResult> {
       if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      preparedActivation = null;
       return callJson(await module(), 'orc_close_setup_wizard_catalogue', [], []) as SetupWizardCloseResult;
     },
-    // Application exports arrive in the next piece, with no success fallback.
     async prepareProfileActivation(activation: ProfileActivation): Promise<ProfileActivationPreparationResult> {
-      return callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify(activation)]) as ProfileActivationPreparationResult;
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      preparedActivation = null;
+      const result = callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify(activation)]) as ProfileActivationPreparationResult;
+      if (result.ok) preparedActivation = structuredClone(result.activation);
+      return result;
     },
     async applyProfileActivation(): Promise<ProfileActivationApplicationResult> {
-      return callJson(await module(), 'orc_apply_profile_activation', [], []) as ProfileActivationApplicationResult;
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      if (!preparedActivation) throw new Error('activation is not prepared');
+      const m = await module();
+      linkProfileVendors(m, preparedActivation);
+      const raw = callJson(m, 'orc_apply_profile_activation', [], []) as Record<string, unknown>;
+      if (raw.ok !== true) return raw as unknown as ProfileActivationApplicationResult;
+      const profiles = normalizeProfileSnapshot(raw.profile_snapshot as Record<string, unknown>);
+      const filaments = normalizeFilamentSessionResult(raw.filament_session);
+      const plates = normalizePlateSessionResult(raw.plate_session);
+      const config = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+      if (!profiles.ok || !filaments.ok || !plates.ok || !config || typeof raw.configuration_changed !== 'boolean')
+        throw new Error('invalid native activation publication');
+      return { ok: true, profileSnapshot: profiles, filamentSession: filaments, plateSession: plates,
+        nativeScopedConfig: config, historyStatus: normalizeHistoryStatus(raw.history_status),
+        configurationChanged: raw.configuration_changed };
     },
 
     async getProfileSnapshot(): Promise<ProfileSnapshotResult> {

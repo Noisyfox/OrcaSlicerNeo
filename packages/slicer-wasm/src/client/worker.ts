@@ -188,7 +188,7 @@ export function startWorker(
     let ownsCatalogueOpen = false;
     try {
       const callArgs = args ?? [];
-      if ((op === 'openSetupWizardCatalogue' || op === 'closeSetupWizardCatalogue') && catalogueOpening)
+      if (setupWizardOperations.has(op) && catalogueOpening)
         throw new Error('setup_catalogue_loading');
       if (op === 'openSetupWizardCatalogue') {
         catalogueOpening = true;
@@ -381,7 +381,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
 
   function call(op: string, args: unknown[]): Promise<unknown> {
     if (fatalError) return Promise.reject(fatalError);
-    if ((op === 'openSetupWizardCatalogue' || op === 'closeSetupWizardCatalogue') && catalogueOpening)
+    if (setupWizardOperations.has(op) && catalogueOpening)
       return Promise.reject(new Error('setup_catalogue_loading'));
     const id = nextId++;
     if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));

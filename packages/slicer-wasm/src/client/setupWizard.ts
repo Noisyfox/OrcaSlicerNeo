@@ -1,4 +1,4 @@
-import type { ProfileSnapshot, FilamentSessionSnapshot } from './types';
+import type { ProfileSnapshot, FilamentSessionSnapshot, PlateSessionSnapshot, NativeScopedConfigTransport } from './types';
 import type { HistoryStatus } from './history';
 
 /** Global availability, independent of the project's selected presets. */
@@ -27,6 +27,8 @@ export type ProfileActivationApplicationResult = {
   profileSnapshot: ProfileSnapshot;
   filamentSession: FilamentSessionSnapshot;
   historyStatus: HistoryStatus;
+  plateSession: PlateSessionSnapshot;
+  nativeScopedConfig: NativeScopedConfigTransport;
   configurationChanged: boolean;
 } | SetupWizardError;
 

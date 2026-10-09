@@ -1757,6 +1757,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
 
   let wizardCatalogue: SetupWizardCatalogue | null = null;
+  let preparedWizardActivation: ProfileActivation | null = null;
   function buildWizardCatalogue(): SetupWizardCatalogue {
     const models = presetFixtures.printer.filter(preset => preset.vendor_id).map(preset => ({
       vendor: preset.vendor_id, model: preset.model, name: preset.model, image: '',
@@ -1779,13 +1780,62 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_open_setup_wizard_catalogue() {
+      preparedWizardActivation = null;
       wizardCatalogue = null;
       wizardCatalogue = buildWizardCatalogue();
       return { ok: true, catalogue: wizardCatalogue };
     },
     orc_close_setup_wizard_catalogue() {
+      preparedWizardActivation = null;
       wizardCatalogue = null;
       return { ok: true };
+    },
+    orc_prepare_profile_activation(activationJson: string) {
+      preparedWizardActivation = null;
+      if (!wizardCatalogue) return { ok: false, error: 'setup catalogue is not open' };
+      const record = JSON.parse(activationJson) as ProfileActivation;
+      if (!record || !Array.isArray(record.models) || !Array.isArray(record.filaments) ||
+          record.models.some(model => typeof model.vendor !== 'string' || !model.vendor.trim() || /[/:\\\x00-\x1f\x7f]/.test(model.vendor) ||
+            typeof model.model !== 'string' || !model.model.trim() || !Array.isArray(model.nozzle_diameter) ||
+            model.nozzle_diameter.length === 0 || model.nozzle_diameter.some(nozzle => typeof nozzle !== 'string' || !nozzle.trim())) ||
+          record.filaments.some(name => typeof name !== 'string' || !name.trim()))
+        return { ok: false, error: 'invalid activation' };
+      const usable = presetFixtures.printer.some(printer => printer.is_visible && record.models.some(model => model.vendor === printer.vendor_id &&
+        model.model === printer.model && model.nozzle_diameter.includes(printer.variant)));
+      if (!usable) return { ok: false, error: 'activation has no usable enabled printer' };
+      const filaments = [...new Set(record.filaments)];
+      if (!filaments.some(name => presetFixtures.filament.some(preset => preset.name === name &&
+        (preset.vendor_id === 'OrcaFilamentLibrary' || record.models.some(model => model.vendor === preset.vendor_id)))))
+        filaments.push('Generic PLA @System');
+      preparedWizardActivation = { models: structuredClone(record.models), filaments };
+      return { ok: true, activation: preparedWizardActivation };
+    },
+    orc_apply_profile_activation() {
+      if (!preparedWizardActivation) return { ok: false, error: 'activation is not prepared' };
+      if (historyTransaction || editingSession) return { ok: false, error: 'finish the current editing operation' };
+      const rack = clone(filamentSessionSnapshot()) as any;
+      const before = JSON.stringify({ selected, rack: rack.slots.map((slot: any) => slot.preset.name) });
+      const wasDirty = historyStatus().dirty;
+      activation = structuredClone(preparedWizardActivation);
+      if (!candidates('printer').some(printer => printer.name === selected.printer)) {
+        selected.printer = candidates('printer')[0].name;
+        resolveAfterPrinterChange();
+      }
+      const available = candidates('filament');
+      const fallback = available[0]?.name ?? 'Generic PLA @System';
+      for (const slot of rack.slots) if (!available.some(preset => preset.name === slot.preset.name)) {
+        slot.preset.id = fallback; slot.preset.name = fallback; slot.preset.label = filamentLabel(fallback); slot.preset.vendor = filamentVendor(fallback);
+      }
+      filamentSessionState = rack;
+      const changed = JSON.stringify({ selected, rack: rack.slots.map((slot: any) => slot.preset.name) }) !== before;
+      resetHistory();
+      if (!wasDirty && !changed) savedHistoryCursor = 0;
+      if (changed) sliced = false;
+      return { ok: true, profile_snapshot: bridge.orc_get_preset_snapshot(),
+        filament_session: bridge.orc_get_filament_session_snapshot(),
+        history_status: historyStatus(), configuration_changed: changed,
+        plate_session: bridge.orc_get_plate_session_snapshot(),
+        native_scoped_config: (bridge.orc_get_native_scoped_config() as any).native_scoped_config };
     },
     orc_init(optionsJson: string) {
       const options = JSON.parse(optionsJson);
@@ -3255,6 +3305,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_open_setup_wizard_catalogue: { ret: 'number', args: [] },
     orc_close_setup_wizard_catalogue: { ret: 'number', args: [] },
+    orc_prepare_profile_activation: { ret: 'number', args: ['string'] },
+    orc_apply_profile_activation: { ret: 'number', args: [] },
     orc_init: { ret: 'number', args: ['string'] },
     orc_history_begin: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
     orc_history_commit: { ret: 'number', args: ['string', 'string'] },

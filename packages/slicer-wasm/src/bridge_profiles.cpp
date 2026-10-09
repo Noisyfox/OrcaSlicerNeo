@@ -257,7 +257,7 @@ json option_def_to_json(const ConfigOptionDef& def)
 
 // Activation is global availability; source identities remain in AppConfig even
 // when the installed vendor set does not contain them.
-void configure_activation(const json& activation)
+void configure_activation(AppConfig& config, const json& activation)
 {
     if (activation.is_null()) return;
     if (!activation.is_object() || activation.size() != 2 ||
@@ -283,28 +283,28 @@ void configure_activation(const json& activation)
         if (!name(filament)) throw std::runtime_error("invalid filament activation");
     for (const auto& model : activation.at("models"))
         for (const auto& nozzle : model.at("nozzle_diameter"))
-            state().profile_config.set_variant(model.at("vendor").get<std::string>(),
+            config.set_variant(model.at("vendor").get<std::string>(),
                 model.at("model").get<std::string>(), nozzle.get<std::string>(), true);
     for (const auto& filament : activation.at("filaments"))
-        state().profile_config.set(AppConfig::SECTION_FILAMENTS, filament.get<std::string>(), "true");
+        config.set(AppConfig::SECTION_FILAMENTS, filament.get<std::string>(), "true");
 }
 
-void reselect_after_app_config()
+void reselect_after_app_config(PresetBundle& bundle, AppConfig& config)
 {
-    const std::string initial = state().profile_config.get("presets", PRESET_PRINTER_NAME);
+    const std::string initial = config.get("presets", PRESET_PRINTER_NAME);
     bool selected = !initial.empty() &&
-                    state().presets.printers.select_preset_by_name(initial, true);
+                    bundle.printers.select_preset_by_name(initial, true);
     if (!selected) {
         size_t selected_index = 0;
-        for (auto it = state().presets.printers.lbegin();
-             it != state().presets.printers.end(); ++it, ++selected_index) {
+        for (auto it = bundle.printers.lbegin();
+             it != bundle.printers.end(); ++it, ++selected_index) {
             if (it->is_default || !it->is_visible) continue;
-            state().presets.printers.select_preset(selected_index);
+            bundle.printers.select_preset(selected_index);
             break;
         }
     }
-    state().presets.update_compatible(PresetSelectCompatibleType::Always);
-    state().presets.update_multi_material_filament_presets();
+    bundle.update_compatible(PresetSelectCompatibleType::Always);
+    bundle.update_multi_material_filament_presets();
 }
 
 void reset_app_config()
@@ -904,12 +904,12 @@ json select_printer_with_remembered_rack_json(const json& request)
 const char* init_profiles(const json& activation)
 {
     reset_app_config();
-    configure_activation(activation);
+    configure_activation(state().profile_config, activation);
     set_data_dir("/");
     set_resources_dir("/");
     state().presets.setup_directories();
     state().presets.load_presets(state().profile_config, ForwardCompatibilitySubstitutionRule::Enable);
-    reselect_after_app_config();
+    reselect_after_app_config(state().presets, state().profile_config);
     const bool usable_printer = std::any_of(state().presets.printers.begin(), state().presets.printers.end(),
         [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
     return dup_json(json{{"ok", true}, {"setupRequired", activation.is_null() || !usable_printer},
@@ -923,6 +923,10 @@ const char* init_profiles(const json& activation)
 namespace {
 std::unique_ptr<PresetBundle> wizard_bundle;
 json wizard_catalogue;
+std::unique_ptr<PresetBundle> prepared_bundle;
+std::unique_ptr<AppConfig> prepared_config;
+json prepared_activation;
+bool inject_activation_failure = false;
 
 std::string wizard_short_name(const std::string& name)
 {
@@ -933,8 +937,14 @@ std::string wizard_short_name(const std::string& name)
 }
 }
 
+void discard_prepared_activation()
+{
+    prepared_bundle.reset(); prepared_config.reset(); prepared_activation = json();
+}
+
 json close_wizard_catalogue()
 {
+    discard_prepared_activation();
     wizard_bundle.reset();
     wizard_catalogue = json();
     return {{"ok", true}};
@@ -1012,6 +1022,195 @@ json open_wizard_catalogue()
     return {{"ok", true}, {"catalogue", wizard_catalogue}};
 }
 
+
+json activation_from_config(const AppConfig& config)
+{
+    json activation = {{"models", json::array()}, {"filaments", json::array()}};
+    for (const auto& [vendor, models] : config.vendors())
+        for (const auto& [model, nozzles] : models)
+            activation["models"].push_back({{"vendor", vendor}, {"model", model}, {"nozzle_diameter", nozzles}});
+    if (config.has_section(AppConfig::SECTION_FILAMENTS))
+        for (const auto& [name, enabled] : config.get_section(AppConfig::SECTION_FILAMENTS))
+            if (enabled == "true") activation["filaments"].push_back(name);
+    return activation;
+}
+
+json prepare_activation(const json& activation)
+{
+    discard_prepared_activation();
+    if (!wizard_bundle) throw std::runtime_error("setup catalogue is not open");
+    if (activation.is_null()) throw std::runtime_error("activation record required");
+    auto config = std::make_unique<AppConfig>();
+    configure_activation(*config, activation);
+    std::set<std::string> vendors;
+    for (const auto& [vendor, models] : config->vendors()) vendors.insert(vendor);
+    std::vector<PresetBundle::VendorSource> sources;
+    const boost::filesystem::path root("/profiles");
+    const std::string library(PresetBundle::ORCA_FILAMENT_LIBRARY);
+    if (boost::filesystem::exists(root / (library + ".json"))) sources.push_back({library, root});
+    for (const auto& vendor : vendors)
+        if (vendor != library && boost::filesystem::exists(root / (vendor + ".json"))) sources.push_back({vendor, root});
+    auto bundle = std::make_unique<PresetBundle>();
+    const auto loaded = bundle->load_vendors(sources, ForwardCompatibilitySubstitutionRule::EnableSilent, false);
+    if (!loaded.second.empty()) BOOST_LOG_TRIVIAL(warning) << "Prepare activation: " << loaded.second;
+    bundle->normalize_compatible_presets();
+    bundle->load_selections(*config);
+    reselect_after_app_config(*bundle, *config);
+    const bool usable = std::any_of(bundle->printers.begin(), bundle->printers.end(),
+        [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
+    if (!usable) throw std::runtime_error("activation has no usable enabled printer");
+    prepared_activation = activation_from_config(*config);
+    prepared_bundle = std::move(bundle); prepared_config = std::move(config);
+    return {{"ok", true}, {"activation", prepared_activation}};
+}
+
+// Core PresetBundle copies rebind collection entries but omit the edited
+// Preset vendor pointer and AMS metadata. Bind mutable owners to this copy.
+void rebind_activation_bundle(PresetBundle& bundle)
+{
+    for (PresetCollection* collection : std::initializer_list<PresetCollection*>{&bundle.printers, &bundle.prints, &bundle.filaments})
+        collection->get_edited_preset().vendor = collection->get_selected_preset().vendor;
+}
+
+std::pair<PresetDraftRegistry, PresetDraftRegistry> activation_drafts(const PresetBundle& bundle)
+{
+    std::map<std::pair<std::string, std::string>, json> entries;
+    for (const auto* registry : {&state().dormant_preset_drafts, &state().preset_drafts}) {
+        const auto snapshot = registry->snapshot_json();
+        for (const auto& entry : snapshot.at("entries"))
+            entries[{entry.at("kind").get<std::string>(), entry.at("canonical_name").get<std::string>()}] = entry;
+    }
+    json active = {{"entries", json::array()}};
+    PresetDraftRegistry dormant;
+    for (const auto& [identity, entry] : entries) {
+        const auto type = identity.first == "printer" ? Preset::TYPE_PRINTER : Preset::TYPE_FILAMENT;
+        const auto& collection = type == Preset::TYPE_PRINTER ? bundle.printers : bundle.filaments;
+        if (collection.find_preset(identity.second, false) != nullptr) active["entries"].push_back(entry);
+        else {
+            dormant.ensure_entry(type, identity.second);
+            for (auto option = entry.at("overrides").begin(); option != entry.at("overrides").end(); ++option)
+                dormant.set(type, identity.second, option.key(), option.value().get<std::string>());
+        }
+    }
+    return {PresetDraftRegistry::from_snapshot_json(active, bundle), std::move(dormant)};
+}
+
+const char* apply_activation()
+{
+    if (!prepared_bundle || !prepared_config) throw std::runtime_error("activation is not prepared");
+    auto& bridge = state();
+    if (bridge.active_history_transaction || !bridge.nested_history_transactions.empty() ||
+        bridge.history.editing_session_status()) throw std::runtime_error("finish the current editing operation before applying activation");
+    const auto before_effective = PresetDrafts::effective_full_config();
+    const bool before_dirty = bridge.history.project_modified();
+    PresetBundle candidate(*prepared_bundle);
+    AppConfig config(*prepared_config);
+    const auto embedded = bridge.presets.get_current_project_embedded_presets();
+    candidate.load_project_embedded_presets(embedded, ForwardCompatibilitySubstitutionRule::EnableSilent);
+    // Import preserves source identity; restore exact embedded configs/dirty flags
+    // rather than treating global availability as the archive's profile authority.
+    for (Preset* source : embedded) {
+        auto& collection = source->type == Preset::TYPE_PRINTER ? candidate.printers :
+            source->type == Preset::TYPE_FILAMENT ? candidate.filaments : candidate.prints;
+        if (Preset* imported = collection.find_preset(source->name, false, true)) {
+            imported->config = source->config; imported->is_dirty = source->is_dirty;
+        }
+    }
+    auto retain = [](PresetCollection& target, const PresetCollection& previous) {
+        const auto& source = previous.get_selected_preset();
+        Preset* available = target.find_preset(source.name, false, true);
+        if (available && (available->is_visible || available->is_project_embedded)) {
+            target.select_preset_by_name(source.name, true);
+            target.get_edited_preset() = previous.get_edited_preset();
+            target.update_dirty();
+        }
+    };
+    retain(candidate.printers, bridge.presets.printers);
+    candidate.update_compatible(PresetSelectCompatibleType::Always);
+    retain(candidate.prints, bridge.presets.prints);
+    retain(candidate.filaments, bridge.presets.filaments);
+    const std::string fallback = candidate.filaments.get_selected_preset_name();
+    candidate.filament_presets = bridge.presets.filament_presets;
+    for (auto& name : candidate.filament_presets) {
+        const Preset* available = candidate.filaments.find_preset(name, false, true);
+        if (!available || (!available->is_visible && !available->is_project_embedded)) name = fallback;
+    }
+    candidate.project_config = bridge.presets.project_config;
+    candidate.ams_multi_color_filment = bridge.presets.ams_multi_color_filment;
+    candidate.update_multi_material_filament_presets();
+    Filament::State::resize_slots_preserving_colours(candidate, static_cast<unsigned int>(candidate.filament_presets.size()));
+    Filament::Commands::recalculate_filament_flush(candidate);
+    rebind_activation_bundle(candidate);
+    auto staged_drafts = activation_drafts(candidate);
+    const auto after_effective = PresetDrafts::effective_full_config(candidate, staged_drafts.first);
+    const bool changed = !before_effective.diff(after_effective).empty();
+    History::TimestampedHistory baseline(bridge.history.byte_budget());
+    if (!before_dirty && !changed) baseline.mark_current_as_saved();
+
+    const auto before_lifecycle = bridge.plate_runtime_registry.capture_lifecycle();
+    auto before_revisions = bridge.plate_input_revisions;
+    auto before_pending = bridge.pending_membership_instance_ids;
+    const auto before_context = bridge.history_live_context;
+    const auto before_slots = bridge.filament_slot_ids;
+    auto before_drafts = bridge.preset_drafts;
+    auto before_dormant = bridge.dormant_preset_drafts;
+    auto before_mesh_cache = bridge.mesh_capture_cache;
+    auto before_mutable_cache = bridge.mutable_object_capture_cache;
+    auto before_presets = std::move(bridge.presets);
+    auto before_config = std::move(bridge.profile_config);
+    before_presets.ams_multi_color_filment = bridge.presets.ams_multi_color_filment;
+    rebind_activation_bundle(before_presets);
+    try {
+        bridge.presets = candidate; bridge.profile_config = std::move(config);
+        bridge.presets.ams_multi_color_filment = candidate.ams_multi_color_filment;
+        rebind_activation_bundle(bridge.presets);
+        bridge.preset_drafts = std::move(staged_drafts.first);
+        bridge.dormant_preset_drafts = std::move(staged_drafts.second);
+        Filament::Commands::validate_filament_candidate(bridge.presets, bridge.model,
+            bridge.plate_session_plates, ScopedConfig::native_scoped_config_snapshot(), true, true);
+        const json plates = changed ? PlateSession::configuration_mutation_snapshot(
+            PlateSession::all_plate_ids(), {"profile-activation"}) : PlateSession::plate_session_snapshot_json();
+        json context = HistoryMetadata::default_history_context(bridge, plates,
+            Filament::State::history_state_json(bridge.presets));
+        (void) HistoryMetadata::capture_history_roots(bridge, context);
+        const auto revision = bridge.history_revision + 1;
+        json filaments = Filament::Session::filament_session_snapshot_json();
+        if (!filaments.value("ok", false)) throw std::runtime_error("activation produced invalid filament session");
+        filaments["revisions"]["session"] = revision;
+        const json response = {{"ok", true}, {"profile_snapshot", preset_snapshot_json()},
+            {"filament_session", std::move(filaments)}, {"plate_session", plates},
+            {"native_scoped_config", ScopedConfig::native_scoped_config_full_transport(revision)},
+            {"history_status", HistoryMetadata::history_status_json(bridge, baseline, revision)},
+            {"configuration_changed", changed}};
+        if (inject_activation_failure) {
+            inject_activation_failure = false;
+            throw std::runtime_error("injected activation publication failure");
+        }
+        const char* encoded = duplicate_json(response.dump());
+        // Everything requiring allocation/validation is complete before the
+        // irreversible history replacement. Failed publication keeps old history.
+        bridge.history = std::move(baseline);
+        bridge.history_live_context = std::move(context);
+        HistoryMetadata::advance_history_epoch(bridge);
+        bridge.mutable_object_capture_cache.clear();
+        if (changed) SlicingPipeline::invalidate_preview_source();
+        return encoded;
+    } catch (...) {
+        bridge.presets = before_presets; bridge.profile_config = std::move(before_config);
+        bridge.presets.ams_multi_color_filment = before_presets.ams_multi_color_filment;
+        rebind_activation_bundle(bridge.presets);
+        bridge.preset_drafts = std::move(before_drafts);
+        bridge.dormant_preset_drafts = std::move(before_dormant);
+        bridge.mesh_capture_cache = std::move(before_mesh_cache);
+        bridge.mutable_object_capture_cache = std::move(before_mutable_cache);
+        bridge.plate_runtime_registry.restore_lifecycle(before_lifecycle);
+        bridge.plate_input_revisions = std::move(before_revisions);
+        bridge.pending_membership_instance_ids = std::move(before_pending);
+        bridge.history_live_context = before_context; bridge.filament_slot_ids = before_slots;
+        throw;
+    }
+}
+
 } // namespace Slic3r::Neo::Bridge::Profiles
 
 extern "C" {
@@ -1034,6 +1233,31 @@ EMSCRIPTEN_KEEPALIVE const char* orc_close_setup_wizard_catalogue()
 {
     using namespace Slic3r::Neo::Bridge::Profiles;
     return duplicate_json(close_wizard_catalogue().dump());
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_prepare_profile_activation(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(prepare_activation(json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) { discard_prepared_activation(); return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump()); }
+    catch (...) { discard_prepared_activation(); return duplicate_json(json{{"ok", false}, {"error", "unknown preparation exception"}}.dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_apply_profile_activation()
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return apply_activation(); }
+    catch (const std::exception& error) { return duplicate_json(json{{"ok", false}, {"error", error.what()}}.dump()); }
+    catch (...) { return duplicate_json(json{{"ok", false}, {"error", "unknown application exception"}}.dump()); }
+}
+
+// Harness-only, one-shot fault at the last reversible publication boundary.
+// No application/client surface.
+EMSCRIPTEN_KEEPALIVE const char* orc_test_inject_profile_activation_failure()
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    inject_activation_failure = true;
+    return duplicate_json(json{{"ok", true}}.dump());
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_get_preset_snapshot()

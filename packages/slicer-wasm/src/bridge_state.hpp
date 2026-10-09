@@ -51,6 +51,8 @@ struct BridgeState {
     // Preset Editor Printer/Filament overlays are session-local sparse native
     // values. They never replace a collection's edited Preset instance.
     PresetDraftRegistry preset_drafts;
+    // Sparse unavailable-source overlays stay outside restorable history roots.
+    PresetDraftRegistry dormant_preset_drafts;
     // Unlike history_revision (which invalidates stale commands), this branchable
     // counter makes every accepted draft command an observable history root,
     // including a reset that leaves an already-empty overlay unchanged.

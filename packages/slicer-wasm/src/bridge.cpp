@@ -105,6 +105,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         wasm_log::init_with_level(log_level);
 
         state().preset_drafts.clear();
+        state().dormant_preset_drafts.clear();
         state().preset_draft_revision = 0;
         const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles(opts.at("profile_activation"));
         Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
