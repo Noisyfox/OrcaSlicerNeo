@@ -33,7 +33,7 @@ describe('temporary setup catalogue', () => {
     expect(await client.closeSetupWizardCatalogue()).toEqual({ ok: true });
     expect({ profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(), filaments: await client.getFilamentSessionSnapshot(),
       model: await client.getModelStructure(), system: module.FS.readdir('/system') }).toEqual(before);
-    expect((await client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).ok).toBe(false);
+    expect((await client.prepareProfileActivation({ activation: MOCK_PROFILE_ACTIVATION, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).ok).toBe(false);
     await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
   });
 
@@ -48,7 +48,7 @@ describe('temporary setup catalogue', () => {
     const opening = client.openSetupWizardCatalogue();
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
     await expect(client.openSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
-    await expect(client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('setup_catalogue_loading');
+    await expect(client.prepareProfileActivation({ activation: MOCK_PROFILE_ACTIVATION, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).rejects.toThrow('setup_catalogue_loading');
     await expect(client.applyProfileActivation()).rejects.toThrow('setup_catalogue_loading');
     release();
     expect((await opening).ok).toBe(true);
@@ -72,7 +72,7 @@ describe('temporary setup catalogue', () => {
     await client.openSetupWizardCatalogue();
     const before = { profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(),
       model: await client.getModelStructure(), links: module.FS.readdir('/system') };
-    expect((await client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).ok).toBe(true);
+    expect((await client.prepareProfileActivation({ activation: MOCK_PROFILE_ACTIVATION, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).ok).toBe(true);
     expect({ profiles: await client.getProfileSnapshot(), history: await client.getHistoryStatus(),
       model: await client.getModelStructure(), links: module.FS.readdir('/system') }).toEqual(before);
     const symlink = module.FS.symlink;
@@ -87,9 +87,9 @@ describe('temporary setup catalogue', () => {
     expect(applied.profileSnapshot).toEqual(await client.getProfileSnapshot());
     expect(applied.filamentSession).toEqual(await client.getFilamentSessionSnapshot());
     expect(applied.historyStatus).toEqual(await client.getHistoryStatus());
-    expect((await client.prepareProfileActivation({ models: [], filaments: [] })).ok).toBe(false);
+    expect((await client.prepareProfileActivation({ activation: { models: [], filaments: [] }, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).ok).toBe(false);
     await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
-    expect((await client.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).ok).toBe(true);
+    expect((await client.prepareProfileActivation({ activation: MOCK_PROFILE_ACTIVATION, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).ok).toBe(true);
     await client.closeSetupWizardCatalogue();
     await expect(client.applyProfileActivation()).rejects.toThrow('activation is not prepared');
   });

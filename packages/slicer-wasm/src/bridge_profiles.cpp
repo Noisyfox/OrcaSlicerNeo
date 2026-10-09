@@ -653,6 +653,145 @@ json preset_snapshot_json()
                 {"project_config", Filament::State::config_metadata_json(effective)}};
 }
 
+std::optional<std::vector<RememberedSlot>> parse_remembered_slots(const json& rack)
+{
+    if (!rack.is_null()) {
+        if (!rack.is_object() || rack.value("version", 0) != 1 ||
+            !rack.contains("slots") || !rack["slots"].is_array() ||
+            rack["slots"].empty() || rack["slots"].size() > 64)
+            throw std::runtime_error("remembered filament rack is invalid");
+        std::vector<RememberedSlot> slots;
+        slots.reserve(rack["slots"].size());
+        for (const auto& slot : rack["slots"]) {
+            if (!slot.is_object() || !slot.contains("preset") || !slot["preset"].is_string() ||
+                slot["preset"].get<std::string>().empty() || !slot.contains("colour") ||
+                !slot["colour"].is_string() || !valid_remembered_colour(slot["colour"].get<std::string>()))
+                throw std::runtime_error("remembered filament slot is invalid");
+            const std::string name = slot["preset"].get<std::string>();
+            if (Preset::remove_suffix_modified(name) != name)
+                throw std::runtime_error("remembered filament preset name must be canonical");
+            if (!slot.contains("native") || !slot["native"].is_object())
+                throw std::runtime_error("remembered filament native colours are required");
+            const auto& native = slot["native"];
+            for (const char* key : {"representative", "multi_colour", "type"})
+                if (!native.contains(key) || (!native[key].is_null() && !native[key].is_string()))
+                    throw std::runtime_error("remembered filament native colour is invalid");
+            const std::string representative = native["representative"].is_string()
+                ? native["representative"].get<std::string>() : slot["colour"].get<std::string>();
+            RememberedSlot remembered{name, representative, true};
+            if (native["multi_colour"].is_string())
+                remembered.multi_colour = native["multi_colour"].get<std::string>();
+            if (native["type"].is_string())
+                remembered.colour_type = native["type"].get<std::string>();
+            slots.push_back(std::move(remembered));
+        }
+        return slots;
+    }
+
+    return std::nullopt;
+}
+
+// Shared mutation primitive. Callers own history publication and full rollback.
+void apply_printer_transition_state(const ProfileTransitionState& before_profiles,
+    const std::optional<std::vector<RememberedSlot>>& remembered_slots,
+    const json& remembered_bed, const bool printer_changed)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    const auto printer_name = bundle.printers.get_selected_preset_name();
+    // Every profile lookup/compatibility calculation in this native
+    // transaction sees the selected Printer's shared project draft.
+    EffectivePrinterDraftGuard effective_printer(bundle, printer_name);
+    bundle.update_compatible(PresetSelectCompatibleType::Always,
+                             PresetSelectCompatibleType::Never);
+
+    if (bundle.printers.get_edited_preset().printer_technology() == ptFFF) {
+        const auto* current_colours = before_profiles.project_config.opt<ConfigOptionStrings>("filament_colour");
+        std::vector<RememberedSlot> slots;
+        if (remembered_slots.has_value()) {
+            slots = *remembered_slots;
+        } else {
+            slots.reserve(bundle.filament_presets.size());
+            for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
+                const bool same_previous_source = index < before_profiles.filament_presets.size() &&
+                    bundle.filament_presets[index] == before_profiles.filament_presets[index];
+                const std::string colour = same_previous_source && current_colours != nullptr && index < current_colours->values.size()
+                    ? current_colours->values[index]
+                    : effective_filament_default_colour(bundle, bundle.filament_presets[index]);
+                slots.push_back({bundle.filament_presets[index], colour, true});
+                if (same_previous_source)
+                    retain_matching_native_colour(slots.back(), before_profiles, index);
+            }
+        }
+        if (slots.empty()) throw std::runtime_error("Printer transition has no filament slots");
+
+        const auto* nozzles = bundle.printers.get_edited_preset().config.opt<ConfigOptionFloats>("nozzle_diameter");
+        const std::size_t nozzle_count = nozzles == nullptr ? 1 : std::max<std::size_t>(1, nozzles->values.size());
+        const std::size_t final_count = std::max(slots.size(), nozzle_count);
+        if (final_count > 64) throw std::runtime_error("Printer transition exceeds the filament slot limit");
+
+        // Resize while the old rack still contains valid catalog
+        // names; set_num_filaments invokes Orca's native rack sizing.
+        Filament::State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(final_count));
+        while (slots.size() < final_count) {
+            const std::size_t index = slots.size();
+            const std::string name = index < bundle.filament_presets.size()
+                ? bundle.filament_presets[index]
+                : bundle.filament_presets.back();
+            slots.push_back({name, {}, false});
+        }
+        for (std::size_t index = 0; index < slots.size(); ++index)
+            bundle.filament_presets[index] = slots[index].preset;
+
+        if (!slots.front().preset.empty() &&
+            bundle.filaments.find_preset(slots.front().preset, false, true) != nullptr)
+            bundle.filaments.select_preset_by_name(slots.front().preset, true);
+        bundle.update_compatible(PresetSelectCompatibleType::Never,
+                                 PresetSelectCompatibleType::Always);
+        bundle.update_multi_material_filament_presets();
+
+        auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
+        auto* multi_colours = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true);
+        auto* colour_types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true);
+        colours->values.resize(bundle.filament_presets.size(), "#26A69A");
+        multi_colours->values.resize(bundle.filament_presets.size(), "#26A69A");
+        colour_types->values.resize(bundle.filament_presets.size(), "1");
+        for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
+            const bool same_source = index < slots.size() &&
+                slots[index].preset == bundle.filament_presets[index];
+            const std::string colour = same_source && slots[index].retain_colour
+                ? slots[index].colour
+                : effective_filament_default_colour(bundle, bundle.filament_presets[index]);
+            colours->values[index] = colour;
+            multi_colours->values[index] = same_source && slots[index].retain_colour && slots[index].multi_colour
+                ? *slots[index].multi_colour : colour;
+            colour_types->values[index] = same_source && slots[index].retain_colour && slots[index].colour_type
+                ? *slots[index].colour_type : "1";
+        }
+    }
+
+    Filament::Commands::normalize_references_after_rack_restore(
+        bundle, bridge.model, bridge.plate_session_plates,
+        before_profiles.filament_presets.size());
+    bridge.mutable_object_capture_cache.clear();
+    normalize_bed_types(printer_changed);
+    // Memory is validated by the final effective Printer's native
+    // capabilities inside this same history transaction.
+    if (printer_changed && remembered_bed.is_string()) {
+        const auto capabilities = selected_printer_bed_type_capabilities();
+        const auto remembered = remembered_bed.get<std::string>();
+        if (capabilities.supports_selection) {
+            for (const auto& choice : capabilities.choices) {
+                if (choice.value == remembered) {
+                    bundle.project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(choice.type));
+                    break;
+                }
+            }
+        }
+    }
+    validate_profile_transition();
+}
+
 json select_printer_with_remembered_rack_json(const json& request)
 {
     if (!request.is_object() ||
@@ -676,39 +815,8 @@ json select_printer_with_remembered_rack_json(const json& request)
         return transition_error("invalid_request", "Printer name must be canonical");
 
     std::optional<std::vector<RememberedSlot>> remembered_slots;
-    if (request.contains("remembered_rack") && !request["remembered_rack"].is_null()) {
-        const auto& rack = request["remembered_rack"];
-        if (!rack.is_object() || rack.value("version", 0) != 1 ||
-            !rack.contains("slots") || !rack["slots"].is_array() ||
-            rack["slots"].empty() || rack["slots"].size() > 64)
-            return transition_error("invalid_request", "remembered filament rack is invalid");
-        std::vector<RememberedSlot> slots;
-        slots.reserve(rack["slots"].size());
-        for (const auto& slot : rack["slots"]) {
-            if (!slot.is_object() || !slot.contains("preset") || !slot["preset"].is_string() ||
-                slot["preset"].get<std::string>().empty() || !slot.contains("colour") ||
-                !slot["colour"].is_string() || !valid_remembered_colour(slot["colour"].get<std::string>()))
-                return transition_error("invalid_request", "remembered filament slot is invalid");
-            const std::string name = slot["preset"].get<std::string>();
-            if (Preset::remove_suffix_modified(name) != name)
-                return transition_error("invalid_request", "remembered filament preset name must be canonical");
-            if (!slot.contains("native") || !slot["native"].is_object())
-                return transition_error("invalid_request", "remembered filament native colours are required");
-            const auto& native = slot["native"];
-            for (const char* key : {"representative", "multi_colour", "type"})
-                if (!native.contains(key) || (!native[key].is_null() && !native[key].is_string()))
-                    return transition_error("invalid_request", "remembered filament native colour is invalid");
-            const std::string representative = native["representative"].is_string()
-                ? native["representative"].get<std::string>() : slot["colour"].get<std::string>();
-            RememberedSlot remembered{name, representative, true};
-            if (native["multi_colour"].is_string())
-                remembered.multi_colour = native["multi_colour"].get<std::string>();
-            if (native["type"].is_string())
-                remembered.colour_type = native["type"].get<std::string>();
-            slots.push_back(std::move(remembered));
-        }
-        remembered_slots = std::move(slots);
-    }
+    try { remembered_slots = parse_remembered_slots(request["remembered_rack"]); }
+    catch (const std::exception& error) { return transition_error("invalid_request", error.what()); }
 
     auto& bridge = state();
     auto& bundle = bridge.presets;
@@ -767,97 +875,8 @@ json select_printer_with_remembered_rack_json(const json& request)
         json plate_session;
         json after_context;
         {
-            // Every profile lookup/compatibility calculation in this native
-            // transaction sees the selected Printer's shared project draft.
-            EffectivePrinterDraftGuard effective_printer(bundle, printer_name);
-            bundle.update_compatible(PresetSelectCompatibleType::Always,
-                                     PresetSelectCompatibleType::Never);
-
-            if (bundle.printers.get_edited_preset().printer_technology() == ptFFF) {
-                const auto* current_colours = before_profiles.project_config.opt<ConfigOptionStrings>("filament_colour");
-                std::vector<RememberedSlot> slots;
-                if (remembered_slots.has_value()) {
-                    slots = *remembered_slots;
-                } else {
-                    slots.reserve(bundle.filament_presets.size());
-                    for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
-                        const bool same_previous_source = index < before_profiles.filament_presets.size() &&
-                            bundle.filament_presets[index] == before_profiles.filament_presets[index];
-                        const std::string colour = same_previous_source && current_colours != nullptr && index < current_colours->values.size()
-                            ? current_colours->values[index]
-                            : effective_filament_default_colour(bundle, bundle.filament_presets[index]);
-                        slots.push_back({bundle.filament_presets[index], colour, true});
-                        if (same_previous_source)
-                            retain_matching_native_colour(slots.back(), before_profiles, index);
-                    }
-                }
-                if (slots.empty()) throw std::runtime_error("Printer transition has no filament slots");
-
-                const auto* nozzles = bundle.printers.get_edited_preset().config.opt<ConfigOptionFloats>("nozzle_diameter");
-                const std::size_t nozzle_count = nozzles == nullptr ? 1 : std::max<std::size_t>(1, nozzles->values.size());
-                const std::size_t final_count = std::max(slots.size(), nozzle_count);
-                if (final_count > 64) throw std::runtime_error("Printer transition exceeds the filament slot limit");
-
-                // Resize while the old rack still contains valid catalog
-                // names; set_num_filaments invokes Orca's native rack sizing.
-                Filament::State::resize_slots_preserving_colours(bundle, static_cast<unsigned int>(final_count));
-                while (slots.size() < final_count) {
-                    const std::size_t index = slots.size();
-                    const std::string name = index < bundle.filament_presets.size()
-                        ? bundle.filament_presets[index]
-                        : bundle.filament_presets.back();
-                    slots.push_back({name, {}, false});
-                }
-                for (std::size_t index = 0; index < slots.size(); ++index)
-                    bundle.filament_presets[index] = slots[index].preset;
-
-                if (!slots.front().preset.empty() &&
-                    bundle.filaments.find_preset(slots.front().preset, false, true) != nullptr)
-                    bundle.filaments.select_preset_by_name(slots.front().preset, true);
-                bundle.update_compatible(PresetSelectCompatibleType::Never,
-                                         PresetSelectCompatibleType::Always);
-                bundle.update_multi_material_filament_presets();
-
-                auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
-                auto* multi_colours = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true);
-                auto* colour_types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true);
-                colours->values.resize(bundle.filament_presets.size(), "#26A69A");
-                multi_colours->values.resize(bundle.filament_presets.size(), "#26A69A");
-                colour_types->values.resize(bundle.filament_presets.size(), "1");
-                for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
-                    const bool same_source = index < slots.size() &&
-                        slots[index].preset == bundle.filament_presets[index];
-                    const std::string colour = same_source && slots[index].retain_colour
-                        ? slots[index].colour
-                        : effective_filament_default_colour(bundle, bundle.filament_presets[index]);
-                    colours->values[index] = colour;
-                    multi_colours->values[index] = same_source && slots[index].retain_colour && slots[index].multi_colour
-                        ? *slots[index].multi_colour : colour;
-                    colour_types->values[index] = same_source && slots[index].retain_colour && slots[index].colour_type
-                        ? *slots[index].colour_type : "1";
-                }
-            }
-
-            Filament::Commands::normalize_references_after_rack_restore(
-                bundle, bridge.model, bridge.plate_session_plates,
-                before_profiles.filament_presets.size());
-            bridge.mutable_object_capture_cache.clear();
-            normalize_bed_types(true);
-            // Memory is validated by the final effective Printer's native
-            // capabilities inside this same history transaction.
-            if (request["remembered_bed_type"].is_string()) {
-                const auto capabilities = selected_printer_bed_type_capabilities();
-                const auto remembered = request["remembered_bed_type"].get<std::string>();
-                if (capabilities.supports_selection) {
-                    for (const auto& choice : capabilities.choices) {
-                        if (choice.value == remembered) {
-                            bundle.project_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(choice.type));
-                            break;
-                        }
-                    }
-                }
-            }
-            validate_profile_transition();
+            apply_printer_transition_state(before_profiles, remembered_slots,
+                request["remembered_bed_type"], true);
             plate_session = PlateSession::shared_configuration_mutation_snapshot();
             profile_snapshot = preset_snapshot_json();
             filament_snapshot = Filament::Session::filament_session_snapshot_json();
@@ -926,6 +945,8 @@ json wizard_catalogue;
 std::unique_ptr<PresetBundle> prepared_bundle;
 std::unique_ptr<AppConfig> prepared_config;
 json prepared_activation;
+json prepared_memory;
+bool prepared_preferred_printer = false;
 bool inject_activation_failure = false;
 
 std::string wizard_short_name(const std::string& name)
@@ -939,7 +960,7 @@ std::string wizard_short_name(const std::string& name)
 
 void discard_prepared_activation()
 {
-    prepared_bundle.reset(); prepared_config.reset(); prepared_activation = json();
+    prepared_bundle.reset(); prepared_config.reset(); prepared_activation = json(); prepared_memory = json(); prepared_preferred_printer = false;
 }
 
 json close_wizard_catalogue()
@@ -1035,11 +1056,65 @@ json activation_from_config(const AppConfig& config)
     return activation;
 }
 
-json prepare_activation(const json& activation)
+// WebGuideDialog: custom vendor first, then sorted vendor/model identities;
+// retain manifest variant order for a new multi-variant model, sorted newly
+// added variants for a changed model. Stale identities do not supply a target.
+PresetBundle::PresetPreferences preferred_activation_printer(const PresetBundle& bundle, const AppConfig& config)
+{
+    PresetBundle::PresetPreferences result;
+    const auto& old = state().profile_config.vendors();
+    const auto pick = [&](const std::string& vendor) {
+        const auto enabled = config.vendors().find(vendor);
+        const auto profile = bundle.vendors.find(vendor);
+        if (enabled == config.vendors().end() || profile == bundle.vendors.end()) return false;
+        for (const auto& [model, variants] : enabled->second) {
+            if (variants.empty()) continue;
+            const auto source = std::find_if(profile->second.models.begin(), profile->second.models.end(),
+                [id = model](const auto& entry) { return entry.id == id; });
+            if (source == profile->second.models.end()) continue;
+            std::string variant = *variants.begin();
+            if (variants.size() > 1) {
+                for (const auto& entry : source->variants)
+                    if (variants.count(entry.name)) { variant = entry.name; break; }
+            }
+            const auto previous_vendor = old.find(vendor);
+            bool added = previous_vendor == old.end();
+            if (!added) {
+                const auto previous_model = previous_vendor->second.find(model);
+                added = previous_model == previous_vendor->second.end();
+                if (!added && previous_model->second != variants)
+                    for (const auto& entry : variants)
+                        if (!previous_model->second.count(entry)) { variant = entry; added = true; break; }
+            }
+            if (!added) continue;
+            const Preset* printer = bundle.printers.find_system_preset_by_model_and_variant(model, variant);
+            if (!printer || !printer->vendor || printer->vendor->id != vendor) continue;
+            result.printer_model_id = model; result.printer_variant = variant; return true;
+        }
+        return false;
+    };
+    if (!pick(PresetBundle::ORCA_DEFAULT_BUNDLE))
+        for (const auto& [vendor, models] : config.vendors())
+            if (vendor != PresetBundle::ORCA_DEFAULT_BUNDLE && pick(vendor)) break;
+    return result;
+}
+
+json prepare_activation(const json& request)
 {
     discard_prepared_activation();
     if (!wizard_bundle) throw std::runtime_error("setup catalogue is not open");
+    if (!request.is_object() || request.size() != 3 || !request.contains("activation") ||
+        !request.contains("remembered_filament_racks") || !request.at("remembered_filament_racks").is_object() ||
+        !request.contains("remembered_bed_types") || !request.at("remembered_bed_types").is_object())
+        throw std::runtime_error("explicit activation and transition memory are required");
+    const auto& activation = request.at("activation");
     if (activation.is_null()) throw std::runtime_error("activation record required");
+    for (const auto& rack : request.at("remembered_filament_racks")) {
+        if (!rack.is_object()) throw std::runtime_error("invalid remembered filament rack");
+        (void)parse_remembered_slots(rack);
+    }
+    for (const auto& bed : request.at("remembered_bed_types"))
+        if (!bed.is_string() || bed.get<std::string>().empty()) throw std::runtime_error("invalid remembered bed type");
     auto config = std::make_unique<AppConfig>();
     configure_activation(*config, activation);
     std::set<std::string> vendors;
@@ -1054,12 +1129,18 @@ json prepare_activation(const json& activation)
     const auto loaded = bundle->load_vendors(sources, ForwardCompatibilitySubstitutionRule::EnableSilent, false);
     if (!loaded.second.empty()) BOOST_LOG_TRIVIAL(warning) << "Prepare activation: " << loaded.second;
     bundle->normalize_compatible_presets();
-    bundle->load_selections(*config);
+    const auto preferred = preferred_activation_printer(*bundle, *config);
+    config->set("presets", PRESET_PRINTER_NAME, state().presets.printers.get_selected_preset_name());
+    bundle->load_selections(*config, preferred);
+    if (!preferred.printer_model_id.empty())
+        config->set("presets", PRESET_PRINTER_NAME, bundle->printers.get_selected_preset_name());
     reselect_after_app_config(*bundle, *config);
     const bool usable = std::any_of(bundle->printers.begin(), bundle->printers.end(),
         [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
     if (!usable) throw std::runtime_error("activation has no usable enabled printer");
     prepared_activation = activation_from_config(*config);
+    prepared_preferred_printer = !preferred.printer_model_id.empty();
+    prepared_memory = request;
     prepared_bundle = std::move(bundle); prepared_config = std::move(config);
     return {{"ok", true}, {"activation", prepared_activation}};
 }
@@ -1101,19 +1182,24 @@ const char* apply_activation()
     auto& bridge = state();
     if (bridge.active_history_transaction || !bridge.nested_history_transactions.empty() ||
         bridge.history.editing_session_status()) throw std::runtime_error("finish the current editing operation before applying activation");
+    const auto before_profiles = capture_profile_transition_state();
     const auto before_effective = PresetDrafts::effective_full_config();
     const bool before_dirty = bridge.history.project_modified();
     PresetBundle candidate(*prepared_bundle);
     AppConfig config(*prepared_config);
-    const auto embedded = bridge.presets.get_current_project_embedded_presets();
-    candidate.load_project_embedded_presets(embedded, ForwardCompatibilitySubstitutionRule::EnableSilent);
-    // Import preserves source identity; restore exact embedded configs/dirty flags
-    // rather than treating global availability as the archive's profile authority.
-    for (Preset* source : embedded) {
-        auto& collection = source->type == Preset::TYPE_PRINTER ? candidate.printers :
-            source->type == Preset::TYPE_FILAMENT ? candidate.filaments : candidate.prints;
-        if (Preset* imported = collection.find_preset(source->name, false, true)) {
-            imported->config = source->config; imported->is_dirty = source->is_dirty;
+    // Archive-save projection returns sparse differed presets, and the core
+    // archive importer requires parents. Transfer the actual full project-owned
+    // entries instead: embedded sources remain independent of global availability.
+    for (const PresetCollection* previous : std::initializer_list<const PresetCollection*>{
+            &bridge.presets.printers, &bridge.presets.prints, &bridge.presets.filaments}) {
+        for (const Preset& source : *previous) {
+            if (!source.is_project_embedded) continue;
+            auto& collection = source.type == Preset::TYPE_PRINTER ? candidate.printers :
+                source.type == Preset::TYPE_FILAMENT ? candidate.filaments : candidate.prints;
+            Preset& imported = collection.load_preset(source.file, source.name, source.config, false, source.version);
+            imported = source;
+            const auto vendor = source.vendor ? candidate.vendors.find(source.vendor->id) : candidate.vendors.end();
+            imported.vendor = vendor == candidate.vendors.end() ? nullptr : &vendor->second;
         }
     }
     auto retain = [](PresetCollection& target, const PresetCollection& previous) {
@@ -1125,7 +1211,7 @@ const char* apply_activation()
             target.update_dirty();
         }
     };
-    retain(candidate.printers, bridge.presets.printers);
+    if (!prepared_preferred_printer) retain(candidate.printers, bridge.presets.printers);
     candidate.update_compatible(PresetSelectCompatibleType::Always);
     retain(candidate.prints, bridge.presets.prints);
     retain(candidate.filaments, bridge.presets.filaments);
@@ -1142,12 +1228,44 @@ const char* apply_activation()
     Filament::Commands::recalculate_filament_flush(candidate);
     rebind_activation_bundle(candidate);
     auto staged_drafts = activation_drafts(candidate);
-    const auto after_effective = PresetDrafts::effective_full_config(candidate, staged_drafts.first);
-    const bool changed = !before_effective.diff(after_effective).empty();
-    History::TimestampedHistory baseline(bridge.history.byte_budget());
-    if (!before_dirty && !changed) baseline.mark_current_as_saved();
+    const auto target_printer = candidate.printers.get_selected_preset_name();
+    const bool printer_changed = target_printer != before_profiles.printer;
+    const auto& racks = prepared_memory.at("remembered_filament_racks");
+    auto remembered_slots = printer_changed && racks.contains(target_printer)
+        ? parse_remembered_slots(racks.at(target_printer)) : std::nullopt;
+    if (!remembered_slots) {
+        std::vector<RememberedSlot> slots;
+        const auto* colours = before_profiles.project_config.opt<ConfigOptionStrings>("filament_colour");
+        for (std::size_t index = 0; index < before_profiles.filament_presets.size(); ++index) {
+            const auto& name = before_profiles.filament_presets[index];
+            slots.push_back({name, colours && index < colours->values.size() ? colours->values[index] : "#26A69A", true});
+            retain_matching_native_colour(slots.back(), before_profiles, index);
+        }
+        remembered_slots = std::move(slots);
+    }
+    // Candidate loading may already have normalized its initial rack. Restore
+    // previous/remembered identities explicitly; never resurrect a hidden source.
+    for (auto& slot : *remembered_slots) {
+        const auto* source = candidate.filaments.find_preset(slot.preset, false, true);
+        if (!source || (!source->is_visible && !source->is_project_embedded)) {
+            slot.preset = fallback; slot.retain_colour = false;
+            slot.multi_colour.reset(); slot.colour_type.reset();
+        }
+    }
+    const auto& beds = prepared_memory.at("remembered_bed_types");
+    const json remembered_bed = printer_changed && beds.contains(target_printer) ? beds.at(target_printer) : json();
 
     const auto before_lifecycle = bridge.plate_runtime_registry.capture_lifecycle();
+    Model before_model = bridge.model;
+    const auto before_plates = bridge.plate_session_plates;
+    const auto before_membership = bridge.instance_plate_ids;
+    const auto before_out_of_bounds = bridge.plate_out_of_bounds_ids;
+    const auto before_parked = bridge.parked_instance_ids;
+    const auto before_current_plate = bridge.current_plate_id;
+    const auto before_stamp = bridge.next_plate_input_stamp;
+    const auto before_next_slot = bridge.next_filament_slot_id;
+    const auto before_next_colour = bridge.next_filament_colour_index;
+    auto before_tower_cache = bridge.prime_tower_projection_cache;
     auto before_revisions = bridge.plate_input_revisions;
     auto before_pending = bridge.pending_membership_instance_ids;
     const auto before_context = bridge.history_live_context;
@@ -1166,10 +1284,17 @@ const char* apply_activation()
         rebind_activation_bundle(bridge.presets);
         bridge.preset_drafts = std::move(staged_drafts.first);
         bridge.dormant_preset_drafts = std::move(staged_drafts.second);
-        Filament::Commands::validate_filament_candidate(bridge.presets, bridge.model,
-            bridge.plate_session_plates, ScopedConfig::native_scoped_config_snapshot(), true, true);
-        const json plates = changed ? PlateSession::configuration_mutation_snapshot(
-            PlateSession::all_plate_ids(), {"profile-activation"}) : PlateSession::plate_session_snapshot_json();
+        apply_printer_transition_state(before_profiles, remembered_slots, remembered_bed, printer_changed);
+        // Embedded Print remains the project's configuration authority across
+        // global activation; native compatibility must not displace its edits.
+        if (before_presets.prints.get_selected_preset().is_project_embedded)
+            retain(bridge.presets.prints, before_presets.prints);
+        const auto after_effective = PresetDrafts::effective_full_config();
+        const bool changed = !before_effective.diff(after_effective).empty();
+        History::TimestampedHistory baseline(bridge.history.byte_budget());
+        if (!before_dirty && !changed) baseline.mark_current_as_saved();
+        const json plates = changed ? PlateSession::shared_configuration_mutation_snapshot()
+            : PlateSession::plate_session_snapshot_json();
         json context = HistoryMetadata::default_history_context(bridge, plates,
             Filament::State::history_state_json(bridge.presets));
         (void) HistoryMetadata::capture_history_roots(bridge, context);
@@ -1203,6 +1328,16 @@ const char* apply_activation()
         bridge.dormant_preset_drafts = std::move(before_dormant);
         bridge.mesh_capture_cache = std::move(before_mesh_cache);
         bridge.mutable_object_capture_cache = std::move(before_mutable_cache);
+        bridge.model = std::move(before_model);
+        bridge.plate_session_plates = before_plates;
+        bridge.instance_plate_ids = before_membership;
+        bridge.plate_out_of_bounds_ids = before_out_of_bounds;
+        bridge.parked_instance_ids = before_parked;
+        bridge.current_plate_id = before_current_plate;
+        bridge.next_plate_input_stamp = before_stamp;
+        bridge.next_filament_slot_id = before_next_slot;
+        bridge.next_filament_colour_index = before_next_colour;
+        bridge.prime_tower_projection_cache = std::move(before_tower_cache);
         bridge.plate_runtime_registry.restore_lifecycle(before_lifecycle);
         bridge.plate_input_revisions = std::move(before_revisions);
         bridge.pending_membership_instance_ids = std::move(before_pending);

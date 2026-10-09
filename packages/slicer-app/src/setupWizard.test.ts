@@ -40,6 +40,30 @@ describe('save-before-apply setup completion', () => {
     expect(result.plateSession.ok).toBe(true);
   });
 
+  it('loads queued target-specific rack and bed preferences before preparing, without an extra save', async () => {
+    const f = await fixture();
+    const racks = { Target: { version: 1 as const, slots: [{ preset: 'Generic PLA @System', colour: '#123456',
+      native: { representative: '#123456', multiColour: '#123456 #ABCDEF', type: '0' } }] } };
+    const pending = updateUserPreferences(f.repository, current => ({ ...current,
+      rememberedFilamentRacks: racks, rememberedBedTypes: { Target: 'Engineering Plate' } }));
+    const result = await completeSetupWizard(f.runtime, f.repository, MOCK_PROFILE_ACTIVATION);
+    await pending;
+    expect(result.ok).toBe(true);
+    expect(f.runtime.prepareProfileActivation).toHaveBeenCalledWith({ activation: MOCK_PROFILE_ACTIVATION,
+      rememberedFilamentRacks: racks, rememberedBedTypes: { Target: 'Engineering Plate' } });
+    expect(f.repository.save).toHaveBeenCalledTimes(2);
+  });
+
+  it('preference read failure prevents preparation and apply', async () => {
+    const f = await fixture();
+    f.repository.load = vi.fn(async () => { throw new Error('preferences unreadable'); });
+    expect(await completeSetupWizard(f.runtime, f.repository, MOCK_PROFILE_ACTIVATION))
+      .toEqual({ ok: false, phase: 'prepare', error: 'preferences unreadable' });
+    expect(f.runtime.prepareProfileActivation).not.toHaveBeenCalled();
+    expect(f.repository.save).not.toHaveBeenCalled();
+    expect(f.runtime.applyProfileActivation).not.toHaveBeenCalled();
+  });
+
   it('rejects overlapping completion/retry while saving so another selection cannot replace the prepared candidate', async () => {
     const f = await fixture();
     let release!: () => void;

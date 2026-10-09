@@ -1,4 +1,4 @@
-import type { ProfileSnapshot, FilamentSessionSnapshot, PlateSessionSnapshot, NativeScopedConfigTransport } from './types';
+import type { ProfileSnapshot, FilamentSessionSnapshot, PlateSessionSnapshot, NativeScopedConfigTransport, RememberedFilamentRackPreference } from './types';
 import type { HistoryStatus } from './history';
 
 /** Global availability, independent of the project's selected presets. */
@@ -16,6 +16,13 @@ export interface SetupWizardCatalogue {
     presets: Array<{ name: string; resource_vendor: string;
       /** Empty mapping is unrestricted, matching Orca wizard behaviour. */
       compatible_models: ProfileActivation['models'] }> }>;
+}
+
+/** Explicit session-transition memory snapshot; empty maps mean no saved memory. */
+export interface ProfileActivationPreparationRequest {
+  activation: ProfileActivation;
+  rememberedFilamentRacks: Record<string, RememberedFilamentRackPreference>;
+  rememberedBedTypes: Record<string, string>;
 }
 
 export interface SetupWizardError { ok: false; error: string }
@@ -36,6 +43,6 @@ export type ProfileActivationApplicationResult = {
 export interface SetupWizardMethods {
   openSetupWizardCatalogue(): Promise<SetupWizardCatalogueResult>;
   closeSetupWizardCatalogue(): Promise<SetupWizardCloseResult>;
-  prepareProfileActivation(activation: ProfileActivation): Promise<ProfileActivationPreparationResult>;
+  prepareProfileActivation(request: ProfileActivationPreparationRequest): Promise<ProfileActivationPreparationResult>;
   applyProfileActivation(): Promise<ProfileActivationApplicationResult>;
 }

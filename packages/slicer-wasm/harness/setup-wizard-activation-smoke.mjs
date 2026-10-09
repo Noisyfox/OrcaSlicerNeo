@@ -2,13 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { loadModuleFactory } from './run-slice.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
+import { callAsyncTask, getSliceResult, exportGcode } from './async-task-mailbox.mjs';
 import { setNativeScopedConfig } from './native-scoped-command.mjs';
 if (!process.argv[2]) throw new Error('usage: node setup-wizard-activation-smoke.mjs <module.js>');
 const factory = await loadModuleFactory(resolve(process.argv[2]));
 const activation = { models: [{ vendor: 'CompatibilityFixture', model: 'Compatibility Alpha', nozzle_diameter: ['0.4'] },
   { vendor: 'ExtraFixture', model: 'extra:Compatibility Alpha', nozzle_diameter: ['0.4'] }],
   filaments: ['Alpha Explicit Filament', 'extra:Alpha Explicit Filament'] };
-async function start(record) {
+async function start(record, transitionFixture = false) {
   const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
   const FS = Module.FS;
   async function copy(directory, target) {
@@ -40,6 +42,19 @@ async function start(record) {
   await cloneVendor(resolve(import.meta.dirname, 'fixtures/compatibility-profiles/CompatibilityFixture'), '/profiles/ExtraFixture');
   const extraManifest = rename(sourceManifest); extraManifest.name = 'Extra Fixture';
   FS.writeFile('/profiles/ExtraFixture.json', JSON.stringify(extraManifest)); FS.mkdirTree('/system');
+  if (transitionFixture) {
+    const edit = (path, values) => FS.writeFile(path, JSON.stringify({ ...JSON.parse(FS.readFile(path, { encoding: 'utf8' })), ...values }));
+    edit('/profiles/CompatibilityFixture/machine/alpha.json', { support_multi_bed_types: '1' });
+    edit('/profiles/CompatibilityFixture/machine/beta.json', { support_multi_bed_types: '1',
+      printable_area: ['0x0', '150x0', '150x150', '0x150'], nozzle_diameter: ['0.4', '0.4'] });
+    const variant = { ...JSON.parse(FS.readFile('/profiles/CompatibilityFixture/machine/beta.json', { encoding: 'utf8' })),
+      name: 'Compatibility Beta 0.6 nozzle', printer_variant: '0.6', nozzle_diameter: ['0.6', '0.6'] };
+    FS.writeFile('/profiles/CompatibilityFixture/machine/beta-06.json', JSON.stringify(variant));
+    sourceManifest.machine_list.push({ name: variant.name, sub_path: 'machine/beta-06.json' });
+    FS.writeFile('/profiles/CompatibilityFixture.json', JSON.stringify(sourceManifest));
+    edit('/profiles/CompatibilityFixture/machine-model/beta.json', { nozzle_diameter: '0.4;0.6' });
+  }
+
   function links(record) {
     for (const name of FS.readdir('/system')) if (name !== '.' && name !== '..') FS.unlink(`/system/${name}`);
     for (const vendor of new Set(['OrcaFilamentLibrary', ...record.models.map(model => model.vendor)])) {
@@ -55,6 +70,7 @@ async function start(record) {
   links(record); must(call('orc_init', ['string'], [JSON.stringify({ log_level: 'error', profile_activation: record })]));
   return { FS, Module, call, links };
 }
+function preparation(record) { return { activation: record, remembered_filament_racks: {}, remembered_bed_types: {} }; }
 function must(result) { assert.equal(result.ok, true, JSON.stringify(result)); return result; }
 const session = await start(activation);
 const { call, FS } = session;
@@ -75,21 +91,21 @@ must(call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ action: 'set'
 const draftBefore = call('orc_get_preset_draft', ['string', 'string'], ['printer', dormantSource]);
 const before = snapshot();
 assert.equal(before.config.native_scoped_config.snapshot.project.layer_height, '0.28', 'native embedded Print override');
-assert.equal(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(activation)]).ok, false, 'requires open wizard');
+assert.equal(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(activation))]).ok, false, 'requires open wizard');
 assert.deepEqual(snapshot(), before);
 must(call('orc_open_setup_wizard_catalogue'));
 for (const record of [null, { models: [{ vendor: '../bad', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['F'] },
   { models: [{ vendor: 'Missing', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['Retired'] }]) {
-  assert.equal(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(record)]).ok, false);
+  assert.equal(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(record))]).ok, false);
   assert.deepEqual(snapshot(), before);
 }
 const target = { models: [{ vendor: 'CompatibilityFixture', model: 'Compatibility Beta', nozzle_diameter: ['0.4', '0.4'] },
   { vendor: 'MissingVendor', model: 'Retired printer', nozzle_diameter: ['9.9'] }], filaments: ['Retired Filament'] };
-let prepared = must(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(target)])).activation;
+let prepared = must(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(target))])).activation;
 assert.equal(call('orc_prepare_profile_activation', ['string'], ['{invalid']).ok, false);
 assert.equal(call('orc_apply_profile_activation').ok, false, 'malformed reprepare invalidates the previous native candidate');
 assert.deepEqual(snapshot(), before);
-prepared = must(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(target)])).activation;
+prepared = must(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(target))])).activation;
 assert.ok(prepared.models.some(model => model.vendor === 'MissingVendor'));
 assert.deepEqual(prepared.models.find(model => model.model === 'Compatibility Beta').nozzle_diameter, ['0.4']);
 assert.ok(prepared.filaments.includes('Retired Filament'));
@@ -131,7 +147,7 @@ must(call('orc_add_shape', ['string', 'string'], ['Cube', 'After activation']));
 call('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(context)]);
 must(call('orc_history_undo'));
 assert.deepEqual(call('orc_get_model_structure'), modelBefore);
-const restoredActivation = must(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(activation)])).activation;
+const restoredActivation = must(call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(activation))])).activation;
 session.links(restoredActivation); must(call('orc_apply_profile_activation'));
 assert.deepEqual(call('orc_get_preset_draft', ['string', 'string'], ['printer', dormantSource]).overrides,
   draftBefore.overrides, 'sparse dormant source overrides return when its vendor is enabled');
@@ -145,3 +161,203 @@ assert.equal(clean.history_status.dirty, false, 'clean unchanged project remains
 must(call('orc_close_setup_wizard_catalogue'));
 assert.equal(call('orc_apply_profile_activation').ok, false, 'close releases prepared candidate');
 console.log('setup activation smoke OK: validation, target defaults/stale records, prepare isolation, failed-apply retry, embedded/model preservation, safe history, next startup equivalence');
+
+// Existing-project transition: real sliced data, native bed/rack/draft rules,
+// source replacement colours, spatial reflow and a safe new editing baseline.
+const base = { models: [activation.models[0]], filaments: ['Alpha Explicit Filament', 'Generic PLA @System'] };
+const detailed = await start(base, true);
+const c = detailed.call;
+const req = (name, body) => c(name, ['string'], [JSON.stringify(body)]);
+const profiles = () => must(c('orc_get_preset_snapshot'));
+const rack = () => must(c('orc_get_filament_session_snapshot'));
+const plates = () => must(c('orc_get_plate_session_snapshot'));
+const meshSnapshot = () => {
+  const mesh = must(c('orc_get_model_mesh'));
+  for (const geometry of mesh.geometries ?? []) { if (geometry.vertex_ptr) detailed.Module._free(Number(geometry.vertex_ptr)); if (geometry.index_ptr) detailed.Module._free(Number(geometry.index_ptr)); }
+  return mesh.renderables;
+};
+const stateSnapshot = () => ({ profiles: profiles(), rack: rack(), plates: plates(), mesh: meshSnapshot(),
+  config: c('orc_get_native_scoped_config'), model: c('orc_get_model_structure'), history: c('orc_history_status') });
+const prep = (record, memory = {}) => req('orc_prepare_profile_activation', { activation: record,
+  remembered_filament_racks: memory.racks ?? {}, remembered_bed_types: memory.beds ?? {} });
+const apply = () => must(c('orc_apply_profile_activation'));
+const draft = (kind, canonical_name, key, value) => must(req('orc_mutate_preset_draft', {
+  action: 'set', kind, canonical_name, key, value, expected_revision: c('orc_history_status').revision }));
+const A = 'Compatibility Alpha 0.4 nozzle', B = 'Compatibility Beta 0.4 nozzle';
+must(c('orc_add_shape', ['string', 'string'], ['Cube', 'Plate A cube']));
+const plateA = plates().current_plate_id;
+must(c('orc_add_plate'));
+must(c('orc_add_shape', ['string', 'string'], ['Cube', 'Plate B cube']));
+const plateB = plates().current_plate_id;
+must(setNativeScopedConfig(c, 'plate', plateB, 'curr_bed_type', 'High Temp Plate'));
+draft('printer', A, 'printer_notes', 'old source only');
+draft('printer', B, 'printer_notes', 'target own draft');
+draft('filament', 'Beta Explicit Filament', 'default_filament_colour', '#334455');
+must(c('orc_open_setup_wizard_catalogue'));
+for (const missing of ['remembered_filament_racks', 'remembered_bed_types']) {
+  const envelope = { activation: base, remembered_filament_racks: {}, remembered_bed_types: {} }; delete envelope[missing];
+  const before = stateSnapshot(); assert.equal(req('orc_prepare_profile_activation', envelope).ok, false);
+  assert.deepEqual(stateSnapshot(), before);
+}
+for (const memory of [{ remembered_filament_racks: { [A]: null }, remembered_bed_types: {} },
+  { remembered_filament_racks: {}, remembered_bed_types: { [A]: 123 } }]) {
+  const before = stateSnapshot(); assert.equal(req('orc_prepare_profile_activation', { activation: base, ...memory }).ok, false);
+  assert.deepEqual(stateSnapshot(), before);
+}
+// Candidate-only change must retain actual result receipts, preview and export
+// even with existing dirty state; successful activation still clears history.
+const receipts = [];
+for (const plate of [plateA, plateB]) {
+  const sliced = must(await callAsyncTask(c, 'orc_slice_plate', ['string', 'string', 'number'],
+    ['{}', plate, plates().input_revisions[plate]]));
+  must(getSliceResult(c, sliced.receipt)); must(exportGcode(c, { receipt: sliced.receipt, filenameBase: '' }));
+  receipts.push(sliced.receipt);
+}
+const beforeCandidates = stateSnapshot();
+const candidateOnly = { ...base, filaments: [...base.filaments, 'Retired material'] };
+must(prep(candidateOnly)); detailed.links(candidateOnly);
+const candidatesApplied = apply();
+assert.equal(candidatesApplied.configuration_changed, false);
+assert.equal(candidatesApplied.history_status.dirty, beforeCandidates.history.dirty);
+assert.equal(candidatesApplied.history_status.canUndo, false);
+assert.deepEqual(plates().input_revisions, beforeCandidates.plates.input_revisions);
+for (const receipt of receipts) { must(getSliceResult(c, receipt)); must(exportGcode(c, { receipt, filenameBase: '' })); }
+// Save target printer memory, including a compatible gradient slot and an
+// incompatible slot whose replacement must use the target material draft.
+const memory = { beds: { [B]: 'Engineering Plate' }, racks: { [B]: { version: 1, slots: [
+  { preset: 'Generic PLA @System', colour: '#123456', native: { representative: '#123456', multi_colour: '#123456 #ABCDEF', type: '0' } },
+  { preset: 'Alpha Explicit Filament', colour: '#FFEEDD', native: { representative: '#FFEEDD', multi_colour: '#FFEEDD', type: '1' } },
+] } } };
+const both = { models: [...base.models, { vendor: 'CompatibilityFixture', model: 'Compatibility Beta', nozzle_diameter: ['0.4'] }],
+  filaments: [...base.filaments, 'Beta Explicit Filament'] };
+const beforeTransition = stateSnapshot();
+must(prep(both, memory)); detailed.links(both);
+must(c('orc_test_inject_profile_activation_failure'));
+assert.equal(c('orc_apply_profile_activation').ok, false);
+assert.deepEqual(stateSnapshot(), beforeTransition, 'failed spatial/rack publication rolls back full state');
+for (const receipt of receipts) { must(getSliceResult(c, receipt)); must(exportGcode(c, { receipt, filenameBase: '' })); }
+const result = apply();
+assert.equal(result.profile_snapshot.printer.name, B, 'new model preferred while old remains enabled');
+assert.equal(c('orc_get_preset_draft', ['string', 'string'], ['printer', B]).effective_values.printer_notes, 'target own draft');
+assert.equal(result.native_scoped_config.snapshot.project.curr_bed_type, 'Engineering Plate');
+assert.equal(result.filament_session.slots.length, 2, 'native fixed nozzle count and remembered rack');
+assert.equal(result.filament_session.slots[0].preset.name, 'Generic PLA @System');
+assert.equal(result.filament_session.slots[0].colour.native.multi_colour, '#123456 #ABCDEF');
+assert.deepEqual(result.filament_session.slots[0].colour.display, { mode: 'gradient', colors: ['#123456', '#ABCDEF'] });
+assert.equal(result.filament_session.slots[1].preset.name, 'Beta Explicit Filament');
+assert.equal(result.filament_session.slots[1].colour.native.representative, '#334455');
+assert.equal(result.filament_session.slots[1].colour.native.multi_colour, '#334455');
+assert.equal(result.filament_session.slots[1].colour.native.type, '1');
+assert.equal(result.filament_session.slots[0].logical_id, beforeTransition.rack.slots[0].logical_id);
+assert.equal(result.configuration_changed, true); assert.equal(result.history_status.canUndo, false);
+assert.equal(result.history_status.dirty, true);
+assert.deepEqual(plates().plates.map(p => p.plate_id), beforeTransition.plates.plates.map(p => p.plate_id));
+assert.deepEqual(plates().instances, beforeTransition.plates.instances, 'plate membership survives bed reflow');
+assert.equal(plates().instances.length, 2);
+assert.ok(result.plate_session.instance_transforms.length > 0);
+for (const transform of result.plate_session.instance_transforms) {
+  const instance = beforeTransition.plates.instances.find(row => row.instance_id === transform.instance_id);
+  const beforePlate = beforeTransition.plates.plates.find(p => p.plate_id === instance.plate_id);
+  const afterPlate = result.plate_session.plates.find(p => p.plate_id === instance.plate_id);
+  const prior = beforeTransition.mesh.find(row => row.object_idx === transform.object_index && row.instance_idx === transform.instance_index);
+  for (let axis = 0; axis < 3; ++axis) assert.ok(Math.abs(transform.world_transform.offset[axis] - afterPlate.origin[axis] - prior.offset[axis] + beforePlate.origin[axis]) < 1e-6, 'plate-local model position preserved');
+}
+assert.deepEqual(new Set(result.plate_session.affected_plate_ids), new Set([plateA, plateB]));
+for (const plate of [plateA, plateB]) assert.ok(result.plate_session.input_revisions[plate] > beforeTransition.plates.input_revisions[plate]);
+assert.notDeepEqual(plates().plates.map(p => p.origin), beforeTransition.plates.plates.map(p => p.origin));
+assert.equal(c('orc_get_native_scoped_config').native_scoped_config.snapshot.plates[plateB].curr_bed_type, 'High Temp Plate');
+for (const receipt of receipts) { assert.equal(getSliceResult(c, receipt).ok, false); assert.equal(exportGcode(c, { receipt, filenameBase: '' }).ok, false); }
+const afterTransition = stateSnapshot();
+const edit = must(c('orc_history_begin', ['string', 'string', 'string', 'string'], ['New baseline edit', 'project', JSON.stringify(context), '']));
+must(c('orc_add_shape', ['string', 'string'], ['Cube', 'New baseline cube']));
+c('orc_history_commit', ['string', 'string'], [edit.transactionId, JSON.stringify(context)]);
+must(c('orc_history_undo'));
+assert.deepEqual(c('orc_get_model_structure'), afterTransition.model);
+assert.deepEqual(meshSnapshot(), afterTransition.mesh);
+assert.deepEqual(rack().slots, afterTransition.rack.slots);
+// Added variant selects native preferred variant even with both variants active.
+const variant = { ...both, models: [base.models[0], { ...both.models[1], nozzle_diameter: ['0.4', '0.6'] }] };
+must(prep(variant)); detailed.links(variant);
+const variantResult = apply(); assert.equal(variantResult.profile_snapshot.printer.name, 'Compatibility Beta 0.6 nozzle');
+assert.equal(variantResult.filament_session.slots[0].colour.native.multi_colour, '#123456 #ABCDEF', 'unchanged source keeps native colours across variant transition');
+// Removing Beta falls back to Alpha and restores only Alpha's own draft. No
+// remembered target rack means previous slots survive compatible normalization.
+must(prep(base)); detailed.links(base);
+const removed = apply();
+assert.equal(removed.profile_snapshot.printer.name, A);
+assert.equal(c('orc_get_preset_draft', ['string', 'string'], ['printer', A]).effective_values.printer_notes, 'old source only');
+assert.equal(removed.filament_session.slots.length, 2);
+// Orca excludes the base Generic library preset on Alpha when its vendor
+// supplies Generic PLA @Compatibility Alpha; this is a source replacement.
+assert.equal(removed.filament_session.slots[0].preset.name, 'Alpha Explicit Filament');
+assert.equal(removed.filament_session.slots[0].colour.native.multi_colour, '#26A69A');
+assert.equal(removed.filament_session.slots[1].preset.name, 'Alpha Explicit Filament');
+assert.equal(removed.filament_session.slots[1].colour.native.representative, '#26A69A');
+// A real Printer transition may shrink to its remembered rack; normalize
+// object/plate slot references through the existing native mechanism.
+must(req('orc_assign_filament', { version: 1, revision: rack().revisions.session, slot: 2, targets: [{ kind: 'object', id: c('orc_get_model_structure').objects[0].id }] }));
+must(req('orc_set_filament_routing', { version: 1, revision: rack().revisions.session, selector: 'support-base', slot: 2, targets: [{ kind: 'project', id: 0 }] }));
+must(setNativeScopedConfig(c, 'plate', plateB, 'filament_map', '1,1'));
+const oneSlot = { version: 1, slots: [{ preset: 'Alpha Explicit Filament', colour: '#789ABC',
+  native: { representative: '#789ABC', multi_colour: '#789ABC', type: '1' } }] };
+// Move through Beta then return to A with explicit saved rack memory.
+must(prep(both)); detailed.links(both); apply();
+must(prep(base, { racks: { [A]: oneSlot }, beds: { [A]: 'retired-invalid-bed' } })); detailed.links(base);
+const shrunk = apply();
+assert.equal(shrunk.filament_session.slots.length, 1);
+assert.equal(shrunk.filament_session.slots[0].colour.native.representative, '#789ABC');
+const normalized = c('orc_get_native_scoped_config').native_scoped_config.snapshot;
+assert.equal(normalized.objects[c('orc_get_model_structure').objects[0].id].extruder, '1');
+assert.equal(normalized.project.support_filament, '0');
+assert.equal(normalized.plates[plateB].filament_map, '1');
+assert.notEqual(normalized.project.curr_bed_type, 'retired-invalid-bed');
+// Export/import creates independent embedded project sources, including the
+// printer's current own draft. Candidate-only activation preserves this source;
+// a newly added global model still follows Orca preferred-printer selection.
+const exported = must(c('orc_export_project'));
+let bytes = detailed.Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
+const archive = readZipEntries(bytes);
+const decode = new TextDecoder(), encode = new TextEncoder();
+for (const entry of archive) {
+  if (entry.name === 'Metadata/project_settings.config' || entry.name.startsWith('Metadata/machine_settings_')) {
+    const values = JSON.parse(decode.decode(entry.content));
+    values.printer_settings_id = 'Independent Activation Printer';
+    if (entry.name.startsWith('Metadata/machine_settings_')) { values.name = 'Independent Activation Printer'; values.inherits = A; }
+    else if (Array.isArray(values.inherits_group)) values.inherits_group[values.inherits_group.length - 1] = A;
+    entry.content = encode.encode(JSON.stringify(values));
+  }
+}
+bytes = writeStoredZip(archive);
+detailed.Module._free(Number(exported.bytes_ptr));
+const pointer = detailed.Module._malloc(bytes.length); detailed.Module.HEAPU8.set(bytes, pointer);
+try { must(c('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, bytes.length, 0, 'activation-embedded.3mf'])); }
+finally { detailed.Module._free(pointer); }
+const embeddedProfile = profiles();
+assert.notEqual(embeddedProfile.printer.name, A, 'modified exported Printer reloads as embedded source');
+const embeddedRack = rack().slots;
+const embeddedModels = c('orc_get_model_structure');
+must(prep(candidateOnly)); detailed.links(candidateOnly);
+const retainedEmbedded = apply();
+assert.equal(retainedEmbedded.profile_snapshot.printer.name, embeddedProfile.printer.name);
+assert.equal(retainedEmbedded.profile_snapshot.print.name, embeddedProfile.print.name);
+assert.deepEqual(retainedEmbedded.filament_session.slots, embeddedRack);
+assert.deepEqual(c('orc_get_model_structure'), embeddedModels);
+must(prep(both)); detailed.links(both);
+assert.equal(apply().profile_snapshot.printer.name, B, 'new global model takes native preference over embedded Printer');
+const foreign = { models: [activation.models[1]], filaments: ['extra:Alpha Explicit Filament'] };
+must(prep(foreign)); detailed.links(foreign); apply();
+const reload = detailed.Module._malloc(bytes.length); detailed.Module.HEAPU8.set(bytes, reload);
+try { must(c('orc_load_project', ['pointer', 'number', 'number', 'string'], [reload, bytes.length, 0, 'activation-without-parent.3mf'])); }
+finally { detailed.Module._free(reload); }
+const absentParent = stateSnapshot();
+assert.equal(detailed.FS.analyzePath('/system/CompatibilityFixture.json').exists, false);
+must(prep(foreign)); detailed.links(foreign);
+const independent = apply();
+assert.equal(independent.profile_snapshot.printer.name, absentParent.profiles.printer.name);
+assert.equal(independent.profile_snapshot.print.name, absentParent.profiles.print.name);
+assert.deepEqual(independent.filament_session.slots, absentParent.rack.slots, 'embedded Filament remains independent of disabled vendor parent');
+assert.deepEqual(c('orc_get_model_structure'), absentParent.model);
+assert.equal(independent.configuration_changed, false);
+
+must(c('orc_close_setup_wizard_catalogue'));
+console.log('setup-wizard-transition PASS real slice retention/invalidation, preferred models/variants, memory/drafts/colours/bed/spatial rollback and new history baseline');

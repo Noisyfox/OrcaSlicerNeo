@@ -1,5 +1,5 @@
 import { linkProfileVendors } from './profileFilesystem';
-import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationApplicationResult } from './setupWizard';
+import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
 // packages/slicer-wasm/src/client/client.ts
@@ -2169,10 +2169,15 @@ export function createClient(
       preparedActivation = null;
       return callJson(await module(), 'orc_close_setup_wizard_catalogue', [], []) as SetupWizardCloseResult;
     },
-    async prepareProfileActivation(activation: ProfileActivation): Promise<ProfileActivationPreparationResult> {
+    async prepareProfileActivation(request: ProfileActivationPreparationRequest): Promise<ProfileActivationPreparationResult> {
       if (catalogueOpening) throw new Error('setup_catalogue_loading');
       preparedActivation = null;
-      const result = callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify(activation)]) as ProfileActivationPreparationResult;
+      const result = callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify({ activation: request.activation, remembered_bed_types: request.rememberedBedTypes,
+        remembered_filament_racks: Object.fromEntries(Object.entries(request.rememberedFilamentRacks).map(([printer, rack]) => [printer, {
+          version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
+            representative: native.representative, multi_colour: native.multiColour, type: native.type,
+          } })),
+        }])) })]) as ProfileActivationPreparationResult;
       if (result.ok) preparedActivation = structuredClone(result.activation);
       return result;
     },

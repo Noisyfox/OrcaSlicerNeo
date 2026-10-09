@@ -1758,6 +1758,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   let wizardCatalogue: SetupWizardCatalogue | null = null;
   let preparedWizardActivation: ProfileActivation | null = null;
+  let preparedWizardMemory: any = null;
   function buildWizardCatalogue(): SetupWizardCatalogue {
     const models = presetFixtures.printer.filter(preset => preset.vendor_id).map(preset => ({
       vendor: preset.vendor_id, model: preset.model, name: preset.model, image: '',
@@ -1780,20 +1781,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_open_setup_wizard_catalogue() {
-      preparedWizardActivation = null;
+      preparedWizardActivation = null; preparedWizardMemory = null;
       wizardCatalogue = null;
       wizardCatalogue = buildWizardCatalogue();
       return { ok: true, catalogue: wizardCatalogue };
     },
     orc_close_setup_wizard_catalogue() {
-      preparedWizardActivation = null;
+      preparedWizardActivation = null; preparedWizardMemory = null;
       wizardCatalogue = null;
       return { ok: true };
     },
     orc_prepare_profile_activation(activationJson: string) {
-      preparedWizardActivation = null;
+      preparedWizardActivation = null; preparedWizardMemory = null;
       if (!wizardCatalogue) return { ok: false, error: 'setup catalogue is not open' };
-      const record = JSON.parse(activationJson) as ProfileActivation;
+      const request = JSON.parse(activationJson);
+      if (!request || !request.remembered_filament_racks || !request.remembered_bed_types ||
+          Array.isArray(request.remembered_filament_racks) || Array.isArray(request.remembered_bed_types) ||
+          Object.values(request.remembered_filament_racks).some((rack: any) => rack?.version !== 1 || !Array.isArray(rack.slots) ||
+            rack.slots.length === 0 || rack.slots.length > 64 || rack.slots.some((slot: any) => !rememberedSlotColour(slot))) ||
+          Object.values(request.remembered_bed_types).some((bed: any) => typeof bed !== 'string' || !bed))
+        return { ok: false, error: 'explicit activation and transition memory are required' };
+      const record = request.activation as ProfileActivation;
       if (!record || !Array.isArray(record.models) || !Array.isArray(record.filaments) ||
           record.models.some(model => typeof model.vendor !== 'string' || !model.vendor.trim() || /[/:\\\x00-\x1f\x7f]/.test(model.vendor) ||
             typeof model.model !== 'string' || !model.model.trim() || !Array.isArray(model.nozzle_diameter) ||
@@ -1807,6 +1815,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!filaments.some(name => presetFixtures.filament.some(preset => preset.name === name &&
         (preset.vendor_id === 'OrcaFilamentLibrary' || record.models.some(model => model.vendor === preset.vendor_id)))))
         filaments.push('Generic PLA @System');
+      preparedWizardMemory = structuredClone(request);
       preparedWizardActivation = { models: structuredClone(record.models), filaments };
       return { ok: true, activation: preparedWizardActivation };
     },
@@ -1814,23 +1823,41 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!preparedWizardActivation) return { ok: false, error: 'activation is not prepared' };
       if (historyTransaction || editingSession) return { ok: false, error: 'finish the current editing operation' };
       const rack = clone(filamentSessionSnapshot()) as any;
-      const before = JSON.stringify({ selected, rack: rack.slots.map((slot: any) => slot.preset.name) });
+      const before = JSON.stringify({ selected, rack: rack.slots, config: nativeScopedConfig.project });
       const wasDirty = historyStatus().dirty;
+      const previousActivation = activation;
+      const previousPrinter = selected.printer;
       activation = structuredClone(preparedWizardActivation);
-      if (!candidates('printer').some(printer => printer.name === selected.printer)) {
-        selected.printer = candidates('printer')[0].name;
+      const preferred = candidates('printer').find(printer => !previousActivation?.models.some(model =>
+        model.vendor === printer.vendor_id && model.model === printer.model && model.nozzle_diameter.includes(printer.variant)));
+      if (preferred || !candidates('printer').some(printer => printer.name === selected.printer)) {
+        selected.printer = preferred?.name ?? candidates('printer')[0].name;
         resolveAfterPrinterChange();
+      }
+      if (selected.printer !== previousPrinter) {
+        const memory = preparedWizardMemory.remembered_filament_racks[selected.printer];
+        if (memory) rack.slots = memory.slots.map((slot: any, index: number) => ({ slot: index + 1,
+          logical_id: rack.slots[index]?.logical_id ?? `filament-${nextFilamentIdentity++}`,
+          preset: { id: slot.preset, name: slot.preset, label: filamentLabel(slot.preset), vendor: filamentVendor(slot.preset) },
+          colour: rememberedSlotColour(slot) }));
+        const capabilities = (snapshot() as any).bed_type;
+        const bed = preparedWizardMemory.remembered_bed_types[selected.printer];
+        nativeScopedConfig.project.curr_bed_type = capabilities.supports_selection && capabilities.choices.some((choice: any) => choice.value === bed)
+          ? bed : capabilities.default_value;
       }
       const available = candidates('filament');
       const fallback = available[0]?.name ?? 'Generic PLA @System';
       for (const slot of rack.slots) if (!available.some(preset => preset.name === slot.preset.name)) {
         slot.preset.id = fallback; slot.preset.name = fallback; slot.preset.label = filamentLabel(fallback); slot.preset.vendor = filamentVendor(fallback);
+        const colour = String((presetDraftSnapshot('filament', fallback).effective_values as any)?.default_filament_colour ?? '#26A69A').replace(/^"|"$/g, '');
+        slot.colour = rememberedSlotColour({ preset: fallback, colour,
+          native: { representative: colour, multi_colour: colour, type: '1' } });
       }
       filamentSessionState = rack;
-      const changed = JSON.stringify({ selected, rack: rack.slots.map((slot: any) => slot.preset.name) }) !== before;
+      const changed = JSON.stringify({ selected, rack: rack.slots, config: nativeScopedConfig.project }) !== before;
       resetHistory();
       if (!wasDirty && !changed) savedHistoryCursor = 0;
-      if (changed) sliced = false;
+      if (changed) { sliced = false; plateMutation('shared-configuration', [...plateIds], [...plateIds]); }
       return { ok: true, profile_snapshot: bridge.orc_get_preset_snapshot(),
         filament_session: bridge.orc_get_filament_session_snapshot(),
         history_status: historyStatus(), configuration_changed: changed,

@@ -174,15 +174,22 @@ const both = must(mutateNativeScopedConfig(call, 'set', [{ scope: 'project' }],
 assert.deepEqual(new Set(both.plate_session.affected_plate_ids), new Set([a, b]));
 pass('combined shared setting edit retains all-plate invalidation');
 const activeOverrideSlice = call('orc_slice_plate', ['string', 'string', 'number'], ['{}', b, session().input_revisions[b]]);
+let completedOverride;
 if (activeOverrideSlice.accepted === true) {
   const mailbox = call('orc_drain_async_task_mailbox');
-  assert.ok(!(mailbox.messages ?? []).some(message => message.type === 'task-terminal' && message.task_id === activeOverrideSlice.task_id), 'override slice remains admitted before unrelated global edit');
+  const terminal = (mailbox.messages ?? []).find(message => message.type === 'task-terminal' && message.task_id === activeOverrideSlice.task_id);
+  // Serial WASM completes this synchronous Worker task before the next call.
+  // Keep its drained receipt; threaded WASM exercises the still-running case.
+  if (Module.HEAPU8.buffer instanceof SharedArrayBuffer)
+    assert.equal(terminal, undefined, 'threaded override slice remains admitted before unrelated global edit');
+  else completedOverride = terminal?.result;
 }
+
 const unrelated = set('project', undefined, 'Textured PEI Plate');
 assert.deepEqual(unrelated.plate_session.affected_plate_ids, [a]);
-const activeOverrideResult = must(await awaitAsyncTask(call, activeOverrideSlice));
+const activeOverrideResult = must(completedOverride ?? await awaitAsyncTask(call, activeOverrideSlice));
 must(getSliceResult(call, activeOverrideResult.receipt));
-if (activeOverrideSlice.accepted === true) pass('admitted threaded override slice completes across unrelated global bed edit without cancellation');
+if (activeOverrideSlice.accepted === true) pass('override slice result survives unrelated global bed edit without cancellation');
 receipts.set(b, activeOverrideResult.receipt);
 set('project', undefined, 'Textured PEI Plate');
 

@@ -4,10 +4,10 @@
 
 **Status:** Major specification; resource, product, session, and UI policies
 accepted through interactive clarification. Step 1 contracts and persistence
-are implemented. Steps 2–5 JSON-only vendor loading, activation-aware
-startup, temporary full catalogue, and prepare/save/apply are implemented and
-self-verified. Detailed project-transition acceptance in Step 6 and the UI
-remain pending.
+are implemented. Steps 2–6 JSON-only vendor loading, activation-aware
+startup, temporary full catalogue, prepare/save/apply, and existing-project
+transition are implemented and self-verified. Shared wizard UI/entry gates
+and final qualification remain Steps 7–8 work.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -817,6 +817,100 @@ colours, embedded profiles, dormant drafts, cleared Undo/Redo, correct dirty
 state, and conditional slice invalidation. Exercise subsequent project edits
 and Undo/Redo from the new baseline.
 
+### Step 6 implementation and verification — 2026-10-09
+
+Native preparation now accepts one strict request containing activation plus
+explicit printer-keyed remembered-rack and bed maps. The shared completion
+helper waits for queued rack mirrors and preference writes, reads those maps,
+and sends the snapshot before preparation; a read failure prevents prepare,
+save, and apply. The prepared wizard lifetime owns this memory snapshot. There
+is no optional old signature, second selection payload, or compatibility path.
+
+Preferred model/variant selection follows WebGuideDialog: Orca's custom vendor
+first, then sorted remaining vendors/models, manifest variant order for a new
+multi-variant model, and the first newly added variant for an existing model.
+It activates a newly enabled model/variant while the old Printer remains
+available. Without an addition, available current sources remain selected;
+removal falls back through native selection. Existing source edits stay with
+their identities, and a target restores its own draft.
+
+The ordinary Printer command and setup application share the non-history
+transition primitive: effective Printer draft, native compatibility, remembered
+rack/native colour restoration, final rack/nozzle sizing, object/painting/tool
+and plate-reference normalization, supported bed defaults/memory, and tower
+coordinate normalization. Setup does not start or commit an old Printer history
+transaction. It stages previous slot identities explicitly so early candidate
+normalization cannot lose surviving source colours; missing/hidden sources use
+native replacements with the replacement's effective draft/default colour.
+Unchanged sources keep their representative/multi-colour/type arrays and
+surviving logical slot IDs.
+
+An existing project's full embedded Printer, Process, and Filament collection
+entries are copied directly into the staged bundle, with vendor pointers rebound
+to that bundle or cleared when the parent vendor is absent. Archive-save sparse
+projections are not used for session transfer. This fixes the earlier Step 5
+transfer gap for parentless/independent embedded sources without loading or
+linking their disabled system parents. A newly added global model still takes
+the accepted preferred-Printer precedence.
+
+Effective configuration comparison occurs after rack/bed normalization. A
+changed configuration uses the existing shared plate mutation: it reflows plate
+origins, retains each model's plate-local coordinates and membership, refreshes
+bed validity, advances every applicable plate stamp, withdraws old result
+presentations/export receipts, and clears preview. Candidate-only changes retain
+actual sliced receipts, plate stamps, export availability, and dirty state while
+still clearing Undo/Redo. Failure restores models, plate settings/origins,
+membership/validity, lifecycle state, configuration/drafts, colour/slot and plate
+allocators, history context, and capture/tower caches before retaining the
+previous history. Subsequent edits and Undo start from the new valid baseline.
+
+Successful verification includes:
+
+- `scripts\build-windows.bat quick --variant serial -j 4` and threaded;
+  `scripts\build-windows.bat smoke --variant serial` and threaded.
+- `pnpm --filter @orca/slicer-wasm setup-wizard-activation-smoke` and
+  `setup-wizard-activation-smoke:threaded` on the final artifacts. The extended
+  fixture slices two real plates, verifies unchanged exact input stamps/result
+  receipts and export after candidate-only apply and late rollback, then proves
+  changed configurations invalidate both results/export. It covers preferred
+  added model/variant, target-owned Printer/material drafts, actual gradient
+  arrays and replacement colours, fixed nozzle sizing, plate-local coordinates,
+  bed-memory/local override retention, rack-shrink object/project/plate maps,
+  stale memory fallback, sparse dormant drafts, new edit/Undo, and full embedded
+  identities/configuration even with their system vendor parent unlinked.
+- `pnpm --filter @orca/slicer-wasm native-printer-transition-smoke` and threaded
+  validate the unchanged ordinary history-backed transition, including native
+  rack shortening, painting/tool events, plate maps, own drafts, colours, and
+  Undo/Redo. `pnpm --filter @orca/slicer-wasm exec node harness/bed-type-lifecycle-smoke.mjs out/<variant>/orca_slice.js` passed for both
+  variants; `pnpm --filter @orca/slicer-wasm exec node harness/bed-type-memory-smoke.mjs out/threaded/orca_slice.js` also passed.
+- `pnpm --filter @orca/slicer-wasm exec node harness/multi-filament-command-smoke.mjs --module out/serial/orca_slice.js` passed for the ordinary rack command family, including capacity, remapping, rollback, flush, source retention, fixed nozzle capabilities, and Undo/Redo. This serial smoke observed warmed slot-history operations around 22–24 ms under its 100 ms bound and no additional full-bundle copies. Its first invocation omitted the harness-required `--module` flag and exited with usage; the corrected command passed.
+- `pnpm --filter @orca/slicer-wasm test`: 393 passed;
+  `pnpm --filter @orca/slicer-runtime test`: 42 passed;
+  `pnpm --filter @orca/slicer-app test`: 1,123 passed across 121 files. Focused
+  setup/worker tests cover full memory marshalling; seven completion-helper
+  tests include queued preference reads and read-failure isolation.
+- Typechecks passed for `@orca/slicer-wasm`, `@orca/slicer-runtime`,
+  `@orca/slicer-app`, `@orca/web`, and `@orca/desktop`.
+
+The bed lifecycle harness previously assumed its admitted task remained running
+on serial WASM. Serial completed successfully before the next call, so the
+harness now retains that drained successful receipt; threaded still asserts the
+in-flight case. Both continue validating that an unrelated global bed edit does
+not cancel/invalidate the override result. Earlier fixture metadata/embedded-name
+assumptions were corrected using actual native projections and an explicitly
+independent archive source. No outstanding production failure remains.
+
+Host publication/UI/E2E remains Step 7 work; performance and complete release
+qualification remain Step 8. No new document or submodule change was required.
+
+Parent independent acceptance reviewed strict transition memory, native preferred
+selection, full embedded-source transfer, prior-slot staging, shared Printer
+normalization and expanded rollback. Both detailed real activation smokes,
+21 application/preference tests, 34 Worker/client tests and client/application
+typechecks were rerun successfully. The two-plate fixture proved receipt
+retention and invalidation, target drafts/colours, spatial rollback, reference
+normalization and parent-vendor-independent embedded configurations.
+
 ### Step 7 — Shared wizard UI and entry gates
 
 Build the Printer and Filament pages with Neo's existing visual system and
@@ -871,7 +965,8 @@ are encapsulated by the typed client on the Worker side. No wxWidgets GUI is
 ported. Catalogue enumeration and activation must not reset the live project
 through `orc_init()`, which clears project-related runtime state and history.
 The staged preparation and save-before-apply mechanism is implemented in
-Step 5. Detailed project-transition regression acceptance remains Step 6 work.
+Step 5, with existing-project transition verification completed in Step 6.
+Shared wizard publication and entry gating remain Step 7 work.
 
 Existing serial-WASM exploration established that root JSON and directory
 symlinks permit native vendor loading, that unlinked resource vendors do not

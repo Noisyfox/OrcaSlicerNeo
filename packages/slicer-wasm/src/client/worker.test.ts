@@ -52,7 +52,7 @@ describe('worker protocol', () => {
         return original(name, ret, types, args);
       calls.push({ name, args });
       const result = name === 'orc_prepare_profile_activation'
-        ? { ok: true, activation: JSON.parse(args[0] as string) }
+        ? { ok: true, activation: JSON.parse(args[0] as string).activation }
         : { ok: false, error: 'native test rejection' };
       const bytes = new TextEncoder().encode(JSON.stringify(result) + '\0');
       const ptr = module._malloc(bytes.length); module.HEAPU8.set(bytes, ptr); return ptr;
@@ -61,13 +61,16 @@ describe('worker protocol', () => {
     const client = createWorkerClient(channel);
     await startWorker(async () => module, (msg, transfer) => channel.post(msg, transfer), fn => channel.onMessage(fn));
     const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
+    const racks = { P: { version: 1 as const, slots: [{ preset: 'PLA', colour: '#123456',
+      native: { representative: '#123456', multiColour: '#123456 #ABCDEF', type: '0' } }] } };
+    const beds = { P: 'Engineering Plate' };
     expect(await client.openSetupWizardCatalogue()).toEqual({ ok: false, error: 'native test rejection' });
-    expect(await client.prepareProfileActivation(activation)).toEqual({ ok: true, activation });
+    expect(await client.prepareProfileActivation({ activation, rememberedFilamentRacks: racks, rememberedBedTypes: beds })).toEqual({ ok: true, activation });
     expect(await client.applyProfileActivation()).toEqual({ ok: false, error: 'native test rejection' });
     expect(await client.closeSetupWizardCatalogue()).toEqual({ ok: false, error: 'native test rejection' });
     expect(calls).toEqual([
       { name: 'orc_open_setup_wizard_catalogue', args: [] },
-      { name: 'orc_prepare_profile_activation', args: [JSON.stringify(activation)] },
+      { name: 'orc_prepare_profile_activation', args: [JSON.stringify({ activation, remembered_bed_types: beds, remembered_filament_racks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#123456', native: { representative: '#123456', multi_colour: '#123456 #ABCDEF', type: '0' } }] } } })] },
       { name: 'orc_apply_profile_activation', args: [] },
       { name: 'orc_close_setup_wizard_catalogue', args: [] },
     ]);
@@ -75,7 +78,7 @@ describe('worker protocol', () => {
 
   it('does not silently apply without an open and prepared wizard', async () => {
     const { workerClient } = setup();
-    expect(await workerClient.prepareProfileActivation(MOCK_PROFILE_ACTIVATION)).toEqual({ ok: false, error: 'setup catalogue is not open' });
+    expect(await workerClient.prepareProfileActivation({ activation: MOCK_PROFILE_ACTIVATION, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).toEqual({ ok: false, error: 'setup catalogue is not open' });
     await expect(workerClient.applyProfileActivation()).rejects.toThrow('activation is not prepared');
   });
 
@@ -149,7 +152,7 @@ describe('worker protocol', () => {
     await expect(client.arrange(arrangement)).rejects.toThrow('slice_busy');
     await expect(client.openSetupWizardCatalogue()).rejects.toThrow('slice_busy');
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('slice_busy');
-    await expect(client.prepareProfileActivation({ models: [], filaments: [] })).rejects.toThrow('slice_busy');
+    await expect(client.prepareProfileActivation({ activation: { models: [], filaments: [] }, rememberedFilamentRacks: {}, rememberedBedTypes: {} })).rejects.toThrow('slice_busy');
     await expect(client.applyProfileActivation()).rejects.toThrow('slice_busy');
     expect(transport.posted).toHaveLength(1);
     transport.emit({ type: 'response', id: 1, ok: true, result: {} });

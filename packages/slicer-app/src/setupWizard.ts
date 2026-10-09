@@ -1,5 +1,6 @@
 import type { ProfileActivation, ProfileActivationApplicationResult, SlicerClient } from '@slicer/client';
 import type { UserPreferencesRepository } from '@orca/platform-contract';
+import { loadSetupTransitionPreferences } from './preferences';
 import { updateUserPreferences } from '@orca/platform-contract';
 
 const completions = new WeakSet<object>();
@@ -18,7 +19,12 @@ export async function completeSetupWizard(
   completions.add(runtime);
   try {
     let prepared;
-    try { prepared = await runtime.prepareProfileActivation(selection); }
+    try {
+      const preferences = await loadSetupTransitionPreferences(repository);
+      prepared = await runtime.prepareProfileActivation({ activation: selection,
+        rememberedFilamentRacks: preferences.rememberedFilamentRacks ?? {},
+        rememberedBedTypes: preferences.rememberedBedTypes });
+    }
     catch (error) { return failure('prepare', error); }
     if (!prepared.ok) return { ...prepared, phase: 'prepare' };
     try {
