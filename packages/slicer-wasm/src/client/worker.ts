@@ -58,8 +58,12 @@ const historyMutationOperations = new Set([
 // must fail before postMessage so no edit, history frame, Slice, or Export can
 // wait behind the running task and execute against a later epoch.
 const paintingOperations = new Set(['openPaintingSession', 'targetPaintingSession', 'readPaintingSession', 'closePaintingSession', 'previewPainting', 'beginPaintingStroke', 'samplePaintingStroke', 'finishPaintingStroke', 'cancelPaintingStroke', 'commitPaintingStroke', 'getPaintingGeometry', 'settlePainting']);
+const setupWizardOperations = new Set([
+  'openSetupWizardCatalogue', 'closeSetupWizardCatalogue', 'prepareProfileActivation', 'applyProfileActivation',
+]);
 const restrictedWhileSerialSlicing = new Set([
   'arrange', 'reorderPlates',
+  ...setupWizardOperations,
   ...paintingOperations,
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
@@ -368,7 +372,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     const id = nextId++;
     if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
-      if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession') return Promise.reject(new Error('slice_busy'));
+      if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession' || setupWizardOperations.has(op)) return Promise.reject(new Error('slice_busy'));
       return Promise.resolve({ error: 'slice_busy' });
     }
     if (op === 'slice' || op === 'slicePlate') {

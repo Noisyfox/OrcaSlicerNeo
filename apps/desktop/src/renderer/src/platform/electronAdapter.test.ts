@@ -32,6 +32,16 @@ function setup(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Electron adapter', () => {
+  it('round trips explicit vendor activation through the existing host repository', async () => {
+    let json: unknown = null;
+    const { adapter } = setup({ preferences: {
+      load: async () => ({ found: true, json }), save: async (next: unknown) => { json = JSON.parse(JSON.stringify(next)); },
+    } });
+    const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
+    await adapter.preferences.save({ ...await adapter.preferences.load(), profileActivation: activation });
+    expect((await adapter.preferences.load()).profileActivation).toEqual(activation);
+  });
+
   it('round trips normalized alpha and gradient favorites through the host contract', async () => {
     let json: unknown = null;
     const { adapter } = setup({ preferences: {

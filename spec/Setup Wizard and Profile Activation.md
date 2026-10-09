@@ -3,7 +3,8 @@
 **Date:** 2026-10-09
 
 **Status:** Major specification; resource, product, session, and UI policies
-accepted through interactive clarification. Implementation has not started.
+accepted through interactive clarification. Step 1 contracts and persistence
+are implemented; native catalogue/application and the UI remain pending.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -341,8 +342,8 @@ replacing global activation settings. Neo retains that separation.
 ## 5. Implementation sequence
 
 Implement the following eight pieces in order, validating and committing each
-complete, independently testable piece. These steps describe planned work;
-none is recorded as implemented. Keep this specification as the authoritative
+complete, independently testable piece. Implementation status and verification
+are recorded beneath the corresponding step. Keep this specification as the authoritative
 feature record rather than introducing parallel phase documents.
 
 Internal APIs change together across the native bridge, typed client, runtime,
@@ -366,6 +367,54 @@ implementation details; application code must not access the module or FS.
 preservation of other preference fields, and serialized preference updates
 that do not overwrite concurrent changes. Typecheck affected contracts and
 callers together.
+
+### Step 1 implementation and verification — 2026-10-09
+
+`UserPreferences.profileActivation` stores the accepted `models`/`filaments`
+shape. Storage normalization clones valid records, retains stale source names,
+and rejects the entire malformed record without removing other readable
+preferences. Models must explicitly identify a resource vendor; vendor names
+cannot contain path separators or control characters. There is no activation
+schema version or migration layer. Empty selections remain structurally valid;
+native usable-printer detection will decide whether setup is required.
+
+The typed client defines `openSetupWizardCatalogue`,
+`closeSetupWizardCatalogue`, `prepareProfileActivation`, and
+`applyProfileActivation`. Existing generic Worker dispatch and runtime exports
+carry the methods without another transport or adapter. The preparation result
+contains the activation to persist; the application result publishes profile,
+filament-session, and history snapshots plus configuration-change information.
+Prepared state belongs to the current wizard, so apply takes no duplicated
+selection payload or compatibility token. Native implementations are pending
+Steps 4–6. Calling a missing export fails through the existing transport;
+there are no production success stubs, feature negotiation, or old-API fallbacks.
+All four operations are rejected before posting during serial slicing.
+
+Self-verification:
+
+- `pnpm --filter @orca/platform-contract test`: 39 tests passed.
+- `pnpm --filter @orca/platform-contract typecheck` and
+  `pnpm --filter @orca/platform-contract test:import-guard`: passed.
+- `pnpm --filter @orca/slicer-wasm test`: 380 tests passed, including setup
+  transport, missing-export rejection, and serial-slicing command gates.
+- `pnpm --filter @orca/slicer-runtime test`: 42 tests passed.
+- `pnpm --filter @orca/web exec vitest run src/browserAdapter.test.ts`:
+  18 tests passed, including activation storage round trip.
+- `pnpm --filter @orca/desktop exec vitest run src/renderer/src/platform/electronAdapter.test.ts`:
+  30 tests passed, including activation round trip through the host repository.
+- Typechecks for `@orca/slicer-wasm`, `@orca/slicer-runtime`, `@orca/slicer-app`,
+  `@orca/web`, and `@orca/desktop`: passed.
+- `git diff --check`: passed.
+
+No C++ bridge, build scaffold, artifact, application caller, or UI changed in
+this piece; native builds and host E2E are not run. Injected native responses in
+Worker tests prove dispatch and error transport only, not catalogue or live
+activation behaviour. Parent independent acceptance passed: the 39-test platform-contract suite,
+27-test Worker suite, both adapter suites (18 Web and 30 Electron tests),
+platform import guard, and platform-contract/client/runtime typechecks were
+rerun successfully. Source review confirmed stale identities remain durable,
+missing native exports reject, and setup commands are not posted during serial
+slicing. Native behaviour remains pending later steps.
 
 ### Step 2 — Disable native vendor caches
 

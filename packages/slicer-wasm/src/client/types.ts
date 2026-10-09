@@ -1,3 +1,4 @@
+import type { SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
 // packages/slicer-wasm/src/client/types.ts
 // ----------------------------------------------------------------
@@ -1474,7 +1475,7 @@ export interface FilesystemEntry {
   readonly sizeBytes: number | null;
 }
 
-export interface SlicerClient extends PaintingApi {
+export interface SlicerClient extends PaintingApi, SetupWizardMethods {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */

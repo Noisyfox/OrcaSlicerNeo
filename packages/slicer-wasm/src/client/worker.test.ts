@@ -41,6 +41,43 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('transports setup operations through the existing typed Worker client', async () => {
+    const module = createMockModule();
+    const original = module.ccall;
+    const calls: Array<{ name: string; args: unknown[] }> = [];
+    module.ccall = (name, ret, types, args) => {
+      if (!['orc_open_setup_wizard_catalogue', 'orc_close_setup_wizard_catalogue',
+          'orc_prepare_profile_activation', 'orc_apply_profile_activation'].includes(name))
+        return original(name, ret, types, args);
+      calls.push({ name, args });
+      const result = name === 'orc_prepare_profile_activation'
+        ? { ok: true, activation: JSON.parse(args[0] as string) }
+        : { ok: false, error: 'native test rejection' };
+      const bytes = new TextEncoder().encode(JSON.stringify(result) + '\0');
+      const ptr = module._malloc(bytes.length); module.HEAPU8.set(bytes, ptr); return ptr;
+    };
+    const channel = new Channel();
+    const client = createWorkerClient(channel);
+    await startWorker(async () => module, (msg, transfer) => channel.post(msg, transfer), fn => channel.onMessage(fn));
+    const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
+    expect(await client.openSetupWizardCatalogue()).toEqual({ ok: false, error: 'native test rejection' });
+    expect(await client.prepareProfileActivation(activation)).toEqual({ ok: true, activation });
+    expect(await client.applyProfileActivation()).toEqual({ ok: false, error: 'native test rejection' });
+    expect(await client.closeSetupWizardCatalogue()).toEqual({ ok: false, error: 'native test rejection' });
+    expect(calls).toEqual([
+      { name: 'orc_open_setup_wizard_catalogue', args: [] },
+      { name: 'orc_prepare_profile_activation', args: [JSON.stringify(activation)] },
+      { name: 'orc_apply_profile_activation', args: [] },
+      { name: 'orc_close_setup_wizard_catalogue', args: [] },
+    ]);
+  });
+
+  it('does not silently succeed when setup native exports are absent', async () => {
+    const { workerClient } = setup();
+    await expect(workerClient.openSetupWizardCatalogue()).rejects.toThrow('unknown bridge fn');
+    await expect(workerClient.applyProfileActivation()).rejects.toThrow('unknown bridge fn');
+  });
+
   const arrangement = { scope: 'all' as const, distance: 0, rotate: false, alignY: false, multipleMaterials: true, avoidCalibration: true,
     context: { selection: { mode: 'object' as const, objectIds: [], instanceIds: [], partIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} } };
 
@@ -76,6 +113,10 @@ describe('worker protocol', () => {
     transport.emit({ type: 'runtime-state', threaded: false, serialTerminalEpoch: '0' });
     const slice = client.slice({});
     await expect(client.arrange(arrangement)).rejects.toThrow('slice_busy');
+    await expect(client.openSetupWizardCatalogue()).rejects.toThrow('slice_busy');
+    await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('slice_busy');
+    await expect(client.prepareProfileActivation({ models: [], filaments: [] })).rejects.toThrow('slice_busy');
+    await expect(client.applyProfileActivation()).rejects.toThrow('slice_busy');
     expect(transport.posted).toHaveLength(1);
     transport.emit({ type: 'response', id: 1, ok: true, result: {} });
     await slice;

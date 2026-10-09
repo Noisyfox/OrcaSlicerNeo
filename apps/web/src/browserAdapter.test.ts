@@ -14,6 +14,13 @@ vi.mock('@orca/slicer-runtime', async () => {
 describe('browser adapter', () => {
   beforeEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
+  it('round trips explicit vendor activation through a recreated browser adapter', async () => {
+    const adapter = createBrowserAdapter({} as never);
+    const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
+    await adapter.preferences.save({ ...await adapter.preferences.load(), profileActivation: activation });
+    expect((await createBrowserAdapter({} as never).preferences.load()).profileActivation).toEqual(activation);
+  });
+
   it('restores alpha and gradient favorites through a recreated browser adapter', async () => {
     const first = createBrowserAdapter({} as never);
     const prefs = await first.preferences.load();

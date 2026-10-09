@@ -74,3 +74,5 @@ export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSes
   PaintingSessionResult, PaintingSessionCloseResult } from './painting';
 
 export type * from './painting';
+
+export * from './setupWizard';

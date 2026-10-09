@@ -1,3 +1,4 @@
+import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
 // packages/slicer-wasm/src/client/client.ts
@@ -2147,6 +2148,21 @@ export function createClient(
     async revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
       return normalizeNativeScopedConfig(callJson(m, 'orc_revalidate_native_scoped_config', [], []));
+    },
+
+    // Native implementations arrive in the catalogue/application pieces. Missing
+    // exports fail normally; there is no compatibility or success fallback.
+    async openSetupWizardCatalogue(): Promise<SetupWizardCatalogueResult> {
+      return callJson(await module(), 'orc_open_setup_wizard_catalogue', [], []) as SetupWizardCatalogueResult;
+    },
+    async closeSetupWizardCatalogue(): Promise<SetupWizardCloseResult> {
+      return callJson(await module(), 'orc_close_setup_wizard_catalogue', [], []) as SetupWizardCloseResult;
+    },
+    async prepareProfileActivation(activation: ProfileActivation): Promise<ProfileActivationPreparationResult> {
+      return callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify(activation)]) as ProfileActivationPreparationResult;
+    },
+    async applyProfileActivation(): Promise<ProfileActivationApplicationResult> {
+      return callJson(await module(), 'orc_apply_profile_activation', [], []) as ProfileActivationApplicationResult;
     },
 
     async getProfileSnapshot(): Promise<ProfileSnapshotResult> {
