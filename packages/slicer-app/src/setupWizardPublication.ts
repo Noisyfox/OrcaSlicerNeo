@@ -5,6 +5,7 @@ import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import { useProjectStore, projectPresetSelections } from './stores/useProjectStore';
 import { projectHistoryStatus } from './history/projectHistoryStatus';
+import { establishInitialProjectHistorySaved } from './components/workspace/actions/historyMutation';
 import { invalidateAffectedPlateResults } from './stores/plateResultLifecycle';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
@@ -14,8 +15,12 @@ import { useObjectListStore } from './components/workspace/objectList/useObjectL
 import { updateUserPreferences } from '@orca/platform-contract';
 
 type AppliedActivation = Extract<ProfileActivationApplicationResult, { ok: true }>;
-/** Project the single authoritative activation receipt; no second native mutation. */
-export async function publishSetupWizardApplication(platform: PlatformCapabilities, result: AppliedActivation): Promise<void> {
+/** Project the authoritative activation receipt and establish the initial setup checkpoint. */
+export async function publishSetupWizardApplication(platform: PlatformCapabilities, result: AppliedActivation,
+  mode: 'initial-setup' | 'existing-project'): Promise<void> {
+  // First-use defaults establish the initial empty project, rather than edit
+  // an admitted project. Keep the native checkpoint authoritative for all UI.
+  const historyStatus = mode === 'initial-setup' ? await establishInitialProjectHistorySaved(platform.runtime) : result.historyStatus;
   if (result.configurationChanged && glVolumeCollection.volumes.length) {
     const structure = useObjectListStore.getState().structure;
     const projection = await readSceneDeltaProjection(platform.runtime, { version: 1, objectIds: structure.map(object => object.id), objectOrder: structure.map(object => object.id), volumeIds: [], instanceIds: [], plateIds: [] }, structure, glVolumeCollection.volumes);
@@ -29,7 +34,7 @@ export async function publishSetupWizardApplication(platform: PlatformCapabiliti
   useSettingsStore.getState().hydrateProfileSnapshot(result.profileSnapshot);
   useSettingsStore.getState().applyNativeScopedConfigTransport(result.nativeScopedConfig);
   useFilamentSessionStore.getState().publish(result.filamentSession);
-  projectHistoryStatus(result.historyStatus);
+  projectHistoryStatus(historyStatus);
   const selections = projectPresetSelections(result.profileSnapshot);
   useProjectStore.getState().setProject(useProjectStore.getState().scope === 'project'
     ? { projectPresets: selections } : { systemPresets: selections });

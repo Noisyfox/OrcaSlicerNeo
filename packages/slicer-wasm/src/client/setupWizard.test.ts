@@ -10,6 +10,28 @@ class Channel implements WorkerTransport {
 }
 
 describe('temporary setup catalogue', () => {
+  it('retains an enabled current printer when adding models and marks only a disabled-current fallback dirty', async () => {
+    const client = createClient(async () => createMockModule());
+    await client.init(null); await client.openSetupWizardCatalogue();
+    const first = { models: [MOCK_PROFILE_ACTIVATION.models[0]], filaments: MOCK_PROFILE_ACTIVATION.filaments };
+    const prepare = (activation: typeof first) => client.prepareProfileActivation({ activation,
+      rememberedFilamentRacks: {}, rememberedBedTypes: {} });
+    expect((await prepare(first)).ok).toBe(true);
+    expect((await client.applyProfileActivation()).ok).toBe(true);
+    expect((await client.markHistorySaved()).dirty).toBe(false);
+    const before = await client.getProfileSnapshot();
+    expect((await prepare(MOCK_PROFILE_ACTIVATION)).ok).toBe(true);
+    const added = await client.applyProfileActivation();
+    if (!added.ok || !before.ok) throw new Error('mock activation failed');
+    expect(added.profileSnapshot.printer.name).toBe(before.printer.name);
+    expect(added.configurationChanged).toBe(false); expect(added.historyStatus.dirty).toBe(false);
+    expect((await prepare({ ...first, models: [MOCK_PROFILE_ACTIVATION.models[1]] })).ok).toBe(true);
+    const fallback = await client.applyProfileActivation();
+    if (!fallback.ok) throw new Error(fallback.error);
+    expect(fallback.profileSnapshot.printer.name).not.toBe(before.printer.name);
+    expect(fallback.configurationChanged).toBe(true); expect(fallback.historyStatus.dirty).toBe(true);
+  });
+
   it('projects the full mock fixture through Worker while preserving the live session and links', async () => {
     const module = createMockModule();
     const channel = new Channel();

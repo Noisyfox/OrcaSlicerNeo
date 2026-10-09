@@ -15,11 +15,12 @@ beforeEach(() => {
   useHistoryNavigationStore.getState().reset(); usePlateSessionStore.getState().reset();
   useSlicerStore.setState(useSlicerStore.getInitialState()); glVolumeCollection.clear();
 });
-async function fixture() {
-  const runtime = createClient(async () => createMockModule()); await runtime.init(MOCK_PROFILE_ACTIVATION); await runtime.openSetupWizardCatalogue();
+async function fixture(initialSetup = false) {
+  const runtime = createClient(async () => createMockModule()); await runtime.init(initialSetup ? null : MOCK_PROFILE_ACTIVATION); await runtime.openSetupWizardCatalogue();
   let saved: UserPreferences = { ...structuredClone(DEFAULT_USER_PREFERENCES), profileActivation: MOCK_PROFILE_ACTIVATION };
   const preferences: UserPreferencesRepository = { load: async () => saved, save: async next => { saved = next; } };
-  const result = await completeSetupWizard(runtime, preferences, MOCK_PROFILE_ACTIVATION);
+  const targetActivation = initialSetup ? { models: [MOCK_PROFILE_ACTIVATION.models[1]], filaments: MOCK_PROFILE_ACTIVATION.filaments } : MOCK_PROFILE_ACTIVATION;
+  const result = await completeSetupWizard(runtime, preferences, targetActivation);
   if (!result.ok) throw new Error(result.error);
   const platform = { runtime, preferences } as unknown as PlatformCapabilities;
   const plateId = result.plateSession.currentPlateId, inputStamp = result.plateSession.inputRevisions![plateId];
@@ -30,11 +31,32 @@ async function fixture() {
   return { platform, result, saved: () => saved, plateResults, preview: useSlicerStore.getState().preview };
 }
 describe('setup authoritative receipt publication', () => {
+  it('first-use defaults establish the native clean empty-project checkpoint before publication', async () => {
+    const f = await fixture(true);
+    expect(f.result.configurationChanged).toBe(true); expect(f.result.historyStatus.dirty).toBe(true);
+    await publishSetupWizardApplication(f.platform, f.result, 'initial-setup');
+    const status = await f.platform.runtime.getHistoryStatus();
+    expect(status).toMatchObject({ dirty: false, canUndo: false, canRedo: false });
+    expect(useHistoryNavigationStore.getState().status).toEqual(status);
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, hasContent: false });
+  });
+  it('candidate-only keeps a clean existing project and exact result receipts clean', async () => {
+    const f = await fixture(); f.result.configurationChanged = false;
+    f.result.historyStatus = { ...f.result.historyStatus, dirty: false };
+    useProjectStore.getState().setProject({ dirty: false, hasContent: true });
+    const markSaved = vi.spyOn(f.platform.runtime, 'markHistorySaved');
+    await publishSetupWizardApplication(f.platform, f.result, 'existing-project');
+    expect(markSaved).not.toHaveBeenCalled();
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, hasContent: true });
+    expect(useSlicerStore.getState().plateResults).toBe(f.plateResults);
+    expect(useSlicerStore.getState().preview).toBe(f.preview);
+    expect(useSlicerStore.getState().resultExported).toBe(true);
+  });
   it('candidate-only clears history while retaining exact dirty, slices, preview and export receipt identity', async () => {
     const f = await fixture(); f.result.configurationChanged = false;
     f.result.historyStatus = { ...f.result.historyStatus, dirty: true, canUndo: false, canRedo: false };
     useProjectStore.getState().setProject({ dirty: true, hasContent: true, projectName: 'Retained', scope: 'project' });
-    await publishSetupWizardApplication(f.platform, f.result);
+    await publishSetupWizardApplication(f.platform, f.result, 'existing-project');
     expect(useSlicerStore.getState().plateResults).toBe(f.plateResults);
     expect(useSlicerStore.getState().preview).toBe(f.preview);
     expect(useSlicerStore.getState().resultExported).toBe(true);
@@ -49,7 +71,7 @@ describe('setup authoritative receipt publication', () => {
   it('changed effective config invalidates applicable slice/preview/export and projects native dirty', async () => {
     const f = await fixture(); f.result.configurationChanged = true;
     f.result.historyStatus = { ...f.result.historyStatus, dirty: true };
-    await publishSetupWizardApplication(f.platform, f.result);
+    await publishSetupWizardApplication(f.platform, f.result, 'existing-project');
     expect(useSlicerStore.getState()).toMatchObject({ plateResults: {}, status: 'idle', resultExported: false, preview: { resultId: null } });
     expect(useProjectStore.getState().dirty).toBe(true);
     expect(useSettingsStore.getState().selectedPrinter).toBe(f.result.profileSnapshot.printer.name);

@@ -3,6 +3,14 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+type ActivationEvidence = {
+  history: { dirty: boolean; canUndo: boolean; canRedo: boolean };
+  profiles: { printer: { name: string }; print: { name: string };
+    prints: { name: string }[]; project_config: Record<string, string> };
+};
+const activationEvidence = (page: Page) => page.evaluate(async () =>
+  (window as unknown as { __orcaE2e: { setupActivationEvidence(): Promise<ActivationEvidence> } })
+    .__orcaE2e.setupActivationEvidence());
 async function menu(page: Page) {
   const root = page.getByTestId('titlebar-menu-trigger');
   const file = page.getByTestId('menu-file-trigger');
@@ -47,6 +55,78 @@ for (const method of ['window close', 'Exit'] as const) {
     } finally { if (processHandle.exitCode === null) await app.close(); }
   });
 }
+
+test('real native first-use defaults establish a clean empty project', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'Requires real production WASM');
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-setup-initial-clean-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, ui: {} }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_FIRST_USE: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow(), wizard = page.getByTestId('setup-wizard');
+    page.on('pageerror', error => console.log('first-use renderer error', error.stack));
+    await expect(wizard).toBeVisible({ timeout: 60_000 });
+    await wizard.getByLabel('Search printers', { exact: true }).fill('Creality Ender-3');
+    await wizard.getByRole('checkbox', { name: 'Creality Ender-3', exact: true }).click();
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+    await wizard.getByRole('button', { name: 'Finish', exact: true }).click();
+    await expect(wizard).toBeHidden();
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    const initial = await activationEvidence(page);
+    expect(initial.history).toMatchObject({ dirty: false, canUndo: false, canRedo: false });
+    expect(initial.profiles.prints.map(preset => preset.name)).toContain(initial.profiles.print.name);
+    await expect(page.getByTestId('titlebar-project-name')).not.toContainText('*');
+  } finally { await app.close(); }
+});
+test('real native clean candidate availability keeps effective project and dirty baseline', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'requires the real WASM Electron build');
+  const dir = mkdtempSync(join(tmpdir(), 'orca-setup-dirty-e2e-')), preferences = join(dir, 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, ui: {},
+    selectedProfiles: { printer: 'Creality Ender-3 0.4 nozzle', print: '0.20mm Standard @Creality Ender3' }, profileActivation: {
+    models: [{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.2', '0.4', '0.6', '0.8'] }], filaments: ['Generic PLA @System'] } }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences,
+    ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'),
+    ORCA_E2E_PROJECT_SAVE: join(dir, 'clean-configured.3mf') } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await page.keyboard.press('Control+Shift+s');
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('clean-configured');
+    const evidence = () => activationEvidence(page);
+    const before = await evidence(); expect(before.history.dirty).toBe(false);
+    await expect(page.getByTestId('titlebar-project-name')).not.toContainText('*');
+    await menu(page);
+    const wizard = page.getByTestId('setup-wizard');
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+    await wizard.getByLabel('Search filaments', { exact: true }).fill('ABS');
+    await wizard.getByRole('checkbox', { checked: false }).first().click();
+    await wizard.getByRole('button', { name: 'Finish', exact: true }).click();
+    await expect(wizard).toBeHidden();
+    const after = await evidence();
+    expect(after.profiles.printer.name).toBe(before.profiles.printer.name);
+    expect(after.profiles.project_config).toEqual(before.profiles.project_config);
+    expect(after.history.dirty).toBe(false);
+    await expect(page.getByTestId('titlebar-project-name')).not.toContainText('*');
+    await menu(page);
+    await wizard.getByLabel('Search printers', { exact: true }).fill('Creality Ender-3 S1');
+    await wizard.getByRole('checkbox', { checked: false }).first().click();
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+    await wizard.getByRole('button', { name: 'Finish', exact: true }).click();
+    await expect(wizard).toBeHidden();
+    const addedPrinter = await evidence();
+    expect(addedPrinter.profiles.printer.name).toBe(after.profiles.printer.name);
+    expect(addedPrinter.profiles.project_config).toEqual(after.profiles.project_config);
+    expect(addedPrinter.history.dirty).toBe(false);
+    await expect(page.getByTestId('titlebar-project-name')).not.toContainText('*');
+  } finally { await app.close(); }
+});
 
 test('mandatory setup, keyboard/file gates, defaults, visible bulk and menu cancellation', async ({}, testInfo) => {
   const dir = mkdtempSync(join(tmpdir(), 'orca-setup-e2e-')), preferences = join(dir, 'preferences.json');

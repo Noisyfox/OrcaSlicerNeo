@@ -174,6 +174,9 @@ dedicated single-page entry points in this release.
   host-only Exit button terminate the application; neither cancels the wizard
   into the workspace nor saves an incomplete selection. Restart without a saved
   activation still requires setup. Web has no application Exit button.
+- Successful mandatory setup establishes the initial empty project's native
+  saved checkpoint before publishing it. Enter the workspace clean; first-use
+  default selection is initialization, not a project edit.
 - Provide one menu entry, Setup Wizard, for later management of both Printer
   and Filament activation. Do not add separate Printer-only or Filament-only
   entries, or management buttons beside workspace selectors.
@@ -193,9 +196,9 @@ first-use file policies above.
 
 ### Accepted existing-project application policies
 
-- When setup adds a printer model, use Orca's native preferred-printer rules
-  to activate a newly added model/variant, even if the previous Printer remains
-  enabled. Do not add a keep-current-Printer policy for this flow.
+- Adding printer models or nozzle variants changes availability only. Retain
+  the current Printer while it remains available, including independent embedded
+  project Printers. Do not automatically select a newly enabled Printer.
 - If the active Printer is disabled, automatically select a remaining enabled
   Printer through native selection rules. Do not add a replacement-Printer
   selection dialog.
@@ -856,13 +859,11 @@ and sends the snapshot before preparation; a read failure prevents prepare,
 save, and apply. The prepared wizard lifetime owns this memory snapshot. There
 is no optional old signature, second selection payload, or compatibility path.
 
-Preferred model/variant selection follows WebGuideDialog: Orca's custom vendor
-first, then sorted remaining vendors/models, manifest variant order for a new
-multi-variant model, and the first newly added variant for an existing model.
-It activates a newly enabled model/variant while the old Printer remains
-available. Without an addition, available current sources remain selected;
-removal falls back through native selection. Existing source edits stay with
-their identities, and a target restores its own draft.
+Setup retains available current sources when models or nozzle variants are
+added. Removal falls back through native selection. This supersedes the original
+Step 6 WebGuideDialog preferred-new-Printer policy following the October 9 user
+decision. Existing source edits stay with their identities, and a fallback target
+restores its own draft.
 
 The ordinary Printer command and setup application share the non-history
 transition primitive: effective Printer draft, native compatibility, remembered
@@ -880,8 +881,7 @@ entries are copied directly into the staged bundle, with vendor pointers rebound
 to that bundle or cleared when the parent vendor is absent. Archive-save sparse
 projections are not used for session transfer. This fixes the earlier Step 5
 transfer gap for parentless/independent embedded sources without loading or
-linking their disabled system parents. A newly added global model still takes
-the accepted preferred-Printer precedence.
+linking their disabled system parents. Adding global models preserves the current embedded Printer.
 
 Effective configuration comparison occurs after rack/bed normalization. A
 changed configuration uses the existing shared plate mutation: it reflows plate
@@ -902,8 +902,8 @@ Successful verification includes:
   `setup-wizard-activation-smoke:threaded` on the final artifacts. The extended
   fixture slices two real plates, verifies unchanged exact input stamps/result
   receipts and export after candidate-only apply and late rollback, then proves
-  changed configurations invalidate both results/export. It covers preferred
-  added model/variant, target-owned Printer/material drafts, actual gradient
+  changed configurations invalidate both results/export. The revised regression covers retained
+  added model/variant and disabled-current fallback, target-owned Printer/material drafts, actual gradient
   arrays and replacement colours, fixed nozzle sizing, plate-local coordinates,
   bed-memory/local override retention, rack-shrink object/project/plate maps,
   stale memory fallback, sparse dormant drafts, new edit/Undo, and full embedded
@@ -933,7 +933,7 @@ independent archive source. No outstanding production failure remains.
 Host publication/UI/E2E remains Step 7 work; performance and complete release
 qualification remain Step 8. No new document or submodule change was required.
 
-Parent independent acceptance reviewed strict transition memory, native preferred
+Original Step 6 parent acceptance reviewed strict transition memory, native preferred
 selection, full embedded-source transfer, prior-slot staging, shared Printer
 normalization and expanded rollback. Both detailed real activation smokes,
 21 application/preference tests, 34 Worker/client tests and client/application
@@ -1086,6 +1086,70 @@ test error. The parent independently repeated the three exit/dirty-close tests
 (three passed in 5.4 seconds), root tests (1,788 passed, one opt-in measurement
 skipped) and root typechecks. No WASM changes/build, native slicing or full
 host-release E2E rerun is claimed for this host-lifecycle correction.
+
+### PR review correction — retained Printer and clean first-use baseline (2026-10-09)
+
+The reported added-Printer dirty state was an effective change, not a renderer
+flag leak: enabling Creality Ender-3 S1 changed the selected Ender-3 0.4 Printer
+to S1 0.4 and changed twelve effective configuration keys. The user explicitly
+removed this automatic selection feature. Preparation now requests the current
+Printer without a preferred-new-model hint; application retains an available
+real source, including an embedded source. Disabled sources still use native
+fallback. Intrinsic default placeholders cannot satisfy current-source retention
+or startup/preparation reselection; first use chooses a real enabled Printer.
+Only initial/disabled-current fallback passes that target to Orca
+`load_selections` to resolve concrete Process/Filament defaults. A valid current
+Printer never receives a newly enabled model/variant hint.
+
+Mandatory setup establishes the initial empty project's saved native checkpoint
+through the existing history coordinator before publishing the resulting status.
+Existing-project application never marks the project saved: candidate-only
+changes retain prior dirty and slice/export receipts, while an actual effective
+change remains dirty and invalidates applicable results. The mock activation
+receipt now has the same valid baseline-root ownership as native application.
+No submodule changes or compatibility API were introduced.
+
+Regression coverage extends the existing native activation harness with clean
+Cube projects adding a model in the same vendor, another vendor, and a nozzle
+variant; unused material additions; disabled-current fallback; and a real initial
+Printer followed by a clean checkpoint. The original two-plate slicing/export,
+dirty candidate-only, source drafts/rack/colour, independent embedded presets,
+late-failure rollback, and editing/Undo matrix remains exercised. Electron tests
+use real production WASM and actual wizard interactions, including initial setup
+and adding material/S1 to an imported Cube saved through the host Save As path.
+
+Self-verification for this correction:
+
+- `pnpm test`: 1790 passed and one opt-in performance measurement skipped;
+  `pnpm typecheck`: all packages passed. The subsequently added direct mock
+  retained-Printer/fallback regression passed in the six-test focused client
+  wizard suite. Publication/history-boundary suites passed all seven tests.
+- `scripts\build-windows.bat quick --variant threaded -j 4` and
+  `--variant serial -j 4`: passed on the final fallback-defaults source.
+- `pnpm --filter @orca/slicer-wasm setup-wizard-activation-smoke` and
+  `setup-wizard-activation-smoke:threaded`: passed on both final artifacts;
+  `profile-activation-startup-smoke` and its threaded counterpart also passed.
+  Logs: `.work-setup-dirty-native{,-serial}.log` and
+  `.work-setup-dirty-startup-{threaded,serial}.log` in the repository root.
+- Real Electron focused wizard E2E: two tests passed in 38.2 seconds. Build
+  sequence: `node scripts/stage.mjs`, set `VITE_USE_MOCK=0` and `VITE_E2E=1`,
+  then `pnpm --filter @orca/desktop exec electron-vite build`. Set
+  `ORCA_E2E_REAL=1` and run `pnpm --filter @orca/desktop exec playwright test
+  e2e/setup-wizard.e2e.ts --grep "real native"`. Final log:
+  `.work-setup-dirty-real-e2e.log`. Ordinary mock E2E skips these two real-WASM
+  tests explicitly. The renderer and native history agree on clean initial setup
+  and clean retained-Printer application to a saved Cube project.
+- `git diff --check`: passed. The core submodule and its pinned commit remain
+  unchanged. No complete release matrix, new performance measurement, or real
+  Web E2E was rerun for this focused correction; shared publication is covered
+  by unit tests and real Electron against the actual Worker/native boundary.
+
+Parent independent acceptance reviewed the final selection, fallback and history
+changes. `pnpm test` passed 1791 tests with one opt-in measurement skipped;
+`pnpm typecheck` passed across the workspace. Both final WASM variants passed
+activation and startup smoke checks. The parent repeated both real Electron
+wizard tests against the production build: two passed in 34.0 seconds.
+`git diff --check` passed and the pinned core submodule remained clean.
 
 ### Step 8 — Integration acceptance and performance evidence
 
@@ -1294,8 +1358,9 @@ Printer/Process and effective nozzle/layer/width values and both fail identicall
 (nozzle 0.2, layer/initial layer 0.2, line/outer/inner widths 0.25, initial width
 0.22). Thus the wizard does not introduce this mismatch. The Web journey now
 explicitly selects the available 0.4 variant before slicing; the comparison
-harness also slices/exports it successfully (637,162-byte G-code). Product
-variant preference is unchanged; the upstream resource combination remains a
+harness also slices/exports it successfully (637,162-byte G-code). At the original
+Step 8 acceptance, variant preference was unchanged; this was subsequently
+removed by the October 9 decision recorded above. The resource combination remains a
 known slicing limitation outside this implementation.
 
 Not performed: public Internet download profiling, full dual-host/dual-variant

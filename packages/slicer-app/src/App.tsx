@@ -595,7 +595,7 @@ function AppContent() {
   }, [boot, handleDroppedModelFiles, handleDroppedProjectFiles]);
 
   const handleSetupApplied = useCallback(async (result: Extract<SetupCompletionResult, { ok: true }>) => {
-    await publishSetupWizardApplication(platform, result);
+    await publishSetupWizardApplication(platform, result, setupRef.current === 'mandatory' ? 'initial-setup' : 'existing-project');
   }, [platform]);
   const setupWizard = setup ? <SetupWizard platform={platform} mandatory={setup === 'mandatory'}
     onApplied={handleSetupApplied} onClose={() => { if (setup === 'mandatory') setBoot('ready'); setSetup(null); }} /> : null;

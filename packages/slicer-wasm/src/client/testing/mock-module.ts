@@ -1825,13 +1825,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const rack = clone(filamentSessionSnapshot()) as any;
       const before = JSON.stringify({ selected, rack: rack.slots, config: nativeScopedConfig.project });
       const wasDirty = historyStatus().dirty;
-      const previousActivation = activation;
       const previousPrinter = selected.printer;
       activation = structuredClone(preparedWizardActivation);
-      const preferred = candidates('printer').find(printer => !previousActivation?.models.some(model =>
-        model.vendor === printer.vendor_id && model.model === printer.model && model.nozzle_diameter.includes(printer.variant)));
-      if (preferred || !candidates('printer').some(printer => printer.name === selected.printer)) {
-        selected.printer = preferred?.name ?? candidates('printer')[0].name;
+      if (!candidates('printer').some(printer => printer.name === selected.printer)) {
+        selected.printer = candidates('printer')[0].name;
         resolveAfterPrinterChange();
       }
       if (selected.printer !== previousPrinter) {
@@ -1855,9 +1852,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       filamentSessionState = rack;
       const changed = JSON.stringify({ selected, rack: rack.slots, config: nativeScopedConfig.project }) !== before;
+      const context = historyEntries[historyCursor]?.context ?? { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
       resetHistory();
-      if (!wasDirty && !changed) savedHistoryCursor = 0;
       if (changed) { sliced = false; plateMutation('shared-configuration', [...plateIds], [...plateIds]); }
+      // Native activation always publishes one new root, including a dirty root.
+      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project',
+        context: { ...clone(context), nativeScopedConfig: clone(nativeScopedConfig) } });
+      if (!wasDirty && !changed) savedHistoryCursor = 0;
       return { ok: true, profile_snapshot: bridge.orc_get_preset_snapshot(),
         filament_session: bridge.orc_get_filament_session_snapshot(),
         history_status: historyStatus(), configuration_changed: changed,

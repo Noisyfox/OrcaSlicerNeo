@@ -292,14 +292,21 @@ void configure_activation(AppConfig& config, const json& activation)
 void reselect_after_app_config(PresetBundle& bundle, AppConfig& config)
 {
     const std::string initial = config.get("presets", PRESET_PRINTER_NAME);
-    bool selected = !initial.empty() &&
+    const Preset* requested = bundle.printers.find_preset(initial, false, true);
+    bool selected = requested && !requested->is_default && requested->is_visible &&
                     bundle.printers.select_preset_by_name(initial, true);
     if (!selected) {
-        size_t selected_index = 0;
         for (auto it = bundle.printers.lbegin();
-             it != bundle.printers.end(); ++it, ++selected_index) {
+             it != bundle.printers.end(); ++it) {
             if (it->is_default || !it->is_visible) continue;
-            bundle.printers.select_preset(selected_index);
+            // Orca resolves concrete Process/Filament defaults through this
+            // hint. Use it only for initial/disabled-current fallback, never
+            // for newly enabled availability while the current source is valid.
+            PresetBundle::PresetPreferences fallback;
+            fallback.printer_model_id = it->config.opt_string("printer_model");
+            fallback.printer_variant = it->config.opt_string("printer_variant");
+            config.set("presets", PRESET_PRINTER_NAME, it->name);
+            bundle.load_selections(config, fallback);
             break;
         }
     }
@@ -946,7 +953,7 @@ std::unique_ptr<PresetBundle> prepared_bundle;
 std::unique_ptr<AppConfig> prepared_config;
 json prepared_activation;
 json prepared_memory;
-bool prepared_preferred_printer = false;
+
 bool inject_activation_failure = false;
 
 std::string wizard_short_name(const std::string& name)
@@ -960,7 +967,7 @@ std::string wizard_short_name(const std::string& name)
 
 void discard_prepared_activation()
 {
-    prepared_bundle.reset(); prepared_config.reset(); prepared_activation = json(); prepared_memory = json(); prepared_preferred_printer = false;
+    prepared_bundle.reset(); prepared_config.reset(); prepared_activation = json(); prepared_memory = json();
 }
 
 json close_wizard_catalogue()
@@ -1056,49 +1063,6 @@ json activation_from_config(const AppConfig& config)
     return activation;
 }
 
-// WebGuideDialog: custom vendor first, then sorted vendor/model identities;
-// retain manifest variant order for a new multi-variant model, sorted newly
-// added variants for a changed model. Stale identities do not supply a target.
-PresetBundle::PresetPreferences preferred_activation_printer(const PresetBundle& bundle, const AppConfig& config)
-{
-    PresetBundle::PresetPreferences result;
-    const auto& old = state().profile_config.vendors();
-    const auto pick = [&](const std::string& vendor) {
-        const auto enabled = config.vendors().find(vendor);
-        const auto profile = bundle.vendors.find(vendor);
-        if (enabled == config.vendors().end() || profile == bundle.vendors.end()) return false;
-        for (const auto& [model, variants] : enabled->second) {
-            if (variants.empty()) continue;
-            const auto source = std::find_if(profile->second.models.begin(), profile->second.models.end(),
-                [id = model](const auto& entry) { return entry.id == id; });
-            if (source == profile->second.models.end()) continue;
-            std::string variant = *variants.begin();
-            if (variants.size() > 1) {
-                for (const auto& entry : source->variants)
-                    if (variants.count(entry.name)) { variant = entry.name; break; }
-            }
-            const auto previous_vendor = old.find(vendor);
-            bool added = previous_vendor == old.end();
-            if (!added) {
-                const auto previous_model = previous_vendor->second.find(model);
-                added = previous_model == previous_vendor->second.end();
-                if (!added && previous_model->second != variants)
-                    for (const auto& entry : variants)
-                        if (!previous_model->second.count(entry)) { variant = entry; added = true; break; }
-            }
-            if (!added) continue;
-            const Preset* printer = bundle.printers.find_system_preset_by_model_and_variant(model, variant);
-            if (!printer || !printer->vendor || printer->vendor->id != vendor) continue;
-            result.printer_model_id = model; result.printer_variant = variant; return true;
-        }
-        return false;
-    };
-    if (!pick(PresetBundle::ORCA_DEFAULT_BUNDLE))
-        for (const auto& [vendor, models] : config.vendors())
-            if (vendor != PresetBundle::ORCA_DEFAULT_BUNDLE && pick(vendor)) break;
-    return result;
-}
-
 json prepare_activation(const json& request)
 {
     discard_prepared_activation();
@@ -1129,17 +1093,13 @@ json prepare_activation(const json& request)
     const auto loaded = bundle->load_vendors(sources, ForwardCompatibilitySubstitutionRule::EnableSilent, false);
     if (!loaded.second.empty()) BOOST_LOG_TRIVIAL(warning) << "Prepare activation: " << loaded.second;
     bundle->normalize_compatible_presets();
-    const auto preferred = preferred_activation_printer(*bundle, *config);
     config->set("presets", PRESET_PRINTER_NAME, state().presets.printers.get_selected_preset_name());
-    bundle->load_selections(*config, preferred);
-    if (!preferred.printer_model_id.empty())
-        config->set("presets", PRESET_PRINTER_NAME, bundle->printers.get_selected_preset_name());
+    bundle->load_selections(*config);
     reselect_after_app_config(*bundle, *config);
     const bool usable = std::any_of(bundle->printers.begin(), bundle->printers.end(),
         [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
     if (!usable) throw std::runtime_error("activation has no usable enabled printer");
     prepared_activation = activation_from_config(*config);
-    prepared_preferred_printer = !preferred.printer_model_id.empty();
     prepared_memory = request;
     prepared_bundle = std::move(bundle); prepared_config = std::move(config);
     return {{"ok", true}, {"activation", prepared_activation}};
@@ -1205,13 +1165,13 @@ const char* apply_activation()
     auto retain = [](PresetCollection& target, const PresetCollection& previous) {
         const auto& source = previous.get_selected_preset();
         Preset* available = target.find_preset(source.name, false, true);
-        if (available && (available->is_visible || available->is_project_embedded)) {
+        if (!source.is_default && available && !available->is_default && (available->is_visible || available->is_project_embedded)) {
             target.select_preset_by_name(source.name, true);
             target.get_edited_preset() = previous.get_edited_preset();
             target.update_dirty();
         }
     };
-    if (!prepared_preferred_printer) retain(candidate.printers, bridge.presets.printers);
+    retain(candidate.printers, bridge.presets.printers);
     candidate.update_compatible(PresetSelectCompatibleType::Always);
     retain(candidate.prints, bridge.presets.prints);
     retain(candidate.filaments, bridge.presets.filaments);

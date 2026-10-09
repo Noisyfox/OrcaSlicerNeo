@@ -57,7 +57,7 @@ async function start(record, transitionFixture = false) {
 
   function links(record) {
     for (const name of FS.readdir('/system')) if (name !== '.' && name !== '..') FS.unlink(`/system/${name}`);
-    for (const vendor of new Set(['OrcaFilamentLibrary', ...record.models.map(model => model.vendor)])) {
+    for (const vendor of new Set(['OrcaFilamentLibrary', ...(record?.models ?? []).map(model => model.vendor)])) {
       if (!FS.analyzePath(`/profiles/${vendor}.json`).exists) continue;
       FS.symlink(`/profiles/${vendor}.json`, `/system/${vendor}.json`);
       FS.symlink(`/profiles/${vendor}`, `/system/${vendor}`);
@@ -165,6 +165,64 @@ console.log('setup activation smoke OK: validation, target defaults/stale record
 // Existing-project transition: real sliced data, native bed/rack/draft rules,
 // source replacement colours, spatial reflow and a safe new editing baseline.
 const base = { models: [activation.models[0]], filaments: ['Alpha Explicit Filament', 'Generic PLA @System'] };
+const initialSetup = await start(null, true);
+must(initialSetup.call('orc_open_setup_wizard_catalogue'));
+must(initialSetup.call('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(base))]));
+initialSetup.links(base);
+const initialApplied = must(initialSetup.call('orc_apply_profile_activation'));
+assert.equal(initialApplied.configuration_changed, true, 'first-use replaces intrinsic defaults');
+assert.equal(initialApplied.profile_snapshot.printer.name, 'Compatibility Alpha 0.4 nozzle', 'first-use selects a real usable printer');
+assert.ok(initialApplied.profile_snapshot.prints.some(preset => preset.name === initialApplied.profile_snapshot.print.name), 'first-use Process belongs to compatible candidates');
+assert.equal(initialSetup.call('orc_history_mark_saved', ['string'], ['']).dirty, false, 'first-use checkpoint establishes a clean project');
+assert.equal(initialSetup.call('orc_history_status').canUndo, false);
+must(initialSetup.call('orc_close_setup_wizard_catalogue'));
+const cleanCandidates = await start(base, true);
+const cc = cleanCandidates.call;
+must(cc('orc_add_shape', ['string', 'string'], ['Cube', 'Clean candidate cube']));
+assert.equal(cc('orc_history_mark_saved', ['string'], [JSON.stringify(context)]).dirty, false);
+const candidateBefore = must(cc('orc_get_preset_snapshot'));
+must(cc('orc_open_setup_wizard_catalogue'));
+const addedMaterial = { ...base, filaments: [...base.filaments, 'Generic PLA @Compatibility Alpha'] };
+must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(addedMaterial))]));
+cleanCandidates.links(addedMaterial);
+const cleanAddition = must(cc('orc_apply_profile_activation'));
+assert.deepEqual(cleanAddition.profile_snapshot.project_config, candidateBefore.project_config);
+assert.equal(cleanAddition.configuration_changed, false, 'adding an unused material keeps effective project configuration');
+assert.equal(cleanAddition.history_status.dirty, false, 'clean candidate-only project remains clean');
+const cleanModelRecord = { ...addedMaterial, models: [...base.models,
+  { vendor: 'CompatibilityFixture', model: 'Compatibility Beta', nozzle_diameter: ['0.4'] }] };
+must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(cleanModelRecord))]));
+cleanCandidates.links(cleanModelRecord);
+const cleanModel = must(cc('orc_apply_profile_activation'));
+assert.equal(cleanModel.profile_snapshot.printer.name, candidateBefore.printer.name);
+assert.deepEqual(cleanModel.profile_snapshot.project_config, candidateBefore.project_config);
+assert.equal(cleanModel.configuration_changed, false);
+assert.equal(cleanModel.history_status.dirty, false, 'adding a printer keeps the clean project baseline');
+const anotherVendor = { ...cleanModelRecord, models: [...cleanModelRecord.models, activation.models[1]] };
+must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(anotherVendor))]));
+cleanCandidates.links(anotherVendor);
+const cleanVendor = must(cc('orc_apply_profile_activation'));
+assert.equal(cleanVendor.profile_snapshot.printer.name, candidateBefore.printer.name);
+assert.deepEqual(cleanVendor.profile_snapshot.project_config, candidateBefore.project_config);
+assert.equal(cleanVendor.configuration_changed, false);
+assert.equal(cleanVendor.history_status.dirty, false, 'adding another vendor printer keeps the clean baseline');
+const betaRecord = { ...cleanModelRecord, models: [cleanModelRecord.models[1]] };
+must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(betaRecord))]));
+cleanCandidates.links(betaRecord);
+const fallback = must(cc('orc_apply_profile_activation'));
+assert.equal(fallback.profile_snapshot.printer.name, 'Compatibility Beta 0.4 nozzle');
+assert.equal(fallback.configuration_changed, true);
+assert.equal(fallback.history_status.dirty, true, 'actual printer fallback changes the existing project');
+assert.equal(cc('orc_history_mark_saved', ['string'], ['']).dirty, false);
+const moreNozzles = { ...betaRecord, models: [{ ...betaRecord.models[0], nozzle_diameter: ['0.4', '0.6'] }] };
+must(cc('orc_prepare_profile_activation', ['string'], [JSON.stringify(preparation(moreNozzles))]));
+cleanCandidates.links(moreNozzles);
+const cleanNozzle = must(cc('orc_apply_profile_activation'));
+assert.equal(cleanNozzle.profile_snapshot.printer.name, fallback.profile_snapshot.printer.name);
+assert.deepEqual(cleanNozzle.profile_snapshot.project_config, fallback.profile_snapshot.project_config);
+assert.equal(cleanNozzle.configuration_changed, false);
+assert.equal(cleanNozzle.history_status.dirty, false, 'adding a nozzle keeps the clean project baseline');
+must(cc('orc_close_setup_wizard_catalogue'));
 const detailed = await start(base, true);
 const c = detailed.call;
 const req = (name, body) => c(name, ['string'], [JSON.stringify(body)]);
@@ -230,14 +288,23 @@ const memory = { beds: { [B]: 'Engineering Plate' }, racks: { [B]: { version: 1,
 ] } } };
 const both = { models: [...base.models, { vendor: 'CompatibilityFixture', model: 'Compatibility Beta', nozzle_diameter: ['0.4'] }],
   filaments: [...base.filaments, 'Beta Explicit Filament'] };
+const beforeAddedModel = stateSnapshot();
+must(prep(both)); detailed.links(both);
+const addedModel = apply();
+assert.equal(addedModel.profile_snapshot.printer.name, A, 'new model preserves the enabled current printer');
+assert.equal(addedModel.configuration_changed, false);
+assert.equal(addedModel.history_status.dirty, beforeAddedModel.history.dirty);
+assert.deepEqual(plates().input_revisions, beforeAddedModel.plates.input_revisions);
+for (const receipt of receipts) { must(getSliceResult(c, receipt)); must(exportGcode(c, { receipt, filenameBase: '' })); }
+const betaOnly = { ...both, models: [both.models[1]] };
 const beforeTransition = stateSnapshot();
-must(prep(both, memory)); detailed.links(both);
+must(prep(betaOnly, memory)); detailed.links(betaOnly);
 must(c('orc_test_inject_profile_activation_failure'));
 assert.equal(c('orc_apply_profile_activation').ok, false);
 assert.deepEqual(stateSnapshot(), beforeTransition, 'failed spatial/rack publication rolls back full state');
 for (const receipt of receipts) { must(getSliceResult(c, receipt)); must(exportGcode(c, { receipt, filenameBase: '' })); }
 const result = apply();
-assert.equal(result.profile_snapshot.printer.name, B, 'new model preferred while old remains enabled');
+assert.equal(result.profile_snapshot.printer.name, B, 'disabled current printer falls back to remaining model');
 assert.equal(c('orc_get_preset_draft', ['string', 'string'], ['printer', B]).effective_values.printer_notes, 'target own draft');
 assert.equal(result.native_scoped_config.snapshot.project.curr_bed_type, 'Engineering Plate');
 assert.equal(result.filament_session.slots.length, 2, 'native fixed nozzle count and remembered rack');
@@ -275,11 +342,15 @@ must(c('orc_history_undo'));
 assert.deepEqual(c('orc_get_model_structure'), afterTransition.model);
 assert.deepEqual(meshSnapshot(), afterTransition.mesh);
 assert.deepEqual(rack().slots, afterTransition.rack.slots);
-// Added variant selects native preferred variant even with both variants active.
+// Added nozzle variant preserves the enabled active variant.
 const variant = { ...both, models: [base.models[0], { ...both.models[1], nozzle_diameter: ['0.4', '0.6'] }] };
 must(prep(variant)); detailed.links(variant);
-const variantResult = apply(); assert.equal(variantResult.profile_snapshot.printer.name, 'Compatibility Beta 0.6 nozzle');
-assert.equal(variantResult.filament_session.slots[0].colour.native.multi_colour, '#123456 #ABCDEF', 'unchanged source keeps native colours across variant transition');
+const variantResult = apply(); assert.equal(variantResult.profile_snapshot.printer.name, B);
+assert.equal(variantResult.configuration_changed, false);
+const onlyNewVariant = { ...variant, models: [{ ...both.models[1], nozzle_diameter: ['0.6'] }] };
+must(prep(onlyNewVariant)); detailed.links(onlyNewVariant);
+const replacedVariant = apply(); assert.equal(replacedVariant.profile_snapshot.printer.name, 'Compatibility Beta 0.6 nozzle');
+assert.equal(replacedVariant.filament_session.slots[0].colour.native.multi_colour, '#123456 #ABCDEF', 'unchanged source keeps native colours across variant transition');
 // Removing Beta falls back to Alpha and restores only Alpha's own draft. No
 // remembered target rack means previous slots survive compatible normalization.
 must(prep(base)); detailed.links(base);
@@ -301,7 +372,7 @@ must(setNativeScopedConfig(c, 'plate', plateB, 'filament_map', '1,1'));
 const oneSlot = { version: 1, slots: [{ preset: 'Alpha Explicit Filament', colour: '#789ABC',
   native: { representative: '#789ABC', multi_colour: '#789ABC', type: '1' } }] };
 // Move through Beta then return to A with explicit saved rack memory.
-must(prep(both)); detailed.links(both); apply();
+must(prep(betaOnly)); detailed.links(betaOnly); apply();
 must(prep(base, { racks: { [A]: oneSlot }, beds: { [A]: 'retired-invalid-bed' } })); detailed.links(base);
 const shrunk = apply();
 assert.equal(shrunk.filament_session.slots.length, 1);
@@ -313,7 +384,7 @@ assert.equal(normalized.plates[plateB].filament_map, '1');
 assert.notEqual(normalized.project.curr_bed_type, 'retired-invalid-bed');
 // Export/import creates independent embedded project sources, including the
 // printer's current own draft. Candidate-only activation preserves this source;
-// a newly added global model still follows Orca preferred-printer selection.
+// added global models also preserve the independent embedded Printer.
 const exported = must(c('orc_export_project'));
 let bytes = detailed.Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + Number(exported.bytes_length));
 const archive = readZipEntries(bytes);
@@ -343,7 +414,7 @@ assert.equal(retainedEmbedded.profile_snapshot.print.name, embeddedProfile.print
 assert.deepEqual(retainedEmbedded.filament_session.slots, embeddedRack);
 assert.deepEqual(c('orc_get_model_structure'), embeddedModels);
 must(prep(both)); detailed.links(both);
-assert.equal(apply().profile_snapshot.printer.name, B, 'new global model takes native preference over embedded Printer');
+assert.equal(apply().profile_snapshot.printer.name, embeddedProfile.printer.name, 'new global model preserves embedded Printer');
 const foreign = { models: [activation.models[1]], filaments: ['extra:Alpha Explicit Filament'] };
 must(prep(foreign)); detailed.links(foreign); apply();
 const reload = detailed.Module._malloc(bytes.length); detailed.Module.HEAPU8.set(bytes, reload);
@@ -360,4 +431,4 @@ assert.deepEqual(c('orc_get_model_structure'), absentParent.model);
 assert.equal(independent.configuration_changed, false);
 
 must(c('orc_close_setup_wizard_catalogue'));
-console.log('setup-wizard-transition PASS real slice retention/invalidation, preferred models/variants, memory/drafts/colours/bed/spatial rollback and new history baseline');
+console.log('setup-wizard-transition PASS real slice retention/invalidation, retained models/variants and disabled fallback, memory/drafts/colours/bed/spatial rollback and new history baseline');
