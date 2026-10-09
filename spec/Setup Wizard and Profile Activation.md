@@ -181,6 +181,45 @@ single-page entry points, and loads startup files before scheduling its wizard
 check. Neo adopts the automatic-setup principle but uses the simpler entry and
 first-use file policies above.
 
+### Accepted existing-project application policies
+
+- When setup adds a printer model, use Orca's native preferred-printer rules
+  to activate a newly added model/variant, even if the previous Printer remains
+  enabled. Do not add a keep-current-Printer policy for this flow.
+- If the active Printer is disabled, automatically select a remaining enabled
+  Printer through native selection rules. Do not add a replacement-Printer
+  selection dialog.
+- Reuse Neo's existing runtime-draft and Printer-transition mechanisms. Do not
+  add Orca's save/transfer-edits dialog, or transfer the old Printer's edits
+  onto the new source. Existing source drafts remain available in the current
+  session; the target source reactivates its own draft when one exists.
+- If a rack source becomes unavailable because setup disables it, automatically
+  replace the affected slot's source with a native-compatible material. Retain
+  the slot rather than deleting it, and do not add a replacement-material
+  picker. The displaced source draft remains dormant for the current session.
+  An actual Printer transition still follows Neo's existing remembered-rack
+  restoration and compatibility-normalization rules.
+- Replacement sources initialize actual slot colours from the newly effective
+  preset/draft default, following Neo's existing source-selection rules. Slots
+  whose sources are unchanged retain their colours. Do not add wizard-specific
+  colour restoration; colours participate in the same project transaction as
+  their source replacements.
+- Global activation preferences do not participate in project Undo/Redo. If
+  applying setup changes the current Printer or rack, combine the resulting
+  project mutations into one native Undo/Redo transaction. A candidate-only
+  change creates no project-history entry.
+- A change to the effective Printer, material, or slicing configuration marks
+  the project dirty, invalidates the previous slice, clears stale preview, and
+  disables G-code export until re-slicing. If activation changes leave the
+  current project configuration unchanged, retain its dirty state and slice
+  result without introducing a new modification.
+
+These policies deliberately reuse Neo's project-draft, colour, and history
+contracts. They do not attempt to reproduce desktop Orca's preset-file editing
+and configuration-reload implementation. Global activation changes and native
+project publication still need an implementation design for failure ordering
+and restoration of history-referenced sources.
+
 ## 5. Decisions still required
 
 Clarify the following related groups interactively. These are questions, not
@@ -188,7 +227,6 @@ accepted requirements or a fixed implementation sequence.
 
 | Group | Outstanding decisions |
 | --- | --- |
-| Applying to an existing project | Removing the active Printer or a material used by a slot; preserving preset drafts and temporary overrides; confirmation and fallback policy; project dirty state, slice invalidation, and Undo/Redo semantics. |
 | Persistence and recovery | Activation schema and repository; existing installations without activation records; renamed or missing profiles; missing vendor packages; apply/save failure ordering and rollback. |
 | Catalogue and runtime lifecycle | Separate native bundle versus isolated catalogue runtime; reuse while open or between openings; cancellation and loading feedback; interaction with New Project/runtime replacement and project-required vendors. |
 | UI and acceptance | Visual parity scope; partially enabled material-group display; search and select-all semantics; keyboard/accessibility behaviour; desktop sizing and deferred mobile support; measured startup, repeated-wizard and memory acceptance criteria. |
@@ -241,7 +279,7 @@ configuration allocation, catalogue construction, and cache serialization.
   project's rack, colours, mappings, and remembered-rack semantics.
 - [Preset Editor Dialog](Preset%20Editor%20Dialog.md),
   [3MF Project Persistence](3MF%20Project%20Persistence.md), and
-  [Undo and Redo](Undo%20and%20Redo.md): constrain the unresolved live-session
-  application policies.
+  [Undo and Redo](Undo%20and%20Redo.md): constrain the accepted live-session
+  application policies and their implementation.
 
 No implementation milestone is marked delivered by this design record.
