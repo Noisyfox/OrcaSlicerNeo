@@ -10,6 +10,7 @@ const roots = enabled
 const sentinels = [
   'ORCA_REAL_PROJECT_PROFILE_V1',
   'orc_take_real_project_profile_snapshot',
+  'orc_take_profile_allocator_snapshot',
   'orc_real_project_profile_active_slice_count',
   'ORCA_REAL_PROJECT_PROFILE_JS_V1',
   'takeRealProjectProfileSnapshot',

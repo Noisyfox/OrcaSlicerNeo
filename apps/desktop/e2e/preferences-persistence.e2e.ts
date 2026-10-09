@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from './printer-selection';
 import { _electron } from './electron-fixture';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -129,10 +130,9 @@ test('persists shared profile/sidebar preferences but not session work', async (
   const first = await launch(preferences, firstExport);
   try {
     const printer = first.page.getByTestId('preset-select');
-    await printer.click();
-    await first.page.getByPlaceholder('Search presets…').fill(PRINTER);
-    await first.page.getByRole('option', { name: PRINTER }).click();
-    await expect(printer).toContainText(PRINTER);
+    await selectFixturePrinter(first.page, PRINTER);
+    await expect(printer).toContainText('Bambu Lab P1S');
+    await expect(first.page.getByTestId('nozzle-variant-select')).toContainText('0.4');
 
     const resizer = first.page.getByTestId('sidebar-resizer');
     await resizer.focus();
@@ -155,7 +155,9 @@ test('persists shared profile/sidebar preferences but not session work', async (
 
   const second = await launch(preferences, secondExport);
   try {
-    await expect(second.page.getByTestId('preset-select')).toContainText(PRINTER);
+    await expect(second.page.getByTestId('preset-select')).toContainText('Bambu Lab P1S');
+    await expect(second.page.getByTestId('nozzle-variant-select')).toContainText('0.4');
+    expect(JSON.parse(readFileSync(preferences, 'utf8')).selectedProfiles.printer).toBe(PRINTER);
     await expect(second.page.getByTestId('sidebar-resizer')).toHaveAttribute('aria-valuenow', '320');
     await expect(second.page.getByTestId('btn-add-model')).toBeEnabled();
     await expect(second.page.getByTestId('btn-slice')).toBeDisabled();

@@ -1,6 +1,14 @@
-# High Level Development Plan (updated 2026-10-02)
+# High Level Development Plan (updated 2026-10-09)
 
 ## Context
+
+- Implemented 2026-10-09: [Setup Wizard and Profile Activation](../spec/Setup%20Wizard%20and%20Profile%20Activation.md)
+  adds shared Printer/Filament setup, mandatory first use, selective native
+  vendor activation from fully delivered MEMFS resources, JSON-only loading,
+  and save-before-apply project/history transitions. All eight steps, including
+  bounded integration and measured performance, are independently accepted in
+  that specification. Full platform release qualification remains
+  separate.
 
 - Delivered 2026-10-02: [Model Arrangement](../spec/Model%20Arrangement.md)
   reuses Orca's native Arrange/libnest2d/NLopt pipeline for all/current-plate

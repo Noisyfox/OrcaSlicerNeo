@@ -1,5 +1,7 @@
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 test('real native Web mandatory setup saves activation and next startup keeps selection without reopening wizard', async ({ page }, testInfo) => {
   test.setTimeout(360_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
@@ -20,9 +22,27 @@ test('real native Web mandatory setup saves activation and next startup keeps se
   await expect(wizard).toBeHidden({ timeout: 120_000 }); await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await expect(page.getByTestId('preset-select')).toContainText('Creality Ender-3');
+  // Ordinary native selection of the upstream 0.2 defaults also rejects
+  // this fixture's line widths; the native defaults comparison owns that proof.
+  await page.getByTestId('nozzle-variant-select').click();
+  await page.getByRole('option', { name: '0.4', exact: true }).click();
+  await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!).selectedProfiles.printer)).toContain('0.4');
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!));
   expect(saved.profileActivation.models).toEqual([{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.2', '0.4', '0.6', '0.8'] }]);
   expect(saved.profileActivation.filaments.length).toBeGreaterThan(0);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
+  const downloaded = page.waitForEvent('download');
+  await page.getByTestId('btn-export').click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toMatch(/cube.*\.gcode$/);
+  const gcode = await readFile((await download.path())!, 'utf8');
+  expect(gcode).toContain('G1'); expect(gcode.length).toBeGreaterThan(1000);
   // Remove the clearing init script by opening a second page in this same context.
   const reloaded = await page.context().newPage();
   await reloaded.addInitScript(value => localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(value)), saved);

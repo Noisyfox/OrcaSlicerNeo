@@ -14,8 +14,11 @@ performance fixtures; Python/plugin functionality remains unimplemented.
 The peer [Setup Wizard and Profile Activation](Setup%20Wizard%20and%20Profile%20Activation.md)
 records the accepted shared Setup Wizard direction, full resource extraction
 with selective vendor activation through MEMFS links, and the Neo WASM
-JSON-only vendor-loading policy. Product and session policies remain under
-interactive clarification; implementation has not started.
+JSON-only vendor-loading policy. The shared two-page wizard, first-use/menu
+gates, save-before-apply transition and history baseline are implemented.
+Bounded host/native integration and local performance evidence are recorded in
+the peer specification. All eight implementation steps are independently
+accepted; full dual-host release qualification remains separate.
 
 The peer [Model Arrangement](Model%20Arrangement.md) records the accepted
 Orca-core reuse direction, accepted arrangement behavior, and staged delivery

@@ -1,4 +1,4 @@
-import { test, expect } from './browser-fixture';
+import { test, expect, configuredActivation } from './browser-fixture';
 
 import { existsSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -15,14 +15,14 @@ type ProjectLoadEvidence = {
 };
 
 test('renders native project progress before the real load result commits', async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+  await page.addInitScript((profileActivation) => {
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ profileActivation,
       version: 1,
       projectLoadBehaviour: 'load_all',
       selectedProfiles: {},
       ui: {},
     }));
-  });
+  }, configuredActivation);
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
 

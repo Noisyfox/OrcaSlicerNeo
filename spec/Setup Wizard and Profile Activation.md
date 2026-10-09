@@ -3,11 +3,10 @@
 **Date:** 2026-10-09
 
 **Status:** Major specification; resource, product, session, and UI policies
-accepted through interactive clarification. Step 1 contracts and persistence
-are implemented. Steps 2–6 JSON-only vendor loading, activation-aware
-startup, temporary full catalogue, prepare/save/apply, and existing-project
-transition are implemented and self-verified. Shared wizard UI/entry gates
-and final qualification remain Steps 7–8 work.
+accepted through interactive clarification. All eight implementation steps
+are independently accepted, including shared wizard UI, entry gates, native
+project transitions and bounded integration/performance evidence. Full release
+qualification remains a separate testing scope.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -388,8 +387,8 @@ carry the methods without another transport or adapter. The preparation result
 contains the activation to persist; the application result publishes profile,
 filament-session, and history snapshots plus configuration-change information.
 Prepared state belongs to the current wizard, so apply takes no duplicated
-selection payload or compatibility token. Native implementations are pending
-Steps 4–6. Calling a missing export fails through the existing transport;
+selection payload or compatibility token. Native implementations are delivered
+in Steps 4–6. Calling a missing export fails through the existing transport;
 there are no production success stubs, feature negotiation, or old-API fallbacks.
 All four operations are rejected before posting during serial slicing.
 
@@ -417,7 +416,7 @@ activation behaviour. Parent independent acceptance passed: the 39-test platform
 platform import guard, and platform-contract/client/runtime typechecks were
 rerun successfully. Source review confirmed stale identities remain durable,
 missing native exports reject, and setup commands are not posted during serial
-slicing. Native behaviour remains pending later steps.
+slicing. Native behaviour is established by the later native verification records.
 
 ### Step 2 — Disable native vendor caches
 
@@ -437,7 +436,7 @@ native quick build and focused smoke; prove both variants before handoff.
 ### Step 2 implementation and verification — 2026-10-09
 
 The intentional core adaptation is on submodule branch
-`dev/setup-wizard-no-vendor-cache`, based on pinned commit
+`dev/orcaslicerneo-wasm`, based on pinned commit
 `9d3118b7a406a4e44d5344ae69c084f01d72e772`. Independently accepted submodule
 commit: `b5dd4979cfce248e88a547c3dcddb6eb6e3132cc`; the superproject explicitly
 pins this adaptation.
@@ -526,7 +525,7 @@ require `profile_activation`; native initialization fills AppConfig before
 loading presets, instead of enabling every parsed printer and filament. Normal
 native visibility/default supplementation remains authoritative. Initialization
 returns `setupRequired` for absent activation or no visible non-default printer.
-The Step 7 UI gate is pending; this piece only establishes its startup contract.
+Step 7 delivers the UI gate; this piece establishes its startup contract.
 
 Storage, client link management, and native initialization reject unsafe vendor
 identities (separators, control characters, drive colons, blank names). A rejected
@@ -662,8 +661,8 @@ Self-verification:
 
 Allocation lifetime is enforced by native ownership/destruction and verified
 through source-change/reparse tests; allocator byte measurements and full-package
-catalogue performance remain Step 8 work. No claim is made that linear-memory
-capacity shrinks after closing. Host wizard UI/E2E is pending Step 7. Native
+catalogue performance are reported in Step 8. No claim is made that linear-memory
+capacity shrinks after closing. Host wizard UI/E2E is delivered in Step 7. Native
 loading/application for Steps 5–6 has not been implemented in this piece.
 
 Parent independent acceptance reviewed the native projection and ownership,
@@ -1054,6 +1053,237 @@ Update this specification's implementation/verification status with the
 submodule commit, actual checks, measured results, and any unavailable checks.
 Update roadmap documents only when delivered milestone status actually changes.
 
+#### Step 8 implementation and bounded verification (2026-10-09)
+
+The delivered steps are committed through Step 7 (`89448ced`). Native cache
+disabling was committed as `b5dd4979cfce248e88a547c3dcddb6eb6e3132cc` on the
+intentional `dev/orcaslicerneo-wasm` branch. Step 8 additionally fixes one native
+allocation leak in `ConfigOptionDef::create_default_option()`: the `coEnums`
+branch cloned its default before returning a second clone on both branches.
+The native implementation is the complete upstream cherry-pick of
+`b29c3b36ece50495f4ab1687e29beb346c23ab84` ("Fix a small memory leak when
+creating default enum list options (#16133)"). It creates one clone, assigns
+the appropriate nullable/non-nullable enum keys map by dynamic cast, and
+returns that clone. Its upstream `tests/libslic3r/test_config.cpp` regression
+is retained unchanged, checking equality and keys maps for all defined enum
+lists. This replaces the earlier locally written leak fix. The deliberate
+cherry-pick commit and final superproject pin are
+`c84de9fc58325320bb6cf138cf158be5f4702ff7`, preserving the upstream author,
+author date and cherry-pick source footer. Its patch-id exactly matches the
+specified upstream commit.
+
+The opt-in `setupWizardPerformance.test.ts` drives the production installer
+through real ZIP packages served by local HTTP, then the typed native client.
+It asserts all 67 manifest packages were delivered successfully (68 HTTP
+responses including the manifest), no HTTP failures, and byte equality for
+all 14,918 unpacked entries. Delivery is 29,169,901 bytes; extracted MEMFS file
+contents total 54,632,459 bytes. Native catalogue rebuilding produces 429
+models and 958 material groups on each opening. No catalogue projection is
+cached. A test-server URL-decoding mistake initially skipped the three vendor
+names containing spaces; the final full-package runs below fix that mistake
+and enforce complete delivery and extraction rather than accepting optional
+vendor skipping as a successful measurement.
+
+Run from the repository root in PowerShell, serializing CPU-intensive checks:
+
+```powershell
+pnpm test
+pnpm typecheck
+scripts/build-windows.bat quick --variant both -j 4
+scripts/build-windows.bat smoke --variant both
+node packages/slicer-wasm/harness/profile-activation-startup-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
+node packages/slicer-wasm/harness/profile-activation-startup-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
+node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
+node packages/slicer-wasm/harness/setup-wizard-activation-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
+node packages/slicer-wasm/harness/setup-wizard-defaults-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
+pnpm --filter @orca/desktop test:e2e
+pnpm --filter @orca/desktop exec playwright test e2e/preferences-persistence.e2e.ts e2e/profile-compatibility.e2e.ts e2e/project-lifecycle.e2e.ts
+pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts setup-wizard.e2e.ts web.e2e.ts --grep "mandatory setup|Send"
+node scripts/run-setup-wizard-performance.mjs --build
+node scripts/run-setup-wizard-performance.mjs --production
+pnpm --filter @orca/desktop build
+node scripts/verify-real-project-profile-exclusion.mjs
+```
+
+The dedicated profiling runner uses the existing Windows WASM build driver
+and staged threaded dependencies (`EMSDK` or `emsdk_env.bat` on PATH), jobs 4
+by default. Its module is `packages/slicer-wasm/out/profile-threaded/orca_slice.js`;
+ordinary modules are under `out/threaded` and `out/serial`. With an existing
+profiling build, omit `--build` to rerun measurement. Raw JSON outputs are
+`packages/slicer-wasm/.work/setup-wizard-profile-threaded-measurement.json` and
+`packages/slicer-wasm/.work/setup-wizard-threaded-measurement.json`; they are
+local ignored evidence, not committed product resources. The equivalent
+profiling driver build and subsequent source-only relink were run during this
+self-check; the runner's `--build` path itself was not independently rerun.
+
+Successful checks:
+
+- Root unit suites: 1,785 passed, one opt-in performance test skipped without
+  its environment variables. Root typechecks passed. The parent independently
+  repeated both root commands successfully before final Step 8 acceptance.
+- Both native variants quick-built after the enum leak fix. Both startup
+  activation and bridge/threading smoke harnesses passed after that fix,
+  including real slicing and G-code export. The standard dual-variant smoke
+  passed before the fix (slice/bridge/DRC/STEP); its DRC/STEP paths were not
+  repeated after this allocation-only change.
+- The existing threaded activation harness passed after the fix: live project,
+  embedded presets, rack/drafts/colours, bed/model transitions, complete plate
+  receipt preservation versus invalidation, preparation/apply fault rollback,
+  safe history baseline and subsequent editing/Undo, slicing and export.
+  Shared unit tests establish serialized preference save-before-apply and retry;
+  the native harness uses the prepared activation as the saved-record boundary.
+- Default desktop mock E2E: 59 passed, 13 existing conditionally skipped. Skips
+  cover two real DRC/STEP imports, one real preview seam/retraction test, five
+  real multi-filament/rack/receipt tests, macOS native menu on Windows, two
+  real/isolated painted-facet tests, isolated prime-tower warnings, and the real
+  slice-error fixture. These are not claimed as desktop real-native coverage.
+- Additional desktop persistence/profile/lifecycle suite: seven passed. Its
+  old persistence fixture searched a full preset name in the now model-grouped
+  Printer selector; it now reuses `selectFixturePrinter` and asserts the saved
+  canonical preset identity across restart. The initial six-pass/one-failure
+  run was corrected rather than ignored.
+- Real threaded Web: two tests passed (47.3 seconds), covering mandatory setup,
+  saved activation/restart without reopening, actual cube slicing/G-code
+  download, and the existing Send host seam. Explicit custom preferences in
+  other Web fixtures now include the central configured activation; those
+  additional rendered Web cases were not rerun as a full release matrix.
+- Ordinary production Electron build passed; the exclusion guard found no
+  profiling sentinels in the threaded artifacts or renderer. Direct byte scans
+  of JS/WASM in both ordinary native variants found no allocator profiling
+  export. The earlier guard run against a mock E2E bundle correctly found its
+  existing mock instrumentation; production exclusion is tested on the ordinary
+  production bundle. Runtime typecheck also passed after final measurement edits.
+
+Desktop commands following `test:e2e` use that generated mock E2E build. The
+last ordinary production build replaces it; rerun `test:e2e` before repeating
+the focused desktop Playwright command. Web Playwright builds the real static
+host with `VITE_E2E=1` and normal threaded isolation; no mock bypass is used.
+
+#### Measured timing and temporary ownership
+
+Local machine: Windows 10.0.26300, AMD Ryzen 9 5900X, 24 logical cores, Node
+24.19.0, native threaded arena/max concurrency 24. These are individual local
+runs, not a timing guarantee or threshold. Production and profiling builds
+were measured separately; profiling timing is not attributed to release.
+Transport covers local HTTP and actual production ZIP inflation/MEMFS writes,
+not public Internet latency. Source fetches are serial, so subtracting their
+summed fetch time from installer elapsed time is meaningful here. That
+remainder includes validation, inflation and MEMFS writes, not pure decompression.
+Init includes client activation linking plus native initialization, not isolated
+C++ parsing. Renderer projection/render time is not measured by this Node harness.
+
+| Metric (milliseconds) | Ordinary threaded | Profiling threaded |
+| --- | ---: | ---: |
+| Module creation | 307.70 | 307.03 |
+| Local HTTP fetch sum | 689.69 | 724.24 |
+| Full installer elapsed | 1,329.92 | 1,363.60 |
+| Installer excluding serial fetch | 640.23 | 639.37 |
+| Selected-vendor client/native init | 1,804.77 | 1,792.51 |
+| Catalogue open 1 / 2 / 3 | 6,431.27 / 6,203.49 / 6,167.64 | 6,374.58 / 6,163.02 / 6,177.37 |
+| Catalogue close 1 / 2 / 3 | 164.59 / 162.82 / 163.76 | 158.81 / 157.05 / 161.26 |
+
+This table records the parent's independent, sequential reruns of both complete
+package measurements. The raw outputs above contain these runs; self-check
+outputs were preserved separately with `-self-measurement.json` suffixes.
+Both runs independently verified all packages and extracted bytes. The parent
+also reproduced the exact stable three-close allocator snapshots below.
+
+The profiling-only allocator export runs `mi_theap_collect(..., false)` and
+visits the calling thread's default mimalloc heap. It reports live usable block
+capacity (`area.used * area.block_size`) and live blocks, with `complete=true`;
+these are size-class capacities, not requested bytes, RSS, free blocks or total
+process allocation. Other TBB thread heaps, JavaScript/MEMFS storage and free
+allocator capacity are excluded. Linear WASM heap capacity is reported separately.
+No profiling export or app-facing profiling surface is added to ordinary builds.
+
+| Profiling state | Calling-thread live usable bytes | Live blocks | WASM heap capacity bytes |
+| --- | ---: | ---: | ---: |
+| Before first open | 7,133,688 | 203,132 | 167,051,264 |
+| During open 1 | 42,318,800 | 1,102,360 | 598,999,040 |
+| After close 1 | 6,517,592 | 195,821 | 598,999,040 |
+| During open 2 | 42,188,600 | 1,106,282 | 598,999,040 |
+| After close 2 | 6,517,592 | 195,821 | 598,999,040 |
+| During open 3 | 41,763,008 | 1,091,339 | 598,999,040 |
+| After close 3 | 6,517,592 | 195,821 | 598,999,040 |
+
+All three closed snapshots are identical: the full temporary catalogue frees
+its measured allocations, while heap high-water capacity remains reserved.
+The first closed baseline is 616,096 bytes below pre-open; initial native/allocator
+transients can settle on first parse/collection. This measurement does not assign
+that difference to a particular preset or claim every thread's retained memory
+is accounted for. Subsequent closed snapshots do not grow, and executable exact
+byte/block equality assertions reject repeated growth without an arbitrary
+tolerance. Independent native isolation tests establish unchanged live project
+and filesystem links; the remaining baseline includes the live activated bundle
+and native runtime rather than requiring zero allocations.
+
+The retained pre-fix comparison JSON is
+`packages/slicer-wasm/.work/setup-wizard-before-enum-leak-fix.json`. This was a
+limited 64-package delivery because of the test-server decoding mistake, and
+must not be presented as full-package timing. With the same allocator collection
+semantics, closed snapshots grew 6,938,344 → 7,251,640 → 7,564,936 usable bytes,
+and 213,362 → 226,416 → 239,470 blocks: exactly 313,296 bytes/13,054 blocks
+per additional opening. Removing the redundant enum clone eliminated growth
+in that same fixture, and the final full 67-package regression above is stable.
+
+#### Native resource limitation and remaining acceptance
+
+The initial real Web slice used the wizard's accepted first-new-variant policy,
+choosing Ender-3 0.2 with `0.20mm Standard @Creality Ender3 0.2`, and failed
+native validation with `Line width too small`. A dedicated real harness compares
+ordinary `selectPrinter` against wizard application: both select identical
+Printer/Process and effective nozzle/layer/width values and both fail identically
+(nozzle 0.2, layer/initial layer 0.2, line/outer/inner widths 0.25, initial width
+0.22). Thus the wizard does not introduce this mismatch. The Web journey now
+explicitly selects the available 0.4 variant before slicing; the comparison
+harness also slices/exports it successfully (637,162-byte G-code). Product
+variant preference is unchanged; the upstream resource combination remains a
+known slicing limitation outside this implementation.
+
+Not performed: public Internet download profiling, full dual-host/dual-variant
+release E2E, all additional real desktop and custom Web fixture runs, total
+cross-thread allocator/RSS accounting, or an OPC-versus-JSON startup speed
+benchmark.
+
+Final Step 8 independent acceptance passed. The parent reran root tests and
+typechecks, both complete package performance measurements, the threaded
+activation/transition harness, the real native default-configuration comparison,
+and serial activation startup smoke. The parent also independently reran both
+real threaded Web setup/slice/export and Send tests (two passed in 44.4 seconds),
+and the ordinary production profiling-exclusion guard. Source review confirmed
+the enum fix preserves returned configuration semantics. Documentation links
+and both repository diffs were checked before the deliberate native and
+superproject commits. These checks complete the bounded eight-step plan.
+
+The subsequent requested replacement uses the complete upstream cherry-pick
+identified above on `dev/orcaslicerneo-wasm`, replacing the locally authored
+enum fix without changing accepted product behaviour. Self-checks after this
+replacement passed: `scripts/build-windows.bat quick --variant both -j 4`,
+the threaded activation and defaults harnesses, serial activation startup,
+the dedicated profiling relink and full-package performance test, and ordinary
+production profiling exclusion. The three post-close calling-thread snapshots
+remain exactly 6,517,592 usable bytes / 195,821 blocks (`complete=true`), with
+598,999,040-byte linear heap capacity. The replacement measurement independently
+verified all 67 packages / 68 successful HTTP responses and all 14,918 unpacked
+entries. Its raw output is preserved as
+`packages/slicer-wasm/.work/setup-wizard-profile-threaded-upstream-cherry-pick-measurement.json`;
+the original independent timing outputs and table remain the earlier accepted
+run, not a newly claimed timing comparison.
+
+The upstream Catch2 regression source is retained in full, but was not executed:
+Neo's WASM CMake driver does not build/register `libslic3r_tests` or the upstream
+Catch2 suites, and `ctest --test-dir packages/slicer-wasm/.work/threaded/build -N`
+and the equivalent serial command both report zero registered tests. Native
+harness passes do not substitute for a claim that this upstream test ran.
+Replacement independent acceptance passed: the parent compared the complete
+patch-id with upstream, reran the threaded activation/transition harness, and
+reran full-package profiling measurement. All package/file assertions passed;
+the three closed allocator snapshots again matched exactly. This parent output
+is `packages/slicer-wasm/.work/setup-wizard-parent-upstream-cherry-pick-measurement.json`.
+The final native pin above is recorded by amending the last Step 8 superproject
+commit; no additional main-repository commit is introduced.
+
 For further product clarification, explain current Orca behaviour and Neo's
 choices together, resolve one question at a time, and update this specification
 after a related group is settled.
@@ -1093,8 +1323,8 @@ configuration allocation, catalogue construction, and cache serialization.
 ## 7. Relationship to existing specifications
 
 - [Web–Electron Shared Application Architecture](Web-Electron%20Shared%20Application%20Architecture.md):
-  retains full package delivery and the shared Worker/client boundaries. Once
-  implemented, this specification replaces its all-vendors-installed startup
+  retains full package delivery and the shared Worker/client boundaries. This
+  specification replaces its all-vendors-installed startup
   policy and extends activation persistence; it does not restore the retired
   whole-AppConfig public API.
 - [Profile Compatibility and Preset Selection](Profile%20Compatibility%20and%20Preset%20Selection.md):
@@ -1107,4 +1337,6 @@ configuration allocation, catalogue construction, and cache serialization.
   [Undo and Redo](Undo%20and%20Redo.md): constrain the accepted live-session
   application policies and their implementation.
 
-No implementation milestone is marked delivered by this design record.
+All eight steps have independent implementation acceptance. Bounded integration
+and measured performance are recorded above; complete dual-host release
+qualification remains separate.

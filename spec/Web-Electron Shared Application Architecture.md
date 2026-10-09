@@ -304,8 +304,10 @@ profiles/
 `core` contains common, non-vendor resources. Each vendor ZIP mirrors the
 upstream profile tree with `<Vendor>.json` and `<Vendor>/` at its root. The
 vendor ZIP filename uses the `version` field in its matching `<Vendor>.json`;
-the core filename remains `core.upstream.zip` for now. The installer unpacks
-each vendor archive directly under `/system`. A small
+the core filename remains `core.upstream.zip` for now. The installer unpacks core resources directly under `/system` and every vendor
+archive under `/profiles`. Only printer-activated vendors and the permanent
+OrcaFilamentLibrary are linked into `/system` for ordinary native loading;
+core is always present. A small
 browser-compatible archive dependency runs in the Worker.
 
 Package membership is generated deterministically from the upstream
@@ -322,7 +324,9 @@ startup step. Profile downloads include their current package count, such as
 `Downloading profiles (N/Total)...`. The main application is not interactive
 before that point, except that Help → File Manager can inspect whichever files
 are already mounted while startup continues. Its Refresh action re-reads the
-current directory as installation progresses.
+current directory as installation progresses. Mandatory first-use Setup Wizard
+owns the modal workspace after initialization, blocks File Manager and other
+commands, and silently discards incoming file intents until completion.
 
 Profile packaging is an independent build/CI target. A profile-content change
 generates only the manifest and profile packages; it must not trigger a WASM
@@ -341,9 +345,13 @@ or bridge/runtime interpretation of its fields changes.
   compatibility validation, online update checks, rollback, or on-demand
   downloading. They remain explicit follow-up work.
 
-The first-release Printer and Process pickers list only profiles that were
-successfully installed from profile packages. The native snapshot also exposes
-the installed, compatible `filament_catalog` consumed by the Prepare rack.
+The Printer and Process pickers list native-visible profiles from activated
+printer vendor packages. The native snapshot also exposes the activated,
+compatible `filament_catalog` consumed by the Prepare rack. The temporary Setup
+Wizard catalogue independently parses all `/profiles` vendor packages on open,
+then releases that native bundle on close. Neo WASM neither reads nor generates
+vendor `.opc` caches. These policies are owned by
+[Setup Wizard and Profile Activation](Setup%20Wizard%20and%20Profile%20Activation.md).
 The AppConfig-derived “Not installed” state and any single-filament picker are
 removed; a future on-demand delivery feature may add an explicit
 downloadable-but-not-installed state without changing the rack contract.
@@ -354,12 +362,16 @@ System profile definitions and installation state are never duplicated into a
 user configuration. The profile packages are authoritative for their content
 and availability.
 
-The shared, minimal user preference model stores only the current selections
-and UI preferences:
+The shared user preference model stores activation references, current
+selections and UI preferences; it stores no complete system preset data:
 
 ```ts
 interface UserPreferences {
   version: 1;
+  profileActivation?: {
+    models: Array<{ vendor: string; model: string; nozzle_diameter: string[] }>;
+    filaments: string[];
+  };
   selectedProfiles: {
     printer?: string;
     print?: string;
@@ -384,11 +396,12 @@ state; they are not global selections.
   Electron writes a small preferences file in user data; Web uses localStorage.
 - A malformed, unreadable, or unsupported preference version is discarded and
   replaced with defaults. The first release has no migration implementation.
-- If either repository cannot read or write (for example, disabled Web storage,
-  quota exhaustion, or an Electron file I/O failure), the application continues
-  with in-memory preferences for that session and logs the failure to the
-  console. Preferences never block startup or slicing; the first release has
-  no dialog, retry, or recovery flow.
+- Read failure uses normalized in-memory defaults and logs the failure. Write
+  failure rejects the repository operation without publishing the unsaved
+  in-memory value. Ordinary UI preference mirrors remain best effort. Setup
+  must persist normalized activation before applying it, so its save failure
+  keeps selection editable and its application failure retries the saved
+  preparation. There is no cross-storage rollback.
 - `sidebarWidth`, `deviceSidebarWidth`, `switchToDeviceAfterSend`, and other
   common UI preferences are persisted in both hosts. The send-navigation
   preference defaults to `true`; older documents that lack it are migrated to
@@ -399,7 +412,10 @@ state; they are not global selections.
   transforms, settings edits, slice results, and G-code are not persisted in
   the first release. Settings edits remain active only for the current session.
 
-On boot, after all available profiles are initialized, the runtime restores
+On boot, saved activation is loaded before runtime initialization, and the
+client links its printer vendors plus OrcaFilamentLibrary for native loading.
+Missing activation or no usable real printer presents mandatory setup before
+restoring remembered selections/racks. After configured startup, the runtime restores
 Printer and Process through the C++ bridge in that order. It accepts the
 bridge's resulting compatible combination rather than duplicating compatibility
 logic in TypeScript. A missing profile name falls back to the native default
