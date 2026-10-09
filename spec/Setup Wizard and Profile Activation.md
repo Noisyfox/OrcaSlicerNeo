@@ -2,9 +2,8 @@
 
 **Date:** 2026-10-09
 
-**Status:** Major specification; direction and resource policy accepted.
-Product and session policies remain under interactive clarification.
-Implementation has not started.
+**Status:** Major specification; resource, product, session, and UI policies
+accepted through interactive clarification. Implementation has not started.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -74,7 +73,8 @@ compose or flatten slicer configurations.
 Opening the wizard uses the complete `/profiles` resource set to construct a
 catalogue independent of the current project's live `PresetBundle`. Opening
 or browsing the wizard must not enable all vendors in the working session.
-The catalogue lifetime and execution mechanism remain undecided.
+Construct the temporary catalogue bundle on the existing WASM Worker;
+its lifetime and interaction rules are defined below.
 
 ## 3. Disable native vendor file caches in Neo WASM
 
@@ -85,8 +85,9 @@ Orca behaviour remains unaffected when the macro is absent.
 
 Ship complete source JSON profile resources; this policy does not support
 cache-only vendor packages. Normal profile loading and wizard catalogue
-loading both use the JSON path. Runtime catalogue reuse is a separate decision
-and is not forbidden by disabling vendor file caches.
+loading both use the JSON path. The wizard also retains no parsed catalogue
+or lightweight catalogue cache between openings; each opening regenerates it
+from source resources.
 
 MEMFS is recreated at startup, so newly generated vendor caches cannot speed
 up the next startup. Disabling generation removes its serialization and
@@ -126,8 +127,8 @@ Neo preserves this separation using MEMFS links rather than copying installed
 vendor resources to a persistent user directory.
 
 The reference is evidence for clarification, not approval of every Orca UI or
-fallback policy. The following selection policies are accepted; outstanding
-choices in Section 5 must still be resolved before implementation.
+fallback policy. The following policies are accepted. Section 5 distinguishes
+remaining implementation design from product decisions.
 
 ### Accepted Printer and Filament selection policies
 
@@ -203,22 +204,23 @@ first-use file policies above.
 - Replacement sources initialize actual slot colours from the newly effective
   preset/draft default, following Neo's existing source-selection rules. Slots
   whose sources are unchanged retain their colours. Do not add wizard-specific
-  colour restoration; colours participate in the same project transaction as
-  their source replacements.
-- Global activation preferences do not participate in project Undo/Redo. If
-  applying setup changes the current Printer or rack, combine the resulting
-  project mutations into one native Undo/Redo transaction. A candidate-only
-  change creates no project-history entry.
+  colour restoration; colours change together with their source replacements.
+- Global activation preferences do not participate in project Undo/Redo.
+  After activation is saved and successfully applied, clear the project
+  Undo/Redo history and establish the resulting project state as the new
+  history baseline, even when only the candidate set changed. A failed
+  application does not clear history. Do not retain disabled source presets
+  solely to restore pre-application history, and do not add complete source
+  preset data to history snapshots for this feature.
 - A change to the effective Printer, material, or slicing configuration marks
   the project dirty, invalidates the previous slice, clears stale preview, and
   disables G-code export until re-slicing. If activation changes leave the
   current project configuration unchanged, retain its dirty state and slice
   result without introducing a new modification.
 
-These policies deliberately reuse Neo's project-draft, colour, and history
-contracts. They do not attempt to reproduce desktop Orca's preset-file editing
-and configuration-reload implementation. Restoration of history-referenced
-sources still needs an implementation design.
+These policies reuse Neo's project-draft and colour contracts, with explicit
+history clearing after successful setup application. They do not reproduce
+desktop Orca's preset-file editing and configuration-reload implementation.
 
 ### Accepted persistence and recovery policies
 
@@ -276,21 +278,78 @@ The pre-save validation/normalization and native apply operations must respect
 this save-before-apply ordering. Exact transport and supplemental-material
 publication details remain part of implementation design.
 
-## 5. Decisions still required
+### Accepted catalogue and runtime lifecycle policies
 
-Clarify the following related groups interactively. These are questions, not
-accepted requirements or a fixed implementation sequence.
+- Build the complete wizard catalogue in a temporary, independent native
+  `PresetBundle` on the existing WASM Worker. Do not introduce a second Worker
+  or WASM module, and do not populate the live project's bundle with every
+  vendor merely to display the wizard.
+- Generate the catalogue from scratch on every opening. Retain the temporary
+  bundle and projected catalogue only while the wizard is open; release them
+  on close. Keep the extracted source resources in `/profiles`, without a
+  full or lightweight parsed-catalogue cache between openings.
+- Show a loading state while generating the catalogue and disable selection,
+  navigation, completion, and cancellation until generation finishes. Do not
+  implement cancellation of an in-progress native catalogue load. Once loaded,
+  a menu-opened wizard may be cancelled; mandatory first-use setup may not.
+- Make the wizard modal and block workspace operations while it is open.
+  Disable its menu entry during slicing, project loading/saving, and other
+  conflicting project operations. Disable cancellation during application.
+- Allow 3MF project-embedded configurations independently of global activation.
+  Opening a project does not change saved `models` or `filaments`, and does not
+  link an otherwise disabled vendor just because the file references it.
+- New Project does not trigger another setup flow or an extra package download.
+  If the runtime is recreated, initialize it from the saved activation settings
+  and rebuild the printer-derived vendor links. Show mandatory setup only when
+  the activation record is absent or no usable enabled Printer remains.
 
-| Group | Outstanding decisions |
-| --- | --- |
-| Catalogue and runtime lifecycle | Separate native bundle versus isolated catalogue runtime; reuse while open or between openings; cancellation and loading feedback; interaction with New Project/runtime replacement and project-required vendors. |
-| UI and acceptance | Visual parity scope; partially enabled material-group display; search and select-all semantics; keyboard/accessibility behaviour; desktop sizing and deferred mobile support; measured startup, repeated-wizard and memory acceptance criteria. |
+For reference, Orca uses a temporary native bundle when the installed bundle
+cannot supply a complete wizard catalogue, and also has a persisted wizard
+catalogue cache. Neo uses the temporary-bundle approach but regenerates on each
+opening. Orca's New Project resets project state and can reload presets without
+replacing global activation settings. Neo retains that separation.
 
-For every clarification question, explain the current Orca behaviour and the
-relevant Neo choices together. Resolve one question at a time. Update this
-living specification after a related group is settled, rather than after each
-individual answer. Preserve one authoritative record; do not create parallel
-phase notes.
+### Accepted UI and performance policies
+
+- Preserve Orca's two-page information and operation structure, using Neo's
+  existing fonts, colours, controls, and modal styling rather than requiring
+  pixel-identical reproduction. The Printer page groups model cards by vendor
+  with images, names, and nozzle information. The Filament page provides model,
+  material-type, manufacturer, and text filters with grouped material rows.
+- Match Orca's two-state material-group selection. If any concrete member of a
+  group is enabled, initially show the row checked. Submitting a checked row
+  enables all of its members admitted by the current wizard projection; do not
+  introduce a partially checked material-row state.
+- Search and filters change display only, preserving hidden selections.
+  Printer vendor-wide selection affects the currently displayed models of that
+  vendor. Filament Select All and Deselect All affect currently displayed rows.
+  Hidden selections retain their state, matching Orca's filtered bulk actions.
+- Use standard keyboard-accessible controls: Tab moves focus, Space toggles a
+  focused checkbox, and Enter activates a focused button. Escape cancels a
+  menu-opened wizard when cancellation is available; mandatory first-use,
+  catalogue loading, and application do not allow cancellation. Do not add
+  Orca's automatic search focus on ordinary character input or other custom
+  shortcuts in the first release.
+- Do not set an arbitrary hard timing or memory threshold before measurement.
+  Report normal startup, first wizard opening, repeated wizard opening, and
+  WASM memory before catalogue construction, after construction, and after
+  closing. Verify that startup parses only enabled vendor packages plus the
+  permanent library, and that closing releases the temporary catalogue data.
+  Reassess optimization needs from measured results. Releasing allocations
+  does not require the WASM heap's high-water capacity to shrink.
+
+## 5. Remaining implementation design
+
+The accepted product decisions above define the implementation scope. Native
+application and pre-save validation/normalization still need a concrete design
+that preserves save-before-apply ordering, existing source-draft behaviour,
+native supplementation, and the new history-baseline rule. This specification
+records no implementation as delivered.
+
+For any further product clarification, explain current Orca behaviour and the
+relevant Neo choices together, resolve one question at a time, and update this
+specification after a related group is settled. Preserve one authoritative
+record rather than parallel phase notes.
 
 ## 6. Boundaries and verification
 
@@ -309,9 +368,12 @@ been implemented or built. This is bounded feasibility evidence, not feature
 acceptance or cross-host/threaded verification.
 
 Implementation verification must cover the startup vendor load set, permanent
-core/library inclusion, printer-derived vendor inclusion, JSON-only loading, reopening
-and cancelling the wizard, activation persistence, application failures, and
-the agreed existing-project policies. Follow the repository
+core/library inclusion, printer-derived vendor inclusion, JSON-only loading,
+reopening
+and cancelling the wizard, activation persistence, application failures,
+successful-application history clearing, project-embedded configurations, and
+the agreed existing-project and filtered-selection policies. Follow the
+repository
 [testing guidelines](../doc/testing_guidelines.md) for unit/typecheck,
 affected-host E2E, native quick-build/smoke, and handoff scope.
 
