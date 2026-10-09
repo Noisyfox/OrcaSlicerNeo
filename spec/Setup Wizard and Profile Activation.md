@@ -30,7 +30,7 @@ workspace candidates. This feature does not introduce per-profile JSON pruning.
 On-demand vendor download is outside the current scope. Every startup downloads
 and extracts all supplied vendor packages. Full native catalogue construction
 is deferred until the wizard is opened; normal startup parses only the vendors
-needed by the activation settings and their dependencies.
+identified by enabled printers, plus the always-enabled filament library.
 
 ## 2. Resource layout and startup
 
@@ -54,13 +54,14 @@ Use two MEMFS views of the same resources:
 - Core resources are always present and extracted directly into `/system`.
 - `OrcaFilamentLibrary` is always present, linked into `/system`, and loaded.
   It cannot be deselected by the wizard.
-- Other vendors are extracted into `/profiles`. Only vendors required by
-  enabled configuration and their dependencies are linked into `/system`.
+- Other vendors are extracted into `/profiles`. Only vendors explicitly named
+  by enabled printer-model records are linked into `/system`.
 - Link each vendor's root JSON and its complete resource directory. Do not
   copy or individually link each preset file.
-- A filament's display manufacturer (`filament_vendor`) is not its resource
-  vendor identity. Activation must resolve the owning package correctly,
-  including vendors needed solely for enabled filament profiles.
+- The optional vendor load set comes exclusively from `models[].vendor`.
+  Filament names and display manufacturers (`filament_vendor`) never select
+  additional vendor packages. `OrcaFilamentLibrary` is the permanent exception
+  to printer-derived vendor inclusion; core is always extracted directly.
 - MEMFS belongs to the current runtime and is reset when that runtime is
   recreated. Previous application runs do not leave extracted MEMFS files.
 
@@ -216,9 +217,64 @@ first-use file policies above.
 
 These policies deliberately reuse Neo's project-draft, colour, and history
 contracts. They do not attempt to reproduce desktop Orca's preset-file editing
-and configuration-reload implementation. Global activation changes and native
-project publication still need an implementation design for failure ordering
-and restoration of history-referenced sources.
+and configuration-reload implementation. Restoration of history-referenced
+sources still needs an implementation design.
+
+### Accepted persistence and recovery policies
+
+- Extend the existing shared UserPreferences repository with a dedicated
+  activation record. Reuse the Electron/Web persistence adapters; do not add
+  an independent activation file or restore the retired whole-AppConfig API.
+- Follow Orca's `models` and `filaments` JSON shapes inside that record:
+
+  ```json
+  {
+    "models": [
+      {
+        "vendor": "BBL",
+        "model": "Bambu Lab X1 Carbon",
+        "nozzle_diameter": ["0.4", "0.6"]
+      }
+    ],
+    "filaments": ["Generic PLA @BBL X1C"]
+  }
+  ```
+
+  This illustrates the record payload, not the entire UserPreferences schema.
+  The enclosing field name and schema versioning are implementation details.
+  Every model explicitly stores its resource vendor before native profile
+  loading. Never infer vendor identity by looking up a printer preset name.
+  Filaments store concrete preset names only and do not carry resource-vendor
+  selection metadata.
+- Existing Neo installations without this record enter mandatory first-use
+  setup. Do not infer an activation set from old selected-profile preferences
+  or remembered material racks.
+- Retain stale activation records rather than deleting them automatically.
+  Use Orca's native historical preset-name resolution, including
+  `renamed_from`, where applicable. Unmatched model/variant records do not
+  enable a printer; unresolved filament records remain recorded while native
+  default supplementation and compatible fallback resolve the live session.
+  Do not invent a printer-model identifier migration from preset rename data.
+  If no usable enabled printer remains, automatically open setup.
+- Preserve the existing package-error policy: log and skip a failed vendor
+  download/extraction; a core-package failure terminates startup. Do not delete
+  activation records for temporarily unavailable vendors or add a special
+  partial-startup recovery flow. The normal no-usable-Printer rule still applies.
+- Persist the accepted activation settings before applying them to the running
+  session. If persistence fails, do not apply; keep the wizard open, show the
+  error, and allow retry.
+- If persistence succeeds but native application fails, retain the newly saved
+  activation settings, show the error, and allow retrying application. Do not
+  implement cross-storage/runtime rollback. A subsequent startup reads the
+  newly saved settings. Success must not be reported for a failed application.
+- Treat an activation record that is malformed or has an unsupported format
+  version as absent, using the existing preference normalization mechanism.
+  Enter mandatory setup without adding backup recovery or a dedicated repair
+  dialog. Preserve other preference fields that can still be read normally.
+
+The pre-save validation/normalization and native apply operations must respect
+this save-before-apply ordering. Exact transport and supplemental-material
+publication details remain part of implementation design.
 
 ## 5. Decisions still required
 
@@ -227,7 +283,6 @@ accepted requirements or a fixed implementation sequence.
 
 | Group | Outstanding decisions |
 | --- | --- |
-| Persistence and recovery | Activation schema and repository; existing installations without activation records; renamed or missing profiles; missing vendor packages; apply/save failure ordering and rollback. |
 | Catalogue and runtime lifecycle | Separate native bundle versus isolated catalogue runtime; reuse while open or between openings; cancellation and loading feedback; interaction with New Project/runtime replacement and project-required vendors. |
 | UI and acceptance | Visual parity scope; partially enabled material-group display; search and select-all semantics; keyboard/accessibility behaviour; desktop sizing and deferred mobile support; measured startup, repeated-wizard and memory acceptance criteria. |
 
@@ -254,7 +309,7 @@ been implemented or built. This is bounded feasibility evidence, not feature
 acceptance or cross-host/threaded verification.
 
 Implementation verification must cover the startup vendor load set, permanent
-core/library inclusion, dependency-only vendors, JSON-only loading, reopening
+core/library inclusion, printer-derived vendor inclusion, JSON-only loading, reopening
 and cancelling the wizard, activation persistence, application failures, and
 the agreed existing-project policies. Follow the repository
 [testing guidelines](../doc/testing_guidelines.md) for unit/typecheck,
