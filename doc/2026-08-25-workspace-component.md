@@ -553,3 +553,18 @@ Validation for main CI plate-card clipping repair (2026-10-05):
 - Extended the Preview E2E journey to verify that the Slice Info G-code toggle, C shortcut, and window close button share visibility state.
 - Passed `pnpm test` (1690 tests), `pnpm typecheck`, and the focused filament assignment suite (6 tests). Built Electron with `VITE_USE_MOCK=1`, verified the compiled utility worker uses the mock, and passed the renderer CSS check.
 - Passed three focused Electron E2E journeys: full v1 flow, Preview overlay, and Select popup scroll anchoring. Native multi-filament E2E was updated but not run locally; no WASM code changed.
+
+### 2026-10-09 Multi-toolhead PR validation
+
+- `pnpm test` passed: 1,809 tests across 175 passing files, with existing
+  runtime-gated skips. `pnpm typecheck` passed across all workspace packages.
+- `scripts\build-windows.bat quick --variant serial -j 8` passed on retry.
+  The first attempt encountered a temporary Ninja recompaction permission
+  error in the local build cache; the retry required no source or cache edits.
+- `node packages/slicer-wasm/harness/printer-picker-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  passed against the rebuilt native module. Added assertions cover complete
+  mixed-nozzle profile matching, nozzle-count and order preservation, indexed
+  fallback, single history commits, stale revision rejection, and invalid
+  index rejection without vector resizing. CI runs this harness after its
+  production serial build.
+- `git diff --check` passed. PR CI validation is in progress.

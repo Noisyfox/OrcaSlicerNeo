@@ -96,7 +96,36 @@ try {
     'custom effective diameter never invents a canonical profile');
   assert.equal(customizedPicker.variants.find(item => item.value === '0.4').preset, null,
     'reactivating the source cannot silently reset its retained draft');
-  console.log('printer picker smoke OK: grouping, named/mixed variants, preserve/fallback, atomic transition, rejection, effective draft');
+  const toolheadDraft = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
+    action: 'set', kind: 'printer', canonical_name: current.printer.name,
+    expected_revision: customized.revision_after, key: 'nozzle_diameter', value: '0.4,0.4',
+  })]);
+  assert.equal(toolheadDraft.ok, true, JSON.stringify(toolheadDraft));
+  const setDiameter = (index, diameter, revision) => call('orc_set_toolhead_diameter', ['string'],
+    [JSON.stringify({ index, diameter, expected_revision: revision })]);
+  const mixed = setDiameter(1, 0.6, toolheadDraft.revision_after);
+  assert.equal(mixed.ok, true, JSON.stringify(mixed));
+  assert.equal(mixed.profile_snapshot.printer.name, 'Compatibility Alpha 0.4+0.6 nozzle');
+  assert.equal(mixed.profile_snapshot.project_config.nozzle_diameter, '0.4,0.6');
+  assert.equal(mixed.mutation.kind, 'set-toolhead-diameter');
+  assert.equal(mixed.mutation.history_entry_delta, 1);
+  assert.equal(mixed.history_status.revision, toolheadDraft.revision_after + 1);
+  const custom = setDiameter(0, 0.6, mixed.history_status.revision);
+  assert.equal(custom.ok, true, JSON.stringify(custom));
+  assert.equal(custom.profile_snapshot.printer.name, mixed.profile_snapshot.printer.name,
+    'a one-nozzle 0.6 profile cannot match a two-nozzle vector');
+  assert.equal(custom.profile_snapshot.project_config.nozzle_diameter, '0.6,0.6');
+  assert.equal(custom.mutation.history_entry_delta, 1);
+  const reversed = setDiameter(1, 0.4, custom.history_status.revision);
+  assert.equal(reversed.ok, true, JSON.stringify(reversed));
+  assert.equal(reversed.profile_snapshot.project_config.nozzle_diameter, '0.6,0.4',
+    'matching preserves toolhead order instead of sorting diameters');
+  const retained = snapshot();
+  assert.equal(setDiameter(0, 0.4, custom.history_status.revision).ok, false);
+  assert.deepEqual(snapshot(), retained, 'stale edits cannot mutate the current vector');
+  assert.equal(setDiameter(2, 0.4, reversed.history_status.revision).ok, false);
+  assert.deepEqual(snapshot(), retained, 'invalid indices cannot resize the nozzle vector');
+  console.log('printer picker smoke OK: grouping, named/mixed variants, atomic transition, toolhead exact matching, indexed fallback, stale/index rejection');
 } finally {
   await rm(root, { recursive: true, force: true });
 }
