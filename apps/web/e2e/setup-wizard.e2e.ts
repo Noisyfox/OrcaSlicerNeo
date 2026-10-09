@@ -1,0 +1,36 @@
+import playwright from '../../desktop/node_modules/@playwright/test/index.js';
+const { test, expect } = playwright;
+test('real native Web mandatory setup saves activation and next startup keeps selection without reopening wizard', async ({ page }, testInfo) => {
+  test.setTimeout(360_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
+  await page.addInitScript(() => { localStorage.removeItem('orca-slicer-neo:preferences'); });
+  await page.goto('/');
+  const wizard = page.getByTestId('setup-wizard');
+  await expect(wizard).toBeVisible({ timeout: 240_000 });
+  await expect(wizard.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 120_000 });
+  await wizard.getByLabel('Search printers', { exact: true }).fill('Ender-3 Creality');
+  await wizard.getByRole('checkbox', { name: 'Creality Ender-3', exact: true }).check();
+  await expect(wizard.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape'); await expect(wizard).toBeVisible();
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('native-setup-printers.png') });
+  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  expect(await wizard.getByRole('checkbox', { checked: true }).count()).toBeGreaterThan(0);
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('native-setup-filaments.png') });
+  await wizard.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(wizard).toBeHidden({ timeout: 120_000 }); await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await expect(page.getByTestId('preset-select')).toContainText('Creality Ender-3');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!));
+  expect(saved.profileActivation.models).toEqual([{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.2', '0.4', '0.6', '0.8'] }]);
+  expect(saved.profileActivation.filaments.length).toBeGreaterThan(0);
+  // Remove the clearing init script by opening a second page in this same context.
+  const reloaded = await page.context().newPage();
+  await reloaded.addInitScript(value => localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(value)), saved);
+  await reloaded.goto('/');
+  await expect(reloaded.getByTestId('home-page')).toBeAttached({ timeout: 240_000 });
+  await expect(reloaded.getByTestId('setup-wizard')).toHaveCount(0);
+  await reloaded.locator('#app-tab-prepare').click(); await expect(reloaded.getByTestId('preset-select')).toContainText('Creality Ender-3');
+  await expect(reloaded.getByTestId('slicer-status')).toHaveText('Ready');
+  expect(errors).toEqual([]);
+  await reloaded.close();
+});

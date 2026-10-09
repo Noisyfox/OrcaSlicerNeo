@@ -1,4 +1,5 @@
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { _electron } from './electron-fixture';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';

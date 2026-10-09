@@ -1,6 +1,6 @@
 import { installSliceReceiptObserver, readSliceReceipts } from '../../desktop/e2e/runtime-receipts';
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect } from './browser-fixture';
+
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { readZipEntries } from '../../../packages/slicer-wasm/harness/native-3mf-parser.mjs';

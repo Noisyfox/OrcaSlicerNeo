@@ -1,5 +1,5 @@
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect } from './browser-fixture';
+
 
 test('real Project process catalogue includes object and region defaults and edits Fuzzy skin', async ({ page }) => {
   await page.goto('/');

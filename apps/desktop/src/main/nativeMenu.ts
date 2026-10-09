@@ -9,12 +9,12 @@ import {
 import { isMenuCommandId, SOURCE_URL } from '../shared/ipc';
 
 const MENU_MODES = ['custom', 'native', 'browser'] as const satisfies readonly TitlebarMenuMode[];
-const BOOT_PHASES = ['starting', 'ready', 'failed'] as const;
+const BOOT_PHASES = ['starting', 'ready', 'failed', 'setup'] as const;
 const SLICER_STATUSES = ['idle', 'slicing', 'done', 'error'] as const;
 const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
 const MENU_STATE_COMMANDS = [
-  'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
+  'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences', 'setup-wizard',
   'open-configuration-folder',
   'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source', 'open-file-manager',
 ] as const;
@@ -83,7 +83,7 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
   activeTab: 'home',
   boot: { phase: 'starting', error: null },
   slicer: { status: 'idle', progress: 0, error: null },
-  scene: { hasModel: false, arranging: false },
+  scene: { hasModel: false, arranging: false, editing: false },
   result: { hasResult: false, exported: false },
   project: {
     hasContent: false,
@@ -97,6 +97,7 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
     'save-project': { enabled: false, checked: false },
     'save-project-as': { enabled: false, checked: false },
     preferences: { enabled: false, checked: false },
+    'setup-wizard': { enabled: false, checked: false },
     'add-model': { enabled: false, checked: false },
     'clear-scene': { enabled: false, checked: false },
     slice: { enabled: false, checked: false },
@@ -180,7 +181,7 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
   if (!isOneOf(APP_TABS, value.activeTab)) return null;
   if (!isRecord(value.boot) || !isOneOf(BOOT_PHASES, value.boot.phase) || (value.boot.error !== null && !isString(value.boot.error))) return null;
   if (!isRecord(value.slicer) || !isOneOf(SLICER_STATUSES, value.slicer.status) || typeof value.slicer.progress !== 'number' || !Number.isFinite(value.slicer.progress) || value.slicer.progress < 0 || value.slicer.progress > 1 || (value.slicer.error !== null && !isString(value.slicer.error))) return null;
-  if (!isRecord(value.scene) || typeof value.scene.hasModel !== 'boolean' || typeof value.scene.arranging !== 'boolean') return null;
+  if (!isRecord(value.scene) || typeof value.scene.hasModel !== 'boolean' || typeof value.scene.arranging !== 'boolean' || typeof value.scene.editing !== 'boolean') return null;
   if (!isRecord(value.result) || typeof value.result.hasResult !== 'boolean' || typeof value.result.exported !== 'boolean') return null;
   if (!isRecord(value.host) || typeof value.host.isElectron !== 'boolean' || !isOneOf(MENU_MODES, value.host.menuMode)) return null;
   if (!isRecord(value.items)) return null;
@@ -224,7 +225,7 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
     activeTab: value.activeTab,
     boot: { phase: value.boot.phase, error: value.boot.error },
     slicer: { status: value.slicer.status, progress: value.slicer.progress, error: value.slicer.error },
-    scene: { hasModel: value.scene.hasModel, arranging: value.scene.arranging },
+    scene: { hasModel: value.scene.hasModel, arranging: value.scene.arranging, editing: value.scene.editing },
     result: { hasResult: value.result.hasResult, exported: value.result.exported },
     project,
     host: { isElectron: value.host.isElectron, menuMode: value.host.menuMode },
@@ -254,11 +255,11 @@ function templateForItem(
   return {
     id: item.testId,
     label: item.label,
-    enabled: command === 'quit' || (itemState?.enabled ?? false),
+    enabled: itemState?.enabled ?? false,
     checked: itemState?.checked ?? false,
     click: () => {
       const currentState = getCurrentState();
-      if (isMenuCommandId(command) && (command === 'quit' || currentState.items[command]?.enabled)) onCommand(command);
+      if (isMenuCommandId(command) && currentState.items[command]?.enabled) onCommand(command);
     },
   };
 }

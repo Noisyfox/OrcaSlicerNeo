@@ -1,3 +1,4 @@
+import { completeSetupWizard } from '../../../../../../packages/slicer-app/src/setupWizard';
 import { describe, expect, it, vi } from 'vitest';
 import { createElectronAdapter } from './electronAdapter';
 import type { PrinterConfigurationDocument } from '@orca/printer-control';
@@ -273,7 +274,7 @@ describe('Electron adapter', () => {
   it('provides type-compatible menu and external-link placeholders', () => {
     const { adapter, menu, externalLinks } = setup();
     const model = { version: 1 as const, menuMode: 'custom' as const, menus: [] };
-    const state = { version: 1 as const, activeTab: 'home' as const, boot: { phase: 'starting' as const, error: null }, slicer: { status: 'idle' as const, progress: 0, error: null }, scene: { hasModel: false, arranging: false }, result: { hasResult: false, exported: false }, host: { isElectron: true, menuMode: 'custom' as const }, project: { hasContent: false, dirty: false, operation: { phase: 'idle' as const, progress: 0, cancellable: false } }, items: { 'new-project': { enabled: false }, 'open-project': { enabled: false }, 'save-project': { enabled: false }, 'save-project-as': { enabled: false }, preferences: { enabled: false }, 'add-model': { enabled: false }, 'clear-scene': { enabled: false }, slice: { enabled: false }, 'export-gcode': { enabled: false }, quit: { enabled: false }, 'open-source': { enabled: true }, 'open-configuration-folder': { enabled: false }, 'open-file-manager': { enabled: false } } };
+    const state = { version: 1 as const, activeTab: 'home' as const, boot: { phase: 'starting' as const, error: null }, slicer: { status: 'idle' as const, progress: 0, error: null }, scene: { hasModel: false, arranging: false, editing: false }, result: { hasResult: false, exported: false }, host: { isElectron: true, menuMode: 'custom' as const }, project: { hasContent: false, dirty: false, operation: { phase: 'idle' as const, progress: 0, cancellable: false } }, items: { 'new-project': { enabled: false }, 'open-project': { enabled: false }, 'save-project': { enabled: false }, 'save-project-as': { enabled: false }, 'setup-wizard': { enabled: false }, preferences: { enabled: false }, 'add-model': { enabled: false }, 'clear-scene': { enabled: false }, slice: { enabled: false }, 'export-gcode': { enabled: false }, quit: { enabled: false }, 'open-source': { enabled: true }, 'open-configuration-folder': { enabled: false }, 'open-file-manager': { enabled: false } } };
     adapter.menu.syncModel(model);
     adapter.menu.syncState(state);
     adapter.externalLinks.openSource();
@@ -291,13 +292,14 @@ describe('Electron adapter', () => {
     expect(menu.executeHostCommand).toHaveBeenCalledWith('quit');
   });
 
-  it('falls back to in-memory preferences when persistence fails', async () => {
+  it('keeps prior in-memory preferences after an observable persistence failure', async () => {
     const load = vi.fn(async () => { throw new Error('unavailable'); });
     const save = vi.fn(async () => { throw new Error('unavailable'); });
     const { adapter } = setup({ preferences: { load, save } });
     const value = { version: 1 as const, rememberedBedTypes: {}, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } };
-    await adapter.preferences.save(value);
-    await expect(adapter.preferences.load()).resolves.toEqual({ ...value, projectLoadBehaviour: 'ask_when_relevant', ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } });
+    const previous = await adapter.preferences.load();
+    await expect(adapter.preferences.save(value)).rejects.toThrow('unavailable');
+    await expect(adapter.preferences.load()).resolves.toEqual(previous);
   });
 
   it('round-trips complete printer configuration through the typed host API', async () => {
@@ -337,4 +339,16 @@ describe('Electron adapter', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(transport.cancel).toHaveBeenCalledWith('printer-request-2');
   });
+});
+
+it('propagates host preferences save rejection and setup cannot apply an unsaved candidate', async () => {
+ const disk = new Error('disk full');
+ const { adapter } = setup({ preferences: { load: async () => ({ found: false, json: null }), save: async () => { throw disk; } } });
+ const prefs = await adapter.preferences.load();
+ await expect(adapter.preferences.save(prefs)).rejects.toThrow('disk full');
+ const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
+ const runtime = { prepareProfileActivation: vi.fn(async () => ({ ok: true as const, activation })), applyProfileActivation: vi.fn() };
+ expect(await completeSetupWizard(runtime, adapter.preferences, activation)).toEqual({ ok: false, phase: 'save', error: 'disk full' });
+ expect(runtime.applyProfileActivation).not.toHaveBeenCalled();
+ expect((await adapter.preferences.load()).profileActivation).toBeUndefined();
 });

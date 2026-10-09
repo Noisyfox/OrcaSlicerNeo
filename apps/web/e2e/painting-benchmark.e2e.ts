@@ -1,4 +1,4 @@
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
+import { test, expect } from './browser-fixture';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { paintingBenchmarkJourney } from '../../desktop/e2e/painting-benchmark-journey';
 import { capturePaintingBenchmarkArtifacts } from '../../desktop/e2e/painting-benchmark-artifacts';
 
-const { test, expect } = playwright;
+
 const project = process.env.ORCA_PAINTING_BENCHMARK_PROJECT;
 const output = process.env.ORCA_PAINTING_BENCHMARK_OUTPUT;
 test.skip(!project || !output, 'run through scripts/run-painting-benchmark.mjs');

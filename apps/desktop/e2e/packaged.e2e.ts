@@ -1,3 +1,4 @@
+import { _electron } from './electron-fixture';
 // Packaged utility-host probes: preserve the loopback renderer origin and
 // public resources while loading the slicer module inside the utility process.
 //
@@ -6,7 +7,7 @@
 //   pnpm --filter @orca/desktop package:dir   # release/win-unpacked/ (no-mock build)
 //   pnpm exec playwright test e2e/packaged.e2e.ts
 // CI e2e-real covers the same path with the real module in the dev build.
-import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
+import { expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { copyFile, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';

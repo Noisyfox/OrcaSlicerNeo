@@ -1,3 +1,4 @@
+import { _electron } from './electron-fixture';
 // apps/desktop/e2e/slice-error.e2e.ts — the slice-error surfacing contract.
 // Real-module only (skipped in mock builds): slicing a model that libslic3r
 // rejects must surface the REAL message in the status bar, not the bare
@@ -7,7 +8,7 @@
 // Run with the real module build: ORCA_E2E_REAL=1 playwright test e2e/slice-error.e2e.ts
 // (test:e2e:real runs it in the e2e-real CI job; the default mock build
 // skips — the mock always slices successfully).
-import { _electron, test, expect, type ElectronApplication, type Page } from '@playwright/test';
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';

@@ -46,6 +46,7 @@ export const MENU_COMMAND_IDS = [
   'save-project',
   'save-project-as',
   'preferences',
+  'setup-wizard',
   'add-model',
   'clear-scene',
   'slice',

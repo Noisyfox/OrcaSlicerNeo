@@ -1,7 +1,8 @@
+import { _electron } from './electron-fixture';
 // Dedicated visible, real-WASM acceptance profile for big-proj.3mf.
 // This file is launched only by scripts/run-real-project-profile.mjs, whose
 // build uses VITE_REAL_PROJECT_PROFILE=1 and the profile-threaded WASM module.
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';

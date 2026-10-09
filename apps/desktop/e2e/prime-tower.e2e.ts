@@ -1,5 +1,6 @@
+import { _electron } from './electron-fixture';
 import { clickPlateControl } from './plate-controls.helpers';
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');

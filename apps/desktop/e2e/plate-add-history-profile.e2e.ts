@@ -1,8 +1,9 @@
+import { _electron } from './electron-fixture';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // End-to-end profile for the exact user-visible boundary: clicking Add Plate
 // until the matching Undo entry is enabled. This is intentionally real-WASM
 // only: mock timings cannot establish the cost of history model snapshots.
-import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
+import { expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';

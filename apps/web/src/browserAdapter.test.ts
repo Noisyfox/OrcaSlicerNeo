@@ -182,3 +182,11 @@ describe('browser adapter', () => {
     await expect(repository.load()).resolves.toEqual(document);
   });
 });
+
+it('propagates browser persistence rejection without publishing unsaved in-memory activation', async () => {
+ const adapter = createBrowserAdapter({} as never);
+ const original = await adapter.preferences.load();
+ vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('quota exceeded'); });
+ await expect(adapter.preferences.save({ ...original, profileActivation: { models: [], filaments: ['PLA'] } })).rejects.toThrow('quota exceeded');
+ expect((await adapter.preferences.load()).profileActivation).toEqual(original.profileActivation);
+});

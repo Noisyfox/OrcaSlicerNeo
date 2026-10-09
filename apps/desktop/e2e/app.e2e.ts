@@ -1,3 +1,4 @@
+import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { expectCurrentPlate, clickPlateControl } from './plate-controls.helpers';
 // apps/desktop/e2e/app.e2e.ts — the full v1 flow against the built app.
@@ -5,7 +6,7 @@ import { expectCurrentPlate, clickPlateControl } from './plate-controls.helpers'
 // (ORCA_E2E_REAL=1, CI e2e-real job): expects real extruder moves (G1).
 // The ORCA_E2E env contract replaces native dialogs in main (see
 // apps/desktop/src/main/index.ts) — Playwright cannot drive them.
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';

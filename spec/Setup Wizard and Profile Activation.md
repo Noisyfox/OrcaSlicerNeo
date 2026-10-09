@@ -931,6 +931,106 @@ unnecessarily showing setup or initiating an extra New Project download.
 keyboard input, hidden-selection preservation, grouped selection expansion,
 reopening, and both host entry/persistence boundaries.
 
+### Step 7 implementation and verification — 2026-10-09
+
+Implemented the shared two-page modal with existing Neo Base UI/shadcn
+components, semantic theme tokens and desktop typography. Printer cards include
+vendor, cover, model and all nozzle variants. Filament filters use the native
+catalogue's resolved grouping and explicit model/nozzle mapping; only selected
+printer resource vendors and OrcaFilamentLibrary are eligible. Printer search
+uses Orca's unordered word matching over model/vendor, while filament search
+uses Orca's name substring and `::checked` / `::unchecked` tags. Next rechecks
+default materials; bulk operations affect visible rows only.
+
+Mandatory startup branches before remembered selection/rack restoration or
+file dispatch. It has no cancellation, silently discards file intents and
+blocks workspace shortcuts. The single menu entry is disabled during editing,
+loading, slicing or saving; an idle menu-opened wizard can cancel with its
+button or Escape. Explicit disabled properties cover custom Checkbox and
+Select controls as well as the native fieldset. All menu commands are disabled
+while the modal owns the workspace.
+
+Each effect owns a serialized temporary-catalogue session. StrictMode cleanup
+waits for its own pending open, closes that owner once, and releases the next
+owner; delayed cleanup cannot close the next catalogue. Reopening rebuilds the
+catalogue, and teardown revokes image blob URLs. Application retry uses the
+already saved/prepared activation; save failure retains editable selection.
+A renderer-publication/close failure retries completion from the same receipt
+without applying native activation a second time. Electron and Web preference
+adapters now expose save failures and update their in-memory record only after
+storage succeeds.
+
+Publication uses the authoritative native profile, scoped configuration,
+filament, plate and history receipt. Changed configuration refreshes scene
+geometry and invalidates affected slices/preview/export. Candidate-only
+publication does not call invalidation or dirty-marking: native history dirty
+is authoritative, and existing SlicerStore plate-result/preview objects and
+export state remain unchanged. Unit tests assert exact receipt-object identity,
+existing project scope/content/name/dirty, cleared history, and the changed
+configuration invalidation branch. Native transition/receipt guarantees remain
+covered by Step 6's real two-plate fixture.
+
+Normal existing E2E suites now seed explicit configured activation through
+central host fixtures. Dedicated first-use tests deliberately omit it. The
+fixture reads native JSON model/preset records for real builds and does not
+introduce production fallback activation. The desktop default `test:e2e`
+command includes the new wizard test.
+
+Self-verification completed:
+
+- `pnpm --filter @orca/slicer-app test`: 125 files, 1,137 tests passed,
+  including catalogue ownership/StrictMode, grouping/search, disabled controls,
+  mandatory/menu flows, save failure, application retry and publication.
+- `pnpm --filter @orca/platform-contract test`: 40 passed;
+  `pnpm --filter @orca/desktop test`: 119 passed;
+  `pnpm --filter @orca/web test`: 38 passed. Host tests include a real
+  Electron bridge save rejection through the repository and completion helper
+  proving no application, and Web localStorage save rejection.
+- `pnpm -r typecheck`: all workspace package/host typechecks passed.
+- `pnpm --filter @orca/desktop exec electron-vite build --mode e2e` passed;
+  generated utility worker confirmed `const useMock = true`.
+  `node apps/desktop/scripts/check-renderer-css.mjs` passed.
+- `pnpm --filter @orca/desktop exec playwright test e2e/setup-wizard.e2e.ts e2e/titlebar-menu.e2e.ts e2e/utility-runtime.e2e.ts`:
+  5 passed in the final focused run. This covers first-use keyboard/file gates, default
+  rechecking, hidden selections, reopen/cancel, New Project/reload retaining
+  activation, shared menu integration and utility-runtime replacement.
+- `pnpm --filter @orca/desktop exec playwright test --config ../../apps/web/playwright.config.ts setup-wizard.e2e.ts bed-type-selector.e2e.ts`:
+  3 passed (1.2 min), using a real threaded WASM Web build staged by the
+  existing Playwright server command. First use selected Creality Ender-3,
+  persisted its explicit vendor and all variants, applied defaults, entered
+  the workspace and next startup retained selection without reopening the
+  wizard. The two existing native printer/nozzle/bed tests also passed with
+  central fixture activation. The UI test does not claim filesystem evidence
+  for excluding other vendors; Step 3's native vendor-load fixture owns that.
+- `git diff --check` passed. Step 7 changes no C++/bridge implementation,
+  native ABI or submodule pointer; native quick-builds were not repeated.
+
+Screenshot artifacts (generated test output, not tracked documents):
+
+- `apps/desktop/test-results/setup-wizard.e2e.ts-mandat-0f947--bulk-and-menu-cancellation/setup-printers.png`
+- `apps/desktop/test-results/setup-wizard.e2e.ts-mandat-0f947--bulk-and-menu-cancellation/setup-filaments.png`
+- `apps/web/test-results/setup-wizard.e2e.ts-real-n-1982f-on-without-reopening-wizard/native-setup-printers.png`
+- `apps/web/test-results/setup-wizard.e2e.ts-real-n-1982f-on-without-reopening-wizard/native-setup-filaments.png`
+
+During self-check, fixture expectations for the new menu ordering, save failure
+propagation and the actual default filament row were corrected. The initial hover-driven menu helper intermittently timed out waiting for
+a submenu, including a parent independent run. Waiting for the retiring popup
+to detach did not fully fix it (one failure in five repetitions). The wizard
+helper now exercises explicit File focus/ArrowRight keyboard submenu opening
+and asserts its visible item before selection; three repeated wizard runs
+passed, followed by the complete five-test focused run. Existing titlebar tests
+retain pointer-hover coverage. No production menu fix or proof of the hover
+failure cause is claimed. The broad pre-existing desktop/Web E2E files received fixture-import
+migration and typecheck coverage, not a full rerun of every suite. Full native
+variant/release qualification, sliced/export integration acceptance and measured
+startup/catalogue memory/performance remain Step 8 work. This self-verification
+record was independently accepted by the parent after the menu-test correction.
+The parent reran 52 shared application tests, 46 Electron adapter/menu/preload
+tests, 19 Web adapter tests and the shared application typecheck, all passing.
+The parent also independently reran the five focused desktop E2E tests and the
+real threaded Web first-use test, and visually inspected both desktop pages.
+Step 7 is accepted for commit; final integration remains Step 8 work.
+
 ### Step 8 — Integration acceptance and performance evidence
 
 During each piece, run the directly affected tests and typechecks, adding
@@ -966,7 +1066,8 @@ ported. Catalogue enumeration and activation must not reset the live project
 through `orc_init()`, which clears project-related runtime state and history.
 The staged preparation and save-before-apply mechanism is implemented in
 Step 5, with existing-project transition verification completed in Step 6.
-Shared wizard publication and entry gating remain Step 7 work.
+Shared wizard publication and entry gating are implemented in Step 7; its
+verification record above includes independent parent acceptance.
 
 Existing serial-WASM exploration established that root JSON and directory
 symlinks permit native vendor loading, that unlinked resource vendors do not

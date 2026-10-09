@@ -1,7 +1,7 @@
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect } from './browser-fixture';
+
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve, dirname } from 'node:path';

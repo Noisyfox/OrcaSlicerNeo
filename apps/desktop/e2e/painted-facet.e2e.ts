@@ -1,4 +1,5 @@
-import { _electron, expect, test } from '@playwright/test';
+import { _electron } from './electron-fixture';
+import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');

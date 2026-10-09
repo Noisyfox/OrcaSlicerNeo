@@ -8,7 +8,7 @@ function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapsh
     activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
-    scene: { hasModel: false, arranging: false },
+    scene: { hasModel: false, arranging: false, editing: false },
     result: { hasResult: false, exported: false },
     project: { hasContent: overrides.scene?.hasModel ?? false, dirty: false,
       operation: { phase: 'idle', progress: 0, cancellable: false } },
@@ -37,8 +37,8 @@ function stateFor(snapshot: ReturnType<typeof buildMenuStateSnapshot>, command: 
 describe('buildMenuModel', () => {
   it('disables editing and new task commands during arrangement on every host', () => {
     for (const chrome of [web, windows, linux, mac]) {
-      const state = buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: true }, result: { hasResult: true, exported: false } }), chrome);
-      for (const command of ['new-project', 'open-project', 'save-project', 'save-project-as', 'preferences', 'add-model', 'clear-scene', 'slice', 'export-gcode'] as const)
+      const state = buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: true, editing: false }, result: { hasResult: true, exported: false } }), chrome);
+      for (const command of ['new-project', 'open-project', 'save-project', 'save-project-as', 'setup-wizard', 'preferences', 'add-model', 'clear-scene', 'slice', 'export-gcode'] as const)
         expect(state.items[command].enabled).toBe(false);
     }
   });
@@ -55,7 +55,7 @@ describe('buildMenuModel', () => {
     expect(model.menus.map((menu) => menu.label)).toEqual(['File', 'Help']);
     expect(menuItems(model, 'File').map((item) => item.label)).toEqual([
       'Add Model', 'Clear Scene', 'Slice', 'Export G-code', '', 'New Project', 'Open Project…',
-      'Save Project', 'Save Project As…', 'Preferences…', '', 'Exit',
+      'Save Project', 'Save Project As…', 'Setup Wizard…', 'Preferences…', '', 'Exit',
     ]);
     expect(menuItems(model, 'Help').map((item) => item.label)).toEqual(['Show Configuration Folder', 'File Manager…', '', 'AGPL-3.0 source']);
     expect(model.menus.flatMap((menu) => menu.items).every((item) => !('enabled' in item))).toBe(true);
@@ -85,7 +85,7 @@ describe('buildMenuModel', () => {
     expect(stateFor(empty, 'slice').enabled).toBe(false);
     expect(stateFor(empty, 'export-gcode').enabled).toBe(false);
 
-    const withModel = buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: false } }), web);
+    const withModel = buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: false, editing: false } }), web);
     expect(stateFor(withModel, 'clear-scene').enabled).toBe(true);
     expect(stateFor(withModel, 'slice').enabled).toBe(true);
   });
@@ -96,7 +96,7 @@ describe('buildMenuModel', () => {
     ['preview', false, false, true],
     ['device', false, false, false],
   ] as const)('applies the active-tab policy on %s', (activeTab, addModel, clearScene, slice) => {
-    const state = buildMenuStateSnapshot(input({ activeTab, scene: { hasModel: true, arranging: false } }), web);
+    const state = buildMenuStateSnapshot(input({ activeTab, scene: { hasModel: true, arranging: false, editing: false } }), web);
     expect(stateFor(state, 'add-model').enabled).toBe(addModel);
     expect(stateFor(state, 'clear-scene').enabled).toBe(clearScene);
     expect(stateFor(state, 'slice').enabled).toBe(slice);
@@ -106,7 +106,7 @@ describe('buildMenuModel', () => {
     for (const activeTab of ['home', 'prepare', 'preview', 'device'] as const) {
       const state = buildMenuStateSnapshot(input({
         activeTab,
-        scene: { hasModel: true, arranging: false },
+        scene: { hasModel: true, arranging: false, editing: false },
         slicer: { status: 'done', progress: 100, error: null },
         result: { hasResult: true, exported: false },
       }), web);
@@ -116,7 +116,7 @@ describe('buildMenuModel', () => {
 
   it('disables all four slicing-period commands and gates export on completed result', () => {
     const slicing = buildMenuStateSnapshot(input({
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
       result: { hasResult: true, exported: false },
       slicer: { status: 'slicing', progress: 50, error: null },
     }), web);
@@ -125,7 +125,7 @@ describe('buildMenuModel', () => {
     ]);
 
     const threaded = buildMenuStateSnapshot(input({
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
       result: { hasResult: true, exported: false },
       slicer: { status: 'slicing', progress: 50, error: null, threaded: true },
     }), web);
@@ -133,11 +133,11 @@ describe('buildMenuModel', () => {
       true, true, false, false,
     ]);
 
-    const incomplete = buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: false }, result: { hasResult: true, exported: false } }), web);
+    const incomplete = buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: false, editing: false }, result: { hasResult: true, exported: false } }), web);
     expect(stateFor(incomplete, 'export-gcode').enabled).toBe(false);
 
     const completed = buildMenuStateSnapshot(input({
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
       slicer: { status: 'done', progress: 100, error: null },
       result: { hasResult: true, exported: false },
     }), web);
@@ -151,7 +151,7 @@ describe('buildMenuModel', () => {
     // the all-disabled startup state, so a completed slice (progress 100)
     // must project to exactly 1 or the native menu never re-enables.
     const completed = buildMenuStateSnapshot(input({
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
       slicer: { status: 'done', progress: 100, error: null },
       result: { hasResult: true, exported: false },
     }), mac);
@@ -160,7 +160,7 @@ describe('buildMenuModel', () => {
     expect(stateFor(completed, 'export-gcode').enabled).toBe(true);
 
     const midSlice = buildMenuStateSnapshot(input({
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
       slicer: { status: 'slicing', progress: 50, error: null },
     }), mac);
     expect(midSlice.slicer.progress).toBe(0.5);
@@ -187,10 +187,10 @@ describe('buildMenuModel', () => {
   });
 
   it('returns a complete state table separately from the static model', () => {
-    const raw = input({ scene: { hasModel: true, arranging: false } });
+    const raw = input({ scene: { hasModel: true, arranging: false, editing: false } });
     const states = deriveMenuItemStates(raw, web);
     expect(Object.keys(states).sort()).toEqual([
-      'add-model', 'clear-scene', 'export-gcode', 'new-project', 'open-configuration-folder', 'open-file-manager', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
+      'add-model', 'clear-scene', 'export-gcode', 'new-project', 'open-configuration-folder', 'open-file-manager', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'setup-wizard', 'slice',
     ]);
     expect(states['open-source'].checked).toBe(false);
     expect(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus).toEqual(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus);
@@ -208,7 +208,7 @@ describe('buildMenuModel', () => {
     const model = buildMenuModel(state, web);
     expect(model.menus[0].items.map((entry) => entry.command).filter(Boolean)).toEqual([
       'add-model', 'clear-scene', 'slice', 'export-gcode',
-      'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
+      'new-project', 'open-project', 'save-project', 'save-project-as', 'setup-wizard', 'preferences',
     ]);
     expect(state.items['new-project'].enabled).toBe(true);
     expect(state.items['save-project'].enabled).toBe(false);
@@ -222,9 +222,9 @@ describe('buildMenuModel', () => {
         dirty: true,
         operation: { phase: 'waiting-for-load-choice', progress: 0, cancellable: false },
       },
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
     }), web);
-    for (const command of ['new-project', 'open-project', 'save-project', 'save-project-as', 'preferences', 'add-model', 'clear-scene', 'slice'] as const) {
+    for (const command of ['new-project', 'open-project', 'save-project', 'save-project-as', 'setup-wizard', 'preferences', 'add-model', 'clear-scene', 'slice'] as const) {
       expect(state.items[command].enabled).toBe(false);
     }
   });
@@ -236,9 +236,18 @@ describe('buildMenuModel', () => {
         dirty: true,
         operation: { phase: 'model-import', progress: 0.5, cancellable: false },
       },
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
     }), web);
     expect(state.items['add-model'].enabled).toBe(false);
     expect(state.items['clear-scene'].enabled).toBe(false);
   });
+});
+
+it('blocks the complete menu during setup and disables wizard admission while editing or slicing', () => {
+ const modal = buildMenuStateSnapshot(input({ boot: { phase: 'setup', error: null } }), windows);
+ expect(Object.values(modal.items).every(item => !item.enabled)).toBe(true);
+ expect(buildMenuModel(modal, windows).menus.flatMap(menu => menu.items).filter(item => item.command === 'setup-wizard')).toHaveLength(1);
+ expect(buildMenuStateSnapshot(input({ scene: { hasModel: true, arranging: false, editing: true } }), windows).items['setup-wizard'].enabled).toBe(false);
+ expect(buildMenuStateSnapshot(input({ slicer: { status: 'slicing', progress: 0, error: null, threaded: true } }), windows).items['setup-wizard'].enabled).toBe(false);
+ expect(buildMenuStateSnapshot(input(), windows).items['setup-wizard'].enabled).toBe(true);
 });

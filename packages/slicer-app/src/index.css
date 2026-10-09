@@ -445,3 +445,7 @@
 @keyframes exit {
   to { opacity: 0; }
 }
+
+/* Setup uses desktop control typography and a bounded scrollable body. */
+.setup-wizard { height: min(720px, calc(100dvh - 48px)); width: min(900px, calc(100dvw - 32px)); font-size: var(--text-xs); }
+.setup-wizard [data-slot="field-label"], .setup-wizard [data-slot="input"], .setup-wizard [data-slot="dialog-description"] { font-size: var(--text-xs); }

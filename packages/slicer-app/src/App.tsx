@@ -43,9 +43,13 @@ import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppE2eProbe } from './e2e/AppE2eProbe';
 import { FileManagerWindow } from './components/fileManager/FileManagerWindow';
-import { PaintingProvider } from './components/workspace/viewport/gizmo/painting/PaintingProvider';
+import { usePaintingPhase, PaintingProvider } from './components/workspace/viewport/gizmo/painting/PaintingProvider';
 import { useArrangementStore } from './stores/useArrangementStore';
 import { ArrangementEditBoundary } from './components/workspace/ArrangementEditBoundary';
+import { useSetupWizardStore } from './stores/useSetupWizardStore';
+import { SetupWizard } from './components/project/SetupWizard';
+import { publishSetupWizardApplication } from './setupWizardPublication';
+import type { SetupCompletionResult } from './setupWizard';
 import { ArrangementStatus } from './components/workspace/arrangement/ArrangementControls';
 
 declare const __ORCA_E2E__: boolean;
@@ -71,6 +75,11 @@ export default function App() {
 }
 
 function AppContent() {
+  const paintingPhase = usePaintingPhase();
+  const mutationPending = useProjectStore(s => s.projectMutationPendingCount);
+  const historyTransaction = useHistoryNavigationStore(s => s.status?.activeTransactionId);
+  const filamentPending = useFilamentSessionStore(s => s.pendingKind);
+  const historyRestoring = useHistoryRestoreStore(s => s.phase !== 'idle');
   const arranging = useArrangementStore(state => state.active);
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
@@ -95,6 +104,11 @@ function AppContent() {
     operation: s.operation,
   })));
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
+  const [workspaceEditing, setWorkspaceEditing] = useState(false);
+  const [setup, setSetup] = useState<'mandatory' | 'menu' | null>(null);
+  const setupRef = useRef(setup);
+  setupRef.current = setup;
+  useLayoutEffect(() => { useSetupWizardStore.getState().setActive(setup !== null); return () => useSetupWizardStore.getState().setActive(false); }, [setup]);
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState('Loading preferences...');
   const [activeTab, setActiveTab] = useState<AppTab>('home');
@@ -142,7 +156,7 @@ function AppContent() {
   const projectLoadReceiptRef = useRef<ProjectLoadReceipt | null>(null);
   const previewTransitionRef = useRef<PreviewRenderTransition | null>(null);
   const handleTabChange = useCallback((tab: AppTab) => {
-    if (!paintingCommandAllowed()) return;
+    if (setupRef.current || !paintingCommandAllowed()) return;
     const request = ++navigationRequest.current;
     const navigate = () => {
       if (request !== navigationRequest.current) return;
@@ -281,12 +295,12 @@ function AppContent() {
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,
     activeTab,
-    boot: { phase: boot, error: bootError },
+    boot: { phase: setup ? 'setup' : boot, error: bootError },
     slicer: {
       status, progress, error: slicerError,
       threaded: platform.runtime.getRuntimeExecutionState?.().threaded ?? null,
     },
-    scene: { hasModel: modelLoaded, arranging },
+    scene: { hasModel: modelLoaded, arranging, editing: workspaceEditing || paintingPhase !== 'closed' || mutationPending > 0 || !!historyTransaction || !!filamentPending || historyRestoring || dialog !== null },
     result: { hasResult: status === 'done', exported: resultExported },
     project: {
       hasContent: projectState.hasContent,
@@ -304,6 +318,7 @@ function AppContent() {
     },
   }, platform.chrome), [
     boot,
+    setup,
     activeTab,
     bootError,
     modelLoaded,
@@ -313,7 +328,7 @@ function AppContent() {
     slicerError,
     status,
     projectState,
-    arranging,
+    workspaceEditing, arranging, paintingPhase, mutationPending, historyTransaction, filamentPending, historyRestoring, dialog,
   ]);
   const menuModel = useMemo(
     () => buildMenuModel(menuState, platform.chrome),
@@ -329,6 +344,10 @@ function AppContent() {
       saveProject: () => runSaveProject(false),
       saveProjectAs: () => runSaveProject(true),
       preferences: openPreferences,
+      setupWizard: async () => {
+        if (paintingSessionActive() || sceneInteractionRef.current?.activeDrag || useProjectStore.getState().projectMutationPendingCount) return;
+        setFileManagerOpen(false); setSetup('menu');
+      },
       addModel: async () => { await addModel(platform, sceneInteractionRef.current, handleModelAdded); },
       clearScene: () => clearScene(platform, sceneInteractionRef.current),
       slice: requestPreviewSlice,
@@ -374,7 +393,7 @@ function AppContent() {
     const onHistoryKeyDown = (event: KeyboardEvent) => {
       // Project history is an editing operation. Preview/Device/Home retain
       // their own interaction semantics and must not consume this shortcut.
-      if (!isPrepareTab(activeTab) || isEditableHistoryTarget(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (setupRef.current || !isPrepareTab(activeTab) || isEditableHistoryTarget(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
       const action = historyShortcutAction(event);
       if (!action) return;
       const coordinator = historyRestoreCoordinatorRef.current;
@@ -402,7 +421,7 @@ function AppContent() {
       historyRestoreCoordinator={historyRestoreCoordinator}
       projectName={projectState.projectName}
       projectDirty={projectState.dirty}
-      navigationDisabled={boot !== 'ready'}
+      navigationDisabled={boot !== 'ready' || setup !== null}
       leftSidebarVisible={leftSidebarVisible}
       rightSidebarVisible={rightSidebarVisible}
       onToggleLeftSidebar={() => toggleSidebar('left')}
@@ -460,6 +479,14 @@ function AppContent() {
         const nativeScopedConfig = await platform.runtime.getNativeScopedConfig();
         if (!nativeScopedConfig.ok || nativeScopedConfig.nativeScopedConfig.kind !== 'full')
           throw new Error(nativeScopedConfig.ok ? 'boot scoped configuration is not a full snapshot' : nativeScopedConfig.error);
+        setMetadata(metadata);
+        if (init.setupRequired) {
+          // No saved selection/rack restoration before mandatory setup.
+          if (applyNativeScopedConfigTransport(nativeScopedConfig.nativeScopedConfig) === 'stale')
+            throw new Error('initial scoped configuration snapshot was stale');
+          setSetup('mandatory');
+          return;
+        }
         setBootProgress('Restoring profile selections...');
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
@@ -529,6 +556,7 @@ function AppContent() {
   // policy, choice, dirty protection, and compatibility handling are shared
   // with File > Open Project.
   const handleDroppedProjectFiles = useCallback(async (files: File[]) => {
+    if (setupRef.current || boot !== 'ready') return;
     try {
       const dropped = platform.projects.openDropped
         ? await platform.projects.openDropped(files)
@@ -544,8 +572,9 @@ function AppContent() {
     } catch (error) {
       reportProjectFailure({ status: 'failed', error });
     }
-  }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+  }, [boot, chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const handleDroppedModelFiles = useCallback(async (files: File[]) => {
+    if (setupRef.current || boot !== 'ready') return;
     try {
       await addDroppedModels(platform, sceneInteractionRef.current, () => Promise.all(files.map(async (file) => ({
         displayName: file.name,
@@ -555,9 +584,8 @@ function AppContent() {
       useSlicerStore.getState().setError(errorText(error));
       console.error('dropped model import failed:', error);
     }
-  }, [handleModelAdded, platform]);
+  }, [boot, handleModelAdded, platform]);
   useEffect(() => {
-    if (boot !== 'ready') return;
     // Capture file drops before nested object-list handlers can stop
     // propagation for their own text-based reorder gestures.
     return registerProjectDropHandlers(document, {
@@ -565,6 +593,24 @@ function AppContent() {
       onModelDrop: handleDroppedModelFiles,
     });
   }, [boot, handleDroppedModelFiles, handleDroppedProjectFiles]);
+
+  const handleSetupApplied = useCallback(async (result: Extract<SetupCompletionResult, { ok: true }>) => {
+    await publishSetupWizardApplication(platform, result);
+  }, [platform]);
+  const setupWizard = setup ? <SetupWizard platform={platform} mandatory={setup === 'mandatory'}
+    onApplied={handleSetupApplied} onClose={() => { if (setup === 'mandatory') setBoot('ready'); setSetup(null); }} /> : null;
+  useEffect(() => {
+    if (!setup) return;
+    const guard = (event: KeyboardEvent) => {
+      const target = event.target;
+      const inside = target instanceof Element && !!target.closest('[data-testid="setup-wizard"], [data-slot="select-content"]');
+      if (!inside || ((event.ctrlKey || event.metaKey) && ['n', 'o', 's', 'z', 'y'].includes(event.key.toLowerCase()))) {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+    };
+    document.addEventListener('keydown', guard, true);
+    return () => document.removeEventListener('keydown', guard, true);
+  }, [setup]);
 
   const appE2eProbe = __ORCA_E2E__
     ? <AppE2eProbe platform={platform} projectLoadReceiptRef={projectLoadReceiptRef} />
@@ -601,6 +647,7 @@ function AppContent() {
           </main>
         </div>
         {fileManagerWindow}
+        {setupWizard}
       </>
     );
   }
@@ -617,7 +664,7 @@ function AppContent() {
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}
-        workspace={<Workspace leftSidebarVisible={leftSidebarVisible} rightSidebarVisible={rightSidebarVisible} actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        workspace={<Workspace leftSidebarVisible={leftSidebarVisible} rightSidebarVisible={rightSidebarVisible} actionControls={<SliceButton activeTab={workspaceTab} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />} activeTab={workspaceTab} onEditingSessionChange={setWorkspaceEditing} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
       />
@@ -660,6 +707,7 @@ function AppContent() {
       </ArrangementEditBoundary>
       {fileManagerWindow}
       <ArrangementStatus />
+      {setupWizard}
     </>
   );
 }

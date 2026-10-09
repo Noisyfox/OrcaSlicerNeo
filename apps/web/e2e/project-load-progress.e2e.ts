@@ -1,5 +1,5 @@
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect } from './browser-fixture';
+
 import { existsSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { waitForProjectLoad } from '../../desktop/e2e/project-menu';

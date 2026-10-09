@@ -131,9 +131,9 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
         return inMemory;
       },
       async save(value) {
-        inMemory = normalizeUserPreferences(value);
-        try { localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(inMemory)); }
-        catch (error) { console.error('web preferences save failed; keeping in-memory preferences', error); }
+        const normalized = normalizeUserPreferences(value);
+        localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(normalized));
+        inMemory = normalized;
       },
     },
     printers: { configuration: printerConfiguration, transport: createBrowserPrinterTransport() },

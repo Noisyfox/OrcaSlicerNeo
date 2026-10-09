@@ -1,8 +1,9 @@
+import { _electron } from './electron-fixture';
 // Focused cross-host project lifecycle coverage. The renderer is built with
 // VITE_USE_MOCK=1 by the desktop E2E command, so these tests exercise the
 // actual Electron IPC/preload/adapter/shared-action boundary without a native
 // WASM dependency.
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';

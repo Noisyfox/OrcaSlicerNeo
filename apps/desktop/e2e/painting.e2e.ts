@@ -1,4 +1,5 @@
-import { _electron, expect, test } from '@playwright/test';
+import { _electron } from './electron-fixture';
+import { expect, test } from '@playwright/test';
 import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';

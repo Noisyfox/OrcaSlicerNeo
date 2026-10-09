@@ -1,11 +1,11 @@
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
+import { test, expect } from './browser-fixture';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { test, expect } = playwright;
+
 const here = dirname(fileURLToPath(import.meta.url));
 const artifacts = resolve(here, '../../../packages/slicer-wasm/out/threaded');
 

@@ -1,3 +1,4 @@
+import { useSetupWizardStore } from '@/stores/useSetupWizardStore';
 // packages/slicer-app/src/components/viewport/Viewport.tsx
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
@@ -197,6 +198,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   useEffect(() => {
     if (!sceneInteraction || previewTab) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (useSetupWizardStore.getState().active) return;
       if (painting?.active) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
@@ -227,6 +229,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
   useEffect(() => {
     if (!sceneInteraction || !previewTab) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (useSetupWizardStore.getState().active) return;
       const target = event.target as HTMLElement | null;
       if (!previewViewportOwnsKeyboardFocus(target, viewportRef.current, document.activeElement)) return;
       if (!isPreviewInspectionKey(event.key)) return;

@@ -25,7 +25,7 @@ function state(chrome: PlatformChrome): MenuStateSnapshot {
     activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
-    scene: { hasModel: true, arranging: false },
+    scene: { hasModel: true, arranging: false, editing: false },
     result: { hasResult: false, exported: false },
     project: { hasContent: true, dirty: true, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: chrome.kind === 'desktop', menuMode: chrome.menuMode },

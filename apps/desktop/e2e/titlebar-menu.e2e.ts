@@ -1,7 +1,8 @@
+import { _electron } from './electron-fixture';
 // Cross-host menu contract exercised through the shared Electron titlebar.
 // This intentionally uses the existing mock bridge so the test proves the
 // renderer/host boundary without requiring a real WASM build.
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';

@@ -1,7 +1,8 @@
+import { _electron } from './electron-fixture';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // Real-WASM profile for the user-visible object-move boundary: completing one
 // canvas drag until its matching Undo Move entry is enabled.
-import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
+import { expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { basename, join, resolve } from 'node:path';

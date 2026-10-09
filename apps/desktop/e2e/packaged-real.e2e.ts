@@ -1,8 +1,9 @@
+import { _electron } from './electron-fixture';
 // Real packaged Step8 acceptance. This file is intentionally separate from
 // packaged.e2e.ts: the latter uses the tiny JS bridge stub for a fast asset and
 // failure probe, while this spec must be run only after staging the current
 // dual real artifacts with `node scripts/stage.mjs`.
-import { _electron, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { join, resolve } from 'node:path';

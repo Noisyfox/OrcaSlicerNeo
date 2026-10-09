@@ -1,10 +1,11 @@
+import { _electron } from './electron-fixture';
 // macOS native application menu: the File/Help menu is installed by main
 // (createNativeMenuController) and the renderer syncs enabled/disabled state
 // through the shared snapshot. Uses the mock module, which drives progress
 // 0-100 like the real bridge — the regression trigger for the completed-slice
 // re-enable bug. Runs only on darwin; other platforms run the custom titlebar
 // menu (covered by titlebar-menu.e2e.ts).
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';

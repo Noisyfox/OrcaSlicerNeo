@@ -128,6 +128,7 @@ function capturePrimeTowerProjectionInputs(glVolumes: ReadonlyArray<{ id: string
 export function Workspace({
   activeTab = 'prepare',
   onSceneInteractionChange,
+  onEditingSessionChange,
   onSliceCoordinatorChange,
   onHistoryRestoreCoordinatorChange,
   onRequestPreview,
@@ -144,6 +145,7 @@ export function Workspace({
   rightSidebarVisible: boolean;
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
+  onEditingSessionChange?: (active: boolean) => void;
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
   onSliceCoordinatorChange?: (coordinator: WorkspaceSliceCoordinator | null) => void;
   onHistoryRestoreCoordinatorChange?: (coordinator: HistoryRestoreCoordinator | null) => void;
@@ -159,6 +161,7 @@ export function Workspace({
   const painting = usePaintingController();
   const paintingPhase = usePaintingPhase();
   const [presetEditorTarget, setPresetEditorTarget] = useState<PresetDraftTarget | null>(null);
+  useEffect(() => { onEditingSessionChange?.(presetEditorTarget !== null); return () => onEditingSessionChange?.(false); }, [onEditingSessionChange, presetEditorTarget]);
   const [presetEditorSnapshot, setPresetEditorSnapshot] = useState<PresetDraftSnapshot | null>(null);
   const [presetEditorLoading, setPresetEditorLoading] = useState(false);
   const [presetEditorRefreshing, setPresetEditorRefreshing] = useState(false);

@@ -13,6 +13,7 @@ export type MenuCommandId =
   | 'save-project'
   | 'save-project-as'
   | 'preferences'
+  | 'setup-wizard'
   | 'add-model'
   | 'clear-scene'
   | 'slice'
@@ -44,7 +45,7 @@ export interface MenuModel {
   menus: readonly MenuGroup[];
 }
 
-export type MenuBootPhase = 'starting' | 'ready' | 'failed';
+export type MenuBootPhase = 'starting' | 'ready' | 'failed' | 'setup';
 export type MenuSlicerStatus = 'idle' | 'slicing' | 'done' | 'error';
 
 export interface MenuItemState {
@@ -76,6 +77,7 @@ export interface MenuStateSnapshot {
   scene: {
     hasModel: boolean;
     arranging: boolean;
+    editing: boolean;
   };
   result: {
     hasResult: boolean;

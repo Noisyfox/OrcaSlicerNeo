@@ -48,6 +48,7 @@ export function buildMenuModel(
     item('file-open-project', 'Open Project…', 'open-project'),
     item('file-save-project', 'Save Project', 'save-project'),
     item('file-save-project-as', 'Save Project As…', 'save-project-as'),
+    item('file-setup-wizard', 'Setup Wizard…', 'setup-wizard'),
     item('file-preferences', 'Preferences…', 'preferences'),
   );
 
@@ -90,6 +91,7 @@ export function deriveMenuItemStates(
 ): MenuItemStates {
   const project = snapshot.project;
   const ready = snapshot.boot.phase === 'ready';
+  const modal = snapshot.boot.phase === 'setup';
   const slicing = snapshot.slicer.status === 'slicing';
   const serialSlicing = slicing && snapshot.slicer.threaded !== true;
   const hasCompletedResult = snapshot.result.hasResult && snapshot.slicer.status === 'done';
@@ -109,16 +111,17 @@ export function deriveMenuItemStates(
     'save-project': state(projectActionsEnabled && project.hasContent && project.dirty),
     'save-project-as': state(projectActionsEnabled && project.hasContent),
     preferences: state(projectActionsEnabled),
+    'setup-wizard': state(taskActionsEnabled && !snapshot.scene.editing),
     'add-model': state(editActionsEnabled && prepareTab),
     'clear-scene': state(editActionsEnabled && prepareTab && snapshot.scene.hasModel),
     'slice': state(taskActionsEnabled && workspaceTab && snapshot.scene.hasModel && !hasCompletedResult),
     'export-gcode': state(ready && !slicing && hasCompletedResult && !snapshot.scene.arranging),
-    'quit': state(electron),
-    'open-configuration-folder': state(electron),
-    'open-source': state(true),
+    'quit': state(electron && !modal),
+    'open-configuration-folder': state(electron && !modal),
+    'open-source': state(!modal),
     // Filesystem inspection is the recovery surface for startup diagnostics;
     // unlike project and model operations it remains available before init.
-    'open-file-manager': state(true),
+    'open-file-manager': state(!modal),
   };
   return states;
 }

@@ -1,5 +1,5 @@
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect } from './browser-fixture';
+
 
 test('Web color favorites survive reload and expose alpha/gradient entries', async ({ page }) => {
   const hidden = [{ kind: 'solid', color: '#11223380' },
