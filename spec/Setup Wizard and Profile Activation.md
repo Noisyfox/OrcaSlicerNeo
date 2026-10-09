@@ -4,7 +4,8 @@
 
 **Status:** Major specification; resource, product, session, and UI policies
 accepted through interactive clarification. Step 1 contracts and persistence
-are implemented; native catalogue/application and the UI remain pending.
+are implemented. Step 2 JSON-only vendor loading is implemented and
+self-verified; native catalogue/application and the UI remain pending.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -81,7 +82,7 @@ its lifetime and interaction rules are defined below.
 
 Disable `.opc` vendor-cache reads, generation, and cache-only vendor discovery
 through a Neo WASM compile-time macro in both serial and threaded builds.
-The macro name and exact implementation are not yet fixed. Native desktop
+The policy macro is `NEO_DISABLE_VENDOR_CACHE`. Native desktop
 Orca behaviour remains unaffected when the macro is absent.
 
 Ship complete source JSON profile resources; this policy does not support
@@ -431,6 +432,59 @@ introduce a patch-based adaptation for this work.
 and an existing `.opc` cannot make an unlinked vendor loadable. Run the affected
 native quick build and focused smoke; prove both variants before handoff.
 
+### Step 2 implementation and verification — 2026-10-09
+
+The intentional core adaptation is on submodule branch
+`dev/setup-wizard-no-vendor-cache`, based on pinned commit
+`9d3118b7a406a4e44d5344ae69c084f01d72e772`. Independently accepted submodule
+commit: `b5dd4979cfce248e88a547c3dcddb6eb6e3132cc`; the superproject explicitly
+pins this adaptation.
+
+`NEO_DISABLE_VENDOR_CACHE=1` is applied by the WASM CMake scaffold to
+`PresetBundle.cpp`, `PresetCacheFormat.cpp`, and `utils.cpp` in both variants.
+Source-scoped definitions keep the policy within the discovery/loading/IO
+translation units without rebuilding unrelated core files. Load planning and
+vendor reads force caching off, the five vendor-cache IO entry points compile
+to disabled results, and vendor discovery/installation requires source JSON.
+The macro-off conditional source text is equivalent to the pinned base after
+ignoring whitespace; native desktop runtime validation is not claimed.
+
+The real `vendor-cache-disabled-smoke.mjs` installs deterministic fixture JSON
+under `/profiles`, links the vendor roots/directories into `/system`, and
+checks successful JSON loading, no generated cache, no native cache opens,
+malformed JSON rejection despite a valid cache, and cache-only vendor
+exclusion after unlinking the root and directory. It preserves the raw source.
+The 4,308-byte frozen cache fixture was generated using the pre-policy serial
+artifact at the pinned core revision. A baseline positive control loaded both
+Compatibility Alpha and Compatibility Beta after its root JSON was removed.
+Its SHA-256 is
+`cb912535465ee7d3affb905b5c61820a76097dd0ed90651da839af9e3bebdd14`.
+If the upstream cache format changes, regenerate the positive-control fixture
+and verify that it loads before using it to prove rejection.
+
+Self-verification:
+
+- `scripts\build-windows.bat quick --variant serial -j 4`: passed.
+- `scripts\build-windows.bat quick --variant threaded -j 4`: passed.
+- `pnpm --filter @orca/slicer-wasm vendor-cache-disabled-smoke`: passed.
+- `pnpm --filter @orca/slicer-wasm vendor-cache-disabled-smoke:threaded`: passed.
+- `scripts\build-windows.bat smoke --variant serial`: passed (slice, bridge,
+  DRC, STEP).
+- `scripts\build-windows.bat smoke --variant threaded`: passed (slice, bridge,
+  DRC, STEP).
+- `pnpm --filter @orca/slicer-wasm test`: 380 tests passed.
+- `pnpm --filter @orca/slicer-wasm typecheck`: passed.
+- Both build trees contain the macro on exactly the three intended source
+  compile rules. Macro-off conditional-text equivalence: passed.
+- Superproject and submodule `git diff --check`: passed.
+
+Build output contains existing Boost macro/deprecation warnings and the
+threaded memory-growth warning. No native desktop build or host E2E is run:
+this piece changes WASM vendor policy, with no application/UI changes. Parent
+independent acceptance reran both variant quick builds and both real
+cache-disabled harnesses successfully, reviewed all three native diffs and
+the build definitions, and confirmed the macro-off paths retain desktop logic.
+
 ### Step 3 — Resource layout and activation-aware startup
 
 Change profile installation so core extracts directly into `/system` and all
@@ -594,8 +648,8 @@ Existing serial-WASM exploration established that root JSON and directory
 symlinks permit native vendor loading, that unlinked resource vendors do not
 appear in startup printer candidates, and that removing links retains source
 files. It also demonstrated that generated `.opc` files can keep a vendor
-loadable after its links are removed. The cache macro is accepted but has not
-been implemented or built. This is bounded feasibility evidence, not feature
+loadable after its links are removed. The cache macro is now implemented and built in both WASM variants;
+the Step 2 record above contains the bounded verification evidence. This is bounded feasibility evidence, not feature
 acceptance or cross-host/threaded verification.
 
 Implementation verification must cover the startup vendor load set, permanent

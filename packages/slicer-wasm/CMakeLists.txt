@@ -140,6 +140,15 @@ file(GLOB STUB_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/stubs/*.cpp")
 
 add_library(slic3r_core STATIC ${LIBSLIC3R_SRC} ${STUB_SRC})
 
+# MEMFS resets on each run. Neo uses source JSON only in both WASM variants.
+# Scope the policy to the three TUs that discover, plan, or perform cache IO.
+set_source_files_properties(
+  "${LIBSLIC3R_ROOT}/PresetBundle.cpp"
+  "${LIBSLIC3R_ROOT}/PresetCacheFormat.cpp"
+  "${LIBSLIC3R_ROOT}/utils.cpp"
+  PROPERTIES COMPILE_DEFINITIONS NEO_DISABLE_VENDOR_CACHE=1
+)
+
 if(WASM_THREADING)
   # Real oneTBB must precede the generic compatibility shim. The shim still
   # supplies the Boost.Thread compatibility surface, plus libnoise/libjpeg
