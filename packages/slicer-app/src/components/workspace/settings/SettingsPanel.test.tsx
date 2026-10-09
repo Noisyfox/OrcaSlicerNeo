@@ -208,6 +208,20 @@ async function selectOption(container: HTMLElement, triggerId: string, name: str
 describe('SettingsPanel preset transitions', () => {
   let roots: Root[] = [];
 
+  it('rejects mounting before the required profile snapshot is initialized', async () => {
+    resetStores();
+    useSettingsStore.setState({ printerPicker: null });
+    const { platform } = makePlatform(async () => resolvedSnapshot);
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await expect(act(async () => {
+      root.render(<PlatformProvider value={platform}><SettingsPanel sceneInteraction={null} /></PlatformProvider>);
+    })).rejects.toThrow('SettingsPanel requires an initialized profile snapshot');
+    expect(container.querySelector('[data-testid="preset-select"]')).toBeNull();
+  });
+
   afterEach(() => {
     roots.forEach((root) => root.unmount());
     roots = [];

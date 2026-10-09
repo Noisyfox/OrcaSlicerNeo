@@ -30,6 +30,8 @@ considers them compatible.
   the control and list render the label, while both tooltips render the full
   canonical name. Display labels are required, with no renderer name parsing
   or per-kind tooltip overrides. Grouping and transitions remain caller-owned.
+- SettingsPanel requires an initialized profile snapshot when mounted. A missing
+  printer picker is a contract violation; it does not render an empty fallback.
 - Native `printer_picker` supplies stable item identities, display labels,
   canonical transition targets, and current model/variant selection. React
   never parses profile names or reproduces native matching rules.

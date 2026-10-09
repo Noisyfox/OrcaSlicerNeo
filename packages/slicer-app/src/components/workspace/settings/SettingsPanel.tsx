@@ -48,6 +48,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const selectionPending = useRef(false);
   const [printerExpanded, setPrinterExpanded] = useState(true);
 
+  if (printerPicker === null) throw new Error('SettingsPanel requires an initialized profile snapshot');
+
   const controlsDisabled = presetTransitionPending || mutationPending ||
     (slicing && platform.runtime.getRuntimeExecutionState().threaded === false) ||
     ['loading', 'saving', 'model-import', 'waiting-for-dirty-decision'].includes(projectOperation);
@@ -186,10 +188,10 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             <PresetRow
               compact
               label="Printer"
-              items={printerPicker?.items.map(item => ({ id: item.id, name: item.preset, label: item.label })) ?? []}
-              value={printerPicker?.selectedId ?? ''}
+              items={printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label }))}
+              value={printerPicker.selectedId}
               onValue={(id) => {
-                const target = printerPicker?.items.find(item => item.id === id);
+                const target = printerPicker.items.find(item => item.id === id);
                 if (target && target.preset !== selectedPrinter) void handleSelectPreset('printer', target.preset);
               }}
               onEdit={onEditPrinter ? () => onEditPrinter(selectedPrinter) : undefined}
@@ -209,7 +211,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             </Select>
           </div>}
         </div>
-        {printerPicker && <div data-testid="printer-nozzle-row" className="flex min-w-0 items-center gap-1 pt-1">
+        <div data-testid="printer-nozzle-row" className="flex min-w-0 items-center gap-1 pt-1">
           <Button type="button" variant="settings" size="icon-sm"
             aria-label="Sync nozzle" title="Sync nozzle" data-testid="nozzle-sync-placeholder"
             disabled={controlsDisabled}><RefreshCw data-icon="inline-start" /></Button>
@@ -230,7 +232,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               <SelectItem key={item.value} value={item.value} disabled={item.preset === null}>{item.value}</SelectItem>
             )}</SelectGroup></SelectContent>
           </Select>
-        </div>}
+        </div>
       </div>
     </section>
   );
