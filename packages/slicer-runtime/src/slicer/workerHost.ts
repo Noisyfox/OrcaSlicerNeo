@@ -1,7 +1,7 @@
 import { mountNativeTemporaryDirectory, startWorker } from '@slicer/client';
 import type { OrcaModuleFactory, OrcaModule } from '@slicer/client';
 import { createMockModule } from '@slicer/testing';
-import { installProfiles, type ProfileSource } from '../profiles';
+import { createProfileInstaller, type ProfileSource } from '../profiles';
 import type { WorkerMessage } from '@slicer/client';
 import { loadWasmArtifact, type WasmArtifactVariant } from './wasm-artifact';
 
@@ -64,11 +64,13 @@ export function startSlicerHost(host: SlicerWorkerHost): void {
         return prepareModule(loaded.module, loaded.variant);
       };
 
-  startWorker(factory, host.post, host.onMessage, async (module) => {
+  let installer: ReturnType<typeof createProfileInstaller> | undefined;
+  const installSession = (module: OrcaModule) => installer ??= createProfileInstaller(module, host.profiles, ({ phase, index, total }) => {
+    host.post({ type: 'startup-progress', phase, text: `Downloading profiles ${index + 1}/${total}` });
+  });
+  startWorker(factory, host.post, host.onMessage, async (module, activation) => {
     if (useMock) return;
-    await installProfiles(module, host.profiles, undefined, ({ index, total }) => {
-      host.post({ type: 'startup-progress', text: `Downloading profiles (${index + 1}/${total})...` });
-    });
+    await installSession(module).installStartup(activation);
   }, useMock && mockPresetTransitionDelayMs > 0 ? async (op) => {
     // E2E-only fixture support: production builds never set this mock env var.
     // Delaying just the bridge response makes the UI's stale-picker lock
@@ -76,5 +78,10 @@ export function startSlicerHost(host: SlicerWorkerHost): void {
     if (op === 'selectProfile' || op === 'selectPrinterWithRememberedRack') {
       await new Promise<void>((resolve) => setTimeout(resolve, mockPresetTransitionDelayMs));
     }
-  } : undefined);
+  } : undefined, async module => {
+    if (!useMock) {
+      try { await installSession(module).installCatalogue(); }
+      finally { host.post({ type: 'startup-progress', phase: 'catalogue', text: 'Loading profiles…' }); }
+    }
+  });
 }

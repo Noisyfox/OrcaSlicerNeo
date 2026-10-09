@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 type ActivationEvidence = {
   history: { dirty: boolean; canUndo: boolean; canRedo: boolean };
   profiles: { printer: { name: string }; print: { name: string };
-    prints: { name: string }[]; project_config: Record<string, string> };
+    prints: { name: string }[]; printers: { vendor_id: string }[]; project_config: Record<string, string> };
 };
 const activationEvidence = (page: Page) => page.evaluate(async () =>
   (window as unknown as { __orcaE2e: { setupActivationEvidence(): Promise<ActivationEvidence> } })
@@ -55,6 +55,33 @@ for (const method of ['window close', 'Exit'] as const) {
     } finally { if (processHandle.exitCode === null) await app.close(); }
   });
 }
+
+test('real native installs selected packages at startup and remaining packages only for the wizard', async () => {
+  test.skip(process.env.ORCA_E2E_REAL !== '1', 'Requires real production WASM packages');
+  const preferences = join(mkdtempSync(join(tmpdir(), 'orca-setup-delivery-')), 'preferences.json');
+  writeFileSync(preferences, JSON.stringify({ version: 1, ui: {}, profileActivation: {
+    models: [{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.4'] }], filaments: ['Generic PLA @System'],
+  } }));
+  const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    const before = await activationEvidence(page);
+    expect([...new Set(before.profiles.printers.map(printer => printer.vendor_id).filter(Boolean))]).toEqual(['Creality']);
+    await menu(page); const wizard = page.getByTestId('setup-wizard');
+    await expect(wizard.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 60_000 });
+    await expect(wizard.getByRole('checkbox', { name: 'Creality Ender-3', exact: true })).toBeChecked();
+    const count = await wizard.getByRole('checkbox').count(); expect(count).toBeGreaterThan(100);
+    await wizard.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(await activationEvidence(page)).toEqual(before);
+    await menu(page);
+    await expect(wizard.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 60_000 });
+    expect(await wizard.getByRole('checkbox').count()).toBe(count);
+    await wizard.getByRole('button', { name: 'Cancel', exact: true }).click();
+  } finally { await app.close(); }
+});
 
 test('real native wizard loads printer covers only inside its scroll viewport', async () => {
   test.skip(process.env.ORCA_E2E_REAL !== '1', 'Requires real production WASM covers');

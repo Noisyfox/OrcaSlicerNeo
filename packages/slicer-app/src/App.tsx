@@ -454,8 +454,8 @@ function AppContent() {
 
   useEffect(() => {
     let cancelled = false;
-    const unsubscribeStartupProgress = platform.runtime.onStartupProgress?.((text) => {
-      if (!cancelled) setBootProgress(text);
+    const unsubscribeStartupProgress = platform.runtime.onStartupProgress?.((text, phase) => {
+      if (!cancelled && phase === 'startup') setBootProgress(text);
     });
     (async () => {
       try {

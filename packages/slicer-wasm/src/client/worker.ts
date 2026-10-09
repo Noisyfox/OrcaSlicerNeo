@@ -9,7 +9,7 @@
 //   main → worker: {type:'request', id, op, args}
 //   worker → main: {type:'response', id, ok, result}
 //   worker → main: {type:'progress', percent, text}   (no id)
-//   worker → main: {type:'startup-progress', text}     (no id)
+//   worker → main: {type:'startup-progress', phase, text} (no id)
 // ----------------------------------------------------------------
 import type { SlicerClient, OrcaModuleFactory, PlateSessionMutation, ProjectClosedCallback } from './types';
 import type {
@@ -32,7 +32,7 @@ export type WorkerMessage =
   | { type: 'project-closed'; plateSession: PlateSessionMutation }
   | { type: 'progress'; percent: number; text: string }
   | { type: 'arrangement-progress'; percent: number; text: string }
-  | { type: 'startup-progress'; text: string }
+  | { type: 'startup-progress'; phase: 'startup' | 'catalogue'; text: string }
   | { type: 'runtime-state'; threaded: boolean; serialTerminalEpoch: string };
 
 export interface HistoryWorkerDiagnostic {
@@ -153,8 +153,9 @@ export function startWorker(
   onMessage: (fn: (msg: WorkerMessage) => void) => void = (fn) => {
     (self as unknown as { onmessage: (e: MessageEvent<WorkerMessage>) => void }).onmessage = (e) => fn(e.data);
   },
-  beforeInit?: (module: import('./types').OrcaModule) => Promise<void>,
+  beforeInit?: (module: import('./types').OrcaModule, activation: import('./setupWizard').ProfileActivation | null) => Promise<void>,
   beforeRequest?: (op: string, args: unknown[]) => Promise<void> | void,
+  beforeCatalogue?: (module: import('./types').OrcaModule) => Promise<void>,
 ): void {
   const client = createClient(moduleFactory, (pct, text) => {
     post({ type: 'progress', percent: pct, text });
@@ -162,7 +163,7 @@ export function startWorker(
     post({ type: 'project-closed', plateSession });
   }, (runtimeState) => {
     post({ type: 'runtime-state', ...runtimeState });
-  });
+  }, beforeCatalogue);
 
   // The default remains one writer.  A coalesced child may be nested under
   // the active writer and is popped only after its commit/abort.

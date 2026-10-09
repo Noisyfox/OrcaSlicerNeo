@@ -357,8 +357,8 @@ export interface RuntimeStatus { phase: RuntimePhase; message?: string; }
 /** The existing typed client, with lifecycle status added at the host boundary. */
 export interface SlicerRuntime extends SlicerClient, HistoryRuntimeMethods {
   readonly status?: RuntimeStatus;
-  /** Subscribe to startup status emitted by the Worker, such as profile downloads. */
-  onStartupProgress?(listener: (text: string) => void): () => void;
+  /** Worker resource progress, explicitly scoped to startup or catalogue opening. */
+  onStartupProgress?(listener: (text: string, phase: 'startup' | 'catalogue') => void): () => void;
 }
 
 /** A host-neutral, current memory item. Values are bytes, never display units. */

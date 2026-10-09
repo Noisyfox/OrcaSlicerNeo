@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrcaModule, OrcaModuleFactory } from '../../../slicer-wasm/src/client/types';
 
-const calls = vi.hoisted(() => ({ startWorker: vi.fn(), mount: vi.fn(), install: vi.fn() }));
+const calls = vi.hoisted(() => ({ startWorker: vi.fn(), mount: vi.fn(), install: vi.fn(), catalogue: vi.fn() }));
 vi.mock('@slicer/client', () => ({ startWorker: calls.startWorker, mountNativeTemporaryDirectory: calls.mount }));
 vi.mock('@slicer/testing', () => ({ createMockModule: vi.fn() }));
-vi.mock('../profiles', () => ({ installProfiles: calls.install }));
+vi.mock('../profiles', () => ({ createProfileInstaller: () => ({ installStartup: calls.install, installCatalogue: calls.catalogue }) }));
 
 async function start(threaded: boolean, nativeTemporaryDirectory?: string, failThreaded = false) {
   const { startSlicerHost } = await import('./workerHost');
@@ -16,8 +16,9 @@ async function start(threaded: boolean, nativeTemporaryDirectory?: string, failT
   startSlicerHost({ threaded, nativeTemporaryDirectory, load,
     profiles: { fetch: vi.fn() }, post: vi.fn(), onMessage: vi.fn() });
   const factory = calls.startWorker.mock.calls[0][0] as OrcaModuleFactory;
-  const beforeInit = calls.startWorker.mock.calls[0][3] as (module: OrcaModule) => Promise<void>;
-  return { module, load, factory, beforeInit };
+  const beforeInit = calls.startWorker.mock.calls[0][3] as (module: OrcaModule, activation: null) => Promise<void>;
+  const beforeCatalogue = calls.startWorker.mock.calls[0][5] as (module: OrcaModule) => Promise<void>;
+  return { module, load, factory, beforeInit, beforeCatalogue };
 }
 
 describe('Worker host temporary filesystem selection', () => {
@@ -35,7 +36,8 @@ describe('Worker host temporary filesystem selection', () => {
     await expect(factory()).resolves.toBe(module);
     expect(calls.mount).toHaveBeenCalledWith(module, 'C:\\Temp\\orca-slicer-abc123');
     expect(calls.install).not.toHaveBeenCalled();
-    await beforeInit(module);
+    await beforeInit(module, null);
+    expect(calls.install).toHaveBeenCalledWith(null);
     expect(calls.mount.mock.invocationCallOrder[0]).toBeLessThan(calls.install.mock.invocationCallOrder[0]);
   });
 
@@ -43,6 +45,12 @@ describe('Worker host temporary filesystem selection', () => {
     const { factory } = await start(threaded);
     await factory();
     expect(calls.mount).not.toHaveBeenCalled();
+  });
+  it('connects catalogue installation to the same trusted host session', async () => {
+    const { module, beforeInit, beforeCatalogue } = await start(true);
+    await beforeInit(module, null); await beforeCatalogue(module);
+    expect(calls.install).toHaveBeenCalledExactlyOnceWith(null);
+    expect(calls.catalogue).toHaveBeenCalledTimes(1);
   });
 
   it('retains MEMFS for Electron serial', async () => {

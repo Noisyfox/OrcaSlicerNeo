@@ -9,16 +9,21 @@ export function createWizardCatalogueSession(runtime: Runtime) {
   const released = new Promise<void>(resolve => { release = resolve; });
   owners.set(runtime, released);
   let cancelled = false, opened = false;
+  let loading = false;
   let opening: Promise<SetupWizardCatalogueResult> | null = null;
   let closing: Promise<SetupWizardCloseResult> | null = null;
   return {
+    get loading() { return loading; },
     open(): Promise<SetupWizardCatalogueResult> {
       opening ??= (async () => {
         await previous;
         if (cancelled) return { ok: false, error: 'catalogue opening was cancelled' };
-        const result = await runtime.openSetupWizardCatalogue();
-        opened = result.ok;
-        return result;
+        loading = true;
+        try {
+          const result = await runtime.openSetupWizardCatalogue();
+          opened = result.ok;
+          return result;
+        } finally { loading = false; }
       })();
       return opening;
     },

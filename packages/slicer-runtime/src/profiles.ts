@@ -1,5 +1,5 @@
 import { unzipSync } from 'fflate';
-import type { OrcaModule } from '@slicer/client';
+import type { OrcaModule, ProfileActivation } from '@slicer/client';
 import { installProfileArchive, safeProfilePath } from '@slicer/client';
 
 export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
@@ -9,6 +9,7 @@ export interface ProfileSource { fetch(relativePath: string): Promise<Uint8Array
 export interface HotendPrinter { vendor_id: string; model: string; }
 
 export interface ProfileInstallProgress {
+  phase: 'startup' | 'catalogue';
   package: ProfilePackage;
   index: number;
   total: number;
@@ -46,7 +47,7 @@ function manifestPackage(manifest: ProfileManifest, kind: ProfilePackage['kind']
 
 async function readProfileManifest(source: ProfileSource): Promise<ProfileManifest> {
   const value = JSON.parse(new TextDecoder().decode(await readBytes(await source.fetch('manifest.json')))) as ProfileManifest;
-  if (value.version !== 1 || !Array.isArray(value.packages)) throw new Error('unsupported profile manifest');
+  if (!value || value.version !== 1 || !Array.isArray(value.packages)) throw new Error('unsupported profile manifest');
   return value;
 }
 
@@ -99,39 +100,65 @@ async function readBytes(value: Uint8Array | ReadableStream<Uint8Array>): Promis
   return new Uint8Array(await new Response(value).arrayBuffer());
 }
 
-export async function installProfiles(
+export function createProfileInstaller(
   module: { FS: Pick<OrcaModule['FS'], 'mkdir' | 'writeFile' | 'readFile'> },
   source: ProfileSource,
-  manifestPath = 'manifest.json',
   onProgress?: (progress: ProfileInstallProgress) => void,
 ) {
-  const startedAt = Date.now();
-  console.info('[profiles] install-start', JSON.stringify({ manifest: manifestPath }));
-  const manifest = JSON.parse(new TextDecoder().decode(await readBytes(await source.fetch(manifestPath)))) as ProfileManifest;
-  if (manifest.version !== 1 || !Array.isArray(manifest.packages)) throw new Error('unsupported profile manifest');
-  const total = manifest.packages.length;
-  for (const [index, pkg] of manifest.packages.entries()) {
-    if (!pkg || (pkg.kind !== 'core' && pkg.kind !== 'vendor') || typeof pkg.id !== 'string' || typeof pkg.path !== 'string') {
-      throw new Error('invalid profile package manifest entry');
+  const installed = new Set<string>();
+  let manifestPromise: Promise<ProfileManifest> | null = null;
+  let tail = Promise.resolve();
+  async function manifest() {
+    if (!manifestPromise) {
+      manifestPromise = readProfileManifest(source).then(value => {
+        const ids = new Set<string>();
+        // Validate the whole manifest before any archive can be fetched/written.
+        for (const pkg of value.packages) {
+          if (!pkg || (pkg.kind !== 'core' && pkg.kind !== 'vendor') || typeof pkg.id !== 'string' || typeof pkg.path !== 'string') {
+            throw new Error('invalid profile package manifest entry');
+          }
+          safeProfilePath(pkg.path);
+          safeProfilePath(decodeURIComponent(pkg.path));
+          if (/[:?#]/.test(pkg.path)) throw new Error('unsafe profile package URL');
+          if (safeProfilePath(pkg.id) !== pkg.id || /[/:]/.test(pkg.id) || !pkg.id.trim()) throw new Error('unsafe profile package id');
+          if (ids.has(pkg.id)) throw new Error('duplicate profile package id');
+          ids.add(pkg.id);
+        }
+        return value;
+      });
     }
-    // Reject unsafe manifest paths and IDs before fetching any archive.
-    safeProfilePath(pkg.path);
-    safeProfilePath(pkg.id);
-    onProgress?.({ package: pkg, index, total });
-    console.info('[profiles] package', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total }));
-    try {
-      const entries = unzip(await readBytes(await source.fetch(pkg.path)));
-      installProfileArchive(module, pkg.kind, entries);
-      console.info('[profiles] package-installed', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total, entries: entries.length, elapsedMs: Date.now() - startedAt }));
-    } catch (error) {
-      if (pkg.kind === 'core') {
-        console.error('[profiles] core failure', JSON.stringify({ package: pkg.id, index: index + 1, total }), error);
-        throw new Error(`core profile package ${pkg.id} failed: ${String(error)}`);
-      }
-      console.warn('[profiles] vendor skipped', JSON.stringify({ package: pkg.id, index: index + 1, total }), error);
-    }
+    try { return await manifestPromise; } catch (error) { manifestPromise = null; throw error; }
   }
-  console.info('[profiles] install-complete', JSON.stringify({ packages: total, elapsedMs: Date.now() - startedAt }));
+  function install(vendors: Set<string> | null) {
+    const request = tail.then(async () => {
+      const startedAt = Date.now();
+      const packages = (await manifest()).packages.filter(pkg => !installed.has(pkg.id)
+        && (vendors === null || pkg.kind === 'core' || vendors.has(pkg.id)));
+      const total = packages.length;
+      console.info('[profiles] install-start', JSON.stringify({ phase: vendors === null ? 'catalogue' : 'startup', packages: total }));
+      for (const [index, pkg] of packages.entries()) {
+        onProgress?.({ phase: vendors === null ? 'catalogue' : 'startup', package: pkg, index, total });
+        try {
+          const entries = unzip(await readBytes(await source.fetch(pkg.path)));
+          installProfileArchive(module, pkg.kind, entries);
+          installed.add(pkg.id);
+          console.info('[profiles] package-installed', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total, entries: entries.length, elapsedMs: Date.now() - startedAt }));
+        } catch (error) {
+          if (pkg.kind === 'core') throw new Error(`core profile package ${pkg.id} failed: ${String(error)}`);
+          console.warn('[profiles] vendor skipped', JSON.stringify({ package: pkg.id, index: index + 1, total }), error);
+        }
+      }
+      console.info('[profiles] install-complete', JSON.stringify({ packages: total, elapsedMs: Date.now() - startedAt }));
+    });
+    tail = request.catch(() => undefined);
+    return request;
+  }
+  return {
+    installStartup(activation: ProfileActivation | null) {
+      return install(new Set(['OrcaFilamentLibrary', ...(activation?.models.map(model => model.vendor) ?? [])]));
+    },
+    installCatalogue() { return install(null); },
+  };
 }
 
 export function createFetchProfileSource(base: string | URL): ProfileSource {

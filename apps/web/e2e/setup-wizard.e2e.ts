@@ -2,6 +2,55 @@ import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+test('real Web startup fetches selected vendors then fills the wizard without repeat delivery', async ({ page }) => {
+  const manifest = JSON.parse(await readFile(resolve(import.meta.dirname, '../../desktop/src/renderer/public/profiles/manifest.json'), 'utf8')) as { packages: { id: string; path: string }[] };
+  const requested: string[] = [];
+  page.on('request', request => {
+    const path = decodeURIComponent(new URL(request.url()).pathname).split('/profiles/')[1];
+    if (path?.endsWith('.zip')) requested.push(path);
+  });
+  await page.addInitScript(() => localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ version: 1, ui: {}, profileActivation: {
+    models: [{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.4'] }], filaments: ['Generic PLA @System'],
+  } })));
+  await page.goto('/'); await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  const startup = manifest.packages.filter(pkg => ['core', 'OrcaFilamentLibrary', 'Creality'].includes(pkg.id)).map(pkg => pkg.path);
+  expect([...new Set(requested)].sort()).toEqual(startup.sort());
+  let release!: () => void, held = false;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/profiles/**', async route => {
+    const path = decodeURIComponent(new URL(route.request().url()).pathname).split('/profiles/')[1];
+    if (!held && path?.endsWith('.zip') && !startup.includes(path)) { held = true; await pending; }
+    await route.continue();
+  });
+  await page.evaluate(() => {
+    (window as unknown as { setupLoadingTexts: string[] }).setupLoadingTexts = [];
+    new MutationObserver(() => {
+      const text = document.querySelector('[data-testid="setup-wizard"] [role="status"]')?.textContent;
+      const texts = (window as unknown as { setupLoadingTexts: string[] }).setupLoadingTexts;
+      if (text && texts.at(-1) !== text) texts.push(text);
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  const open = async () => {
+    await page.getByTestId('titlebar-menu-trigger').click();
+    const file = page.getByTestId('menu-file-trigger'); await file.focus(); await file.press('ArrowRight');
+    await page.getByTestId('file-setup-wizard').click();
+  };
+  await open(); const wizard = page.getByTestId('setup-wizard');
+  await expect(wizard.getByRole('status')).toHaveText(`Downloading profiles 1/${manifest.packages.length - startup.length}`);
+  release();
+  await expect(page.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 120_000 });
+  const loadingTexts = await page.evaluate(() => (window as unknown as { setupLoadingTexts: string[] }).setupLoadingTexts);
+  const lastDownload = loadingTexts.findLastIndex(text => text.startsWith('Downloading profiles'));
+  expect(loadingTexts.slice(lastDownload + 1)).toContain('Loading profiles…');
+  expect([...new Set(requested)].sort()).toEqual(manifest.packages.map(pkg => pkg.path).sort());
+  const count = await wizard.getByRole('checkbox').count(); expect(count).toBeGreaterThan(100);
+  await wizard.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(wizard).toBeHidden();
+  const delivered = requested.length;
+  await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+  await open(); await expect(page.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 120_000 });
+  expect(await wizard.getByRole('checkbox').count()).toBe(count); expect(requested).toHaveLength(delivered);
+  await wizard.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
 test('real native Web mandatory setup saves activation and next startup keeps selection without reopening wizard', async ({ page }, testInfo) => {
   test.setTimeout(360_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));

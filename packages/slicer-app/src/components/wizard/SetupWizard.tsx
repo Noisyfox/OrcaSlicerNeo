@@ -35,6 +35,7 @@ function Filter({ label, value, options, onChange, disabled }: { label: string; 
 /** One mount owns one temporary catalogue, activation draft and image URL set. */
 export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) {
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadingText, setLoadingText] = useState('Loading profiles…');
   const appliedReceipt = useRef<Extract<SetupCompletionResult, { ok: true }> | null>(null);
   const [catalogue, setCatalogue] = useState<SetupWizardCatalogue | null>(null);
   const [original, setOriginal] = useState<ProfileActivation>(emptyActivation);
@@ -59,6 +60,10 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
     const covers = createWizardImageSession(platform.runtime);
     imageSessionRef.current = covers;
     sessionRef.current = session;
+    setLoadingText('Loading profiles…');
+    const unsubscribeProgress = platform.runtime.onStartupProgress?.((text, phase) => {
+      if (!disposed && session.loading && phase === 'catalogue') setLoadingText(text);
+    });
     void (async () => {
       try {
         const preferences = await loadUserPreferences(platform.preferences);
@@ -71,11 +76,13 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
         setModels(new Set(activation.models.map(modelKey)));
         setGroups(checkedFilaments(result.catalogue.filaments, activation));
         setImageSession(covers);
+        setLoadingText('Loading profiles…');
         setPhase('selection');
       } catch (error) { if (!disposed) { setError(String(error)); setPhase('selection'); } }
     })();
     return () => {
       disposed = true;
+      unsubscribeProgress?.();
       covers.dispose();
       if (!closed.current) void session.close().catch(() => undefined);
     };
@@ -124,7 +131,7 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
       </DialogDescription></DialogHeader>
       {error && <Alert variant="destructive"><AlertDescription data-testid="setup-error">{error}</AlertDescription></Alert>}
       {!catalogue && phase === 'selection' && <Button onClick={() => { setError(null); setPhase('loading'); setLoadAttempt(attempt => attempt + 1); }}>Retry Load</Button>}
-      {phase === 'loading' ? <div role="status" className="flex flex-1 items-center justify-center gap-2"><LoaderCircle className="size-4 animate-spin" />Loading profiles…</div> :
+      {phase === 'loading' ? <div role="status" className="flex flex-1 items-center justify-center gap-2"><LoaderCircle className="size-4 animate-spin" />{loadingText}</div> :
         <fieldset disabled={disabled} className="flex min-h-0 flex-1 flex-col gap-3">
           {page === 'printer' ? <>
             <FieldGroup><Field><FieldLabel htmlFor="setup-printer-search">Search printers</FieldLabel><Input disabled={disabled} id="setup-printer-search" value={search} onChange={event => setSearch(event.target.value)} /></Field></FieldGroup>

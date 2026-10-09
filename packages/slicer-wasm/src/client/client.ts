@@ -1586,9 +1586,10 @@ export async function dispatchClientRequest(
 export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
-  beforeInit?: (module: OrcaModule) => Promise<void>,
+  beforeInit?: (module: OrcaModule, activation: ProfileActivation | null) => Promise<void>,
   onBridgeProjectClosed?: ProjectClosedCallback,
   onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
+  beforeCatalogue?: (module: OrcaModule) => Promise<void>,
 ): SlicerClient {
   let geometrySession = crypto.randomUUID();
   let catalogueOpening = false;
@@ -1916,7 +1917,7 @@ export function createClient(
       const m = await module();
       if (!beforeInitPromise) {
         if (beforeInit) {
-          beforeInitPromise = beforeInit(m);
+          beforeInitPromise = beforeInit(m, activation);
           try {
             await beforeInitPromise;
           } catch (error) {
@@ -2161,7 +2162,9 @@ export function createClient(
       catalogueOpening = true;
       preparedActivation = null;
       try {
-        return callJson(await module(), 'orc_open_setup_wizard_catalogue', [], []) as SetupWizardCatalogueResult;
+        const m = await module();
+        await beforeCatalogue?.(m);
+        return callJson(m, 'orc_open_setup_wizard_catalogue', [], []) as SetupWizardCatalogueResult;
       } finally { catalogueOpening = false; }
     },
     async closeSetupWizardCatalogue(): Promise<SetupWizardCloseResult> {

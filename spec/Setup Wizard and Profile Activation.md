@@ -29,17 +29,19 @@ The user has selected vendor-package loading granularity. A needed vendor is
 parsed as a whole; native visibility and compatibility determine the admitted
 workspace candidates. This feature does not introduce per-profile JSON pruning.
 
-On-demand vendor download is outside the current scope. Every startup downloads
-and extracts all supplied vendor packages. Full native catalogue construction
-is deferred until the wizard is opened; normal startup parses only the vendors
-identified by enabled printers, plus the always-enabled filament library.
+Startup downloads and extracts only core, OrcaFilamentLibrary and vendors
+explicitly identified by enabled printer models. Before opening the wizard,
+the same Worker installs remaining supplied vendor packages, then constructs
+the full native catalogue. Normal startup parses only enabled printer vendors
+and the permanent library. This accepted delivery policy supersedes the
+original all-packages-at-startup decision and its historical timing evidence.
 
 ## 2. Resource layout and startup
 
 Use two MEMFS views of the same resources:
 
 ```text
-/profiles/                         Complete extracted vendor resources
+/profiles/                         Installed vendor resources (complete after wizard download)
   OrcaFilamentLibrary.json
   OrcaFilamentLibrary/
   <Vendor>.json
@@ -78,6 +80,28 @@ catalogue independent of the current project's live `PresetBundle`. Opening
 or browsing the wizard must not enable all vendors in the working session.
 Construct the temporary catalogue bundle on the existing WASM Worker;
 its lifetime and interaction rules are defined below.
+
+Each runtime owns an installer session containing its validated manifest and
+the set of successfully extracted packages. Startup with absent activation
+installs only the two permanent packages. Unknown printer vendors are skipped
+when absent from the manifest; filament records never request optional vendors.
+The current manifest has no dependency schema; the existing permanent library
+dependency remains enabled without inventing additional vendor dependencies.
+Wizard opening installs remaining packages; successful packages are neither
+fetched nor rewritten on subsequent openings. Failed vendor attempts continue
+to be skipped and are retried on the next opening. Core failures remain fatal.
+Runtime recreation creates a fresh installer and uses persisted activation.
+Extracted MEMFS resources may remain until runtime disposal, while each opening
+rebuilds its temporary native catalogue. Downloading never changes `/system`
+links or the live project; only the accepted apply operation publishes links.
+
+During wizard loading, show `Downloading profiles N/Total` for the packages
+pending in that invocation, excluding already successful installs. Skipped
+failures count as attempted packages. After delivery, restore `Loading profiles…`
+while native catalogue construction runs; an opening with no pending packages
+shows only that loading label. Worker progress carries an explicit startup or
+catalogue phase. The wizard accepts catalogue progress only while its own
+session is actually opening, unsubscribes on cleanup and resets on completion.
 
 ## 3. Disable native vendor file caches in Neo WASM
 
@@ -527,8 +551,10 @@ policies, removing the three-source property block. Self-verification passed:
 ### Step 3 — Resource layout and activation-aware startup
 
 Change profile installation so core extracts directly into `/system` and all
-vendor packages extract into `/profiles`. Continue fetching every package on
-every application startup, preserving vendor-skip and core-failure behaviour.
+vendor packages extract into `/profiles`. Fetch printer-selected and permanent
+packages at startup and fill remaining packages before wizard opening,
+preserving vendor-skip and core-failure behaviour. This replaces the original
+Step 3 all-package startup requirement.
 
 Add Worker-side link management encapsulated behind the typed client. Always
 link OrcaFilamentLibrary, then link each optional vendor's root JSON and whole
@@ -540,15 +566,18 @@ initialization. Replace unconditional `install_all_printers()` with conversion
 of the saved activation into native profile configuration. Restore current
 selections within the admitted candidates using the existing native rules.
 
-**Validation:** every vendor is downloaded/extracted, while normal startup
+**Validation:** only selected/permanent packages are delivered at startup and
+all remaining packages are attempted before wizard catalogue creation; normal startup
 parses only printer-enabled vendors plus the permanent library. Verify core
 and library inclusion, stale records, missing vendors, first-use detection,
 and initialization from saved activation after runtime recreation.
 
 ### Step 3 implementation and verification — 2026-10-09
 
-The runtime downloads every package as before, delegates archive filesystem
-writes to the typed client, places vendor files under `/profiles`, and keeps
+Historical Step 3 evidence below predates and is superseded by the selective
+delivery revision above. At that time the runtime downloaded every package,
+delegated archive filesystem writes to the typed client, placed vendor files
+under `/profiles`, and kept
 core files under `/system`. Client-side link management establishes the
 permanent library and only `models[].vendor` links. Filament names never expand
 the vendor set. Rebuilding links preserves raw source files and core contents.
@@ -1155,6 +1184,91 @@ activation and startup smoke checks. The parent repeated both real Electron
 wizard tests against the production build: two passed in 34.0 seconds.
 `git diff --check` passed and the pinned core submodule remained clean.
 
+### Selective startup delivery and wizard progress (2026-10-09)
+
+The original all-package startup policy is superseded by Section 2. The
+Worker-host installer owns a validated manifest, a success set and a serialized
+installation queue for one runtime. `beforeInit` receives explicit nullable
+activation; the trusted before-catalogue hook downloads remaining packages
+inside existing client and Worker loading admission gates. Successful packages
+are not fetched or written again. Failed vendors remain retryable; rejected
+manifest/core installation does not poison later installation attempts.
+The complete manifest is validated before any archive fetch/write, including
+relative-path traversal, URL schemes and encoded traversal. There are no legacy
+installer adapters, renderer filesystem writes or native/submodule changes.
+
+Existing `startup-progress` messages now require a typed `startup`/`catalogue`
+phase. Runtime subscription transports both fields; the startup screen filters
+startup events. A wizard accepts catalogue progress only while its own session
+owns the actual open call, excluding previous StrictMode owners and late events.
+Downloads display `Downloading profiles N/Total`; the completion event restores
+`Loading profiles…` before native parsing, including zero-download reopenings.
+
+Self-verification:
+
+- Complete suites passed: slicer-app 1148 tests (including boundary guards),
+  slicer-wasm client 396, slicer-runtime 52, platform-contract 40, Desktop 119
+  and Web 38. Runtime's default run skips the opt-in allocator measurement and
+  two real Node-host cases; those Node cases were separately enabled and passed.
+  Typechecks passed for all six affected packages/hosts.
+- Installer tests prove null/unknown/filament-only startup subsets, explicit
+  printer vendors, phase-local progress totals, successful-package write/read
+  deduplication, failed-vendor retry, fatal core errors, corrected-manifest retry
+  and unsafe-entry prevalidation. Client/Worker tests prove activation transport,
+  in-flight init memoization and rejection, trusted catalogue loading admission,
+  retry and live state invariance. UI tests prove phase filtering, loading-label
+  reset, subscription cleanup and late-message exclusion.
+- Real Node host: two tests passed (29.48 seconds), using the built production
+  Desktop `slicer-worker.js` and threaded native artifact. Test-only Worker
+  bootstrap wraps `node:fs/promises.readFile`, without changing host code. Saved
+  Creality activation reads manifest plus exactly three ZIPs; null activation
+  reads manifest plus exactly two permanent ZIPs. Wizard opening reads the
+  remaining 64/65 ZIPs, completing all 67 manifest packages once; repeat open
+  reads none. Profiles/configuration, history, filament and model snapshots are
+  unchanged by open/close. Enable `$env:ORCA_PROFILE_DELIVERY_NODE='1'` and run
+  `pnpm --filter @orca/slicer-runtime exec vitest run
+  src/slicer/profileDelivery.node.test.ts` after the real Desktop build below.
+- Real Electron UI: one test passed (18.9 seconds), proving only Creality
+  workspace printer candidates at startup, full wizard candidates, identical
+  repeated catalogue size and cancellation preserving the project. Resource
+  read-set evidence is provided by the Node-host test, not utility stdout:
+  utility logs are not forwarded to Playwright's main-process stdout. The
+  initial stdout observation was therefore replaced. A subsequent reopen
+  assertion's default five-second wait was too short for native rebuilding;
+  it now uses the existing real-catalogue 60-second wait, and passed.
+  Build with `$env:VITE_USE_MOCK='0'; $env:VITE_E2E='1'` and
+  `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`, then copy
+  `apps/desktop/src/renderer/public/*` into `apps/desktop/out/renderer/`
+  recursively. With `$env:ORCA_E2E_REAL='1'`, run
+  `pnpm --filter @orca/desktop exec playwright test e2e/setup-wizard.e2e.ts
+  --grep "installs selected packages"`.
+- Real threaded Web: one test passed (36.8 seconds including server build),
+  recording actual browser HTTP requests. Startup requests only permanent and
+  Creality archives; wizard open requests the remaining archives, completing
+  the manifest; reopening performs no additional archive requests. The test
+  holds the first remaining fetch and observes `Downloading profiles 1/64`,
+  then proves the label returns to `Loading profiles…` before native catalogue
+  completion. Run `pnpm --filter @orca/desktop exec playwright test --config
+  ../../apps/web/playwright.config.ts setup-wizard.e2e.ts
+  --grep "startup fetches selected vendors"` with the real-build flags above.
+  The configured server builds/stages Web assets automatically.
+- Logs are `packages/slicer-wasm/.work/profile-demand-desktop-build.log`,
+  `profile-demand-desktop-e2e.log`, `profile-demand-web-e2e.log` and
+  `profile-demand-node.log` in that same directory. `git diff --check` passed;
+  the pinned submodule remains unchanged. No WASM rebuild, allocator measurement,
+  public-network timing or full host/release matrix was run for this TS-only
+  delivery change. Earlier full-delivery performance tables remain historical
+  measurements of complete package installation, not current startup timings.
+
+Parent independent acceptance reviewed installer selection/deduplication, trusted
+Worker hooks, catalogue ownership and scoped progress publication. Root
+`pnpm test` passed 1809 tests with three default opt-in skips; the two Node
+delivery cases were then enabled separately and passed in 27.82 seconds. Root
+`pnpm typecheck` passed. The parent repeated real Electron (one passed in 16.5
+seconds) and Web HTTP/progress (one passed in 35.0 seconds) delivery tests.
+The performance measurement remained skipped. Diff checks passed and the
+pinned submodule stayed clean.
+
 ### Application source organisation (2026-10-09)
 
 The thirteen Setup Wizard component and helper source/test files are colocated in
@@ -1552,7 +1666,7 @@ configuration allocation, catalogue construction, and cache serialization.
 ## 7. Relationship to existing specifications
 
 - [Web–Electron Shared Application Architecture](Web-Electron%20Shared%20Application%20Architecture.md):
-  retains full package delivery and the shared Worker/client boundaries. This
+  retains all supplied packages as host assets and the shared Worker/client boundaries. This
   specification replaces its all-vendors-installed startup
   policy and extends activation persistence; it does not restore the retired
   whole-AppConfig public API.

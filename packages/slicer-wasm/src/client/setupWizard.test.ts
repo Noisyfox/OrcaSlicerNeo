@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createClient } from './client';
 import { createMockModule, MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 import { createWorkerClient, startWorker, type WorkerMessage, type WorkerTransport } from './worker';
@@ -10,6 +10,22 @@ class Channel implements WorkerTransport {
 }
 
 describe('temporary setup catalogue', () => {
+  it('guards trusted catalogue installation before native open and releases its gate after rejection', async () => {
+    let reject!: (error: Error) => void;
+    const install = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+    const module = createMockModule();
+    const c = createClient(async () => module, undefined, undefined, undefined, undefined, install);
+    await c.init(MOCK_PROFILE_ACTIVATION);
+    const before = { profiles: await c.getProfileSnapshot(), history: await c.getHistoryStatus(), system: module.FS.readdir('/system') };
+    const opening = c.openSetupWizardCatalogue(); await Promise.resolve(); await Promise.resolve();
+    await expect(c.closeSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
+    await expect(c.openSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
+    reject(new Error('download failed')); await expect(opening).rejects.toThrow('download failed');
+    expect({ profiles: await c.getProfileSnapshot(), history: await c.getHistoryStatus(), system: module.FS.readdir('/system') }).toEqual(before);
+    install.mockImplementation(async () => {});
+    expect((await c.openSetupWizardCatalogue()).ok).toBe(true); await c.closeSetupWizardCatalogue();
+    expect(install).toHaveBeenCalledTimes(2);
+  });
   it('retains an enabled current printer when adding models and marks only a disabled-current fallback dirty', async () => {
     const client = createClient(async () => createMockModule());
     await client.init(null); await client.openSetupWizardCatalogue();
@@ -66,7 +82,7 @@ describe('temporary setup catalogue', () => {
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
     await startWorker(async () => module, message => channel.post(message), listener => channel.onMessage(listener),
-      undefined, op => op === 'openSetupWizardCatalogue' ? pending : undefined);
+      undefined, undefined, () => pending);
     const opening = client.openSetupWizardCatalogue();
     await expect(client.closeSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');
     await expect(client.openSetupWizardCatalogue()).rejects.toThrow('setup_catalogue_loading');

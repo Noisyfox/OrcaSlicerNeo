@@ -7,9 +7,11 @@ describe('wizard catalogue ownership', () => {
     const runtime = { openSetupWizardCatalogue: vi.fn(async () => { events.push('open'); return await pending; }), closeSetupWizardCatalogue: vi.fn(async () => { events.push('close'); return { ok: true as const }; }) };
     const old = createWizardCatalogueSession(runtime); const opening = old.open(); await Promise.resolve();
     const cleanup = old.close(); const next = createWizardCatalogueSession(runtime); const reopen = next.open();
+    expect(old.loading).toBe(true); expect(next.loading).toBe(false);
     expect(events).toEqual(['open']); expect(runtime.closeSetupWizardCatalogue).not.toHaveBeenCalled();
     resolve({ ok: true, catalogue: { models: [], filaments: [] } }); await opening; await cleanup; await reopen;
     expect(events).toEqual(['open', 'close', 'open']);
+    expect(old.loading).toBe(false); expect(next.loading).toBe(false);
     await old.close(); expect(events).toEqual(['open', 'close', 'open']); await next.close(); expect(events).toEqual(['open', 'close', 'open', 'close']);
   });
   it('StrictMode cleanup before opening releases admission without calling native close', async () => {

@@ -28,8 +28,8 @@ feature-equivalent interface:
    viewport.
 6. Download G-code.
 
-User-created profiles, cloud accounts, cloud slicing, profile updates, on-demand
-profile delivery, PWA/offline support, and richer startup recovery are
+User-created profiles, cloud accounts, cloud slicing, profile updates,
+PWA/offline support, and richer startup recovery are
 intentionally deferred. Project persistence and 3MF drag-and-drop are approved
 as a subsequent independent milestone under `spec/3MF Project Persistence.md`.
 
@@ -304,7 +304,7 @@ profiles/
 `core` contains common, non-vendor resources. Each vendor ZIP mirrors the
 upstream profile tree with `<Vendor>.json` and `<Vendor>/` at its root. The
 vendor ZIP filename uses the `version` field in its matching `<Vendor>.json`;
-the core filename remains `core.upstream.zip` for now. The installer unpacks core resources directly under `/system` and every vendor
+the core filename remains `core.upstream.zip` for now. The installer unpacks core resources directly under `/system` and installed vendor
 archive under `/profiles`. Only printer-activated vendors and the permanent
 OrcaFilamentLibrary are linked into `/system` for ordinary native loading;
 core is always present. A small
@@ -316,12 +316,14 @@ vendor-file list: upstream common resources become `core`, and upstream vendor
 organization defines the vendor packages. This keeps package generation
 reproducible as upstream profiles are added, removed, or reorganized.
 
-The first release includes all packages and installs every package before
-slicer initialization; it does not defer a vendor package until profile
-selection. A shared startup screen remains visible until the WASM runtime and
-all attempted package installs complete, and shows a text label for the current
+The hosts distribute all packages. Before slicer initialization the Worker
+installs only core, OrcaFilamentLibrary and explicit printer-selected vendors.
+Opening Setup Wizard installs remaining packages once per runtime before
+building the full catalogue; failed vendors may retry on later openings.
+A shared startup screen remains visible until the WASM runtime and
+required attempted package installs complete, and shows a text label for the current
 startup step. Profile downloads include their current package count, such as
-`Downloading profiles (N/Total)...`. The main application is not interactive
+`Downloading profiles N/Total`. The main application is not interactive
 before that point, except that Help → File Manager can inspect whichever files
 are already mounted while startup continues. Its Refresh action re-reads the
 current directory as installation progresses. Mandatory first-use Setup Wizard
@@ -342,8 +344,8 @@ or bridge/runtime interpretation of its fields changes.
 - Versioned immutable file names and a small manifest pointer are used so
   future independent package updates have a cache-friendly distribution path.
 - The first release does **not** implement profile-package hashes, signatures,
-  compatibility validation, online update checks, rollback, or on-demand
-  downloading. They remain explicit follow-up work.
+  compatibility validation, online update checks, or rollback.
+  They remain explicit follow-up work.
 
 The Printer and Process pickers list native-visible profiles from activated
 printer vendor packages. The native snapshot also exposes the activated,
@@ -353,8 +355,8 @@ then releases that native bundle on close. Neo WASM neither reads nor generates
 vendor `.opc` caches. These policies are owned by
 [Setup Wizard and Profile Activation](Setup%20Wizard%20and%20Profile%20Activation.md).
 The AppConfig-derived “Not installed” state and any single-filament picker are
-removed; a future on-demand delivery feature may add an explicit
-downloadable-but-not-installed state without changing the rack contract.
+removed. Wizard candidates are presented after remaining package delivery;
+no downloadable-but-not-installed rack state is introduced.
 
 ## 7. Preferences and Selection Restoration
 

@@ -24,6 +24,30 @@ async function fixture(mandatory = false, electron = false) {
   return { runtime, preferences, prepare, apply, onApplied, onClose, quit };
 }
 describe('shared setup modal lifecycle', () => {
+  it('shows only owned catalogue download progress, resets for native loading and unsubscribes on cleanup', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const runtime = createClient(async () => createMockModule(), undefined, undefined, undefined, undefined, async () => pending);
+    await runtime.init(null);
+    let listener: ((text: string, phase: 'startup' | 'catalogue') => void) | undefined;
+    const stop = vi.fn();
+    const onStartupProgress = vi.fn((next: typeof listener) => { listener = next; return stop; });
+    const platform = { runtime: Object.assign(runtime, { onStartupProgress }), chrome: { kind: 'web' }, preferences: { load: async () => DEFAULT_USER_PREFERENCES } } as unknown as PlatformCapabilities;
+    const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
+    await act(async () => root!.render(<StrictMode><SetupWizard platform={platform} mandatory onApplied={vi.fn()} onClose={vi.fn()} /></StrictMode>));
+    await act(async () => listener!('Downloading profiles 1/2', 'startup'));
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('Loading profiles…');
+    await act(async () => listener!('Downloading profiles 1/64', 'catalogue'));
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('Downloading profiles 1/64');
+    await act(async () => listener!('Downloading profiles 64/64', 'catalogue'));
+    await act(async () => listener!('Loading profiles…', 'catalogue'));
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('Loading profiles…');
+    await act(async () => release()); expect(document.querySelector('[role="status"]')).toBeNull();
+    await act(async () => listener!('late download', 'catalogue')); expect(document.body.textContent).not.toContain('late download');
+    await act(async () => root!.unmount()); root = undefined;
+    expect(stop).toHaveBeenCalledTimes(2);
+    await act(async () => listener!('after unmount', 'catalogue')); expect(document.body.textContent).toBe('');
+  });
   it('mandatory Electron Exit quits the host without cancelling or completing setup', async () => {
     const f = await fixture(true, true);
     expect(button('Cancel')).toBeUndefined(); expect(button('Exit').disabled).toBe(false);

@@ -2351,6 +2351,18 @@ describe('SlicerClient bridge contract', () => {
     await c.init(MOCK_PROFILE_ACTIVATION);
     expect(installRuns).toBe(1);
   });
+  it('passes explicit activation into the one in-flight init installation', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const seen: unknown[] = [];
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const c = createClient(async () => createMockModule(), undefined, async (_module, activation) => { seen.push(activation); entered(); await pending; });
+    const first = c.init(MOCK_PROFILE_ACTIVATION), second = c.init(MOCK_PROFILE_ACTIVATION);
+    await started;
+    expect(seen).toEqual([MOCK_PROFILE_ACTIVATION]); release();
+    await Promise.all([first, second]); expect(seen).toHaveLength(1);
+  });
 
   it('beforeInit retries a rejected install on the next init', async () => {
     let installRuns = 0;

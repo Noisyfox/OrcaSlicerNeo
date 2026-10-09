@@ -6,7 +6,7 @@ import { resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { cpus, platform, release } from 'node:os';
 import { unzipSync } from 'fflate';
-import { installProfiles, createFetchProfileSource } from './profiles';
+import { createProfileInstaller, createFetchProfileSource } from './profiles';
 import { createClient, type OrcaModule } from '@slicer/client';
 // @ts-expect-error The existing JS harness is outside the production TS project.
 import { loadModuleFactory } from '../../slicer-wasm/harness/run-slice.mjs';
@@ -40,7 +40,7 @@ it.skipIf(!requested)('measures production HTTP installation and temporary catal
     const moduleStarted = performance.now();
     const module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} }) as OrcaModule;
     const moduleMs = performance.now() - moduleStarted;
-    const started = performance.now(); await installProfiles(module, source); const installMs = performance.now() - started;
+    const started = performance.now(); await createProfileInstaller(module, source).installCatalogue(); const installMs = performance.now() - started;
     expect(failedPaths).toEqual([]);
     expect(requests).toBe(manifest.packages.length + 1);
     // Outside the timed installation interval: optional vendor failures must
