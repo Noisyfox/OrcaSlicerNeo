@@ -1,3 +1,4 @@
+import { MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 // packages/slicer-wasm/src/client/client.test.ts
 // Contract tests for the typed bridge client, driven against the
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
@@ -233,7 +234,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('init loads preset collections', async () => {
     const c = makeClient();
-    const r = await c.init();
+    const r = await c.init(MOCK_PROFILE_ACTIVATION);
     expect(r.ok).toBe(true);
     expect(r.printers).toBeGreaterThan(0);
   });
@@ -1177,7 +1178,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('reads source/effective preset values and shares drafts by canonical source across filament slots', async () => {
     const c = makeClient();
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     const firstSession = await c.getFilamentSessionSnapshot();
     if (!firstSession.ok) throw new Error('expected filament session');
     const added = await c.addFilamentSlot({ version: 1, revision: firstSession.revisions.session });
@@ -1256,7 +1257,7 @@ describe('SlicerClient bridge contract', () => {
       return pointer;
     };
     const c = createClient(async () => module);
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
     expect(draft).toMatchObject({ ok: true, editorBindings: {
       filament_flow_ratio: { scalarType: 'float', index: 0, elementCount: 2,
@@ -1276,7 +1277,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('models native preset vector metadata, full raw values, element edits, and resets in the mock bridge', async () => {
     const c = makeClient();
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
     if (!draft.ok) throw new Error('expected filament source');
     expect(draft).toMatchObject({
@@ -1346,7 +1347,7 @@ describe('SlicerClient bridge contract', () => {
       return replacement;
     };
     const c = createClient(async () => module);
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     await expect(c.getPresetDraft('filament', 'Generic PLA @System'))
       .resolves.toMatchObject({ ok: false, errorCode: 'invalid_response' });
   });
@@ -1368,7 +1369,7 @@ describe('SlicerClient bridge contract', () => {
       return replacement;
     };
     const c = createClient(async () => module);
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
     if (!draft.ok) throw new Error('expected draft');
     await expect(c.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
@@ -1378,7 +1379,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('sets and resets fields, an explicit category key set, and a whole preset in one history entry each', async () => {
     const c = makeClient();
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     let draft = await c.getPresetDraft('printer', 'Bambu Lab X1 Carbon 0.4 nozzle');
     if (!draft.ok) throw new Error('expected printer source');
     const actions = [
@@ -1410,7 +1411,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('rejects stale and invalid draft operations without changing history or slice revisions', async () => {
     const c = makeClient();
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     const draft = await c.getPresetDraft('filament', 'Generic PLA @System');
     if (!draft.ok) throw new Error('expected filament source');
     const beforeStatus = await c.getHistoryStatus();
@@ -1430,7 +1431,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('undo and redo restore the native draft snapshot and invalidate every plate', async () => {
     const c = makeClient();
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     const source = await c.getPresetDraft('filament', 'Generic PLA @System');
     if (!source.ok) throw new Error('expected filament source');
     const edited = await c.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
@@ -2278,7 +2279,7 @@ describe('SlicerClient bridge contract', () => {
   it('threaded client registers the generic notifier while pthread progress retains shared wake', async () => {
     const module = createMockModule({ threaded: true });
     const c = createClient(async () => module);
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     await c.addModel(new Uint8Array(4), 'stl');
     await c.slice({});
     const words = new Int32Array(module.HEAPU8.buffer, 128, 4);
@@ -2302,7 +2303,7 @@ describe('SlicerClient bridge contract', () => {
     const module = createMockModule({ threaded: true });
     const texts: string[] = [];
     const c = createClient(async () => module, (_percent, text) => texts.push(text));
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     await c.addModel(new Uint8Array(4), 'stl');
     const first = await c.slice({ layer_height: '0.2' });
     texts.length = 0;
@@ -2331,7 +2332,7 @@ describe('SlicerClient bridge contract', () => {
       return originalCall(name, ret, argTypes, args);
     }) as typeof module.ccall;
     const c = createClient(async () => module);
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     await c.addModel(new Uint8Array(4), 'stl');
     expect(await c.getNativeHistoryDiagnostics!()).toMatchObject({ pendingSliceTaskCount: 0 });
     const slicing = c.slice({});
@@ -2346,8 +2347,8 @@ describe('SlicerClient bridge contract', () => {
     // Profile installation must not re-fetch/re-mount on the second call.
     let installRuns = 0;
     const c = createClient(async () => createMockModule(), undefined, async () => { installRuns += 1; });
-    await c.init();
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
+    await c.init(MOCK_PROFILE_ACTIVATION);
     expect(installRuns).toBe(1);
   });
 
@@ -2357,8 +2358,8 @@ describe('SlicerClient bridge contract', () => {
       installRuns += 1;
       if (installRuns === 1) throw new Error('first install failed');
     });
-    await expect(c.init()).rejects.toThrow('first install failed');
-    await expect(c.init()).resolves.toMatchObject({ ok: true });
+    await expect(c.init(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('first install failed');
+    await expect(c.init(MOCK_PROFILE_ACTIVATION)).resolves.toMatchObject({ ok: true });
     expect(installRuns).toBe(2);
   });
 
@@ -2725,9 +2726,9 @@ describe('SlicerClient bridge contract', () => {
     const global = globalThis as { ORCA_LOG_LEVEL?: unknown };
     global.ORCA_LOG_LEVEL = 'debug';
     try {
-      const r = await c.init();
+      const r = await c.init(MOCK_PROFILE_ACTIVATION);
       expect(r.ok).toBe(true);
-      expect(JSON.parse(initJson)).toEqual({ log_level: 'debug' });
+      expect(JSON.parse(initJson)).toEqual({ log_level: 'debug', profile_activation: MOCK_PROFILE_ACTIVATION });
     } finally {
       delete global.ORCA_LOG_LEVEL;
     }
@@ -2746,9 +2747,9 @@ describe('SlicerClient bridge contract', () => {
     });
     const global = globalThis as { ORCA_LOG_LEVEL?: unknown };
     delete global.ORCA_LOG_LEVEL;
-    await c.init();
+    await c.init(MOCK_PROFILE_ACTIVATION);
     // The C++ bridge defaults to info when the key is absent.
-    expect(JSON.parse(initJson)).toEqual({});
+    expect(JSON.parse(initJson)).toEqual({ profile_activation: MOCK_PROFILE_ACTIVATION });
   });
 
   it('readLog returns the MEMFS log file', async () => {

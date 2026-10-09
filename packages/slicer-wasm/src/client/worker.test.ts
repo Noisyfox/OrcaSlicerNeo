@@ -1,3 +1,4 @@
+import { MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 import { describe, it, expect } from 'vitest';
 import { createMockModule } from './testing/mock-module';
 import { createWorkerClient, startWorker, type WorkerMessage, type WorkerTransport } from './worker';
@@ -132,7 +133,7 @@ describe('worker protocol', () => {
   it('rejects pending and future operations after the runtime process is lost', async () => {
     const transport = new RecordingTransport();
     const client = createWorkerClient(transport);
-    const first = client.init();
+    const first = client.init(MOCK_PROFILE_ACTIVATION);
     const second = client.getPlateSessionSnapshot();
     const outcomes = Promise.allSettled([first, second]);
     transport.emit({ type: 'fatal', error: 'utility exited' });
@@ -140,7 +141,7 @@ describe('worker protocol', () => {
       { status: 'rejected', reason: new Error('utility exited') },
       { status: 'rejected', reason: new Error('utility exited') },
     ]);
-    await expect(client.init()).rejects.toThrow('utility exited');
+    await expect(client.init(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('utility exited');
     expect(transport.posted).toHaveLength(2);
   });
 
@@ -183,13 +184,13 @@ describe('worker protocol', () => {
 
   it('round-trips init through the message channel', async () => {
     const { workerClient } = setup();
-    const r = await workerClient.init();
+    const r = await workerClient.init(MOCK_PROFILE_ACTIVATION);
     expect(r.ok).toBe(true);
   });
 
   it('routes preset draft reads and history-backed mutations through the Worker', async () => {
     const { workerClient } = setup();
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     const draft = await workerClient.getPresetDraft('printer', 'Bambu Lab X1 Carbon 0.4 nozzle');
     if (!draft.ok) throw new Error('expected printer source');
     expect(draft.optionMetadata.nozzle_temperature?.category).toBe('Temperature');
@@ -203,14 +204,14 @@ describe('worker protocol', () => {
   it('runs the optional request hook before dispatching an operation', async () => {
     const calls: Array<[string, unknown[]]> = [];
     const { workerClient } = setup((op, args) => { calls.push([op, args]); });
-    const r = await workerClient.init();
+    const r = await workerClient.init(MOCK_PROFILE_ACTIVATION);
     expect(r.ok).toBe(true);
-    expect(calls).toEqual([['init', []]]);
+    expect(calls).toEqual([['init', [MOCK_PROFILE_ACTIVATION]]]);
   });
 
   it('loads a model and slices with progress events', async () => {
     const { workerClient } = setup();
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     await workerClient.addModel(new Uint8Array(4), 'stl');
     const events: number[] = [];
     const r = await workerClient.slice({ layer_height: '0.2' }, (pct) => events.push(pct));
@@ -314,7 +315,7 @@ describe('worker protocol', () => {
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);
     void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     await workerClient.addModel(new Uint8Array(4), 'stl');
     const events: number[] = [];
     await workerClient.slice({}, (pct) => events.push(pct));
@@ -325,7 +326,7 @@ describe('worker protocol', () => {
 
   it('returns binary slice buffers as transferable-arrayable views', async () => {
     const { workerClient } = setup();
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     await workerClient.addModel(new Uint8Array(4), 'stl');
     const slice = await workerClient.slice({}, () => {});
     const res = await workerClient.getSliceResult(slice.receipt!);
@@ -335,7 +336,7 @@ describe('worker protocol', () => {
 
   it('round-trips project operations and transfers the exported archive', async () => {
     const { workerClient, channel } = setup();
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     await workerClient.addModel(new Uint8Array(4), 'stl');
     const events: number[] = [];
     const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf', (percent) => events.push(percent));
@@ -350,7 +351,7 @@ describe('worker protocol', () => {
 
   it('delivers project-closed before replacement load progress', async () => {
     const { workerClient } = setup();
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     const events: string[] = [];
     const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'clean.3mf',
       (percent) => events.push(`progress:${percent}`),
@@ -373,7 +374,7 @@ describe('worker protocol', () => {
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);
     void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     const liveEvents: number[] = [];
 
     const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'live.3mf',
@@ -390,7 +391,7 @@ describe('worker protocol', () => {
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);
     void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     const events: number[] = [];
 
     const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'nested.3mf',
@@ -412,7 +413,7 @@ describe('worker protocol', () => {
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);
     void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     const events: number[] = [];
     const loaded = await workerClient.importProjectGeometry(new Uint8Array([0x50, 0x4b]), 'part.3mf', (percent) => events.push(percent));
     expect(loaded.ok).toBe(true);
@@ -422,7 +423,7 @@ describe('worker protocol', () => {
 
   it('transfers each v2 result ArrayBuffer exactly once from the worker', async () => {
     const { workerClient, channel } = setup();
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     await workerClient.addModel(new Uint8Array(4), 'stl');
     const slice = await workerClient.slice({});
     const result = await workerClient.getSliceResult(slice.receipt!);
@@ -481,7 +482,7 @@ describe('worker protocol', () => {
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);
     void startWorker(async () => module, (msg, transfer) => channel.post(msg, transfer), (fn) => channel.onMessage(fn));
-    await workerClient.init();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
     const projection = await workerClient.getPrimeTowerProjection();
     if (!projection.ok) throw new Error(projection.error);
     const plateId = projection.currentPlateId;

@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 7 native scoped-configuration interoperability gate.
 //
 // The harness creates one native golden project with every approved scope,
@@ -191,7 +192,7 @@ function unknownKeyArchive(bytes) {
 }
 
 function buildGolden(Module) {
-  requireOk('initialise bridge', callJson(Module, 'orc_init', ['string'], ['{"log_level":"error"}']));
+  requireOk('initialise bridge', callJson(Module, 'orc_init', ['string'], [fixtureProfileOptions(Module)]));
   const shapeNames = ['Cube', 'Cylinder', 'Sphere', 'Cone'];
   for (const name of shapeNames)
     requireOk(`add ${name}`, callJson(Module, 'orc_add_shape', ['string', 'string'], [name, name]));

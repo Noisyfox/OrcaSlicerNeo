@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
@@ -15,7 +16,7 @@ const Module = await factory({ noInitialRun: true, printErr: console.error });
 await installProfilePackages(Module, createNodeProfileSource(profileRoot));
 
 if (typeof Module.ccall === 'function') {
-  const ptr = Number(Module.ccall('orc_init', 'number', ['string'], ['']));
+  const ptr = Number(Module.ccall('orc_init', 'number', ['string'], [fixtureProfileOptions(Module)]));
   const init = JSON.parse(Module.UTF8ToString(ptr)); Module._free(ptr);
   if (!init.ok) throw new Error(`orc_init failed: ${JSON.stringify(init)}`);
 }

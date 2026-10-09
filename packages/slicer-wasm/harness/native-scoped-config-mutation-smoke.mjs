@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Focused real-WASM coverage for the native scoped mutation ABI.
 //
 // This keeps the mutation protocol independent from UI selection code and
@@ -39,7 +40,7 @@ const historyContext = {
   activePlateId: null, gizmo: null, nativeScopedConfig: {},
 };
 
-requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('clear model', callJson('orc_clear_model'));
 requireOk('add cube', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Mutation fixture']));
 const structure = requireOk('model structure', callJson('orc_get_model_structure'));

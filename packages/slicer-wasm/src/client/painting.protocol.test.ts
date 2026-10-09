@@ -1,3 +1,4 @@
+import { MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 import { describe, expect, it, vi } from 'vitest';
 import { createClient } from './client';
 import { createMockModule } from './testing/mock-module';
@@ -53,7 +54,7 @@ it('transports lifecycle, geometry, effective/no-op commits and history through 
   const module = createMockModule(); const channel = new Channel();
   startWorker(async () => module, m => channel.post(m), fn => channel.onMessage(fn));
   const client = createWorkerClient(channel);
-  await client.init(); await client.addShape('Cube', 'paint');
+  await client.init(MOCK_PROFILE_ACTIVATION); await client.addShape('Cube', 'paint');
   const structure: any = await client.getModelStructure(); const object = structure.objects[0];
   const hs = await client.openHistorySession();
   const opened: any = await client.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: hs.sessionId, objectId: object.id, instanceId: object.instances[0].id });
@@ -79,7 +80,7 @@ it('transports lifecycle, geometry, effective/no-op commits and history through 
 
 it.each(['channel', 'sessionId', 'revision', 'strokeId', 'hit', 'candidateRevision', 'phase', 'parts', 'recovery'])('rejects malformed or stale %s receipts', async field => {
   const m = createMockModule(); const original = m.ccall.bind(m);
-  const client = createClient(async () => m); await client.init(); await client.addShape('Cube', 'paint');
+  const client = createClient(async () => m); await client.init(MOCK_PROFILE_ACTIVATION); await client.addShape('Cube', 'paint');
   const object = (await client.getModelStructure()).objects[0]; const hs = await client.openHistorySession();
   const opened: any = await client.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: hs.sessionId, objectId: object.id, instanceId: object.instances[0].id });
   const handle = { version: 1 as const, channel: 'mmu' as const, sessionId: opened.session.id, revision: opened.session.revision };
@@ -125,7 +126,7 @@ it.each(['triangle', 'region', 'gap'] as const)('transports %s preview to begin 
   const module = createMockModule(); const channel = new Channel();
   startWorker(async () => module, m => channel.post(m), fn => channel.onMessage(fn));
   const client = createWorkerClient(channel);
-  await client.init(); await client.addShape('Cube', 'paint');
+  await client.init(MOCK_PROFILE_ACTIVATION); await client.addShape('Cube', 'paint');
   const object = (await client.getModelStructure()).objects[0];
   const hs = await client.openHistorySession();
   const opened = await client.openPaintingSession({ version: 1, channel: 'mmu', historySessionId: hs.sessionId, objectId: object.id, instanceId: object.instances[0].id });
@@ -147,7 +148,7 @@ it.each(['support', 'seam', 'fuzzy'] as const)('carries %s identity/state/geomet
   const module = createMockModule(); const wire = new Channel();
   startWorker(async () => module, m => wire.post(m), fn => wire.onMessage(fn));
   const client = createWorkerClient(wire);
-  await client.init(); await client.addShape('Cube', 'channel');
+  await client.init(MOCK_PROFILE_ACTIVATION); await client.addShape('Cube', 'channel');
   const object = (await client.getModelStructure()).objects[0];
   const hs = await client.openHistorySession();
   const opened = await client.openPaintingSession({ version: 1, channel: c, historySessionId: hs.sessionId, objectId: object.id, instanceId: object.instances[0].id });
@@ -194,7 +195,7 @@ it.each(['support', 'seam', 'fuzzy'] as const)('rejects illegal %s geometry stat
 it.each(['support', 'seam', 'fuzzy'] as const)('rejects illegal %s imported/candidate facet counts', async c => {
   for (const candidate of [false, true]) {
     const m = createMockModule(), original = m.ccall.bind(m);
-    const client = createClient(async () => m); await client.init(); await client.addShape('Cube', 'paint');
+    const client = createClient(async () => m); await client.init(MOCK_PROFILE_ACTIVATION); await client.addShape('Cube', 'paint');
     const object = (await client.getModelStructure()).objects[0]; const hs = await client.openHistorySession();
     const opened = await client.openPaintingSession({ version: 1, channel: c, historySessionId: hs.sessionId, objectId: object.id, instanceId: object.instances[0].id });
     if (!('ok' in opened)) throw new Error(opened.error);

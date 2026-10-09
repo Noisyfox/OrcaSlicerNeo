@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Focused real-WASM coverage for one atomic Printer + remembered-filament-rack
 // transition, native history restoration of the Printer source, and project
 // load priority over the app's separate remembered-rack preference.
@@ -90,7 +91,7 @@ function sourceDefaultColour(name) {
     firstConfiguredColour(values.filament_colour) || '#26A69A';
 }
 
-assert.equal(callJson('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
+assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 assert.equal(callJson('orc_clear_model').ok, true);
 const initial = presets();
 const visibleFffPrinters = initial.printers.filter((item) => item.is_visible && /Bambu Lab/.test(item.name) && /0\.4 nozzle/.test(item.name));

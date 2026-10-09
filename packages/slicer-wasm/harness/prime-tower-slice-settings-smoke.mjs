@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real WASM regression: DeltaMaker's negative-coordinate hexagonal bed must
 // slice at a manually placed tower instead of cached Settings coordinates.
 import assert from 'node:assert/strict';
@@ -98,7 +99,7 @@ function assertMotionMatchesPreview(motion, projection) {
   }
 }
 
-must(callJson('orc_init', ['string'], ['']));
+must(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 must(request('orc_select_printer_with_remembered_rack', { printer: 'DeltaMaker 2 0.35 nozzle',
   remembered_bed_type: null, remembered_rack: { version: 1, slots: [
     { preset: 'Generic PLA @DeltaMaker', colour: '#FF0000', native: { representative: '#FF0000', multi_colour: '#FF0000', type: '1' } },

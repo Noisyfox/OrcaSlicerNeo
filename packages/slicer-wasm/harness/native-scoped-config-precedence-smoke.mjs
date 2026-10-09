@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM configuration-scope regression.
 //
 // A project/global override and a plate-local override deliberately disagree
@@ -70,7 +71,7 @@ function firstExportedLayerSteps(receipt) {
   return { exported, steps: layerSteps(Buffer.from(Module.FS.readFile(exported.path)).toString('utf8')) };
 }
 
-const init = requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+const init = requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('add model', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'precedence regression cube']));
 
 let session = requireOk('plate session', callJson('orc_get_plate_session_snapshot'));

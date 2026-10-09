@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Focused real-WASM coverage for bridge-owned Printer/Filament drafts.
 // node harness/preset-draft-registry-smoke.mjs --module out/serial/orca_slice.js
 import assert from 'node:assert/strict';
@@ -61,7 +62,7 @@ function readBytes(pointer, length) {
   return bytes;
 }
 
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 assert.equal(init.ok, true, JSON.stringify(init));
 const initial = callJson('orc_get_preset_snapshot');
 const genericPlaSource = initial.filament_catalog

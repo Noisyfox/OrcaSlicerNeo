@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM imported multi-material painting/layer-tool-change round-trip.
 // This assembles a deterministic BBS archive in memory, loads it through the
 // native reader, then verifies writer preservation and slot-delete/merge remapping.
@@ -150,7 +151,7 @@ function exportedText(bytes, name) {
 }
 
 const archive = buildImportedStateArchive();
-assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
+assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 function legacyEmptyNotesArchive(source) {
   const entries = readZipEntries(source);
   const project = JSON.parse(textEntry(entries, 'Metadata/project_settings.config'));
@@ -449,7 +450,7 @@ assert.match(remappedLayers, /gcode="tool_change"/);
 // destination slot 4. Both source and destination therefore become the
 // post-merge slot 3, while original slot 3 becomes slot 2.  The native
 // facet encoding therefore maps old states 1,2,3,4 to 1,3,2,3.
-assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
+assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 assert.equal(loadImportedArchive().ok, true);
 const mergeBaselinePaintKey = paintedModelKey();
 const mergeSession = callJson('orc_get_filament_session_snapshot');

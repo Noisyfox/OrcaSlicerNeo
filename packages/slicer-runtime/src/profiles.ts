@@ -1,5 +1,6 @@
 import { unzipSync } from 'fflate';
 import type { OrcaModule } from '@slicer/client';
+import { installProfileArchive, safeProfilePath } from '@slicer/client';
 
 export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
 export interface ProfileManifest { version: 1; packages: ProfilePackage[]; }
@@ -99,7 +100,7 @@ async function readBytes(value: Uint8Array | ReadableStream<Uint8Array>): Promis
 }
 
 export async function installProfiles(
-  module: Pick<OrcaModule, 'FS'>,
+  module: { FS: Pick<OrcaModule['FS'], 'mkdir' | 'writeFile' | 'readFile'> },
   source: ProfileSource,
   manifestPath = 'manifest.json',
   onProgress?: (progress: ProfileInstallProgress) => void,
@@ -108,27 +109,19 @@ export async function installProfiles(
   console.info('[profiles] install-start', JSON.stringify({ manifest: manifestPath }));
   const manifest = JSON.parse(new TextDecoder().decode(await readBytes(await source.fetch(manifestPath)))) as ProfileManifest;
   if (manifest.version !== 1 || !Array.isArray(manifest.packages)) throw new Error('unsupported profile manifest');
-  try { module.FS.mkdir?.('/system'); } catch { /* preload may already have mounted it */ }
   const total = manifest.packages.length;
   for (const [index, pkg] of manifest.packages.entries()) {
     if (!pkg || (pkg.kind !== 'core' && pkg.kind !== 'vendor') || typeof pkg.id !== 'string' || typeof pkg.path !== 'string') {
       throw new Error('invalid profile package manifest entry');
     }
     // Reject unsafe manifest paths and IDs before fetching any archive.
-    safeEntryPath(pkg.path);
-    safeEntryPath(pkg.id);
+    safeProfilePath(pkg.path);
+    safeProfilePath(pkg.id);
     onProgress?.({ package: pkg, index, total });
     console.info('[profiles] package', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total }));
     try {
       const entries = unzip(await readBytes(await source.fetch(pkg.path)));
-      // Preserve the virtual tree expected by libslic3r's PresetBundle.
-      for (const entry of entries) {
-        const relative = safeEntryPath(entry.path);
-        // Every archive entry already has its path in the upstream profile tree.
-        const fullPath = `/system/${relative}`;
-        mkdirParents(module.FS, fullPath.slice(0, fullPath.lastIndexOf('/')));
-        module.FS.writeFile(fullPath, entry.data);
-      }
+      installProfileArchive(module, pkg.kind, entries);
       console.info('[profiles] package-installed', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total, entries: entries.length, elapsedMs: Date.now() - startedAt }));
     } catch (error) {
       if (pkg.kind === 'core') {
@@ -165,23 +158,4 @@ export function resolveDeploymentBase(baseUrl: string, moduleUrl: string | URL):
 /** Resolve bundled profile assets against the host's configured deployment base. */
 export function resolveProfileBaseUrl(baseUrl: string, moduleUrl: string | URL): URL {
   return new URL('profiles/', resolveDeploymentBase(baseUrl, moduleUrl));
-}
-
-function safeEntryPath(entry: string): string {
-  const normalized = entry.replaceAll('\\', '/');
-  if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) throw new Error(`unsafe profile path: ${entry}`);
-  const parts = normalized.split('/').filter(Boolean);
-  if (parts.some((part) => part === '..' || part === '.')) throw new Error(`unsafe profile path: ${entry}`);
-  return parts.join('/');
-}
-
-function mkdirParents(fs: Pick<OrcaModule['FS'], 'mkdir'>, path: string): void {
-  if (!fs.mkdir) return;
-  const parts = path.split('/');
-  let current = '';
-  for (const part of parts) {
-    if (!part) continue;
-    current += `/${part}`;
-    try { fs.mkdir(current); } catch { /* EEXIST */ }
-  }
 }

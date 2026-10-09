@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 13 real threaded lifecycle smoke.
 // node multi-filament-prime-tower-step13-smoke.mjs --module out/threaded/orca_slice.js
 import assert from 'node:assert/strict';
@@ -52,7 +53,7 @@ function transaction(label, edit) {
   return committed;
 }
 
-assert.equal(callJson('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
+assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 const first = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Step 13 primary']);
 assert.equal(first.ok, true, JSON.stringify(first));
 const second = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Step 13 secondary']);

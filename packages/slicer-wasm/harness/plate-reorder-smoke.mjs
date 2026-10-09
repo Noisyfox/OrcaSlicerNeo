@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM plate reorder acceptance: stable identities retain their runtime
 // entry, while only plates whose physical grid origin changes lose result
 // publication. Reorder itself never slices or applies a Print.
@@ -23,7 +24,7 @@ function requireOk(label, value) {
   return value;
 }
 
-requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('plate A model', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Reorder A']));
 requireOk('add plate B', callJson('orc_add_plate'));
 requireOk('plate B model', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Reorder B']));

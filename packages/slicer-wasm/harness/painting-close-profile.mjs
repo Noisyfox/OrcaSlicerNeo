@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Direct native timings complement host RPC and renderer measurements. This
 // harness never installs hooks or profiling branches in production artifacts.
 import assert from 'node:assert/strict';
@@ -27,7 +28,7 @@ function call(name, types = [], args = []) {
   } finally { Module._free(ptr); }
 }
 const command = (name, value) => call(name, ['string'], [JSON.stringify(value)]);
-command('orc_init', { log_level: 'error' });
+command('orc_init', JSON.parse(fixtureProfileOptions(Module)));
 const bytes = await readFile(project), ptr = Number(Module._malloc(bytes.length));
 Module.HEAPU8.set(bytes, ptr);
 try { call('orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, bytes.length, 0, 'big-proj.3mf']); }

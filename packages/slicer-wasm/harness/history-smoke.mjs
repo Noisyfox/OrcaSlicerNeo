@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 2 real bridge history round trip.  Deliberately does not export 3MF.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
@@ -118,7 +119,7 @@ function assertLiveSessionIntegrity(snapshot, label) {
 }
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null, gizmo: null, nativeScopedConfig: {} };
-const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 if (!init.ok) throw new Error(JSON.stringify(init));
 // A freshly created project exercises the first ordinary body move: Undo must
 // restore the one-Cube frame and leave the complete filament projection valid.

@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Plate-targeted slicing uses local coordinates and rejects stale operation
 // targets without touching selection or the global
 // editing model.
@@ -25,7 +26,7 @@ function check(label, condition, detail = '') {
   if (!condition) failures++;
 }
 let failures = 0;
-const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('init', init.ok === true);
 check('plate 1 model', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']).ok === true);
 let first = callJson('orc_get_plate_session_snapshot');

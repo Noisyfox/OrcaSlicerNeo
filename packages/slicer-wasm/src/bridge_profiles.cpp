@@ -252,29 +252,38 @@ json option_def_to_json(const ConfigOptionDef& def)
     return result;
 }
 
-// The profile config is populated through public AppConfig setters because
-// AppConfig::load() requires a file-backed loading path. The renderer remains
-// the owner of this JSON and persists it through the existing client contract.
-void install_all_filaments()
+// Activation is global availability; source identities remain in AppConfig even
+// when the installed vendor set does not contain them.
+void configure_activation(const json& activation)
 {
-    AppConfig& app_config = state().profile_config;
-    for (const Preset& preset : state().presets.filaments)
-        if (preset.is_system)
-            app_config.set(AppConfig::SECTION_FILAMENTS, preset.name, "true");
-}
-
-void install_all_printers()
-{
-    AppConfig& app_config = state().profile_config;
-    for (const Preset& preset : state().presets.printers) {
-        if (preset.vendor == nullptr) continue;
-        const std::string model = preset.config.opt_string("printer_model");
-        const std::string variant = preset.config.opt_string("printer_variant");
-        if (model.empty() || variant.empty()) continue;
-        app_config.set_variant(preset.vendor->id, model, variant, true);
+    if (activation.is_null()) return;
+    if (!activation.is_object() || activation.size() != 2 ||
+        !activation.contains("models") || !activation.at("models").is_array() ||
+        !activation.contains("filaments") || !activation.at("filaments").is_array())
+        throw std::runtime_error("invalid profile activation");
+    auto name = [](const json& value) {
+        return value.is_string() && value.get<std::string>().find_first_not_of(" \t\r\n\f\v") != std::string::npos;
+    };
+    for (const auto& model : activation.at("models")) {
+        if (!model.is_object() || model.size() != 3 || !model.contains("vendor") ||
+            !name(model.at("vendor")) || !model.contains("model") || !name(model.at("model")) ||
+            !model.contains("nozzle_diameter") || !model.at("nozzle_diameter").is_array() ||
+            model.at("nozzle_diameter").empty()) throw std::runtime_error("invalid model activation");
+        const auto vendor = model.at("vendor").get<std::string>();
+        if (vendor == "." || vendor == ".." || std::any_of(vendor.begin(), vendor.end(),
+            [](unsigned char ch) { return ch == '/' || ch == '\\' || ch == ':' || ch < 32 || ch == 127; }))
+            throw std::runtime_error("unsafe activation vendor");
+        for (const auto& nozzle : model.at("nozzle_diameter"))
+            if (!name(nozzle)) throw std::runtime_error("invalid nozzle activation");
     }
-    install_all_filaments();
-    state().presets.load_selections(app_config);
+    for (const auto& filament : activation.at("filaments"))
+        if (!name(filament)) throw std::runtime_error("invalid filament activation");
+    for (const auto& model : activation.at("models"))
+        for (const auto& nozzle : model.at("nozzle_diameter"))
+            state().profile_config.set_variant(model.at("vendor").get<std::string>(),
+                model.at("model").get<std::string>(), nozzle.get<std::string>(), true);
+    for (const auto& filament : activation.at("filaments"))
+        state().profile_config.set(AppConfig::SECTION_FILAMENTS, filament.get<std::string>(), "true");
 }
 
 void reselect_after_app_config()
@@ -286,7 +295,7 @@ void reselect_after_app_config()
         size_t selected_index = 0;
         for (auto it = state().presets.printers.lbegin();
              it != state().presets.printers.end(); ++it, ++selected_index) {
-            if (it->is_default) continue;
+            if (it->is_default || !it->is_visible) continue;
             state().presets.printers.select_preset(selected_index);
             break;
         }
@@ -889,16 +898,18 @@ json select_printer_with_remembered_rack_json(const json& request)
     }
 }
 
-const char* init_profiles()
+const char* init_profiles(const json& activation)
 {
     reset_app_config();
+    configure_activation(activation);
     set_data_dir("/");
     set_resources_dir("/");
     state().presets.setup_directories();
     state().presets.load_presets(state().profile_config, ForwardCompatibilitySubstitutionRule::Enable);
-    install_all_printers();
     reselect_after_app_config();
-    return dup_json(json{{"ok", true},
+    const bool usable_printer = std::any_of(state().presets.printers.begin(), state().presets.printers.end(),
+        [](const Preset& preset) { return !preset.is_default && preset.is_visible; });
+    return dup_json(json{{"ok", true}, {"setupRequired", activation.is_null() || !usable_printer},
                          {"prints", state().presets.prints.size()},
                          {"filaments", state().presets.filaments.size()},
                          {"printers", state().presets.printers.size()}}.dump());

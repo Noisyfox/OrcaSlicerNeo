@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Direct Step 2 mutation harness.  It intentionally talks to the bridge
 // exports (rather than the typed client) so both production wasm variants are
 // checked for atomic plate lifecycle, native grid order, and membership.
@@ -24,7 +25,7 @@ function check(label, condition, detail = '') {
   if (!condition) failures++;
 }
 let failures = 0;
-const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('init', init.ok === true);
 const presetSnapshot = callJson('orc_get_preset_snapshot');
 const printableArea = presetSnapshot.printable_area ?? [];

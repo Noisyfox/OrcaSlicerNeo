@@ -1,6 +1,7 @@
+import { MOCK_PROFILE_ACTIVATION } from '@slicer/testing';
 import { describe, expect, it } from 'vitest';
 import { startWorker, type WorkerMessage } from '../../slicer-wasm/src/client';
-import { createMockModule } from '../../slicer-wasm/src/client/testing/mock-module';
+import { createMockModule } from '@slicer/testing';
 import { createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
 
 describe('portable runtime bootstrap', () => {
@@ -17,7 +18,7 @@ describe('portable runtime bootstrap', () => {
     initialized();
     await Promise.resolve();
     expect(runtime.status.phase).toBe('failed');
-    await expect(runtime.init()).rejects.toThrow('utility exited during startup');
+    await expect(runtime.init(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('utility exited during startup');
   });
 
   it('carries native history session identity, floor and reset through the shared runtime', async () => {

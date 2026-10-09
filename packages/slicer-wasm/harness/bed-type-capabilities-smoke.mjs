@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real native capability projection. No test-only native API is needed.
 // node harness/bed-type-capabilities-smoke.mjs <out/serial/orca_slice.js>
 import assert from 'node:assert/strict';
@@ -28,7 +29,7 @@ function setDraft(printer, key, value) {
   })]));
 }
 function pass(label) { console.log(`bed-type-capabilities PASS ${label}`); }
-must(call('orc_init', ['string'], ['{"log_level":"error"}']));
+must(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 const metadata = call('orc_get_option_metadata');
 const definition = metadata.curr_bed_type;
 assert.ok(definition?.enum_values?.length > 0, JSON.stringify(metadata));

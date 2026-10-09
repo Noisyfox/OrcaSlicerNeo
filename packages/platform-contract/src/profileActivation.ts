@@ -12,7 +12,7 @@ export function normalizeProfileActivation(value: unknown): ProfileActivation | 
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined;
     const item = candidate as Record<string, unknown>;
     if (Object.keys(item).some(key => !['vendor', 'model', 'nozzle_diameter'].includes(key)) ||
-        !name(item.vendor) || /[\\/\x00-\x1f]/.test(item.vendor) || ['.', '..'].includes(item.vendor) ||
+        !name(item.vendor) || /[\\/:\x00-\x1f\x7f]/.test(item.vendor) || ['.', '..'].includes(item.vendor) ||
         !name(item.model) || !Array.isArray(item.nozzle_diameter) ||
         item.nozzle_diameter.length === 0 || !item.nozzle_diameter.every(name)) return undefined;
     models.push({ vendor: item.vendor, model: item.model, nozzle_diameter: [...item.nozzle_diameter] });

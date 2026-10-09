@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM A/B qualification for Filament vector draft edits on a 3MF project.
 // Run the baseline report first, then pass it to the current-mode run:
 //   node harness/filament-vector-project-benchmark.mjs --module out/serial/orca_slice.js --project <project.3mf> --output <baseline.json> --mode baseline
@@ -305,7 +306,7 @@ async function main() {
   const factory = await loadModuleFactory(modulePath);
   const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
   await installProfilePackages(Module, createNodeProfileSource(profileRoot));
-  requireOk('initialize real WASM', callJson(Module, 'orc_init', ['string'], ['{"log_level":"error"}']));
+  requireOk('initialize real WASM', callJson(Module, 'orc_init', ['string'], [fixtureProfileOptions(Module)]));
 
   const threading = callJson(Module, 'orc_get_threading_info');
   const threadInfo = threading?.ok === true ? threading : null;

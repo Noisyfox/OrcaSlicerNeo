@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real native fuzzy editing, native-format interoperability and fuzzy placement.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -67,7 +68,7 @@ function ordinary() {
   try { return result.renderables.map(r => [r.volume_id, r.paint_key]); }
   finally { for (const g of [...result.geometries,...result.paint_geometries]) { if (g.vertex_ptr) Module._free(g.vertex_ptr); if (g.index_ptr) Module._free(g.index_ptr); } }
 }
-ok(command('orc_init', { log_level: 'error' }));
+ok(command('orc_init', JSON.parse(fixtureProfileOptions(Module))));
 const imported = await buildPaintingChannelProject(); load(imported); open();
 const before = savedBytes(), originalKeys = ordinary();
 assert.ok(refresh().parts[0].facetCounts[1] > 0 );

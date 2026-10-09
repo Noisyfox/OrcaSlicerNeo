@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 3 real serial-WASM assignment/routing smoke.
 // node multi-filament-assignment-routing-smoke.mjs --module out/serial/orca_slice.js
 import assert from 'node:assert/strict';
@@ -19,7 +20,7 @@ function callJson(name, types = [], args = []) {
   const out = JSON.parse(Module.UTF8ToString(ptr)); Module._free(ptr); return out;
 }
 function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
-const init = callJson('orc_init', ['string'], ['']); assert.equal(init.ok, true, JSON.stringify(init));
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]); assert.equal(init.ok, true, JSON.stringify(init));
 const presets = callJson('orc_get_preset_snapshot');
 const printer = presets.printers.find((p) => /Bambu Lab P1P 0\.4 nozzle/.test(p.name)) ?? presets.printers.find((p) => /Bambu Lab/.test(p.name));
 assert.ok(printer); assert.equal(callJson('orc_select_preset', ['string', 'string'], ['printer', printer.name]).ok, true);

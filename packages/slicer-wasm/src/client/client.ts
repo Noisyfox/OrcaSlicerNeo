@@ -1,3 +1,4 @@
+import { linkProfileVendors } from './profileFilesystem';
 import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
@@ -1908,7 +1909,8 @@ export function createClient(
 
   const client: SlicerClient = {
     ...createPaintingApi(module, normalizeHistoryStatus),
-    async init(): Promise<InitResult> {
+    async init(activation: ProfileActivation | null): Promise<InitResult> {
+      if (activation === undefined) throw new Error('explicit nullable activation is required');
       const m = await module();
       if (!beforeInitPromise) {
         if (beforeInit) {
@@ -1924,12 +1926,14 @@ export function createClient(
         }
       }
       await beforeInitPromise;
+      linkProfileVendors(m, activation);
       // The orc_init JSON is the options payload: the bridge reads "log_level"
       // from it to set the boost::log severity filter (default info when
       // unset). The value comes from the global JS variable in the module's
       // worker scope — see doc/2026-08-21-wasm-boost-log.md. wasm64: every C
       // param must receive a value; the string always exists (possibly "{}").
       const opts = {
+        profile_activation: activation,
         log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;

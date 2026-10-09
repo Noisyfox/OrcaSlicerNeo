@@ -17,6 +17,7 @@ describe('persisted profile activation', () => {
   });
   it.each([undefined, null, [], {}, { version: 2, ...activation },
     { models: [{ model: 'P', nozzle_diameter: ['0.4'] }], filaments: [] },
+    { models: [{ vendor: 'C:', model: 'P', nozzle_diameter: ['0.4'] }], filaments: [] },
     { models: [{ vendor: '../BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: [] },
     { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: [] }], filaments: [] },
     { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: [0.4] }], filaments: [] },

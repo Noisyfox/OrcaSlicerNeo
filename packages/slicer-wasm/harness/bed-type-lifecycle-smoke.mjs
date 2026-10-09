@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Native bed-type validation, result retention, transactions and history.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -44,7 +45,7 @@ async function slice(id) {
 function result(id) { return getSliceResult(call, receipts.get(id)); }
 function stale(id) { assert.equal(result(id).ok, false); }
 
-must(call('orc_init', ['string'], ['{"log_level":"error"}']));
+must(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 transition('Bambu Lab X1 Carbon 0.4 nozzle');
 must(call('orc_clear_model'));
 const a = session().current_plate_id;

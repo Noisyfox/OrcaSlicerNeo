@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM command coverage using generated, repository-owned 3MF inputs.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -108,7 +109,7 @@ function exportedBytes() {
   const bytes = Module.HEAPU8.slice(result.bytes_ptr, result.bytes_ptr + result.bytes_length); Module._free(result.bytes_ptr);
   return bytes;
 }
-ok(command('orc_init', { log_level: 'error' }));
+ok(command('orc_init', JSON.parse(fixtureProfileOptions(Module))));
 if (!process.argv.includes('--interop-only')) {
 // POINTER preview carries exactly the native original/subdivided leaf and its
 // white MMU contour. Hover replaces selection resources, never annotations or

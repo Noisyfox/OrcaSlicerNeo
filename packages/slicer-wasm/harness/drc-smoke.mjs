@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // ----------------------------------------------------------------
 // -------- DRC bridge smoke: native Draco → Model → G-code -------
 // ----------------------------------------------------------------
@@ -79,7 +80,7 @@ function meshSummary() {
   }
 }
 
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('orc_init succeeds', init.ok === true, JSON.stringify(init));
 const presetSnapshot = callJson('orc_get_preset_snapshot', [], []);
 const plateSnapshot = callJson('orc_get_plate_session_snapshot', [], []);

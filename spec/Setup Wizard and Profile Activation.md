@@ -4,8 +4,9 @@
 
 **Status:** Major specification; resource, product, session, and UI policies
 accepted through interactive clarification. Step 1 contracts and persistence
-are implemented. Step 2 JSON-only vendor loading is implemented and
-self-verified; native catalogue/application and the UI remain pending.
+are implemented. Steps 2–3 JSON-only vendor loading and activation-aware
+startup are implemented and self-verified; catalogue/application and UI
+implementation remain pending.
 
 **Scope:** Orca-style Printer and Filament setup and management in the shared
 Electron and Web application, system-profile activation, and native vendor
@@ -505,6 +506,79 @@ selections within the admitted candidates using the existing native rules.
 parses only printer-enabled vendors plus the permanent library. Verify core
 and library inclusion, stale records, missing vendors, first-use detection,
 and initialization from saved activation after runtime recreation.
+
+### Step 3 implementation and verification — 2026-10-09
+
+The runtime downloads every package as before, delegates archive filesystem
+writes to the typed client, places vendor files under `/profiles`, and keeps
+core files under `/system`. Client-side link management establishes the
+permanent library and only `models[].vendor` links. Filament names never expand
+the vendor set. Rebuilding links preserves raw source files and core contents.
+Missing vendor roots/directories are logged and skipped; core archive failure
+continues to abort startup.
+
+`SlicerClient.init(activation)` now requires an explicit `ProfileActivation`
+or `null`. App startup loads preferences before passing that argument through
+the existing Worker transport. There is no inference from remembered selected
+printers and no old no-argument initialization adapter. The native options
+require `profile_activation`; native initialization fills AppConfig before
+loading presets, instead of enabling every parsed printer and filament. Normal
+native visibility/default supplementation remains authoritative. Initialization
+returns `setupRequired` for absent activation or no visible non-default printer.
+The Step 7 UI gate is pending; this piece only establishes its startup contract.
+
+Storage, client link management, and native initialization reject unsafe vendor
+identities (separators, control characters, drive colons, blank names). A rejected
+saved printer selection does not add vendor links or enable hidden models.
+Runtime recreation receives the saved activation through the same startup path.
+
+Existing native harnesses now explicitly request their installed JSON fixture
+models and filaments through one test-only `fixtureProfileOptions` generator.
+The fixture installer follows the new resource layout; the helper is not used
+by production and does not restore implicit-all startup. Existing typed mock
+callers likewise supply explicit fixture activation. Mock selection operations
+respect admitted printer candidates. The Step 2 cache harness retains its
+explicit activation across its deliberate malformed/unlinked-source checks.
+
+Self-verification:
+
+- Serial and threaded `scripts\build-windows.bat quick --variant <variant> -j 4`:
+  passed after the final native vendor-validation changes.
+- `pnpm --filter @orca/slicer-wasm profile-activation-startup-smoke` and
+  `profile-activation-startup-smoke:threaded`: passed. Real evidence covers
+  the permanent base (one built-in printer and library), whole-vendor parsing
+  with only enabled model/nozzle visibility, excluded vendor non-parsing,
+  stale/missing records, unsafe native identities, rejected remembered printer
+  selection, and recreation with saved activation.
+- `pnpm --filter @orca/slicer-wasm vendor-cache-disabled-smoke` and
+  `vendor-cache-disabled-smoke:threaded`: passed after initialization migration.
+- Threaded driver `scripts\build-windows.bat smoke --variant threaded`: passed
+  on the final artifact (slice, bridge, DRC, STEP). Serial driver smoke and real
+  serial `profile-compatibility-smoke.mjs` passed before the final stricter vendor
+  path validation; final serial startup/cache smokes above were rerun successfully.
+- `pnpm --filter @orca/slicer-wasm test`: 386 tests passed.
+- `pnpm --filter @orca/slicer-runtime test`: 42 tests passed.
+- `pnpm --filter @orca/platform-contract test`: 40 tests passed.
+- `pnpm --filter @orca/slicer-app test`: 1,116 tests passed across 120 files.
+- Web browser-adapter suite: 18 passed; Electron adapter suite: 30 passed.
+- Typechecks for platform-contract, slicer-wasm, slicer-runtime, slicer-app,
+  Web, and desktop: passed. Platform-contract import guard passed.
+- Syntax checks on 62 migrated existing harness files passed. Only the native
+  harnesses explicitly listed above were executed; the other migrated harnesses
+  have not had their runtime semantics rerun in this step.
+- `git diff --check` and all specification local links: passed.
+
+No submodule changes are needed beyond Step 2's accepted pin. Host E2E is not
+run in this piece: mandatory setup interaction is intentionally implemented in
+Step 7. The fixture/mock suites and native startup tests do not claim rendered
+first-use wizard or live activation-application acceptance. Parent independent
+acceptance reviewed client FS ownership, activation-aware native initialization,
+fixture migration and preference forwarding; reran startup smoke on both real
+variants, serial cache smoke, 265 focused client tests, runtime/platform suites
+(42/40 tests), and four affected package typechecks successfully. Final serial
+standard driver smoke also passed during parent acceptance (slice, bridge, DRC,
+STEP), closing the earlier final-artifact check gap. Spec links and JSON
+examples passed review.
 
 ### Step 4 — Temporary full wizard catalogue
 

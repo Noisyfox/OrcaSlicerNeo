@@ -8,6 +8,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "painted-facet-fixture": "node harness/painted-facet-fixture-smoke.mjs",
+    "profile-activation-startup-smoke": "node harness/profile-activation-startup-smoke.mjs out/serial/orca_slice.js",
+    "profile-activation-startup-smoke:threaded": "node harness/profile-activation-startup-smoke.mjs out/threaded/orca_slice.js",
     "vendor-cache-disabled-smoke": "node harness/vendor-cache-disabled-smoke.mjs out/serial/orca_slice.js",
     "vendor-cache-disabled-smoke:threaded": "node harness/vendor-cache-disabled-smoke.mjs out/threaded/orca_slice.js",
     "profile-smoke": "node harness/profile-smoke.mjs",

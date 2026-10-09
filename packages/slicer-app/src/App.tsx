@@ -452,7 +452,7 @@ function AppContent() {
         setLeftSidebarVisible(sidebarVisibility.left);
         setRightSidebarVisible(sidebarVisibility.right);
         setBootProgress('Starting slicer runtime...');
-        const init = await platform.runtime.init();
+        const init = await platform.runtime.init(preferences.profileActivation ?? null);
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
         if (cancelled) return;
         setBootProgress('Loading slicer settings...');

@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real serial-WASM Step 2 command/rollback smoke.
 // node harness/multi-filament-command-smoke.mjs --module out/serial/orca_slice.js
 import assert from 'node:assert/strict';
@@ -58,7 +59,7 @@ function readBytes(pointer, length) {
   return bytes;
 }
 function initFlexible() {
-  const init = callJson('orc_init', ['string'], ['']); assert.equal(init.ok, true, JSON.stringify(init));
+  const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]); assert.equal(init.ok, true, JSON.stringify(init));
   const presets = callJson('orc_get_preset_snapshot');
   const printer = presets.printers.find((entry) => /Bambu Lab P1P 0\.4 nozzle/.test(entry.name)) ?? presets.printers.find((entry) => /Bambu Lab/.test(entry.name));
   assert.ok(printer, 'profile set must expose a Bambu flexible printer');

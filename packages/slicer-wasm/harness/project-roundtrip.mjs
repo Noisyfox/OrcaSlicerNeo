@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // ----------------------------------------------------------------
 // ---- Real WASM BBS 3MF save -> clear -> load round-trip harness ----
 // ----------------------------------------------------------------
@@ -53,7 +54,7 @@ function check(label, condition, detail = '') {
   if (!condition) failures++;
 }
 
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('initialise real module', init.ok === true, JSON.stringify(init));
 
 const modelPtr = writeBytes(model);

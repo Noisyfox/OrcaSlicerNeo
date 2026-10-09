@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Focused Step 11 native-input smoke. This loads a real MM-painted project
 // archive, then checks PartPlate-equivalent used-filament inputs, By Object
 // visibility, routing fallbacks, custom tool changes, and rib dimensions.
@@ -95,7 +96,7 @@ function setRouting(selector, slot) {
   })]);
   assert.equal(result.ok, true, JSON.stringify(result));
 }
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 assert.equal(init.ok, true, JSON.stringify(init));
 const archive = buildPaintedProject();
 const pointer = Module._malloc(archive.byteLength); Module.HEAPU8.set(archive, pointer);

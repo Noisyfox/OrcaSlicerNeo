@@ -1,4 +1,4 @@
-import type { SetupWizardMethods } from './setupWizard';
+import type { ProfileActivation, SetupWizardMethods } from './setupWizard';
 import type { PaintingApi } from './painting';
 // packages/slicer-wasm/src/client/types.ts
 // ----------------------------------------------------------------
@@ -19,6 +19,8 @@ export interface OrcaModule {
   addFunction: (fn: (...args: unknown[]) => void, sig: string) => number;
   removeFunction?: (idx: number) => void;
   FS: {
+    symlink: (target: string, path: string) => void;
+    unlink: (path: string) => void;
     writeFile: (path: string, data: Uint8Array) => void;
     readFile: (path: string) => Uint8Array;
     mkdir?: (path: string) => void;
@@ -44,6 +46,7 @@ export interface InitResult {
   prints: number;
   filaments: number;
   printers: number;
+  setupRequired: boolean;
   error?: string;
 }
 
@@ -1477,7 +1480,7 @@ export interface FilesystemEntry {
 
 export interface SlicerClient extends PaintingApi, SetupWizardMethods {
   /** Initialize after the host has installed profile packages into MEMFS. */
-  init(): Promise<InitResult>;
+  init(activation: ProfileActivation | null): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */
   getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult>;
   /** Open/read native source+effective values and metadata for one canonical preset identity. */
