@@ -803,7 +803,7 @@ Successful checks:
 - `pnpm --filter @orca/slicer-wasm test`: 393 passed;
   `pnpm --filter @orca/slicer-runtime test`: 42 passed;
   `pnpm --filter @orca/slicer-app test`: 1,121 passed across 121 files.
-  `pnpm --filter @orca/slicer-app exec vitest run src/setupWizard.test.ts`
+  `pnpm --filter @orca/slicer-app exec vitest run src/components/wizard/setupWizardCompletion.test.ts`
   reran the five completion tests after final client fixture adjustments and passed.
 - `pnpm --filter <package> typecheck` passed for `@orca/slicer-wasm`,
   `@orca/slicer-runtime`, `@orca/slicer-app`, `@orca/web`, and `@orca/desktop`.
@@ -1150,6 +1150,35 @@ changes. `pnpm test` passed 1791 tests with one opt-in measurement skipped;
 activation and startup smoke checks. The parent repeated both real Electron
 wizard tests against the production build: two passed in 34.0 seconds.
 `git diff --check` passed and the pinned core submodule remained clean.
+
+### Application source organisation (2026-10-09)
+
+The ten Setup Wizard component and helper source/test files are colocated in
+`packages/slicer-app/src/components/wizard/`: the `SetupWizard` component and
+its test, catalogue-session and selection helpers/tests, completion and
+publication helpers/tests. `useSetupWizardStore.ts` remains in the shared
+`packages/slicer-app/src/stores/` directory. The completion helper
+is named `setupWizardCompletion.ts` (with its matching test) to avoid ambiguous
+`SetupWizard.tsx`/`setupWizard.ts` resolution on Windows. App entry, workspace
+gates, and the Electron adapter regression import the new paths directly;
+there are no compatibility re-exports. Runtime/client/native ownership and all
+behaviour remain unchanged.
+
+Self-verification: the complete slicer-app suite passed 125 files/1142 tests;
+its typecheck passed. The focused import-direction, multi-filament and history
+boundary guards passed, and the affected Electron adapter suite passed 31 tests.
+The wizard files were compared against the prior commit with only the
+approved import-path substitutions allowed; no other content changed. Old path
+search and `git diff --check` passed. No WASM rebuild or host E2E was needed for
+this source-only relocation.
+The store-location correction additionally passed the slicer-app typecheck and
+the project-command/import-direction suites (12 tests). The unchanged Viewport
+import is checked by typecheck and the import guard; it has no direct unit suite.
+
+Parent independent acceptance reviewed the detected renames and confirmed that
+source differences contain only import-path changes. Root `pnpm test` passed
+1791 tests with one opt-in measurement skipped; root `pnpm typecheck` passed.
+The staged diff check and pinned-submodule status check passed.
 
 ### Step 8 — Integration acceptance and performance evidence
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { completeSetupWizard, retrySetupWizardApplication } from './setupWizard';
+import { completeSetupWizard, retrySetupWizardApplication } from './setupWizardCompletion';
 import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import { updateUserPreferences } from '@orca/platform-contract';
 import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION } from '@slicer/client';

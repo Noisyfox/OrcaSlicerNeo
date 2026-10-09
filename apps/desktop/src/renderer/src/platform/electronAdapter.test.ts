@@ -1,4 +1,4 @@
-import { completeSetupWizard } from '../../../../../../packages/slicer-app/src/setupWizard';
+import { completeSetupWizard } from '../../../../../../packages/slicer-app/src/components/wizard/setupWizardCompletion';
 import { describe, expect, it, vi } from 'vitest';
 import { createElectronAdapter } from './electronAdapter';
 import type { PrinterConfigurationDocument } from '@orca/printer-control';

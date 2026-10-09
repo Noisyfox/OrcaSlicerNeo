@@ -47,9 +47,9 @@ import { usePaintingPhase, PaintingProvider } from './components/workspace/viewp
 import { useArrangementStore } from './stores/useArrangementStore';
 import { ArrangementEditBoundary } from './components/workspace/ArrangementEditBoundary';
 import { useSetupWizardStore } from './stores/useSetupWizardStore';
-import { SetupWizard } from './components/project/SetupWizard';
-import { publishSetupWizardApplication } from './setupWizardPublication';
-import type { SetupCompletionResult } from './setupWizard';
+import { SetupWizard } from './components/wizard/SetupWizard';
+import { publishSetupWizardApplication } from './components/wizard/setupWizardPublication';
+import type { SetupCompletionResult } from './components/wizard/setupWizardCompletion';
 import { ArrangementStatus } from './components/workspace/arrangement/ArrangementControls';
 
 declare const __ORCA_E2E__: boolean;

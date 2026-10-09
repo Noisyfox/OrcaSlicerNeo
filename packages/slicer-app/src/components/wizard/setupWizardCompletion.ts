@@ -1,6 +1,6 @@
 import type { ProfileActivation, ProfileActivationApplicationResult, SlicerClient } from '@slicer/client';
 import type { UserPreferencesRepository } from '@orca/platform-contract';
-import { loadSetupTransitionPreferences } from './preferences';
+import { loadSetupTransitionPreferences } from '@/preferences';
 import { updateUserPreferences } from '@orca/platform-contract';
 
 const completions = new WeakSet<object>();

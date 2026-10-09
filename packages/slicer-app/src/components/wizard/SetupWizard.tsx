@@ -11,10 +11,10 @@ import { Field, FieldLabel, FieldGroup, FieldSet, FieldLegend } from '@/componen
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { createWizardCatalogueSession } from '../../setupWizardCatalogueSession';
-import { completeSetupWizard, retrySetupWizardApplication, type SetupCompletionResult } from '../../setupWizard';
+import { createWizardCatalogueSession } from './setupWizardCatalogueSession';
+import { completeSetupWizard, retrySetupWizardApplication, type SetupCompletionResult } from './setupWizardCompletion';
 import { activationFromSelection, checkDefaultFilaments, checkedFilaments, eligibleFilaments, filamentKey,
-  modelKey, printerMatches, visibleFilaments, wizardModels, type FilamentFilters } from '../../setupWizardSelection';
+  modelKey, printerMatches, visibleFilaments, wizardModels, type FilamentFilters } from './setupWizardSelection';
 
 interface Props { platform: PlatformCapabilities; mandatory: boolean;
   onApplied: (result: Extract<SetupCompletionResult, { ok: true }>) => Promise<void>; onClose: () => void }

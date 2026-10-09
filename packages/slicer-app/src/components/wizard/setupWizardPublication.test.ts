@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_USER_PREFERENCES, type UserPreferences, type UserPreferencesRepository, type PlatformCapabilities } from '@orca/platform-contract';
 import { createClient, createMockModule, MOCK_PROFILE_ACTIVATION } from '@slicer/client';
-import { completeSetupWizard } from './setupWizard';
+import { completeSetupWizard } from './setupWizardCompletion';
 import { publishSetupWizardApplication } from './setupWizardPublication';
-import { useSlicerStore } from './stores/useSlicerStore';
-import { useSettingsStore } from './stores/useSettingsStore';
-import { useProjectStore } from './stores/useProjectStore';
-import { usePlateSessionStore } from './stores/usePlateSessionStore';
-import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
-import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
-import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
+import { useSlicerStore } from '@/stores/useSlicerStore';
+import { useSettingsStore } from '@/stores/useSettingsStore';
+import { useProjectStore } from '@/stores/useProjectStore';
+import { usePlateSessionStore } from '@/stores/usePlateSessionStore';
+import { useHistoryNavigationStore } from '@/stores/useHistoryNavigationStore';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { glVolumeCollection } from '@/components/workspace/viewport/GLVolume';
 beforeEach(() => {
   useProjectStore.getState().reset(); useSettingsStore.getState().resetNativeScopedConfig();
   useHistoryNavigationStore.getState().reset(); usePlateSessionStore.getState().reset();
