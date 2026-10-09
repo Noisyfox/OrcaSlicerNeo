@@ -517,6 +517,36 @@ Validation for main CI plate-card clipping repair (2026-10-05):
 - Ran the complete Playwright file set from the desktop `test:e2e` script against the confirmed mock build — 49 passed and 12 skipped by their runtime/host gates, including plate-list, the main flow, typography, gizmo, printer-console, and utility-runtime coverage.
 - `git diff --check` — passed. No local native WASM rebuild or release matrix was run for this card layout fix.
 
+### 2026-10-09 Multi-toolhead diameter editing
+
+- Multi-nozzle printers expose Device and Multi. header tabs; single-nozzle
+  printers keep their existing Printer section. Both tab contents stay mounted.
+  Multi. presents selectable numbered toolhead cards with effective diameter
+  and native flow type, followed by the selected head's diameter selector.
+  Flow type is displayed in a disabled selector; flow editing is deferred.
+- Diameter choices are numeric physical values projected by the bridge from
+  installed visible profiles of the current vendor/model and the effective
+  current vector. Named/mixed printer variants are not parsed as diameters.
+- One native command replaces only the requested index in the effective
+  ordered nozzle vector, then searches same-vendor/model profiles for an exact
+  vector match, including mixed-nozzle profiles such as U1's
+  `[0.4, 0.4, 0.6, 0.6]`. Nozzle count and order must match. Candidate drafts
+  participate in matching; duplicate exact matches use a stable canonical
+  name, preferring the current profile when possible.
+- A different matching profile uses the existing atomic Printer transition,
+  compatibility refresh, and current-rack preservation. Otherwise the command
+  edits only the selected nozzle's Printer draft through the native indexed
+  editor. Other nozzle entries and flow values remain unchanged in this path.
+- Both paths commit one undoable history entry and publish the complete
+  profile, filament, plate, and scoped-configuration receipt, invalidating
+  retained slice results. Stale revisions reject before mutation. The selected
+  toolhead, Multi. tab, and lower configuration mode survive the update.
+- `pnpm --filter @orca/slicer-app typecheck`,
+  `pnpm --filter @orca/slicer-wasm typecheck`, and `git diff --check` passed.
+  No automated tests or WASM builds were run during this implementation pass;
+  the new native command requires rebuilding the WASM artifact before runtime
+  validation.
+
 ### 2026-10-07 PR dropdown and Slice Info regression validation
 
 - Updated filament assignment unit and native multi-filament E2E expectations to use `N - filament name` options and numeric-only triggers. Added effective-colour swatch assertions.

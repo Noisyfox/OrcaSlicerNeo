@@ -30,7 +30,7 @@ const initialSnapshot: ProfileSnapshot = {
   printerPicker: { items: [
     { id: 'old', label: 'Old Printer', preset: 'Old Printer' },
     { id: 'new', label: 'New Printer', preset: 'New Printer' },
-  ], selectedId: 'old', variants: [{ value: '0.4', preset: 'Old Printer' }], selectedVariant: '0.4' },
+  ], selectedId: 'old', variants: [{ value: '0.4', preset: 'Old Printer' }], nozzleDiameters: [0.4, 0.6], selectedVariant: '0.4' },
   printers: [preset('Old Printer'), preset('New Printer')],
   // The false flag is deliberately retained: picker arrays are already bridge
   // candidates and must not be re-filtered by React.
@@ -46,7 +46,7 @@ const resolvedSnapshot: ProfileSnapshot = {
   printerPicker: { items: [
     { id: 'new', label: 'New Printer', preset: 'New Printer' },
     { id: 'other', label: 'Other Printer', preset: 'Other Printer' },
-  ], selectedId: 'new', variants: [{ value: '0.6', preset: 'New Printer' }], selectedVariant: '0.6' },
+  ], selectedId: 'new', variants: [{ value: '0.6', preset: 'New Printer' }], nozzleDiameters: [0.6], selectedVariant: '0.6' },
   printers: [preset('New Printer'), preset('Other Printer')],
   prints: [preset('Resolved Process')],
   filamentCatalog: [preset('Resolved Filament')],
@@ -275,7 +275,7 @@ describe('SettingsPanel preset transitions', () => {
   it('switches a named/mixed variant through the existing atomic Printer transaction and locks Nozzle', async () => {
     resetStores();
     const picker = { items: [{ id: 'model', label: 'One Printer', preset: 'Old Printer' }], selectedId: 'model',
-      variants: [{ value: '0.4', preset: 'Old Printer' }, { value: '0.4+0.6', preset: 'Mixed Profile' }], selectedVariant: '0.4' };
+      variants: [{ value: '0.4', preset: 'Old Printer' }, { value: '0.4+0.6', preset: 'Mixed Profile' }], nozzleDiameters: [0.4, 0.6], selectedVariant: '0.4' };
     useSettingsStore.setState({ printerPicker: picker });
     const profile: ProfileSnapshot = { ...resolvedSnapshot, printer: { name: 'Mixed Profile', idx: 2 }, printerPicker: {
       ...picker, items: [{ ...picker.items[0], preset: 'Mixed Profile' }], selectedVariant: '0.4+0.6',

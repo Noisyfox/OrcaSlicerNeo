@@ -281,6 +281,25 @@
   white-space: nowrap;
 }
 
+.printer-toolhead-list {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 5px;
+  background: var(--color-control-background);
+}
+.printer-nozzle-extruder.printer-toolhead {
+  flex: 0 1 56px;
+  height: 60px;
+  padding: 0;
+  gap: 0;
+  line-height: 18px;
+  font-weight: 400;
+}
+.printer-toolhead[data-active="true"] {
+  background: color-mix(in srgb, var(--color-primary) 35%, var(--color-control-background));
+}
+
 .sidebar-dropdown > .sidebar-dropdown-arrow {
   width: 20px;
   height: 20px;

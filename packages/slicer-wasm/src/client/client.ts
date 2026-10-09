@@ -1017,6 +1017,8 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
     .filter(isRecord).map((printer) => printer.name));
   if (!isRecord(picker) || !Array.isArray(picker.items) ||
       typeof picker.selected_id !== 'string' || typeof picker.selected_variant !== 'string' ||
+      !Array.isArray(picker.nozzle_diameters) || picker.nozzle_diameters.some((diameter) =>
+        typeof diameter !== 'number' || !Number.isFinite(diameter) || diameter <= 0) ||
       !Array.isArray(picker.variants) || picker.items.some((item) =>
         !isRecord(item) || typeof item.id !== 'string' || !item.id ||
         typeof item.label !== 'string' || !item.label || typeof item.preset !== 'string' ||
@@ -1040,6 +1042,7 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
   return {
     ok: true,
     printerPicker: {
+      nozzleDiameters: picker.nozzle_diameters as number[],
       items: picker.items.map((item) => ({ id: item.id as string, label: item.label as string, preset: item.preset as string })),
       selectedId: picker.selected_id,
       variants: picker.variants.map((variant) => ({ value: variant.value as string, preset: variant.preset as string | null })),
@@ -1238,7 +1241,7 @@ function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
     plateSession, filamentSession, historyStatus, nativeScopedConfig, profileSnapshot: profile };
 }
 
-function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
+function normalizePrinterTransition(raw: unknown, kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter'): PrinterTransitionResult {
   const invalid = (error: string): PrinterTransitionResult => ({
     ok: false, error, errorCode: 'invalid_response',
   });
@@ -1264,7 +1267,7 @@ function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
   const mutation = isRecord(raw.mutation) ? raw.mutation : undefined;
   if (!nativeScopedConfig || nativeScopedConfig.kind !== 'full' ||
       nativeScopedConfig.revision !== historyStatus.revision ||
-      !mutation || mutation.kind !== 'select-printer-with-remembered-rack' ||
+      !mutation || mutation.kind !== kind ||
       mutation.history_entry_delta !== 1 || !Number.isSafeInteger(mutation.revision_before) ||
       !Number.isSafeInteger(mutation.revision_after) || mutation.revision_after !== historyStatus.revision ||
       mutation.revision_after !== (mutation.revision_before as number) + 1 ||
@@ -1284,7 +1287,7 @@ function normalizePrinterTransition(raw: unknown): PrinterTransitionResult {
     historyStatus,
     nativeScopedConfig,
     mutation: {
-      kind: 'select-printer-with-remembered-rack',
+      kind,
       historyEntryDelta: 1,
       revisionBefore: mutation.revision_before as number,
       revisionAfter: mutation.revision_after as number,
@@ -2231,7 +2234,14 @@ export function createClient(
       };
       return normalizePrinterTransition(
         callJson(m, 'orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify(request)]),
+        'select-printer-with-remembered-rack',
       );
+    },
+
+    async setToolheadDiameter(index: number, diameter: number, expectedRevision: number): Promise<PrinterTransitionResult> {
+      const m = await module();
+      return normalizePrinterTransition(callJson(m, 'orc_set_toolhead_diameter', ['string'],
+        [JSON.stringify({ index, diameter, expected_revision: expectedRevision })]), 'set-toolhead-diameter');
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {
