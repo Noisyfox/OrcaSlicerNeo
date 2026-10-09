@@ -1,3 +1,4 @@
+import { MOCK_PROFILE_ACTIVATION } from '@slicer/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClient, createMockModule } from '@slicer/client';
 import { PaintingController } from './PaintingController';
@@ -27,7 +28,7 @@ let unregister = () => {};
 afterEach(() => { unregister(); glVolumeCollection.clear(0); useObjectListStore.getState().clear(); useFilamentSessionStore.getState().reset(); useHistoryNavigationStore.getState().reset(); useProjectStore.getState().reset(); vi.restoreAllMocks(); });
 async function setup(preloadFilament = false) {
   const runtime = createClient(async () => createMockModule());
-  await runtime.init();
+  await runtime.init(MOCK_PROFILE_ACTIVATION);
   await runProjectHistoryMutation(runtime, 'Add cube', () => runtime.addShape('Cube'));
   const structure = await runtime.getModelStructure();
   if (!structure.ok || !structure.objects?.length) throw new Error('missing fixture');

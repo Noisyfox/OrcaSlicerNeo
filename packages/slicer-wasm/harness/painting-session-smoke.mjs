@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real serial-WASM lifecycle coverage; no production painting test hooks.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -33,7 +34,7 @@ const handle = session => ({ version: 1, channel: session.channel, sessionId: se
 const target = object => ({ objectId: object.id, instanceId: object.instances[0].id });
 const open = (hs, object) => command('orc_painting_session_open', { version: 1, channel: 'mmu', historySessionId: hs, ...target(object) });
 const read = session => command('orc_painting_session_read', handle(session));
-ok(command('orc_init', { log_level: 'error' }));
+ok(command('orc_init', JSON.parse(fixtureProfileOptions(Module))));
 load();
 ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Second solid']));
 ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Modifier']));

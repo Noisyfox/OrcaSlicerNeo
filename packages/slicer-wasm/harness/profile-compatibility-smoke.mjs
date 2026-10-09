@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // ----------------------------------------------------------------
 // ---- Deterministic native profile-compatibility smoke test ------
 // ----------------------------------------------------------------
@@ -64,7 +65,7 @@ try {
   const Module = await factory({ noInitialRun: true, print: console.error, printErr: console.error });
   await installProfilePackages(Module, createNodeProfileSource(packageRoot));
 
-  const init = callJson(Module, 'orc_init', ['string'], ['']);
+  const init = callJson(Module, 'orc_init', ['string'], [fixtureProfileOptions(Module)]);
   assert.equal(init.ok, true, `orc_init failed: ${JSON.stringify(init)}`);
 
   // Alpha is first in native collection order. Its explicit default selects

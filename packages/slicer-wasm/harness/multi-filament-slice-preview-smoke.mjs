@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 7 real-WASM slice/Preview semantics smoke.
 // node multi-filament-slice-preview-smoke.mjs --module out/serial/orca_slice.js
 import assert from 'node:assert/strict';
@@ -31,7 +32,7 @@ function readBytes(ptr, bytes) {
   return result;
 }
 
-const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 assert.equal(init.ok, true, JSON.stringify(init));
 const presets = callJson('orc_get_preset_snapshot');
 const printer = presets.printers.find((entry) => /Bambu Lab P1P 0\.4 nozzle/.test(entry.name))

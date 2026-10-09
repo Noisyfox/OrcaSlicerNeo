@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real Orca naming contract, independent of Electron/Web save UI.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -23,7 +24,7 @@ async function slice(format, plateId = session().current_plate_id) {
     [JSON.stringify(config), plateId, session().input_revisions[plateId]]));
 }
 const exported = (receipt, filenameBase = '') => ok(exportGcode(call, { receipt, filenameBase }));
-ok(call('orc_init', ['string'], ['{"log_level":"error"}']));
+ok(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 ok(call('orc_add_shape', ['string', 'string'], ['Cube', 'Café中文Ａ']));
 
 let result = await slice(undefined);

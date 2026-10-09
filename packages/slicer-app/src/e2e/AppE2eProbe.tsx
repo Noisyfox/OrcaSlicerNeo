@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { syncHistoryStatus } from '../components/workspace/actions/historyMutation';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { ProjectLoadReceipt } from '../projectActions';
 import { useProjectStore } from '../stores/useProjectStore';
@@ -22,6 +23,8 @@ export function AppE2eProbe({ platform, projectLoadReceiptRef }: AppE2eProbeProp
 
     const realProjectRuntime = platform.runtime as RealProjectProfileRuntime;
     return registerOrcaE2eOwner('app-project-profile', {
+      setupActivationEvidence: async () => ({ history: await syncHistoryStatus(platform.runtime),
+        profiles: await platform.runtime.getProfileSnapshot() }),
       projectLoadEvidence: () => {
         const project = useProjectStore.getState();
         return {

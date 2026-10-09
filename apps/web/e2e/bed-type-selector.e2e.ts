@@ -1,5 +1,5 @@
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect } from './browser-fixture';
+
 
 test('native printer grouping and nozzle variants preserve canonical history and startup selection', async ({ page }, testInfo) => {
   await page.goto('/');

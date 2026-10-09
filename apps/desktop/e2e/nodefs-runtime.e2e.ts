@@ -1,5 +1,6 @@
+import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';

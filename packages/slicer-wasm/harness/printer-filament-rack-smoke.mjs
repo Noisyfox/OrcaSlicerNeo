@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
@@ -22,7 +23,7 @@ function callJson(name, argTypes = [], args = []) {
   return value;
 }
 
-assert.equal(callJson('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
+assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 const initial = callJson('orc_get_preset_snapshot');
 const names = new Set(initial.printers.map((printer) => printer.name));
 const dual = 'Bambu Lab H2D Pro 0.8 nozzle';

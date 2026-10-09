@@ -2,6 +2,8 @@ import type { SlicerClient } from '@slicer/client';
 import type { HistoryRuntimeMethods } from '@slicer/client';
 import type { PrinterConfigurationDocument, PrinterTransport } from '@orca/printer-control';
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
+import type { ProfileActivation } from '@slicer/client';
+import { normalizeProfileActivation } from './profileActivation';
 import { normalizeColorFavorites } from './colorPicker';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
@@ -108,6 +110,8 @@ export interface GcodeTextWindowGeometry {
 
 export interface UserPreferences {
   version: 1;
+  /** Absent means setup is required; stale source identities remain durable. */
+  profileActivation?: ProfileActivation;
   colorPicker?: { favorites: import('./colorPicker').ColorValue[] };
   arrangement?: ArrangementPreferences;
   /** Global project-open policy; project bytes and locations never belong here. */
@@ -277,7 +281,8 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
+  const v = value as { profileActivation?: unknown; colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
+  const profileActivation = normalizeProfileActivation(v.profileActivation);
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
   const gcodeTextWindow = normalizeGcodeTextWindowGeometry(ui.gcodeTextWindow);
@@ -317,6 +322,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   return {
     version: 1,
     rememberedBedTypes,
+    ...(profileActivation ? { profileActivation } : {}),
     ...(v.colorPicker && typeof v.colorPicker === 'object' ? { colorPicker: { favorites: normalizeColorFavorites(v.colorPicker.favorites) } } : {}),
     projectLoadBehaviour: PROJECT_LOAD_BEHAVIOURS.includes(v.projectLoadBehaviour as ProjectLoadBehaviour)
       ? v.projectLoadBehaviour as ProjectLoadBehaviour
@@ -351,8 +357,8 @@ export interface RuntimeStatus { phase: RuntimePhase; message?: string; }
 /** The existing typed client, with lifecycle status added at the host boundary. */
 export interface SlicerRuntime extends SlicerClient, HistoryRuntimeMethods {
   readonly status?: RuntimeStatus;
-  /** Subscribe to startup status emitted by the Worker, such as profile downloads. */
-  onStartupProgress?(listener: (text: string) => void): () => void;
+  /** Worker resource progress, explicitly scoped to startup or catalogue opening. */
+  onStartupProgress?(listener: (text: string, phase: 'startup' | 'catalogue') => void): () => void;
 }
 
 /** A host-neutral, current memory item. Values are bytes, never display units. */

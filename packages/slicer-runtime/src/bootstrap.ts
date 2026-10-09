@@ -60,7 +60,7 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
   let resolveReady!: () => void;
   let rejectReady!: (error: unknown) => void;
   const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
-  const startupProgressListeners = new Set<(text: string) => void>();
+  const startupProgressListeners = new Set<(text: string, phase: 'startup' | 'catalogue') => void>();
   const transport: WorkerTransport = {
     post: (message, transfer) => options.transport.post(message, transfer),
     onMessage: (listener) => options.transport.onMessage((message) => {
@@ -70,7 +70,7 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
         rejectReady(runtimeFailure);
       }
       if (message.type === 'startup-progress') {
-        for (const progressListener of startupProgressListeners) progressListener(message.text);
+        for (const progressListener of startupProgressListeners) progressListener(message.text, message.phase);
         return;
       }
       listener(message);

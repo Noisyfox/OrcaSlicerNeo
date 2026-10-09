@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // ----------------------------------------------------------------
 // ---- Repro harness: add one STL multiple times, then slice -----
 // ----------------------------------------------------------------
@@ -33,7 +34,7 @@ function callJson(name, argTypes, args) {
   return JSON.parse(text);
 }
 
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 if (!init.ok) throw new Error(`orc_init failed: ${JSON.stringify(init)}`);
 
 const bytes = await readFile(absoluteModelPath);

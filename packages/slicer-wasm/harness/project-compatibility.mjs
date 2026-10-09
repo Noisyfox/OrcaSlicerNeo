@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real WASM compatibility gate for the pinned Orca/Bambu/Prusa fixtures.
 // Run once per production wasm64 variant after fixture acquisition.
 import { readFile } from 'node:fs/promises';
@@ -39,7 +40,7 @@ const check = (label, condition, detail) => {
   console.log(`${condition ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
   if (!condition) failures++;
 };
-check('initialise real module', callJson('orc_init', ['string'], ['']).ok === true);
+check('initialise real module', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok === true);
 
 for (const fixture of manifest.fixtures) {
   const bytes = await readFile(resolve(fixtureRoot, fixture.filename));

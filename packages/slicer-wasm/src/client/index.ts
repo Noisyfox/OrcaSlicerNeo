@@ -65,7 +65,7 @@ export type {
   HistoryTransportDiagnostics, HistoryRuntimeMethods, MockHistoryRuntime, HistoryMutation,
 } from './history';
 export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
-export { createMockModule } from './testing/mock-module';
+export { createMockModule, MOCK_PROFILE_ACTIVATION } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
 export const CLIENT_VERSION = '0.1.0-m2';
 
@@ -74,3 +74,6 @@ export type { PaintingSessionId, PaintingStrokeId, PaintingRevision, PaintingSes
   PaintingSessionResult, PaintingSessionCloseResult } from './painting';
 
 export type * from './painting';
+
+export * from './setupWizard';
+export { installProfileArchive, linkProfileVendors, safeProfilePath } from './profileFilesystem';

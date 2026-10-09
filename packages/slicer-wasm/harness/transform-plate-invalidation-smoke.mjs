@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM Step9 transform invalidation smoke.
 //
 // Plate B is sliced first and must remain publishable while a committed Move
@@ -36,7 +37,7 @@ function requireStale(label, value) {
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null, gizmo: null, nativeScopedConfig: {} };
 const stampMap = () => callJson('orc_get_plate_session_snapshot').input_revisions;
-requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('clear model', callJson('orc_clear_model'));
 const baseline = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
 if (baseline.error) throw new Error(`history baseline: ${JSON.stringify(baseline)}`);

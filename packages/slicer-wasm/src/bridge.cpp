@@ -95,12 +95,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         // STEP preprocessing and native 3MF backup/config staging use this
         // directory as well as the bridge's explicit temporary paths.
         Slic3r::set_temporary_dir("/tmp");
-        // The options object currently controls only the bridge log severity.
-        json opts = json::object();
-        if (options_json && *options_json) {
-            try { opts = json::parse(options_json); }
-            catch (...) { /* malformed options: keep defaults */ }
-        }
+        const json opts = json::parse(options_json ? options_json : "");
+        if (!opts.is_object() || !opts.contains("profile_activation"))
+            throw std::runtime_error("profile_activation must be explicitly supplied");
         std::string log_level;
         if (opts.is_object() && opts.contains("log_level") &&
             opts["log_level"].is_string())
@@ -108,8 +105,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         wasm_log::init_with_level(log_level);
 
         state().preset_drafts.clear();
+        state().dormant_preset_drafts.clear();
         state().preset_draft_revision = 0;
-        const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles();
+        const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles(opts.at("profile_activation"));
         Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
         Slic3r::Neo::Bridge::PrimeTower::invalidate_projection_cache();
         state().painting.reset();

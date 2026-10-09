@@ -70,6 +70,8 @@ endif()
 # is excluded by patch 0006 for both WASM variants; the ABI-compatible no-op
 # entry points live in stubs/backup-manager-stub.cpp.
 add_compile_definitions(ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER=1)
+# MEMFS resets on each run. Neo uses source JSON only in both WASM variants.
+add_compile_definitions(NEO_DISABLE_VENDOR_CACHE=1)
 if(WASM_DEBUG)
   message(STATUS "WASM debug: libslic3r + bridge at -g -O0 (embedded DWARF); deps stay -O3 without debug info")
 endif()

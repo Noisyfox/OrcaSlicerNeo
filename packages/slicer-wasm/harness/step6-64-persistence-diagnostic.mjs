@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
@@ -20,7 +21,7 @@ function readBytes(pointer, length) {
   const bytes = Module.HEAPU8.slice(Number(pointer), Number(pointer) + Number(length));
   Module._free(Number(pointer)); return bytes;
 }
-let init = callJson('orc_init', ['string'], ['']); assert.equal(init.ok, true, JSON.stringify(init));
+let init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]); assert.equal(init.ok, true, JSON.stringify(init));
 const presets = callJson('orc_get_preset_snapshot');
 const printer = presets.printers.find((entry) => /Bambu Lab P1P 0\.4 nozzle/.test(entry.name)) ?? presets.printers.find((entry) => /Bambu Lab/.test(entry.name));
 assert.ok(printer); assert.equal(callJson('orc_select_preset', ['string', 'string'], ['printer', printer.name]).ok, true);

@@ -1,3 +1,4 @@
+import { MOCK_PROFILE_ACTIVATION } from '@slicer/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient, createMockModule } from '@slicer/client';
 import { runProjectHistoryMutation } from './historyMutation';
@@ -16,7 +17,7 @@ describe('committed incremental geometry', () => {
 
   it('reuses native volume geometry across add, instance, rename, clone and Undo/Redo without a full read', async () => {
     const runtime = createClient(async () => createMockModule());
-    await runtime.init();
+    await runtime.init(MOCK_PROFILE_ACTIVATION);
     const full = vi.spyOn(runtime, 'getModelMesh');
     const patch = vi.spyOn(runtime, 'getModelScenePatch');
     const edit = (label: string, mutation: () => Promise<{ ok: boolean }>) =>
@@ -57,7 +58,7 @@ describe('committed incremental geometry', () => {
 
   it('pins advertised resources until asynchronous reads finish and disposes the last owner once', async () => {
     const runtime = createClient(async () => createMockModule());
-    await runtime.init();
+    await runtime.init(MOCK_PROFILE_ACTIVATION);
     await runProjectHistoryMutation(runtime, 'Cube', () => runtime.addShape('Cube'));
     const volume = glVolumeCollection.volumes[0];
     if (volume.ownership.kind !== 'shared') throw new Error('expected shared geometry');
@@ -77,7 +78,7 @@ describe('committed incremental geometry', () => {
 
   it('rejects a stale projection without mutating retained transforms or indices', async () => {
     const runtime = createClient(async () => createMockModule());
-    await runtime.init();
+    await runtime.init(MOCK_PROFILE_ACTIVATION);
     await runProjectHistoryMutation(runtime, 'Cube', () => runtime.addShape('Cube'));
     const original = glVolumeCollection.volumes[0];
     const read = runtime.getModelScenePatch.bind(runtime);

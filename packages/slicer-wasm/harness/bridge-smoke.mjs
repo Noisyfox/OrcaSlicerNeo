@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // ----------------------------------------------------------------
 // ------------ Bridge smoke: drive orc_* exports directly --------
 // ----------------------------------------------------------------
@@ -56,7 +57,7 @@ function check(label, cond, detail = '') {
 // wasm64: every C param needs a value — orc_init's app_config_json arg
 // gets an empty string (null-ish → fresh config), never zero args
 // (undefined → BigInt conversion TypeError in the wasm64 wrapper).
-const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 

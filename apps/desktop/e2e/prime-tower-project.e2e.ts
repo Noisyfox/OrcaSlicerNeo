@@ -1,7 +1,8 @@
+import { _electron } from './electron-fixture';
 import { openProjectMenu, waitForProjectLoad } from './project-menu';
 // Real threaded regression for an imported multi-plate project whose native
 // Process config enables a prime tower without a Neo overlay entry.
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';

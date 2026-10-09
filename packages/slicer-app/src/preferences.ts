@@ -118,6 +118,12 @@ export async function applyRememberedFilamentRackFromRepository(
   }
 }
 
+/** Wait for pending rack mirrors before snapshotting all setup transition memory. */
+export async function loadSetupTransitionPreferences(repository: UserPreferencesRepository): Promise<UserPreferences> {
+  await Promise.all([...(rackWriteQueues.get(repository)?.values() ?? [])]);
+  return loadUserPreferences(repository);
+}
+
 /** Read a Printer's remembered rack without mutating native project state.
  * Explicit Printer transitions pass this value into the one native command,
  * unlike bootstrap/3MF restoration which applies it only to a fresh session. */

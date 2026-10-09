@@ -20,13 +20,14 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     'save-project': state('save-project'),
     'save-project-as': state('save-project-as'),
     preferences: state('preferences'),
+    'setup-wizard': state('setup-wizard'),
   };
   return {
     version: 1,
     activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
-    scene: { hasModel: true, arranging: false },
+    scene: { hasModel: true, arranging: false, editing: false },
     result: { hasResult: false, exported: false },
     project: { hasContent: true, dirty: false, operation: { phase: 'idle', progress: 0, cancellable: false } },
     host: { isElectron: true, menuMode: 'custom' },

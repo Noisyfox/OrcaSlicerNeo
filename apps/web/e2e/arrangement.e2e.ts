@@ -1,5 +1,5 @@
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect } from './browser-fixture';
+
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';

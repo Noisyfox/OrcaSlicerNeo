@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real native remembered-bed transition, default fallback and project priority.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -20,7 +21,7 @@ function config() { return must(call('orc_get_native_scoped_config')).native_sco
 function transition(printer, bed) { return must(request('orc_select_printer_with_remembered_rack', { printer, remembered_rack: null, remembered_bed_type: bed })); }
 function reset() { return call('orc_history_reset', ['string'], [JSON.stringify({ selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} })]); }
 function pass(label) { console.log(`bed-memory PASS ${label}`); }
-must(call('orc_init', ['string'], ['{"log_level":"error"}']));
+must(call('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 must(call('orc_clear_model'));
 const A = 'Bambu Lab X1 Carbon 0.4 nozzle';
 // Use canonical names from the real bundled catalog (U1 naming can change).

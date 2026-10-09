@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 7 real-WASM history/runtime reconciliation smoke.
 //
 // History restores invalidate results only on affected plates. An unaffected
@@ -34,7 +35,7 @@ function requireStatus(label, value) {
 
 const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
   activePlateId: null, gizmo: null, nativeScopedConfig: {} };
-requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('clear model', callJson('orc_clear_model'));
 const historyBaseline = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
 if (historyBaseline.error) throw new Error(`history baseline: ${JSON.stringify(historyBaseline)}`);

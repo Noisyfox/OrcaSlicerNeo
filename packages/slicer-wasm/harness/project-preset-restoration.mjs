@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Regression harness for parentless project machine presets.
 //
 // The archive is assembled in memory from the committed native project
@@ -80,7 +81,7 @@ function check(label, condition, detail = '') {
 }
 
 let failures = 0;
-check('initialise real module', callJson('orc_init', ['string'], ['']).ok === true);
+check('initialise real module', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok === true);
 const before = callJson('orc_get_preset_snapshot');
 const ptr = writeBytes(fixture);
 const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],

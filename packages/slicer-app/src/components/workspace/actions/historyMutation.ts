@@ -405,6 +405,16 @@ export async function readProjectHistoryStatus(
   });
 }
 
+/** Initial setup owns no admitted project. Save the native activation root as-is. */
+export async function establishInitialProjectHistorySaved(
+  runtime: Pick<SlicerRuntime, 'markHistorySaved'>,
+): Promise<HistoryStatus> {
+  return enqueueHistoryOperation(async () => {
+    const lease = acquireProjectMutationLease();
+    try { return await runtime.markHistorySaved(); }
+    finally { lease.release(); }
+  });
+}
 export async function markProjectHistorySaved(
   runtime: Pick<SlicerRuntime, 'markHistorySaved'>,
   context: HistoryContext,

@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real serial-WASM Step 5 smoke.
 // node multi-filament-flushing-prime-tower-smoke.mjs --module out/serial/orca_slice.js
 import assert from 'node:assert/strict';
@@ -48,7 +49,7 @@ function assertReplaced(beforeMatrix, afterSnapshot, expectedCount) {
   assert.notDeepEqual(afterSnapshot.flushing.matrix, beforeMatrix, 'accepted flushing edit replaces the imported matrix');
   assert.equal(afterSnapshot.flushing.matrix.length, expectedCount ** 2 * afterSnapshot.flushing.plane_count);
 }
-const init = callJson('orc_init', ['string'], ['']); assert.equal(init.ok, true, JSON.stringify(init));
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]); assert.equal(init.ok, true, JSON.stringify(init));
 const presets = callJson('orc_get_preset_snapshot');
 const printer = presets.printers.find((p) => /Bambu Lab P1P 0\.4 nozzle/.test(p.name)) ?? presets.printers.find((p) => /Bambu Lab/.test(p.name));
 assert.ok(printer, 'flexible printer profile is required');

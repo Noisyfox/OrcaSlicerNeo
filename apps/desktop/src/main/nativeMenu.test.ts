@@ -52,8 +52,8 @@ describe('Electron native menu boundary', () => {
   it('requires the current project and complete command state', () => {
     const current = state();
     expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true } })).toBeNull();
-    expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true, arranging: 'false' } })).toBeNull();
-    expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true, arranging: true } })?.scene.arranging).toBe(true);
+    expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true, arranging: 'false', editing: false } })).toBeNull();
+    expect(validateMenuStateSnapshot({ ...current, scene: { hasModel: true, arranging: true, editing: false } })?.scene.arranging).toBe(true);
     const { project: _project, ...oldProjectShape } = current;
     expect(validateMenuStateSnapshot(oldProjectShape)).toBeNull();
     const { 'new-project': _new, 'open-project': _open, 'save-project': _save,
@@ -118,7 +118,7 @@ describe('Electron native menu boundary', () => {
       activeTab: 'prepare',
       boot: { phase: 'ready', error: null },
       slicer: { status: 'done', progress: 1, error: null },
-      scene: { hasModel: true, arranging: false },
+      scene: { hasModel: true, arranging: false, editing: false },
       result: { hasResult: true, exported: false },
       project: { hasContent: true, dirty: false, operation: { phase: 'idle' as const, progress: 0, cancellable: false } },
       host: { isElectron: true, menuMode: 'native' },
@@ -127,6 +127,7 @@ describe('Electron native menu boundary', () => {
         'open-project': { enabled: true, checked: false },
         'save-project': { enabled: true, checked: false },
         'save-project-as': { enabled: true, checked: false },
+        'setup-wizard': { enabled: false, checked: false },
         preferences: { enabled: true, checked: false },
         'add-model': { enabled: true, checked: false },
         'clear-scene': { enabled: true, checked: false },

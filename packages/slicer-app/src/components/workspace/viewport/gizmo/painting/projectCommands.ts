@@ -2,6 +2,8 @@ import type { PaintingController } from './PaintingController';
 import { useArrangementStore } from '@/stores/useArrangementStore';
 import type { FilamentSessionSnapshot, FilamentMutationSummary } from '@slicer/client';
 
+import { useSetupWizardStore } from '@/stores/useSetupWizardStore';
+
 let owner: PaintingController | null = null;
 
 /** The app owns one painter even when its viewport is hidden. Shared action
@@ -11,7 +13,7 @@ export function registerPaintingCommands(controller: PaintingController): () => 
   return () => { if (owner === controller) owner = null; };
 }
 export function paintingCommandAllowed(): boolean {
-  return !useArrangementStore.getState().active && (owner?.commandAllowed ?? true);
+  return !useSetupWizardStore.getState().active && !useArrangementStore.getState().active && (owner?.commandAllowed ?? true);
 }
 export function coordinatePaintingProjectOperation<T>(operation: () => Promise<T>, enqueue: (operation: () => Promise<T>) => Promise<T>): Promise<T> {
   return owner?.active ? owner.projectOperation(operation) : enqueue(operation);

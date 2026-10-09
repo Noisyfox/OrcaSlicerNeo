@@ -1,5 +1,6 @@
+import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
-import { _electron, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';

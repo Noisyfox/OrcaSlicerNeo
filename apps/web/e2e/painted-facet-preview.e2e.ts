@@ -1,6 +1,6 @@
 import { installSliceReceiptObserver, readSliceReceipts } from '../../desktop/e2e/runtime-receipts';
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect, configuredActivation } from './browser-fixture';
+
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { readZipEntries } from '../../../packages/slicer-wasm/harness/native-3mf-parser.mjs';
@@ -31,11 +31,11 @@ function colourByState(entries: MaterialColour[]): Map<number, string> {
 }
 
 test('real Web loads the imported painted project and keeps its Preview shell transparent', async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+  await page.addInitScript((profileActivation) => {
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ profileActivation,
       version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {},
     }));
-  });
+  }, configuredActivation);
   await page.goto('/');
   await installSliceReceiptObserver(page);
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 180_000 });

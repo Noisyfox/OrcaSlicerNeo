@@ -1,6 +1,7 @@
+import { MOCK_PROFILE_ACTIVATION } from '@slicer/testing';
 import { describe, expect, it } from 'vitest';
 import { startWorker, type WorkerMessage } from '../../slicer-wasm/src/client';
-import { createMockModule } from '../../slicer-wasm/src/client/testing/mock-module';
+import { createMockModule } from '@slicer/testing';
 import { createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
 
 describe('portable runtime bootstrap', () => {
@@ -17,7 +18,7 @@ describe('portable runtime bootstrap', () => {
     initialized();
     await Promise.resolve();
     expect(runtime.status.phase).toBe('failed');
-    await expect(runtime.init()).rejects.toThrow('utility exited during startup');
+    await expect(runtime.init(MOCK_PROFILE_ACTIVATION)).rejects.toThrow('utility exited during startup');
   });
 
   it('carries native history session identity, floor and reset through the shared runtime', async () => {
@@ -95,13 +96,16 @@ describe('portable runtime bootstrap', () => {
       capabilities: { webgl2: true, wasm64: true, threadedWasm: false },
     });
     const progress: string[] = [];
-    const stopProgress = runtime.onStartupProgress!((text) => progress.push(text));
-    receive({ type: 'startup-progress', text: 'Downloading profiles (1/2)...' });
+    const phases: string[] = [];
+    const stopProgress = runtime.onStartupProgress!((text, phase) => { progress.push(text); phases.push(phase); });
+    receive({ type: 'startup-progress', phase: 'startup', text: 'Downloading profiles (1/2)...' });
     expect(progress).toEqual(['Downloading profiles (1/2)...']);
+    receive({ type: 'startup-progress', phase: 'catalogue', text: 'Loading profiles…' });
+    expect(phases).toEqual(['startup', 'catalogue']);
     const snapshot = await runtime.getPlateSessionSnapshot();
     stopProgress();
-    receive({ type: 'startup-progress', text: 'Downloading profiles (2/2)...' });
-    expect(progress).toEqual(['Downloading profiles (1/2)...']);
+    receive({ type: 'startup-progress', phase: 'startup', text: 'Downloading profiles (2/2)...' });
+    expect(progress).toEqual(['Downloading profiles (1/2)...', 'Loading profiles…']);
     expect(snapshot).toEqual({
       instances: [],
       ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',

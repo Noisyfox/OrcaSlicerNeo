@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 13 real-WASM deletion boundary.
 //
 // The native registry test pauses an active lease across deletion. This
@@ -36,7 +37,7 @@ function requireOk(label, value) {
   return value;
 }
 
-requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('add survivor model',
   callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Survivor Cube']));
 const survivor = callJson('orc_get_plate_session_snapshot').current_plate_id;

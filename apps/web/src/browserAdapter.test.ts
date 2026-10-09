@@ -14,6 +14,13 @@ vi.mock('@orca/slicer-runtime', async () => {
 describe('browser adapter', () => {
   beforeEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
+  it('round trips explicit vendor activation through a recreated browser adapter', async () => {
+    const adapter = createBrowserAdapter({} as never);
+    const activation = { models: [{ vendor: 'BBL', model: 'P', nozzle_diameter: ['0.4'] }], filaments: ['PLA'] };
+    await adapter.preferences.save({ ...await adapter.preferences.load(), profileActivation: activation });
+    expect((await createBrowserAdapter({} as never).preferences.load()).profileActivation).toEqual(activation);
+  });
+
   it('restores alpha and gradient favorites through a recreated browser adapter', async () => {
     const first = createBrowserAdapter({} as never);
     const prefs = await first.preferences.load();
@@ -174,4 +181,12 @@ describe('browser adapter', () => {
     expect(JSON.parse(localStorage.getItem(PRINTER_CONFIGURATION_STORAGE_KEY)!)).toEqual(document);
     await expect(repository.load()).resolves.toEqual(document);
   });
+});
+
+it('propagates browser persistence rejection without publishing unsaved in-memory activation', async () => {
+ const adapter = createBrowserAdapter({} as never);
+ const original = await adapter.preferences.load();
+ vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('quota exceeded'); });
+ await expect(adapter.preferences.save({ ...original, profileActivation: { models: [], filaments: ['PLA'] } })).rejects.toThrow('quota exceeded');
+ expect((await adapter.preferences.load()).profileActivation).toEqual(original.profileActivation);
 });

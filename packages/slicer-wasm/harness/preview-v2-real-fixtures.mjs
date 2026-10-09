@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Preview v2 B4 real-fixture evidence runner.
 //
 // This runner intentionally reports bridge output instead of retaining G-code
@@ -69,7 +70,7 @@ function readArray(ptr, Constructor, length) {
   return result;
 }
 
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 if (!init.ok) throw new Error(`orc_init failed: ${JSON.stringify(init)}`);
 const selected = callJson('orc_select_preset', ['string', 'string'], ['printer', definition.printer]);
 if (!selected.ok || selected.printer?.name !== definition.printer) {

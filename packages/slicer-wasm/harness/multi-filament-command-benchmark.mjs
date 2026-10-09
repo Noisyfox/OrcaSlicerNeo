@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Warmed single-command latency benchmark for real Step 2 filament mutations.
 // node harness/multi-filament-command-benchmark.mjs --module out/serial/orca_slice.js
 import assert from 'node:assert/strict';
@@ -30,7 +31,7 @@ function request(name, body) {
   return callJson(name, ['string'], [JSON.stringify(body)]);
 }
 function initFlexible() {
-  assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
+  assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
   const presets = callJson('orc_get_preset_snapshot');
   const printer = presets.printers.find((entry) => /Bambu Lab P1P 0\.4 nozzle/.test(entry.name))
     ?? presets.printers.find((entry) => /Bambu Lab/.test(entry.name));

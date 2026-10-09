@@ -1,9 +1,10 @@
+import { _electron } from './electron-fixture';
 // Compatibility UI coverage uses the desktop E2E mock's fixed preset graph.
 // Native compatible_printers / condition / compatible_prints interpretation is
 // separately proven by the real-WASM fixture harness; this test proves the
 // shared application's snapshot replacement, picker locking, and slice-state
 // invalidation without reproducing compatibility filtering in TypeScript.
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';

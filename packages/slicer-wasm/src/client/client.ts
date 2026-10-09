@@ -1,3 +1,5 @@
+import { linkProfileVendors } from './profileFilesystem';
+import type { ProfileActivation, SetupWizardCatalogueResult, SetupWizardCloseResult, ProfileActivationPreparationResult, ProfileActivationPreparationRequest, ProfileActivationApplicationResult } from './setupWizard';
 import { createPaintingApi } from './paintingClient';
 import { decodeModelGeometry } from './modelGeometry';
 // packages/slicer-wasm/src/client/client.ts
@@ -1584,11 +1586,14 @@ export async function dispatchClientRequest(
 export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
-  beforeInit?: (module: OrcaModule) => Promise<void>,
+  beforeInit?: (module: OrcaModule, activation: ProfileActivation | null) => Promise<void>,
   onBridgeProjectClosed?: ProjectClosedCallback,
   onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
+  beforeCatalogue?: (module: OrcaModule) => Promise<void>,
 ): SlicerClient {
   let geometrySession = crypto.randomUUID();
+  let catalogueOpening = false;
+  let preparedActivation: ProfileActivation | null = null;
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
   // React StrictMode double-mounts the boot effect in dev, sending init
@@ -1907,11 +1912,12 @@ export function createClient(
 
   const client: SlicerClient = {
     ...createPaintingApi(module, normalizeHistoryStatus),
-    async init(): Promise<InitResult> {
+    async init(activation: ProfileActivation | null): Promise<InitResult> {
+      if (activation === undefined) throw new Error('explicit nullable activation is required');
       const m = await module();
       if (!beforeInitPromise) {
         if (beforeInit) {
-          beforeInitPromise = beforeInit(m);
+          beforeInitPromise = beforeInit(m, activation);
           try {
             await beforeInitPromise;
           } catch (error) {
@@ -1923,12 +1929,14 @@ export function createClient(
         }
       }
       await beforeInitPromise;
+      linkProfileVendors(m, activation);
       // The orc_init JSON is the options payload: the bridge reads "log_level"
       // from it to set the boost::log severity filter (default info when
       // unset). The value comes from the global JS variable in the module's
       // worker scope — see doc/2026-08-21-wasm-boost-log.md. wasm64: every C
       // param must receive a value; the string always exists (possibly "{}").
       const opts = {
+        profile_activation: activation,
         log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
@@ -2147,6 +2155,51 @@ export function createClient(
     async revalidateNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
       return normalizeNativeScopedConfig(callJson(m, 'orc_revalidate_native_scoped_config', [], []));
+    },
+
+    async openSetupWizardCatalogue(): Promise<SetupWizardCatalogueResult> {
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      catalogueOpening = true;
+      preparedActivation = null;
+      try {
+        const m = await module();
+        await beforeCatalogue?.(m);
+        return callJson(m, 'orc_open_setup_wizard_catalogue', [], []) as SetupWizardCatalogueResult;
+      } finally { catalogueOpening = false; }
+    },
+    async closeSetupWizardCatalogue(): Promise<SetupWizardCloseResult> {
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      preparedActivation = null;
+      return callJson(await module(), 'orc_close_setup_wizard_catalogue', [], []) as SetupWizardCloseResult;
+    },
+    async prepareProfileActivation(request: ProfileActivationPreparationRequest): Promise<ProfileActivationPreparationResult> {
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      preparedActivation = null;
+      const result = callJson(await module(), 'orc_prepare_profile_activation', ['string'], [JSON.stringify({ activation: request.activation, remembered_bed_types: request.rememberedBedTypes,
+        remembered_filament_racks: Object.fromEntries(Object.entries(request.rememberedFilamentRacks).map(([printer, rack]) => [printer, {
+          version: rack.version, slots: rack.slots.map(({ preset, colour, native }) => ({ preset, colour, native: {
+            representative: native.representative, multi_colour: native.multiColour, type: native.type,
+          } })),
+        }])) })]) as ProfileActivationPreparationResult;
+      if (result.ok) preparedActivation = structuredClone(result.activation);
+      return result;
+    },
+    async applyProfileActivation(): Promise<ProfileActivationApplicationResult> {
+      if (catalogueOpening) throw new Error('setup_catalogue_loading');
+      if (!preparedActivation) throw new Error('activation is not prepared');
+      const m = await module();
+      linkProfileVendors(m, preparedActivation);
+      const raw = callJson(m, 'orc_apply_profile_activation', [], []) as Record<string, unknown>;
+      if (raw.ok !== true) return raw as unknown as ProfileActivationApplicationResult;
+      const profiles = normalizeProfileSnapshot(raw.profile_snapshot as Record<string, unknown>);
+      const filaments = normalizeFilamentSessionResult(raw.filament_session);
+      const plates = normalizePlateSessionResult(raw.plate_session);
+      const config = normalizeNativeScopedConfigTransport(raw.native_scoped_config);
+      if (!profiles.ok || !filaments.ok || !plates.ok || !config || typeof raw.configuration_changed !== 'boolean')
+        throw new Error('invalid native activation publication');
+      return { ok: true, profileSnapshot: profiles, filamentSession: filaments, plateSession: plates,
+        nativeScopedConfig: config, historyStatus: normalizeHistoryStatus(raw.history_status),
+        configurationChanged: raw.configuration_changed };
     },
 
     async getProfileSnapshot(): Promise<ProfileSnapshotResult> {

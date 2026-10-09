@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step16 real bridge: independent native selection and preview-only resources.
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
@@ -187,7 +188,7 @@ function geometry(knownResourceIds = []) {
     );
   }
 }
-ok(cmd("orc_init", { log_level: "error" }));
+ok(cmd("orc_init", JSON.parse(fixtureProfileOptions(Module))));
 for (const channel of ["mmu", "support", "fuzzy"]) {
   load(fixture());
   open(channel);

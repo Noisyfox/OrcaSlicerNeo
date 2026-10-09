@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Focused real-WASM coverage for native Project Print-preset materialization.
 // Ordinary Project print edits must create a native project-embedded child only
 // when the edit changes the effective value, and history Undo/Redo must restore
@@ -35,7 +36,7 @@ function nativeSnapshot() {
     .native_scoped_config.snapshot;
 }
 
-requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('clear model', callJson('orc_clear_model'));
 const historyContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },

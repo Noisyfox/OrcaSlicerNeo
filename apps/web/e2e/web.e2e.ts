@@ -1,7 +1,7 @@
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { test, expect } = playwright;
+import { test, expect, configuredActivation } from './browser-fixture';
+
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve, dirname } from 'node:path';
@@ -33,12 +33,12 @@ test('real Web Send preserves browser multipart encoding and starts the server-r
   if (!address || typeof address === 'string') throw new Error('No fixture port');
   const baseUrl = `http://127.0.0.1:${address.port}/`;
   try {
-    await page.addInitScript(({ baseUrl }) => {
+    await page.addInitScript(({ baseUrl, profileActivation }) => {
       localStorage.setItem('orca-slicer-neo:printer-configuration:v1', JSON.stringify({ version: 1, printers: [{
         id: 'web-fixture', displayName: 'Web fixture', driverId: 'moonraker', apiBaseUrl: baseUrl, consoleUrl: baseUrl, apiKey: '',
       }] }));
-      localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ version: 1, selectedProfiles: {}, rememberedBedTypes: {}, ui: { switchToDeviceAfterSend: false } }));
-    }, { baseUrl });
+      localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ profileActivation, version: 1, selectedProfiles: {}, rememberedBedTypes: {}, ui: { switchToDeviceAfterSend: false } }));
+    }, { baseUrl, profileActivation: configuredActivation });
     await page.goto('/');
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
     await page.locator('#app-tab-prepare').click();
@@ -431,20 +431,20 @@ test('Web memory indicator shows a JS-heap plus WASM estimate with shared detail
 // This suite intentionally has no mock mode. The staging step must have
 // published both real wasm64 variants before either invocation is run.
 test('real Web flow: import DRC → profile → slice → layer → G-code download', async ({ page }) => {
-  await page.addInitScript(() => {
+  await page.addInitScript((profileActivation) => {
     const opened: string[] = [];
     (window as unknown as { __orcaOpenedSources: string[] }).__orcaOpenedSources = opened;
     window.open = ((url?: string | URL) => {
       if (url !== undefined) opened.push(String(url));
       return null;
     }) as typeof window.open;
-    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ profileActivation,
       version: 1,
       projectLoadBehaviour: 'always_ask',
       selectedProfiles: {},
       ui: {},
     }));
-  });
+  }, configuredActivation);
   page.on('console', (msg) => console.log(`[browser:${msg.type()}] ${msg.text()}`));
   page.on('pageerror', (error) => console.log(`[browser:error] ${String(error)}`));
   await page.goto('/');
@@ -727,14 +727,14 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
 });
 
 test('multi-plate Prepare grid interactions use authoritative plates and preserve camera', async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+  await page.addInitScript((profileActivation) => {
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ profileActivation,
       version: 1,
       projectLoadBehaviour: 'always_ask',
       selectedProfiles: {},
       ui: {},
     }));
-  });
+  }, configuredActivation);
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
@@ -934,8 +934,8 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
     }), `${plate}: interaction ready`);
     console.log(`[multi-preview timing] ${plate}: double-rAF ${paint.frameDelayMs.toFixed(1)} ms, Playwright round trip ${Date.now() - probeStartedAt} ms`);
   });
-  await page.addInitScript(() => {
-    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+  await page.addInitScript((profileActivation) => {
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ profileActivation,
       version: 1,
       projectLoadBehaviour: 'always_ask',
       selectedProfiles: {},
@@ -1000,7 +1000,7 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
         else super.postMessage(message, transferOrOptions);
       }
     };
-  });
+  }, configuredActivation);
   await phaseStep('runtime bootstrap', 180_000, async () => {
     await page.goto('/');
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 170_000 });

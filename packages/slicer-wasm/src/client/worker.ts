@@ -9,7 +9,7 @@
 //   main → worker: {type:'request', id, op, args}
 //   worker → main: {type:'response', id, ok, result}
 //   worker → main: {type:'progress', percent, text}   (no id)
-//   worker → main: {type:'startup-progress', text}     (no id)
+//   worker → main: {type:'startup-progress', phase, text} (no id)
 // ----------------------------------------------------------------
 import type { SlicerClient, OrcaModuleFactory, PlateSessionMutation, ProjectClosedCallback } from './types';
 import type {
@@ -32,7 +32,7 @@ export type WorkerMessage =
   | { type: 'project-closed'; plateSession: PlateSessionMutation }
   | { type: 'progress'; percent: number; text: string }
   | { type: 'arrangement-progress'; percent: number; text: string }
-  | { type: 'startup-progress'; text: string }
+  | { type: 'startup-progress'; phase: 'startup' | 'catalogue'; text: string }
   | { type: 'runtime-state'; threaded: boolean; serialTerminalEpoch: string };
 
 export interface HistoryWorkerDiagnostic {
@@ -58,8 +58,12 @@ const historyMutationOperations = new Set([
 // must fail before postMessage so no edit, history frame, Slice, or Export can
 // wait behind the running task and execute against a later epoch.
 const paintingOperations = new Set(['openPaintingSession', 'targetPaintingSession', 'readPaintingSession', 'closePaintingSession', 'previewPainting', 'beginPaintingStroke', 'samplePaintingStroke', 'finishPaintingStroke', 'cancelPaintingStroke', 'commitPaintingStroke', 'getPaintingGeometry', 'settlePainting']);
+const setupWizardOperations = new Set([
+  'openSetupWizardCatalogue', 'closeSetupWizardCatalogue', 'prepareProfileActivation', 'applyProfileActivation',
+]);
 const restrictedWhileSerialSlicing = new Set([
   'arrange', 'reorderPlates',
+  ...setupWizardOperations,
   ...paintingOperations,
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
@@ -149,8 +153,9 @@ export function startWorker(
   onMessage: (fn: (msg: WorkerMessage) => void) => void = (fn) => {
     (self as unknown as { onmessage: (e: MessageEvent<WorkerMessage>) => void }).onmessage = (e) => fn(e.data);
   },
-  beforeInit?: (module: import('./types').OrcaModule) => Promise<void>,
+  beforeInit?: (module: import('./types').OrcaModule, activation: import('./setupWizard').ProfileActivation | null) => Promise<void>,
   beforeRequest?: (op: string, args: unknown[]) => Promise<void> | void,
+  beforeCatalogue?: (module: import('./types').OrcaModule) => Promise<void>,
 ): void {
   const client = createClient(moduleFactory, (pct, text) => {
     post({ type: 'progress', percent: pct, text });
@@ -158,7 +163,7 @@ export function startWorker(
     post({ type: 'project-closed', plateSession });
   }, (runtimeState) => {
     post({ type: 'runtime-state', ...runtimeState });
-  });
+  }, beforeCatalogue);
 
   // The default remains one writer.  A coalesced child may be nested under
   // the active writer and is popped only after its commit/abort.
@@ -168,6 +173,7 @@ export function startWorker(
   // It rejects overlap; it never queues work or spans an editing session.
   let historyTransitionInFlight = false;
   let arrangementActive = false;
+  let catalogueOpening = false;
   const historyTransactionStartedAts: number[] = [];
 
   onMessage(async (msg) => {
@@ -180,8 +186,15 @@ export function startWorker(
     let ownsTransition = false;
     let ownsTransactionStart = false;
     let ownsArrangement = false;
+    let ownsCatalogueOpen = false;
     try {
       const callArgs = args ?? [];
+      if (setupWizardOperations.has(op) && catalogueOpening)
+        throw new Error('setup_catalogue_loading');
+      if (op === 'openSetupWizardCatalogue') {
+        catalogueOpening = true;
+        ownsCatalogueOpen = true;
+      }
       if (arrangementActive && restrictedWhileSerialSlicing.has(op)) throw new Error('arrangement_busy');
       if (op === 'arrange') {
         if (historyTransitionInFlight || transactionStarting || activeTransactionIds.length) throw new Error('Finish the current editing operation before arranging');
@@ -264,6 +277,7 @@ export function startWorker(
       if (ownsTransactionStart) transactionStarting = false;
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
     } finally {
+      if (ownsCatalogueOpen) catalogueOpening = false;
       if (ownsArrangement) arrangementActive = false;
       if (ownsTransition) historyTransitionInFlight = false;
     }
@@ -281,6 +295,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   const progressListeners = new Set<(pct: number, text: string) => void>();
   const arrangementListeners = new Set<(pct: number, text: string) => void>();
   let arrangementActive = false;
+  let catalogueOpening = false;
   const projectClosedListeners = new Set<ProjectClosedCallback>();
   let runtimeThreaded: boolean | undefined;
   let fatalError: Error | undefined;
@@ -315,6 +330,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       activeSliceRequests = 0;
       serialSliceActive = false;
       arrangementActive = false;
+      catalogueOpening = false;
       return;
     }
     if (msg.type === 'history-diagnostic') {
@@ -344,6 +360,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     if (!p) return;
     pending.delete(msg.id);
     if (p.op === 'arrange') arrangementActive = false;
+    if (p.op === 'openSetupWizardCatalogue') catalogueOpening = false;
     if (REAL_PROJECT_PROFILE_BUILD && isRestoreOperation(p.op))
       profileLastRestoreSliceActive = activeSliceRequests > 0;
     if (p.op === 'slice' || p.op === 'slicePlate') activeSliceRequests -= 1;
@@ -365,10 +382,12 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
 
   function call(op: string, args: unknown[]): Promise<unknown> {
     if (fatalError) return Promise.reject(fatalError);
+    if (setupWizardOperations.has(op) && catalogueOpening)
+      return Promise.reject(new Error('setup_catalogue_loading'));
     const id = nextId++;
     if (arrangementActive && restrictedWhileSerialSlicing.has(op)) return Promise.reject(new Error('arrangement_busy'));
     if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op)) {
-      if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession') return Promise.reject(new Error('slice_busy'));
+      if (op === 'arrange' || op === 'openHistorySession' || op === 'closeHistorySession' || setupWizardOperations.has(op)) return Promise.reject(new Error('slice_busy'));
       return Promise.resolve({ error: 'slice_busy' });
     }
     if (op === 'slice' || op === 'slicePlate') {
@@ -376,6 +395,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       if (runtimeThreaded !== true) serialSliceActive = true;
     }
     if (op === 'arrange') arrangementActive = true;
+    if (op === 'openSetupWizardCatalogue') catalogueOpening = true;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, op, startedAt: historyNow() });
       try {
@@ -383,6 +403,7 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       } catch (error) {
         pending.delete(id);
         if (op === 'arrange') arrangementActive = false;
+        if (op === 'openSetupWizardCatalogue') catalogueOpening = false;
         if (op === 'slice' || op === 'slicePlate') {
           activeSliceRequests -= 1;
           serialSliceActive = false;

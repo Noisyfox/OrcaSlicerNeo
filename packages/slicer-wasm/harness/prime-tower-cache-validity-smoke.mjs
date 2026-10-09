@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM projection validity, including warm-cache and unrelated-plate work.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -64,7 +65,7 @@ function history(label, operation) {
   return result;
 }
 
-call('orc_init', ['string'], ['']);
+call('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 call('orc_add_shape', ['string', 'string'], ['Cube', 'first plate']);
 const first = snapshot().current_plate_id;
 call('orc_add_plate');

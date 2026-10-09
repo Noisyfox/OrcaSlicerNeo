@@ -1,3 +1,4 @@
+import type { SetupWizardCatalogue, ProfileActivation } from '../setupWizard';
 import { paintingMock } from './painting-mock';
 // packages/slicer-wasm/src/client/testing/mock-module.ts
 // ----------------------------------------------------------------
@@ -80,6 +81,8 @@ export interface MockModule {
   addFunction: (fn: (...args: unknown[]) => void, sig: string) => number;
   removeFunction: (idx: number) => void;
   FS: {
+    symlink: (target: string, path: string) => void;
+    unlink: (path: string) => void;
     writeFile: (path: string, data: Uint8Array) => void;
     readFile: (path: string) => Uint8Array;
     mkdir: (path: string) => void;
@@ -136,6 +139,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const files = new Map<string, Uint8Array>();
   let previewSourceBytes: Uint8Array | undefined;
   const directories = new Set(['/', '/tmp']);
+  const links = new Map<string, string>();
+  function followLink(path: string): string {
+    for (let i = 0; i < 40; i++) {
+      const link = [...links.keys()].find(key => path === key || path.startsWith(key + '/'));
+      if (!link) return path;
+      path = links.get(link)! + path.slice(link.length);
+    }
+    throw new Error('ELOOP');
+  }
   const freedPointers: number[] = [];
 
   function normalizeFilesystemPath(path: string): string {
@@ -148,7 +160,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return slash <= 0 ? '/' : path.slice(0, slash);
   }
   function filesystemNode(path: string): { mode: number; size: number } {
-    const normalized = normalizeFilesystemPath(path);
+    const normalized = followLink(normalizeFilesystemPath(path));
     if (directories.has(normalized)) return { mode: 0x4000, size: 0 };
     const file = files.get(normalized);
     if (file) return { mode: 0x8000, size: file.byteLength };
@@ -166,7 +178,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     directories.add(normalized);
   }
   function writeFilesystemFile(path: string, data: Uint8Array): void {
-    const normalized = normalizeFilesystemPath(path);
+    const normalized = followLink(normalizeFilesystemPath(path));
     const parent = parentFilesystemPath(normalized);
     if (!directories.has(parent)) {
       if (files.has(parent)) throw new Error(`ENOTDIR: not a directory: ${parent}`);
@@ -176,14 +188,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     files.set(normalized, new Uint8Array(data));
   }
   function readFilesystemFile(path: string): Uint8Array {
-    const normalized = normalizeFilesystemPath(path);
+    const normalized = followLink(normalizeFilesystemPath(path));
     if (directories.has(normalized)) throw new Error(`EISDIR: is a directory: ${normalized}`);
     const file = files.get(normalized);
     if (!file) throw new Error(`ENOENT: no such file or directory: ${normalized}`);
     return file.slice();
   }
   function readFilesystemDirectory(path: string): string[] {
-    const normalized = normalizeFilesystemPath(path);
+    const normalized = followLink(normalizeFilesystemPath(path));
     const node = filesystemNode(normalized);
     if ((node.mode & 0xf000) !== 0x4000) throw new Error(`ENOTDIR: not a directory: ${normalized}`);
     const names = new Set(['.', '..']);
@@ -192,11 +204,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (parentFilesystemPath(directory) === normalized)
         names.add(directory.slice(directory.lastIndexOf('/') + 1));
     }
-    for (const file of files.keys()) {
+    for (const file of [...files.keys(), ...links.keys()]) {
       if (parentFilesystemPath(file) === normalized)
         names.add(file.slice(file.lastIndexOf('/') + 1));
     }
     return [...names];
+  }
+
+  // The mock host skips archive downloads; seed its own source fixture roots.
+  makeDirectory('/profiles');
+  for (const vendor of ['OrcaFilamentLibrary', 'bambulab']) {
+    makeDirectory(`/profiles/${vendor}`);
+    writeFilesystemFile(`/profiles/${vendor}.json`, new TextEncoder().encode('{}'));
   }
 
   // ---- heap allocator (bump; free records for leak checks) ----
@@ -363,10 +382,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const filamentLabel = (name: string) => presetFixtures.filament.find(preset => preset.name === name)?.label ?? name;
   const filamentVendor = (name: string) => presetFixtures.filament.find(preset => preset.name === name)?.vendor ?? '';
 
+  let activation: ProfileActivation | null | undefined;
   function candidates(kind: PresetKind): PresetFixture[] {
     const list = presetFixtures[kind];
-    if (kind === 'printer') return list.filter((preset) => preset.is_visible);
-    return list.filter((preset) => preset.is_visible && isCompatible(kind, preset));
+    if (kind === 'printer') return list.filter(preset => preset.is_visible &&
+      (activation === undefined || activation?.models.some(model => model.vendor === preset.vendor_id &&
+        model.model === preset.model && model.nozzle_diameter.includes(preset.variant))));
+    return list.filter(preset => preset.is_visible && isCompatible(kind, preset) &&
+      (kind !== 'filament' || activation === undefined || activation?.filaments.includes(preset.name)));
   }
 
   function selectedEntry(kind: 'printer' | 'print') {
@@ -394,9 +417,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ok: true,
       printer_picker: {
         items: pickerItems,
-        selected_id: JSON.stringify(['model', current.vendor_id, current.model]),
-        variants: [{ value: current.variant, preset: current.name }],
-        selected_variant: current.variant,
+        selected_id: pickerItems.length ? JSON.stringify(['model', current.vendor_id, current.model]) : '',
+        variants: pickerItems.length ? [{ value: current.variant, preset: current.name }] : [],
+        selected_variant: pickerItems.length ? current.variant : '',
       },
       printers: candidates('printer').map((preset) => selectableEntry('printer', preset)),
       prints: candidates('print').map((preset) => selectableEntry('print', preset)),
@@ -1733,9 +1756,121 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = false;
   }
 
+  let wizardCatalogue: SetupWizardCatalogue | null = null;
+  let preparedWizardActivation: ProfileActivation | null = null;
+  let preparedWizardMemory: any = null;
+  function buildWizardCatalogue(): SetupWizardCatalogue {
+    const models = presetFixtures.printer.filter(preset => preset.vendor_id).map(preset => ({
+      vendor: preset.vendor_id, model: preset.model, name: preset.model, image: '',
+      nozzle_diameter: [preset.variant], default_materials: ['Generic PLA @System'],
+    }));
+    const groups = new Map<string, SetupWizardCatalogue['filaments'][number]>();
+    for (const preset of presetFixtures.filament.filter(preset => preset.vendor_id)) {
+      const name = preset.name.split('@')[0].trim();
+      const key = JSON.stringify([preset.vendor, 'PLA', name]);
+      const group = groups.get(key) ?? { vendor: preset.vendor, type: 'PLA', name, presets: [] };
+      const printers = presetFixtures.printer.filter(printer => preset.compatible_printers?.includes(printer.name));
+      group.presets.push({ name: preset.name, resource_vendor: preset.vendor_id,
+        compatible_models: printers.map(printer => ({ vendor: printer.vendor_id, model: printer.model,
+          nozzle_diameter: [printer.variant] })) });
+      groups.set(key, group);
+    }
+    return { models, filaments: [...groups.values()] };
+  }
+
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
-    orc_init(_optionsJson?: string) {
+    orc_open_setup_wizard_catalogue() {
+      preparedWizardActivation = null; preparedWizardMemory = null;
+      wizardCatalogue = null;
+      wizardCatalogue = buildWizardCatalogue();
+      return { ok: true, catalogue: wizardCatalogue };
+    },
+    orc_close_setup_wizard_catalogue() {
+      preparedWizardActivation = null; preparedWizardMemory = null;
+      wizardCatalogue = null;
+      return { ok: true };
+    },
+    orc_prepare_profile_activation(activationJson: string) {
+      preparedWizardActivation = null; preparedWizardMemory = null;
+      if (!wizardCatalogue) return { ok: false, error: 'setup catalogue is not open' };
+      const request = JSON.parse(activationJson);
+      if (!request || !request.remembered_filament_racks || !request.remembered_bed_types ||
+          Array.isArray(request.remembered_filament_racks) || Array.isArray(request.remembered_bed_types) ||
+          Object.values(request.remembered_filament_racks).some((rack: any) => rack?.version !== 1 || !Array.isArray(rack.slots) ||
+            rack.slots.length === 0 || rack.slots.length > 64 || rack.slots.some((slot: any) => !rememberedSlotColour(slot))) ||
+          Object.values(request.remembered_bed_types).some((bed: any) => typeof bed !== 'string' || !bed))
+        return { ok: false, error: 'explicit activation and transition memory are required' };
+      const record = request.activation as ProfileActivation;
+      if (!record || !Array.isArray(record.models) || !Array.isArray(record.filaments) ||
+          record.models.some(model => typeof model.vendor !== 'string' || !model.vendor.trim() || /[/:\\\x00-\x1f\x7f]/.test(model.vendor) ||
+            typeof model.model !== 'string' || !model.model.trim() || !Array.isArray(model.nozzle_diameter) ||
+            model.nozzle_diameter.length === 0 || model.nozzle_diameter.some(nozzle => typeof nozzle !== 'string' || !nozzle.trim())) ||
+          record.filaments.some(name => typeof name !== 'string' || !name.trim()))
+        return { ok: false, error: 'invalid activation' };
+      const usable = presetFixtures.printer.some(printer => printer.is_visible && record.models.some(model => model.vendor === printer.vendor_id &&
+        model.model === printer.model && model.nozzle_diameter.includes(printer.variant)));
+      if (!usable) return { ok: false, error: 'activation has no usable enabled printer' };
+      const filaments = [...new Set(record.filaments)];
+      if (!filaments.some(name => presetFixtures.filament.some(preset => preset.name === name &&
+        (preset.vendor_id === 'OrcaFilamentLibrary' || record.models.some(model => model.vendor === preset.vendor_id)))))
+        filaments.push('Generic PLA @System');
+      preparedWizardMemory = structuredClone(request);
+      preparedWizardActivation = { models: structuredClone(record.models), filaments };
+      return { ok: true, activation: preparedWizardActivation };
+    },
+    orc_apply_profile_activation() {
+      if (!preparedWizardActivation) return { ok: false, error: 'activation is not prepared' };
+      if (historyTransaction || editingSession) return { ok: false, error: 'finish the current editing operation' };
+      const rack = clone(filamentSessionSnapshot()) as any;
+      const before = JSON.stringify({ selected, rack: rack.slots, config: nativeScopedConfig.project });
+      const wasDirty = historyStatus().dirty;
+      const previousPrinter = selected.printer;
+      activation = structuredClone(preparedWizardActivation);
+      if (!candidates('printer').some(printer => printer.name === selected.printer)) {
+        selected.printer = candidates('printer')[0].name;
+        resolveAfterPrinterChange();
+      }
+      if (selected.printer !== previousPrinter) {
+        const memory = preparedWizardMemory.remembered_filament_racks[selected.printer];
+        if (memory) rack.slots = memory.slots.map((slot: any, index: number) => ({ slot: index + 1,
+          logical_id: rack.slots[index]?.logical_id ?? `filament-${nextFilamentIdentity++}`,
+          preset: { id: slot.preset, name: slot.preset, label: filamentLabel(slot.preset), vendor: filamentVendor(slot.preset) },
+          colour: rememberedSlotColour(slot) }));
+        const capabilities = (snapshot() as any).bed_type;
+        const bed = preparedWizardMemory.remembered_bed_types[selected.printer];
+        nativeScopedConfig.project.curr_bed_type = capabilities.supports_selection && capabilities.choices.some((choice: any) => choice.value === bed)
+          ? bed : capabilities.default_value;
+      }
+      const available = candidates('filament');
+      const fallback = available[0]?.name ?? 'Generic PLA @System';
+      for (const slot of rack.slots) if (!available.some(preset => preset.name === slot.preset.name)) {
+        slot.preset.id = fallback; slot.preset.name = fallback; slot.preset.label = filamentLabel(fallback); slot.preset.vendor = filamentVendor(fallback);
+        const colour = String((presetDraftSnapshot('filament', fallback).effective_values as any)?.default_filament_colour ?? '#26A69A').replace(/^"|"$/g, '');
+        slot.colour = rememberedSlotColour({ preset: fallback, colour,
+          native: { representative: colour, multi_colour: colour, type: '1' } });
+      }
+      filamentSessionState = rack;
+      const changed = JSON.stringify({ selected, rack: rack.slots, config: nativeScopedConfig.project }) !== before;
+      const context = historyEntries[historyCursor]?.context ?? { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+      resetHistory();
+      if (changed) { sliced = false; plateMutation('shared-configuration', [...plateIds], [...plateIds]); }
+      // Native activation always publishes one new root, including a dirty root.
+      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project',
+        context: { ...clone(context), nativeScopedConfig: clone(nativeScopedConfig) } });
+      if (!wasDirty && !changed) savedHistoryCursor = 0;
+      return { ok: true, profile_snapshot: bridge.orc_get_preset_snapshot(),
+        filament_session: bridge.orc_get_filament_session_snapshot(),
+        history_status: historyStatus(), configuration_changed: changed,
+        plate_session: bridge.orc_get_plate_session_snapshot(),
+        native_scoped_config: (bridge.orc_get_native_scoped_config() as any).native_scoped_config };
+    },
+    orc_init(optionsJson: string) {
+      const options = JSON.parse(optionsJson);
+      if (!Object.hasOwn(options, 'profile_activation')) return { ok: false, error: 'explicit activation required' };
+      activation = options.profile_activation;
+      const printers = candidates('printer');
+      if (printers.length) { selected.printer = printers[0].name; resolveAfterPrinterChange(); }
       presetDraftRegistry = { printer: {}, filament: {} };
       presetDraftEditorRegistry = { printer: {}, filament: {} };
       presetDraftRevision = 0;
@@ -1746,6 +1881,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         prints: presetFixtures.print.length,
         filaments: presetFixtures.filament.length,
         printers: presetFixtures.printer.length,
+        setupRequired: activation === null || candidates('printer').length === 0,
       };
     },
     orc_history_begin(label: string, category: string, beforeContextJson: string, optionsJson?: string) {
@@ -2277,7 +2413,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const list = presetFixtures[presetKind];
       const requested = list.find((preset) => preset.name === name);
       if (!requested) return `preset not found: ${name}`;
-      if (!requested.is_visible) return `preset is not visible: ${name}`;
+      if (!requested.is_visible || (presetKind === 'printer' && !candidates('printer').includes(requested))) return `preset is not visible: ${name}`;
       if (presetKind !== 'printer' && !isCompatible(presetKind, requested)) {
         return `preset is incompatible: ${name}`;
       }
@@ -2308,7 +2444,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!Object.hasOwn(request, 'remembered_rack') || !Object.hasOwn(request, 'remembered_bed_type') ||
           (request.remembered_bed_type !== null && typeof request.remembered_bed_type !== 'string'))
         return { ok: false, error_code: 'invalid_request', error: 'explicit remembered rack and bed are required' };
-      const printer = presetFixtures.printer.find((item) => item.name === request.printer && item.is_visible);
+      const printer = candidates('printer').find(item => item.name === request.printer);
       if (!printer) return { ok: false, error_code: 'preset_not_found', error: 'Printer preset not found' };
       if (request.remembered_rack !== null &&
           (request.remembered_rack?.version !== 1 || !Array.isArray(request.remembered_rack.slots) ||
@@ -3195,6 +3331,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
+    orc_open_setup_wizard_catalogue: { ret: 'number', args: [] },
+    orc_close_setup_wizard_catalogue: { ret: 'number', args: [] },
+    orc_prepare_profile_activation: { ret: 'number', args: ['string'] },
+    orc_apply_profile_activation: { ret: 'number', args: [] },
     orc_init: { ret: 'number', args: ['string'] },
     orc_history_begin: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
     orc_history_commit: { ret: 'number', args: ['string', 'string'] },
@@ -3311,6 +3451,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       functionTable.delete(idx);
     },
     FS: {
+      symlink(target, path) { const normalized = normalizeFilesystemPath(path); if (links.has(normalized) || files.has(normalized) || directories.has(normalized)) throw new Error('EEXIST'); links.set(normalized, target); },
+      unlink(path) { const normalized = normalizeFilesystemPath(path); if (!links.delete(normalized) && !files.delete(normalized)) throw new Error('ENOENT'); },
       writeFile(path: string, data: Uint8Array) {
         writeFilesystemFile(path, data);
       },
@@ -3333,3 +3475,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
   };
 }
+
+/** Explicit activation used by tests that exercise the installed mock fixtures. */
+export const MOCK_PROFILE_ACTIVATION: ProfileActivation = {
+  models: [{ vendor: 'bambulab', model: 'X1 Carbon', nozzle_diameter: ['0.4'] },
+    { vendor: 'bambulab', model: 'P1S', nozzle_diameter: ['0.4'] }],
+  filaments: ['Bambu PLA Basic @BBL X1C', 'Bambu PLA Matte @BBL X1C',
+    'Bambu PLA Silk @BBL X1C', 'Bambu PLA Basic @BBL P1S', 'Generic PLA @System'],
+};

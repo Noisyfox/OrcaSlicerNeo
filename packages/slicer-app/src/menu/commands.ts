@@ -11,6 +11,7 @@ export interface CommandActions {
   openProject?: () => Promise<void>;
   saveProject?: () => Promise<void>;
   saveProjectAs?: () => Promise<void>;
+  setupWizard?: () => Promise<void>;
   preferences?: () => Promise<void>;
   addModel: () => Promise<void>;
   clearScene: () => Promise<void>;
@@ -88,6 +89,7 @@ function commandToAction(command: MenuCommandId): keyof CommandActions {
     case 'open-project': return 'openProject';
     case 'save-project': return 'saveProject';
     case 'save-project-as': return 'saveProjectAs';
+    case 'setup-wizard': return 'setupWizard';
     case 'preferences': return 'preferences';
     case 'add-model': return 'addModel';
     case 'clear-scene': return 'clearScene';

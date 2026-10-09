@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM command coverage using generated, repository-owned 3MF inputs.
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -64,7 +65,7 @@ const sample = (settings, event) => update('orc_painting_stroke_sample', { strok
 const finish = () => update('orc_painting_stroke_finish', { strokeId: session.strokeId });
 const cancel = () => update('orc_painting_stroke_cancel', { strokeId: session.strokeId });
 const preview = (tool, settings, event) => update('orc_painting_preview', { tool, settings, ...(event ? { event } : {}) });
-ok(command('orc_init', { log_level: 'error' }));
+ok(command('orc_init', JSON.parse(fixtureProfileOptions(Module))));
 load(fixture()); open();
 const committed = observe();
 const initial = read().parts.map(p => p.facetCounts);

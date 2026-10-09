@@ -19,6 +19,7 @@
 
 #include <emscripten/emscripten.h>
 #include <emscripten/heap.h>
+#include <mimalloc.h>
 
 namespace Slic3r::Neo::Bridge::RealProjectProfile {
 namespace {
@@ -187,6 +188,30 @@ nlohmann::json snapshot()
 } // namespace Slic3r::Neo::Bridge::RealProjectProfile
 
 extern "C" {
+
+// Test-only allocator accounting for the calling Worker/native main thread.
+// Counts live usable block capacity, not requested sizes, free blocks or RSS.
+EMSCRIPTEN_KEEPALIVE const char* orc_take_profile_allocator_snapshot()
+{
+    struct Accounting { std::size_t bytes = 0; std::size_t blocks = 0; } accounting;
+    const auto visitor = [](const mi_heap_t*, const mi_heap_area_t* area,
+                            void* block, std::size_t, void* data) -> bool {
+        if (!block) {
+            auto& result = *static_cast<Accounting*>(data);
+            result.bytes += area->used * area->block_size;
+            result.blocks += area->used;
+        }
+        return true;
+    };
+    // Drain delayed frees before reading area.used; this is profiling only.
+    mi_theap_collect(mi_theap_get_default(), false);
+    const bool complete = mi_theap_visit_blocks(mi_theap_get_default(), false, visitor, &accounting);
+    return Slic3r::Neo::Bridge::Profiles::duplicate_json(nlohmann::json{
+        {"profile_build", true}, {"complete", complete},
+        {"calling_thread_live_usable_bytes", accounting.bytes},
+        {"calling_thread_live_blocks", accounting.blocks},
+        {"wasm_heap_bytes", emscripten_get_heap_size()}}.dump());
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_take_real_project_profile_snapshot()
 {

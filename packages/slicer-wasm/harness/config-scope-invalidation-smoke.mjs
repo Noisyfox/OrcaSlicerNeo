@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real-WASM Step 10 configuration-scope invalidation smoke.
 //
 // Three plates retain independent native results. A plate override invalidates
@@ -69,7 +70,7 @@ function expectScope(label, before, after, changed, unchanged) {
       throw new Error(`${label}: ${plateId} changed unexpectedly: ${JSON.stringify({ before, after })}`);
 }
 
-requireOk('init', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('clear model', callJson('orc_clear_model'));
 requireOk('add shared cube', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Shared object']));
 const initialStructure = requireOk('initial structure', callJson('orc_get_model_structure'));

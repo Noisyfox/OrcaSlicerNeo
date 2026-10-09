@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Focused real-WASM coverage for the native history editing-session bridge.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
@@ -82,7 +83,7 @@ const context = {
   nativeScopedConfig: {},
 };
 
-requireOk('initialize real WASM module', callJson('orc_init', ['string'], ['{"log_level":"error"}']));
+requireOk('initialize real WASM module', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('clear fixture model', callJson('orc_clear_model'));
 const reset = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
 check('fresh history has no session floor', reset.editingSession === null && reset.navigationFloor === null,

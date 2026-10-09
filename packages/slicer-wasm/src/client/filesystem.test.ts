@@ -42,6 +42,7 @@ describe('SlicerClient filesystem boundary', () => {
     ]);
     await expect(client.listFilesystemDirectory('/')).resolves.toEqual([
       { name: 'files', isDirectory: true, sizeBytes: null },
+      { name: 'profiles', isDirectory: true, sizeBytes: null },
       { name: 'tmp', isDirectory: true, sizeBytes: null },
     ]);
   });

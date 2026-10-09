@@ -1,7 +1,7 @@
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
+import { test, expect } from './browser-fixture';
 import { resolve } from 'node:path';
-const { test, expect } = playwright;
+
 
 test('real WASM adds object volumes from primitives and the browser file picker', async ({ page }) => {
   await page.goto('/');

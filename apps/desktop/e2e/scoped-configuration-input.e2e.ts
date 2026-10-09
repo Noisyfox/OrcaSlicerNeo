@@ -1,4 +1,5 @@
-import { _electron, expect, test } from '@playwright/test';
+import { _electron } from './electron-fixture';
+import { expect, test } from '@playwright/test';
 import { resolve } from 'node:path';
 
 test('Project override highlights its category and enables Reset only while local values exist', async () => {

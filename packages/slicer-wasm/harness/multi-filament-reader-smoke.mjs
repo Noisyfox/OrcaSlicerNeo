@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Optional real-reader proof for the independently assembled Step 0 fixture.
 // Run when a staged artifact is available:
 // node harness/multi-filament-reader-smoke.mjs --module out/serial/orca_slice.js
@@ -33,7 +34,7 @@ function callJson(name, types = [], args = []) {
   return result;
 }
 
-const initialized = callJson('orc_init', ['string'], ['']);
+const initialized = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 assert.equal(initialized.ok, true, JSON.stringify(initialized));
 const defaultSession = callJson('orc_get_filament_session_snapshot');
 assert.equal(defaultSession.ok, true, JSON.stringify(defaultSession));

@@ -1,3 +1,4 @@
+import { _electron } from './electron-fixture';
 // apps/desktop/e2e/select-scroll.e2e.ts — regression: a Select popup must not
 // open "shifted up" covering the trigger once the sidebar is scrolled. The
 // bug is in the app's Base UI 1.7.0 Select wrapper and only shows in the
@@ -22,7 +23,7 @@
 // at the user's request. The tracking assertion below therefore scrolls the
 // aside programmatically; wheel events over the sidebar are swallowed by the
 // backdrop by design.
-import { _electron, expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');

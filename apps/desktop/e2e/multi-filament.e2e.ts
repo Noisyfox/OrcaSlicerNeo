@@ -1,7 +1,8 @@
+import { _electron } from './electron-fixture';
 import { selectFixturePrinter } from './printer-selection';
 import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
 import { newProjectMenu } from './project-menu';
-import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');

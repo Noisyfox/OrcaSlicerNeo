@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Focused Step 11 native projection smoke. Run against the threaded artifact:
 // node multi-filament-prime-tower-projection-smoke.mjs --module out/threaded/orca_slice.js
 import assert from 'node:assert/strict';
@@ -27,7 +28,7 @@ function assertDirectEstimateProfile(label) {
   assert.equal(sample.stages_ms.print_apply_wipe_tower_data_fallback, 0,
     `${label}: unexpected Print fallback ${JSON.stringify(sample)}`);
 }
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 assert.equal(init.ok, true, JSON.stringify(init));
 
 // One used filament is hidden even when the rack contains multiple slots.

@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -13,7 +14,7 @@ function call(name, types = [], args = []) {
   const ptr = Number(module.ccall(name, 'number', types, args));
   try { return JSON.parse(module.UTF8ToString(ptr)); } finally { module._free(ptr); }
 }
-assert.equal(call('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
+assert.equal(call('orc_init', ['string'], [fixtureProfileOptions(module)]).ok, true);
 // Measure the real WASM geometry, rather than deriving an expectation from
 // the Neo helper. These profile dimensions are the native Orca build areas.
 function cubeSizes() {

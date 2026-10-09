@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Regression harness for Orca's below-bed/sinking-object OOB semantics.
 // A small negative Z offset is valid when the object remains printable in the
 // XY build volume; a genuine XY excursion must still be reported as OOB.
@@ -30,7 +31,7 @@ function check(label, condition, detail = '') {
   if (!condition) failures++;
 }
 
-check('initialise real module', callJson('orc_init', ['string'], ['{"log_level":"error"}']).ok === true);
+check('initialise real module', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok === true);
 const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Sinking OOB fixture']);
 check('add fixture model', added.ok === true && added.objects === 1);
 

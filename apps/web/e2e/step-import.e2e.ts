@@ -1,6 +1,6 @@
 import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
-const { expect, test } = playwright;
+import { test, expect } from './browser-fixture';
+
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 

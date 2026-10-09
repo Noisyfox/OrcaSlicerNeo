@@ -228,9 +228,8 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       },
       async save(value) {
         const normalized = normalizeUserPreferences(value);
+        await host.preferences.save(normalized);
         inMemoryPreferences = normalized;
-        try { await host.preferences.save(normalized); }
-        catch (error) { console.error('preferences save failed; keeping in-memory preferences', error); }
       },
     },
     printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },

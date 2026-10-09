@@ -1,0 +1,105 @@
+import playwright from '../../desktop/node_modules/@playwright/test/index.js';
+const { test, expect } = playwright;
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+test('real Web startup fetches selected vendors then fills the wizard without repeat delivery', async ({ page }) => {
+  const manifest = JSON.parse(await readFile(resolve(import.meta.dirname, '../../desktop/src/renderer/public/profiles/manifest.json'), 'utf8')) as { packages: { id: string; path: string }[] };
+  const requested: string[] = [];
+  page.on('request', request => {
+    const path = decodeURIComponent(new URL(request.url()).pathname).split('/profiles/')[1];
+    if (path?.endsWith('.zip')) requested.push(path);
+  });
+  await page.addInitScript(() => localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ version: 1, ui: {}, profileActivation: {
+    models: [{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.4'] }], filaments: ['Generic PLA @System'],
+  } })));
+  await page.goto('/'); await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  const startup = manifest.packages.filter(pkg => ['core', 'OrcaFilamentLibrary', 'Creality'].includes(pkg.id)).map(pkg => pkg.path);
+  expect([...new Set(requested)].sort()).toEqual(startup.sort());
+  let release!: () => void, held = false;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/profiles/**', async route => {
+    const path = decodeURIComponent(new URL(route.request().url()).pathname).split('/profiles/')[1];
+    if (!held && path?.endsWith('.zip') && !startup.includes(path)) { held = true; await pending; }
+    await route.continue();
+  });
+  await page.evaluate(() => {
+    (window as unknown as { setupLoadingTexts: string[] }).setupLoadingTexts = [];
+    new MutationObserver(() => {
+      const text = document.querySelector('[data-testid="setup-wizard"] [role="status"]')?.textContent;
+      const texts = (window as unknown as { setupLoadingTexts: string[] }).setupLoadingTexts;
+      if (text && texts.at(-1) !== text) texts.push(text);
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  const open = async () => {
+    await page.getByTestId('titlebar-menu-trigger').click();
+    const file = page.getByTestId('menu-file-trigger'); await file.focus(); await file.press('ArrowRight');
+    await page.getByTestId('file-setup-wizard').click();
+  };
+  await open(); const wizard = page.getByTestId('setup-wizard');
+  await expect(wizard.getByRole('status')).toHaveText(`Downloading profiles 1/${manifest.packages.length - startup.length}`);
+  release();
+  await expect(page.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 120_000 });
+  const loadingTexts = await page.evaluate(() => (window as unknown as { setupLoadingTexts: string[] }).setupLoadingTexts);
+  const lastDownload = loadingTexts.findLastIndex(text => text.startsWith('Downloading profiles'));
+  expect(loadingTexts.slice(lastDownload + 1)).toContain('Loading profiles…');
+  expect([...new Set(requested)].sort()).toEqual(manifest.packages.map(pkg => pkg.path).sort());
+  const count = await wizard.getByRole('checkbox').count(); expect(count).toBeGreaterThan(100);
+  await wizard.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(wizard).toBeHidden();
+  const delivered = requested.length;
+  await page.getByTestId('menu-file-trigger').waitFor({ state: 'detached' });
+  await open(); await expect(page.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 120_000 });
+  expect(await wizard.getByRole('checkbox').count()).toBe(count); expect(requested).toHaveLength(delivered);
+  await wizard.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+test('real native Web mandatory setup saves activation and next startup keeps selection without reopening wizard', async ({ page }, testInfo) => {
+  test.setTimeout(360_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
+  await page.addInitScript(() => { localStorage.removeItem('orca-slicer-neo:preferences'); });
+  await page.goto('/');
+  const wizard = page.getByTestId('setup-wizard');
+  await expect(wizard).toBeVisible({ timeout: 240_000 });
+  await expect(wizard.getByLabel('Search printers', { exact: true })).toBeEnabled({ timeout: 120_000 });
+  await wizard.getByLabel('Search printers', { exact: true }).fill('Ender-3 Creality');
+  await wizard.getByRole('checkbox', { name: 'Creality Ender-3', exact: true }).check();
+  await expect(wizard.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape'); await expect(wizard).toBeVisible();
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('native-setup-printers.png') });
+  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  expect(await wizard.getByRole('checkbox', { checked: true }).count()).toBeGreaterThan(0);
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('native-setup-filaments.png') });
+  await wizard.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(wizard).toBeHidden({ timeout: 120_000 }); await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await expect(page.getByTestId('preset-select')).toContainText('Creality Ender-3');
+  // Ordinary native selection of the upstream 0.2 defaults also rejects
+  // this fixture's line widths; the native defaults comparison owns that proof.
+  await page.getByTestId('nozzle-variant-select').click();
+  await page.getByRole('option', { name: '0.4', exact: true }).click();
+  await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!).selectedProfiles.printer)).toContain('0.4');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('orca-slicer-neo:preferences')!));
+  expect(saved.profileActivation.models).toEqual([{ vendor: 'Creality', model: 'Creality Ender-3', nozzle_diameter: ['0.2', '0.4', '0.6', '0.8'] }]);
+  expect(saved.profileActivation.filaments.length).toBeGreaterThan(0);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(import.meta.dirname, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('btn-export')).toBeEnabled({ timeout: 120_000 });
+  const downloaded = page.waitForEvent('download');
+  await page.getByTestId('btn-export').click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toMatch(/cube.*\.gcode$/);
+  const gcode = await readFile((await download.path())!, 'utf8');
+  expect(gcode).toContain('G1'); expect(gcode.length).toBeGreaterThan(1000);
+  // Remove the clearing init script by opening a second page in this same context.
+  const reloaded = await page.context().newPage();
+  await reloaded.addInitScript(value => localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(value)), saved);
+  await reloaded.goto('/');
+  await expect(reloaded.getByTestId('home-page')).toBeAttached({ timeout: 240_000 });
+  await expect(reloaded.getByTestId('setup-wizard')).toHaveCount(0);
+  await reloaded.locator('#app-tab-prepare').click(); await expect(reloaded.getByTestId('preset-select')).toContainText('Creality Ender-3');
+  await expect(reloaded.getByTestId('slicer-status')).toHaveText('Ready');
+  expect(errors).toEqual([]);
+  await reloaded.close();
+});

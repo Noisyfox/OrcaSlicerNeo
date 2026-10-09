@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Native Prime Tower timestamped-history smoke.
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
@@ -56,7 +57,7 @@ function modelShape() {
   }));
 }
 
-assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
+assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 trace('initialized');
 for (let index = 0; index < 12; index++)
   assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', `prime tower object ${index}`]).ok, true);

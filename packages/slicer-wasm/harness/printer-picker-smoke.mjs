@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Real native model/variant matching with deterministic profile packages.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -45,7 +46,7 @@ try {
     const ptr = Number(Module.ccall(name, 'number', types, args));
     try { return JSON.parse(Module.UTF8ToString(ptr)); } finally { Module._free(ptr); }
   }
-  assert.equal(call('orc_init', ['string'], ['']).ok, true);
+  assert.equal(call('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
   const snapshot = () => call('orc_get_preset_snapshot');
   const select = name => {
     const receipt = call('orc_select_printer_with_remembered_rack', ['string'], [JSON.stringify({

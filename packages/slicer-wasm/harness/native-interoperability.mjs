@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Step 9 is deliberately opt-in. Run this file directly for each production
 // wasm64 module; it is not imported by tests or referenced by package scripts.
 import { createHash } from 'node:crypto';
@@ -100,7 +101,7 @@ function writeBytes(Module, bytes) {
 }
 
 async function generateFixture(Module) {
-  check('fixture generation init', callJson(Module, 'orc_init', ['string'], ['']).ok === true);
+  check('fixture generation init', callJson(Module, 'orc_init', ['string'], [fixtureProfileOptions(Module)]).ok === true);
   const model = await readFile(resolve(repoRoot, 'packages/slicer-wasm/fixtures/cube.stl'));
   let ptr = writeBytes(Module, model);
   const added = callJson(Module, 'orc_add_model', ['pointer', 'number', 'string', 'string'], [ptr, model.length, 'stl', 'cube.stl']);

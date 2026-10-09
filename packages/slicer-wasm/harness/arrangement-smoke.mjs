@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Native arrangement publication, partial-success, rollback and single-step history.
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -54,7 +55,7 @@ async function arrange(options = {}) {
   const accepted = startArrangement(options);
   return accepted.accepted === true ? await awaitAsyncTask(call, accepted) : accepted;
 }
-ok('initialize', call('orc_init', ['string'], ['{"log_level":"error"}']));
+ok('initialize', call('orc_init', ['string'], [fixtureProfileOptions(module)]));
 ok('clear model', call('orc_clear_model'));
 for (let i = 0; i < 2; ++i) ok('create cube', addFixtureCube(`Cube ${i + 1}`));
 call('orc_history_reset', ['string'], [JSON.stringify(context)]);

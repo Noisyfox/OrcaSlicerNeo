@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // ----------------------------------------------------------------
 // -------- Native STEP bridge smoke: import, atomicity, and slice ---
 // ----------------------------------------------------------------
@@ -77,7 +78,7 @@ function meshSummary() {
 }
 
 const near = (actual, expected, epsilon = 1e-2) => Math.abs(actual - expected) <= epsilon;
-const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
+const init = callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]);
 check('orc_init succeeds', init.ok === true, JSON.stringify(init));
 
 const step = await fixture('step-box-20mm.step');

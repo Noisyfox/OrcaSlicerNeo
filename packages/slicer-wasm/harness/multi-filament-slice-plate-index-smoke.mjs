@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 // Regression: slicing each plate must select the native Print plate index so
 // libslic3r reads the matching element of wipe_tower_x/y.
 import assert from 'node:assert/strict';
@@ -39,7 +40,7 @@ function exportGcode(receipt) {
   return Buffer.from(Module.FS.readFile(result.path)).toString('utf8');
 }
 
-assert.equal(callJson('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
+assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 setProject('enable_prime_tower', '1');
 setProject('prime_tower_width', '25');
 setProject('wipe_tower_wall_type', 'rectangle');

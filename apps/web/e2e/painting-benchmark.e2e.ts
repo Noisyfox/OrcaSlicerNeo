@@ -1,4 +1,4 @@
-import playwright from '../../desktop/node_modules/@playwright/test/index.js';
+import { test, expect, configuredActivation } from './browser-fixture';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { paintingBenchmarkJourney } from '../../desktop/e2e/painting-benchmark-journey';
 import { capturePaintingBenchmarkArtifacts } from '../../desktop/e2e/painting-benchmark-artifacts';
 
-const { test, expect } = playwright;
+
 const project = process.env.ORCA_PAINTING_BENCHMARK_PROJECT;
 const output = process.env.ORCA_PAINTING_BENCHMARK_OUTPUT;
 test.skip(!project || !output, 'run through scripts/run-painting-benchmark.mjs');
@@ -41,9 +41,9 @@ test('measures the real desktop Web painting journey', async ({ page }) => {
       memorySamples.push({ at: Date.now(), processes, processInfo: processInfo.processInfo });
     } finally { sampling = false; }
   };
-  await page.addInitScript(() => localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+  await page.addInitScript((profileActivation) => localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({ profileActivation,
     version: 1, projectLoadBehaviour: 'load_all', selectedProfiles: {}, ui: {},
-  })));
+  })), configuredActivation);
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
   await expect(page.getByTestId('serial-runtime-status')).toBeVisible();

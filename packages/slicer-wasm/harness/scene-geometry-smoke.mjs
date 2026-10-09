@@ -1,3 +1,4 @@
+import { fixtureProfileOptions } from './profile-installer.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -68,7 +69,7 @@ function fullModel() {
   finally { freeGeometryBuffers(result); }
   return result;
 }
-assert.equal(call('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
+assert.equal(call('orc_init', ['string'], [fixtureProfileOptions(module)]).ok, true);
 call('orc_history_reset', ['string'], [JSON.stringify(context)]);
 const added = edit('Cube', () => call('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']));
 assert.equal(added.scene_delta.object_ids.length, 1);
