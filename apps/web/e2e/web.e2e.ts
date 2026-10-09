@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import { expectCurrentPlate, clickPlateControl } from '../../desktop/e2e/plate-controls.helpers';
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 const { test, expect } = playwright;
@@ -41,10 +42,7 @@ test('real Web Send preserves browser multipart encoding and starts the server-r
     await page.goto('/');
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
     await page.locator('#app-tab-prepare').click();
-    await page.getByTestId('preset-select').click();
-    const picker = page.locator('[data-slot="combobox-content"]');
-    await picker.locator('input').fill('Creality Ender-3 0.4 nozzle');
-    await picker.locator('[data-slot="combobox-item"]').filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+    await selectFixturePrinter(page, 'Creality Ender-3 0.4 nozzle');
     const chooser = page.waitForEvent('filechooser');
     await page.getByTestId('btn-add-model').click();
     await (await chooser).setFiles({ name: 'cube"quoted.stl', mimeType: 'application/octet-stream', buffer: await readFile(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl')) });
@@ -83,10 +81,7 @@ test('real Web G-code export downloads the native generated basename directly', 
     await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
   }
   await page.locator('#app-tab-prepare').click();
-  await page.getByTestId('preset-select').click();
-  const picker = page.locator('[data-slot="combobox-content"]');
-  await picker.locator('input').fill('Creality Ender-3 0.4 nozzle');
-  await picker.locator('[data-slot="combobox-item"]').filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  await selectFixturePrinter(page, 'Creality Ender-3 0.4 nozzle');
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
@@ -127,11 +122,7 @@ test('real printer bed STL renders and updates with the selected printer', async
     __orcaE2e?: { bedModelStates?: () => Array<{ geometry: string; vertices: number; position: number[]; visible: boolean }> };
   }).__orcaE2e?.bedModelStates?.() ?? []);
   async function selectPrinter(name: string) {
-    await page.getByTestId('preset-select').click();
-    const popup = page.locator('[data-slot="combobox-content"]');
-    await popup.getByPlaceholder('Search presets…').fill(name);
-    await popup.getByRole('option', { name, exact: true }).click();
-    await expect(page.getByTestId('preset-select')).toContainText(name);
+    await selectFixturePrinter(page, name);
   }
   await selectPrinter('Bambu Lab P1P 0.4 nozzle');
   await expect.poll(async () => (await models()).length).toBe(1);
@@ -510,10 +501,7 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   expect(page.url()).toContain('127.0.0.1:4173');
   expect(await page.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(false);
 
-  await page.getByTestId('preset-select').click();
-  const picker = page.locator('[data-slot="combobox-content"]');
-  await picker.locator('input').fill('Creality Ender-3 0.4 nozzle');
-  await picker.locator('[data-slot="combobox-item"]').filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  await selectFixturePrinter(page, 'Creality Ender-3 0.4 nozzle');
 
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
@@ -686,10 +674,7 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
 
-  await page.getByTestId('preset-select').click();
-  const picker = page.locator('[data-slot="combobox-content"]');
-  await picker.locator('input').fill('Creality Ender-3 0.4 nozzle');
-  await picker.locator('[data-slot="combobox-item"]').filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  await selectFixturePrinter(page, 'Creality Ender-3 0.4 nozzle');
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
@@ -726,10 +711,7 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
-  await page.getByTestId('preset-select').click();
-  const reloadedPicker = page.locator('[data-slot="combobox-content"]');
-  await reloadedPicker.locator('input').fill('Creality Ender-3 0.4 nozzle');
-  await reloadedPicker.locator('[data-slot="combobox-item"]').filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  await selectFixturePrinter(page, 'Creality Ender-3 0.4 nozzle');
   const reloadedChooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
   await (await reloadedChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
@@ -1206,11 +1188,7 @@ test('GPU streaming preview: native renderer is the default backend', async ({ p
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
-  const picker = page.getByTestId('preset-select');
-  await picker.click();
-  await page.locator('[data-slot="combobox-content"] input').fill('Creality Ender-3 0.4 nozzle');
-  await page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
-    .filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  await selectFixturePrinter(page, 'Creality Ender-3 0.4 nozzle');
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));

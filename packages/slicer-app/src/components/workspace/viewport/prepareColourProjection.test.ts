@@ -19,7 +19,7 @@ const structure: ModelObjectStructure[] = [{
 }];
 const snapshot = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-2', slot: 2, preset: { id: 'p', name: 'PETG' }, colour: { effective: '#123456', provenance: 'user', native: { representative: '#123456', multiColour: '#123456', type: '1' }, display: { mode: 'solid' as const, colors: ['#123456'] } } }],
+  slots: [{ logicalId: 'filament-2', slot: 2, preset: { id: 'p', name: 'PETG', label: 'PETG', vendor: '' }, colour: { effective: '#123456', provenance: 'user', native: { representative: '#123456', multiColour: '#123456', type: '1' }, display: { mode: 'solid' as const, colors: ['#123456'] } } }],
   mappings: { filament: [2], volume: [0], nozzle: [2], filament2: [2], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },

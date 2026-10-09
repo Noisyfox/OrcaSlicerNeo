@@ -35,6 +35,26 @@ same slot model covers:
 - multi-nozzle, IDEX, and toolchanger printers; and
 - ordinary single-filament printers, represented by one slot.
 
+Filament combo triggers and list entries use native `Preset::label(false)`:
+the profile alias when available, otherwise its complete name. Their tooltips
+show complete canonical names, including suffixes. Equal aliases remain
+separate canonical choices; selection, editing, and persistence use full names.
+Display labels are required in the internal catalogue and slot snapshot
+contracts. Missing labels are rejected rather than reconstructed by React.
+Filament lists group entries by native `filament_vendor`, independently of the
+profile resource vendor id. Vendor names are retained verbatim, including
+`Bambu Lab`; empty vendors display as `Unspecified`. Native catalogue order
+retains empty-vendor and Generic priority, then PLA/PETG/ABS/TPU priority
+and canonical-name ordering. Bambu vendor priority and named Bambu profile
+priorities are omitted. Group and item order preserve that projection.
+The first menu level contains vendor submenu triggers; each second-level
+menu contains that vendor's
+profiles. Pointer hover/click and keyboard navigation open vendor submenus.
+Search retains only vendors and profiles with matching display labels.
+Selecting a profile closes the menu and returns focus to its slot trigger.
+Current imported or incompatible slot profiles remain available in their own
+vendor group.
+
 The first release does not expose an advanced manual filament-to-physical-
 extruder mapping editor. It uses the selected printer preset and OrcaSlicer's
 native configuration rules to map material slots to physical extruders,

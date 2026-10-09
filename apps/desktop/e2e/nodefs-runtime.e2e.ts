@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from './printer-selection';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
@@ -217,10 +218,7 @@ test(`real ${EXPECTED_VARIANT} runtime validates temporary files, preview and se
 
     await page.locator('#app-tab-prepare').click();
     const printer = 'Creality Ender-3 0.4 nozzle';
-    await page.getByTestId('preset-select').click();
-    await page.locator('[data-slot="combobox-content"] input').fill(printer);
-    await page.locator('[data-slot="combobox-item"]').filter({ hasText: printer }).click();
-    await expect(page.getByTestId('preset-select')).toContainText(printer);
+    await selectFixturePrinter(page, printer);
     const importAt = performance.now();
     await page.getByTestId('btn-add-model').click();
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });

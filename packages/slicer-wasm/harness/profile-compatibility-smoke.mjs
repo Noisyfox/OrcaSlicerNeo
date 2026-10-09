@@ -41,6 +41,9 @@ function assertSnapshot(snapshot, expected) {
   assert.deepEqual(names(snapshot, 'printer'), expected.printers, 'printer candidates/order');
   assert.deepEqual(names(snapshot, 'print'), expected.prints, 'process candidates/order');
   assert.deepEqual(names(snapshot, 'filament'), expected.filamentCatalog, 'filament catalogue/order');
+  for (const item of snapshot.filament_catalog)
+    assert.equal(item.vendor, item.name.startsWith('Generic PLA') ? 'Generic' : 'Bambu Lab',
+      'material vendor derives from filament_vendor, not resource ownership');
   assert.equal(snapshot.printer.name, expected.printer, 'resolved printer');
   assert.equal(snapshot.print.name, expected.print, 'resolved process');
   assert.equal(Object.hasOwn(snapshot, 'filament'), false,

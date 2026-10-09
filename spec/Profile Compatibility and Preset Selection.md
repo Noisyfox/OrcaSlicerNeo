@@ -19,12 +19,49 @@ considers them compatible.
 
 ### Available profiles
 
-- The Printer selector shows installed, visible FDM printers.
+- The Printer selector shows installed, visible FDM printers. System profiles
+  are grouped by vendor and `printer_model` in native candidate order. User,
+  project-embedded, and model-less profiles retain individual entries.
+- The Printer trigger tooltip shows the selected canonical profile's complete
+  name, including nozzle and variant suffixes, like Orca's `get_tooltip(preset)`.
+  The visible trigger label remains the grouped model name.
+- Printer, Process, and Filament share one `PresetCombobox` presentation.
+  Each entry supplies its identity, canonical name, and native display label;
+  the control and list render the label, while both tooltips render the full
+  canonical name. Display labels are required, with no renderer name parsing
+  or per-kind tooltip overrides. Grouping and transitions remain caller-owned.
+- SettingsPanel requires an initialized profile snapshot when mounted. A missing
+  printer picker is a contract violation; it does not render an empty fallback.
+- Native `printer_picker` supplies stable item identities, display labels,
+  canonical transition targets, and current model/variant selection. React
+  never parses profile names or reproduces native matching rules.
+- The Nozzle selector lists complete `printer_variant` strings, deduplicated
+  and lexically sorted like Orca, including named and mixed variants. Model
+  selection uses Orca's alias/current-variant preference and name-ordered
+  fallback, restricted to visible candidates in the intended vendor/model.
+- The selected effective draft nozzle value is displayed even without a
+  matching profile; such a value does not invent a transition target. A source
+  profile's original variant is disabled when reactivating that same source
+  would retain a customized draft. Resetting the draft remains an editor action.
+- The row beneath Printer/Bed contains an inert Sync icon button, a Nozzle
+  label, and a full-width variant selector. Sync has no action. A separate
+  Flow selector is outside this feature; named profile variants containing
+  "High Flow" remain valid variant choices.
+- Both selectors use the existing canonical Printer transition. Preferences,
+  projects, editor actions, and history continue referring to actual profile
+  names. Import, draft edits, startup, and Undo/Redo refresh the native picker.
+  Single-variant printers still display their current variant.
+- Desktop keyboard/pointer input is supported; mobile retains the shared
+  application's unsupported status. Projection adds no resource downloads or
+  independent configuration state; it is bounded by installed candidates.
 - The Process selector shows only installed, visible processes compatible with
   the selected Printer.
 - Incompatible profiles are hidden. There is no option to reveal or select
   them in this release.
-- Profiles keep OrcaSlicer's source order. The application does not sort them.
+- Printer and Process profiles keep native source order. Filament catalogue
+  order is supplied by the native vendor/type/name projection without
+  Bambu-specific priorities.
+  The application preserves that order when constructing vendor groups.
 - The native profile snapshot also provides `filament_catalog`, an
   engine-filtered candidate catalogue consumed by the multi-filament rack.
   Catalogue entries do not carry a selected flag and are not a third selector.
@@ -54,8 +91,8 @@ If a selectable printer excludes its configured default, normalization uses
 the first supported native choice. A printer without selection uses its
 native default and clears local bed overrides.
 
-While a Printer, Process, or global bed selection is in progress, the Printer,
-Process, and global bed selectors and rack
+While a Printer, Nozzle, Process, or global bed selection is in progress, the Printer,
+Nozzle, Process, and global bed selectors and rack
 commands are temporarily disabled. A stale candidate or stale rack revision
 cannot be selected.
 

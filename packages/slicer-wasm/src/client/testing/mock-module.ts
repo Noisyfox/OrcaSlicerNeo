@@ -306,7 +306,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // filament entries exercise visibility filtering. ----
   type PresetKind = 'printer' | 'print' | 'filament';
   type PresetFixture = {
-    name: string; is_visible: boolean; is_default: boolean;
+    name: string; label: string; vendor: string; is_visible: boolean; is_default: boolean;
     vendor_id: string; model: string; variant: string;
     printable_area?: Array<[number, number]>;
     compatible_printers?: string[];
@@ -314,23 +314,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   };
   const presetFixtures: Record<PresetKind, PresetFixture[]> = {
     printer: [
-      { name: 'Bambu Lab X1 Carbon 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4', printable_area: [[0, 0], [220, 0], [220, 220], [0, 220]] },
-      { name: 'Bambu Lab P1S 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4', printable_area: [[0, 0], [256, 0], [256, 256], [0, 256]] },
-      { name: 'Afinia H+1(HS)', is_visible: false, is_default: false, vendor_id: 'afinia', model: 'H+1(HS)', variant: '0.4' },
+      { name: 'Bambu Lab X1 Carbon 0.4 nozzle', label: 'Bambu Lab X1 Carbon 0.4 nozzle', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4', printable_area: [[0, 0], [220, 0], [220, 220], [0, 220]] },
+      { name: 'Bambu Lab P1S 0.4 nozzle', label: 'Bambu Lab P1S 0.4 nozzle', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4', printable_area: [[0, 0], [256, 0], [256, 256], [0, 256]] },
+      { name: 'Afinia H+1(HS)', label: 'Afinia H+1(HS)', vendor: '', is_visible: false, is_default: false, vendor_id: 'afinia', model: 'H+1(HS)', variant: '0.4' },
     ],
     print: [
-      { name: '0.20mm Standard @BBL X1C', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
-      { name: '0.16mm Optimal @BBL X1C', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
-      { name: '0.20mm Standard @BBL P1S', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'] },
-      { name: 'Hidden process', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
+      { name: '0.20mm Standard @BBL X1C', label: '0.20mm Standard @BBL X1C', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
+      { name: '0.16mm Optimal @BBL X1C', label: '0.16mm Optimal @BBL X1C', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
+      { name: '0.20mm Standard @BBL P1S', label: '0.20mm Standard @BBL P1S', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'] },
+      { name: 'Hidden process', label: 'Hidden process', vendor: '', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
     ],
     filament: [
-      { name: 'Bambu PLA Basic @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C', '0.16mm Optimal @BBL X1C'] },
-      { name: 'Bambu PLA Matte @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
-      { name: 'Bambu PLA Silk @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.16mm Optimal @BBL X1C'] },
-      { name: 'Bambu PLA Basic @BBL P1S', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL P1S'] },
-      { name: 'Generic PLA @System', is_visible: true, is_default: false, vendor_id: 'OrcaFilamentLibrary', model: '', variant: '' },
-      { name: 'Hidden filament', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
+      { name: 'Bambu PLA Basic @BBL X1C', label: 'Bambu PLA Basic', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C', '0.16mm Optimal @BBL X1C'] },
+      { name: 'Bambu PLA Matte @BBL X1C', label: 'Bambu PLA Matte', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
+      { name: 'Bambu PLA Silk @BBL X1C', label: 'Bambu PLA Silk', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.16mm Optimal @BBL X1C'] },
+      { name: 'Bambu PLA Basic @BBL P1S', label: 'Bambu PLA Basic', vendor: 'Bambu Lab', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL P1S'] },
+      { name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic', is_visible: true, is_default: false, vendor_id: 'OrcaFilamentLibrary', model: '', variant: '' },
+      { name: 'Hidden filament', label: 'Hidden filament', vendor: '', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
     ],
   };
   const selected: Record<'printer' | 'print', string> = {
@@ -360,6 +360,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return kind !== 'filament' || !fixture.compatible_prints || fixture.compatible_prints.includes(selected.print);
   }
 
+  const filamentLabel = (name: string) => presetFixtures.filament.find(preset => preset.name === name)?.label ?? name;
+  const filamentVendor = (name: string) => presetFixtures.filament.find(preset => preset.name === name)?.vendor ?? '';
+
   function candidates(kind: PresetKind): PresetFixture[] {
     const list = presetFixtures[kind];
     if (kind === 'printer') return list.filter((preset) => preset.is_visible);
@@ -379,8 +382,22 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       selected: preset.name === selected[kind],
     });
     const filamentEntry = (preset: PresetFixture) => ({ ...preset });
+    // Only deterministic fixture presentation; native matching is exercised by
+    // the real-WASM nozzle smoke, never copied into the application.
+    const current = presetFixtures.printer.find((preset) => preset.name === selected.printer)!;
+    const pickerItems = candidates('printer').map((preset) => ({
+      id: JSON.stringify(['model', preset.vendor_id, preset.model]),
+      label: preset.vendor_id === 'bambulab' ? `Bambu Lab ${preset.model}` : preset.model,
+      preset: preset.name,
+    }));
     return {
       ok: true,
+      printer_picker: {
+        items: pickerItems,
+        selected_id: JSON.stringify(['model', current.vendor_id, current.model]),
+        variants: [{ value: current.variant, preset: current.name }],
+        selected_variant: current.variant,
+      },
       printers: candidates('printer').map((preset) => selectableEntry('printer', preset)),
       prints: candidates('print').map((preset) => selectableEntry('print', preset)),
       filament_catalog: candidates('filament').map(filamentEntry),
@@ -1235,7 +1252,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         explicit_slot: 0, effective_slot: 1, inherited: true })));
     return {
       ok: true, version: 1,
-      slots: [{ logical_id: 'filament-1', slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
+      slots: [{ logical_id: 'filament-1', slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System', label: 'Generic PLA', vendor: 'Generic' },
         colour: { effective: '#F2754E', provenance: 'preset',
           native: { representative: '#F2754E', multi_colour: '', type: '1' },
           display: { mode: 'solid', colors: ['#F2754E'] } } }],
@@ -1273,7 +1290,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (index === null) return fail('unsupported filament slot reference', 'unsupported_reference');
       if (kind === 'select-preset') {
         if (typeof request.preset !== 'string') return fail('preset is required', 'invalid_command');
-        next.slots[index].preset = { id: request.preset, name: request.preset };
+        next.slots[index].preset = { id: request.preset, name: request.preset, label: filamentLabel(request.preset), vendor: filamentVendor(request.preset) };
       } else {
         const colour = request.colour;
         const validColour = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
@@ -1979,7 +1996,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return { ok: false, version: 1, error: 'invalid remembered filament slot', error_code: 'invalid_command', status: { state: 'error', error: 'invalid remembered filament slot' } };
       const next: any = clone(current);
       next.slots = request.slots.map((slot: any, index: number) => ({ logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
-        preset: { id: slot.preset, name: slot.preset }, colour: rememberedSlotColour(slot) }));
+        preset: { id: slot.preset, name: slot.preset, label: filamentLabel(slot.preset), vendor: filamentVendor(slot.preset) }, colour: rememberedSlotColour(slot) }));
       const slotCount = next.slots.length;
       next.mappings.filament = Array(slotCount).fill(1);
       next.mappings.volume = Array(slotCount).fill(0);
@@ -2313,7 +2330,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (requestedSlots?.length) {
         const slots = requestedSlots.map((item: any, index: number) => ({
           logical_id: `filament-${nextFilamentIdentity++}`, slot: index + 1,
-          preset: { id: item.preset, name: item.preset },
+          preset: { id: item.preset, name: item.preset, label: filamentLabel(item.preset), vendor: filamentVendor(item.preset) },
           colour: rememberedSlotColour(item),
         }));
         const size = slots.length;

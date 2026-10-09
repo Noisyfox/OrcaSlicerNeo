@@ -9,9 +9,10 @@ function full(snapshot: ReturnType<typeof emptyNativeScopedConfig>, revision = 1
 
 const bootSnapshot: ProfileSnapshot = {
   ok: true,
-  printers: [{ name: 'P', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
-  prints: [{ name: 'Q', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
-  filamentCatalog: [{ name: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
+  printerPicker: { items: [], selectedId: '', variants: [], selectedVariant: '' },
+  printers: [{ name: 'P', label: 'P', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  prints: [{ name: 'Q', label: 'Q', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  filamentCatalog: [{ name: 'F', label: 'F', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'P', idx: 1 },
   print: { name: 'Q', idx: 2 },
   bedType: { supportsSelection: true, defaultValue: 'Textured PEI Plate', choices: [{ value: 'Textured PEI Plate', label: 'Textured PEI Plate' }] },
@@ -49,6 +50,7 @@ describe('useSettingsStore', () => {
     useSettingsStore.getState().setValues({ layer_height: '0.12' });
     useSettingsStore.getState().hydrateProfileSnapshot(bootSnapshot);
     const state = useSettingsStore.getState();
+    expect(state.printerPicker).toEqual(bootSnapshot.printerPicker);
     expect(state.printers).toBe(bootSnapshot.printers);
     expect(state.prints).toBe(bootSnapshot.prints);
     expect(state.filamentCatalog).toBe(bootSnapshot.filamentCatalog);

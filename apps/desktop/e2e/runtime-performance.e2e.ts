@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from './printer-selection';
 import { _electron, expect, test } from '@playwright/test';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,10 +66,7 @@ test('measures real startup, import, slice-to-preview, export and process memory
     });
     await page.locator('#app-tab-prepare').click();
     const printer = 'Creality Ender-3 0.4 nozzle';
-    await page.getByTestId('preset-select').click();
-    await page.locator('[data-slot="combobox-content"] input').fill(printer);
-    await page.locator('[data-slot="combobox-item"]').filter({ hasText: printer }).click();
-    await expect(page.getByTestId('preset-select')).toContainText(printer);
+    await selectFixturePrinter(page, printer);
     const importAt = performance.now();
     await page.getByTestId('btn-add-model').click();
     await expect.poll(() => page.getByTestId('btn-slice').isEnabled(),

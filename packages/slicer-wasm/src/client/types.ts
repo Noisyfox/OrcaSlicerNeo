@@ -341,6 +341,10 @@ export type PlateSelectionResult = PlateSelection | PlateSessionSnapshotError;
 /** Common identity and visibility fields for entries in the engine catalogue. */
 export interface FilamentCatalogItem {
   name: string;
+  /** Orca's alias-aware display label; canonical name remains the identity. */
+  label: string;
+  /** Normalized filament_vendor; distinct from the profile resource vendor_id. */
+  vendor: string;
   /** Real preset visibility result from the bundled profile state. */
   is_visible: boolean;
   is_default: boolean;
@@ -379,8 +383,17 @@ export interface BedTypeCapabilities {
   choices: Array<{ value: string; label: string }>;
 }
 
+/** Native presentation projection; all targets remain canonical profile names. */
+export interface PrinterPicker {
+  items: Array<{ id: string; label: string; preset: string }>;
+  selectedId: string;
+  variants: Array<{ value: string; preset: string | null }>;
+  selectedVariant: string;
+}
+
 export interface ProfileSnapshot {
   ok: true;
+  printerPicker: PrinterPicker;
   printers: PresetInfo[];
   prints: PresetInfo[];
   /** Engine-filtered filament catalogue consumed by the multi-filament rack. */
@@ -1155,7 +1168,7 @@ export interface FilamentSessionSlot {
   /** Opaque runtime identity restored with native history, never persisted to 3MF. */
   readonly logicalId: string;
   readonly slot: number;
-  readonly preset: { readonly id: string; readonly name: string };
+  readonly preset: { readonly id: string; readonly name: string; readonly label: string; readonly vendor: string };
   readonly colour: {
     readonly effective: string;
     readonly provenance: FilamentColourProvenance;

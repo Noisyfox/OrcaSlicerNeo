@@ -10,10 +10,7 @@ import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummar
 import { ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
-import {
-  Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem,
-  ComboboxList, ComboboxTrigger, ComboboxValue,
-} from '@/components/ui/combobox';
+import { PresetCombobox } from './PresetCombobox';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
   ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
@@ -64,9 +61,11 @@ function ImpactDialog({ impact, onCancel, onConfirm }: {
   );
 }
 
-function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
+function SlotCard({ slot, presetNames, presetLabels, presetVendors, mergeDestinations, canDelete, canMerge, pending, onPreset, onColour, onEdit, onDelete, onMerge }: {
   slot: FilamentSessionSlot;
   presetNames: readonly string[];
+  presetLabels: ReadonlyMap<string, string>;
+  presetVendors: ReadonlyMap<string, string>;
   mergeDestinations: readonly number[];
   canDelete: boolean;
   canMerge: boolean;
@@ -77,7 +76,6 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
-  const [search, setSearch] = useState('');
   const [colourOpen, setColourOpen] = useState(false);
   const colourSignature = JSON.stringify(slot.colour);
   useEffect(() => {
@@ -105,20 +103,12 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
             title={filamentSwatchTitle(slot.colour.display)}
             style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour,
               border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
-        <Combobox inputValue={search} onInputValueChange={setSearch} value={slot.preset.name} onValueChange={(value) => value && onPreset(value)} items={[...presetNames]} disabled={pending}>
-          <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1" data-testid={`filament-preset-${slot.slot}`}
-            aria-label={`Filament preset for slot ${slot.slot}`}
-            title={slot.preset.name}
-            style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
-            render={<Button variant="ghost" size="sm" />}>
-            <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue /></span>
-          </ComboboxTrigger>
-          <ComboboxContent>
-            <ComboboxInput placeholder="Search compatible presets…" showTrigger={false} searchValue={search} onClearSearch={() => setSearch('')} />
-            <ComboboxList>{(name) => <ComboboxItem key={name} value={name}>{name}</ComboboxItem>}</ComboboxList>
-            <ComboboxEmpty>No compatible preset</ComboboxEmpty>
-          </ComboboxContent>
-        </Combobox>
+        <PresetCombobox items={presetNames.map(name => ({ id: name, name, label: presetLabels.get(name)! }))}
+          value={slot.preset.name} onValue={onPreset} disabled={pending}
+          ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}
+          searchPlaceholder="Search compatible presets…" emptyText="No compatible preset"
+          groupBy={item => presetVendors.get(item.id)! || 'Unspecified'}
+          triggerStyle={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }} />
       </ContextMenuTrigger>
       <ContextMenuContent>
         {onEdit && <ContextMenuItem data-testid={`filament-edit-${slot.slot}`} disabled={pending} onClick={onEdit}>Edit</ContextMenuItem>}
@@ -157,6 +147,14 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
     () => compatiblePresetNames(snapshot, filamentCatalog.map((preset) => preset.name)),
     [filamentCatalog, snapshot],
   );
+  const presetLabels = useMemo(() => new Map([
+    ...filamentCatalog.map(preset => [preset.name, preset.label] as const),
+    ...(snapshot?.slots.map(slot => [slot.preset.name, slot.preset.label] as const) ?? []),
+  ]), [filamentCatalog, snapshot]);
+  const presetVendors = useMemo(() => new Map([
+    ...filamentCatalog.map(preset => [preset.name, preset.vendor] as const),
+    ...(snapshot?.slots.map(slot => [slot.preset.name, slot.preset.vendor] as const) ?? []),
+  ]), [filamentCatalog, snapshot]);
   // The project mutation fence is a safety/ordering mechanism, not a rack
   // presentation state. Filament commands are queued behind model/history
   // work by the shared gate, while the rack remains visually stable and
@@ -230,6 +228,8 @@ export function FilamentRack({ onEditPreset }: { onEditPreset?: (canonicalName: 
               key={slot.slot}
               slot={slot}
               presetNames={presetNames}
+              presetLabels={presetLabels}
+              presetVendors={presetVendors}
               canDelete={snapshot.capabilities.canDelete}
               canMerge={snapshot.capabilities.canMerge}
               mergeDestinations={snapshot.slots.map((entry) => entry.slot)}

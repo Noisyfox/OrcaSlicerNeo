@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from '../../desktop/e2e/printer-selection';
 import playwright from '../../desktop/node_modules/@playwright/test/index.js';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -31,9 +32,7 @@ test('unchanged shared threaded artifacts keep browser temporary files in MEMFS'
   await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
   await page.locator('#app-tab-prepare').click();
   const printer = 'Creality Ender-3 0.4 nozzle';
-  await page.getByTestId('preset-select').click();
-  await page.locator('[data-slot="combobox-content"] input').fill(printer);
-  await page.locator('[data-slot="combobox-item"]').filter({ hasText: printer }).click();
+  await selectFixturePrinter(page, printer);
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));

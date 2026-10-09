@@ -22,11 +22,15 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, con
 if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
 
 function preset(name: string, isVisible = true): PresetInfo {
-  return { name, is_visible: isVisible, is_default: false, vendor_id: '', model: '', variant: '', selected: false };
+  return { name, label: name, vendor: '', is_visible: isVisible, is_default: false, vendor_id: '', model: '', variant: '', selected: false };
 }
 
 const initialSnapshot: ProfileSnapshot = {
   ok: true,
+  printerPicker: { items: [
+    { id: 'old', label: 'Old Printer', preset: 'Old Printer' },
+    { id: 'new', label: 'New Printer', preset: 'New Printer' },
+  ], selectedId: 'old', variants: [{ value: '0.4', preset: 'Old Printer' }], selectedVariant: '0.4' },
   printers: [preset('Old Printer'), preset('New Printer')],
   // The false flag is deliberately retained: picker arrays are already bridge
   // candidates and must not be re-filtered by React.
@@ -39,6 +43,10 @@ const initialSnapshot: ProfileSnapshot = {
 
 const resolvedSnapshot: ProfileSnapshot = {
   ok: true,
+  printerPicker: { items: [
+    { id: 'new', label: 'New Printer', preset: 'New Printer' },
+    { id: 'other', label: 'Other Printer', preset: 'Other Printer' },
+  ], selectedId: 'new', variants: [{ value: '0.6', preset: 'New Printer' }], selectedVariant: '0.6' },
   printers: [preset('New Printer'), preset('Other Printer')],
   prints: [preset('Resolved Process')],
   filamentCatalog: [preset('Resolved Filament')],
@@ -49,7 +57,7 @@ const resolvedSnapshot: ProfileSnapshot = {
 
 const resolvedRack: FilamentSessionSnapshot = {
   ok: true, version: 1,
-  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
+  slots: [{ logicalId: 'filament-1', slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament', label: 'Resolved Filament', vendor: '' }, colour: { effective: '#112233', provenance: 'preset', native: { representative: '#112233', multiColour: '#112233', type: '1' }, display: { mode: 'solid' as const, colors: ['#112233'] } } }],
   mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
   flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },
   capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
@@ -104,6 +112,7 @@ function resetStores() {
       nativeScopedConfig: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: { 'plate-1': { curr_bed_type: 'High Temp Plate' } } },
       metadata: {},
     printers: initialSnapshot.printers,
+    printerPicker: initialSnapshot.printerPicker,
     prints: initialSnapshot.prints,
     filamentCatalog: initialSnapshot.filamentCatalog,
     selectedPrinter: initialSnapshot.printer.name,
@@ -199,6 +208,20 @@ async function selectOption(container: HTMLElement, triggerId: string, name: str
 describe('SettingsPanel preset transitions', () => {
   let roots: Root[] = [];
 
+  it('rejects mounting before the required profile snapshot is initialized', async () => {
+    resetStores();
+    useSettingsStore.setState({ printerPicker: null });
+    const { platform } = makePlatform(async () => resolvedSnapshot);
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await expect(act(async () => {
+      root.render(<PlatformProvider value={platform}><SettingsPanel sceneInteraction={null} /></PlatformProvider>);
+    })).rejects.toThrow('SettingsPanel requires an initialized profile snapshot');
+    expect(container.querySelector('[data-testid="preset-select"]')).toBeNull();
+  });
+
   afterEach(() => {
     roots.forEach((root) => root.unmount());
     roots = [];
@@ -213,6 +236,87 @@ describe('SettingsPanel preset transitions', () => {
       expect(option).toBeDefined(); option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     });
   }
+
+  async function chooseNozzle(container: HTMLElement, value: string) {
+    await act(async () => (container.querySelector('[data-testid="nozzle-variant-select"]') as HTMLElement).click());
+    const option = [...document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')]
+      .find(item => item.textContent === value)!;
+    expect(option).toBeDefined();
+    await act(async () => {
+      option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+  }
+
+  it('uses native model labels and canonical targets, with inert Sync and actual-profile editing', async () => {
+    resetStores();
+    useSettingsStore.setState({ prints: initialSnapshot.prints.map(item => ({ ...item, label: 'Process alias' })) });
+    useSettingsStore.setState({ printerPicker: {
+      ...initialSnapshot.printerPicker,
+      items: initialSnapshot.printerPicker.items.map(item => ({ ...item, label: `${item.label} Model` })),
+    } });
+    const edit = vi.fn();
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform, edit); roots.push(root);
+    expect(container.querySelector('[data-testid="process-preset-select"]')?.textContent).toBe('Process alias');
+    expect(container.querySelector('[data-testid="process-preset-select"]')?.getAttribute('title')).toBe('Candidate Process B');
+    expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('Old Printer Model');
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Old Printer');
+    await act(async () => (container.querySelector('[data-testid="nozzle-sync-placeholder"]') as HTMLElement).click());
+    expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
+    await act(async () => (container.querySelector('[data-testid="preset-edit-printer"]') as HTMLElement).click());
+    expect(edit).toHaveBeenCalledWith('Old Printer');
+    await selectOption(container, 'preset-select', 'New Printer Model');
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null);
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('New Printer');
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
+  });
+
+  it('switches a named/mixed variant through the existing atomic Printer transaction and locks Nozzle', async () => {
+    resetStores();
+    const picker = { items: [{ id: 'model', label: 'One Printer', preset: 'Old Printer' }], selectedId: 'model',
+      variants: [{ value: '0.4', preset: 'Old Printer' }, { value: '0.4+0.6', preset: 'Mixed Profile' }], selectedVariant: '0.4' };
+    useSettingsStore.setState({ printerPicker: picker });
+    const profile: ProfileSnapshot = { ...resolvedSnapshot, printer: { name: 'Mixed Profile', idx: 2 }, printerPicker: {
+      ...picker, items: [{ ...picker.items[0], preset: 'Mixed Profile' }], selectedVariant: '0.4+0.6',
+    } };
+    let finish!: (value: PrinterTransitionResult) => void;
+    const pending = new Promise<PrinterTransitionResult>(resolve => { finish = resolve; });
+    const { platform, runtime, preferences } = makePlatform(async () => resolvedSnapshot, async () => pending);
+    const { container, root } = await render(platform); roots.push(root);
+    await chooseNozzle(container, '0.4+0.6');
+    for (const id of ['preset-select', 'nozzle-variant-select', 'process-preset-select', 'global-bed-type-select'])
+      expect((container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { finish(printerTransition(profile)); await pending; });
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledExactlyOnceWith('Mixed Profile', null, null);
+    expect(runtime.selectProfile).not.toHaveBeenCalled();
+    expect(preferences.selectedProfiles.printer).toBe('Mixed Profile');
+    expect(useSettingsStore.getState().selectedPrinter).toBe('Mixed Profile');
+    expect(container.querySelector('[data-testid="preset-select"]')?.textContent).toBe('One Printer');
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Mixed Profile');
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4+0.6');
+    expect(useSlicerStore.getState().status).toBe('idle');
+    // Restores replace the projection rather than replaying a selection command.
+    await act(async () => useSettingsStore.getState().hydrateProfileSnapshot(initialSnapshot));
+    expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('Old Printer');
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4');
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the previous Nozzle and releases locks when a variant transition is rejected', async () => {
+    resetStores();
+    useSettingsStore.setState({ printerPicker: { ...initialSnapshot.printerPicker,
+      variants: [...initialSnapshot.printerPicker.variants, { value: '0.6HS', preset: 'Rejected Profile' }],
+    } });
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot,
+      async () => ({ ok: false, errorCode: 'preset_not_visible', error: 'profile unavailable' }));
+    const { container, root } = await render(platform); roots.push(root);
+    await chooseNozzle(container, '0.6HS');
+    expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.4');
+    expect((container.querySelector('[data-testid="nozzle-variant-select"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(useSettingsStore.getState().selectedPrinter).toBe('Old Printer');
+  });
 
   it('shows global scope independently of plate override and sends native serialized values with official labels', async () => {
     resetStores();

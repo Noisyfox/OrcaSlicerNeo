@@ -10,6 +10,8 @@
 #include <cstring>
 #include <cctype>
 #include <optional>
+#include <map>
+#include <sstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -305,6 +307,8 @@ json preset_entry_json(const Preset& preset, const PresetCollection& collection,
                        bool include_selection = true)
 {
     json entry{{"name", preset.name},
+               {"label", preset.label(false)},
+               {"vendor", preset.type == Preset::TYPE_FILAMENT ? preset.config.opt_string("filament_vendor", 0) : ""},
                {"is_visible", preset.is_visible},
                {"is_default", preset.is_default}};
     if (include_selection)
@@ -322,6 +326,23 @@ json preset_candidates_json(const PresetCollection& collection, bool require_com
     for (auto it = collection.begin(); it != collection.end(); ++it) {
         if (!it->is_visible || (require_compatible && !it->is_compatible)) continue;
         candidates.push_back(preset_entry_json(*it, collection, include_selection));
+    }
+    if (collection.type() == Preset::TYPE_FILAMENT) {
+        static const std::vector<std::string> vendors{"", "Generic"};
+        static const std::vector<std::string> types{"PLA", "PETG", "ABS", "TPU"};
+        auto rank = [](const auto& values, const std::string& value) {
+            return std::distance(values.begin(), std::find(values.begin(), values.end(), value));
+        };
+        std::sort(candidates.begin(), candidates.end(), [&](const json& a, const json& b) {
+            const auto vendor_a = rank(vendors, a["vendor"]), vendor_b = rank(vendors, b["vendor"]);
+            if (vendor_a != vendor_b) return vendor_a < vendor_b;
+            const Preset* preset_a = collection.find_preset(a["name"].get<std::string>(), false);
+            const Preset* preset_b = collection.find_preset(b["name"].get<std::string>(), false);
+            const auto type_a = rank(types, preset_a->config.opt_string("filament_type", 0));
+            const auto type_b = rank(types, preset_b->config.opt_string("filament_type", 0));
+            if (type_a != type_b) return type_a < type_b;
+            return a["name"].get<std::string>() < b["name"].get<std::string>();
+        });
     }
     return candidates;
 }
@@ -493,8 +514,102 @@ std::set<std::string> normalize_bed_types(bool reset_global)
     return removed;
 }
 
+// Presentation identities are separate from canonical profile names. Restrict
+// Orca's resolver to the admitted vendor/model candidates; its global fallback
+// may otherwise return an invisible profile or a same-name model from a vendor.
+json printer_picker_json(const DynamicPrintConfig& effective)
+{
+    auto& bundle = state().presets;
+    const auto& selected = bundle.printers.get_selected_preset();
+    struct Group {
+        std::string id;
+        std::string label;
+        bool model_group;
+        std::vector<const Preset*> presets;
+    };
+    std::vector<Group> groups;
+    std::map<std::string, size_t> indices;
+    std::string selected_id;
+    for (const auto& preset : bundle.printers) {
+        if (!preset.is_visible) continue;
+        const std::string model = preset.config.opt_string("printer_model");
+        const bool grouped = preset.is_system && !preset.is_project_embedded && !model.empty();
+        const std::string id = grouped
+            ? json::array({"model", preset.vendor ? preset.vendor->id : "", model}).dump()
+            : json::array({"preset", preset.name}).dump();
+        auto [it, inserted] = indices.emplace(id, groups.size());
+        if (inserted) groups.push_back({id, grouped ? model : preset.name, grouped, {}});
+        groups[it->second].presets.push_back(&preset);
+        if (preset.name == selected.name) selected_id = id;
+    }
+    auto resolve = [&](const Group& group, const std::string& variant) -> const Preset* {
+        const Preset* native = bundle.get_similar_printer_preset(
+            group.presets.front()->config.opt_string("printer_model"), variant);
+        if (native && std::find(group.presets.begin(), group.presets.end(), native) != group.presets.end() &&
+            (variant.empty() || native->config.opt_string("printer_variant") == variant))
+            return native;
+        auto ordered = group.presets;
+        std::sort(ordered.begin(), ordered.end(), [](const Preset* a, const Preset* b) { return a->name < b->name; });
+        const std::string wanted = variant.empty() ? selected.config.opt_string("printer_variant") : variant;
+        for (const Preset* preset : ordered)
+            if (preset->config.opt_string("printer_variant") == wanted) return preset;
+        return variant.empty() ? ordered.front() : nullptr;
+    };
+    json items = json::array();
+    json variants = json::array();
+    std::string current_variant = effective.opt_string("printer_variant");
+    const auto* nozzles = effective.opt<ConfigOptionFloats>("nozzle_diameter");
+    const auto* original_nozzles = selected.config.opt<ConfigOptionFloats>("nozzle_diameter");
+    if (nozzles && !nozzles->values.empty() &&
+        (current_variant.empty() || (original_nozzles && nozzles->values != original_nozzles->values))) {
+        std::ostringstream label;
+        std::set<double> seen;
+        for (double value : nozzles->values)
+            if (seen.insert(value).second) {
+                if (seen.size() > 1) label << "+";
+                label << value;
+            }
+        current_variant = label.str();
+    }
+    for (const auto& group : groups) {
+        const Preset* target = group.id == selected_id ? &selected :
+            group.model_group ? resolve(group, {}) : group.presets.front();
+        items.push_back({{"id", group.id}, {"label", group.label}, {"preset", target->name}});
+        if (group.id != selected_id) continue;
+        std::set<std::string> values;
+        // Reuse Orca's variant enumeration/order, then apply Neo's admission
+        // boundary: the native method includes hidden and cross-vendor presets.
+        // A draft can edit printer_model; the picker retains its source identity.
+        if (bundle.printers.get_edited_preset().config.opt_string("printer_model") ==
+            selected.config.opt_string("printer_model")) {
+            for (const auto& value : bundle.printers.diameters_of_selected_printer())
+                if (!value.empty() && std::any_of(group.presets.begin(), group.presets.end(),
+                    [&](const Preset* preset) { return preset->config.opt_string("printer_variant") == value; }))
+                    values.insert(value);
+        } else {
+            for (const Preset* preset : group.presets) {
+                const std::string value = preset->config.opt_string("printer_variant");
+                if (!value.empty()) values.insert(value);
+            }
+        }
+        if (!current_variant.empty()) values.insert(current_variant);
+        for (const auto& value : values) {
+            const Preset* variant_target = resolve(group, value);
+            // Reactivating the current source retains its runtime draft. Do
+            // not advertise its original variant as a way to reset that draft.
+            if (variant_target && variant_target->name == selected.name && value != current_variant)
+                variant_target = nullptr;
+            variants.push_back({{"value", value},
+                                {"preset", variant_target ? json(variant_target->name) : json(nullptr)}});
+        }
+    }
+    return {{"items", std::move(items)}, {"selected_id", selected_id},
+            {"variants", std::move(variants)}, {"selected_variant", current_variant}};
+}
+
 json preset_snapshot_json()
 {
+    const auto effective = PresetDrafts::effective_full_config();
     const auto bed_resources = selected_printer_bed_resources();
     json tooltip_defaults = json::object();
     if (const Preset* parent = state().presets.prints.get_selected_preset_parent())
@@ -506,6 +621,7 @@ json preset_snapshot_json()
     for (const auto& choice : capabilities.choices)
         choices.push_back({{"value", choice.value}, {"label", choice.label}});
     return json{{"ok", true},
+                {"printer_picker", printer_picker_json(effective)},
                 {"tooltip_defaults", std::move(tooltip_defaults)},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
                 {"prints", preset_candidates_json(state().presets.prints, true)},
@@ -522,7 +638,7 @@ json preset_snapshot_json()
                 // are both part of the native effective configuration.  Use
                 // that slicing starts from so the UI cannot fall back to
                 // metadata defaults that disagree with slicing.
-                {"project_config", Filament::State::config_metadata_json(PresetDrafts::effective_full_config())}};
+                {"project_config", Filament::State::config_metadata_json(effective)}};
 }
 
 json select_printer_with_remembered_rack_json(const json& request)

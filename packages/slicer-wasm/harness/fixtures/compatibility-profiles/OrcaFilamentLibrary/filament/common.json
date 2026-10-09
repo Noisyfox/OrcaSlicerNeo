@@ -4,6 +4,7 @@
   "from": "system",
   "instantiation": "false",
   "filament_type": ["PLA"],
+  "filament_vendor": ["Generic"],
   "filament_diameter": ["1.75"],
   "filament_id": "fixture-generic-pla",
   "nozzle_temperature": ["200"],

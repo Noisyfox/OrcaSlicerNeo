@@ -1,3 +1,4 @@
+import { selectFixturePrinter } from './printer-selection';
 import { installSliceReceiptObserver, readSliceReceipts } from './runtime-receipts';
 import { newProjectMenu } from './project-menu';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -220,9 +221,7 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
     await newProjectMenu(page, app);
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
-    await page.getByTestId('preset-select').click();
-    await page.getByRole('option', { name: 'Bambu Lab X1 Carbon 0.4 nozzle', exact: true }).click();
-    await expect(page.getByTestId('preset-select')).toContainText('Bambu Lab X1 Carbon 0.4 nozzle');
+    await selectFixturePrinter(page, 'Bambu Lab X1 Carbon 0.4 nozzle');
 
     await addPrimitive(page, 'cube');
     await addPrimitive(page, 'cube');

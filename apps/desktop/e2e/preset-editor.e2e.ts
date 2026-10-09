@@ -4,12 +4,13 @@ import { resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
-async function selectFilamentPreset(page: Page, name: string): Promise<void> {
+async function selectFilamentPreset(page: Page, name: string, label: string): Promise<void> {
   const preset = page.getByTestId('filament-preset-1');
   await preset.click();
-  await page.getByPlaceholder('Search compatible presets…').fill(name);
-  await page.getByRole('option', { name, exact: true }).click();
-  await expect(preset).toContainText(name);
+  await page.getByPlaceholder('Search compatible presets…').fill(label);
+  await page.getByRole('menuitem', { name: 'Generic', exact: true }).hover();
+  await page.getByRole('menuitemradio').and(page.getByTitle(name, { exact: true })).click();
+  await expect(preset).toHaveAttribute('title', name);
 }
 
 async function editNumericField(
@@ -61,7 +62,7 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     const page = await app.firstWindow();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
-    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System');
+    if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
     for (const [id, placeholder] of [
       ['preset-select', 'Search presets…'],
       ['process-preset-select', 'Search presets…'],
@@ -70,13 +71,15 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
       const picker = page.getByTestId(id);
       const selected = await picker.textContent();
       await picker.click();
-      const search = page.getByPlaceholder(placeholder).and(page.locator('input[aria-expanded="true"]'));
+      const search = id === 'filament-preset-1'
+        ? page.getByRole('menu', { name: 'Filament preset for slot 1', exact: true }).getByPlaceholder(placeholder)
+        : page.getByPlaceholder(placeholder).and(page.locator('input[aria-expanded="true"]'));
       await search.fill('no-such-preset');
       await page.getByRole('button', { name: 'Clear search', exact: true }).click();
       await expect(search).toHaveValue('');
       await expect(search).toBeFocused();
       await expect(picker).toHaveText(selected!);
-      await expect(page.getByRole('option').first()).toBeVisible();
+      await expect(page.getByRole(id === 'filament-preset-1' ? 'menuitem' : 'option').first()).toBeVisible();
       await page.keyboard.press('Escape');
     }
 

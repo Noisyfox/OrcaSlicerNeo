@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { selectFixturePrinter } from './printer-selection';
 
 export type Point = [number, number, number];
 export const centers = (page: Page): Promise<Point[]> => page.evaluate(() =>
@@ -15,11 +16,7 @@ export async function ready(page: Page) {
 }
 
 export async function selectPrinter(page: Page, name = 'Creality Ender-3 0.4 nozzle') {
-  await page.getByTestId('preset-select').click();
-  const popup = page.locator('[data-slot="combobox-content"]');
-  await popup.getByPlaceholder('Search presets…').fill(name);
-  await popup.getByRole('option', { name, exact: true }).click();
-  await expect(page.getByTestId('preset-select')).toContainText(name);
+  await selectFixturePrinter(page, name);
 }
 
 export async function completed(page: Page) {

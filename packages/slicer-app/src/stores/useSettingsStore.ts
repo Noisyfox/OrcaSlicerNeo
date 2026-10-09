@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  BedTypeCapabilities, FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot,
+  BedTypeCapabilities, FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot, PrinterPicker,
   NativeScopedConfigSnapshot, NativeScopedConfigTransport,
 } from '@slicer/client';
 
@@ -35,6 +35,7 @@ interface SettingsState {
    *  value source (M4: entries carry the REAL is_visible / selected flags
    *  from the bridge, never computed client-side). */
   printers: PresetInfo[];
+  printerPicker: PrinterPicker | null;
   prints: PresetInfo[];
   /** Engine-filtered filament catalogue consumed by the multi-filament rack.
    * It is not a single-filament selection or a second source of truth. */
@@ -84,6 +85,7 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   metadata: null,
   printers: [],
+  printerPicker: null,
   prints: [],
   filamentCatalog: [],
   selectedPrinter: '',
@@ -107,6 +109,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const nativeScopedConfig = emptyNativeScopedConfig();
     return {
       printers: snapshot.printers,
+      printerPicker: snapshot.printerPicker,
       prints: snapshot.prints,
       filamentCatalog: snapshot.filamentCatalog,
       selectedPrinter: snapshot.printer.name,
