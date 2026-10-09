@@ -160,6 +160,9 @@ export function SetupWizard({ platform, mandatory, onApplied, onClose }: Props) 
           </>}
         </fieldset>}
       <DialogFooter>
+        {mandatory && platform.chrome.kind === 'desktop' && <Button variant="outline" onClick={async () => {
+          try { await platform.menu.execute('quit'); } catch (error) { setError(String(error)); }
+        }}>Exit</Button>}
         {!mandatory && <Button variant="outline" disabled={!canCancel} onClick={() => void close()}>Cancel</Button>}
         {page === 'filament' && <Button variant="outline" disabled={disabled} onClick={() => setPage('printer')}>Back</Button>}
         {page === 'printer' ? <Button disabled={disabled || selected.length === 0} onClick={() => {

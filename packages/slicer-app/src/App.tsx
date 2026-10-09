@@ -253,8 +253,7 @@ function AppContent() {
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
   }, [chooseLoad, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
-    if (!paintingCommandAllowed()) { await platform.lifecycle?.respondClose(false); return; }
-    // Startup has not created a project history session yet. Querying the
+    // Startup has not admitted a user project yet. Querying the
     // Worker here can block the native close handshake while init/profile
     // restoration is still in progress, leaving the loading screen unable to
     // close. There is no dirty project to protect until boot is ready.
@@ -262,6 +261,7 @@ function AppContent() {
       await platform.lifecycle?.respondClose(true);
       return;
     }
+    if (!paintingCommandAllowed()) { await platform.lifecycle?.respondClose(false); return; }
     let allow = true;
     if (await projectDirtyStatus(platform)) {
       const decision = await decideDirty('close');

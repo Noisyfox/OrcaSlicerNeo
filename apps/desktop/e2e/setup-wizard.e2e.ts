@@ -21,6 +21,33 @@ async function menu(page: Page) {
   await expect(page.getByTestId('file-setup-wizard')).toBeVisible();
   await page.getByTestId('file-setup-wizard').click();
 }
+for (const method of ['window close', 'Exit'] as const) {
+  test(`mandatory first-use ${method} exits the process without completing setup`, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-setup-exit-e2e-')), preferences = join(dir, 'preferences.json');
+    writeFileSync(preferences, JSON.stringify({ version: 1, ui: {} }));
+    const env = { ...process.env, ORCA_E2E: '1', ORCA_E2E_FIRST_USE: '1', ORCA_E2E_PREFERENCES: preferences } as Record<string, string>;
+    delete env.ELECTRON_RUN_AS_NODE;
+    const app = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+    const processHandle = app.process();
+    try {
+      const page = await app.firstWindow();
+      const wizard = page.getByTestId('setup-wizard');
+      await expect(wizard).toBeVisible();
+      await expect(wizard.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+      await expect(wizard.getByRole('button', { name: 'Exit', exact: true })).toBeEnabled();
+      const exited = app.waitForEvent('close');
+      const action = method === 'Exit' ? wizard.getByRole('button', { name: 'Exit', exact: true }).click()
+        : app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+      await Promise.all([exited, action.catch(error => { if (!page.isClosed()) throw error; })]);
+      await expect.poll(() => processHandle.exitCode).not.toBeNull();
+      expect(JSON.parse(readFileSync(preferences, 'utf8')).profileActivation).toBeUndefined();
+      const restarted = await _electron.launch({ args: ['.'], cwd: resolve(__dirname, '..'), env });
+      try { await expect((await restarted.firstWindow()).getByTestId('setup-wizard')).toBeVisible(); }
+      finally { await restarted.close(); }
+    } finally { if (processHandle.exitCode === null) await app.close(); }
+  });
+}
+
 test('mandatory setup, keyboard/file gates, defaults, visible bulk and menu cancellation', async ({}, testInfo) => {
   const dir = mkdtempSync(join(tmpdir(), 'orca-setup-e2e-')), preferences = join(dir, 'preferences.json');
   // Explicit absence exercises production first-use, including obsolete saved selection/rack.

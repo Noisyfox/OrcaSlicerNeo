@@ -11,18 +11,47 @@ let root: Root | undefined;
 afterEach(async () => { await act(async () => root?.unmount()); root = undefined; document.body.innerHTML = ''; });
 const button = (text: string) => [...document.querySelectorAll('button')].find(button => button.textContent === text)!;
 async function click(text: string) { await act(async () => button(text).click()); }
-async function fixture(mandatory = false) {
+async function fixture(mandatory = false, electron = false) {
   const runtime = createClient(async () => createMockModule()); await runtime.init(mandatory ? null : MOCK_PROFILE_ACTIVATION);
   const prepare = vi.spyOn(runtime, 'prepareProfileActivation'), apply = vi.spyOn(runtime, 'applyProfileActivation');
   let saved = { ...structuredClone(DEFAULT_USER_PREFERENCES), profileActivation: mandatory ? undefined : MOCK_PROFILE_ACTIVATION };
   const preferences = { load: vi.fn(async () => saved), save: vi.fn(async next => { saved = next; }) };
-  const platform = { runtime, preferences } as unknown as PlatformCapabilities;
+  const quit = vi.fn(async () => {});
+  const platform = { runtime, preferences, chrome: { kind: electron ? 'desktop' : 'web' }, menu: { execute: quit } } as unknown as PlatformCapabilities;
   const onApplied = vi.fn(async () => {}), onClose = vi.fn();
   const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
   await act(async () => root!.render(<StrictMode><SetupWizard platform={platform} mandatory={mandatory} onApplied={onApplied} onClose={onClose} /></StrictMode>));
-  return { runtime, preferences, prepare, apply, onApplied, onClose };
+  return { runtime, preferences, prepare, apply, onApplied, onClose, quit };
 }
 describe('shared setup modal lifecycle', () => {
+  it('mandatory Electron Exit quits the host without cancelling or completing setup', async () => {
+    const f = await fixture(true, true);
+    expect(button('Cancel')).toBeUndefined(); expect(button('Exit').disabled).toBe(false);
+    await click('Exit');
+    expect(f.quit).toHaveBeenCalledExactlyOnceWith('quit');
+    expect(f.onClose).not.toHaveBeenCalled(); expect(f.onApplied).not.toHaveBeenCalled();
+    expect(f.prepare).not.toHaveBeenCalled(); expect(f.preferences.save).not.toHaveBeenCalled();
+  });
+  it('Web mandatory setup and later Electron setup have no app Exit action', async () => {
+    await fixture(true); expect(button('Exit')).toBeUndefined();
+    await act(async () => root!.unmount()); root = undefined;
+    await fixture(false, true); expect(button('Exit')).toBeUndefined();
+  });
+  it('mandatory Electron Exit remains available while the catalogue is loading', async () => {
+    const runtime = createClient(async () => createMockModule()); await runtime.init(null);
+    let release!: () => void; const deferred = new Promise<void>(resolve => { release = resolve; });
+    const open = runtime.openSetupWizardCatalogue.bind(runtime);
+    vi.spyOn(runtime, 'openSetupWizardCatalogue').mockImplementation(async () => { await deferred; return open(); });
+    const close = vi.spyOn(runtime, 'closeSetupWizardCatalogue'), quit = vi.fn(async () => {}), onClose = vi.fn();
+    const platform = { runtime, chrome: { kind: 'desktop' }, menu: { execute: quit },
+      preferences: { load: async () => DEFAULT_USER_PREFERENCES } } as unknown as PlatformCapabilities;
+    const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
+    await act(async () => root!.render(<SetupWizard platform={platform} mandatory onApplied={vi.fn()} onClose={onClose} />));
+    expect(button('Next').disabled).toBe(true); expect(button('Exit').disabled).toBe(false);
+    await click('Exit'); expect(quit).toHaveBeenCalledExactlyOnceWith('quit');
+    expect(onClose).not.toHaveBeenCalled(); expect(close).not.toHaveBeenCalled();
+    await act(async () => release());
+  });
   it('mandatory setup cannot cancel and selects models, defaults and completes', async () => {
     const f = await fixture(true);
     expect(button('Cancel')).toBeUndefined(); expect(button('Next').disabled).toBe(true);

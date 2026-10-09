@@ -136,6 +136,25 @@ test('Electron close requests honor Cancel then Save/Don\'t Save choices', async
     await openPickerProject(page, app);
     await makeDirty(page);
 
+    if (process.platform === 'darwin') {
+      await app.evaluate(({ Menu }) => { const item = Menu.getApplicationMenu()!.getMenuItemById('file-setup-wizard')!; item.click(item, undefined, undefined); });
+    } else {
+      await page.getByTestId('titlebar-menu-trigger').click();
+      await page.getByTestId('menu-file-trigger').focus();
+      await page.getByTestId('menu-file-trigger').press('ArrowRight');
+      await page.getByTestId('file-setup-wizard').click();
+    }
+    const wizard = page.getByTestId('setup-wizard');
+    await expect(wizard).toBeVisible();
+    await expect(wizard.getByRole('button', { name: 'Exit', exact: true })).toHaveCount(0);
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+    // A later modal retains ownership of the existing dirty project.
+    await page.waitForTimeout(100);
+    await expect(wizard).toBeVisible();
+    await expect(page.getByTestId('project-dirty-dialog')).toHaveCount(0);
+    await wizard.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(wizard).toBeHidden();
+
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
     await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
     await page.getByTestId('project-dirty-cancel').click();

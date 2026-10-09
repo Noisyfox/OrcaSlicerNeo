@@ -169,6 +169,11 @@ dedicated single-page entry points in this release.
 - First-use setup cannot be cancelled or skipped. Users must complete valid
   Printer/Filament selection before entering the workspace. Do not silently
   install a default printer as a shortcut around this requirement.
+- Users may exit the Electron application during mandatory first-use setup,
+  including loading/application phases. Native window close and the wizard's
+  host-only Exit button terminate the application; neither cancels the wizard
+  into the workspace nor saves an incomplete selection. Restart without a saved
+  activation still requires setup. Web has no application Exit button.
 - Provide one menu entry, Setup Wizard, for later management of both Printer
   and Filament activation. Do not add separate Printer-only or Filament-only
   entries, or management buttons beside workspace selectors.
@@ -1055,6 +1060,32 @@ tests, 19 Web adapter tests and the shared application typecheck, all passing.
 The parent also independently reran the five focused desktop E2E tests and the
 real threaded Web first-use test, and visually inspected both desktop pages.
 Step 7 is accepted for commit; final integration remains Step 8 work.
+
+The PR #65 first-use exit correction moves the startup close allowance ahead
+of the workspace painting/setup guard. Mandatory setup retains startup state
+until completion and has no admitted user project to protect; menu-opened
+setup retains ready state and continues to reject window close until cancelled
+or completed, preserving existing dirty-project handling. The mandatory
+Electron footer provides an enabled Exit button through the existing host quit
+command, including while catalogue loading; host failures use the existing
+error alert. Wizard cancellation, menu/keyboard workspace gates and loading
+mutual exclusion are unchanged.
+
+Self-verification: shared application tests passed (1,140), shared application
+and desktop typechecks passed, and the mock Electron E2E build followed by
+`pnpm --filter @orca/desktop exec playwright test e2e/setup-wizard.e2e.ts
+e2e/project-lifecycle.e2e.ts e2e/titlebar-menu.e2e.ts e2e/utility-runtime.e2e.ts`
+passed all ten tests (23.7 seconds). The two new first-use tests observe actual
+host process termination from native window close and Exit, verify no activation
+was saved, and relaunch the same preferences into mandatory setup. The existing
+dirty-close test now also proves menu-opened setup rejects close, has no Exit
+button, and retains Cancel/Don't Save protection after dismissing the wizard.
+Initial E2E failures came from querying Playwright's disposed process channel
+after successful exit; retaining the ChildProcess handle before exit fixed that
+test error. The parent independently repeated the three exit/dirty-close tests
+(three passed in 5.4 seconds), root tests (1,788 passed, one opt-in measurement
+skipped) and root typechecks. No WASM changes/build, native slicing or full
+host-release E2E rerun is claimed for this host-lifecycle correction.
 
 ### Step 8 — Integration acceptance and performance evidence
 
