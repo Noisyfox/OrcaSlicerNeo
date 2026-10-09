@@ -55,7 +55,8 @@ describe('shared setup modal lifecycle', () => {
   it('mandatory setup cannot cancel and selects models, defaults and completes', async () => {
     const f = await fixture(true);
     expect(button('Cancel')).toBeUndefined(); expect(button('Next').disabled).toBe(true);
-    await act(async () => (document.querySelector('[role="checkbox"]') as HTMLElement).click());
+    const model = document.getElementById(`setup-model-${encodeURIComponent(JSON.stringify(['bambulab', 'X1 Carbon']))}`)!;
+    await act(async () => model.click());
     await click('Next'); expect(button('Finish').disabled).toBe(false);
     await click('Finish'); expect(f.onApplied).toHaveBeenCalledTimes(1); expect(f.onClose).toHaveBeenCalledTimes(1);
   });

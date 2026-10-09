@@ -16,7 +16,14 @@ export function wizardModels(catalogue: SetupWizardCatalogue): WizardModel[] {
       default_materials: [...new Set([...previous.default_materials, ...model.default_materials])],
     } : { ...model });
   }
-  return [...models.values()];
+  // Orca's guide sorts only vendors, then moves Custom to the front. Stable
+  // sorting retains manifest model order inside each vendor and nozzle order.
+  return [...models.values()].sort((a, b) => {
+    if (a.vendor === b.vendor) return 0;
+    if (a.vendor === 'Custom') return -1;
+    if (b.vendor === 'Custom') return 1;
+    return a.vendor.localeCompare(b.vendor);
+  });
 }
 
 /** Orca wizard explicit mapping, independent of workspace compatibility expressions. */

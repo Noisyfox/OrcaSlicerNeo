@@ -327,6 +327,10 @@ replacing global activation settings. Neo retains that separation.
   pixel-identical reproduction. The Printer page groups model cards by vendor
   with images, names, and nozzle information. The Filament page provides model,
   material-type, manufacturer, and text filters with grouped material rows.
+- Match Orca's printer ordering: stable ascending `vendor.localeCompare`, with
+  the `Custom` vendor moved first. Preserve catalogue/manifest model order
+  within each vendor and declared nozzle order. Selected models do not move
+  ahead of other models.
 - Match Orca's two-state material-group selection. If any concrete member of a
   group is enabled, initially show the row checked. Submitting a checked row
   enables all of its members admitted by the current wizard projection; do not
@@ -1153,10 +1157,11 @@ wizard tests against the production build: two passed in 34.0 seconds.
 
 ### Application source organisation (2026-10-09)
 
-Setup Wizard component and helper source/test files are colocated in
+The thirteen Setup Wizard component and helper source/test files are colocated in
 `packages/slicer-app/src/components/wizard/`: the `SetupWizard` component and
 its test, catalogue-session and selection helpers/tests, completion and
-publication helpers/tests. `useSetupWizardStore.ts` remains in the shared
+publication helpers/tests, plus the cover component/test and image-session
+helper. `useSetupWizardStore.ts` remains in the shared
 `packages/slicer-app/src/stores/` directory. The completion helper
 is named `setupWizardCompletion.ts` (with its matching test) to avoid ambiguous
 `SetupWizard.tsx`/`setupWizard.ts` resolution on Windows. App entry, workspace
@@ -1179,6 +1184,34 @@ Parent independent acceptance reviewed the detected renames and confirmed that
 source differences contain only import-path changes. Root `pnpm test` passed
 1791 tests with one opt-in measurement skipped; root `pnpm typecheck` passed.
 The staged diff check and pinned-submodule status check passed.
+
+### Orca printer ordering (2026-10-09)
+
+The shared model projection now mirrors
+`packages/slicer-wasm/cpp/resources/web/guide/21/common.js` (`HandleModelList`):
+vendor names use ascending `localeCompare`, `Custom` is first, and stable model
+and declared nozzle ordering is retained. Selection does not affect ordering.
+Only the wizard projection changes; runtime/client/native boundaries and the
+pinned submodule remain unchanged.
+
+Self-verification: the complete slicer-app suite passed 126 files / 1147 tests,
+including the new shuffled-vendor/Custom/model/nozzle/selection regression;
+slicer-app typecheck and `git diff --check` passed. The existing mandatory
+component and Electron mock regression now select the supported X1 Carbon
+fixture by name rather than assuming it is the first sorted checkbox. The
+focused Electron mock test passed (one test, 3.4 seconds), rebuilt with
+`VITE_USE_MOCK=1 VITE_E2E=1 pnpm --filter @orca/desktop exec electron-vite build
+--mode e2e` and run with `pnpm --filter @orca/desktop exec playwright test
+e2e/setup-wizard.e2e.ts --grep "mandatory setup, keyboard"` (unset
+`ORCA_E2E_REAL`). Logs are
+`packages/slicer-wasm/.work/setup-order-mock-{build,e2e}.log`. No WASM rebuild
+or native/real-cover regression rerun was necessary for this ordering change.
+
+Parent independent acceptance reviewed the stable vendor comparator and retained
+model/nozzle ordering. Root `pnpm test` passed 1796 tests with one opt-in
+measurement skipped; root `pnpm typecheck` passed. The parent repeated the
+focused Electron mock test (one passed in 3.1 seconds). Diff checks passed and
+the pinned submodule remained clean.
 
 ### Visible printer covers (2026-10-09)
 

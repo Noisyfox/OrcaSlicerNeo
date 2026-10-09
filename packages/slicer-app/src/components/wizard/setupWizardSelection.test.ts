@@ -15,6 +15,29 @@ const catalogue: SetupWizardCatalogue = { models: [
 ] };
 const activation: ProfileActivation = { models: [catalogue.models[0]], filaments: ['PLA @A', 'Retired'] };
 describe('Orca wizard selection projection', () => {
+  it('orders vendors like Orca with Custom first, preserving manifest model and nozzle order', () => {
+    const model = (vendor: string, name: string, nozzle_diameter = ['0.8', '0.2', '0.4']) => ({
+      ...catalogue.models[0], vendor, model: name, name, nozzle_diameter,
+    });
+    const unsorted: SetupWizardCatalogue = { ...catalogue, models: [
+      model('Zulu', 'Selected Zulu'), model('Alpha', 'Z model'), model('Custom', 'Z custom'),
+      model('Zulu', 'A model'), model('Alpha', 'A model'), model('Custom', 'A custom'),
+      model('Beta', 'Beta model'), model('Alpha', 'Z model', ['0.6', '0.2']),
+    ] };
+    const before = structuredClone(unsorted);
+    const rows = wizardModels(unsorted);
+    expect(rows.map(row => [row.vendor, row.model])).toEqual([
+      ['Custom', 'Z custom'], ['Custom', 'A custom'], ['Alpha', 'Z model'],
+      ['Alpha', 'A model'], ['Beta', 'Beta model'], ['Zulu', 'Selected Zulu'], ['Zulu', 'A model'],
+    ]);
+    expect(rows[2].nozzle_diameter).toEqual(['0.8', '0.2', '0.4', '0.6']);
+    expect(unsorted).toEqual(before);
+    // Selection changes the submitted activation, never the display projection.
+    const selected = activationFromSelection(unsorted, { models: [], filaments: [] },
+      new Set([modelKey(unsorted.models[0])]), new Set());
+    expect(selected.models[0].vendor).toBe('Zulu');
+    expect(wizardModels(unsorted)).toEqual(rows);
+  });
   it('admits printer vendors plus library and explicit nozzle overlap, independent of manufacturer', () => {
     const rows = eligibleFilaments(catalogue, activation.models);
     expect(rows.map(row => row.name)).toEqual(['PLA', 'PETG']);

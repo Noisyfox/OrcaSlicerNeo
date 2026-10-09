@@ -180,7 +180,7 @@ test('mandatory setup, keyboard/file gates, defaults, visible bulk and menu canc
       document.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
     });
     await expect(page.getByTestId('project-load-choice-dialog')).toHaveCount(0);
-    const first = wizard.getByRole('checkbox').first(); await first.focus(); await page.keyboard.press('Space');
+    const first = wizard.getByRole('checkbox', { name: 'X1 Carbon', exact: true }); await first.focus(); await page.keyboard.press('Space');
     await expect(first).toBeChecked();
     const bounds = await wizard.boundingBox(); expect(bounds!.width).toBeLessThanOrEqual(900); expect(bounds!.height).toBeLessThanOrEqual(720);
     expect(await wizard.evaluate(element => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight)).toBe(true);
