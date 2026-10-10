@@ -519,6 +519,18 @@ Validation for main CI plate-card clipping repair (2026-10-05):
 
 ### 2026-10-09 Multi-toolhead diameter editing
 
+- Single-nozzle printers show a read-only flow Select to the right of the
+  Nozzle variant selector, using the same sidebar control presentation and
+  the effective first `nozzle_volume_type` value. Flow editing remains deferred.
+  The single-nozzle row uses one continuous dark surface with a 3:2 split
+  between diameter and flow and a muted bold Nozzle label. Read-only flow
+  controls retain the existing shared disabled styling.
+  When the bed selector is present, the diameter control's right edge aligns
+  with the Printer selector above, accounting for the Sync button and row gaps.
+  Flow text aligns with the bed-type text above through the matching left inset.
+  Verified Standard/High Flow display and inert disabled interaction in the
+  20-test SettingsPanel suite; slicer-app typecheck and `git diff --check` passed.
+
 - The unified Device Nozzle selector retains the effective profile variant
   after individual toolhead edits, matching Orca's `Sidebar::update_presets`.
   Physical diameter combinations do not add synthetic disabled variant entries;

@@ -48,10 +48,11 @@ considers them compatible.
 - Every Nozzle dropdown entry has a required canonical profile target. A
   variant-less profile's physical display fallback is trigger text only and
   does not create an extra choice.
-- The row beneath Printer/Bed contains an inert Sync icon button, a Nozzle
-  label, and a full-width variant selector. Sync has no action. A separate
-  Flow selector is outside this feature; named profile variants containing
-  "High Flow" remain valid variant choices.
+- The row beneath Printer/Bed contains an inert Sync icon button and a Nozzle
+  variant selector. Single-nozzle printers also show a read-only Flow selector
+  beside it, displaying the effective first `nozzle_volume_type` value. Sync
+  has no action. Named profile variants containing "High Flow" remain valid
+  variant choices.
 - Both selectors use the existing canonical Printer transition. Preferences,
   projects, editor actions, and history continue referring to actual profile
   names. Import, draft edits, startup, and Undo/Redo refresh the native picker.

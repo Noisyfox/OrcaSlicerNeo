@@ -233,6 +233,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.printer-nozzle-single-controls {
+  border-radius: 3px;
+  background: var(--color-control-background);
+}
+.printer-nozzle-single-controls > [data-slot="select-trigger"]:first-child {
+  flex: 3;
+}
+.printer-nozzle-single-controls > .printer-flow-selector {
+  flex: 2;
+}
+.printer-nozzle-align-bed > [data-slot="select-trigger"]:first-child {
+  /* Match the upper row's 1:0.6 split and 8px gap, accounting for
+     this row's 24px Sync button and 4px gap before the controls. */
+  flex: 0 0 calc((100% + 20px) / 1.6 - 28px);
+}
+.printer-nozzle-align-bed > .printer-flow-selector {
+  flex: 1;
+  /* The upper bed selector starts after an 8px inter-control gap. */
+  padding-left: 16px;
+}
 .printer-nozzle-multi-row > [data-slot="button"] {
   height: 52px;
 }

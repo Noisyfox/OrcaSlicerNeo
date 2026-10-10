@@ -267,7 +267,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
           <Button type="button" variant="settings" size="icon-sm"
             aria-label="Sync nozzle" title="Sync nozzle" data-testid="nozzle-sync-placeholder"
             disabled={controlsDisabled}><RefreshCw data-icon="inline-start" /></Button>
-          <div className={cn('flex min-w-0 flex-1 items-center gap-1', multiExtruder && 'printer-nozzle-multi-controls')}>
+          <div className={cn('flex min-w-0 flex-1 items-center', multiExtruder ? 'gap-1 printer-nozzle-multi-controls' : 'printer-nozzle-single-controls', !multiExtruder && bedVisible && 'printer-nozzle-align-bed')}>
           <Select items={printerPicker.variants.map(item => ({ value: item.value, label: item.value }))}
             value={printerPicker.selectedVariant || null}
             disabled={controlsDisabled || printerPicker.variants.length === 0}
@@ -279,13 +279,19 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             }}>
             <SelectTrigger variant="sidebar" className={cn('min-w-0 flex-1', multiExtruder && 'printer-nozzle-multi-selector')} data-testid="nozzle-variant-select"
               aria-label="Nozzle diameter and variant" title={printerPicker.selectedVariant}>
-              <span className={cn('shrink-0', multiExtruder && 'text-muted-foreground font-semibold')}>Nozzle</span>
+              <span className="shrink-0 text-muted-foreground font-semibold">Nozzle</span>
               <SelectValue className={multiExtruder ? undefined : 'pl-4'}>{printerPicker.selectedVariant || '—'}</SelectValue>
             </SelectTrigger>
             <SelectContent><SelectGroup>{printerPicker.variants.map(item =>
               <SelectItem key={item.value} value={item.value}>{item.value}</SelectItem>
             )}</SelectGroup></SelectContent>
           </Select>
+          {!multiExtruder && <Select value={nozzleVolumeTypes[0] ?? null} disabled>
+            <SelectTrigger variant="sidebar" className="min-w-0 flex-1 printer-flow-selector" aria-label="Nozzle flow type"
+              data-testid="nozzle-flow-select" title="Flow type selection is not available yet">
+              <SelectValue>{nozzleVolumeTypes[0] ?? '—'}</SelectValue>
+            </SelectTrigger>
+          </Select>}
           {multiExtruder && <div className="printer-nozzle-extruders" aria-label="Extruder nozzles">
             {nozzleDiameters.map((diameter, index) => {
               // Native ConfigOptionVector::get_at repeats its first value for

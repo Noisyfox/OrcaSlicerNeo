@@ -272,6 +272,23 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
   });
 
+  it.each(['Standard', 'High Flow'])('shows the single-nozzle %s flow type as a read-only combo', async (flow) => {
+    resetStores();
+    useSettingsStore.setState({ values: { nozzle_diameter: '0.4', nozzle_volume_type: flow } });
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    const row = container.querySelector('[data-testid="printer-nozzle-row"]')!;
+    const control = row.querySelector<HTMLButtonElement>('[data-testid="nozzle-flow-select"]')!;
+    expect(control.textContent).toContain(flow);
+    expect(control.disabled).toBe(true);
+    expect(row.querySelector('[data-testid="nozzle-variant-select"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="nozzle-extruder-1"]')).toBeNull();
+    await act(async () => control.click());
+    expect(document.querySelector('[data-slot="select-content"]')).toBeNull();
+    expect(runtime.selectPrinterWithRememberedRack).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().values.nozzle_volume_type).toBe(flow);
+  });
+
   it('switches a named/mixed variant through the existing atomic Printer transaction and locks Nozzle', async () => {
     resetStores();
     const picker = { items: [{ id: 'model', label: 'One Printer', preset: 'Old Printer' }], selectedId: 'model',
