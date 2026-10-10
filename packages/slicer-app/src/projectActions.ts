@@ -173,7 +173,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const sourcePrinter = currentPresets().printer;
-    const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
+    const runtime = runtimeOf(platform); const cleared = await runtime.closeProject(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
     resetSceneState(options.sceneResetTarget, { clearSettings: true });
     usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);

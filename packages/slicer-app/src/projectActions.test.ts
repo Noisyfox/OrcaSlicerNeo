@@ -112,6 +112,9 @@ describe('transactional project actions', () => {
     useSettingsStore.getState().applyNativeScopedConfigTransport({ ...scopedConfigTransport,
       snapshot: { ...scopedConfigTransport.snapshot, project } });
     expect((await newProject(platform)).status).toBe('ok');
+    expect(runtime.closeProject).toHaveBeenCalledTimes(1);
+    expect(runtime.clearModel).not.toHaveBeenCalled();
+    expect(runtime.closeProject.mock.invocationCallOrder[0]).toBeLessThan(runtime.selectProfile.mock.invocationCallOrder[0]);
     expect(useSettingsStore.getState().nativeScopedConfig.project.wipe_tower_rotation_angle).toBeUndefined();
     expect(useSettingsStore.getState().values).toMatchObject(defaults);
     expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledWith({ version: 1, operation: 'reset-all',
@@ -381,7 +384,7 @@ describe('transactional project actions', () => {
     const { platform, runtime } = platformFor();
     useProjectStore.getState().setProject({ hasContent: true, dirty: true, scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' } });
     const result = await newProject(platform, { decideDirty: () => 'save' });
-    expect(result.status).toBe('ok'); expect(runtime.clearModel).toHaveBeenCalled();
+    expect(result.status).toBe('ok'); expect(runtime.closeProject).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
     expect(runtime.selectProfile).toHaveBeenCalledWith('printer', 'System printer');
   });
@@ -433,7 +436,7 @@ describe('transactional project actions', () => {
 
   it('New clears the renderer projection and resets a multi-plate session after runtime success', async () => {
     const { platform, runtime } = platformFor();
-    runtime.clearModel.mockResolvedValue({ ok: true, plateSession: freshPlateSession } as never);
+    runtime.closeProject.mockResolvedValue({ ok: true, plateSession: freshPlateSession } as never);
     const dispose = vi.fn();
     glVolumeCollection.volumes = [{ dispose } as never];
     const resetForModel = vi.fn();
@@ -466,7 +469,7 @@ describe('transactional project actions', () => {
 
   it('does not clear the renderer projection when runtime New fails', async () => {
     const { platform, runtime } = platformFor();
-    runtime.clearModel.mockResolvedValue({ ok: false, error: 'clear failed' } as never);
+    runtime.closeProject.mockResolvedValue({ ok: false, error: 'clear failed' } as never);
     const dispose = vi.fn();
     glVolumeCollection.volumes = [{ dispose } as never];
     const resetForModel = vi.fn();
@@ -500,7 +503,7 @@ describe('transactional project actions', () => {
     const result = await newProject(platform, { decideDirty: () => 'cancel', sceneResetTarget: { resetForModel } });
 
     expect(result.status).toBe('cancelled');
-    expect(runtime.clearModel).not.toHaveBeenCalled();
+    expect(runtime.closeProject).not.toHaveBeenCalled();
     expect(dispose).not.toHaveBeenCalled();
     expect(resetForModel).not.toHaveBeenCalled();
     expect(useSettingsStore.getState().modelLoaded).toBe(true);

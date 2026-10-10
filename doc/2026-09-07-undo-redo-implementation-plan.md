@@ -1114,6 +1114,29 @@ allowlist. Existing rack and scene exclusions still apply. Non-Print authorities
 such as flushing matrices, material routing, and bed selection remain under
 their existing lifecycle owners.
 
+New Project now uses the existing project-close boundary rather than Clear
+Model. It clears active and dormant Printer/Filament runtime drafts, removes
+embedded presets, and recreates the plate session before restoring system
+selections. Project closure discards the old tower X/Y arrays so the existing
+fresh-plate initialization supplies new coordinates. Clear Scene retains its
+geometry-only contract, including runtime drafts and the current tower position.
+This keeps lifecycle cleanup distinct from the generic Print reset filter.
+
+The native draft harness checks that project closure removes modified sources
+and cannot revive unreferenced drafts. The tower move harness checks that Clear
+Scene retains the moved first-plate coordinates while project closure restores
+the initial one-plate coordinates and a clean history. The Electron New Project
+regression also edits Printer height and Filament start G-code, then reopens
+both editors and checks their source values and absence of draft markers.
+
+Follow-up verification passed: `pnpm test` (1,838 passed, 3 existing skips),
+`pnpm typecheck` and the final desktop typecheck, dual-variant quick build,
+`preset-draft-registry-smoke.mjs` and `multi-filament-prime-tower-move-smoke.mjs`
+for both variants, and the expanded mock Electron New Project regression.
+The tower harness's existing history-impact assertion now includes the current
+`presetDrafts` and `profileSelection` contract fields. Both artifacts were staged;
+`git diff --check` passed. Full real-host release qualification was not run.
+
 Coverage includes native Clear Model retention, individual rotation reset,
 generic resets of rotation, tower width, and wall loops, preservation of rack,
 flushing, bed, and tower-position authorities, and application effective-base

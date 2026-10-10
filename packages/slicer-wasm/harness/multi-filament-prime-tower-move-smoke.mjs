@@ -59,6 +59,7 @@ function modelShape() {
 
 assert.equal(callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 trace('initialized');
+const initialCoordinates = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
 for (let index = 0; index < 12; index++)
   assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', `prime tower object ${index}`]).ok, true);
 setProject('enable_prime_tower', '1'); setProject('timelapse_type', '1');
@@ -247,6 +248,7 @@ const towerUndo = callJson('orc_history_undo');
 assert.equal(towerUndo.ok, true, JSON.stringify(towerUndo));
 assert.deepEqual(towerUndo.impact, {
   version: 1, model: 'delta', plateSession: true, filamentRack: false,
+  presetDrafts: false, profileSelection: false,
   nativeScopedConfig: true, selectionContext: true, primeTower: true, preview: 'all',
 }, JSON.stringify(towerUndo));
 assert.deepEqual(modelShape(), mixedModelBefore);
@@ -290,6 +292,17 @@ assert.equal(callJson('orc_delete_plate', ['string'], [firstPlate]).ok, true);
 assert.equal(projectArray('wipe_tower_x').length, 2); assert.equal(projectArray('wipe_tower_y').length, 2);
 assert.equal(session().plates.find((plate) => plate.plate_id === secondPlate).display_index, 0);
 assert.equal(session().plates.find((plate) => plate.plate_id === thirdPlate).display_index, 1); assertNoPlateCoordinates(session());
+const movedCoordinates = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
+assert.notDeepEqual(movedCoordinates.x.slice(0, 1), initialCoordinates.x);
+assert.equal(callJson('orc_clear_model').ok, true);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') },
+  { x: movedCoordinates.x.slice(0, 1), y: movedCoordinates.y.slice(0, 1) },
+  'Clear Scene retains the current plate tower position');
+assert.equal(callJson('orc_close_project').ok, true);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, initialCoordinates,
+  'project replacement restores fresh plate coordinates');
+assert.equal(session().plates.length, 1);
+assert.equal(callJson('orc_history_status').canUndo, false);
 trace('complete');
 
 console.log(JSON.stringify({ ok: true, plateId: secondPlate, moveDurationMs: Number(moveDurationMs.toFixed(2)),

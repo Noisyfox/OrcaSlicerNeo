@@ -118,6 +118,10 @@ json close_project_session()
     bridge_state.model = Model{};
     bridge_state.pending_membership_instance_ids.clear();
     bridge_state.presets.reset_project_embedded_presets();
+    // A replacement project owns new plate coordinates. Clear Scene uses
+    // orc_clear_model instead and intentionally retains the old positions.
+    bridge_state.presets.project_config.erase("wipe_tower_x");
+    bridge_state.presets.project_config.erase("wipe_tower_y");
     reset_plate_session_state();
     establish_clean_history_baseline();
 
