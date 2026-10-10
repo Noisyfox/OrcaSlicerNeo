@@ -508,6 +508,15 @@ export interface PresetDraftEditorBinding {
   readonly enumOptions?: readonly PresetDraftEditorEnumOption[];
 }
 
+export interface PresetDraftEditorPoint { readonly x: number; readonly y: number }
+export type PresetDraftVectorValue = PresetDraftEditorValue | PresetDraftEditorPoint | readonly PresetDraftEditorPoint[];
+export interface PresetDraftEditorVector extends Omit<PresetDraftEditorBinding,
+  'index' | 'elementCount' | 'sourceValue' | 'effectiveValue' | 'scalarType'> {
+  readonly scalarType: PresetDraftEditorScalarType | 'point' | 'points';
+  readonly sourceValues: readonly PresetDraftVectorValue[];
+  readonly effectiveValues: readonly PresetDraftVectorValue[];
+}
+
 export interface PresetDraftSnapshot extends PresetDraftTarget {
   readonly ok: true;
   readonly draftExists: boolean;
@@ -517,8 +526,10 @@ export interface PresetDraftSnapshot extends PresetDraftTarget {
   readonly effectiveValues: Readonly<Record<string, string>>;
   /** Native option definitions for the source's available fields. */
   readonly optionMetadata: OptionMetadata;
-  /** Native typed element projections; does not replace source/effective raw values. */
+  /** Client-derived first-element views of the required native vectors. */
   readonly editorBindings: Readonly<Record<string, PresetDraftEditorBinding>>;
+  /** Complete typed vectors; the presentation selects an element without parsing native serialization. */
+  readonly editorVectors: Readonly<Record<string, PresetDraftEditorVector>>;
   readonly revision: number;
 }
 
@@ -548,8 +559,12 @@ export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
       readonly index: number; readonly scalarType: 'float_or_percent';
       readonly value: { readonly value: number; readonly percent: boolean } | null })
-  | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string })
-  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[] })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'point'; readonly value: PresetDraftEditorPoint })
+  | (PresetDraftMutationBase & { readonly action: 'set-element'; readonly key: string;
+      readonly index: number; readonly scalarType: 'points'; readonly value: readonly PresetDraftEditorPoint[] })
+  | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string; readonly index?: number })
+  | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[]; readonly index?: number })
   | (PresetDraftMutationBase & { readonly action: 'reset-preset' });
 
 export interface PresetDraftMutationSuccess extends PresetDraftSnapshot {

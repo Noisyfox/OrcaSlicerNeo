@@ -626,23 +626,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }
     return [raw];
   }
-  function editorBindingsFor(kind: 'printer' | 'filament', canonicalName: string): Record<string, unknown> {
+  function editorVectorsFor(kind: 'printer' | 'filament', canonicalName: string): Record<string, unknown> {
     return Object.fromEntries(Object.entries(presetEditorOptions[kind]).flatMap(([key, option]) => {
       const sourceValues = option.values;
       const effectiveValues = editorValuesFor(kind, canonicalName, key) ?? sourceValues;
-      if (sourceValues.length === 0 || effectiveValues.length === 0) return [];
       return [[key, {
         scalar_type: option.scalarType,
-        index: 0,
-        element_count: effectiveValues.length,
         nullable: option.nullable ?? false,
         gui_type: option.guiType ?? 'undefined',
         gui_flags: option.guiFlags ?? '',
         multiline: option.multiline ?? false,
         is_code: option.isCode ?? false,
         readonly: option.readOnly ?? false,
-        source_value: clone(sourceValues[0]),
-        effective_value: clone(effectiveValues[0]),
+        source_values: clone(sourceValues),
+        effective_values: clone(effectiveValues),
         ...(option.scalarType === 'enum' ? { enum_options: clone(option.enumOptions ?? []) } : {}),
       }]];
     }));
@@ -677,10 +674,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const overrides = draft ? clone(draft) : {};
     const optionMetadata = Object.fromEntries(Object.keys(sourceValues)
       .filter((key) => metadata[key] !== undefined).map((key) => [key, clone(metadata[key])]));
+    const vectors = editorVectorsFor(kind, canonicalName);
     return { ok: true, kind, canonical_name: canonicalName,
       draft_exists: draft !== undefined, modified: Object.keys(overrides).length > 0,
       overrides, source_values: sourceValues, effective_values: { ...sourceValues, ...overrides },
-      option_metadata: optionMetadata, editor_bindings: editorBindingsFor(kind, canonicalName), revision: historyRevision };
+      option_metadata: optionMetadata, editor_vectors: vectors, revision: historyRevision };
   }
   function nativePresetDraftHistoryContext() {
     return {
@@ -723,7 +721,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (!option || request.scalar_type !== option.scalarType)
         return fail('invalid_element_type', 'preset editor element type does not match native option');
       const values = editorValuesFor(kind, request.canonical_name, request.key) ?? option.values;
-      if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= values.length)
+      const count = kind === 'printer' ? editorValuesFor(kind, request.canonical_name, 'nozzle_diameter')?.length ?? 0 : values.length;
+      if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= count)
         return fail('invalid_index', 'preset editor vector index is out of range');
       const value = request.value as PresetDraftEditorValue;
       if (value === null) {
@@ -755,6 +754,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return fail('invalid_request', 'unknown preset draft action');
     }
 
+    if (resetKeys.length > 0 && request.index !== undefined) {
+      const count = editorValuesFor(kind, request.canonical_name, 'nozzle_diameter')?.length ?? 0;
+      if (kind !== 'printer' || !Number.isSafeInteger(request.index) || request.index < 0 || request.index >= count)
+        return fail('invalid_index', 'indexed reset requires an available Printer extruder index');
+      if (resetKeys.some(key => !presetEditorOptions[kind][key]))
+        return fail('unsupported_option', 'indexed reset requires an extruder vector option');
+    }
+
     const beforeState = captureHistoryState();
     const beforeContext = nativePresetDraftHistoryContext();
     if (historyEntries.length === 0) {
@@ -780,6 +787,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     } else if (action === 'set-element') {
       const option = presetEditorOptions[kind][request.key] as MockPresetEditorOption;
       const values = [...(editorValuesFor(kind, canonicalName, request.key) ?? option.values)];
+      while (values.length <= request.index) values.push(clone(values[0]));
       values[request.index] = clone(request.value as PresetDraftEditorValue);
       const editorValues = presetDraftEditorRegistry[kind][canonicalName] ?? {};
       editorValues[request.key] = values;
@@ -791,8 +799,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const current = presetDraftRegistry[kind][canonicalName] ?? {};
       const editorValues = presetDraftEditorRegistry[kind][canonicalName] ?? {};
       for (const key of resetKeys) {
-        delete current[key];
-        delete editorValues[key];
+        if (request.index === undefined) {
+          delete current[key]; delete editorValues[key];
+        } else {
+          const option = presetEditorOptions[kind][key];
+          const values = [...(editorValuesFor(kind, canonicalName, key) ?? option.values)];
+          while (values.length <= request.index) values.push(clone(values[0]));
+          values[request.index] = clone(option.values[request.index < option.values.length ? request.index : 0]);
+          const same = values.every((value, index) => JSON.stringify(value) === JSON.stringify(option.values[index < option.values.length ? index : 0]));
+          if (same) { delete current[key]; delete editorValues[key]; }
+          else { current[key] = serializePresetEditorValues(values); editorValues[key] = values; }
+        }
       }
       presetDraftRegistry[kind][canonicalName] = current;
       presetDraftEditorRegistry[kind][canonicalName] = editorValues;

@@ -323,8 +323,7 @@ intentionally added to the relevant Filament or Printer manifest.
 
 The Phase-one manifest marks topology-changing Printer fields as read-only.
 This includes `extruders_count`, `single_extruder_multi_material`, Printer
-technology and source-identity fields, every per-extruder vector such as
-`nozzle_diameter`, and material-default lists such as
+technology and source-identity fields and material-default lists such as
 `default_filament_profile`. These fields require a future dedicated native
 capability-topology transaction; an ordinary draft-field mutation never
 silently reshapes material slots or rewrites related options.
@@ -354,7 +353,7 @@ current option values.
 
 Phase one supplies editable generic controls for scalar numbers, booleans,
 enums, text, and colours. A manifest-listed option requiring a specialized Orca
-control (for example compound arrays, per-extruder editors, or structured
+control (for example compound arrays or structured
 custom G-code) is read-only until its control is implemented. It has no
 separate unsupported-feature notice in phase one.
 
@@ -365,6 +364,32 @@ closed-enum semantics come from native element metadata; the stored option
 remains in its existing serialized vector form. Filament scalar G-code and
 notes fields use multiline text controls and are editable through that native
 element binding. Printer scalar machine G-code remains read-only.
+
+Printer Extruder pages use complete typed native Source and Effective vectors.
+The internal snapshot contract requires these vectors; native no longer sends
+the previous first-element `editor_bindings` payload. The typed client derives
+generic first-element views from vectors for the Filament controls. All producers,
+consumers, mocks, and tests use the same contract, without legacy payload fallbacks.
+Page numbering is one-based; reads and writes use the corresponding zero-based
+index. Nonempty short vectors fall back to their first element, matching native
+`get_at`; empty vectors retain their empty state. Ordinary parameters, nullable
+values, enums and percentages are editable through single-value indexed native
+requests. Offsets use one X,Y coordinate; printable regions use one coordinate
+pair per line, with an empty region allowed. Native validation checks types,
+finite coordinates, ranges and the effective extruder count. Indexed writes
+extend short vectors with their original fallback value and preserve all other
+elements. Trailing empty region groups survive native serialization.
+
+Diameter edits reuse the native toolhead transition, including exact profile
+combination matching, and the editor follows the resulting canonical source.
+The open Extruder page remains selected through that canonical source change.
+Source, Effective, tooltips, search and history refresh all use the same page
+index. Field reset restores only that element; Extruder category reset restores
+that index across the page in one atomic history entry. Extruder field/group/tab
+highlights reflect element differences rather than a whole-vector override.
+These typed vectors are response projections, not additional native history or
+project-file state. Both hosts retain their desktop input model; mobile support
+remains deferred.
 
 The editor provides three reset scopes: an overridden editable field has a
 field Reset that removes its draft override and inherits the source preset;

@@ -55,6 +55,61 @@ async function editClosedEnumField(page: Page, key: string): Promise<{ before: s
   return { before, after };
 }
 
+test('U1 Extruder pages edit their own native index and follow canonical diameter transitions', async () => {
+  test.skip(!REAL, 'Requires the real U1 profile vectors and native diameter transaction');
+  const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('preset-select').click();
+    const popup = page.locator('[data-slot="combobox-content"]');
+    await popup.getByPlaceholder('Search presets…').fill('Snapmaker U1');
+    await popup.getByRole('option', { name: 'Snapmaker U1', exact: true }).click();
+    await expect(page.getByTestId('preset-transition-region')).toHaveAttribute('aria-busy', 'false');
+    await page.getByTestId('nozzle-variant-select').click();
+    await page.getByRole('option', { name: '0.4+0.6', exact: true }).click();
+    await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4+0.6');
+    await page.getByTestId('preset-edit-printer').click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4+0.6 nozzle)');
+    for (const [index, diameter, minimum, maximum] of [
+      [1, '0.4', '0.08', '0.32'], [2, '0.4', '0.08', '0.32'],
+      [3, '0.6', '0.12', '0.48'], [4, '0.6', '0.12', '0.48'],
+    ] as const) {
+      await page.getByTestId(`preset-editor-page-tab-extruder-${index}`).click();
+      await expect(page.getByTestId('preset-editor-input-nozzle_diameter')).toHaveValue(diameter);
+      await expect(page.getByTestId('preset-editor-input-min_layer_height')).toHaveValue(minimum);
+      await expect(page.getByTestId('preset-editor-input-max_layer_height')).toHaveValue(maximum);
+    }
+    await page.getByTestId('preset-editor-page-tab-extruder-3').click();
+    const minimum = page.getByTestId('preset-editor-input-min_layer_height');
+    await minimum.fill('0.15'); await minimum.press('Enter');
+    await expect(minimum).toHaveValue('0.15');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder-3')).toHaveAttribute('data-draft-override-highlight', 'true');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await page.getByTestId('preset-editor-reset-category-extruder-3').click();
+    await expect(minimum).toHaveValue('0.12');
+    for (const index of [3, 4]) {
+      await page.getByTestId(`preset-editor-page-tab-extruder-${index}`).click();
+      const diameter = page.getByTestId('preset-editor-input-nozzle_diameter');
+      await expect(diameter).toHaveValue('0.6');
+      await diameter.fill('0.4'); await diameter.press('Enter');
+      await expect.poll(async () => ({
+        effective: await page.getByTestId('preset-editor-effective-nozzle_diameter').textContent(),
+        errors: await page.getByTestId('preset-editor-error-nozzle_diameter').allTextContents(),
+        pending: await diameter.isDisabled(),
+      }), { timeout: 15_000 }).toEqual({ effective: '0.4', errors: [], pending: false });
+    }
+    await expect(page.getByTestId('preset-editor-title')).toHaveText('Snapmaker U1 (0.4 nozzle)');
+    await minimum.fill('0.1'); await minimum.press('Enter');
+    await expect(minimum).toHaveValue('0.1');
+    await page.getByTestId('preset-editor-close').click();
+    await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4');
+  } finally { await app.close(); }
+});
+
 test('preset editor modal edits Printer and shared Filament drafts without changing slot colors', async () => {
   const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;

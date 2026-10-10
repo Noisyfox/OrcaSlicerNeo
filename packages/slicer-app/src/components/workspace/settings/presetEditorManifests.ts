@@ -22,6 +22,7 @@ export interface PresetEditorManifestPage {
   readonly id: string;
   readonly title: string;
   readonly groups: readonly PresetEditorManifestGroup[];
+  readonly extruderIndex?: number;
 }
 
 export interface PresetEditorManifest {
@@ -308,8 +309,7 @@ export const FILAMENT_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
 /**
  * Explicit transcription of the FFF pages built by OrcaSlicer's
  * TabPrinter::build() at b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde.
- * Printer extruder settings stay read-only because their values are indexed
- * vectors and the phase-one editor has no per-extruder control.
+ * Printer extruder settings use native typed vectors and indexed mutations.
  */
 export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
   kind: 'printer',
@@ -512,24 +512,20 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
       title: 'Extruder',
       groups: [
         group('basic-information', 'Basic information', [
-          readOnly(
-            'Per-extruder values require a dedicated indexed control.',
-            'nozzle_diameter',
+          editableNativeElement('nozzle_diameter',
             'nozzle_volume',
             'extruder_printable_height',
             'extruder_printable_area',
           ),
         ]),
         group('layer-height-limits', 'Layer height limits', [
-          readOnly('Per-extruder values require a dedicated indexed control.', 'min_layer_height', 'max_layer_height'),
+          editableNativeElement('min_layer_height', 'max_layer_height'),
         ]),
         group('position', 'Position', [
-          readOnly('Per-extruder offsets require a dedicated coordinate control.', 'extruder_offset'),
+          editableNativeElement('extruder_offset'),
         ]),
         group('retraction', 'Retraction', [
-          readOnly(
-            'Per-extruder values require a dedicated indexed control.',
-            'retraction_length',
+          editableNativeElement('retraction_length',
             'retract_restart_extra',
             'retraction_speed',
             'deretraction_speed',
@@ -542,9 +538,7 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
           ),
         ]),
         group('z-hop', 'Z-Hop', [
-          readOnly(
-            'Per-extruder values require a dedicated indexed control.',
-            'retract_lift_enforce',
+          editableNativeElement('retract_lift_enforce',
             'z_hop_types',
             'z_hop',
             'travel_slope',
@@ -553,9 +547,7 @@ export const PRINTER_PRESET_EDITOR_MANIFEST: PresetEditorManifest = {
           ),
         ]),
         group('retraction-material-change', 'Retraction when switching material', [
-          readOnly(
-            'Per-extruder values require a dedicated indexed control.',
-            'retract_length_toolchange',
+          editableNativeElement('retract_length_toolchange',
             'retract_restart_extra_toolchange',
             'long_retractions_when_cut',
             'retraction_distances_when_cut',

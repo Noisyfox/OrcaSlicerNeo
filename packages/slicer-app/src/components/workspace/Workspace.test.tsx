@@ -170,7 +170,7 @@ describe('Workspace ownership', () => {
         sourceValues: {},
         effectiveValues: {},
         optionMetadata: {},
-        editorBindings: {},
+        editorBindings: {}, editorVectors: {},
         revision: 3,
       })),
     };
@@ -214,7 +214,7 @@ describe('Workspace ownership', () => {
       sourceValues: { printable_height: '256' },
       effectiveValues: { printable_height: height },
       optionMetadata: { printable_height: { type: 'float' as const, min: 0, max: 256 } },
-      editorBindings: {},
+      editorBindings: {}, editorVectors: {},
       revision,
     });
     const runtime = {

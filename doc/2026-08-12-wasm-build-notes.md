@@ -116,8 +116,13 @@ on the submodule branch `dev/orcaslicerneo-wasm`, originally based on upstream
 commit `b97ca3c0ac`. The table records those original patches in application
 order, ending at `c7801bdbdbfb0ca1176c2c69792a65fdd4f2db0d`. The branch now
 contains upstream main `a6dbf2502d` through final merge `9d3118b7a4`; the current
-gitlink pins `9d3118b7a406a4e44d5344ae69c084f01d72e772`.
-Build scripts compile the pinned source directly. Publish the
+gitlink pinned `9d3118b7a406a4e44d5344ae69c084f01d72e772` on 2026-10-03.
+The 2026-10-10 pin is `cacb263771b0b1bd74024918eb528fa80d9e0504`, based on
+`c84de9fc58325320bb6cf138cf158be5f4702ff7`. Its direct source commit preserves
+trailing empty Extruder printable-region groups through native serialization.
+Make all new Orca source changes directly on `dev/orcaslicerneo-wasm`; validate
+and commit them there before updating the superproject pin. Do not add Orca
+source patches. Build scripts compile the pinned source directly. Publish the
 submodule branch before distributing a superproject commit that depends on it.
 
 | Order | Former patch | Submodule commit | Purpose |

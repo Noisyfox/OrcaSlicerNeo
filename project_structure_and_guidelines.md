@@ -10,13 +10,18 @@
 
 ## 1. Executive Summary
 
+Internal APIs follow a single current contract. Do not introduce backward
+compatibility layers, deprecated aliases, legacy payload fallbacks, or parallel
+old/new formats. Change producers, consumers, mocks, and tests together.
+
 This repository builds the next-generation OrcaSlicer desktop GUI on Electron,
 reusing the C++ slicing core (`libslic3r`) by compiling it to WASM with
 Emscripten. It enforces:
 
 1. **Minimal C++ footprint:** the submodule (`packages/slicer-wasm/cpp/`) is
-   modified through deliberate, documented commits on a dedicated adaptation
-   branch or narrowly scoped dependency patches. All WASM build logic lives in
+   modified directly through validated commits on its `dev/orcaslicerneo-wasm`
+   branch, followed by a deliberate superproject pin update. Do not add Orca
+   source patches; patches are reserved for external dependencies. All WASM build logic lives in
    the scaffold (`packages/slicer-wasm/`), never in the upstream build system.
 2. **One bridge, many hosts:** the same extern "C" bridge ships as two wasm64
    variants — `threaded` (upstream oneTBB + pthreads; selected when the host is

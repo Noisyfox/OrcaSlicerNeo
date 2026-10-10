@@ -39,6 +39,7 @@ export type {
   PresetDraftKind, PresetDraftTarget, PresetDraftSnapshot, PresetDraftSnapshotResult,
   PresetDraftEditorScalarType, PresetDraftEditorValue, PresetDraftEditorGuiType,
   PresetDraftEditorEnumOption, PresetDraftEditorBinding,
+  PresetDraftEditorPoint, PresetDraftVectorValue, PresetDraftEditorVector,
   PresetDraftMutationRequest, PresetDraftMutationResult, PresetDraftMutationSuccess, PresetDraftError,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelScenePatchResult, ModelObjectBuffer, ModelRenderable, ModelGeometry, ModelPaintDrawGroup, ModelPaintGeometry, NativeModelObjectBuffer, ModelTransform, ModelTransformMutation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,

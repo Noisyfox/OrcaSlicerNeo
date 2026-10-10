@@ -151,7 +151,11 @@ async function commitPresetDraftMutationNow(
       useFilamentSessionStore.getState().publish(result.filamentSession);
       applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
-      useProjectStore.getState().recordPlateMutation(result.plateSession);
+      const project = useProjectStore.getState();
+      const selections = { printer: result.profileSnapshot.printer.name, print: result.profileSnapshot.print.name };
+      project.setProject(project.scope === 'project'
+        ? { projectPresets: selections } : { systemPresets: selections });
+      project.recordPlateMutation(result.plateSession);
       invalidateAfterSharedConfigurationMutation(
         result.affectedPlateIds,
         platform.runtime,

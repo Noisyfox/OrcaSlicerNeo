@@ -1224,24 +1224,24 @@ describe('SlicerClient bridge contract', () => {
         const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
         module._free(Number(pointer));
         payload.option_metadata.filament_flow_ratio.type = 'floats';
-        payload.editor_bindings.filament_flow_ratio = {
-          scalar_type: 'float', index: 0, element_count: 2, nullable: false,
+        payload.editor_vectors.filament_flow_ratio = {
+          scalar_type: 'float', nullable: false,
           gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-          source_value: 1, effective_value: 1,
+          source_values: [1, 1], effective_values: [1, 1],
         };
         payload.option_metadata.filament_type.type = 'strings';
-        payload.editor_bindings.filament_type = {
-          scalar_type: 'string', index: 0, element_count: 1, nullable: false,
+        payload.editor_vectors.filament_type = {
+          scalar_type: 'string', nullable: false,
           gui_type: 'f_enum_open', gui_flags: 'show_value', multiline: false, is_code: false, readonly: false,
-          source_value: 'PLA', effective_value: 'PLA',
+          source_values: ['PLA'], effective_values: ['PLA'],
         };
         payload.source_values.filament_retract_lift_enforce = 'nil';
         payload.effective_values.filament_retract_lift_enforce = '1';
         payload.option_metadata.filament_retract_lift_enforce = { type: 'enums', label: 'Enforced surfaces' };
-        payload.editor_bindings.filament_retract_lift_enforce = {
-          scalar_type: 'enum', index: 0, element_count: 1, nullable: true,
+        payload.editor_vectors.filament_retract_lift_enforce = {
+          scalar_type: 'enum', nullable: true,
           gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-          source_value: null, effective_value: 1,
+          source_values: [null], effective_values: [1],
           enum_options: [
             { value: 0, name: 'All Surfaces', label: 'All Surfaces' },
             { value: 1, name: 'Top Only', label: 'Top Only' },
@@ -1274,6 +1274,31 @@ describe('SlicerClient bridge contract', () => {
       scalarType: 'float', index: 0, value: 1.25 });
     expect(elementRequest).toMatchObject({ action: 'set-element', scalar_type: 'float',
       index: 0, value: 1.25 });
+  });
+
+  it('normalizes complete typed vectors and forwards indexed reset intent', async () => {
+    const module = createMockModule();
+    const original = module.ccall;
+    let resetRequest: Record<string, unknown> | undefined;
+    module.ccall = (name, ret, types, args) => {
+      if (name === 'orc_mutate_preset_draft') resetRequest = JSON.parse(String(args[0]));
+      return original(name, ret, types, args);
+    };
+    const client = createClient(async () => module);
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    const draft = await client.getPresetDraft('filament', 'Generic PLA @System');
+    expect(draft).toMatchObject({ ok: true, editorVectors: {
+      filament_flow_ratio: { scalarType: 'float', sourceValues: [1, 1], effectiveValues: [1, 1] },
+      filament_soluble: { scalarType: 'bool', sourceValues: [false] },
+      filament_retract_lift_enforce: { scalarType: 'enum', sourceValues: [null] },
+    } });
+    if (!draft.ok) throw new Error(draft.error);
+    // The bridge rejects indexed Filament resets; the client still preserves
+    // the exact request instead of dropping an index at the boundary.
+    const reset = await client.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
+      action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: draft.revision });
+    expect(resetRequest).toMatchObject({ action: 'reset-field', key: 'filament_flow_ratio', index: 0 });
+    expect(reset).toMatchObject({ ok: false, errorCode: 'invalid_index' });
   });
 
   it('models native preset vector metadata, full raw values, element edits, and resets in the mock bridge', async () => {
@@ -1327,7 +1352,7 @@ describe('SlicerClient bridge contract', () => {
     } });
   });
 
-  it('rejects malformed native editor element projections', async () => {
+  it.each(['malformed', 'missing'] as const)('rejects %s native editor vectors', async (mode) => {
     const module = createMockModule();
     const originalCall = module.ccall;
     module.ccall = (name, ret, argTypes, args) => {
@@ -1336,11 +1361,12 @@ describe('SlicerClient bridge contract', () => {
       const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
       module._free(Number(pointer));
       payload.option_metadata.filament_flow_ratio.type = 'floats';
-      payload.editor_bindings.filament_flow_ratio = {
-        scalar_type: 'float', index: 0, element_count: 1, nullable: false,
+      payload.editor_vectors.filament_flow_ratio = {
+        scalar_type: 'float', nullable: false,
         gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-        source_value: null, effective_value: 1,
+        source_values: [null], effective_values: [1],
       };
+      if (mode === 'missing') delete payload.editor_vectors;
       const bytes = new TextEncoder().encode(JSON.stringify(payload));
       const replacement = module._malloc(bytes.byteLength + 1);
       module.HEAPU8.set(bytes, replacement);
