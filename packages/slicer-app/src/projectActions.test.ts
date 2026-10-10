@@ -12,7 +12,7 @@ import { noticesFor, importProjectGeometry, newProject, openProject, openProject
 const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([80, 75, 3, 4]) };
 const snapshot: ProfileSnapshot = {
   ok: true,
-  printerPicker: { items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], selectedVariant: '' },
+  printerPicker: { items: [{ id: 'project', label: 'Project printer', preset: 'Project printer' }], selectedId: 'project', variants: [], nozzleDiameters: [0.4], selectedVariant: '' },
   printers: [{ name: 'Project printer', label: 'Project printer', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   prints: [{ name: 'Project process', label: 'Project process', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   filamentCatalog: [{ name: 'Project filament', label: 'Project filament', vendor: '', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],

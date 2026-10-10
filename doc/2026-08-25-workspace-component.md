@@ -214,7 +214,7 @@ tokens, including Select/Combobox arrows and inline Combobox clear buttons.
 Checkboxes use a borderless dark rounded outer square in both states. The
 checked indicator occupies 70% of that square, with a teal fill, a fixed 2px
 corner radius, and a white checkmark. Focus and disabled behavior are retained.
-The Printer preset editor opens from a 24px square settings button to the left
+For printers whose effective nozzle diameter vector contains multiple extruders, the Nozzle row uses a 52px-tall Sync button and a shared dark rounded container. Its left variant selector places the Nozzle label above the current variant; the right side shows equal-width read-only cards with each extruder number, actual diameter, and nozzle flow abbreviation (SF/HF/XHF and the other native flow variants). Values come from the effective native nozzle_diameter and nozzle_volume_type vectors; flow types beyond the serialized vector length repeat its first entry, matching native ConfigOptionVector::get_at semantics, retaining the canonical preset transition and existing Sync placeholder. Single-extruder rows retain their compact layout. The Printer preset editor opens from a 24px square settings button to the left
 of the selector, using a gray sliders icon and a dark-gray rounded background.
 The device/material reference palette is sampled directly from the supplied
 image: panel `#27272A`, controls `#1B1B1D`, headers `#171719`, action buttons
@@ -232,7 +232,7 @@ to the configuration panel. Both collapsed headers remain visible.
 Before a section toggle changes content, the combined Printer + Material
 scroll area's overflow state is captured. If it had
 no vertical scrollbar, expanding content also resizes the panel to its new
-maximum, subject to the configuration panel's minimum size. A previously
+maximum, subject to the configuration panel's minimum size. Content growth from printer transitions follows the same rule: the last measured content and viewport heights determine whether the combined panel fitted before the change, so taller multi-extruder rows or material lists expand it without testing the already-grown DOM for overflow. A previously
 scrolling panel keeps its user-selected split when content expands.
 
 The lower configuration panel uses a full-width dark mode header without a
@@ -517,9 +517,89 @@ Validation for main CI plate-card clipping repair (2026-10-05):
 - Ran the complete Playwright file set from the desktop `test:e2e` script against the confirmed mock build — 49 passed and 12 skipped by their runtime/host gates, including plate-list, the main flow, typography, gizmo, printer-console, and utility-runtime coverage.
 - `git diff --check` — passed. No local native WASM rebuild or release matrix was run for this card layout fix.
 
+### 2026-10-09 Multi-toolhead diameter editing
+
+- Single-nozzle printers show a read-only flow Select to the right of the
+  Nozzle variant selector, using the same sidebar control presentation and
+  the effective first `nozzle_volume_type` value. Flow editing remains deferred.
+  The single-nozzle row uses one continuous dark surface with a 3:2 split
+  between diameter and flow and a muted bold Nozzle label. Read-only flow
+  controls retain the existing shared disabled styling.
+  When the bed selector is present, the diameter control's right edge aligns
+  with the Printer selector above, accounting for the Sync button and row gaps.
+  Flow text aligns with the bed-type text above through the matching left inset.
+  Verified Standard/High Flow display and inert disabled interaction in the
+  20-test SettingsPanel suite; slicer-app typecheck and `git diff --check` passed.
+
+- The unified Device Nozzle selector retains the effective profile variant
+  after individual toolhead edits, matching Orca's `Sidebar::update_presets`.
+  Physical diameter combinations do not add synthetic disabled variant entries;
+  the nozzle cards and Multi. controls display each effective diameter.
+  Every variant choice requires a canonical profile target across the native
+  bridge, typed client, and UI. Nullable targets and their disabled-item branch
+  are removed; variant-less display text does not manufacture a choice.
+  The 2026-10-10 correction passed the serial WASM quick build, native
+  printer-picker smoke (including uniform-profile and mixed-profile draft edits),
+  all 396 slicer-wasm unit tests, 18 SettingsPanel tests, workspace typechecks,
+  and `git diff --check`. Before pushing, `pnpm test` passed all 1,809 tests
+  with the existing gated skips, and `pnpm typecheck` passed across the workspace.
+
+- Multi-nozzle printers expose Device and Multi. header tabs; single-nozzle
+  printers keep their existing Printer section. Both tab contents stay mounted.
+  Multi. presents selectable numbered toolhead cards with effective diameter
+  and native flow type, followed by the selected head's diameter selector.
+  Flow type is displayed in a disabled selector; flow editing is deferred.
+- Diameter choices are numeric physical values projected by the bridge from
+  installed visible profiles of the current vendor/model and the effective
+  current vector. Named/mixed printer variants are not parsed as diameters.
+- One native command replaces only the requested index in the effective
+  ordered nozzle vector, then searches same-vendor/model profiles for an exact
+  vector match, including mixed-nozzle profiles such as U1's
+  `[0.4, 0.4, 0.6, 0.6]`. Nozzle count and order must match. Candidate drafts
+  participate in matching; duplicate exact matches use a stable canonical
+  name, preferring the current profile when possible.
+- A different matching profile uses the existing atomic Printer transition,
+  compatibility refresh, and current-rack preservation. Otherwise the command
+  edits only the selected nozzle's Printer draft through the native indexed
+  editor. Other nozzle entries and flow values remain unchanged in this path.
+- Both paths commit one undoable history entry and publish the complete
+  profile, filament, plate, and scoped-configuration receipt, invalidating
+  retained slice results. Stale revisions reject before mutation. The selected
+  toolhead, Multi. tab, and lower configuration mode survive the update.
+- `pnpm --filter @orca/slicer-app typecheck`,
+  `pnpm --filter @orca/slicer-wasm typecheck`, and `git diff --check` passed.
+  No automated tests or WASM builds were run during this implementation pass;
+  the new native command requires rebuilding the WASM artifact before runtime
+  validation.
+
 ### 2026-10-07 PR dropdown and Slice Info regression validation
 
 - Updated filament assignment unit and native multi-filament E2E expectations to use `N - filament name` options and numeric-only triggers. Added effective-colour swatch assertions.
 - Extended the Preview E2E journey to verify that the Slice Info G-code toggle, C shortcut, and window close button share visibility state.
 - Passed `pnpm test` (1690 tests), `pnpm typecheck`, and the focused filament assignment suite (6 tests). Built Electron with `VITE_USE_MOCK=1`, verified the compiled utility worker uses the mock, and passed the renderer CSS check.
 - Passed three focused Electron E2E journeys: full v1 flow, Preview overlay, and Select popup scroll anchoring. Native multi-filament E2E was updated but not run locally; no WASM code changed.
+
+### 2026-10-09 Multi-toolhead PR validation
+
+- `pnpm test` passed: 1,809 tests across 175 passing files, with existing
+  runtime-gated skips. `pnpm typecheck` passed across all workspace packages.
+- `scripts\build-windows.bat quick --variant serial -j 8` passed on retry.
+  The first attempt encountered a temporary Ninja recompaction permission
+  error in the local build cache; the retry required no source or cache edits.
+- `node packages/slicer-wasm/harness/printer-picker-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
+  passed against the rebuilt native module. Added assertions cover complete
+  mixed-nozzle profile matching, nozzle-count and order preservation, indexed
+  fallback, single history commits, stale revision rejection, and invalid
+  index rejection without vector resizing. CI runs this harness after its
+  production serial build.
+- `git diff --check` passed. PR CI validation is in progress.
+- Local U1 verification on 2026-10-10 reproduced a stale threaded artifact:
+  individual edits returned obsolete nullable profile targets and the current
+  client rejected the receipt. Rebuilt both ordinary WASM variants and staged
+  them into the desktop renderer; no compatibility fallback was added. Both
+  rebuilt variants accepted U1 indexed diameter edits through the typed client.
+- The focused SettingsPanel suite passed (21 tests), including clicking Multi.,
+  selecting U1's second head, changing its diameter, and checking the published
+  vector and selected value. Client tests passed (233 tests), both affected
+  package typechecks passed, and printer-picker native smoke passed for serial
+  and threaded. Physical diameter choices retain the existing visibility filter.

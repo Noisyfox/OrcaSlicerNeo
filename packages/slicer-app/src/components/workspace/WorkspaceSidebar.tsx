@@ -27,12 +27,22 @@ export function WorkspaceSidebar({ sceneInteraction, onEditPrinter, printerExtra
     const viewport = deviceViewportRef.current;
     const content = deviceContentRef.current;
     if (!group || !panel || !viewport || !content) return;
+    let previousContentHeight: number | null = null;
+    let contentPreviouslyFitted = false;
     const measure = () => {
       const groupHeight = group.getBoundingClientRect().height;
       if (groupHeight <= 0) return;
       // ResizablePanel applies its card classes to an inner element.
       const style = getComputedStyle(panel.firstElementChild ?? panel);
-      const maximum = Math.ceil(content.getBoundingClientRect().height +
+      const contentHeight = Math.ceil(content.getBoundingClientRect().height);
+      // Use the last measured layout, before a preset transition changed the
+      // DOM. Checking scrollHeight here would already see the taller content.
+      if (previousContentHeight !== null && contentHeight > previousContentHeight && contentPreviouslyFitted) {
+        expandToMaximum.current = true;
+      }
+      previousContentHeight = contentHeight;
+      contentPreviouslyFitted = contentHeight <= viewport.clientHeight;
+      const maximum = Math.ceil(contentHeight +
         parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth));
       // Changing minSize on every group resize re-registers the panels and
       // reapplies their percentage layout before pixel preservation can run.

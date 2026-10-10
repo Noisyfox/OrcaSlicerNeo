@@ -233,6 +233,93 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.printer-nozzle-single-controls {
+  border-radius: 3px;
+  background: var(--color-control-background);
+}
+.printer-nozzle-single-controls > [data-slot="select-trigger"]:first-child {
+  flex: 3;
+}
+.printer-nozzle-single-controls > .printer-flow-selector {
+  flex: 2;
+}
+.printer-nozzle-align-bed > [data-slot="select-trigger"]:first-child {
+  /* Match the upper row's 1:0.6 split and 8px gap, accounting for
+     this row's 24px Sync button and 4px gap before the controls. */
+  flex: 0 0 calc((100% + 20px) / 1.6 - 28px);
+}
+.printer-nozzle-align-bed > .printer-flow-selector {
+  flex: 1;
+  /* The upper bed selector starts after an 8px inter-control gap. */
+  padding-left: 16px;
+}
+.printer-nozzle-multi-row > [data-slot="button"] {
+  height: 52px;
+}
+.printer-nozzle-multi-controls {
+  height: 52px;
+  padding: 4px;
+  border-radius: 5px;
+  background: var(--color-control-background);
+}
+.sidebar-dropdown.printer-nozzle-multi-selector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px;
+  grid-template-rows: 1fr 20px;
+  height: 44px;
+  padding: 0 2px 0 4px;
+  column-gap: 4px;
+}
+.printer-nozzle-multi-selector > :first-child {
+  grid-column: 1 / -1;
+  text-align: left;
+}
+.printer-nozzle-multi-selector > .sidebar-dropdown-arrow {
+  grid-column: 2;
+  grid-row: 2;
+}
+.printer-nozzle-extruders {
+  display: flex;
+  flex: 2;
+  min-width: 0;
+  gap: 4px;
+}
+.printer-nozzle-extruder {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: var(--color-input-button-background);
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  line-height: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.printer-toolhead-list {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 5px;
+  background: var(--color-control-background);
+}
+.printer-nozzle-extruder.printer-toolhead {
+  flex: 0 1 56px;
+  height: 60px;
+  padding: 0;
+  gap: 0;
+  line-height: 18px;
+  font-weight: 400;
+}
+.printer-toolhead[data-active="true"] {
+  background: color-mix(in srgb, var(--color-primary) 35%, var(--color-control-background));
+}
+
 .sidebar-dropdown > .sidebar-dropdown-arrow {
   width: 20px;
   height: 20px;

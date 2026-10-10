@@ -389,9 +389,11 @@ export interface BedTypeCapabilities {
 
 /** Native presentation projection; all targets remain canonical profile names. */
 export interface PrinterPicker {
+  /** Physical diameters from installed profiles of the selected vendor/model. */
+  nozzleDiameters: number[];
   items: Array<{ id: string; label: string; preset: string }>;
   selectedId: string;
-  variants: Array<{ value: string; preset: string | null }>;
+  variants: Array<{ value: string; preset: string }>;
   selectedVariant: string;
 }
 
@@ -1349,7 +1351,7 @@ export interface RememberedFilamentRackPreference {
 }
 
 export interface PrinterTransitionMutationReceipt {
-  readonly kind: 'select-printer-with-remembered-rack';
+  readonly kind: 'select-printer-with-remembered-rack' | 'set-toolhead-diameter';
   readonly historyEntryDelta: 1;
   readonly revisionBefore: number;
   readonly revisionAfter: number;
@@ -1631,6 +1633,9 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods {
     printer: string, rememberedRack: RememberedFilamentRackPreference | null,
       rememberedBedType: string | null,
   ): Promise<PrinterTransitionResult>;
+  /** Match the complete ordered nozzle vector, or edit only this toolhead's
+   * Printer draft. Commits exactly one history entry with an atomic receipt. */
+  setToolheadDiameter(index: number, diameter: number, expectedRevision: number): Promise<PrinterTransitionResult>;
   arrange(request: ArrangementRequest, onProgress?: (percent: number, text: string) => void): Promise<ArrangementResult>;
   cancelArrangement(): Promise<{ ok: true } | { ok: false; error: string }>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;

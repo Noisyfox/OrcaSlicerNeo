@@ -416,6 +416,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return {
       ok: true,
       printer_picker: {
+        nozzle_diameters: [...new Set((editorValuesFor('printer', current.name, 'nozzle_diameter') ?? []) as number[])].sort((a, b) => a - b),
         items: pickerItems,
         selected_id: pickerItems.length ? JSON.stringify(['model', current.vendor_id, current.model]) : '',
         variants: pickerItems.length ? [{ value: current.variant, preset: current.name }] : [],
@@ -2435,6 +2436,26 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return snapshot();
     },
+    orc_set_toolhead_diameter(requestJson: string) {
+      let request: any;
+      try { request = JSON.parse(requestJson); }
+      catch { return { ok: false, error_code: 'invalid_request', error: 'Invalid toolhead request' }; }
+      if (request.expected_revision !== historyRevision)
+        return { ok: false, error_code: 'stale_revision', error: 'Toolhead configuration revision is stale' };
+      const nozzles = editorValuesFor('printer', selected.printer, 'nozzle_diameter') ?? [];
+      if (!Number.isInteger(request.index) || request.index < 0 || request.index >= nozzles.length || nozzles.length < 2 ||
+          typeof request.diameter !== 'number' || !Number.isFinite(request.diameter) || request.diameter <= 0 || request.diameter > 100)
+        return { ok: false, error_code: 'invalid_request', error: 'Invalid toolhead diameter or index' };
+      // The mock's current fixtures have one physical nozzle configuration.
+      // Real profile-combination matching is owned by the C++ bridge.
+      const result = mutatePresetDraft(JSON.stringify({ kind: 'printer', canonical_name: selected.printer,
+        action: 'set-element', key: 'nozzle_diameter', scalar_type: 'float', index: request.index,
+        value: request.diameter, expected_revision: request.expected_revision })) as any;
+      if (result.ok) result.mutation = { kind: 'set-toolhead-diameter', history_entry_delta: 1,
+        revision_before: result.revision_before, revision_after: result.revision_after, dirty: result.dirty,
+        all_plate_results_invalidated: true, affected_plate_ids: result.affected_plate_ids };
+      return result;
+    },
     orc_select_printer_with_remembered_rack(requestJson: string) {
       let request: any;
       try { request = JSON.parse(requestJson); }
@@ -3349,6 +3370,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_select_printer_with_remembered_rack: { ret: 'number', args: ['string'] },
+    orc_set_toolhead_diameter: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_preset_draft: { ret: 'number', args: ['string', 'string'] },
     orc_mutate_preset_draft: { ret: 'number', args: ['string'] },

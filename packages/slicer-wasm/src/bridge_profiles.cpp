@@ -578,16 +578,11 @@ json printer_picker_json(const DynamicPrintConfig& effective)
     json variants = json::array();
     std::string current_variant = effective.opt_string("printer_variant");
     const auto* nozzles = effective.opt<ConfigOptionFloats>("nozzle_diameter");
-    const auto* original_nozzles = selected.config.opt<ConfigOptionFloats>("nozzle_diameter");
-    if (nozzles && !nozzles->values.empty() &&
-        (current_variant.empty() || (original_nozzles && nozzles->values != original_nozzles->values))) {
+    // Orca's unified selector identifies the profile variant. Per-toolhead
+    // edits are shown in the nozzle cards, not as invented mixed variants.
+    if (current_variant.empty() && nozzles && !nozzles->values.empty()) {
         std::ostringstream label;
-        std::set<double> seen;
-        for (double value : nozzles->values)
-            if (seen.insert(value).second) {
-                if (seen.size() > 1) label << "+";
-                label << value;
-            }
+        label << nozzles->values.front();
         current_variant = label.str();
     }
     for (const auto& group : groups) {
@@ -611,19 +606,26 @@ json printer_picker_json(const DynamicPrintConfig& effective)
                 if (!value.empty()) values.insert(value);
             }
         }
-        if (!current_variant.empty()) values.insert(current_variant);
         for (const auto& value : values) {
             const Preset* variant_target = resolve(group, value);
-            // Reactivating the current source retains its runtime draft. Do
-            // not advertise its original variant as a way to reset that draft.
-            if (variant_target && variant_target->name == selected.name && value != current_variant)
-                variant_target = nullptr;
+            if (!variant_target)
+                throw std::runtime_error("printer variant has no canonical target");
             variants.push_back({{"value", value},
-                                {"preset", variant_target ? json(variant_target->name) : json(nullptr)}});
+                                {"preset", variant_target->name}});
         }
     }
+    std::set<double> diameters;
+    if (nozzles) diameters.insert(nozzles->values.begin(), nozzles->values.end());
+    for (const auto& preset : bundle.printers) {
+        if (!preset.is_visible || preset.is_default ||
+            preset.config.opt_string("printer_model") != selected.config.opt_string("printer_model") ||
+            (preset.vendor ? preset.vendor->id : "") != (selected.vendor ? selected.vendor->id : "")) continue;
+        const auto* candidate = preset.config.opt<ConfigOptionFloats>("nozzle_diameter");
+        if (candidate) diameters.insert(candidate->values.begin(), candidate->values.end());
+    }
     return {{"items", std::move(items)}, {"selected_id", selected_id},
-            {"variants", std::move(variants)}, {"selected_variant", current_variant}};
+            {"variants", std::move(variants)}, {"selected_variant", current_variant},
+            {"nozzle_diameters", diameters}};
 }
 
 json preset_snapshot_json()
@@ -925,6 +927,67 @@ json select_printer_with_remembered_rack_json(const json& request)
         rollback();
         return transition_error("native_validation_failure", "unknown Printer transition failure");
     }
+}
+
+json set_toolhead_diameter_json(const json& request)
+{
+    auto& bridge = state();
+    auto& bundle = bridge.presets;
+    if (!request.is_object() || !request.contains("index") || !request["index"].is_number_unsigned() ||
+        !request.contains("diameter") || !request["diameter"].is_number() ||
+        !request.contains("expected_revision") || !request["expected_revision"].is_number_unsigned())
+        return transition_error("invalid_request", "Toolhead index, diameter and revision are required");
+    if (request["expected_revision"].get<std::uint64_t>() != bridge.history_revision)
+        return transition_error("stale_revision", "Toolhead configuration revision is stale");
+    const double diameter = request["diameter"].get<double>();
+    const auto index = request["index"].get<std::uint64_t>();
+    const auto config = PresetDrafts::effective_printer_config();
+    const auto* nozzles = config.opt<ConfigOptionFloats>("nozzle_diameter");
+    const auto* definition = print_config_def.get("nozzle_diameter");
+    if (!std::isfinite(diameter) || !definition || diameter <= 0 ||
+        diameter < definition->min || diameter > definition->max || !nozzles ||
+        nozzles->values.size() < 2 || index >= nozzles->values.size())
+        return transition_error("invalid_request", "Invalid toolhead diameter or index");
+
+    auto wanted = nozzles->values;
+    wanted[index] = diameter;
+    const auto& selected = bundle.printers.get_selected_preset();
+    const std::string model = selected.config.opt_string("printer_model");
+    const std::string vendor = selected.vendor ? selected.vendor->id : "";
+    const Preset* target = nullptr;
+    if (!model.empty()) for (const auto& preset : bundle.printers) {
+        if (!preset.is_visible || preset.is_default || preset.printer_technology() != ptFFF ||
+            preset.config.opt_string("printer_model") != model ||
+            (preset.vendor ? preset.vendor->id : "") != vendor) continue;
+        const auto candidate_config = PresetDrafts::effective_preset_config(
+            bundle, bridge.preset_drafts, Preset::TYPE_PRINTER, preset.name);
+        const auto* candidate = candidate_config.opt<ConfigOptionFloats>("nozzle_diameter");
+        if (!candidate || candidate->values.size() != wanted.size() ||
+            !std::equal(wanted.begin(), wanted.end(), candidate->values.begin(),
+                [](double first, double second) { return std::abs(first - second) < 1e-9; })) continue;
+        // Keep the current profile when possible; otherwise choose a stable
+        // canonical name among exact matches, including mixed-nozzle profiles.
+        if (!target || preset.name == selected.name ||
+            (target->name != selected.name && preset.name < target->name)) target = &preset;
+    }
+
+    json result;
+    if (target && target->name != selected.name) {
+        result = select_printer_with_remembered_rack_json({{"printer", target->name},
+            {"remembered_rack", nullptr}, {"remembered_bed_type", nullptr}});
+    } else {
+        result = PresetDrafts::mutate_draft_json({{"kind", "printer"},
+            {"canonical_name", selected.name}, {"action", "set-element"},
+            {"key", "nozzle_diameter"}, {"scalar_type", "float"}, {"index", index},
+            {"value", diameter}, {"expected_revision", bridge.history_revision}});
+        if (result.value("ok", false))
+            result["mutation"] = {{"history_entry_delta", result.at("history_entry_delta")},
+                {"revision_before", result.at("revision_before")}, {"revision_after", result.at("revision_after")},
+                {"dirty", result.at("dirty")}, {"all_plate_results_invalidated", true},
+                {"affected_plate_ids", result.at("affected_plate_ids")}};
+    }
+    if (result.value("ok", false)) result["mutation"]["kind"] = "set-toolhead-diameter";
+    return result;
 }
 
 const char* init_profiles(const json& activation)
@@ -1309,6 +1372,15 @@ const char* apply_activation()
 } // namespace Slic3r::Neo::Bridge::Profiles
 
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_toolhead_diameter(const char* request)
+{
+    using namespace Slic3r::Neo::Bridge::Profiles;
+    try { return duplicate_json(set_toolhead_diameter_json(json::parse(request ? request : "")).dump()); }
+    catch (const std::exception& error) {
+        return duplicate_json(json{{"ok", false}, {"error", error.what()}, {"error_code", "native_validation_failure"}}.dump());
+    }
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_open_setup_wizard_catalogue()
 {
