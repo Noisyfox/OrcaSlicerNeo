@@ -292,6 +292,25 @@ describe('SettingsPanel preset transitions', () => {
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
   });
 
+  it.each([1, 2, 3, 4])('opens Multi and selects toolhead %i from its Device card', async (head) => {
+    resetStores();
+    const diameters = ['0.2', '0.4', '0.6', '0.8'];
+    useSettingsStore.setState({ values: { nozzle_diameter: diameters.join(','), nozzle_volume_type: 'Standard' } });
+    const { platform, runtime } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    expect(container.querySelector('#printer-multi-content')?.hasAttribute('hidden')).toBe(true);
+    await act(async () => (container.querySelector(`[data-testid="nozzle-extruder-${head}"]`) as HTMLElement).click());
+    expect(container.querySelector('[data-testid="printer-tab-multi"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('#printer-multi-content')?.hasAttribute('hidden')).toBe(false);
+    expect(container.querySelector(`[data-testid="toolhead-${head}"]`)?.getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector(`[data-testid="toolhead-${head}"]`)?.getAttribute('title'))
+      .toBe(container.querySelector(`[data-testid="nozzle-extruder-${head}"]`)?.getAttribute('title'));
+    expect(container.querySelector(`[data-testid="toolhead-${head}"]`)?.getAttribute('title'))
+      .toBe(`Extruder ${head}: ${diameters[head - 1]} mm, Standard`);
+    expect(container.querySelector('[data-testid="toolhead-diameter-select"]')?.textContent).toContain(diameters[head - 1]);
+    expect(runtime.setToolheadDiameter).not.toHaveBeenCalled();
+  });
+
   it('applies a diameter selected in Multi to the selected U1 toolhead', async () => {
     resetStores();
     const snapshot: ProfileSnapshot = { ...initialSnapshot,

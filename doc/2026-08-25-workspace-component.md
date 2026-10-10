@@ -548,7 +548,23 @@ Validation for main CI plate-card clipping repair (2026-10-05):
   printers keep their existing Printer section. Both tab contents stay mounted.
   Multi. presents selectable numbered toolhead cards with effective diameter
   and native flow type, followed by the selected head's diameter selector.
+  Clicking a Device nozzle card opens Multi. and selects that same toolhead.
+  Both views use the same tooltip with the extruder number, diameter, and
+  native flow type.
+  Multi. toolhead cards share Device nozzle cards' 44px height and 14px line
+  height, with a 44px default width; selection styling does not increase
+  their height.
   Flow type is displayed in a disabled selector; flow editing is deferred.
+
+Toolhead card interaction validation (2026-10-10): `pnpm test` passed 1,837
+tests with 3 existing runtime-gated skips, and `pnpm typecheck` passed.
+SettingsPanel's 27 tests cover Device-to-Multi navigation for all four heads,
+the selected diameter, tooltip parity, and no configuration mutation on
+navigation. `pnpm --filter @orca/desktop exec electron-vite build --mode e2e`
+passed, followed by `pnpm --filter @orca/desktop exec playwright test
+e2e/profile-compatibility.e2e.ts e2e/preset-editor.e2e.ts` (2 passed; 2 U1
+real-runtime tests skipped in mock mode). `git diff --check` passed. No WASM
+rebuild was needed for these shared UI changes.
 - Diameter choices are numeric physical values projected by the bridge from
   installed visible profiles of the current vendor/model and the effective
   current vector. Named/mixed printer variants are not parsed as diameters.

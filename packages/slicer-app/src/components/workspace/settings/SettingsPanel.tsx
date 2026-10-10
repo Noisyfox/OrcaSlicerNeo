@@ -299,12 +299,15 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               // Native ConfigOptionVector::get_at repeats its first value for
               // extruders beyond the serialized vector length.
               const flow = nozzleVolumeTypes[index] ?? nozzleVolumeTypes[0];
-              return <div key={index} data-testid={`nozzle-extruder-${index + 1}`} className="printer-nozzle-extruder"
+              return <Button key={index} type="button" variant="ghost"
+                data-testid={`nozzle-extruder-${index + 1}`} className="printer-nozzle-extruder"
+                disabled={controlsDisabled} aria-label={`Configure toolhead ${index + 1}`}
+                onClick={() => { setToolhead(index); setPrinterTab('multi'); }}
                 title={`Extruder ${index + 1}: ${diameter} mm${flow ? `, ${flow}` : ''}`}>
                 <span className="text-foreground">{index + 1}</span>
                 <span>{diameter}</span>
                 <span>{flow ? flowLabels[flow] ?? flow : '—'}</span>
-              </div>;
+              </Button>;
             })}
           </div>}
           </div>
@@ -319,6 +322,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
                 className="printer-nozzle-extruder printer-toolhead" data-active={activeToolhead === index}
                 data-testid={`toolhead-${index + 1}`} aria-pressed={activeToolhead === index}
                 aria-label={`Toolhead ${index + 1}: ${diameter} mm${flow ? `, ${flow}` : ''}`}
+                title={`Extruder ${index + 1}: ${diameter} mm${flow ? `, ${flow}` : ''}`}
                 onClick={() => setToolhead(index)} disabled={controlsDisabled}>
                 <span className="text-foreground">{index + 1}</span><span>{diameter}</span>
                 <span>{flow ? flowLabels[flow] ?? flow : '—'}</span>
