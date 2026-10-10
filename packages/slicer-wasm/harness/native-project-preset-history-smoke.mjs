@@ -126,6 +126,38 @@ for (const [key, value] of Object.entries(fuzzyValues))
   check(`Redo restores Project ${key}`, nativeSnapshot().project[key] === value &&
     presetSnapshot().project_config[key] === value);
 
+// The catalogue projects the selected child into the source row, retaining
+// the native child ID for commands while displaying only the source identity.
+function printSources(snapshot) {
+  return JSON.stringify(snapshot.prints.map(preset => preset.source_name ?? preset.name));
+}
+function checkPrintProjection(label, snapshot) {
+  const child = snapshot.prints.find(preset => preset.name === childName);
+  check(label, snapshot.print.name === childName && child?.source_name === parentName &&
+    child.label === before.prints.find(preset => preset.name === parentName).label &&
+    printSources(snapshot) === printSources(before) &&
+    !snapshot.prints.some(preset => preset.name === parentName), JSON.stringify(child));
+}
+checkPrintProjection('Project child replaces its source picker row', afterRedo);
+const filamentSource = requireOk('read Filament session', callJson('orc_get_filament_session_snapshot'))
+  .slots[0].preset.name;
+const filamentBefore = requireOk('read Filament draft', callJson('orc_get_preset_draft',
+  ['string', 'string'], ['filament', filamentSource]));
+const soluble = filamentBefore.effective_values.filament_soluble === '1' ? '0' : '1';
+const filamentEdit = requireOk('edit filament_soluble', callJson('orc_mutate_preset_draft', ['string'],
+  [JSON.stringify({ action: 'set', kind: 'filament', canonical_name: filamentSource,
+    expected_revision: callJson('orc_history_status').revision, key: 'filament_soluble', value: soluble })]));
+check('Filament edit changes the active source', filamentEdit.history_entry_delta === 1 &&
+  callJson('orc_get_preset_draft', ['string', 'string'], ['filament', filamentSource])
+    .effective_values.filament_soluble === soluble);
+checkPrintProjection('Filament refresh keeps the child behind the source row', filamentEdit.profile_snapshot);
+check('Filament refresh retains the Print override', filamentEdit.profile_snapshot.project_config.layer_height === '0.24');
+requireOk('undo Filament edit', callJson('orc_history_undo'));
+checkPrintProjection('Undo retains the child and source display', presetSnapshot());
+requireOk('redo Filament edit', callJson('orc_history_redo'));
+checkPrintProjection('Redo retains the child and source display', presetSnapshot());
+requireOk('undo Filament edit before Process-only export', callJson('orc_history_undo'));
+
 // Field reset restores inheritance, and its history root restores/erases the
 // region default through the same edited native Print preset.
 const resetTx = requireOk('begin Fuzzy reset', callJson('orc_history_begin',
@@ -150,6 +182,7 @@ requireOk('add roundtrip geometry', callJson('orc_add_shape', ['string', 'string
 const exported = requireOk('save Process override', callJson('orc_export_project'));
 const projectBytes = Module.HEAPU8.slice(Number(exported.bytes_ptr), Number(exported.bytes_ptr) + exported.bytes_length);
 Module._free(Number(exported.bytes_ptr));
+checkPrintProjection('Export retains the live child and source display', presetSnapshot());
 const entries = readZipEntries(projectBytes);
 const projectConfig = JSON.parse(new TextDecoder().decode(
   entries.find(entry => entry.name === 'Metadata/project_settings.config').content));

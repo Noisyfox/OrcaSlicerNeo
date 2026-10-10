@@ -249,6 +249,22 @@ describe('SettingsPanel preset transitions', () => {
     });
   }
 
+  it('displays a Process child as its source while dispatching the child identity', async () => {
+    resetStores();
+    const child = { ...preset('Candidate Process B (Project)'), source_name: 'Candidate Process B', label: 'Process alias' };
+    useSettingsStore.setState({ prints: [child, preset('Candidate Process A')], selectedPrint: 'Candidate Process A' });
+    const { platform, runtime } = makePlatform(async () => ({
+      ...initialSnapshot, prints: [child, preset('Candidate Process A')],
+      print: { name: child.name, idx: 2 },
+    }));
+    const { container, root } = await render(platform); roots.push(root);
+    await selectOption(container, 'process-preset-select', 'Process alias');
+    expect(runtime.selectProfile).toHaveBeenCalledWith('print', child.name);
+    expect(useSettingsStore.getState().selectedPrint).toBe(child.name);
+    expect(container.querySelector('[data-testid="process-preset-select"]')?.textContent).toBe('Process alias');
+    expect(container.querySelector('[data-testid="process-preset-select"]')?.getAttribute('title')).toBe(child.source_name);
+  });
+
   it('uses native model labels and canonical targets, with inert Sync and actual-profile editing', async () => {
     resetStores();
     useSettingsStore.setState({ prints: initialSnapshot.prints.map(item => ({ ...item, label: 'Process alias' })) });

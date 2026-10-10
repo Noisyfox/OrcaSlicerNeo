@@ -1009,7 +1009,8 @@ function normalizeBedTypeNormalization(raw: unknown): ProjectLoadResult['bedType
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
   if (['printers', 'prints', 'filament_catalog'].some(key =>
-    !Array.isArray(raw[key]) || raw[key].some(item => !isRecord(item) || typeof item.label !== 'string' || typeof item.vendor !== 'string')))
+    !Array.isArray(raw[key]) || raw[key].some(item => !isRecord(item) || typeof item.label !== 'string' || typeof item.vendor !== 'string' ||
+      (item.source_name !== undefined && (typeof item.source_name !== 'string' || !item.source_name)))))
     return { ok: false, error: 'Invalid native preset display labels' };
   const picker = raw.printer_picker;
   const selectedPrinterName = isRecord(raw.printer) ? raw.printer.name : undefined;
