@@ -42,6 +42,19 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('transports typed Print vectors and indexed mutations through the shared Worker boundary', async () => {
+    const { workerClient } = setup();
+    await workerClient.init(MOCK_PROFILE_ACTIVATION);
+    const read = await workerClient.getPrintConfigEditor(); if (!read.ok) throw new Error(read.error);
+    await expect(workerClient.mutateNativeScopedConfig({ version: 1, operation: 'set-element', targets: [{ scope: 'project' }],
+      key: 'small_perimeter_speed', index: 2, scalarType: 'float_or_percent', value: { value: 42, percent: true }, expectedRevision: read.revision }))
+      .resolves.toMatchObject({ ok: true });
+    const edited = await workerClient.getPrintConfigEditor(); if (!edited.ok) throw new Error(edited.error);
+    expect(edited.editorVectors.small_perimeter_speed.effectiveValues[2]).toEqual({ value: 42, percent: true });
+    await expect(workerClient.mutateNativeScopedConfig({ version: 1, operation: 'reset-elements', targets: [{ scope: 'project' }],
+      keys: ['small_perimeter_speed'], index: 2, expectedRevision: edited.revision })).resolves.toMatchObject({ ok: true });
+  });
+
   it('transports setup operations through the existing typed Worker client', async () => {
     const module = createMockModule();
     const original = module.ccall;

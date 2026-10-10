@@ -330,7 +330,8 @@ describe('commitPresetDraftMutation', () => {
     expect(mutatePresetDraft).toHaveBeenCalledWith(request);
     expect(runProjectHistoryTransaction).not.toHaveBeenCalled();
     expect(useHistoryNavigationStore.getState().status).toBe(receipt.historyStatus);
-    expect(useProjectStore.getState()).toMatchObject({ dirty: true, plateInputRevisions: { 'plate-1': 12, 'plate-2': 18 } });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: true, plateInputRevisions: { 'plate-1': 12, 'plate-2': 18 },
+      systemPresets: { printer: 'Printer A', print: 'Process' } });
     expect(usePlateSessionStore.getState().snapshot).toBe(receipt.plateSession);
     expect(useFilamentSessionStore.getState().snapshot).toBe(receipt.filamentSession);
     expect(useSettingsStore.getState().nativeScopedConfig.project.printable_height).toBe('250');

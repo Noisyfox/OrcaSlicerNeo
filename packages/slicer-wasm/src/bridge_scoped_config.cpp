@@ -2,6 +2,7 @@
 // Native scoped configuration commands for the Neo WASM bridge.
 // ----------------------------------------------------------------
 #include "bridge_scoped_config.hpp"
+#include "bridge_config_elements.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -212,6 +213,9 @@ struct MutationRequest {
     std::vector<MutationTarget> targets;
     std::map<std::string, std::string> values;
     std::string category;
+    std::optional<uint64_t> index;
+    std::string scalar_type;
+    json element_value;
 };
 
 struct ResolvedTarget {
@@ -219,6 +223,7 @@ struct ResolvedTarget {
     DynamicPrintConfig candidate;
     DynamicPrintConfig project_candidate;
     DynamicPrintConfig print_candidate;
+    std::map<std::string, std::string> print_vector_overrides;
     ModelObject* object = nullptr;
     ModelVolume* part = nullptr;
     BridgeState::PlateSessionPlate* plate = nullptr;
@@ -402,6 +407,8 @@ std::vector<std::string> edited_print_override_keys()
     std::vector<std::string> result;
     for (const std::string& key : state().presets.prints.current_different_from_parent_options(false))
         if (is_project_print_override_key(key)) result.push_back(key);
+    for (const auto& [key, values] : state().presets.prints.get_edited_preset().neo_vector_overrides)
+        if (std::find(result.begin(), result.end(), key) == result.end()) result.push_back(key);
     return result;
 }
 
@@ -432,11 +439,36 @@ void clear_edited_print_overrides(DynamicPrintConfig& candidate,
     }
 }
 
+DynamicPrintConfig print_element_source()
+{
+    const auto& prints = state().presets.prints;
+    if (!prints.get_edited_preset().is_project_embedded) return prints.get_selected_preset().config;
+    if (const auto* parent = selected_print_parent()) return parent->config;
+    return prints.default_preset().config;
+}
+
 void apply_project_mutation_to_candidates(const MutationRequest& request,
                                           DynamicPrintConfig& project_candidate,
-                                          DynamicPrintConfig& print_candidate)
+                                          DynamicPrintConfig& print_candidate,
+                                          std::map<std::string, std::string>& vector_overrides)
 {
     const Preset* parent = selected_print_parent();
+    if (request.index) {
+        const auto source = print_element_source();
+        for (const auto& [key, ignored] : request.values) {
+            const json current = vector_overrides.count(key) ? json::parse(vector_overrides.at(key)) : json(nullptr);
+            const auto result = request.operation == "set-element"
+                ? ConfigElements::set_override(print_candidate, Preset::TYPE_PRINT, key, current,
+                    request.scalar_type, *request.index, request.element_value)
+                : ConfigElements::reset_override(print_candidate, source, Preset::TYPE_PRINT, key, current, *request.index);
+            if (result.is_object()) throw MutationCommandError(result["error_code"].get<std::string>(), result["error"].get<std::string>());
+            if (result.is_null()) vector_overrides.erase(key);
+            else vector_overrides[key] = result.dump();
+            print_candidate.set_key_value(key, source.option(key)->clone());
+            if (!result.is_null()) ConfigElements::apply_override(print_candidate, Preset::TYPE_PRINT, key, result);
+        }
+        return;
+    }
     ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
     if (request.operation == "set") {
         for (const auto& [key, requested] : request.values) {
@@ -444,6 +476,8 @@ void apply_project_mutation_to_candidates(const MutationRequest& request,
             const std::string effective_request = clamp_numeric_value(definition, requested);
             auto& destination = is_native_project_config_key(key) ? project_candidate : print_candidate;
             destination.set_deserialize(key, effective_request, substitutions);
+            if (!is_native_project_config_key(key) && ConfigElements::editor_vector_type(key, definition))
+                vector_overrides[key] = ConfigElements::explicit_values(print_candidate, Preset::TYPE_PRINT, key).dump();
         }
         return;
     }
@@ -456,11 +490,18 @@ void apply_project_mutation_to_candidates(const MutationRequest& request,
             project_candidate.erase(key);
         else
             restore_parent_value_or_erase(print_candidate, parent, key);
+        vector_overrides.erase(key);
         return;
     }
 
     const bool category_filter = request.operation == "reset-category";
     clear_edited_print_overrides(print_candidate, parent, request.category, category_filter);
+    for (auto it = vector_overrides.begin(); it != vector_overrides.end(); ) {
+        const auto* def = print_config_def.get(it->first);
+        if (resettable_key(it->first) && (!category_filter || (def && def->category == request.category)))
+            it = vector_overrides.erase(it);
+        else ++it;
+    }
     for (const std::string& key : project_candidate.keys()) {
         if (!is_native_project_config_key(key) || !resettable_key(key)) continue;
         const auto* definition = Slic3r::print_config_def.get(key);
@@ -478,8 +519,10 @@ bool project_request_requires_embedded_print_preset(const MutationRequest& reque
 
     DynamicPrintConfig project_candidate = state().presets.project_config;
     DynamicPrintConfig print_candidate = state().presets.prints.get_edited_preset().config;
-    apply_project_mutation_to_candidates(request, project_candidate, print_candidate);
-    return print_candidate != state().presets.prints.get_edited_preset().config;
+    auto vector_overrides = state().presets.prints.get_edited_preset().neo_vector_overrides;
+    apply_project_mutation_to_candidates(request, project_candidate, print_candidate, vector_overrides);
+    return print_candidate != state().presets.prints.get_edited_preset().config ||
+        vector_overrides != state().presets.prints.get_edited_preset().neo_vector_overrides;
 }
 
 void sync_project_print_preset_storage_impl()
@@ -491,8 +534,10 @@ void sync_project_print_preset_storage_impl()
     // native BBS exporter enumerates m_presets, so mirror the committed edit
     // into the selected project-embedded record before export/history capture.
     Preset& selected = prints.get_selected_preset();
-    if (selected.name == edited.name)
+    if (selected.name == edited.name) {
         selected.config = edited.config;
+        selected.neo_vector_overrides = edited.neo_vector_overrides;
+    }
 }
 
 std::size_t parse_target_id(const std::string& id, const std::string& scope)
@@ -522,7 +567,8 @@ MutationRequest parse_request(const char* request_json)
         throw MutationCommandError("invalid_command", "mutation operation is required");
     request.operation = encoded["operation"].get<std::string>();
     if (request.operation != "set" && request.operation != "reset" &&
-        request.operation != "reset-category" && request.operation != "reset-all")
+        request.operation != "reset-category" && request.operation != "reset-all" &&
+        request.operation != "set-element" && request.operation != "reset-elements")
         throw MutationCommandError("invalid_command", "unsupported native mutation operation");
     if (!encoded.contains("targets") || !encoded["targets"].is_array() || encoded["targets"].empty())
         throw MutationCommandError("invalid_command", "at least one mutation target is required");
@@ -545,7 +591,33 @@ MutationRequest parse_request(const char* request_json)
             throw MutationCommandError("invalid_command", "duplicate mutation target");
         request.targets.push_back(std::move(target));
     }
-    if (request.operation == "set") {
+    if (request.operation == "set-element" || request.operation == "reset-elements") {
+        if (request.targets.size() != 1 || request.targets.front().scope != "project")
+            throw MutationCommandError("unsupported_reference", "Print element commands require one Project target");
+        if (!encoded.contains("expected_revision") || !encoded["expected_revision"].is_number_unsigned() ||
+            encoded["expected_revision"].get<uint64_t>() != state().history_revision)
+            throw MutationCommandError("stale_revision", "Print element revision is stale or missing");
+        if (state().history_disabled)
+            throw MutationCommandError("history_disabled", "project history is disabled");
+        if (!encoded.contains("index") || !encoded["index"].is_number_unsigned())
+            throw MutationCommandError("invalid_index", "element index must be unsigned");
+        request.index = encoded["index"].get<uint64_t>();
+        if (request.operation == "set-element") {
+            if (!encoded.contains("key") || !encoded["key"].is_string() || encoded["key"].get<std::string>().empty() ||
+                !encoded.contains("scalar_type") || !encoded["scalar_type"].is_string() || !encoded.contains("value"))
+                throw MutationCommandError("invalid_command", "set-element requires key, scalar_type and typed value");
+            request.values.emplace(encoded["key"].get<std::string>(), "");
+            request.scalar_type = encoded["scalar_type"].get<std::string>();
+            request.element_value = encoded["value"];
+        } else {
+            if (!encoded.contains("keys") || !encoded["keys"].is_array() || encoded["keys"].empty())
+                throw MutationCommandError("invalid_command", "reset-elements requires explicit keys");
+            for (const auto& key : encoded["keys"]) {
+                if (!key.is_string() || key.get<std::string>().empty() || !request.values.emplace(key.get<std::string>(), "").second)
+                    throw MutationCommandError("invalid_command", "reset element keys must be unique non-empty strings");
+            }
+        }
+    } else if (request.operation == "set") {
         const bool has_key = encoded.contains("key");
         const bool has_value = encoded.contains("value");
         const bool has_values = encoded.contains("values");
@@ -576,9 +648,11 @@ MutationRequest parse_request(const char* request_json)
 
 void validate_set_keys(const MutationRequest& request)
 {
-    if (request.operation != "set" && request.operation != "reset") return;
+    if (request.operation != "set" && request.operation != "reset" && !request.index) return;
     for (const auto& [key, value] : request.values) {
         const ConfigOptionDef& definition = require_definition(key);
+        if (request.index && (is_native_project_config_key(key) || !is_project_print_override_key(key)))
+            throw MutationCommandError("unsupported_reference", "indexed configuration commands only edit Print options");
         if (is_bridge_owned_project_routing_key(key))
             throw MutationCommandError(
                 "unsupported_reference",
@@ -645,6 +719,7 @@ void resolve_target(ResolvedTarget& resolved)
     if (target.scope == "project") {
         resolved.project_candidate = state().presets.project_config;
         resolved.print_candidate = state().presets.prints.get_edited_preset().config;
+        resolved.print_vector_overrides = state().presets.prints.get_edited_preset().neo_vector_overrides;
         return;
     }
     if (target.scope == "object") {
@@ -705,6 +780,26 @@ json native_project_scoped_config_snapshot()
 
 } // namespace
 
+void initialize_imported_print_vector_overrides()
+{
+    auto& prints = state().presets.prints;
+    for (const auto& entry : prints.get_presets()) {
+        auto& preset = *prints.find_preset(entry.name, false, true);
+        preset.neo_vector_overrides.clear();
+        if (!preset.is_project_embedded) continue;
+        const auto* parent = prints.get_preset_parent(preset);
+        for (const auto& key : preset.config.keys()) {
+            const auto* def = print_config_def.get(key);
+            if (!is_project_print_override_key(key) || !def || !ConfigElements::editor_vector_type(key, *def)) continue;
+            const auto* inherited = parent ? parent->config.option(key) : nullptr;
+            if (inherited && inherited->serialize() == preset.config.option(key)->serialize()) continue;
+            auto entries = ConfigElements::explicit_values(preset.config, Preset::TYPE_PRINT, key);
+            if (ConfigElements::has_override(entries)) preset.neo_vector_overrides[key] = entries.dump();
+        }
+    }
+    prints.get_edited_preset().neo_vector_overrides = prints.get_selected_preset().neo_vector_overrides;
+}
+
 void sync_project_print_preset_storage()
 {
     sync_project_print_preset_storage_impl();
@@ -738,7 +833,8 @@ json native_print_preset_history_state()
     const auto& prints = state().presets.prints;
     json embedded = json::array();
     json embedded_presets = json::array();
-    for (const Preset& preset : prints.get_presets()) {
+    for (const Preset& entry : prints.get_presets()) {
+        const Preset& preset = entry.name == prints.get_selected_preset_name() ? prints.get_edited_preset() : entry;
         if (!preset.is_project_embedded) continue;
         embedded.push_back(preset.name);
         json overrides = json::object();
@@ -752,7 +848,8 @@ json native_print_preset_history_state()
         }
         embedded_presets.push_back({{"name", preset.name},
                                     {"inherits", preset.inherits()},
-                                    {"overrides", std::move(overrides)}});
+                                    {"overrides", std::move(overrides)},
+                                    {"vector_overrides", preset.neo_vector_overrides}});
     }
     return json{{"selected", prints.get_selected_preset_name()},
                 {"selected_project_embedded", prints.get_edited_preset().is_project_embedded},
@@ -782,7 +879,8 @@ void restore_native_print_preset_history_state(const json& values)
     for (const auto& record : records_value) {
         if (!record.is_object() || !record.contains("name") || !record["name"].is_string() ||
             !record.contains("inherits") || !record["inherits"].is_string() ||
-            !record.contains("overrides") || !record["overrides"].is_object())
+            !record.contains("overrides") || !record["overrides"].is_object() ||
+            !record.contains("vector_overrides") || !record["vector_overrides"].is_object())
             throw std::runtime_error("invalid native Print preset history state");
         const std::string name = record["name"].get<std::string>();
         if (desired_names.find(name) == desired_names.end() || records.find(name) != records.end())
@@ -840,6 +938,33 @@ void restore_native_print_preset_history_state(const json& values)
         }
         if (!progressed)
             throw std::runtime_error("native Print preset history parent is unavailable");
+    }
+
+    for (const auto& [name, record] : records) {
+        auto* preset = prints.find_preset(name, false, true);
+        const auto* parent = prints.get_preset_parent(*preset);
+        const auto& source = parent ? parent->config : prints.default_preset().config;
+        for (const auto& [key, ignored] : preset->neo_vector_overrides)
+            if (const auto* original = source.option(key)) preset->config.set_key_value(key, original->clone());
+        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+        for (auto it = record["overrides"].begin(); it != record["overrides"].end(); ++it)
+            preset->config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions);
+        std::map<std::string, std::string> vector_overrides;
+        for (auto it = record["vector_overrides"].begin(); it != record["vector_overrides"].end(); ++it) {
+            const auto* def = print_config_def.get(it.key());
+            if (!it.value().is_string() || !is_project_print_override_key(it.key()) ||
+                !def || !ConfigElements::editor_vector_type(it.key(), *def))
+                throw std::runtime_error("invalid Print sparse vector ownership");
+            const json entries = json::parse(it.value().get<std::string>());
+            auto candidate = preset->config;
+            const auto* original = source.option(it.key());
+            if (!original) throw std::runtime_error("Print sparse vector source is unavailable");
+            candidate.set_key_value(it.key(), original->clone());
+            ConfigElements::apply_override(candidate, Preset::TYPE_PRINT, it.key(), entries);
+            preset->config.set_key_value(it.key(), candidate.option(it.key())->clone());
+            vector_overrides[it.key()] = entries.dump();
+        }
+        preset->neo_vector_overrides = std::move(vector_overrides);
     }
 
     if (!selected.empty()) {
@@ -1095,6 +1220,32 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_native_scoped_config() {
     }
 }
 
+EMSCRIPTEN_KEEPALIVE const char* orc_get_print_config_editor() {
+    using namespace Slic3r::Neo::Bridge;
+    try {
+        const auto source = ScopedConfig::print_element_source();
+        const auto& edited = state().presets.prints.get_edited_preset();
+        json metadata = json::object(), originals = json::object(), effective = json::object();
+        const auto& all_metadata = Profiles::option_metadata_json();
+        for (const auto& key : source.keys()) {
+            if (!ScopedConfig::is_project_print_override_key(key)) continue;
+            if (all_metadata.contains(key)) metadata[key] = all_metadata[key];
+            originals[key] = source.option(key)->serialize();
+            if (const auto* option = edited.config.option(key)) effective[key] = option->serialize();
+        }
+        json vector_overrides = json::object();
+        for (const auto& [key, entries] : edited.neo_vector_overrides) vector_overrides[key] = json::parse(entries);
+        auto vectors = ConfigElements::vectors_json(source, edited.config, Preset::TYPE_PRINT, vector_overrides);
+        for (auto it = vectors.begin(); it != vectors.end(); )
+            if (!ScopedConfig::is_project_print_override_key(it.key())) it = vectors.erase(it); else ++it;
+        return ScopedConfig::duplicate_json(json{{"ok", true}, {"kind", "print"}, {"canonical_name", edited.name},
+            {"source_values", originals}, {"effective_values", effective}, {"option_metadata", metadata},
+            {"editor_vectors", vectors}, {"revision", state().history_revision}}.dump());
+    } catch (const std::exception& error) {
+        return ScopedConfig::native_configuration_error_json("native_validation_failure", error.what());
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* request_cstr) {
     using namespace Slic3r::Neo::Bridge;
     using ScopedConfig::native_configuration_error_json;
@@ -1116,7 +1267,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
             ScopedConfig::resolve_target(resolved.back());
             if (target.scope == "project") {
                 ScopedConfig::apply_project_mutation_to_candidates(
-                    request, resolved.back().project_candidate, resolved.back().print_candidate);
+                    request, resolved.back().project_candidate, resolved.back().print_candidate, resolved.back().print_vector_overrides);
                 if (!resolved.back().project_candidate.has("curr_bed_type") &&
                     (state().presets.project_config.has("curr_bed_type") ||
                      (request.operation == "reset" && request.values.count("curr_bed_type") != 0))) {
@@ -1127,7 +1278,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                 resolved.back().project_config_changed =
                     resolved.back().project_candidate != state().presets.project_config;
                 resolved.back().print_config_changed =
-                    resolved.back().print_candidate != state().presets.prints.get_edited_preset().config;
+                    resolved.back().print_candidate != state().presets.prints.get_edited_preset().config ||
+                    resolved.back().print_vector_overrides != state().presets.prints.get_edited_preset().neo_vector_overrides;
                 resolved.back().changed = resolved.back().project_config_changed ||
                     resolved.back().print_config_changed;
                 if (resolved.back().changed)
@@ -1208,7 +1360,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
         if (any_changed) {
             auto before_model = ScopedConfig::capture_model_mutation_snapshot(resolved, project_changed);
             const auto before_project_config = state().presets.project_config;
+            const auto before_stored_print = state().presets.prints.get_selected_preset();
             const auto before_print_config = state().presets.prints.get_edited_preset().config;
+            const auto before_print_vectors = state().presets.prints.get_edited_preset().neo_vector_overrides;
             const auto before_plates = state().plate_session_plates;
             const auto before_revisions = state().plate_input_revisions;
             const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
@@ -1222,6 +1376,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                             state().presets.project_config = std::move(target.project_candidate);
                         if (target.print_config_changed) {
                             state().presets.prints.get_edited_preset().config = std::move(target.print_candidate);
+                            state().presets.prints.get_edited_preset().neo_vector_overrides = std::move(target.print_vector_overrides);
                             state().presets.prints.update_dirty();
                         }
                     } else if (target.target.scope == "object") {
@@ -1238,11 +1393,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mutate_native_scoped_config(const char* req
                     ? PlateSession::shared_configuration_mutation_snapshot()
                     : PlateSession::configuration_mutation_snapshot(affected_plates, reasons);
                 result["plate_session"] = mutation;
+                if (project_changed) ScopedConfig::sync_project_print_preset_storage_impl();
             } catch (...) {
                 ScopedConfig::restore_model_mutation_snapshot(before_model);
                 state().mutable_object_capture_cache.clear();
                 state().presets.project_config = before_project_config;
+                state().presets.prints.get_selected_preset() = before_stored_print;
                 state().presets.prints.get_edited_preset().config = before_print_config;
+                state().presets.prints.get_edited_preset().neo_vector_overrides = before_print_vectors;
                 state().presets.prints.update_dirty();
                 state().plate_session_plates = before_plates;
                 state().plate_input_revisions = before_revisions;

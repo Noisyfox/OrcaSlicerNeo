@@ -185,3 +185,101 @@ only with the accepted final phase-one boundary and promoted or consolidated
 with the approved specification according to repository documentation policy.
 Phase two remains a separate task: Save As, rename, deletion, user-preset
 repository persistence, and management UI are excluded from this branch.
+
+## Accepted generic element extension — 2026-10-10
+
+- On `dev/extruder-indexed-editor`, share native typed vector reads, writes,
+  range validation and source-element reset across Printer/Filament drafts and
+  the Project Print configuration. The current source adapter stays in the Neo
+  bridge; runtime-only Print ownership adds the documented submodule adapter.
+- Preserve native variant cardinality and the Printer motion-limit stride of
+  two. Require `indexCount` in every vector projection; do not infer a valid
+  range from a short serialized option or universally use physical nozzle count.
+- Keep Print in its existing embedded-preset/Project ownership and application
+  transaction path. Add its typed read and indexed set/explicit batch reset
+  contracts together with the client, Worker transport, mock and tests.
+- Native invalid/stale requests publish no mutation. Indexed resets preserve
+  other elements and native nullable defaults; batch resets are atomic.
+- Continue using the current internal contract without legacy response fallbacks.
+  Update these existing documents rather than creating new task documents.
+- Filament/Print selectors, per-field Extruder/Variant mapping, motion-mode UI,
+  and parameter synchronization are outside this mechanism increment.
+- Editable vectors use sparse per-index entries: `null` inherits and `{value}`
+  explicitly owns the typed value, including `{value: null}` for native nil.
+  Require `overrideValues` in every vector projection. Explicit Source-equal
+  writes remain owned; indexed Reset clears only that entry, and all-null
+  arrays remove the key while retaining the empty draft. Other pages stay
+  modified independently and the current page Reset becomes unavailable.
+- Printer/Filament entries remain in the existing draft/history owner. Print
+  ownership follows its native embedded preset and existing history root via
+  runtime-only `Preset::neo_vector_overrides`. Modify and commit this adapter
+  directly on `dev/orcaslicerneo-wasm`, with an intentional documented pin.
+- Whole vector Set owns all valid indices. Ordinary 3MF stays flattened: import
+  reconstructs whole-vector ownership for changed options; per-index masks and
+  Source-equal explicit entries are session/history state, not archive state.
+- Multi. diameter edits, explicit Reset, nullable values and Undo/Redo must keep
+  native ownership, sidebar markers and editor field/group/page states aligned.
+
+Validation covers native U1 physical/variant/motion ranges, short vectors,
+nonzero Filament and Print edits/resets, nullable source restoration, failed
+batch isolation, and Undo/Redo. Shared client/Worker tests cover the typed
+contract, and the existing Printer/Filament editor journey remains applicable.
+
+Verification completed for this increment:
+
+- `pnpm test`: 1,825 passed, 3 skipped; `pnpm typecheck`: passed.
+- `scripts\build-windows.bat quick --variant serial -j 8` and
+  `scripts\build-windows.bat quick --variant threaded -j 8`: passed.
+- `node packages/slicer-wasm/harness/extruder-indexed-editor-smoke.mjs`
+  with each fresh serial/threaded module: passed. The existing
+  `preset-draft-registry-smoke.mjs` and
+  `native-project-preset-history-smoke.mjs` also passed on serial.
+- Freshly staged real Electron build: `playwright test e2e/preset-editor.e2e.ts`
+  passed both tests. Real Web: `playwright test --config
+  ../../apps/web/playwright.config.ts web.e2e.ts --grep
+  'Print edits followed by Filament edits'` passed its selected test.
+- `git diff --check`: passed. Full release E2E matrices were not run for this
+  focused mechanism increment.
+
+The override-highlight follow-up passed `pnpm test` (1,828 passed, 3 skipped),
+`pnpm typecheck`, the 30-test `PresetEditorDialog` component suite, and all three
+real Electron `e2e/preset-editor.e2e.ts` tests after fresh staging/build.
+`extruder-indexed-editor-smoke.mjs` passed on serial and threaded, covering
+equal-value diameter ownership, explicit Reset and Undo/Redo. The serial quick
+build was rerun; native production code is unchanged and the threaded artifact
+retains the same source contract. `git diff --check` passed. The full release
+host matrix was not rerun for this shared presentation correction.
+
+## Sparse vector override verification — 2026-10-10
+
+The deliberate Orca submodule adaptation is commit
+`306650f0f5518d8d34defbf67f7175b8b40d3021` on
+`dev/orcaslicerneo-wasm`: `Preset` carries runtime-only sparse vector ownership,
+and overwriting a native preset preserves it. The superproject pins this
+validated commit; no Orca source patch or new document was added.
+
+- `pnpm test`: 1,833 passed, 3 skipped. `pnpm typecheck`: passed.
+- `scripts\build-windows.bat quick --variant serial -j 8` and
+  `scripts\build-windows.bat quick --variant threaded -j 8`: passed.
+- Fresh serial and threaded `extruder-indexed-editor-smoke.mjs`: passed,
+  including sparse masks, whole-vector Set, independent indexed Reset,
+  explicit nullable nil, equal-value ownership and Print Undo/Redo.
+- Serial `preset-draft-registry-smoke.mjs` and
+  `native-project-preset-history-smoke.mjs`: passed, including native 3MF
+  round trips and preservation of distinct Filament variant values.
+- Fresh real Electron `playwright test e2e/preset-editor.e2e.ts`: 3 passed,
+  including two modified indices and current-page Reset becoming disabled
+  while the other page remains highlighted.
+- Real Web `playwright test --config ../../apps/web/playwright.config.ts
+  web.e2e.ts --grep 'Print edits followed by Filament edits'`: 1 passed.
+- Superproject and submodule `git diff --check`: passed. Full release matrices
+  and deferred Filament/Print Variant selection UI were outside this change.
+
+The CI printer-picker fixture uses a canonical two-head `0.4+0.4` source for
+toolhead transition checks. A draft value cannot manufacture a second physical
+head on a single-head source. The fixture explicitly verifies that such an
+out-of-range edit leaves the snapshot unchanged, while preserving mixed-profile
+matching, toolhead order, custom-diameter fallback and stale-revision checks.
+`printer-picker-smoke.mjs` passed with both existing serial and threaded
+artifacts. This follow-up changes the harness only; native builds and host E2E
+were not repeated.

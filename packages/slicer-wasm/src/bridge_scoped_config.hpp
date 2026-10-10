@@ -54,6 +54,7 @@ void apply_project_scoped_config_snapshot(const json& values);
 // history root. It is not session metadata and is never written to 3MF.
 json native_print_preset_history_state();
 void restore_native_print_preset_history_state(const json& values);
+void initialize_imported_print_vector_overrides();
 void sync_project_print_preset_storage();
 
 json empty_native_scoped_config_snapshot();

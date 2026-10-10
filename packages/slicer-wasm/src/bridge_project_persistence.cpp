@@ -27,6 +27,7 @@
 #include "bridge_plate.hpp"
 #include "bridge_profiles.hpp"
 #include "bridge_preset_drafts.hpp"
+#include "bridge_config_elements.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_scoped_config.hpp"
@@ -342,8 +343,11 @@ void add_active_draft_overrides(PresetDraftRegistry& drafts,
 
         const std::string source_value = source_option->serialize();
         const std::string effective_value = effective_option->serialize();
-        if (source_value != effective_value)
-            drafts.set(type, canonical_name, key, effective_value);
+        if (source_value != effective_value) {
+            DynamicPrintConfig effective = *source_config;
+            effective.set_key_value(key, effective_option.release());
+            drafts.set(type, canonical_name, key, ConfigElements::explicit_values(effective, type, key));
+        }
     }
 }
 
@@ -1138,6 +1142,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 // provenance report; PresetBundle copy is the established
                 // bridge staging boundary.
                 state().presets = candidate;
+                ScopedConfig::initialize_imported_print_vector_overrides();
                 state().preset_drafts = std::move(staged_preset_drafts);
                 state().dormant_preset_drafts.clear();
                 state().preset_draft_revision = 0;

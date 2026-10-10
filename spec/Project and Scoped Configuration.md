@@ -155,6 +155,22 @@ Text remains a draft until Enter or blur commits it; Escape discards the draft.
 If the slicer cannot parse the submitted value, the field keeps the draft and
 shows an error without changing the project.
 
+The native Print element API additionally exposes typed Source/Effective vectors
+and sparse per-index `overrideValues` (`null` inherits; `{value}` explicitly owns
+the element, including `{value: null}` for native nullable nil)
+through `getPrintConfigEditor()`. Its required `indexCount` gives the native
+valid element range even when a serialized vector is short. Project
+`set-element` submits one typed value with its type, index and expected revision;
+`reset-elements` clears ownership at that index for an explicit set of unique
+option keys and restores Source. Other indices retain their ownership, even
+when they equal Source; an all-inherited vector removes its override key.
+The batch is validated on temporary configuration before publication, and all
+other elements remain unchanged. Element values outside native bounds are
+rejected; whole-option numeric edits retain their existing clamping behavior.
+These operations use the same Project-owned Print preset and enclosing history
+transaction as ordinary scoped edits. They currently accept one Project target;
+Object, Part and Plate element editing and Variant selection UI are deferred.
+
 The initial validation behavior is intentionally limited:
 
 - Option types, allowed enum values, and deterministic minimum/maximum bounds

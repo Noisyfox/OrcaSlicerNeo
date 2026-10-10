@@ -1228,7 +1228,7 @@ std::pair<PresetDraftRegistry, PresetDraftRegistry> activation_drafts(const Pres
         else {
             dormant.ensure_entry(type, identity.second);
             for (auto option = entry.at("overrides").begin(); option != entry.at("overrides").end(); ++option)
-                dormant.set(type, identity.second, option.key(), option.value().get<std::string>());
+                dormant.set(type, identity.second, option.key(), option.value());
         }
     }
     return {PresetDraftRegistry::from_snapshot_json(active, bundle), std::move(dormant)};

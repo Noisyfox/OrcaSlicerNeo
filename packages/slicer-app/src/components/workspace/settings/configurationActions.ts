@@ -48,7 +48,7 @@ async function commitScopedConfigurationMutationNow(
   try {
     const history = await runProjectHistoryMutation<ConfigurationMutationResult>(
       platform.runtime,
-      request.operation === 'set' ? 'Change Scoped Configuration' : 'Reset Scoped Configuration',
+      request.operation === 'set' || request.operation === 'set-element' ? 'Change Scoped Configuration' : 'Reset Scoped Configuration',
       async (): Promise<ConfigurationMutationResult> => {
         previousBed = useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type;
         const result = await platform.runtime.mutateNativeScopedConfig(request);
@@ -151,7 +151,11 @@ async function commitPresetDraftMutationNow(
       useFilamentSessionStore.getState().publish(result.filamentSession);
       applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
-      useProjectStore.getState().recordPlateMutation(result.plateSession);
+      const project = useProjectStore.getState();
+      const selections = { printer: result.profileSnapshot.printer.name, print: result.profileSnapshot.print.name };
+      project.setProject(project.scope === 'project'
+        ? { projectPresets: selections } : { systemPresets: selections });
+      project.recordPlateMutation(result.plateSession);
       invalidateAfterSharedConfigurationMutation(
         result.affectedPlateIds,
         platform.runtime,

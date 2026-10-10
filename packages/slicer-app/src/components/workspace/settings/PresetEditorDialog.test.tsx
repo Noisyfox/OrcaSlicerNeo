@@ -12,6 +12,8 @@ import type {
   PresetDraftMutationRequest,
   PresetDraftMutationResult,
   PresetDraftSnapshot,
+  PresetDraftVectorValue,
+  PresetDraftEditorVector,
 } from '@slicer/client';
 import { PresetEditorDialog } from './PresetEditorDialog';
 import {
@@ -125,11 +127,14 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical',
     draftExists: options.draftExists ?? true,
     modified: options.modified ?? false,
-    overrides: options.modified ? { [kind === 'printer' ? 'printable_height' : 'filament_flow_ratio']: '245' } : {},
+    overrides: options.modified ? (kind === 'printer' ? { printable_height: '245' } : { filament_flow_ratio: [{value: 0.92}, null] }) : {},
     sourceValues,
     effectiveValues,
     optionMetadata,
     editorBindings,
+    editorVectors: Object.fromEntries(Object.entries(editorBindings).map(([key, binding]) => [key, {
+      ...binding, overrideValues: Array.from({length: binding.elementCount}, (_, index) => options.modified && key === 'filament_flow_ratio' && index === 0 ? {value: 0.92} : null), indexCount: binding.elementCount, sourceValues: JSON.parse(sourceValues[key]!), effectiveValues: JSON.parse(effectiveValues[key]!),
+    }])),
     revision: 1,
   };
 }
@@ -139,25 +144,57 @@ function mutationSuccess(snapshot: PresetDraftSnapshot, request: PresetDraftMuta
   let overrides = { ...snapshot.overrides };
   let effectiveValues = { ...snapshot.effectiveValues };
   let editorBindings = { ...snapshot.editorBindings };
+  const editorVectors = { ...snapshot.editorVectors };
   if (request.action === 'set-element') {
     const binding = snapshot.editorBindings[request.key];
-    if (!binding || request.index >= binding.elementCount) throw new Error('missing native element fixture');
-    const rawValues = JSON.parse(effectiveValues[request.key] ?? snapshot.sourceValues[request.key] ?? '[]') as PresetDraftEditorValue[];
+    const vector = editorVectors[request.key];
+    if (!binding && !vector) throw new Error('missing native element fixture');
+    const rawValues = vector ? [...vector.effectiveValues] :
+      JSON.parse(effectiveValues[request.key] ?? snapshot.sourceValues[request.key] ?? '[]') as PresetDraftVectorValue[];
+    while (rawValues.length <= request.index) rawValues.push(rawValues[0] ?? []);
     rawValues[request.index] = request.value;
     const serialized = JSON.stringify(rawValues);
-    overrides[request.key] = serialized;
+    const entries = [...vector.overrideValues];
+    entries[request.index] = { value: request.value };
+    overrides[request.key] = entries;
     effectiveValues[request.key] = serialized;
-    editorBindings[request.key] = { ...binding, effectiveValue: request.value };
+    if (request.scalarType !== 'point' && request.scalarType !== 'points')
+      editorBindings[request.key] = { ...binding!, effectiveValue: rawValues[0] as PresetDraftEditorValue };
+    if (vector) editorVectors[request.key] = { ...vector, effectiveValues: rawValues, overrideValues: entries };
   } else if (request.action === 'set') {
     overrides[request.key] = request.value;
     effectiveValues[request.key] = request.value;
   } else if (request.action === 'reset-field') {
+    if (request.index !== undefined && editorVectors[request.key]) {
+      const vector = editorVectors[request.key];
+      const values = [...vector.effectiveValues];
+      values[request.index] = vector.sourceValues[request.index < vector.sourceValues.length ? request.index : 0];
+      const entries = [...vector.overrideValues];
+      entries[request.index] = null;
+      editorVectors[request.key] = { ...vector, effectiveValues: values, overrideValues: entries };
+      effectiveValues[request.key] = JSON.stringify(values);
+      if (!entries.some(entry => entry !== null)) delete overrides[request.key];
+      else overrides[request.key] = entries;
+    } else {
       delete overrides[request.key];
       effectiveValues[request.key] = snapshot.sourceValues[request.key] ?? '';
       const binding = snapshot.editorBindings[request.key];
       if (binding) editorBindings[request.key] = { ...binding, effectiveValue: binding.sourceValue };
+    }
   } else if (request.action === 'reset-category') {
     for (const key of request.keys) {
+      if (request.index !== undefined && editorVectors[key]) {
+        const vector = editorVectors[key];
+        const values = [...vector.effectiveValues];
+        values[request.index] = vector.sourceValues[request.index < vector.sourceValues.length ? request.index : 0] ?? [];
+        const entries = [...vector.overrideValues];
+        entries[request.index] = null;
+        editorVectors[key] = { ...vector, effectiveValues: values, overrideValues: entries };
+        effectiveValues[key] = JSON.stringify(values);
+        if (!entries.some(entry => entry !== null)) delete overrides[key];
+        else overrides[key] = entries;
+        continue;
+      }
       delete overrides[key];
       effectiveValues[key] = snapshot.sourceValues[key] ?? '';
       if (snapshot.editorBindings[key]) editorBindings[key] = snapshot.editorBindings[key];
@@ -172,6 +209,7 @@ function mutationSuccess(snapshot: PresetDraftSnapshot, request: PresetDraftMuta
     overrides,
     effectiveValues,
     editorBindings,
+    editorVectors,
     draftExists: request.action === 'reset-preset' ? false : true,
     modified: Object.keys(overrides).length > 0,
     revision: snapshot.revision + 1,
@@ -208,7 +246,7 @@ async function mount(
       if (result.ok) setCurrent(result);
       return result;
     };
-    const target = snapshot ? { kind: snapshot.kind, canonicalName: snapshot.canonicalName } : null;
+      const target = current ? { kind: current.kind, canonicalName: current.canonicalName } : null;
     return <PresetEditorDialog
       target={target}
       snapshot={current}
@@ -287,6 +325,135 @@ afterEach(() => {
 });
 
 describe('PresetEditorDialog', () => {
+  it('reads and edits each Extruder index, preserving other values and indexing search/tooltips', async () => {
+    const base = snapshotFor('printer');
+    const makeVector = (values: number[]): PresetDraftEditorVector => ({ ...base.editorBindings.nozzle_diameter!, indexCount: values.length, overrideValues: values.map(() => null), sourceValues: values, effectiveValues: values });
+    let current: PresetDraftSnapshot = { ...base,
+      sourceValues: { ...base.sourceValues, nozzle_diameter: '[0.4,0.4,0.6,0.6]', min_layer_height: '[0.08,0.08,0.12,0.12]' },
+      effectiveValues: { ...base.effectiveValues, nozzle_diameter: '[0.4,0.4,0.6,0.6]', min_layer_height: '[0.08,0.08,0.12,0.12]' },
+      editorBindings: { ...base.editorBindings, nozzle_diameter: { ...base.editorBindings.nozzle_diameter!, elementCount: 4 } },
+      optionMetadata: { ...base.optionMetadata, min_layer_height: { type: 'floats', label: 'Minimum layer height', tooltip_default: '0.08,0.08,0.12,0.12' } },
+      editorVectors: { nozzle_diameter: makeVector([0.4, 0.4, 0.6, 0.6]), min_layer_height: makeVector([0.08, 0.08, 0.12, 0.12]) },
+    };
+    const requests: PresetDraftMutationRequest[] = [];
+    await mount(current, vi.fn(), undefined, async request => {
+      requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = result; return result;
+    });
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-3"]'));
+    expect(document.querySelector('[data-testid="preset-editor-effective-nozzle_diameter"]')?.textContent).toBe('0.6');
+    expect(document.querySelector('[data-testid="preset-editor-effective-min_layer_height"]')?.textContent).toBe('0.12');
+    expect(document.querySelector('[data-testid="preset-editor-field-min_layer_height"]')?.getAttribute('title')).toContain('min_layer_height[2]');
+    expect(document.querySelector('[data-testid="preset-editor-field-min_layer_height"]')?.getAttribute('title')).toContain('Default: 0.12');
+    const input = document.querySelector('[data-testid="preset-editor-input-min_layer_height"]') as HTMLInputElement;
+    await changeInput(input, '0.15'); await press(input, 'Enter');
+    expect(requests.at(-1)).toMatchObject({ action: 'set-element', key: 'min_layer_height', index: 2, value: 0.15 });
+    expect(current.editorVectors?.min_layer_height.effectiveValues).toEqual([0.08, 0.08, 0.15, 0.12]);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-3"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    await click(document.querySelector('[data-testid="preset-editor-reset-field-min_layer_height"]'));
+    expect(requests.at(-1)).toMatchObject({ action: 'reset-field', key: 'min_layer_height', index: 2 });
+    expect(current.editorVectors?.min_layer_height.effectiveValues).toEqual([0.08, 0.08, 0.12, 0.12]);
+    await enterSearch('nozzle_diameter');
+    expect([...document.querySelectorAll('[data-testid="preset-editor-effective-nozzle_diameter"]')].map(node => node.textContent)).toEqual(['0.4', '0.4', '0.6', '0.6']);
+  });
+
+  it.each(['reset-field', 'reset-category'] as const)('highlights explicit equal-value vector overrides until %s', async action => {
+    const base = snapshotFor('printer');
+    const nozzles = [0.4, 0.6];
+    let current: PresetDraftSnapshot = { ...base, modified: true,
+      overrides: { nozzle_diameter: [null, {value: 0.6}] },
+      sourceValues: { ...base.sourceValues, nozzle_diameter: JSON.stringify(nozzles) },
+      editorVectors: { ...base.editorVectors,
+        nozzle_diameter: { ...base.editorVectors.nozzle_diameter!, sourceValues: nozzles, overrideValues: [null, {value: 0.6}] } },
+    };
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
+      const result = mutationSuccess(current, request);
+      if (result.ok) current = result;
+      return result;
+    });
+    await mount(current, vi.fn(), undefined, onMutate);
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    expect((document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement).value).toBe('0.6');
+    expect(document.querySelector('[data-testid="preset-editor-option-label-nozzle_diameter"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    for (const index of [2])
+      expect(document.querySelector(`[data-testid="preset-editor-page-tab-extruder-${index}"]`)?.getAttribute('data-draft-override-highlight')).toBe('true');
+    const reset = document.querySelector('[data-testid="preset-editor-reset-category-extruder-2"]') as HTMLButtonElement;
+    expect(reset.disabled).toBe(false);
+    await click(action === 'reset-field' ? document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]') : reset);
+    expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ action, index: 1,
+      ...(action === 'reset-field' ? { key: 'nozzle_diameter' } : { keys: expect.arrayContaining(['nozzle_diameter']) }) }));
+    expect(current).toMatchObject({ modified: false, draftExists: true, overrides: {} });
+    expect(document.querySelector('[data-testid="preset-editor-option-label-nozzle_diameter"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]')).toBeNull();
+    expect(reset.disabled).toBe(true);
+    expect((document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement).value).toBe('0.6');
+  });
+
+  it('disables the current page Reset while another index remains explicitly overridden', async () => {
+    const base = snapshotFor('printer');
+    let current: PresetDraftSnapshot = {...base, modified: true,
+      overrides: {nozzle_diameter: [{value: 0.4}, {value: 0.6}]},
+      sourceValues: {...base.sourceValues, nozzle_diameter: '[0.4,0.6]'},
+      editorVectors: {...base.editorVectors, nozzle_diameter: {...base.editorVectors.nozzle_diameter,
+        sourceValues: [0.4,0.6], overrideValues: [{value: 0.4}, {value: 0.6}]}}};
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
+      const result = mutationSuccess(current, request); if (result.ok) current = result; return result;
+    });
+    await mount(current, vi.fn(), undefined, onMutate);
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    await click(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]'));
+    expect(current.overrides.nozzle_diameter).toEqual([{value: 0.4}, null]);
+    expect(current.modified).toBe(true);
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]')).toBeNull();
+    expect((document.querySelector('[data-testid="preset-editor-reset-category-extruder-2"]') as HTMLButtonElement).disabled).toBe(true);
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]'));
+    expect((document.querySelector('[data-testid="preset-editor-reset-category-extruder-1"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('keeps the selected Extruder page when a mutation resolves a new canonical Printer source', async () => {
+    let current = snapshotFor('printer');
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
+      const result = mutationSuccess(current, request);
+      if (result.ok) current = { ...result, canonicalName: 'Printer Resolved' };
+      return result.ok ? current as typeof result : result;
+    });
+    await mount(current, vi.fn(), undefined, onMutate);
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    const input = document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement;
+    await changeInput(input, '0.4'); await press(input, 'Enter');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer Resolved');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(input.value).toBe('0.4');
+    await changeInput(input, '0.5'); await press(input, 'Enter');
+    expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ canonicalName: 'Printer Resolved', index: 1, value: 0.5 }));
+  });
+
+  it('uses first-element fallback and submits one coordinate or polygon at the selected index', async () => {
+    const base = snapshotFor('printer');
+    const coords = { ...base.editorBindings.nozzle_diameter!, scalarType: 'point' as const, indexCount: 2, overrideValues: [null, null],
+      sourceValues: [{ x: 1, y: 2 }], effectiveValues: [{ x: 1, y: 2 }] };
+    const polygon = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 0, y: 200 }];
+    let current: PresetDraftSnapshot = { ...base, editorVectors: { ...base.editorVectors, extruder_offset: coords,
+      extruder_printable_area: { ...coords, scalarType: 'points', indexCount: 2, sourceValues: [], effectiveValues: [] } } };
+    const requests: PresetDraftMutationRequest[] = [];
+    await mount(current, vi.fn(), undefined, async request => {
+      requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = result; return result;
+    });
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    const input = document.querySelector('[data-testid="preset-editor-input-extruder_offset"]') as HTMLInputElement;
+    expect(input.value).toBe('1, 2');
+    await changeInput(input, '3, 4'); await press(input, 'Enter');
+    expect(requests.at(-1)).toMatchObject({ action: 'set-element', scalarType: 'point', index: 1, value: { x: 3, y: 4 } });
+    const area = document.querySelector('[data-testid="preset-editor-input-extruder_printable_area"]') as HTMLTextAreaElement;
+    await changeTextarea(area, polygon.map(point => `${point.x}, ${point.y}`).join('\n'));
+    await act(async () => area.blur());
+    expect(requests.at(-1)).toMatchObject({ action: 'set-element', scalarType: 'points', index: 1, value: polygon });
+    await click(document.querySelector('[data-testid="preset-editor-reset-category-extruder-2"]'));
+    expect(requests.at(-1)).toMatchObject({ action: 'reset-category', index: 1 });
+  });
+
   it.each([FILAMENT_PRESET_EDITOR_MANIFEST, PRINTER_PRESET_EDITOR_MANIFEST])(
     'renders the declared page, group, and field order for $kind',
     async (manifest) => {
@@ -326,7 +493,7 @@ describe('PresetEditorDialog', () => {
       expect(document.querySelector('[data-testid="preset-editor-context-nozzle_diameter"]')?.textContent)
         .toContain(`Extruder ${index} / Basic information`);
       expect(document.querySelector('[data-testid="preset-editor-field-nozzle_diameter"]')?.getAttribute('data-field-access'))
-        .toBe('read-only');
+        .toBe('editable');
     }
   });
 
@@ -443,7 +610,6 @@ describe('PresetEditorDialog', () => {
       ['single_extruder_multi_material', 'multimaterial'],
       ['extruders_count', 'multimaterial'],
       ['default_filament_profile', 'multimaterial'],
-      ['nozzle_diameter', 'extruder-1'],
       ['printable_area', 'basic-information'],
     ] as const;
   let activePage = 'basic-information';

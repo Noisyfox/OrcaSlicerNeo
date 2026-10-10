@@ -87,8 +87,9 @@ name through `PresetDraftRegistry`, then supply their effective configuration
 to the ordinary native configuration assembly. Slicing, 3MF export, Prepare
 projections, and material/flush calculations must all use these adapters rather
 than call `PresetBundle::full_config()` directly. This changes Neo bridge call
-sites but must not alter the pinned `packages/slicer-wasm/cpp` submodule or
-generalize upstream `PresetCollection` into a multi-edited-preset container.
+sites without generalizing upstream `PresetCollection` into a multi-edited-preset
+container. The runtime-only Print ownership adapter described below is the
+intentional submodule change for the generic vector extension.
 
 The adapters substitute only the active Printer and selected Filament sources.
 They retain Neo's existing Print/Process `m_edited_preset`, project-embedded
@@ -323,8 +324,7 @@ intentionally added to the relevant Filament or Printer manifest.
 
 The Phase-one manifest marks topology-changing Printer fields as read-only.
 This includes `extruders_count`, `single_extruder_multi_material`, Printer
-technology and source-identity fields, every per-extruder vector such as
-`nozzle_diameter`, and material-default lists such as
+technology and source-identity fields and material-default lists such as
 `default_filament_profile`. These fields require a future dedicated native
 capability-topology transaction; an ordinary draft-field mutation never
 silently reshapes material slots or rewrites related options.
@@ -354,7 +354,7 @@ current option values.
 
 Phase one supplies editable generic controls for scalar numbers, booleans,
 enums, text, and colours. A manifest-listed option requiring a specialized Orca
-control (for example compound arrays, per-extruder editors, or structured
+control (for example compound arrays or structured
 custom G-code) is read-only until its control is implemented. It has no
 separate unsupported-feature notice in phase one.
 
@@ -366,6 +366,62 @@ remains in its existing serialized vector form. Filament scalar G-code and
 notes fields use multiline text controls and are editable through that native
 element binding. Printer scalar machine G-code remains read-only.
 
+Printer Extruder pages use complete typed native Source and Effective vectors.
+The internal snapshot contract requires these vectors; native no longer sends
+the previous first-element `editor_bindings` payload. The typed client derives
+generic first-element views from vectors for the Filament controls. All producers,
+consumers, mocks, and tests use the same contract, without legacy payload fallbacks.
+Page numbering is one-based; reads and writes use the corresponding zero-based
+index. Nonempty short vectors fall back to their first element, matching native
+`get_at`; empty vectors retain their empty state. Ordinary parameters, nullable
+values, enums and percentages are editable through single-value indexed native
+requests. Offsets use one X,Y coordinate; printable regions use one coordinate
+pair per line, with an empty region allowed. Native validation checks types,
+finite coordinates, ranges and the native valid element count. Sparse vector
+composition fills inherited short-vector entries from Source before applying
+explicit entries, preserving every other index. Trailing empty region groups survive native serialization.
+
+The common native `ConfigElements` implementation serves Printer and Filament
+drafts and the Project-owned Print configuration. Every projected vector
+requires `index_count` (`indexCount` in the typed client). This is the valid
+zero-based element range, independent of serialized length: physical Printer
+options use the nozzle count, variant options use the preset's native variant
+list, and Printer motion limits use two values per variant. Other supported
+vectors use their own length. Short values retain native first-element
+semantics; null is preserved and an empty printable-region group remains valid.
+`configVectorElementAt` supplies the same bounded read to presentation code.
+
+Draft `set-element`, indexed `reset-field`, and indexed `reset-category` share
+that implementation for both Printer and Filament. Resets restore only the
+specified element from Source by clearing its override entry; only a vector
+with no explicitly owned entries removes its draft key. Explicit batch keys are validated before any history/state
+mutation. Scalar or structured options without an element editor are rejected.
+
+Print uses `getPrintConfigEditor()` for complete typed Source/Effective vectors
+and the same range contract. It remains outside `PresetDraftRegistry`.
+`mutateNativeScopedConfig` accepts Project `set-element` (one typed value, its
+scalar type and index) and `reset-elements` (explicit unique keys and an index).
+Both require the revision returned by the read. They retain the existing
+Project Print owner, embedded-preset materialization, configuration publication,
+and enclosing application history transaction. They do not introduce a second
+Print draft or history root. Whole-option operations remain distinct actions.
+
+This increment supplies element mechanisms only. Filament/Print variant pickers,
+per-field Extruder-to-Variant mapping, motion-mode controls, and cross-extruder
+copy remain separate work. A valid vector index is not a physical Extruder ID.
+
+Diameter edits reuse the native toolhead transition, including exact profile
+combination matching, and the editor follows the resulting canonical source.
+The open Extruder page remains selected through that canonical source change.
+Source, Effective, tooltips, search and history refresh all use the same page
+index. Field reset restores only that element; Extruder category reset restores
+that index across the page in one atomic history entry. Extruder field/group/tab
+highlights reflect native ownership of the selected element, including explicit
+Source-equivalent values.
+These typed vectors are response projections, not additional native history or
+project-file state. Both hosts retain their desktop input model; mobile support
+remains deferred.
+
 The editor provides three reset scopes: an overridden editable field has a
 field Reset that removes its draft override and inherits the source preset;
 each category page has `Reset category`; and the dialog has `Reset preset`.
@@ -373,6 +429,34 @@ Every manifest-listed option with a runtime draft override highlights its label
 using the same modified-option color as the Print configuration overlay,
 including phase-one read-only fields. Removing that override clears the
 highlight; the input control itself remains unhighlighted.
+
+An explicit write remains an override when its value equals Source; only Reset
+resumes inheritance. Editable vector overrides are sparse arrays: `null` means
+inherit Source at that index, while `{ "value": <typed element> }` explicitly
+owns it. `{ "value": null }` is an explicit native nil for a nullable parameter;
+it is distinct from inheritance. Scalar and opaque-list overrides retain native
+serialized text. A whole-option vector Set explicitly owns every valid index.
+
+Each typed vector requires `override_values` (`overrideValues` in the client),
+with one entry per `indexCount`. React reads ownership at the displayed index;
+it does not compare Source and Effective. Reset field/category clears only the
+selected index. Once that page has no owned entries, its highlights and Reset
+are cleared even when other indices remain modified. Sidebar modified markers
+remain active while any entry is owned. All-null arrays remove the key; field
+and category Reset retain the empty draft, while Reset preset removes it.
+
+Printer/Filament sparse entries belong to `PresetDraftRegistry` and its existing
+history root. Print sparse entries belong to the native project-embedded Print
+preset through runtime-only `Preset::neo_vector_overrides`, captured in the
+existing `nativePrintPreset` history root. Undo/Redo restores both effective
+values and ownership, including equal values and explicit nil. The Orca
+submodule adapter is edited and committed directly on `dev/orcaslicerneo-wasm`.
+
+Ordinary 3MF export continues to flatten effective native config without a
+Neo-private draft format. On import, ordinary changed vector options reconstruct
+explicit ownership of all their valid indices. This preserves effective values;
+per-index masks and explicit Source-equivalent writes cannot be recovered from
+that flattened archive. Live history preserves those masks exactly.
 
 `Reset category` is one atomic native batch mutation: it either restores every
 override of every manifest field in that category, including Phase-one read-only

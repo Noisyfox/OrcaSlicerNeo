@@ -380,6 +380,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_painting.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_preset_drafts.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_config_elements.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_performance.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp"

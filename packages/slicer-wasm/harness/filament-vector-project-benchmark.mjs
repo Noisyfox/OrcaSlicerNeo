@@ -84,7 +84,7 @@ function requireOk(label, result) {
 }
 
 function historySummary(status) {
-  assert.equal(Object.hasOwn(status, 'editor_bindings'), false);
+  assert.equal(Object.hasOwn(status, 'editor_vectors'), false);
   assert.equal(Object.hasOwn(status, 'editorBindings'), false);
   assert.ok(Number.isSafeInteger(status.bytesUsed), JSON.stringify(status));
   assert.ok(Number.isSafeInteger(status.byteBudget), JSON.stringify(status));
@@ -142,10 +142,10 @@ function presetDraft(Module, presetName) {
 
 function effectiveNote(draft, mode) {
   if (mode === 'current') {
-    const binding = draft.editor_bindings?.filament_notes;
+    const binding = draft.editor_vectors?.filament_notes;
     assert.equal(binding?.scalar_type, 'string', 'current mode must expose native string element metadata');
-    assert.equal(binding?.element_count, 1, 'the benchmark notes fixture must be a scalar string element');
-    return binding.effective_value;
+    assert.equal(binding?.effective_values.length, 1, 'the benchmark notes fixture must be a scalar string element');
+    return binding.effective_values[0];
   }
   const raw = draft.effective_values?.filament_notes;
   assert.equal(typeof raw, 'string', 'baseline mode must expose the complete serialized notes option');
@@ -173,10 +173,10 @@ function makeMutation(Module, mode, presetName, action, key, value) {
 }
 
 function currentNumericBinding(draft) {
-  const binding = draft.editor_bindings?.filament_change_length;
+  const binding = draft.editor_vectors?.filament_change_length;
   assert.equal(binding?.scalar_type, 'float', 'current mode must expose the numeric element metadata');
-  assert.equal(binding?.element_count, 1, 'the numeric benchmark field must have one native element');
-  return binding.effective_value;
+  assert.equal(binding?.effective_values.length, 1, 'the numeric benchmark field must have one native element');
+  return binding.effective_values[0];
 }
 
 function chooseNumericValue(draft) {
@@ -349,8 +349,8 @@ async function main() {
     assert.ok(Object.hasOwn(initialDraft.effective_values, 'filament_change_length'),
       'Filament source must contain the numeric edit target');
     if (options.mode === 'current') {
-      assert.equal(initialDraft.editor_bindings?.filament_notes?.scalar_type, 'string');
-      assert.equal(initialDraft.editor_bindings?.filament_notes?.element_count, 1);
+      assert.equal(initialDraft.editor_vectors?.filament_notes?.scalar_type, 'string');
+      assert.equal(initialDraft.editor_vectors?.filament_notes?.effective_values.length, 1);
       currentNumericBinding(initialDraft);
     }
     const numeric = chooseNumericValue(initialDraft);

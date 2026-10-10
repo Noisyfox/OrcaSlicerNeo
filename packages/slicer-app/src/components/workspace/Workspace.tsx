@@ -238,6 +238,11 @@ export function Workspace({
     try {
       const result = await commitPresetDraftMutation(platform, request);
       if (result.ok && presetEditorTargetRef.current === target) {
+        if (result.canonicalName !== target.canonicalName) {
+          const resolvedTarget = { kind: result.kind, canonicalName: result.canonicalName };
+          presetEditorTargetRef.current = resolvedTarget;
+          setPresetEditorTarget(resolvedTarget);
+        }
         setPresetEditorSnapshot(result);
         setPresetEditorLoadError(null);
       }
@@ -250,7 +255,7 @@ export function Workspace({
       };
     } finally {
       presetEditorMutationPendingRef.current = false;
-      if (presetEditorTargetRef.current === target) setPresetEditorMutationPending(false);
+      setPresetEditorMutationPending(false);
     }
   }, [platform]);
 

@@ -7,10 +7,10 @@
   to WebAssembly; the wxWidgets GUI is neither ported nor built for WASM. The
   authoritative architecture is
   [`spec/Web-Electron Shared Application Architecture.md`](spec/Web-Electron%20Shared%20Application%20Architecture.md).
-- Treat `packages/slicer-wasm/cpp/` as a read-only pinned submodule. Make
-  upstream adaptations through `packages/slicer-wasm/patches/*.patch`, or use
-  an intentional, documented submodule commit. Never make ad-hoc edits or move
-  the submodule pointer casually.
+- Make Orca source changes directly in `packages/slicer-wasm/cpp/` on its
+  `dev/orcaslicerneo-wasm` branch. Validate and commit the submodule change,
+  then deliberately update the superproject pin. Do not add Orca source
+  patches; `packages/slicer-wasm/patches/` is for external dependencies.
 - `packages/slicer-wasm/src/client/` is the only JavaScript allowed to talk
   directly to the Emscripten module. Application code must use
   `packages/slicer-runtime/`; never import module URLs or Emscripten globals
@@ -79,7 +79,7 @@ Write all repository documentation in English.
 
 | Path | Required handling |
 | --- | --- |
-| `packages/slicer-wasm/cpp/` | Preserve the pinned submodule; use patches or a deliberate documented submodule update. |
+| `packages/slicer-wasm/cpp/` | Commit source changes on `dev/orcaslicerneo-wasm`, validate them, and deliberately update the superproject pin; do not add Orca source patches. |
 | `packages/slicer-wasm/src/bridge.cpp` | Preserve the narrow C++/JS ABI and run the applicable native WASM quick build. |
 | `packages/slicer-wasm/src/client/` | Keep all direct Emscripten-module access behind this typed client. |
 | `scripts/*.bat`, `packages/slicer-wasm/*.bat` | Use Windows cmd syntax and CRLF; never assume Git Bash. |
@@ -87,6 +87,9 @@ Write all repository documentation in English.
 
 ## Bridge and runtime invariants
 
+- Internal APIs have one current contract. Do not add backward-compatible
+  aliases, legacy response fallbacks, or parallel old/new payload formats.
+  Update producers, consumers, mocks, and tests together when the contract changes.
 - The bridge is `extern "C"`, JSON-in/JSON-out, and synchronous on its Worker
   thread.
 - Binary buffers cross through the WASM heap using `_malloc`, `_free`, and

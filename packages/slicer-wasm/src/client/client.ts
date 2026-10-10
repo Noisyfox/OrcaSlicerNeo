@@ -45,6 +45,7 @@ import type {
   PresetDraftKind, PresetDraftMutationRequest, PresetDraftMutationResult,
   PresetDraftSnapshotResult, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
   PresetDraftEditorGuiType, PresetDraftEditorScalarType, PresetDraftEditorValue,
+  PresetDraftEditorVector, PresetDraftVectorValue, ConfigVectorOverride, ConfigEditorSnapshotResult,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -1183,7 +1184,7 @@ function normalizePresetDraftEditorBindings(
   return result;
 }
 
-function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
+function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult {
   if (!isRecord(raw)) return { ok: false, error: 'invalid preset draft response', errorCode: 'invalid_response' };
   if (raw.ok !== true) {
     if (raw.ok !== false || typeof raw.error !== 'string')
@@ -1192,13 +1193,11 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
       ...(typeof raw.error_code === 'string' ? { errorCode: raw.error_code } : {}),
       ...(Number.isSafeInteger(raw.revision) ? { revision: raw.revision as number } : {}) };
   }
-  const overrides = stringRecord(raw.overrides);
   const sourceValues = stringRecord(raw.source_values);
   const effectiveValues = stringRecord(raw.effective_values);
-  if ((raw.kind !== 'printer' && raw.kind !== 'filament') ||
+  if ((raw.kind !== 'printer' && raw.kind !== 'filament' && raw.kind !== 'print') ||
       typeof raw.canonical_name !== 'string' || !raw.canonical_name ||
-      typeof raw.draft_exists !== 'boolean' || typeof raw.modified !== 'boolean' ||
-      !overrides || !sourceValues || !effectiveValues || !isRecord(raw.option_metadata) ||
+      !sourceValues || !effectiveValues || !isRecord(raw.option_metadata) ||
       !Number.isSafeInteger(raw.revision))
     return { ok: false, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
   const optionMetadata: OptionMetadata = {};
@@ -1207,13 +1206,88 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
       return { ok: false, error: 'invalid preset draft option metadata', errorCode: 'invalid_response' };
     optionMetadata[key] = value as unknown as OptionMetadata[string];
   }
-  const editorBindings = normalizePresetDraftEditorBindings(
-    raw.editor_bindings, raw.option_metadata, sourceValues, effectiveValues);
-  if (!editorBindings)
-    return { ok: false, error: 'invalid preset draft editor bindings', errorCode: 'invalid_response' };
-  return { ok: true, kind: raw.kind, canonicalName: raw.canonical_name,
-    draftExists: raw.draft_exists, modified: raw.modified, overrides, sourceValues, effectiveValues,
-    optionMetadata, editorBindings, revision: raw.revision as number };
+  const editorBindings: Record<string, PresetDraftEditorBinding> = {};
+  const editorVectors: Record<string, PresetDraftEditorVector> = {};
+  {
+    if (!isRecord(raw.editor_vectors)) return { ok: false, error: 'invalid preset draft vectors', errorCode: 'invalid_response' };
+    for (const [key, vector] of Object.entries(raw.editor_vectors)) {
+      if (!isRecord(vector) || !Array.isArray(vector.source_values) || !Array.isArray(vector.effective_values) ||
+          !Array.isArray(vector.override_values) || vector.override_values.length !== vector.index_count ||
+          vector.override_values.some(entry => entry !== null && (!isRecord(entry) || Object.keys(entry).length !== 1 || !Object.hasOwn(entry, 'value'))) ||
+          !Number.isSafeInteger(vector.index_count) || (vector.index_count as number) < 0)
+        return { ok: false, error: 'invalid preset draft vector values', errorCode: 'invalid_response' };
+      const overrideValues = vector.override_values as ConfigVectorOverride[];
+      const overriddenValues = overrideValues.flatMap(entry => entry === null ? [] : [entry.value]);
+      const type = vector.scalar_type;
+      const point = (value: unknown): boolean => isRecord(value) && Object.keys(value).length === 2 &&
+        typeof value.x === 'number' && Number.isFinite(value.x) && typeof value.y === 'number' && Number.isFinite(value.y);
+      if (type === 'point' || type === 'points') {
+        const expectedKey = type === 'point' ? 'extruder_offset' : 'extruder_printable_area';
+        if (raw.kind !== 'printer' || key !== expectedKey || vector.nullable !== false ||
+            !Object.hasOwn(sourceValues, key) || !Object.hasOwn(effectiveValues, key) ||
+            optionMetadata[key]?.type !== (type === 'point' ? 'points' : 'unknown') ||
+            ![...vector.source_values, ...vector.effective_values, ...overriddenValues].every(value => type === 'point' ? point(value) : Array.isArray(value) && value.every(point)) ||
+            typeof vector.readonly !== 'boolean' || typeof vector.gui_type !== 'string' ||
+            !PRESET_DRAFT_EDITOR_GUI_TYPES.includes(vector.gui_type as PresetDraftEditorGuiType) ||
+            typeof vector.gui_flags !== 'string' || typeof vector.multiline !== 'boolean' || typeof vector.is_code !== 'boolean')
+          return { ok: false, error: 'invalid preset draft coordinates', errorCode: 'invalid_response' };
+        editorVectors[key] = { scalarType: type, sourceValues: vector.source_values as PresetDraftVectorValue[],
+          effectiveValues: vector.effective_values as PresetDraftVectorValue[], overrideValues, indexCount: vector.index_count as number, nullable: false,
+          readOnly: vector.readonly, guiType: vector.gui_type as PresetDraftEditorGuiType,
+          guiFlags: vector.gui_flags, multiline: vector.multiline, isCode: vector.is_code };
+      } else {
+        // Reuse all existing scalar/enum metadata checks, including every
+        // element. Native empty vectors stay empty rather than fabricating values.
+        let normalized: PresetDraftEditorBinding | undefined;
+        const values = [...vector.source_values, ...vector.effective_values, ...overriddenValues];
+        const placeholder = type === 'string' ? '' : type === 'bool' ? false :
+          type === 'float_or_percent' ? { value: 0, percent: false } :
+          type === 'enum' && Array.isArray(vector.enum_options) ? vector.enum_options[0]?.value : 0;
+        for (const value of values.length ? values : [placeholder]) {
+          const bindings = normalizePresetDraftEditorBindings({ [key]: { ...vector,
+            index: 0, element_count: 1, source_value: value, effective_value: value } },
+            raw.option_metadata, sourceValues, effectiveValues);
+          if (!bindings) return { ok: false, error: 'invalid preset draft vector element', errorCode: 'invalid_response' };
+          normalized = bindings[key];
+        }
+        if (!normalized) return { ok: false, error: 'invalid preset draft vector', errorCode: 'invalid_response' };
+        const { index: _index, elementCount: _count, sourceValue: _source, effectiveValue: _effective, ...metadata } = normalized;
+        editorVectors[key] = { ...metadata, indexCount: vector.index_count as number, sourceValues: vector.source_values as PresetDraftEditorValue[],
+          effectiveValues: vector.effective_values as PresetDraftEditorValue[], overrideValues };
+        if ((vector.index_count as number) > 0 && vector.source_values.length && vector.effective_values.length) {
+          editorBindings[key] = { ...normalized, elementCount: vector.index_count as number,
+            sourceValue: vector.source_values[0] as PresetDraftEditorValue,
+            effectiveValue: vector.effective_values[0] as PresetDraftEditorValue };
+        }
+      }
+    }
+  }
+  return { ok: true, canonicalName: raw.canonical_name, sourceValues, effectiveValues,
+    optionMetadata, editorBindings, editorVectors, revision: raw.revision as number };
+}
+
+function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
+  const result = normalizeConfigEditorSnapshot(raw);
+  if (!result.ok) return result;
+  if (!isRecord(raw) || (raw.kind !== 'printer' && raw.kind !== 'filament') ||
+      typeof raw.draft_exists !== 'boolean' || typeof raw.modified !== 'boolean')
+    return { ok: false, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
+  if (!isRecord(raw.overrides)) return { ok: false, error: 'invalid preset draft overrides', errorCode: 'invalid_response' };
+  const overrides: Record<string, string | readonly ConfigVectorOverride[]> = {};
+  for (const [key, value] of Object.entries(raw.overrides)) {
+    const vector = result.editorVectors[key];
+    if (vector) {
+      if (!Array.isArray(value) || value.length > vector.indexCount || !value.some(entry => entry !== null) ||
+          JSON.stringify(value) !== JSON.stringify(vector.overrideValues.slice(0, value.length)))
+        return { ok: false, error: 'invalid preset draft vector override', errorCode: 'invalid_response' };
+      overrides[key] = value as ConfigVectorOverride[];
+    } else if (typeof value === 'string') overrides[key] = value;
+    else return { ok: false, error: 'invalid preset draft scalar override', errorCode: 'invalid_response' };
+  }
+  if (Object.entries(result.editorVectors).some(([key, vector]) =>
+      vector.overrideValues.some(entry => entry !== null) && !Object.hasOwn(overrides, key)))
+    return { ok: false, error: 'vector ownership is missing from preset overrides', errorCode: 'invalid_response' };
+  return { ...result, kind: raw.kind, draftExists: raw.draft_exists, modified: raw.modified, overrides };
 }
 
 function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {
@@ -1988,6 +2062,8 @@ export function createClient(
         payload.value = request.value;
       }
       if (request.action === 'reset-category') payload.keys = [...request.keys];
+      if ((request.action === 'reset-field' || request.action === 'reset-category') && request.index !== undefined)
+        payload.index = request.index;
       return normalizePresetDraftMutation(
         callJson(m, 'orc_mutate_preset_draft', ['string'], [JSON.stringify(payload)]),
       );
@@ -2115,6 +2191,12 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
     },
 
+    async getPrintConfigEditor(): Promise<ConfigEditorSnapshotResult> {
+      const raw = callJson(await module(), 'orc_get_print_config_editor', [], []);
+      if (isRecord(raw) && raw.ok === true && raw.kind !== 'print')
+        return { ok: false, error: 'invalid Print editor response', errorCode: 'invalid_response' };
+      return normalizeConfigEditorSnapshot(raw);
+    },
     async getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError> {
       const m = await module();
       return normalizeNativeScopedConfig(callJson(m, 'orc_get_native_scoped_config', [], []));
@@ -2152,9 +2234,19 @@ export function createClient(
         operation: request.operation,
         targets,
       };
-      if (request.key !== undefined) payload.key = request.key;
-      if (request.value !== undefined) payload.value = request.value;
-      if (request.category !== undefined) payload.category = request.category;
+      if (request.operation === 'set-element' || request.operation === 'reset-elements') {
+        payload.index = request.index;
+        payload.expected_revision = request.expectedRevision;
+        if (request.operation === 'set-element') {
+          payload.key = request.key;
+          payload.value = request.value;
+          payload.scalar_type = request.scalarType;
+        } else payload.keys = request.keys;
+      } else {
+        if (request.key !== undefined) payload.key = request.key;
+        if (request.value !== undefined) payload.value = request.value;
+        if (request.category !== undefined) payload.category = request.category;
+      }
       return normalizeNativeScopedConfig(
         callJson(m, 'orc_mutate_native_scoped_config', ['string'], [JSON.stringify(payload)]),
       );

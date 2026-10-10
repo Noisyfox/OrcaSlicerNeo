@@ -1,3 +1,4 @@
+import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
@@ -9,6 +10,9 @@ import type {
   PresetDraftMutationResult,
   PresetDraftSnapshot,
   PresetDraftTarget,
+  PresetDraftEditorVector,
+  PresetDraftVectorValue,
+  PresetDraftEditorPoint,
 } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { Button } from '@/components/ui/button';
@@ -55,7 +59,7 @@ interface RoutedField {
 type PresetDraftAction =
   | { readonly action: 'set'; readonly key: string; readonly value: string }
   | { readonly action: 'reset-field'; readonly key: string }
-  | { readonly action: 'reset-category'; readonly keys: readonly string[] }
+  | { readonly action: 'reset-category'; readonly keys: readonly string[]; readonly index?: number }
   | { readonly action: 'reset-preset' };
 
 function manifestFor(kind: PresetDraftTarget['kind']): PresetEditorManifest {
@@ -65,7 +69,7 @@ function manifestFor(kind: PresetDraftTarget['kind']): PresetEditorManifest {
 }
 
 function printerExtruderCount(snapshot: PresetDraftSnapshot): number | null {
-  const count = snapshot.editorBindings.nozzle_diameter?.elementCount;
+  const count = snapshot.editorVectors.nozzle_diameter?.effectiveValues.length;
   if (count === undefined) return null;
   return Number.isSafeInteger(count) && count > 0 && count <= 64 ? count : null;
 }
@@ -79,6 +83,7 @@ function pageInstances(manifest: PresetEditorManifest, snapshot: PresetDraftSnap
       ...page,
       id: `extruder-${index + 1}`,
       title: `Extruder ${index + 1}`,
+      extruderIndex: index,
     }));
   });
 }
@@ -100,16 +105,37 @@ function searchText(field: PresetEditorManifestField, metadata: OptionMeta | und
     .toLocaleLowerCase();
 }
 
-function hasOverride(snapshot: PresetDraftSnapshot, key: string): boolean {
+
+function fieldBinding(snapshot: PresetDraftSnapshot, key: string, index?: number): PresetDraftEditorBinding | undefined {
+  if (index === undefined) return snapshot.editorBindings[key];
+  const vector = snapshot.editorVectors[key];
+  if (!vector) return undefined;
+  if (vector.scalarType === 'point' || vector.scalarType === 'points') return undefined;
+  const effectiveValue = vectorAt(vector, vector.effectiveValues, index!);
+  const sourceValue = vectorAt(vector, vector.sourceValues, index!);
+  if (effectiveValue === undefined || sourceValue === undefined) return undefined;
+  return { ...vector, scalarType: vector.scalarType, index: index!, elementCount: vector.indexCount,
+    effectiveValue: effectiveValue as PresetDraftEditorValue, sourceValue: sourceValue as PresetDraftEditorValue };
+}
+
+function coordinateText(value: PresetDraftVectorValue | undefined): string {
+  const pointText = (point: PresetDraftEditorPoint) => `${point.x}, ${point.y}`;
+  if (Array.isArray(value)) return (value as readonly PresetDraftEditorPoint[]).map(pointText).join('\n');
+  return value && typeof value === 'object' && 'x' in value ? pointText(value as PresetDraftEditorPoint) : '';
+}
+
+function hasOverride(snapshot: PresetDraftSnapshot, key: string, index?: number): boolean {
+  if (index !== undefined && snapshot.editorVectors[key])
+    return snapshot.editorVectors[key].overrideValues[index] != null;
   return Object.prototype.hasOwnProperty.call(snapshot.overrides, key);
 }
 
-function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup): boolean {
-  return group.fields.some((field) => hasOverride(snapshot, field.key));
+function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup, index?: number): boolean {
+  return group.fields.some((field) => hasOverride(snapshot, field.key, index));
 }
 
 function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage): boolean {
-  return page.groups.some((group) => groupHasOverrides(snapshot, group));
+  return page.groups.some((group) => groupHasOverrides(snapshot, group, page.extruderIndex));
 }
 
 function isColourField(field: PresetEditorManifestField, metadata: OptionMeta | undefined): boolean {
@@ -135,8 +161,9 @@ function inputTextForBinding(value: PresetDraftEditorValue, scalarType: PresetDr
   return String(value);
 }
 
-function projectedValueText(value: PresetDraftEditorValue, scalarType: PresetDraftEditorScalarType): string {
+function projectedValueText(value: PresetDraftEditorValue, scalarType: PresetDraftEditorScalarType, enumOptions?: PresetDraftEditorBinding['enumOptions']): string {
   if (value === null) return '(null)';
+  if (scalarType === 'enum') return enumOptions?.find(option => option.value === value)?.label ?? String(value);
   if (scalarType === 'float_or_percent' && typeof value === 'object')
     return `${value.value}${value.percent ? '%' : ''}`;
   if (scalarType === 'percent' && typeof value === 'number') return `${value}%`;
@@ -221,25 +248,32 @@ function FieldValue({
   onMutate: PresetEditorDialogProps['onMutate'];
 }) {
   const label = labelFor(field, metadata);
-  const binding = snapshot.editorBindings[field.key];
-  const sourceValue = binding
-    ? projectedValueText(binding.sourceValue, binding.scalarType)
+  const binding = fieldBinding(snapshot, field.key, page?.extruderIndex);
+  const vector = page?.extruderIndex === undefined ? undefined : snapshot.editorVectors?.[field.key];
+  const coordinateVector = vector && (vector.scalarType === 'point' || vector.scalarType === 'points') ? vector : undefined;
+  const sourceValue = coordinateVector
+    ? coordinateText(vectorAt(coordinateVector, coordinateVector.sourceValues, page!.extruderIndex!)) || '(empty)'
+    : binding
+    ? projectedValueText(binding.sourceValue, binding.scalarType, binding.enumOptions)
     : valueText(snapshot.sourceValues, field.key);
-  const tooltipKey = binding && ['floats', 'ints', 'percents', 'floats_or_percents', 'bools', 'strings', 'enums'].includes(metadata?.type ?? '')
-    ? `${field.key}#${binding.index}` : field.key;
+  const tooltipKey = page?.extruderIndex !== undefined ? `${field.key}#${page.extruderIndex}` :
+    binding && ['floats', 'ints', 'percents', 'floats_or_percents', 'bools', 'strings', 'enums'].includes(metadata?.type ?? '')
+      ? `${field.key}#${binding.index}` : field.key;
   const tooltip = optionTooltip(metadata, tooltipKey);
-  const effectiveValue = binding
+  const effectiveValue = coordinateVector
+    ? coordinateText(vectorAt(coordinateVector, coordinateVector.effectiveValues, page!.extruderIndex!))
+    : binding
     ? inputTextForBinding(binding.effectiveValue, binding.scalarType)
     : snapshot.effectiveValues[field.key] ?? metadata?.default ?? '';
   const colourField = isColourField(field, metadata);
   const boundText = binding?.scalarType === 'string';
-  const missingRequiredBinding = field.nativeElementOnly === true && binding === undefined;
-  const unsupportedStructured = !binding && isStructuredValue(metadata);
-  const readOnly = field.access === 'read-only' || binding?.readOnly === true || missingRequiredBinding || unsupportedStructured;
+  const missingRequiredBinding = field.nativeElementOnly === true && binding === undefined && !coordinateVector;
+  const unsupportedStructured = !binding && !coordinateVector && isStructuredValue(metadata);
+  const readOnly = field.access === 'read-only' || binding?.readOnly === true || coordinateVector?.readOnly === true || missingRequiredBinding || unsupportedStructured;
   const readOnlyReason = field.readOnlyReason ?? (unsupportedStructured
     ? 'This value needs a specialized editor.'
     : missingRequiredBinding ? 'This value needs native element metadata.' : undefined);
-  const overridden = hasOverride(snapshot, field.key);
+  const overridden = hasOverride(snapshot, field.key, page?.extruderIndex ?? binding?.index);
   const [displayValue, setDisplayValue] = useState(effectiveValue);
   const [nullValue, setNullValue] = useState(binding?.effectiveValue === null);
   const [percentMode, setPercentMode] = useState(
@@ -291,7 +325,7 @@ function FieldValue({
     try {
       const result = await onMutate(makeElementMutationRequest(snapshot, field.key, binding, value));
       if (result.ok) {
-        const current = result.editorBindings[field.key];
+        const current = fieldBinding(result, field.key, page?.extruderIndex);
         if (current) {
           setDisplayValue(inputTextForBinding(current.effectiveValue, current.scalarType));
           setNullValue(current.effectiveValue === null);
@@ -307,25 +341,29 @@ function FieldValue({
     } finally {
       actionPending.current = false;
     }
-  }, [binding, field.key, loading, mutationPending, onMutate, snapshot]);
+  }, [binding, field.key, loading, mutationPending, onMutate, snapshot, page?.extruderIndex]);
 
   const resetField = async () => {
     if (!overridden || readOnly || loading || mutationPending || actionPending.current) return;
     actionPending.current = true;
     setFieldError(null);
     try {
-      const result = await onMutate(makeMutationRequest(snapshot, { action: 'reset-field', key: field.key }));
+      const result = await onMutate({ ...makeMutationRequest(snapshot, { action: 'reset-field', key: field.key }),
+        ...(page?.extruderIndex === undefined ? {} : { index: page.extruderIndex }) } as PresetDraftMutationRequest);
       if (!result.ok) {
         setFieldError(result.error);
         return;
       }
-      const current = result.editorBindings[field.key];
+      const current = fieldBinding(result, field.key, page?.extruderIndex);
       if (current) {
         const value = current.effectiveValue;
         setDisplayValue(inputTextForBinding(value, current.scalarType));
         setNullValue(value === null);
         setPercentMode(current.scalarType === 'float_or_percent' && value !== null &&
           typeof value === 'object' && value.percent);
+      } else if (coordinateVector && result.editorVectors?.[field.key]) {
+        const currentVector = result.editorVectors[field.key]!;
+        setDisplayValue(coordinateText(vectorAt(currentVector, currentVector.effectiveValues, page!.extruderIndex!)));
       } else {
         setDisplayValue(result.effectiveValues[field.key] ?? result.sourceValues[field.key] ?? '');
         setNullValue(false);
@@ -357,6 +395,33 @@ function FieldValue({
       <ColorSwatch value={{ kind: 'solid', color: colourInputValue(displayValue) }} className="size-5" />
     </Button>} />;
   const commitText = () => {
+    if (coordinateVector) {
+      if (displayValue === effectiveValue || actionPending.current || controlsDisabled) return;
+      const points: PresetDraftEditorPoint[] = [];
+      for (const line of displayValue.split('\n').filter(line => line.trim())) {
+        const parts = line.split(',').map(part => part.trim());
+        if (parts.length !== 2 || parts.some(part => !part || !Number.isFinite(Number(part)))) {
+          setFieldError('Enter X, Y coordinates, one pair per line.'); return;
+        }
+        points.push({ x: Number(parts[0]), y: Number(parts[1]) });
+      }
+      if (coordinateVector.scalarType === 'point' && points.length !== 1) {
+        setFieldError('Enter one X, Y coordinate.'); return;
+      }
+      actionPending.current = true;
+      setFieldError(null);
+      const request = { kind: snapshot.kind, canonicalName: snapshot.canonicalName, expectedRevision: snapshot.revision,
+        action: 'set-element', key: field.key, index: page!.extruderIndex!, scalarType: coordinateVector.scalarType,
+        value: coordinateVector.scalarType === 'point' ? points[0] : points } as PresetDraftMutationRequest;
+      void onMutate(request).then(result => {
+        if (!result.ok) setFieldError(result.error);
+        else {
+          const current = result.editorVectors?.[field.key];
+          if (current) setDisplayValue(coordinateText(vectorAt(current, current.effectiveValues, page!.extruderIndex!)));
+        }
+      }).catch(error => setFieldError(errorText(error))).finally(() => { actionPending.current = false; });
+      return;
+    }
     if (binding) {
       if (binding.scalarType === 'string') {
         if (binding.effectiveValue !== null && displayValue === effectiveValue) return;
@@ -403,7 +468,7 @@ function FieldValue({
     if (displayValue !== effectiveValue || (binding?.effectiveValue === null && !nullValue)) commitText();
   };
   const handleTextKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && (!multiline || event.ctrlKey || event.metaKey)) {
+    if (event.key === 'Enter' && (!(multiline || coordinateVector?.scalarType === 'points') || event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       event.currentTarget.blur();
     } else if (event.key === 'Escape') {
@@ -449,7 +514,16 @@ function FieldValue({
   );
 
   let control = null;
-  if (!readOnly && binding?.scalarType === 'bool' && binding.nullable) {
+  if (!readOnly && coordinateVector) {
+    const props = { id: inputId, 'aria-label': label, 'data-testid': `preset-editor-input-${field.key}`,
+      value: displayValue, disabled: controlsDisabled, onFocus: () => { focused.current = true; },
+      onBlur: handleTextBlur, onKeyDown: handleTextKeyDown,
+      onChange: (event: { currentTarget: { value: string } }) => setText(event.currentTarget.value) };
+    control = <div className="flex flex-col gap-1">
+      {coordinateVector.scalarType === 'points' ? <textarea {...props} className="min-h-20 w-full rounded-md border border-input bg-input px-2 py-1 text-xs" /> : <Input {...props} />}
+      <span className="text-xs text-muted-foreground">{coordinateVector.scalarType === 'points' ? 'One X, Y coordinate per line.' : 'X, Y coordinates.'}</span>
+    </div>;
+  } else if (!readOnly && binding?.scalarType === 'bool' && binding.nullable) {
     control = <Select
       value={nullValue ? NULL_ENUM_VALUE : displayValue === 'true' ? 'true' : 'false'}
       onValueChange={(next) => {
@@ -702,7 +776,7 @@ function FieldValue({
           <dt className="text-muted-foreground">Source</dt>
           <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</dd>
           <dt className="text-muted-foreground">Effective</dt>
-          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{binding ? projectedValueText(binding.effectiveValue, binding.scalarType) : valueText(snapshot.effectiveValues, field.key)}</dd>
+          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key)}</dd>
         </dl>
       ) : (
         <div className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
@@ -711,7 +785,7 @@ function FieldValue({
           <span className="text-muted-foreground">Source</span>
           <span data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</span>
           <span className="text-muted-foreground">Effective</span>
-          <span data-testid={`preset-editor-effective-${field.key}`} className="break-all">{binding ? projectedValueText(binding.effectiveValue, binding.scalarType) : valueText(snapshot.effectiveValues, field.key)}</span>
+          <span data-testid={`preset-editor-effective-${field.key}`} className="break-all">{coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key)}</span>
         </div>
       )}
       {fieldError && <p role="alert" data-testid={`preset-editor-error-${field.key}`} className="mt-2 text-xs text-destructive">{fieldError}</p>}
@@ -735,7 +809,7 @@ function FieldGroup({
   onMutate: PresetEditorDialogProps['onMutate'];
 }) {
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
-  const overridden = groupHasOverrides(snapshot, group);
+  const overridden = groupHasOverrides(snapshot, group, page?.extruderIndex);
   return (
     <section
       data-testid={`preset-editor-group-${page.id}-${group.id}`}
@@ -797,13 +871,15 @@ export function PresetEditorDialog({
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
-  const targetKey = target ? `${target.kind}:${target.canonicalName}` : '';
+  // A diameter transaction may resolve another canonical Printer source.
+  // Keep the open Extruder page and its index through that source change.
+  const navigationKey = target?.kind ?? '';
 
   useEffect(() => {
     setActivePageId(null);
     setSearch('');
     setActionError(null);
-  }, [targetKey]);
+  }, [navigationKey]);
 
   const activePage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null;
   const query = search.trim().toLocaleLowerCase();
@@ -832,7 +908,7 @@ export function PresetEditorDialog({
   const activePageResetKeys = snapshot === null ? [] : [...new Set(activePageKeys.filter((key) =>
     Object.prototype.hasOwnProperty.call(snapshot.sourceValues, key) ||
     Object.prototype.hasOwnProperty.call(snapshot.effectiveValues, key)))];
-  const categoryHasOverrides = snapshot !== null && activePageResetKeys.some((key) => hasOverride(snapshot, key));
+  const categoryHasOverrides = snapshot !== null && activePageResetKeys.some((key) => hasOverride(snapshot, key, activePage?.extruderIndex));
   const showSearchResults = query.length > 0;
 
   return (
@@ -954,7 +1030,7 @@ export function PresetEditorDialog({
                     size="xs"
                     data-testid={`preset-editor-reset-category-${activePage.id}`}
                     disabled={!categoryHasOverrides || interactionPending}
-                    onClick={() => void submitAction({ action: 'reset-category', keys: activePageResetKeys })}
+                    onClick={() => void submitAction({ action: 'reset-category', keys: activePageResetKeys, index: activePage.extruderIndex })}
                   >Reset category</Button>
                 </div>
                 {activePage.groups.map((optionGroup) => <FieldGroup
