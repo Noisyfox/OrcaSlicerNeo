@@ -70,7 +70,7 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
     getNativeScopedConfig: vi.fn(async () => ({ ok: true as const, version: 1 as const, nativeScopedConfig: scopedConfigTransport })),
-    mutateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: scopedConfigTransport })),
+    mutateNativeScopedConfig: vi.fn(async (_request: unknown) => ({ ok: true, nativeScopedConfig: scopedConfigTransport })),
     getProfileSnapshot: vi.fn(async () => snapshot),
     selectProfile: vi.fn(async () => snapshot),
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
@@ -97,6 +97,28 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
 }
 
 describe('transactional project actions', () => {
+  it('removes inherited tower rotation override before the New Project clean baseline', async () => {
+    const { platform, runtime } = platformFor();
+    let project = { wipe_tower_rotation_angle: '90', prime_tower_width: '63', wall_loops: '7' } as Record<string, string>;
+    const defaults = { wipe_tower_rotation_angle: '0', prime_tower_width: '35', wall_loops: '2' };
+    runtime.getProfileSnapshot.mockImplementation(async () => ({ ...snapshot, project_config: { ...defaults, ...project } }));
+    runtime.selectProfile.mockImplementation(async () => ({ ...snapshot, project_config: { ...defaults, ...project } }));
+    runtime.mutateNativeScopedConfig.mockImplementation(async (request: unknown) => {
+      if ((request as { operation: string }).operation === 'reset-all') project = {};
+      return { ok: true, nativeScopedConfig: scopedConfigTransport };
+    });
+    runtime.getNativeScopedConfig.mockImplementation(async () => ({ ok: true, version: 1,
+      nativeScopedConfig: { ...scopedConfigTransport, snapshot: { ...scopedConfigTransport.snapshot, project } } }));
+    useSettingsStore.getState().applyNativeScopedConfigTransport({ ...scopedConfigTransport,
+      snapshot: { ...scopedConfigTransport.snapshot, project } });
+    expect((await newProject(platform)).status).toBe('ok');
+    expect(useSettingsStore.getState().nativeScopedConfig.project.wipe_tower_rotation_angle).toBeUndefined();
+    expect(useSettingsStore.getState().values).toMatchObject(defaults);
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledWith({ version: 1, operation: 'reset-all',
+      targets: [{ scope: 'project' }] });
+    expect(runtime.mutateNativeScopedConfig.mock.invocationCallOrder[0]).toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
+  });
+
   it('publishes final native bed root when New Project seed is already unchanged', async () => {
     const { platform, runtime } = platformFor();
     runtime.getNativeScopedConfig.mockResolvedValue({ ok: true, version: 1, nativeScopedConfig: { ...scopedConfigTransport, snapshot: { ...scopedConfigTransport.snapshot, project: { curr_bed_type: 'Textured PEI Plate' } } } });
@@ -114,7 +136,7 @@ describe('transactional project actions', () => {
     useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
     useProjectStore.getState().setProject({ systemPresets: { printer: 'Project printer', print: 'Project process' } });
     expect((await newProject(platform)).status).toBe('ok');
-    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledOnce();
+    expect(runtime.mutateNativeScopedConfig).toHaveBeenCalledTimes(2);
     expect(useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type).toBe('Textured PEI Plate');
     expect(runtime.mutateNativeScopedConfig.mock.invocationCallOrder[0]).toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
     runtime.mutateNativeScopedConfig.mockClear();

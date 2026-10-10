@@ -1095,3 +1095,36 @@ Verification passed:
 - Real threaded Web `web.e2e.ts -g "shared history toolbar"` passed.
 - `git diff --check` passed. The full release and performance matrices were not
   run for this focused correction.
+
+### New Project Process reset correction (2026-10-10)
+
+New Project restores Process overrides before establishing its clean history
+baseline. Clearing geometry alone retains native project settings, including
+the wipe tower rotation override. The lifecycle now uses the existing native
+project `reset-all` operation, then refreshes both the effective preset base and
+the full scoped configuration. This also removes stale renderer values which
+preset selection could expose before the native overrides were erased.
+
+Orca's `Plater::new_project()` calls `reset()`, which removes project-embedded
+presets and reloads selected presets, or transfers modifications when the user
+chooses to keep them. Tower rotation belongs to `Preset::print_options()`.
+Neo's generic Print reset uses that same native ownership catalogue for options
+stored in `project_config`; the application does not maintain a field-name
+allowlist. Existing rack and scene exclusions still apply. Non-Print authorities
+such as flushing matrices, material routing, and bed selection remain under
+their existing lifecycle owners.
+
+Coverage includes native Clear Model retention, individual rotation reset,
+generic resets of rotation, tower width, and wall loops, preservation of rack,
+flushing, bed, and tower-position authorities, and application effective-base
+refresh before the clean history baseline. The Electron regression edits the
+actual rotation field, creates a new project, and checks its restored value,
+absence of an override indicator, disabled Undo, and clean title.
+
+Verification passed: `pnpm test` (1,838 passed, 3 existing skips),
+`pnpm typecheck`, `scripts\build-windows.bat quick -j 4` (both variants),
+`native-scoped-config-mutation-smoke.mjs` for serial and threaded modules,
+serial `bridge-smoke.mjs` with `fixtures/cube.stl`, and the focused mock
+Electron `project-lifecycle.e2e.ts` New Project regression. Both variants were
+staged with `pnpm stage:assets`; `git diff --check` passed. The complete real
+Web/Electron release matrix was not run for this focused lifecycle correction.

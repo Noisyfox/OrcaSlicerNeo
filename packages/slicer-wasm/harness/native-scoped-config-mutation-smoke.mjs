@@ -42,6 +42,14 @@ const historyContext = {
 
 requireOk('init', callJson('orc_init', ['string'], [fixtureProfileOptions(Module)]));
 requireOk('clear model', callJson('orc_clear_model'));
+const inheritedRotation = requireOk('rotation source', callJson('orc_get_preset_snapshot')).project_config.wipe_tower_rotation_angle;
+requireOk('set tower rotation', setProject('wipe_tower_rotation_angle', '90'));
+requireOk('clear geometry preserves project rotation', callJson('orc_clear_model'));
+if (snapshot().project.wipe_tower_rotation_angle !== '90') throw new Error('Clear Model erased project rotation');
+requireOk('New Project rotation reset', resetProject('wipe_tower_rotation_angle'));
+if (Object.hasOwn(snapshot().project, 'wipe_tower_rotation_angle')) throw new Error('project rotation did not reset');
+if (requireOk('rotation inheritance', callJson('orc_get_preset_snapshot')).project_config.wipe_tower_rotation_angle !== inheritedRotation)
+  throw new Error('rotation reset did not restore native inheritance');
 requireOk('add cube', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Mutation fixture']));
 const structure = requireOk('model structure', callJson('orc_get_model_structure'));
 const objectId = String(structure.objects[0]?.id);
@@ -233,6 +241,9 @@ for (const [key, value] of [['extruder', '1']]) {
 const filamentColour = snapshot().project?.filament_colour;
 if (typeof filamentColour === 'string')
   requireOk('materialize filament exclusion', setProject('filament_colour', filamentColour));
+const protectedProject = snapshot().project;
+for (const [key, value] of [['wipe_tower_rotation_angle', '90'], ['prime_tower_width', '63'], ['wall_loops', '7']])
+  requireOk(`set New Project regression ${key}`, setProject(key, value));
 requireOk('reset all eligible keys', mutate('reset-all', [projectTarget]));
 const afterAll = snapshot().project ?? {};
 const afterAllEffective = requireOk('effective preset snapshot after reset all', callJson('orc_get_preset_snapshot'))
@@ -240,5 +251,10 @@ const afterAllEffective = requireOk('effective preset snapshot after reset all',
 if (afterAllEffective.extruder !== beforeExcluded.extruder ||
     (typeof filamentColour === 'string' && afterAll.filament_colour !== filamentColour))
   throw new Error(`Reset All erased an excluded key: ${JSON.stringify(afterAll)}`);
+for (const key of ['wipe_tower_rotation_angle', 'prime_tower_width', 'wall_loops'])
+  if (Object.hasOwn(afterAll, key)) throw new Error(`Reset All retained Print override: ${key}`);
+for (const key of ['filament_colour', 'filament_map', 'filament_nozzle_map', 'filament_volume_map',
+  'flush_volumes_matrix', 'flush_volumes_vector', 'flush_multiplier', 'curr_bed_type', 'wipe_tower_x', 'wipe_tower_y'])
+  if (protectedProject[key] !== afterAll[key]) throw new Error(`Reset All changed another authority: ${key}`);
 
 console.log('native scoped config mutation PASS');

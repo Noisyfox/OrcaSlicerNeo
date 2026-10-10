@@ -186,9 +186,20 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
       );
     }
     await runProjectMutationOperation(async () => {
+      // Native ownership rules restore Print overrides even when they live
+      // in project_config, while retaining rack and scene authorities.
+      const reset = await runtime.mutateNativeScopedConfig({ version: 1,
+        operation: 'reset-all', targets: [{ scope: 'project' }] });
+      if (!reset.ok) throw new Error(reset.error ?? 'new project settings reset failed');
+      if (reset.plateSession) usePlateSessionStore.getState().setSnapshot(reset.plateSession);
       const rememberedBed = await loadRememberedBedTypeFromRepository(platform.preferences, currentPresets().printer);
       const seeded = await seedRememberedBedType(runtime, rememberedBed);
       if (seeded?.plateSession) usePlateSessionStore.getState().setSnapshot(seeded.plateSession);
+      // Preset selection may have exposed old project overrides in the
+      // effective base. Refresh it after resetting their native authority.
+      const profiles = await runtime.getProfileSnapshot();
+      if (!profiles.ok) throw new Error(profiles.error ?? 'new project presets unavailable');
+      useSettingsStore.getState().hydrateProfileSnapshot(profiles);
       // The renderer replacement reset has no scoped base revision. A seed
       // delta or no-op cannot restore that projection; publish the final
       // full native config before establishing the clean baseline.

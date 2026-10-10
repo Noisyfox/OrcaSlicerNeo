@@ -56,6 +56,32 @@ async function makeDirty(page: Page): Promise<void> {
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
 
+test('New Project resets the project wipe tower rotation angle', async () => {
+  const { app } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    await page.getByTestId('config-mode-project').click();
+    await page.getByTestId('config-page-Multi.').click();
+    const angle = page.getByTestId('config-input-wipe_tower_rotation_angle');
+    await expect(angle).toBeVisible();
+    await angle.fill('90');
+    await angle.press('Enter');
+    await expect(page.getByTestId('config-reset-wipe_tower_rotation_angle')).toBeEnabled();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+n' : 'Control+n');
+    await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
+    await page.getByTestId('project-dirty-dont-save').click();
+    await expect(page.getByTestId('project-dirty-dialog')).toBeHidden();
+    await expect(angle).toHaveValue('0');
+    await expect(page.getByTestId('config-reset-wipe_tower_rotation_angle')).toHaveCount(0);
+    await expect(page.getByTestId('history-undo')).toBeDisabled();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('Untitled Project');
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
+    await app.close();
+  }
+});
+
 test('Electron picker and drop use shared project actions, and Save As writes a project', async () => {
   const { app, projectPath, savePath } = await launchProjectApp();
   try {
