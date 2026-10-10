@@ -63,6 +63,10 @@ void resize_slots_preserving_colours(PresetBundle& bundle, unsigned int count,
         if (const auto* option = bundle.project_config.opt<ConfigOptionStrings>(keys[key]))
             before[key] = option->values;
     bundle.set_num_filaments(count, new_colour);
+    // Orca's preset helper pads names to the physical nozzle count. Bambu
+    // material racks may be shorter; those names are not extra project slots.
+    if (bundle.is_bbl_vendor() || bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material"))
+        bundle.filament_presets.resize(count);
     for (std::size_t key = 0; key < before.size(); ++key) {
         auto* option = bundle.project_config.option<ConfigOptionStrings>(keys[key], true);
         for (std::size_t slot = 0; slot < std::min<std::size_t>(count, before[key].size()); ++slot)
@@ -1748,6 +1752,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
             if (!source) throw FilamentCommandFailure("unsupported_reference", error);
             validate_paint_remap(model, *source, std::nullopt);
             bundle.update_num_filaments(*source);
+            bundle.filament_presets.resize(count - 1);
             state().filament_slot_ids.erase(state().filament_slot_ids.begin() + *source);
             remap_config_filament_references(bundle.project_config, *source, std::nullopt);
             remap_model_filament_references(model, *source, std::nullopt, count - 1);
@@ -1772,6 +1777,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
         }
         validate_paint_remap(model, *source, replacement);
         bundle.update_num_filaments(*source);
+        bundle.filament_presets.resize(count - 1);
         state().filament_slot_ids.erase(state().filament_slot_ids.begin() + *source);
         // Project-scoped support/feature routing lives in the native project
         // config rather than a separate renderer state.  Remap it before the

@@ -55,6 +55,12 @@ are intentionally not recorded here.
   normal single-filament printer has one slot; supported material-switching
   printers may use up to OrcaSlicer's 64-slot limit, and fixed multi-nozzle
   printers retain the slots required by their physical nozzles.
+- Bambu dual-nozzle printers may delete or merge down to one material, as in
+  Orca's Sidebar. Physical nozzle count remains two; the material rack and
+  native colour/mapping arrays retain one slot, with one flushing-matrix plane
+  per nozzle. Native preset-helper padding does not create extra project
+  materials. Delete, Merge, Undo/Redo, and adding a slot preserve the surviving
+  source preset, native colours, and identity.
 - The upper device/material panel presents a collapsible Material area with
   a slot count and plus/minus buttons. Slots use a compact two-column grid:
   each single-line row has a rectangular colour/number block and a searchable
@@ -256,3 +262,26 @@ are intentionally not recorded here.
   member/out-of-bounds assertion (line 822). This check remains unresolved.
 - `git diff --check`: passed. Host UI E2E was not run: this correction changes
   shared native state normalization and history, without host or UI wiring edits.
+
+## H2D single-material verification (2026-10-10)
+
+- The new `h2d-single-filament-smoke.mjs` reproduced
+  `native filament colours are unavailable` against the old serial artifact.
+- `pnpm test`: passed, 1,837 tests; three existing runtime tests skipped.
+  `pnpm typecheck`: passed.
+- `scripts\build-windows.bat quick -j 4`: passed for threaded and serial.
+- `pnpm exec node packages/slicer-wasm/harness/h2d-single-filament-smoke.mjs
+  packages/slicer-wasm/out/threaded/orca_slice.js`: passed; the same command
+  with `out/serial/orca_slice.js` passed. Covers both Delete/Merge directions,
+  distinct source presets, native solid/gradient colours, identity, object and
+  support routing, late rollback, Undo/Redo, adding after deletion, final-slot
+  rejection, exported material/nozzle dimensions, and a real one-material
+  H2D 0.4 slice.
+- `pnpm exec node packages/slicer-wasm/harness/multi-filament-command-smoke.mjs
+  --module packages/slicer-wasm/out/threaded/orca_slice.js`: passed.
+- `pnpm exec node packages/slicer-wasm/harness/bridge-smoke.mjs
+  packages/slicer-wasm/out/threaded/orca_slice.js
+  packages/slicer-wasm/fixtures/cube.stl`: passed.
+- `pnpm stage:assets`: passed. `git diff --check`: passed.
+  Host GUI E2E was not run; the correction has no renderer or host wiring
+  changes and is exercised directly through both real WASM variants.
