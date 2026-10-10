@@ -56,6 +56,41 @@ async function makeDirty(page: Page): Promise<void> {
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
 
+test('opening a 3MF clears both previous Undo and Redo controls', async () => {
+  const { app } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    await openPickerProject(page, app);
+    await makeDirty(page);
+    await expect(page.getByTestId('history-undo')).toBeEnabled();
+    await makeDirty(page);
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('history-undo')).toBeEnabled();
+    await expect(page.getByTestId('history-redo')).toBeEnabled();
+
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+o' : 'Control+o');
+    await expect(page.getByTestId('project-load-choice-dialog')).toBeVisible();
+    await page.getByTestId('project-load-project').click();
+    await page.getByTestId('project-load-confirm').click();
+    await expect(page.getByTestId('project-dirty-dialog')).toBeVisible();
+    await page.getByTestId('project-dirty-dont-save').click();
+    await expect(page.getByTestId('project-dirty-dialog')).toBeHidden();
+    await expect(page.getByTestId('history-undo')).toBeDisabled();
+    await expect(page.getByTestId('history-redo')).toBeDisabled();
+    await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
+
+    await makeDirty(page);
+    await expect(page.getByTestId('history-undo')).toBeEnabled();
+    await page.getByTestId('history-undo').click();
+    await expect(page.getByTestId('history-undo')).toBeDisabled();
+    await expect(page.getByTestId('history-redo')).toBeEnabled();
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
+    await app.close();
+  }
+});
+
 test('Electron picker and drop use shared project actions, and Save As writes a project', async () => {
   const { app, projectPath, savePath } = await launchProjectApp();
   try {
