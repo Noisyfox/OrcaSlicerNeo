@@ -274,3 +274,12 @@ validated commit; no Orca source patch or new document was added.
   web.e2e.ts --grep 'Print edits followed by Filament edits'`: 1 passed.
 - Superproject and submodule `git diff --check`: passed. Full release matrices
   and deferred Filament/Print Variant selection UI were outside this change.
+
+The CI printer-picker fixture uses a canonical two-head `0.4+0.4` source for
+toolhead transition checks. A draft value cannot manufacture a second physical
+head on a single-head source. The fixture explicitly verifies that such an
+out-of-range edit leaves the snapshot unchanged, while preserving mixed-profile
+matching, toolhead order, custom-diameter fallback and stale-revision checks.
+`printer-picker-smoke.mjs` passed with both existing serial and threaded
+artifacts. This follow-up changes the harness only; native builds and host E2E
+were not repeated.

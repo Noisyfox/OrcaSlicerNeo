@@ -20,14 +20,14 @@ try {
   await cp(resolve(import.meta.dirname, 'fixtures/compatibility-profiles'), source, { recursive: true });
   const vendorPath = join(source, 'CompatibilityFixture.json');
   const vendor = await readJson(vendorPath);
-  for (const [family, variants] of [['alpha', ['0.6', '0.4HS', '0.4+0.6']], ['beta', ['0.6']]]) {
+  for (const [family, variants] of [['alpha', ['0.6', '0.4HS', '0.4+0.4', '0.4+0.6']], ['beta', ['0.6']]]) {
     const template = await readJson(join(source, `CompatibilityFixture/machine/${family}.json`));
     for (const variant of variants) {
       const name = `Compatibility ${family === 'alpha' ? 'Alpha' : 'Beta'} ${variant} nozzle`;
       const subPath = `machine/${family}-${variant}.json`;
       await writeJson(join(source, 'CompatibilityFixture', subPath), {
         ...template, name, alias: name, printer_variant: variant,
-        nozzle_diameter: variant === '0.4+0.6' ? ['0.4', '0.6'] : [variant === '0.4HS' ? '0.4' : variant],
+        nozzle_diameter: variant === '0.4HS' ? ['0.4'] : variant.split('+'),
       });
       vendor.machine_list.push({ name, sub_path: subPath });
     }
@@ -59,8 +59,8 @@ try {
   };
   let current = select('Compatibility Alpha 0.4 nozzle');
   assert.deepEqual(current.printer_picker.items.map(item => item.label), ['Compatibility Alpha', 'Compatibility Beta']);
-  assert.equal(current.printers.length, 6, 'grouping preserves the canonical candidate catalogue');
-  assert.deepEqual(current.printer_picker.variants.map(item => item.value), ['0.4', '0.4+0.6', '0.4HS', '0.6']);
+  assert.equal(current.printers.length, 7, 'grouping preserves the canonical candidate catalogue');
+  assert.deepEqual(current.printer_picker.variants.map(item => item.value), ['0.4', '0.4+0.4', '0.4+0.6', '0.4HS', '0.6']);
   for (const variant of ['0.6', '0.4HS', '0.4+0.6', '0.4']) {
     const target = current.printer_picker.variants.find(item => item.value === variant).preset;
     current = select(target);
@@ -95,17 +95,20 @@ try {
     'the unified selector retains the profile variant after a nozzle draft edit');
   assert.deepEqual(customizedPicker.variants, current.printer_picker.variants,
     'physical nozzle edits cannot add phantom or disabled profile variants');
-  const toolheadDraft = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({
-    action: 'set', kind: 'printer', canonical_name: current.printer.name,
-    expected_revision: customized.revision_after, key: 'nozzle_diameter', value: '0.4,0.4',
-  })]);
-  assert.equal(toolheadDraft.ok, true, JSON.stringify(toolheadDraft));
   const setDiameter = (index, diameter, revision) => call('orc_set_toolhead_diameter', ['string'],
     [JSON.stringify({ index, diameter, expected_revision: revision })]);
-  const customizedHead = setDiameter(1, 0.5, toolheadDraft.revision_after);
+  const singleHead = snapshot();
+  assert.equal(setDiameter(1, 0.5, customized.revision_after).ok, false);
+  assert.deepEqual(snapshot(), singleHead, 'editing a second head cannot resize a single-head profile');
+  // Physical index cardinality comes from the source profile, not a draft value.
+  current = select('Compatibility Alpha 0.4+0.4 nozzle');
+  const toolheadDraft = call('orc_get_preset_draft', ['string', 'string'], ['printer', current.printer.name]);
+  assert.equal(toolheadDraft.ok, true, JSON.stringify(toolheadDraft));
+  assert.equal(toolheadDraft.editor_vectors.nozzle_diameter.index_count, 2);
+  const customizedHead = setDiameter(1, 0.5, toolheadDraft.revision);
   assert.equal(customizedHead.ok, true, JSON.stringify(customizedHead));
   assert.equal(customizedHead.profile_snapshot.project_config.nozzle_diameter, '0.4,0.5');
-  assert.equal(customizedHead.profile_snapshot.printer_picker.selected_variant, '0.4');
+  assert.equal(customizedHead.profile_snapshot.printer_picker.selected_variant, '0.4+0.4');
   assert.deepEqual(customizedHead.profile_snapshot.printer_picker.variants, current.printer_picker.variants,
     'customizing one head of a uniform profile cannot add a disabled mixed variant');
   const mixed = setDiameter(1, 0.6, customizedHead.history_status.revision);
