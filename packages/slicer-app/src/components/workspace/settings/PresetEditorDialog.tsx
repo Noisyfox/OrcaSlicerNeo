@@ -1,3 +1,4 @@
+import { configVectorElementAt as vectorAt } from '@slicer/client';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
@@ -104,9 +105,6 @@ function searchText(field: PresetEditorManifestField, metadata: OptionMeta | und
     .toLocaleLowerCase();
 }
 
-function vectorAt(vector: PresetDraftEditorVector, values: readonly PresetDraftVectorValue[], index: number): PresetDraftVectorValue | undefined {
-  return values.length > 0 ? values[index < values.length ? index : 0] : (vector.scalarType === 'points' ? [] : undefined);
-}
 
 function fieldBinding(snapshot: PresetDraftSnapshot, key: string, index?: number): PresetDraftEditorBinding | undefined {
   if (index === undefined) return snapshot.editorBindings[key];
@@ -116,7 +114,7 @@ function fieldBinding(snapshot: PresetDraftSnapshot, key: string, index?: number
   const effectiveValue = vectorAt(vector, vector.effectiveValues, index!);
   const sourceValue = vectorAt(vector, vector.sourceValues, index!);
   if (effectiveValue === undefined || sourceValue === undefined) return undefined;
-  return { ...vector, scalarType: vector.scalarType, index: index!, elementCount: vector.effectiveValues.length,
+  return { ...vector, scalarType: vector.scalarType, index: index!, elementCount: vector.indexCount,
     effectiveValue: effectiveValue as PresetDraftEditorValue, sourceValue: sourceValue as PresetDraftEditorValue };
 }
 

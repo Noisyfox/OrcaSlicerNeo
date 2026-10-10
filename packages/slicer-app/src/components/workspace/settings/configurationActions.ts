@@ -48,7 +48,7 @@ async function commitScopedConfigurationMutationNow(
   try {
     const history = await runProjectHistoryMutation<ConfigurationMutationResult>(
       platform.runtime,
-      request.operation === 'set' ? 'Change Scoped Configuration' : 'Reset Scoped Configuration',
+      request.operation === 'set' || request.operation === 'set-element' ? 'Change Scoped Configuration' : 'Reset Scoped Configuration',
       async (): Promise<ConfigurationMutationResult> => {
         previousBed = useSettingsStore.getState().nativeScopedConfig.project.curr_bed_type;
         const result = await platform.runtime.mutateNativeScopedConfig(request);

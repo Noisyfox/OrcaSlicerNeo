@@ -616,7 +616,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (parsed === null || typeof parsed === 'string' || typeof parsed === 'number' || typeof parsed === 'boolean')
         return [parsed as PresetDraftEditorValue];
     } catch {
-      // A legacy whole-option scalar string remains accepted by the mock bridge.
+      // Whole-option mutations also use native scalar serialization.
     }
     if (raw === 'nil' && option.nullable) return [null];
     if (option.scalarType === 'bool') return [raw === '1' || raw.toLocaleLowerCase() === 'true'];
@@ -640,9 +640,31 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         readonly: option.readOnly ?? false,
         source_values: clone(sourceValues),
         effective_values: clone(effectiveValues),
+        index_count: kind === 'printer' && ['nozzle_diameter', 'min_layer_height', 'max_layer_height'].includes(key) ? editorValuesFor(kind, canonicalName, 'nozzle_diameter')!.length : effectiveValues.length,
         ...(option.scalarType === 'enum' ? { enum_options: clone(option.enumOptions ?? []) } : {}),
       }]];
     }));
+  }
+  const printEditorOptions: Record<string, MockPresetEditorOption> = {
+    outer_wall_speed: { scalarType: 'float', metadataType: 'floats', values: [200, 220, 240] },
+    enable_overhang_speed: { scalarType: 'bool', metadataType: 'bools', values: [true, true, false] },
+    small_perimeter_speed: { scalarType: 'float_or_percent', metadataType: 'floats_or_percents',
+      values: [{ value: 50, percent: true }, { value: 60, percent: true }, { value: 70, percent: true }] },
+  };
+  function printEditorValues(key: string): PresetDraftEditorValue[] {
+    const values = nativeScopedConfig.project[key];
+    return values === undefined ? [...printEditorOptions[key].values] : parseMockEditorValue(values, printEditorOptions[key]);
+  }
+  function printConfigEditor() {
+    return { ok: true, kind: 'print', canonical_name: selected.print, revision: historyRevision,
+      source_values: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, serializePresetEditorValues(option.values)])),
+      effective_values: Object.fromEntries(Object.keys(printEditorOptions).map(key => [key, serializePresetEditorValues(printEditorValues(key))])),
+      option_metadata: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, { type: option.metadataType }])),
+      editor_vectors: Object.fromEntries(Object.entries(printEditorOptions).map(([key, option]) => [key, {
+        scalar_type: option.scalarType, nullable: false, readonly: false, multiline: false, is_code: false,
+        gui_type: 'undefined', gui_flags: '', source_values: clone(option.values), effective_values: clone(printEditorValues(key)), index_count: 3,
+      }])),
+    };
   }
   function presetDraftRegistrySnapshot() {
     return { entries: (['printer', 'filament'] as const).flatMap((kind) =>
@@ -755,9 +777,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }
 
     if (resetKeys.length > 0 && request.index !== undefined) {
-      const count = editorValuesFor(kind, request.canonical_name, 'nozzle_diameter')?.length ?? 0;
-      if (kind !== 'printer' || !Number.isSafeInteger(request.index) || request.index < 0 || request.index >= count)
-        return fail('invalid_index', 'indexed reset requires an available Printer extruder index');
+      if (!Number.isSafeInteger(request.index) || request.index < 0 || resetKeys.some(key => request.index >= (kind === 'printer' ? editorValuesFor(kind, request.canonical_name, 'nozzle_diameter')?.length ?? 0 : editorValuesFor(kind, request.canonical_name, key)?.length ?? 0)))
+        return fail('invalid_index', 'indexed reset requires an available vector element');
       if (resetKeys.some(key => !presetEditorOptions[kind][key]))
         return fail('unsupported_option', 'indexed reset requires an extruder vector option');
     }
@@ -2255,6 +2276,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       result.dirty_reasons = ['shared-configuration'];
       return result;
     },
+    orc_get_print_config_editor() { return printConfigEditor(); },
     orc_get_native_scoped_config() {
       return { version: 1, ok: true, native_scoped_config: nativeScopedConfigFullTransport() };
     },
@@ -2269,6 +2291,37 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ({ version: 1, ok: false, error, error_code: errorCode, status: { state: 'error', error } });
       if (!request || request.version !== 1 || typeof request.operation !== 'string' || !Array.isArray(request.targets) || request.targets.length === 0)
         return fail('invalid native mutation request');
+      const resetElementKeys = new Set<string>();
+      if (request.operation === 'set-element' || request.operation === 'reset-elements') {
+        if (request.targets.length !== 1 || request.targets[0]?.scope !== 'project' || request.targets[0]?.id !== undefined)
+          return fail('Print element commands require one Project target', 'unsupported_reference');
+        if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision !== historyRevision)
+          return fail('Print element revision is stale or missing', 'stale_revision');
+        if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= 3)
+          return fail('vector element index is out of range', 'invalid_index');
+        const keys = request.operation === 'set-element' ? [request.key] : request.keys;
+        if (!Array.isArray(keys) || !keys.length || keys.some(key => typeof key !== 'string') || new Set(keys).size !== keys.length)
+          return fail('element keys must be unique non-empty strings');
+        const values: Record<string, string> = {};
+        for (const key of keys) {
+          const option = printEditorOptions[key];
+          if (!option) return fail('option does not expose editable vector elements', 'unsupported_option');
+          const elements = [...printEditorValues(key)];
+          const value = request.operation === 'set-element' ? request.value : option.values[request.index];
+          if (request.operation === 'set-element') {
+            if (request.scalar_type !== option.scalarType) return fail('element type does not match native option', 'invalid_element_type');
+            if ((option.scalarType === 'float' && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) ||
+                (option.scalarType === 'bool' && typeof value !== 'boolean') ||
+                (option.scalarType === 'float_or_percent' && (!value || typeof value !== 'object' || !Number.isFinite(value.value) || typeof value.percent !== 'boolean')))
+              return fail('invalid typed element value', 'invalid_value');
+          }
+          while (elements.length <= request.index) elements.push(clone(elements[0]));
+          elements[request.index] = clone(value);
+          values[key] = serializePresetEditorValues(elements);
+          if (request.operation === 'reset-elements' && JSON.stringify(elements) === JSON.stringify(option.values)) resetElementKeys.add(key);
+        }
+        request = { ...request, operation: 'set', values };
+      }
       if (!['set', 'reset', 'reset-category', 'reset-all'].includes(request.operation))
         return fail('unsupported native mutation operation');
       const values: Record<string, string> = request.operation === 'set'
@@ -2303,6 +2356,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const resettable = (key: string) => key !== 'extruder' && !key.includes('filament') && !key.includes('rack') && !key.includes('ams') && !key.includes('gcode');
       const clamp = (key: string, value: string): string => {
         const option = metadata[key];
+        if (!option && printEditorOptions[key]) return value;
         if (!option) throw new Error(`unsupported project configuration option: ${key}`);
         if (!['float', 'int', 'percent'].includes(option.type)) return value;
         const numeric = Number(value.replace(/%$/, ''));
@@ -2338,7 +2392,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
               const effective = clamp(key, value);
               if (key === 'curr_bed_type' && !snapshot().bed_type.choices.some((choice) => choice.value === value))
                 return fail('bed type is not supported by the selected printer', 'native_validation_failure');
-              bucket[key] = effective;
+              if (resetElementKeys.has(key)) delete bucket[key]; else bucket[key] = effective;
               if (effective !== value && !corrections.some((item) => item.key === key && item.effective === effective))
                 corrections.push({ key, requested: value, effective });
             }
@@ -3424,6 +3478,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
     orc_get_native_scoped_config: { ret: 'number', args: [] },
+    orc_get_print_config_editor: { ret: 'number', args: [] },
     orc_mutate_native_scoped_config: { ret: 'number', args: ['string'] },
     orc_revalidate_native_scoped_config: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },

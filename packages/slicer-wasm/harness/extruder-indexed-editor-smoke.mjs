@@ -40,10 +40,10 @@ for (const key of ['retraction_length', 'wipe', 'retract_before_wipe', 'z_hop_ty
   assert.ok(Array.isArray(initial.editor_vectors[key].source_values), key);
 mutate({ action: 'set', key: 'retraction_length', value: '0.8' });
 set('retraction_length', 'float', 2, 1.7);
-assert.deepEqual(values('retraction_length'), [0.8, 0.8, 1.7, 0.8]);
+assert.deepEqual(values('retraction_length'), Array.from({ length: initial.editor_vectors.retraction_length.index_count }, (_, i) => i === 2 ? 1.7 : 0.8));
 set('retraction_length', 'float', 0, 1.1);
 mutate({ action: 'reset-field', key: 'retraction_length', index: 2 });
-assert.deepEqual(values('retraction_length'), [1.1, 0.8, 0.8, 0.8]);
+assert.deepEqual(values('retraction_length'), Array.from({ length: initial.editor_vectors.retraction_length.index_count }, (_, i) => i === 0 ? 1.1 : 0.8));
 const originalWipe = values('wipe');
 set('wipe', 'bool', 2, !originalWipe[2]);
 assert.deepEqual(values('wipe').slice(0, 2), originalWipe.slice(0, 2));
@@ -58,10 +58,10 @@ set('extruder_printable_area', 'points', 2, polygon);
 assert.deepEqual(values('extruder_printable_area'), [[], [], polygon, []]);
 const revision = read().revision;
 for (const request of [
-  { action: 'set-element', key: 'retraction_length', scalar_type: 'float', index: 4, value: 1 },
+  { action: 'set-element', key: 'retraction_length', scalar_type: 'float', index: initial.editor_vectors.retraction_length.index_count, value: 1 },
   { action: 'set-element', key: 'z_hop', scalar_type: 'float', index: 2, value: 6 },
   { action: 'set-element', key: 'extruder_printable_area', scalar_type: 'points', index: 2, value: [{ x: 0, y: 0 }] },
-  { action: 'reset-field', key: 'wipe', index: 4 },
+  { action: 'reset-field', key: 'wipe', index: initial.editor_vectors.wipe.index_count },
 ]) assert.equal(mutate(request, false).ok, false, JSON.stringify(request));
 assert.equal(read().revision, revision, 'rejections add no history');
 
@@ -89,5 +89,75 @@ set('nozzle_diameter', 'float', 2, 0.4);
 set('nozzle_diameter', 'float', 3, 0.4);
 assert.equal(printer, 'Snapmaker U1 (0.4 nozzle)');
 assert.deepEqual(values('nozzle_diameter'), [0.4, 0.4, 0.4, 0.4]);
-console.log('PASS indexed Extruder vectors, typed edits, short-vector expansion, reset isolation, history and diameter transition');
+
+// Variant counts are independent of physical extruder counts; U1 stores SF/HF columns.
+assert.equal(initial.editor_vectors.nozzle_diameter.index_count, 4);
+assert.equal(initial.editor_vectors.retraction_length.index_count, 8);
+assert.equal(initial.editor_vectors.machine_max_speed_e.index_count, 16);
+const filament = 'Generic PLA @System';
+const readFilament = () => must(call('orc_get_preset_draft', ['string', 'string'], ['filament', filament]));
+function filamentMutate(body, accept = true) {
+  const result = call('orc_mutate_preset_draft', ['string'], [JSON.stringify({ kind: 'filament', canonical_name: filament,
+    expected_revision: readFilament().revision, ...body })]);
+  return accept ? must(result) : result;
+}
+const baseFilament = readFilament();
+const fi = baseFilament.editor_vectors.filament_flow_ratio.index_count - 1;
+assert.ok(fi > 0, 'native Filament has multiple variants');
+filamentMutate({ action: 'set-element', key: 'filament_flow_ratio', scalar_type: 'float', index: 0, value: 1.01 });
+filamentMutate({ action: 'set-element', key: 'filament_flow_ratio', scalar_type: 'float', index: fi, value: 1.02 });
+filamentMutate({ action: 'set-element', key: 'filament_retraction_length', scalar_type: 'float', index: fi, value: 1.3 });
+const beforeInvalidReset = readFilament();
+assert.equal(filamentMutate({ action: 'reset-category', keys: ['filament_flow_ratio', 'filament_vendor'], index: fi }, false).ok, false);
+assert.deepEqual(readFilament(), beforeInvalidReset, 'invalid batch resets leave all elements and history unchanged');
+filamentMutate({ action: 'reset-category', keys: ['filament_flow_ratio', 'filament_retraction_length'], index: fi });
+assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[0], 1.01);
+assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[fi], baseFilament.editor_vectors.filament_flow_ratio.source_values[fi]);
+assert.equal(readFilament().editor_vectors.filament_retraction_length.effective_values[fi], null, 'indexed reset restores nullable native source');
+must(call('orc_history_undo'));
+assert.equal(readFilament().editor_vectors.filament_flow_ratio.effective_values[fi], 1.02);
+must(call('orc_history_redo'));
+
+const readPrint = () => must(call('orc_get_print_config_editor'));
+const printHistoryContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+function printMutate(body, accept = true) {
+  const tx = accept ? must(call('orc_history_begin', ['string', 'string', 'string', 'string'],
+    ['Print element operation', 'project', JSON.stringify(printHistoryContext), ''])) : null;
+  const result = call('orc_mutate_native_scoped_config', ['string'], [JSON.stringify({ version: 1,
+    targets: [{ scope: 'project' }], expected_revision: readPrint().revision, ...body })]);
+  if (accept) {
+    must(result);
+    const commit = call('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(printHistoryContext)]);
+    assert.ok(commit.status?.canUndo, JSON.stringify(commit));
+  }
+  return result;
+}
+const basePrint = readPrint();
+const pi = basePrint.editor_vectors.outer_wall_speed.index_count - 1;
+assert.ok(pi > 0, 'Print preserves all variant columns');
+// Whole serialized values remain a distinct operation; element writes expand a short vector using its fallback.
+printMutate({ operation: 'set', key: 'outer_wall_speed', value: '100' });
+assert.deepEqual(readPrint().source_values, basePrint.source_values, 'materialization keeps the selected Print source as the reset baseline');
+printMutate({ operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'float', index: pi, value: 175 });
+assert.deepEqual(readPrint().editor_vectors.outer_wall_speed.effective_values,
+  Array.from({ length: pi + 1 }, (_, i) => i === pi ? 175 : 100));
+printMutate({ operation: 'set-element', key: 'enable_overhang_speed', scalar_type: 'bool', index: pi, value: false });
+printMutate({ operation: 'set-element', key: 'small_perimeter_speed', scalar_type: 'float_or_percent', index: pi, value: { value: 45, percent: true } });
+const printBeforeRejections = readPrint();
+for (const body of [
+  { operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'float', index: pi + 1, value: 1 },
+  { operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'bool', index: pi, value: false },
+  { operation: 'set-element', key: 'small_perimeter_speed', scalar_type: 'float_or_percent', index: pi, value: { value: -1, percent: true } },
+  { operation: 'reset-elements', keys: ['outer_wall_speed', 'layer_height'], index: pi },
+  { operation: 'reset-elements', keys: ['outer_wall_speed'], index: pi, expected_revision: 0 },
+]) assert.equal(printMutate(body, false).ok, false, JSON.stringify(body));
+assert.deepEqual(readPrint(), printBeforeRejections, 'Print rejections do not change owner, vectors or history');
+printMutate({ operation: 'reset-elements', keys: ['outer_wall_speed', 'enable_overhang_speed', 'small_perimeter_speed'], index: pi });
+assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[0], 100);
+assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], basePrint.editor_vectors.outer_wall_speed.source_values[pi]);
+must(call('orc_history_undo'));
+assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], 175);
+must(call('orc_history_redo'));
+assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], basePrint.editor_vectors.outer_wall_speed.source_values[pi]);
+console.log('PASS generic Printer/Filament/Print vectors, valid ranges, typed edits, atomic indexed reset and history');
 process.exit(0);

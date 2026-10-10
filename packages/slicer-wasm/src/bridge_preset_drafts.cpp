@@ -2,6 +2,7 @@
 // Printer / Filament preset drafts and effective configuration assembly.
 // ----------------------------------------------------------------
 #include "bridge_preset_drafts.hpp"
+#include "bridge_config_elements.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -330,317 +331,15 @@ DynamicPrintConfig effective_full_config_secure(
 
 namespace {
 
-std::string editor_gui_type_name(const ConfigOptionDef::GUIType gui_type)
-{
-    using GUIType = ConfigOptionDef::GUIType;
-    switch (gui_type) {
-        case GUIType::undefined: return "undefined";
-        case GUIType::i_enum_open: return "i_enum_open";
-        case GUIType::f_enum_open: return "f_enum_open";
-        case GUIType::color: return "color";
-        case GUIType::select_open: return "select_open";
-        case GUIType::slider: return "slider";
-        case GUIType::legend: return "legend";
-        case GUIType::one_string: return "one_string";
-        case GUIType::plugin_picker: return "plugin_picker";
-        case GUIType::plugin_config: return "plugin_config";
-        case GUIType::printer_agent_select: return "printer_agent_select";
-    }
-    return "undefined";
-}
-
-bool has_gui_flag(const std::string& flags, const std::string& expected)
-{
-    std::istringstream input(flags);
-    std::string flag;
-    while (input >> flag)
-        if (flag == expected) return true;
-    return false;
-}
-
-std::optional<std::string> editor_element_type(const std::string& key,
-                                              const ConfigOptionDef& def)
-{
-    static const std::set<std::string> structured_or_identity_fields = {
-        "compatible_machine_expression_group", "compatible_process_expression_group",
-        "different_settings_to_system", "filament_colour_type", "filament_extruder_compatibility",
-        "filament_ids", "filament_multi_colour", "filament_ramming_parameters",
-        "filament_settings_id", "print_compatible_printers", "upward_compatible_machine",
-        "volumetric_speed_coefficients",
-    };
-    if (def.is_scalar() || key == "compatible_printers" || key == "compatible_prints" ||
-        structured_or_identity_fields.find(key) != structured_or_identity_fields.end() ||
-        def.gui_type == ConfigOptionDef::GUIType::one_string ||
-        def.gui_type == ConfigOptionDef::GUIType::plugin_picker ||
-        def.gui_type == ConfigOptionDef::GUIType::plugin_config ||
-        def.gui_type == ConfigOptionDef::GUIType::select_open ||
-        def.gui_type == ConfigOptionDef::GUIType::printer_agent_select ||
-        has_gui_flag(def.gui_flags, "serialized"))
-        return std::nullopt;
-
-    switch (def.type) {
-        case coFloats: return "float";
-        case coInts: return "int";
-        case coBools: return "bool";
-        case coStrings: return "string";
-        case coPercents: return "percent";
-        case coFloatsOrPercents: return "float_or_percent";
-        case coEnums: return def.enum_keys_map == nullptr ? std::nullopt :
-                                                           std::optional<std::string>("enum");
-        default: return std::nullopt;
-    }
-}
-
-std::optional<std::string> editor_vector_type(const std::string& key, const ConfigOptionDef& def)
-{
-    if (key == "extruder_offset" && def.type == coPoints) return "point";
-    if (key == "extruder_printable_area" && def.type == coPointsGroups) return "points";
-    return editor_element_type(key, def);
-}
-
-bool printer_extruder_key(const std::string& key)
-{
-    const auto& keys = print_config_def.extruder_option_keys();
-    return key == "extruder_printable_area" || std::find(keys.begin(), keys.end(), key) != keys.end();
-}
-
-void resize_editor_vector(ConfigOptionVectorBase& option, const ConfigOptionDef& def, size_t count)
-{
-    // The native point-group default is itself empty; generic resize would
-    // dereference its first element. An empty group is a valid default region.
-    if (def.type == coPointsGroups && option.empty())
-        dynamic_cast<ConfigOptionPointsGroups&>(option).values.resize(count);
-    else option.resize(count, def.default_value.get());
-}
-
-json editor_element_value(const ConfigOption& option, const ConfigOptionDef& def,
-                          const size_t index)
-{
-    const auto* vector = dynamic_cast<const ConfigOptionVectorBase*>(&option);
-    if (vector == nullptr || index >= vector->size())
-        throw std::runtime_error("preset editor vector element is unavailable");
-    if (def.nullable && vector->is_nil(index)) return nullptr;
-
-    switch (def.type) {
-        case coFloats:
-        case coPercents: {
-            const double value = dynamic_cast<const ConfigOptionVector<double>&>(option).get_at(index);
-            if (!std::isfinite(value))
-                throw std::runtime_error("preset editor numeric element is not finite");
-            return value;
-        }
-        case coInts:
-        case coEnums:
-            return dynamic_cast<const ConfigOptionVector<int>&>(option).get_at(index);
-        case coBools:
-            return dynamic_cast<const ConfigOptionVector<unsigned char>&>(option).get_at(index) != 0;
-        case coStrings:
-            return dynamic_cast<const ConfigOptionVector<std::string>&>(option).get_at(index);
-        case coFloatsOrPercents: {
-            const auto& value = dynamic_cast<const ConfigOptionVector<FloatOrPercent>&>(option).get_at(index);
-            if (!std::isfinite(value.value))
-                throw std::runtime_error("preset editor float-or-percent element is not finite");
-            return json{{"value", value.value}, {"percent", value.percent}};
-        }
-        case coPoints: {
-            const auto& point = dynamic_cast<const ConfigOptionPoints&>(option).get_at(index);
-            return {{"x", point.x()}, {"y", point.y()}};
-        }
-        case coPointsGroups: {
-            json points = json::array();
-            for (const auto& point : dynamic_cast<const ConfigOptionPointsGroups&>(option).get_at(index))
-                points.push_back({{"x", point.x()}, {"y", point.y()}});
-            return points;
-        }
-        default:
-            throw std::runtime_error("unsupported preset editor vector element type");
-    }
-}
-
-json editor_enum_options(const ConfigOptionDef& def)
-{
-    json values = json::array();
-    if (def.enum_keys_map == nullptr) return values;
-
-    for (size_t index = 0; index < def.enum_values.size(); ++index) {
-        const std::string& name = def.enum_values[index];
-        const auto found = def.enum_keys_map->find(name);
-        if (found == def.enum_keys_map->end()) continue;
-        values.push_back({{"value", found->second}, {"name", name},
-                          {"label", index < def.enum_labels.size() ? def.enum_labels[index] : name}});
-    }
-    return values;
-}
-
 json set_editor_element_value(const Preset& source, const std::string& key,
                               const std::string& scalar_type, const uint64_t index,
                               const json& value, std::string& serialized_value)
 {
-    const ConfigOptionDef* def = print_config_def.get(key);
-    const ConfigOption* source_option = source.config.option(key);
-    if (def == nullptr || source_option == nullptr)
-        return command_error("unsupported_option", "option is not available on this preset: " + key);
-    const auto expected_type = editor_vector_type(key, *def);
-    if (!expected_type)
-        return command_error("unsupported_option", "option does not expose editable vector elements: " + key);
-    if (scalar_type != *expected_type)
-        return command_error("invalid_element_type", "preset editor element type does not match native option: " + key);
-
-    DynamicPrintConfig edited_config;
-    edited_config.set_key_value(key, source_option->clone());
-    if (const auto* overrides = state().preset_drafts.find(source.type, source.name)) {
-        const auto override = overrides->find(key);
-        if (override != overrides->end()) {
-            ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-            try {
-                edited_config.set_deserialize(key, override->second, substitutions);
-            } catch (const std::exception& error) {
-                return command_error("native_validation_failure", error.what());
-            }
-        }
-    }
-
-    ConfigOption* edited_option = edited_config.option(key);
-    auto* edited_vector = edited_option == nullptr ? nullptr :
-        dynamic_cast<ConfigOptionVectorBase*>(edited_option);
-    if (source.type == Preset::TYPE_PRINTER && printer_extruder_key(key)) {
-        const auto effective = effective_preset_config(state().presets, state().preset_drafts, source.type, source.name);
-        const auto* nozzles = effective.opt<ConfigOptionFloats>("nozzle_diameter");
-        if (!nozzles || index >= nozzles->size())
-            return command_error("invalid_index", "extruder index is out of range: " + key);
-        if (edited_vector && index >= edited_vector->size())
-            resize_editor_vector(*edited_vector, *def, nozzles->size());
-    }
-    if (edited_vector == nullptr || index >= edited_vector->size() ||
-        index > static_cast<uint64_t>(std::numeric_limits<size_t>::max()))
-        return command_error("invalid_index", "preset editor vector index is out of range: " + key);
-
-    if (value.is_null()) {
-        if (!def->nullable || !edited_vector->nullable())
-            return command_error("invalid_value", "null is not valid for this preset editor element: " + key);
-        edited_vector->set_at_to_nil(static_cast<size_t>(index));
-    } else {
-        if (value.is_number() && def->type != coEnums &&
-            (value.get<double>() < def->min || value.get<double>() > def->max))
-            return command_error("invalid_value", "preset editor element is outside its native range: " + key);
-        switch (def->type) {
-            case coPoints:
-            case coPointsGroups: {
-                const auto parse_point = [](const json& input) -> Vec2d {
-                    if (!input.is_object() || input.size() != 2 || !input.contains("x") || !input.contains("y") ||
-                        !input["x"].is_number() || !input["y"].is_number())
-                        throw std::runtime_error("coordinate requires finite x and y");
-                    const double x = input["x"].get<double>(), y = input["y"].get<double>();
-                    if (!std::isfinite(x) || !std::isfinite(y)) throw std::runtime_error("coordinate is not finite");
-                    return Vec2d(x, y);
-                };
-                try {
-                    if (def->type == coPoints)
-                        dynamic_cast<ConfigOptionPoints&>(*edited_option).values[index] = parse_point(value);
-                    else {
-                        if (!value.is_array() || (!value.empty() && value.size() < 3))
-                            return command_error("invalid_value", "printable area requires an empty group or at least three coordinates");
-                        Vec2ds points;
-                        for (const auto& point : value) points.push_back(parse_point(point));
-                        dynamic_cast<ConfigOptionPointsGroups&>(*edited_option).values[index] = std::move(points);
-                    }
-                } catch (const std::exception& error) { return command_error("invalid_value", error.what()); }
-                break;
-            }
-            case coFloats:
-            case coPercents: {
-                if (!value.is_number())
-                    return command_error("invalid_value", "preset editor element requires a finite number: " + key);
-                const double number = value.get<double>();
-                if (!std::isfinite(number))
-                    return command_error("invalid_value", "preset editor element requires a finite number: " + key);
-                if (def->type == coFloats) {
-                    const ConfigOptionFloat scalar(number);
-                    edited_vector->set_at(&scalar, static_cast<size_t>(index), 0);
-                } else {
-                    const ConfigOptionPercent scalar(number);
-                    edited_vector->set_at(&scalar, static_cast<size_t>(index), 0);
-                }
-                break;
-            }
-            case coInts: {
-                if (!value.is_number_integer())
-                    return command_error("invalid_value", "preset editor element requires an integer: " + key);
-                int64_t number = 0;
-                if (value.is_number_unsigned()) {
-                    const uint64_t unsigned_number = value.get<uint64_t>();
-                    if (unsigned_number > static_cast<uint64_t>(std::numeric_limits<int>::max()))
-                        return command_error("invalid_value", "preset editor integer is out of range: " + key);
-                    number = static_cast<int64_t>(unsigned_number);
-                } else {
-                    number = value.get<int64_t>();
-                }
-                if (number < std::numeric_limits<int>::min() || number > std::numeric_limits<int>::max())
-                    return command_error("invalid_value", "preset editor integer is out of range: " + key);
-                const ConfigOptionInt scalar(static_cast<int>(number));
-                edited_vector->set_at(&scalar, static_cast<size_t>(index), 0);
-                break;
-            }
-            case coBools: {
-                if (!value.is_boolean())
-                    return command_error("invalid_value", "preset editor element requires a boolean: " + key);
-                const ConfigOptionBool scalar(value.get<bool>());
-                edited_vector->set_at(&scalar, static_cast<size_t>(index), 0);
-                break;
-            }
-            case coStrings: {
-                if (!value.is_string())
-                    return command_error("invalid_value", "preset editor element requires text: " + key);
-                const ConfigOptionString scalar(value.get<std::string>());
-                edited_vector->set_at(&scalar, static_cast<size_t>(index), 0);
-                break;
-            }
-            case coFloatsOrPercents: {
-                if (!value.is_object() || value.size() != 2 || !value.contains("value") ||
-                    !value["value"].is_number() || !value.contains("percent") ||
-                    !value["percent"].is_boolean())
-                    return command_error("invalid_value", "preset editor element requires {value, percent}: " + key);
-                const double number = value["value"].get<double>();
-                if (!std::isfinite(number))
-                    return command_error("invalid_value", "preset editor element requires a finite number: " + key);
-                const ConfigOptionFloatOrPercent scalar(number, value["percent"].get<bool>());
-                edited_vector->set_at(&scalar, static_cast<size_t>(index), 0);
-                break;
-            }
-            case coEnums: {
-                if (!value.is_number_integer())
-                    return command_error("invalid_value", "preset editor enum element requires an integer: " + key);
-                int64_t number = 0;
-                if (value.is_number_unsigned()) {
-                    const uint64_t unsigned_number = value.get<uint64_t>();
-                    if (unsigned_number > static_cast<uint64_t>(std::numeric_limits<int>::max()))
-                        return command_error("invalid_value", "preset editor enum value is out of range: " + key);
-                    number = static_cast<int64_t>(unsigned_number);
-                } else {
-                    number = value.get<int64_t>();
-                }
-                if (number < std::numeric_limits<int>::min() || number > std::numeric_limits<int>::max())
-                    return command_error("invalid_value", "preset editor enum value is out of range: " + key);
-                const bool accepted = def->enum_keys_map != nullptr &&
-                    std::any_of(def->enum_keys_map->begin(), def->enum_keys_map->end(),
-                        [number](const auto& entry) { return entry.second == number; });
-                if (!accepted)
-                    return command_error("invalid_value", "preset editor enum value is not defined natively: " + key);
-                const ConfigOptionEnumGeneric scalar(def->enum_keys_map, static_cast<int>(number));
-                edited_vector->set_at(&scalar, static_cast<size_t>(index), 0);
-                break;
-            }
-            default:
-                return command_error("unsupported_option", "option does not expose editable vector elements: " + key);
-        }
-    }
-
-    try {
-        serialized_value = edited_option->serialize();
-    } catch (const std::exception& error) {
-        return command_error("native_validation_failure", error.what());
-    }
-    return nullptr;
+    auto config = effective_preset_config(state().presets, state().preset_drafts, source.type, source.name);
+    const auto error = ConfigElements::set_element(config, key, scalar_type, index, value,
+        ConfigElements::element_count(config, source.type, key));
+    if (error.is_null()) serialized_value = config.option(key)->serialize();
+    return error;
 }
 
 } // namespace
@@ -668,28 +367,7 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
                 if (const ConfigOption* option = parent->config.option(key))
                     source_metadata[key]["tooltip_default"] = option->serialize();
         }
-    for (const std::string& key : source->config.keys()) {
-        const ConfigOptionDef* def = print_config_def.get(key);
-        const ConfigOption* source_option = source->config.option(key);
-        const ConfigOption* effective_option = effective.config.option(key);
-        if (def == nullptr || source_option == nullptr || effective_option == nullptr) continue;
-        const auto vector_type = editor_vector_type(key, *def);
-        if (!vector_type) continue;
-        const auto* source_vector = dynamic_cast<const ConfigOptionVectorBase*>(source_option);
-        const auto* effective_vector = dynamic_cast<const ConfigOptionVectorBase*>(effective_option);
-        if (!source_vector || !effective_vector) continue;
-        json source_values = json::array(), effective_values = json::array();
-        for (size_t index = 0; index < source_vector->size(); ++index)
-            source_values.push_back(editor_element_value(*source_option, *def, index));
-        for (size_t index = 0; index < effective_vector->size(); ++index)
-            effective_values.push_back(editor_element_value(*effective_option, *def, index));
-        json vector{{"scalar_type", *vector_type}, {"source_values", std::move(source_values)},
-            {"effective_values", std::move(effective_values)}, {"nullable", def->nullable},
-            {"gui_type", editor_gui_type_name(def->gui_type)}, {"gui_flags", def->gui_flags},
-            {"multiline", def->multiline}, {"is_code", def->is_code}, {"readonly", def->readonly}};
-        if (*vector_type == "enum") vector["enum_options"] = editor_enum_options(*def);
-        editor_vectors[key] = std::move(vector);
-    }
+    editor_vectors = ConfigElements::vectors_json(source->config, effective.config, type);
     return json{{"ok", true}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr},
@@ -809,35 +487,17 @@ json mutate_draft_json(const json& request)
 
     std::map<std::string, std::optional<std::string>> indexed_resets;
     if ((action == "reset-field" || action == "reset-category") && request.contains("index")) {
-        if (type != Preset::TYPE_PRINTER || !request["index"].is_number_unsigned())
-            return command_error("invalid_index", "indexed reset requires a Printer extruder index");
+        if (!request["index"].is_number_unsigned())
+            return command_error("invalid_index", "indexed reset requires an unsigned element index");
         const auto index = request["index"].get<uint64_t>();
-        const auto effective = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
-        const auto* nozzles = effective.opt<ConfigOptionFloats>("nozzle_diameter");
-        if (!nozzles || index >= nozzles->size())
-            return command_error("invalid_index", "extruder reset index is out of range");
+        auto effective = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
         for (const auto& reset_key : keys) {
+            const auto error = ConfigElements::reset_element(effective, source->config, reset_key, index,
+                ConfigElements::element_count(effective, type, reset_key));
+            if (!error.is_null()) return error;
             const auto* def = print_config_def.get(reset_key);
-            const auto* source_vector = dynamic_cast<const ConfigOptionVectorBase*>(source->config.option(reset_key));
-            if (!def || !source_vector || !printer_extruder_key(reset_key) || !editor_vector_type(reset_key, *def))
-                return command_error("unsupported_option", "option does not support indexed reset: " + reset_key);
-            std::unique_ptr<ConfigOption> edited(effective.option(reset_key)->clone());
-            auto* vector = dynamic_cast<ConfigOptionVectorBase*>(edited.get());
-            if (index >= vector->size()) resize_editor_vector(*vector, *def, nozzles->size());
-            if (!source_vector->empty()) vector->set_at(source_vector, index, index < source_vector->size() ? index : 0);
-            else {
-                std::unique_ptr<ConfigOption> defaults(source_vector->clone());
-                auto* default_vector = dynamic_cast<ConfigOptionVectorBase*>(defaults.get());
-                resize_editor_vector(*default_vector, *def, nozzles->size());
-                vector->set_at(default_vector, index, index);
-            }
-            bool equal = true;
-            for (size_t i = 0; i < std::max(vector->size(), source_vector->size()); ++i) {
-                const auto source_value = source_vector->empty() ? json::array() :
-                    editor_element_value(*source_vector, *def, i < source_vector->size() ? i : 0);
-                if (source_value != editor_element_value(*vector, *def, i < vector->size() ? i : 0)) { equal = false; break; }
-            }
-            indexed_resets[reset_key] = equal ? std::nullopt : std::optional<std::string>(edited->serialize());
+            const bool equal = ConfigElements::equal_elements(*effective.option(reset_key), *source->config.option(reset_key), *def);
+            indexed_resets[reset_key] = equal ? std::nullopt : std::optional<std::string>(effective.option(reset_key)->serialize());
         }
     }
 

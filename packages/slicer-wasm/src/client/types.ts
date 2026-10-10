@@ -282,17 +282,27 @@ export interface NativeScopedConfigTarget {
   readonly id?: number | string;
 }
 
-export type NativeScopedConfigMutationOperation = 'set' | 'reset' | 'reset-category' | 'reset-all';
+export type NativeScopedConfigMutationOperation =
+  | 'set' | 'reset' | 'reset-category' | 'reset-all' | 'set-element' | 'reset-elements';
 
 /** One atomic native scoped-configuration transaction request. */
-export interface NativeScopedConfigMutationRequest {
+export interface NativeScopedConfigWholeMutationRequest {
   readonly version: 1;
-  readonly operation: NativeScopedConfigMutationOperation;
+  readonly operation: Exclude<NativeScopedConfigMutationOperation, 'set-element' | 'reset-elements'>;
   readonly targets: readonly NativeScopedConfigTarget[];
   readonly key?: string;
   readonly value?: string;
   readonly category?: string;
 }
+
+/** Print vectors use the existing Project transaction and native Print owner. */
+export type NativeScopedConfigMutationRequest = NativeScopedConfigWholeMutationRequest | ({
+  readonly version: 1;
+  readonly targets: readonly [{ readonly scope: 'project'; readonly id?: never }];
+  readonly index: number;
+  readonly expectedRevision: number;
+} & (({ readonly operation: 'set-element' } & ConfigElementMutation)
+   | { readonly operation: 'reset-elements'; readonly keys: readonly string[] }));
 
 export interface ConfigurationCorrection {
   readonly key: string;
@@ -513,24 +523,30 @@ export type PresetDraftVectorValue = PresetDraftEditorValue | PresetDraftEditorP
 export interface PresetDraftEditorVector extends Omit<PresetDraftEditorBinding,
   'index' | 'elementCount' | 'sourceValue' | 'effectiveValue' | 'scalarType'> {
   readonly scalarType: PresetDraftEditorScalarType | 'point' | 'points';
+  /** Native valid element range; independent of a short serialized vector. */
+  readonly indexCount: number;
   readonly sourceValues: readonly PresetDraftVectorValue[];
   readonly effectiveValues: readonly PresetDraftVectorValue[];
 }
 
-export interface PresetDraftSnapshot extends PresetDraftTarget {
+/** Disposable typed vector projection shared by preset drafts and Print configuration. */
+export interface ConfigEditorSnapshot {
   readonly ok: true;
+  readonly canonicalName: string;
+  readonly sourceValues: Readonly<Record<string, string>>;
+  readonly effectiveValues: Readonly<Record<string, string>>;
+  readonly optionMetadata: OptionMetadata;
+  /** Client-derived first-element views; native sends only full vectors. */
+  readonly editorBindings: Readonly<Record<string, PresetDraftEditorBinding>>;
+  readonly editorVectors: Readonly<Record<string, PresetDraftEditorVector>>;
+  readonly revision: number;
+}
+export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError;
+
+export interface PresetDraftSnapshot extends PresetDraftTarget, ConfigEditorSnapshot {
   readonly draftExists: boolean;
   readonly modified: boolean;
   readonly overrides: Readonly<Record<string, string>>;
-  readonly sourceValues: Readonly<Record<string, string>>;
-  readonly effectiveValues: Readonly<Record<string, string>>;
-  /** Native option definitions for the source's available fields. */
-  readonly optionMetadata: OptionMetadata;
-  /** Client-derived first-element views of the required native vectors. */
-  readonly editorBindings: Readonly<Record<string, PresetDraftEditorBinding>>;
-  /** Complete typed vectors; the presentation selects an element without parsing native serialization. */
-  readonly editorVectors: Readonly<Record<string, PresetDraftEditorVector>>;
-  readonly revision: number;
 }
 
 export interface PresetDraftError {
@@ -566,6 +582,11 @@ export type PresetDraftMutationRequest =
   | (PresetDraftMutationBase & { readonly action: 'reset-field'; readonly key: string; readonly index?: number })
   | (PresetDraftMutationBase & { readonly action: 'reset-category'; readonly keys: readonly string[]; readonly index?: number })
   | (PresetDraftMutationBase & { readonly action: 'reset-preset' });
+
+/** Correlate the native element type with its single typed value. */
+type ElementPayload<T> = T extends { readonly action: 'set-element' }
+  ? Omit<T, keyof PresetDraftMutationBase | 'action'> : never;
+export type ConfigElementMutation = ElementPayload<Extract<PresetDraftMutationRequest, { readonly action: 'set-element' }>>;
 
 export interface PresetDraftMutationSuccess extends PresetDraftSnapshot {
   readonly profileSnapshot: ProfileSnapshot;
@@ -1568,6 +1589,7 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods {
   markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
   /** Read a disposable projection of native project/object/part/plate config. */
   getNativeScopedConfig(): Promise<NativeScopedConfigResultOrError>;
+  getPrintConfigEditor(): Promise<ConfigEditorSnapshotResult>;
   /** Set one native scoped value and return the affected plate projection. */
   setNativeScopedConfig(target: NativeScopedConfigTarget, optionKey: string, value: string): Promise<NativeScopedConfigResultOrError>;
   /** Apply one atomic set/reset operation to one or more native targets. */

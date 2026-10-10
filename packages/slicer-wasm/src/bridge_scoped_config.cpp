@@ -2,6 +2,7 @@
 // Native scoped configuration commands for the Neo WASM bridge.
 // ----------------------------------------------------------------
 #include "bridge_scoped_config.hpp"
+#include "bridge_config_elements.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -212,6 +213,9 @@ struct MutationRequest {
     std::vector<MutationTarget> targets;
     std::map<std::string, std::string> values;
     std::string category;
+    std::optional<uint64_t> index;
+    std::string scalar_type;
+    json element_value;
 };
 
 struct ResolvedTarget {
@@ -432,11 +436,33 @@ void clear_edited_print_overrides(DynamicPrintConfig& candidate,
     }
 }
 
+DynamicPrintConfig print_element_source()
+{
+    const auto& prints = state().presets.prints;
+    if (!prints.get_edited_preset().is_project_embedded) return prints.get_selected_preset().config;
+    if (const auto* parent = selected_print_parent()) return parent->config;
+    return prints.default_preset().config;
+}
+
 void apply_project_mutation_to_candidates(const MutationRequest& request,
                                           DynamicPrintConfig& project_candidate,
                                           DynamicPrintConfig& print_candidate)
 {
     const Preset* parent = selected_print_parent();
+    if (request.index) {
+        const auto source = print_element_source();
+        for (const auto& [key, ignored] : request.values) {
+            const auto count = ConfigElements::element_count(print_candidate, Preset::TYPE_PRINT, key);
+            const auto error = request.operation == "set-element"
+                ? ConfigElements::set_element(print_candidate, key, request.scalar_type, *request.index, request.element_value, count)
+                : ConfigElements::reset_element(print_candidate, source, key, *request.index, count);
+            if (!error.is_null()) throw MutationCommandError(error["error_code"].get<std::string>(), error["error"].get<std::string>());
+            if (request.operation == "reset-elements" && ConfigElements::equal_elements(
+                    *print_candidate.option(key), *source.option(key), *print_config_def.get(key)))
+                print_candidate.set_key_value(key, source.option(key)->clone());
+        }
+        return;
+    }
     ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
     if (request.operation == "set") {
         for (const auto& [key, requested] : request.values) {
@@ -522,7 +548,8 @@ MutationRequest parse_request(const char* request_json)
         throw MutationCommandError("invalid_command", "mutation operation is required");
     request.operation = encoded["operation"].get<std::string>();
     if (request.operation != "set" && request.operation != "reset" &&
-        request.operation != "reset-category" && request.operation != "reset-all")
+        request.operation != "reset-category" && request.operation != "reset-all" &&
+        request.operation != "set-element" && request.operation != "reset-elements")
         throw MutationCommandError("invalid_command", "unsupported native mutation operation");
     if (!encoded.contains("targets") || !encoded["targets"].is_array() || encoded["targets"].empty())
         throw MutationCommandError("invalid_command", "at least one mutation target is required");
@@ -545,7 +572,33 @@ MutationRequest parse_request(const char* request_json)
             throw MutationCommandError("invalid_command", "duplicate mutation target");
         request.targets.push_back(std::move(target));
     }
-    if (request.operation == "set") {
+    if (request.operation == "set-element" || request.operation == "reset-elements") {
+        if (request.targets.size() != 1 || request.targets.front().scope != "project")
+            throw MutationCommandError("unsupported_reference", "Print element commands require one Project target");
+        if (!encoded.contains("expected_revision") || !encoded["expected_revision"].is_number_unsigned() ||
+            encoded["expected_revision"].get<uint64_t>() != state().history_revision)
+            throw MutationCommandError("stale_revision", "Print element revision is stale or missing");
+        if (state().history_disabled)
+            throw MutationCommandError("history_disabled", "project history is disabled");
+        if (!encoded.contains("index") || !encoded["index"].is_number_unsigned())
+            throw MutationCommandError("invalid_index", "element index must be unsigned");
+        request.index = encoded["index"].get<uint64_t>();
+        if (request.operation == "set-element") {
+            if (!encoded.contains("key") || !encoded["key"].is_string() || encoded["key"].get<std::string>().empty() ||
+                !encoded.contains("scalar_type") || !encoded["scalar_type"].is_string() || !encoded.contains("value"))
+                throw MutationCommandError("invalid_command", "set-element requires key, scalar_type and typed value");
+            request.values.emplace(encoded["key"].get<std::string>(), "");
+            request.scalar_type = encoded["scalar_type"].get<std::string>();
+            request.element_value = encoded["value"];
+        } else {
+            if (!encoded.contains("keys") || !encoded["keys"].is_array() || encoded["keys"].empty())
+                throw MutationCommandError("invalid_command", "reset-elements requires explicit keys");
+            for (const auto& key : encoded["keys"]) {
+                if (!key.is_string() || key.get<std::string>().empty() || !request.values.emplace(key.get<std::string>(), "").second)
+                    throw MutationCommandError("invalid_command", "reset element keys must be unique non-empty strings");
+            }
+        }
+    } else if (request.operation == "set") {
         const bool has_key = encoded.contains("key");
         const bool has_value = encoded.contains("value");
         const bool has_values = encoded.contains("values");
@@ -576,9 +629,11 @@ MutationRequest parse_request(const char* request_json)
 
 void validate_set_keys(const MutationRequest& request)
 {
-    if (request.operation != "set" && request.operation != "reset") return;
+    if (request.operation != "set" && request.operation != "reset" && !request.index) return;
     for (const auto& [key, value] : request.values) {
         const ConfigOptionDef& definition = require_definition(key);
+        if (request.index && (is_native_project_config_key(key) || !is_project_print_override_key(key)))
+            throw MutationCommandError("unsupported_reference", "indexed configuration commands only edit Print options");
         if (is_bridge_owned_project_routing_key(key))
             throw MutationCommandError(
                 "unsupported_reference",
@@ -1092,6 +1147,30 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_native_scoped_config() {
     } catch (...) {
         return Slic3r::Neo::Bridge::ScopedConfig::native_configuration_error_json(
             "native_validation_failure", "unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_print_config_editor() {
+    using namespace Slic3r::Neo::Bridge;
+    try {
+        const auto source = ScopedConfig::print_element_source();
+        const auto& edited = state().presets.prints.get_edited_preset();
+        json metadata = json::object(), originals = json::object(), effective = json::object();
+        const auto& all_metadata = Profiles::option_metadata_json();
+        for (const auto& key : source.keys()) {
+            if (!ScopedConfig::is_project_print_override_key(key)) continue;
+            if (all_metadata.contains(key)) metadata[key] = all_metadata[key];
+            originals[key] = source.option(key)->serialize();
+            if (const auto* option = edited.config.option(key)) effective[key] = option->serialize();
+        }
+        auto vectors = ConfigElements::vectors_json(source, edited.config, Preset::TYPE_PRINT);
+        for (auto it = vectors.begin(); it != vectors.end(); )
+            if (!ScopedConfig::is_project_print_override_key(it.key())) it = vectors.erase(it); else ++it;
+        return ScopedConfig::duplicate_json(json{{"ok", true}, {"kind", "print"}, {"canonical_name", edited.name},
+            {"source_values", originals}, {"effective_values", effective}, {"option_metadata", metadata},
+            {"editor_vectors", vectors}, {"revision", state().history_revision}}.dump());
+    } catch (const std::exception& error) {
+        return ScopedConfig::native_configuration_error_json("native_validation_failure", error.what());
     }
 }
 

@@ -36,6 +36,7 @@ export type {
   NativeScopedConfigResult, NativeScopedConfigError, NativeScopedConfigResultOrError,
   ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
+  ConfigElementMutation, ConfigEditorSnapshot, ConfigEditorSnapshotResult,
   PresetDraftKind, PresetDraftTarget, PresetDraftSnapshot, PresetDraftSnapshotResult,
   PresetDraftEditorScalarType, PresetDraftEditorValue, PresetDraftEditorGuiType,
   PresetDraftEditorEnumOption, PresetDraftEditorBinding,
@@ -78,3 +79,5 @@ export type * from './painting';
 
 export * from './setupWizard';
 export { installProfileArchive, linkProfileVendors, safeProfilePath } from './profileFilesystem';
+
+export { configVectorElementAt } from './configElements';

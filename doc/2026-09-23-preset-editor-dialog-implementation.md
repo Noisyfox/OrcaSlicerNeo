@@ -185,3 +185,43 @@ only with the accepted final phase-one boundary and promoted or consolidated
 with the approved specification according to repository documentation policy.
 Phase two remains a separate task: Save As, rename, deletion, user-preset
 repository persistence, and management UI are excluded from this branch.
+
+## Accepted generic element extension — 2026-10-10
+
+- On `dev/extruder-indexed-editor`, share native typed vector reads, writes,
+  range validation and source-element reset across Printer/Filament drafts and
+  the Project Print configuration. The current source adapter stays in the Neo
+  bridge; this increment requires no Orca source/submodule change.
+- Preserve native variant cardinality and the Printer motion-limit stride of
+  two. Require `indexCount` in every vector projection; do not infer a valid
+  range from a short serialized option or universally use physical nozzle count.
+- Keep Print in its existing embedded-preset/Project ownership and application
+  transaction path. Add its typed read and indexed set/explicit batch reset
+  contracts together with the client, Worker transport, mock and tests.
+- Native invalid/stale requests publish no mutation. Indexed resets preserve
+  other elements and native nullable defaults; batch resets are atomic.
+- Continue using the current internal contract without legacy response fallbacks.
+  Update these existing documents rather than creating new task documents.
+- Filament/Print selectors, per-field Extruder/Variant mapping, motion-mode UI,
+  and parameter synchronization are outside this mechanism increment.
+
+Validation covers native U1 physical/variant/motion ranges, short vectors,
+nonzero Filament and Print edits/resets, nullable source restoration, failed
+batch isolation, and Undo/Redo. Shared client/Worker tests cover the typed
+contract, and the existing Printer/Filament editor journey remains applicable.
+
+Verification completed for this increment:
+
+- `pnpm test`: 1,825 passed, 3 skipped; `pnpm typecheck`: passed.
+- `scripts\build-windows.bat quick --variant serial -j 8` and
+  `scripts\build-windows.bat quick --variant threaded -j 8`: passed.
+- `node packages/slicer-wasm/harness/extruder-indexed-editor-smoke.mjs`
+  with each fresh serial/threaded module: passed. The existing
+  `preset-draft-registry-smoke.mjs` and
+  `native-project-preset-history-smoke.mjs` also passed on serial.
+- Freshly staged real Electron build: `playwright test e2e/preset-editor.e2e.ts`
+  passed both tests. Real Web: `playwright test --config
+  ../../apps/web/playwright.config.ts web.e2e.ts --grep
+  'Print edits followed by Filament edits'` passed its selected test.
+- `git diff --check`: passed. Full release E2E matrices were not run for this
+  focused mechanism increment.

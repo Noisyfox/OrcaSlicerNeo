@@ -376,9 +376,38 @@ index. Nonempty short vectors fall back to their first element, matching native
 values, enums and percentages are editable through single-value indexed native
 requests. Offsets use one X,Y coordinate; printable regions use one coordinate
 pair per line, with an empty region allowed. Native validation checks types,
-finite coordinates, ranges and the effective extruder count. Indexed writes
+finite coordinates, ranges and the native valid element count. Indexed writes
 extend short vectors with their original fallback value and preserve all other
 elements. Trailing empty region groups survive native serialization.
+
+The common native `ConfigElements` implementation serves Printer and Filament
+drafts and the Project-owned Print configuration. Every projected vector
+requires `index_count` (`indexCount` in the typed client). This is the valid
+zero-based element range, independent of serialized length: physical Printer
+options use the nozzle count, variant options use the preset's native variant
+list, and Printer motion limits use two values per variant. Other supported
+vectors use their own length. Short values retain native first-element
+semantics; null is preserved and an empty printable-region group remains valid.
+`configVectorElementAt` supplies the same bounded read to presentation code.
+
+Draft `set-element`, indexed `reset-field`, and indexed `reset-category` share
+that implementation for both Printer and Filament. Resets restore only the
+specified element from the source; a fully source-equivalent vector removes
+its draft override. Explicit batch keys are validated before any history/state
+mutation. Scalar or structured options without an element editor are rejected.
+
+Print uses `getPrintConfigEditor()` for complete typed Source/Effective vectors
+and the same range contract. It remains outside `PresetDraftRegistry`.
+`mutateNativeScopedConfig` accepts Project `set-element` (one typed value, its
+scalar type and index) and `reset-elements` (explicit unique keys and an index).
+Both require the revision returned by the read. They retain the existing
+Project Print owner, embedded-preset materialization, configuration publication,
+and enclosing application history transaction. They do not introduce a second
+Print draft or history root. Whole-option operations remain distinct actions.
+
+This increment supplies element mechanisms only. Filament/Print variant pickers,
+per-field Extruder-to-Variant mapping, motion-mode controls, and cross-extruder
+copy remain separate work. A valid vector index is not a physical Extruder ID.
 
 Diameter edits reuse the native toolhead transition, including exact profile
 combination matching, and the editor follows the resulting canonical source.

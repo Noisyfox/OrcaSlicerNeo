@@ -1227,13 +1227,13 @@ describe('SlicerClient bridge contract', () => {
         payload.editor_vectors.filament_flow_ratio = {
           scalar_type: 'float', nullable: false,
           gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-          source_values: [1, 1], effective_values: [1, 1],
+          source_values: [1, 1], effective_values: [1, 1], index_count: 2,
         };
         payload.option_metadata.filament_type.type = 'strings';
         payload.editor_vectors.filament_type = {
           scalar_type: 'string', nullable: false,
           gui_type: 'f_enum_open', gui_flags: 'show_value', multiline: false, is_code: false, readonly: false,
-          source_values: ['PLA'], effective_values: ['PLA'],
+          source_values: ['PLA'], effective_values: ['PLA'], index_count: 1,
         };
         payload.source_values.filament_retract_lift_enforce = 'nil';
         payload.effective_values.filament_retract_lift_enforce = '1';
@@ -1241,7 +1241,7 @@ describe('SlicerClient bridge contract', () => {
         payload.editor_vectors.filament_retract_lift_enforce = {
           scalar_type: 'enum', nullable: true,
           gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-          source_values: [null], effective_values: [1],
+          source_values: [null], effective_values: [1], index_count: 1,
           enum_options: [
             { value: 0, name: 'All Surfaces', label: 'All Surfaces' },
             { value: 1, name: 'Top Only', label: 'Top Only' },
@@ -1293,12 +1293,11 @@ describe('SlicerClient bridge contract', () => {
       filament_retract_lift_enforce: { scalarType: 'enum', sourceValues: [null] },
     } });
     if (!draft.ok) throw new Error(draft.error);
-    // The bridge rejects indexed Filament resets; the client still preserves
-    // the exact request instead of dropping an index at the boundary.
+    // Indexed Filament reset preserves the requested element at the boundary.
     const reset = await client.mutatePresetDraft({ kind: 'filament', canonicalName: draft.canonicalName,
       action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: draft.revision });
     expect(resetRequest).toMatchObject({ action: 'reset-field', key: 'filament_flow_ratio', index: 0 });
-    expect(reset).toMatchObject({ ok: false, errorCode: 'invalid_index' });
+    expect(reset).toMatchObject({ ok: true });
   });
 
   it('models native preset vector metadata, full raw values, element edits, and resets in the mock bridge', async () => {
@@ -1352,7 +1351,7 @@ describe('SlicerClient bridge contract', () => {
     } });
   });
 
-  it.each(['malformed', 'missing'] as const)('rejects %s native editor vectors', async (mode) => {
+  it.each(['malformed', 'missing', 'range'] as const)('rejects %s native editor vectors', async (mode) => {
     const module = createMockModule();
     const originalCall = module.ccall;
     module.ccall = (name, ret, argTypes, args) => {
@@ -1364,9 +1363,10 @@ describe('SlicerClient bridge contract', () => {
       payload.editor_vectors.filament_flow_ratio = {
         scalar_type: 'float', nullable: false,
         gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-        source_values: [null], effective_values: [1],
+        source_values: [null], effective_values: [1], index_count: 1,
       };
       if (mode === 'missing') delete payload.editor_vectors;
+      if (mode === 'range') { payload.editor_vectors.filament_flow_ratio.source_values = [1]; delete payload.editor_vectors.filament_flow_ratio.index_count; }
       const bytes = new TextEncoder().encode(JSON.stringify(payload));
       const replacement = module._malloc(bytes.byteLength + 1);
       module.HEAPU8.set(bytes, replacement);
@@ -2810,4 +2810,34 @@ describe('SlicerClient bridge contract', () => {
     expect(r.error).toContain('ENOENT');
     expect(r.bytes.length).toBe(0);
   });
+  it('reads Print vectors and isolates indexed writes, atomic resets and native history', async () => {
+    const c = makeClient(); await c.init(MOCK_PROFILE_ACTIVATION);
+    const context = { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null, nativeScopedConfig: {} };
+    const initial = await c.getPrintConfigEditor();
+    if (!initial.ok) throw new Error(initial.error);
+    expect(initial.editorVectors.outer_wall_speed).toMatchObject({ indexCount: 3, effectiveValues: [200, 220, 240] });
+    const editTx = await c.beginHistory('Edit Print element', 'project', context);
+    const edit = await c.mutateNativeScopedConfig({ version: 1, operation: 'set-element', targets: [{ scope: 'project' }],
+      key: 'outer_wall_speed', scalarType: 'float', index: 2, value: 175, expectedRevision: initial.revision });
+    expect(edit.ok).toBe(true);
+    await c.commitHistory(editTx, context);
+    const edited = await c.getPrintConfigEditor(); if (!edited.ok) throw new Error(edited.error);
+    expect(edited.editorVectors.outer_wall_speed.effectiveValues).toEqual([200, 220, 175]);
+    await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'set-element', targets: [{ scope: 'project' }],
+      key: 'outer_wall_speed', scalarType: 'float', index: 1, value: 150, expectedRevision: initial.revision }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'reset-elements', targets: [{ scope: 'project' }],
+      keys: ['outer_wall_speed', 'layer_height'], index: 2, expectedRevision: edited.revision }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'unsupported_option' });
+    expect(await c.getPrintConfigEditor()).toEqual(edited);
+    const resetTx = await c.beginHistory('Reset Print element', 'project', context);
+    await expect(c.mutateNativeScopedConfig({ version: 1, operation: 'reset-elements', targets: [{ scope: 'project' }],
+      keys: ['outer_wall_speed'], index: 2, expectedRevision: edited.revision })).resolves.toMatchObject({ ok: true });
+    await c.commitHistory(resetTx, context);
+    await c.undoHistory();
+    expect(await c.getPrintConfigEditor()).toMatchObject({ editorVectors: { outer_wall_speed: { effectiveValues: [200, 220, 175] } } });
+    await c.redoHistory();
+    expect(await c.getPrintConfigEditor()).toMatchObject({ editorVectors: { outer_wall_speed: { effectiveValues: [200, 220, 240] } } });
+  });
+
 });

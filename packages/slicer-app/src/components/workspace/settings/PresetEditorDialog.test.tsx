@@ -133,7 +133,7 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     optionMetadata,
     editorBindings,
     editorVectors: Object.fromEntries(Object.entries(editorBindings).map(([key, binding]) => [key, {
-      ...binding, sourceValues: JSON.parse(sourceValues[key]!), effectiveValues: JSON.parse(effectiveValues[key]!),
+      ...binding, indexCount: binding.elementCount, sourceValues: JSON.parse(sourceValues[key]!), effectiveValues: JSON.parse(effectiveValues[key]!),
     }])),
     revision: 1,
   };
@@ -321,7 +321,7 @@ afterEach(() => {
 describe('PresetEditorDialog', () => {
   it('reads and edits each Extruder index, preserving other values and indexing search/tooltips', async () => {
     const base = snapshotFor('printer');
-    const makeVector = (values: number[]): PresetDraftEditorVector => ({ ...base.editorBindings.nozzle_diameter!, sourceValues: values, effectiveValues: values });
+    const makeVector = (values: number[]): PresetDraftEditorVector => ({ ...base.editorBindings.nozzle_diameter!, indexCount: values.length, sourceValues: values, effectiveValues: values });
     let current: PresetDraftSnapshot = { ...base,
       sourceValues: { ...base.sourceValues, nozzle_diameter: '[0.4,0.4,0.6,0.6]', min_layer_height: '[0.08,0.08,0.12,0.12]' },
       effectiveValues: { ...base.effectiveValues, nozzle_diameter: '[0.4,0.4,0.6,0.6]', min_layer_height: '[0.08,0.08,0.12,0.12]' },
@@ -371,11 +371,11 @@ describe('PresetEditorDialog', () => {
 
   it('uses first-element fallback and submits one coordinate or polygon at the selected index', async () => {
     const base = snapshotFor('printer');
-    const coords = { ...base.editorBindings.nozzle_diameter!, scalarType: 'point' as const,
+    const coords = { ...base.editorBindings.nozzle_diameter!, scalarType: 'point' as const, indexCount: 2,
       sourceValues: [{ x: 1, y: 2 }], effectiveValues: [{ x: 1, y: 2 }] };
     const polygon = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 0, y: 200 }];
     let current: PresetDraftSnapshot = { ...base, editorVectors: { ...base.editorVectors, extruder_offset: coords,
-      extruder_printable_area: { ...coords, scalarType: 'points', sourceValues: [], effectiveValues: [] } } };
+      extruder_printable_area: { ...coords, scalarType: 'points', indexCount: 2, sourceValues: [], effectiveValues: [] } } };
     const requests: PresetDraftMutationRequest[] = [];
     await mount(current, vi.fn(), undefined, async request => {
       requests.push(request); const result = mutationSuccess(current, request); if (result.ok) current = result; return result;
