@@ -1095,3 +1095,21 @@ Verification passed:
 - Real threaded Web `web.e2e.ts -g "shared history toolbar"` passed.
 - `git diff --check` passed. The full release and performance matrices were not
   run for this focused correction.
+
+### Open Project history projection correction (2026-10-10)
+
+Native 3MF replacement already clears history and returns a clean baseline.
+The shared Open action now publishes that returned status to Undo/Redo controls,
+instead of reading only its dirty flag. The successful native close callback
+also clears the prior history projection before parsing the replacement, so a
+subsequent load failure cannot leave old Undo/Redo entries visible. Cancellation
+before closing preserves the original history. No additional native history
+reset is issued.
+
+Regression tests cover successful replacement, failure after close, and
+cancellation before close. Electron mock E2E creates both Undo and Redo entries,
+opens a 3MF, checks both controls are disabled, then verifies the first edit in
+the loaded project can be undone. `pnpm test` passed with 1,840 tests and three
+existing skips; `pnpm typecheck`, the focused Electron project-lifecycle E2E,
+and `git diff --check` passed. Native WASM builds were not rerun because the
+correction changes only the shared application projection.

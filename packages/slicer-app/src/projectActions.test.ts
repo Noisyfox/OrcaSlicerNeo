@@ -6,6 +6,7 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { noticesFor, importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, saveProjectAs, sortProjectInputs } from './projectActions';
 
@@ -41,7 +42,8 @@ const loadedHistoryStatus = {
   byteBudget: 256 * 1024 * 1024, evictedEntryCount: 0, lastEvictedEntryId: null,
   oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false, disabled: false,
   activeTransactionId: null, revision: 1,
-} as const;
+  editingSession: null, navigationFloor: null,
+};
 function filamentSnapshot(revision: number): FilamentSessionSnapshot {
   return {
     ok: true, version: 1,
@@ -97,6 +99,45 @@ function platformFor(load: Partial<ProjectLoadResult> = {}) {
 }
 
 describe('transactional project actions', () => {
+  it('publishes the loaded clean baseline instead of retaining old Undo and Redo', async () => {
+    const { platform, runtime } = platformFor();
+    useHistoryNavigationStore.getState().setStatus({
+      ...loadedHistoryStatus, revision: 20, canUndo: true, canRedo: true,
+      undoEntries: [{ id: 'old-undo', label: 'Move', category: 'project' }],
+      redoEntries: [{ id: 'old-redo', label: 'Delete', category: 'project' }],
+    });
+    expect((await openProject(platform, { loadBehaviour: 'load_all' })).status).toBe('ok');
+    expect(useHistoryNavigationStore.getState().status).toEqual(loadedHistoryStatus);
+    expect(runtime.resetHistory).not.toHaveBeenCalled();
+  });
+
+  it('clears projected history at the close boundary even if loading then fails', async () => {
+    const { platform, runtime } = platformFor();
+    useHistoryNavigationStore.getState().setStatus({
+      ...loadedHistoryStatus, canUndo: true,
+      undoEntries: [{ id: 'old-undo', label: 'Move', category: 'project' }],
+    });
+    runtime.loadProject.mockImplementation(async (_bytes, _mode, _name, _progress, closed) => {
+      closed?.(freshPlateSession);
+      expect(useHistoryNavigationStore.getState().status).toBeNull();
+      throw new Error('invalid 3MF');
+    });
+    expect((await openProject(platform, { loadBehaviour: 'load_all' })).status).toBe('failed');
+    expect(useHistoryNavigationStore.getState().status).toBeNull();
+  });
+
+  it('retains projected history when Open is cancelled before project close', async () => {
+    const { platform, runtime } = platformFor();
+    const previous = { ...loadedHistoryStatus, canUndo: true,
+      undoEntries: [{ id: 'old-undo', label: 'Move', category: 'project' as const }] };
+    useHistoryNavigationStore.getState().setStatus(previous);
+    useSettingsStore.setState({ modelLoaded: true });
+    expect((await openProject(platform, { loadBehaviour: 'always_ask', chooseLoad: () => 'cancel' })).status).toBe('cancelled');
+    expect(useHistoryNavigationStore.getState().status).toBe(previous);
+    expect(runtime.loadProject).not.toHaveBeenCalled();
+    useHistoryNavigationStore.getState().reset();
+  });
+
   it('publishes final native bed root when New Project seed is already unchanged', async () => {
     const { platform, runtime } = platformFor();
     runtime.getNativeScopedConfig.mockResolvedValue({ ok: true, version: 1, nativeScopedConfig: { ...scopedConfigTransport, snapshot: { ...scopedConfigTransport.snapshot, project: { curr_bed_type: 'Textured PEI Plate' } } } });

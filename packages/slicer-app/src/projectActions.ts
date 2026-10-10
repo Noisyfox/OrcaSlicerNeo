@@ -6,6 +6,7 @@ import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad
 import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
+import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { refreshFilamentSession } from './stores/useFilamentSessionStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
@@ -18,6 +19,7 @@ import {
   runProjectMutationOperation,
   readProjectHistoryStatus,
   resetProjectHistory,
+  projectHistoryStatus,
 } from './components/workspace/actions/historyMutation';
 import { applyRememberedFilamentRackFromRepository, loadRememberedBedTypeFromRepository, seedRememberedBedType } from './preferences';
 
@@ -255,6 +257,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
     const runtime = runtimeOf(platform);
     const publishClosedProject = (plateSession: PlateSessionMutation) => {
+      useHistoryNavigationStore.getState().reset();
       resetSceneState(options.sceneResetTarget, { clearSettings: true });
       usePlateSessionStore.getState().setSnapshot(plateSession);
       useProjectStore.getState().reset();
@@ -300,6 +303,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = load.historyStatus;
     if (!history) throw new Error('project load did not return its history status');
+    projectHistoryStatus(history);
     const filament = await refreshFilamentSession(runtime);
     if (!filament.ok) throw new Error(filament.error ?? 'project load filament session refresh failed');
     useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), projectFileName: input.displayName, location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load) });
