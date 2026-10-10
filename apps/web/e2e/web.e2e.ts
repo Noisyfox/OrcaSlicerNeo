@@ -98,6 +98,41 @@ test('real Web G-code export downloads the native generated basename directly', 
   await expect(page.getByTestId('btn-export')).toBeEnabled();
 });
 
+test('Print edits followed by Filament edits keep the Process profile catalogue stable', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  const process = page.getByTestId('process-preset-select');
+  const source = await process.getAttribute('title');
+  expect(source).toBeTruthy();
+  await process.click();
+  await expect(page.getByRole('option').first()).toBeVisible();
+  const originalCount = await page.getByRole('option').count();
+  expect(originalCount).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+
+  const height = page.getByTestId('config-input-layer_height');
+  const editedHeight = (await height.inputValue()) === '0.24' ? '0.22' : '0.24';
+  await height.fill(editedHeight);
+  await height.press('Enter');
+  await expect(height).toHaveValue(editedHeight);
+  await page.getByTestId('filament-slot-1').click({ button: 'right' });
+  await page.getByTestId('filament-edit-1').click();
+  await page.getByRole('searchbox', { name: 'Search filament preset settings' }).fill('filament_soluble');
+  const soluble = page.getByTestId('preset-editor-input-filament_soluble');
+  const checked = await soluble.getAttribute('aria-checked');
+  await soluble.click();
+  await expect(soluble).toHaveAttribute('aria-checked', checked === 'true' ? 'false' : 'true');
+  await expect(page.getByTestId('preset-editor-close')).toBeEnabled();
+  await page.getByTestId('preset-editor-close').click();
+
+  await expect(process).toHaveAttribute('title', source!);
+  await expect(height).toHaveValue(editedHeight);
+  await process.click();
+  await expect(page.getByRole('option')).toHaveCount(originalCount);
+  await expect(page.getByRole('option').filter({ hasText: '(Project)' })).toHaveCount(0);
+});
+
 test('Web project save downloads its suggested filename and establishes a clean named session', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });

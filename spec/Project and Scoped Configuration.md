@@ -1,7 +1,7 @@
 # Project and Scoped Configuration
 
 **Status:** Final user experience; delivered in the shared Electron and Web application.
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-10
 
 This specification records the final behavior visible to users. Project-wide and
 selection-scoped configuration share one settings surface and follow OrcaSlicer's
@@ -12,6 +12,20 @@ configuration behavior.
 The `Project | Scoped` switch appears inside the configuration panel, above
 the target label and configuration options. Immediately below the switch,
 Project shows the Process preset selector; Scoped shows the object list.
+
+The first accepted Process parameter change that changes the effective value
+creates and selects a native project-embedded child of the selected source
+profile. Process edits belong to that child; they must not be moved into the
+original source profile's edited preset. The child's native identity and values
+remain authoritative for slicing, Undo/Redo, and 3MF save/reopen.
+
+The Process selector displays that selected child in its source profile's row,
+using the source's native label and full name for the trigger and item tooltips.
+It retains native source order and does not add a separate `(Project)` row.
+Commands still target the child identity. Editing a Filament parameter, such as
+`filament_soluble`, may refresh the complete profile snapshot but must preserve
+this display and the Process edits. An embedded profile without an available,
+visible, compatible source retains its independent selector entry.
 
 The workspace sidebar has two panels with a draggable horizontal divider.
 The upper device/material panel scrolls its content. In the lower panel, only

@@ -26,10 +26,19 @@ considers them compatible.
   name, including nozzle and variant suffixes, like Orca's `get_tooltip(preset)`.
   The visible trigger label remains the grouped model name.
 - Printer, Process, and Filament share one `PresetCombobox` presentation.
-  Each entry supplies its identity, canonical name, and native display label;
+  Each entry supplies its command identity, full display name, and native label;
   the control and list render the label, while both tooltips render the full
-  canonical name. Display labels are required, with no renderer name parsing
-  or per-kind tooltip overrides. Grouping and transitions remain caller-owned.
+  display name. Display labels are required, with no renderer name parsing.
+  Grouping and transitions remain caller-owned.
+- A selected project-embedded Process child occupies its source profile's row
+  instead of adding another picker entry. Native projection retains the child's
+  canonical `name` as the command/selection identity, supplies `source_name`
+  for the source's complete display name, and uses the source's native label.
+  React passes those supplied values to the shared picker without reconstructing
+  inheritance or changing the child's storage, history, or export identity.
+  Embedded Process profiles without a visible, compatible source remain
+  independent entries. Filament edits and full snapshot refreshes preserve this
+  projection and the Process values.
 - SettingsPanel requires an initialized profile snapshot when mounted. A missing
   printer picker is a contract violation; it does not render an empty fallback.
 - Native `printer_picker` supplies stable item identities, display labels,

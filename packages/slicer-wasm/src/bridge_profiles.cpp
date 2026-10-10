@@ -338,13 +338,40 @@ json preset_entry_json(const Preset& preset, const PresetCollection& collection,
     return entry;
 }
 
+// A project-owned Process child keeps its native identity for mutation,
+// history and export, but occupies its source's row in the picker.
+const Preset* print_picker_source(const Preset& preset, const PresetCollection& collection)
+{
+    const Preset* source = &preset;
+    std::set<std::string> visited;
+    while (source->is_project_embedded) {
+        if (!visited.insert(source->name).second) return &preset;
+        const Preset* parent = collection.get_preset_parent(*source);
+        if (parent == nullptr) return &preset;
+        source = parent;
+    }
+    return source->is_visible && source->is_compatible ? source : &preset;
+}
+
 json preset_candidates_json(const PresetCollection& collection, bool require_compatible,
                             bool include_selection = true)
 {
     json candidates = json::array();
+    const Preset* selected_print = collection.type() == Preset::TYPE_PRINT &&
+        collection.get_selected_idx() != size_t(-1) ? &collection.get_selected_preset() : nullptr;
+    const Preset* selected_source = selected_print ? print_picker_source(*selected_print, collection) : nullptr;
     for (auto it = collection.begin(); it != collection.end(); ++it) {
         if (!it->is_visible || (require_compatible && !it->is_compatible)) continue;
-        candidates.push_back(preset_entry_json(*it, collection, include_selection));
+        if (collection.type() == Preset::TYPE_PRINT && print_picker_source(*it, collection) != &*it)
+            continue;
+        if (selected_print && selected_print != selected_source && selected_source == &*it) {
+            json entry = preset_entry_json(*selected_print, collection, include_selection);
+            entry["source_name"] = it->name;
+            entry["label"] = it->label(false);
+            candidates.push_back(std::move(entry));
+        } else {
+            candidates.push_back(preset_entry_json(*it, collection, include_selection));
+        }
     }
     if (collection.type() == Preset::TYPE_FILAMENT) {
         static const std::vector<std::string> vendors{"", "Generic"};
