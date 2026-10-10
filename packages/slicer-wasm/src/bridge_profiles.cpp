@@ -578,16 +578,11 @@ json printer_picker_json(const DynamicPrintConfig& effective)
     json variants = json::array();
     std::string current_variant = effective.opt_string("printer_variant");
     const auto* nozzles = effective.opt<ConfigOptionFloats>("nozzle_diameter");
-    const auto* original_nozzles = selected.config.opt<ConfigOptionFloats>("nozzle_diameter");
-    if (nozzles && !nozzles->values.empty() &&
-        (current_variant.empty() || (original_nozzles && nozzles->values != original_nozzles->values))) {
+    // Orca's unified selector identifies the profile variant. Per-toolhead
+    // edits are shown in the nozzle cards, not as invented mixed variants.
+    if (current_variant.empty() && nozzles && !nozzles->values.empty()) {
         std::ostringstream label;
-        std::set<double> seen;
-        for (double value : nozzles->values)
-            if (seen.insert(value).second) {
-                if (seen.size() > 1) label << "+";
-                label << value;
-            }
+        label << nozzles->values.front();
         current_variant = label.str();
     }
     for (const auto& group : groups) {
@@ -611,15 +606,12 @@ json printer_picker_json(const DynamicPrintConfig& effective)
                 if (!value.empty()) values.insert(value);
             }
         }
-        if (!current_variant.empty()) values.insert(current_variant);
         for (const auto& value : values) {
             const Preset* variant_target = resolve(group, value);
-            // Reactivating the current source retains its runtime draft. Do
-            // not advertise its original variant as a way to reset that draft.
-            if (variant_target && variant_target->name == selected.name && value != current_variant)
-                variant_target = nullptr;
+            if (!variant_target)
+                throw std::runtime_error("printer variant has no canonical target");
             variants.push_back({{"value", value},
-                                {"preset", variant_target ? json(variant_target->name) : json(nullptr)}});
+                                {"preset", variant_target->name}});
         }
     }
     std::set<double> diameters;

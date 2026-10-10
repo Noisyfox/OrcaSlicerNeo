@@ -519,6 +519,19 @@ Validation for main CI plate-card clipping repair (2026-10-05):
 
 ### 2026-10-09 Multi-toolhead diameter editing
 
+- The unified Device Nozzle selector retains the effective profile variant
+  after individual toolhead edits, matching Orca's `Sidebar::update_presets`.
+  Physical diameter combinations do not add synthetic disabled variant entries;
+  the nozzle cards and Multi. controls display each effective diameter.
+  Every variant choice requires a canonical profile target across the native
+  bridge, typed client, and UI. Nullable targets and their disabled-item branch
+  are removed; variant-less display text does not manufacture a choice.
+  The 2026-10-10 correction passed the serial WASM quick build, native
+  printer-picker smoke (including uniform-profile and mixed-profile draft edits),
+  all 396 slicer-wasm unit tests, 18 SettingsPanel tests, workspace typechecks,
+  and `git diff --check`. Before pushing, `pnpm test` passed all 1,809 tests
+  with the existing gated skips, and `pnpm typecheck` passed across the workspace.
+
 - Multi-nozzle printers expose Device and Multi. header tabs; single-nozzle
   printers keep their existing Printer section. Both tab contents stay mounted.
   Multi. presents selectable numbered toolhead cards with effective diameter

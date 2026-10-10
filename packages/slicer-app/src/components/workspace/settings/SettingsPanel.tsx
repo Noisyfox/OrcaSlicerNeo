@@ -273,7 +273,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             disabled={controlsDisabled || printerPicker.variants.length === 0}
             onValueChange={(value) => {
               const target = printerPicker.variants.find(item => item.value === value);
-              if (target?.preset && value !== printerPicker.selectedVariant)
+              if (!target) throw new Error('Nozzle variant has no canonical profile target');
+              if (value !== printerPicker.selectedVariant)
                 void handleSelectPreset('printer', target.preset);
             }}>
             <SelectTrigger variant="sidebar" className={cn('min-w-0 flex-1', multiExtruder && 'printer-nozzle-multi-selector')} data-testid="nozzle-variant-select"
@@ -282,7 +283,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
               <SelectValue className={multiExtruder ? undefined : 'pl-4'}>{printerPicker.selectedVariant || '—'}</SelectValue>
             </SelectTrigger>
             <SelectContent><SelectGroup>{printerPicker.variants.map(item =>
-              <SelectItem key={item.value} value={item.value} disabled={item.preset === null}>{item.value}</SelectItem>
+              <SelectItem key={item.value} value={item.value}>{item.value}</SelectItem>
             )}</SelectGroup></SelectContent>
           </Select>
           {multiExtruder && <div className="printer-nozzle-extruders" aria-label="Extruder nozzles">

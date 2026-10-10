@@ -393,7 +393,7 @@ export interface PrinterPicker {
   nozzleDiameters: number[];
   items: Array<{ id: string; label: string; preset: string }>;
   selectedId: string;
-  variants: Array<{ value: string; preset: string | null }>;
+  variants: Array<{ value: string; preset: string }>;
   selectedVariant: string;
 }
 

@@ -39,10 +39,15 @@ considers them compatible.
   and lexically sorted like Orca, including named and mixed variants. Model
   selection uses Orca's alias/current-variant preference and name-ordered
   fallback, restricted to visible candidates in the intended vendor/model.
-- The selected effective draft nozzle value is displayed even without a
-  matching profile; such a value does not invent a transition target. A source
-  profile's original variant is disabled when reactivating that same source
-  would retain a customized draft. Resetting the draft remains an editor action.
+- The unified Nozzle selector retains the effective `printer_variant` after
+  physical nozzle draft edits, like Orca. Actual toolhead diameters are shown
+  by the nozzle cards and Multi. tab. Do not synthesize mixed variants from the
+  diameter vector or disable the source variant. For profiles without a variant,
+  the first physical diameter supplies the display fallback. Resetting the draft
+  remains an editor action.
+- Every Nozzle dropdown entry has a required canonical profile target. A
+  variant-less profile's physical display fallback is trigger text only and
+  does not create an extra choice.
 - The row beneath Printer/Bed contains an inert Sync icon button, a Nozzle
   label, and a full-width variant selector. Sync has no action. A separate
   Flow selector is outside this feature; named profile variants containing
