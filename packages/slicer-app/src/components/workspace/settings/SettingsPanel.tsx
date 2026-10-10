@@ -349,7 +349,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       <ScopedConfigurationPanel
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
-        projectContent={<PresetRow compact label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
+        projectContent={<PresetRow compact label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
         platesContent={platesContent}
         platesToolbar={sceneInteraction && <PlateToolbar sceneInteraction={sceneInteraction} />}

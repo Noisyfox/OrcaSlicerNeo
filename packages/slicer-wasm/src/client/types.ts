@@ -360,6 +360,8 @@ export interface FilamentCatalogItem {
 
 /** A printer/process entry whose collection selection is meaningful. */
 export interface PresetInfo extends FilamentCatalogItem {
+  /** Process picker source name; name remains the project child's identity. */
+  source_name?: string;
   /** true when this entry is the collection's current selection (the
    *  picker's value source at boot; updated by selectProfile responses) */
   selected: boolean;

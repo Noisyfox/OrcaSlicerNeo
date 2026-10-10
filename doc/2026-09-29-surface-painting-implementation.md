@@ -3088,6 +3088,28 @@ Desktop/Web production builds, 21-artifact observer elision and
 
 ## Project process catalogue — 2026-10-03
 
+The Process selector preserves the native project-embedded child ownership of
+Project print edits. The child remains the selected configuration authority for
+slicing, history and 3MF persistence, while native picker projection substitutes
+it into the original source row. Its `name` remains the child command identity;
+`source_name` and the source label control display and tooltips. No separate
+`(Project)` entry appears after a Filament edit refreshes the catalogue. This
+corrects display only; the original source's edited preset is not an alternative
+storage path. Profiles without a visible, compatible source stay independent.
+
+Verification on 2026-10-10 passed `pnpm test` (1,813 passed, three existing skips),
+`pnpm typecheck`, `scripts\build-windows.bat quick --variant both -j 8`,
+`pnpm --filter @orca/slicer-wasm native-project-preset-history-smoke` and
+`native-project-preset-history-smoke:threaded`, the serial
+`preset-draft-registry-smoke`, and the threaded `bridge-smoke.mjs` harness.
+`SettingsPanel.test.tsx` checks source display with child command dispatch.
+Real Web E2E passed the exact layer-height → `filament_soluble` → Process-picker
+regression and project save. The broader Web import/slice/preview/export journey
+was also attempted, but failed at the Preview single-layer toggle assertion;
+that failure remains unaddressed by this display correction. The full release
+matrix was not rerun. Documentation checks use `git diff --check` and local
+link/command verification.
+
 Project settings now use the same native ownership eligibility as Project
 mutation: native project options plus editable Print-preset options, including
 global object/region defaults. This restores Fuzzy skin and the other supported
