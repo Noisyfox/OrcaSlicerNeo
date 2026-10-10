@@ -36,6 +36,7 @@ interface SettingsState {
    *  from the bridge, never computed client-side). */
   printers: PresetInfo[];
   printerPicker: PrinterPicker | null;
+  modifiedPresets: ProfileSnapshot['modifiedPresets'];
   prints: PresetInfo[];
   /** Engine-filtered filament catalogue consumed by the multi-filament rack.
    * It is not a single-filament selection or a second source of truth. */
@@ -86,6 +87,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   metadata: null,
   printers: [],
   printerPicker: null,
+  modifiedPresets: { printer: [], filament: [] },
   prints: [],
   filamentCatalog: [],
   selectedPrinter: '',
@@ -110,6 +112,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return {
       printers: snapshot.printers,
       printerPicker: snapshot.printerPicker,
+      modifiedPresets: snapshot.modifiedPresets,
       prints: snapshot.prints,
       filamentCatalog: snapshot.filamentCatalog,
       selectedPrinter: snapshot.printer.name,

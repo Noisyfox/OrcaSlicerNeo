@@ -1032,6 +1032,10 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
         !picker.items.some((item) => item.id === picker.selected_id && item.preset === selectedPrinterName)))
     return { ok: false, error: 'Invalid native printer picker' };
   const bedType = raw.bed_type;
+  const modified = raw.modified_presets;
+  if (!isRecord(modified) || ['printer', 'filament'].some(kind =>
+    !Array.isArray(modified[kind]) || modified[kind].some(name => typeof name !== 'string' || !name)))
+    return { ok: false, error: 'Invalid native modified preset projection' };
   if (!isRecord(bedType) || typeof bedType.supports_selection !== 'boolean' ||
       typeof bedType.default_value !== 'string' || bedType.default_value.length === 0 ||
       !Array.isArray(bedType.choices) || bedType.choices.some((choice) =>
@@ -1048,6 +1052,7 @@ function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshot
       variants: picker.variants.map((variant) => ({ value: variant.value as string, preset: variant.preset as string })),
       selectedVariant: picker.selected_variant,
     },
+    modifiedPresets: { printer: modified.printer as string[], filament: modified.filament as string[] },
     printers,
     prints: raw.prints as ProfileSnapshot['prints'],
     filamentCatalog: raw.filament_catalog as ProfileSnapshot['filamentCatalog'],

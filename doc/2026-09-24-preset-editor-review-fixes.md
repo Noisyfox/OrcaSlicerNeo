@@ -10,6 +10,14 @@ and [Preset Editor Dialog](../spec/Preset%20Editor%20Dialog.md).
 
 ## Accepted behavior
 
+- Sidebar Printer and Filament preset labels use the existing orange modified
+  color when their canonical source has a nonempty native draft overlay. Every
+  slot sharing the same Filament source highlights together. Empty drafts do
+  not highlight; reset, selection changes, project replacement, and Undo/Redo
+  refresh the projection through the existing atomic profile snapshot path.
+  The snapshot carries required modified-source lists rather than fetching
+  full editor metadata per sidebar slot. Dropdown choices and slot swatches
+  retain their existing colors.
 - Undo/Redo of a Printer transition invalidates every plate even when Process,
   rack, and project settings remain identical. A geometry-only history restore
   does not recalculate unchanged profile compatibility. Historical selections
@@ -100,3 +108,14 @@ Passed checks:
 - `git diff --check`.
 
 The full release matrix is intentionally not run for this focused repair.
+
+Sidebar modified-label validation (2026-10-10): `pnpm test` passed 1,814
+tests with 3 existing runtime-gated skips, and `pnpm typecheck` passed.
+Focused Printer/Filament component tests verify selected-source highlighting,
+shared-slot highlighting, and reset clearing; the client test verifies the
+native projection survives normalization. Both WASM quick builds and both
+`preset-draft-registry-smoke.mjs --module packages/slicer-wasm/out/<variant>/orca_slice.js`
+runs passed, including native empty-draft, reset, and Undo/Redo assertions.
+`node scripts/stage.mjs` synchronized the rebuilt artifacts, and
+`git diff --check` passed. Host E2E and manual screenshot validation were not
+run for this label-only presentation change.

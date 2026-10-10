@@ -2,6 +2,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronDown } from 'lucide-react';
 import { SearchInput } from '@/components/ui/search-input';
+import { cn } from 'cn';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
@@ -22,7 +23,8 @@ export interface PresetComboItem {
 
 /** Shared Orca-style presentation; identity and transition policy stay with the caller. */
 export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, testId,
-  searchPlaceholder, emptyText, leading, triggerStyle, groupBy }: {
+  searchPlaceholder, emptyText, leading, triggerStyle, groupBy, modified }: {
+  modified: boolean;
   items: readonly PresetComboItem[];
   value: string;
   onValue: (id: string) => void;
@@ -56,7 +58,7 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
       <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="sm" />}
         className="sidebar-dropdown min-w-0 flex-1 text-foreground" aria-label={ariaLabel}
         title={entries.get(value)?.name} data-testid={testId} style={triggerStyle}>
-        <span className="min-w-0 flex-1 truncate text-left">{entries.get(value)?.label ?? '— select —'}</span>
+        <span className={cn('min-w-0 flex-1 truncate text-left', modified && 'config-override-label')}>{entries.get(value)?.label ?? '— select —'}</span>
         <ChevronDown className="sidebar-dropdown-arrow" />
       </DropdownMenuTrigger>
     </div>
@@ -93,7 +95,7 @@ export function PresetCombobox({ items, value, onValue, disabled, ariaLabel, tes
       <ComboboxTrigger variant="sidebar" className="min-w-0 flex-1"
         aria-label={ariaLabel} title={entries.get(value)?.name} data-testid={testId}
         disabled={disabled} style={triggerStyle} render={<Button variant="ghost" size="sm" />}>
-        <span className="min-w-0 flex-1 truncate text-left"><ComboboxValue placeholder="— select —" /></span>
+        <span className={cn('min-w-0 flex-1 truncate text-left', modified && 'config-override-label')}><ComboboxValue placeholder="— select —" /></span>
       </ComboboxTrigger>
     </div>
     <ComboboxContent>

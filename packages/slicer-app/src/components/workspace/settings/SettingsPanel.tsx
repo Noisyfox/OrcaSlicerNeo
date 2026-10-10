@@ -41,6 +41,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
   const nozzleVolumeType = useSettingsStore((s) => s.values.nozzle_volume_type);
   const prints = useSettingsStore((s) => s.prints);
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
+  const printerModified = useSettingsStore((s) => s.modifiedPresets.printer.includes(s.selectedPrinter));
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const bedType = useSettingsStore((s) => s.bedType);
   const globalBed = useSettingsStore((s) => s.nativeScopedConfig.project.curr_bed_type);
@@ -240,6 +241,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
             <PresetRow
               compact
               label="Printer"
+              modified={printerModified}
               items={printerPicker.items.map(item => ({ id: item.id, name: item.preset, label: item.label }))}
               value={printerPicker.selectedId}
               onValue={(id) => {
@@ -349,7 +351,7 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
       <ScopedConfigurationPanel
         bedTypeDisabled={controlsDisabled}
         sceneInteraction={sceneInteraction}
-        projectContent={<PresetRow compact label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
+        projectContent={<PresetRow compact modified={false} label="Process" items={prints.map(preset => ({ id: preset.name, name: preset.source_name ?? preset.name, label: preset.label }))} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={controlsDisabled} testId="process-preset-select" />}
         scopedContent={<ObjectList sceneInteraction={sceneInteraction} />}
         platesContent={platesContent}
         platesToolbar={sceneInteraction && <PlateToolbar sceneInteraction={sceneInteraction} />}
@@ -364,7 +366,8 @@ export function SettingsPanel({ sceneInteraction, onEditPrinter, platesContent, 
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false }: {
+function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, compact = false, modified }: {
+  modified: boolean;
   compact?: boolean;
   label: string;
   items: PresetComboItem[];
@@ -377,7 +380,7 @@ function PresetRow({ label, items, value, onValue, onEdit, disabled, testId, com
   if (items.length === 0) return null;
   return <div className={cn(compact ? "min-w-0" : "flex flex-col gap-1 py-1")}>
     <Label className={compact ? "sr-only" : "text-xs text-muted-foreground"}>{label}</Label>
-    <PresetCombobox items={items} value={value} onValue={onValue} disabled={disabled}
+    <PresetCombobox items={items} value={value} onValue={onValue} disabled={disabled} modified={modified}
       ariaLabel={label} testId={testId} searchPlaceholder="Search presets…" emptyText="No matching presets"
       leading={onEdit && <Button type="button" variant="settings" size="icon-sm"
         aria-label="Edit Printer" title="Printer settings" data-testid="preset-edit-printer"
