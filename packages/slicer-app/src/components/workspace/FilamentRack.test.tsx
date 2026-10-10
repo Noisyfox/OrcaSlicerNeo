@@ -91,7 +91,26 @@ describe('FilamentRack runtime interaction', () => {
     act(() => root?.unmount()); root = undefined; document.body.innerHTML = '';
     useFilamentSessionStore.getState().reset();
     useProjectStore.getState().reset();
-    useSettingsStore.setState({ filamentCatalog: [] });
+    useSettingsStore.setState({ filamentCatalog: [], modifiedPresets: { printer: [], filament: [] } });
+  });
+
+  it('highlights every slot sharing a modified source and clears the highlight after reset', async () => {
+    const base = makeSnapshot();
+    const initial = makeSnapshot({ slots: [base.slots[0],
+      { ...base.slots[0], slot: 2, logicalId: 'filament-2' },
+      { ...base.slots[1], slot: 3, logicalId: 'filament-3' },
+    ] });
+    useFilamentSessionStore.setState({ snapshot: initial });
+    useSettingsStore.setState({ modifiedPresets: { printer: [], filament: ['PLA'] } });
+    const rendered = renderRack({ getFilamentSessionSnapshot: vi.fn(async () => initial) }); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const highlighted = (slot: number) => rendered.container.querySelector(`[data-testid="filament-preset-${slot}"] .config-override-label`);
+    expect(highlighted(1)).not.toBeNull();
+    expect(highlighted(2)).not.toBeNull();
+    expect(highlighted(3)).toBeNull();
+    await act(async () => useSettingsStore.setState({ modifiedPresets: { printer: [], filament: [] } }));
+    expect(highlighted(1)).toBeNull();
+    expect(highlighted(2)).toBeNull();
   });
 
   it('displays native aliases while distinct canonical names remain selectable and visible in tooltips', async () => {

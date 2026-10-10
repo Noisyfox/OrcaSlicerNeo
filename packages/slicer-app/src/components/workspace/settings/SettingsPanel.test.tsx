@@ -27,6 +27,7 @@ function preset(name: string, isVisible = true): PresetInfo {
 
 const initialSnapshot: ProfileSnapshot = {
   ok: true,
+  modifiedPresets: { printer: [], filament: [] },
   printerPicker: { items: [
     { id: 'old', label: 'Old Printer', preset: 'Old Printer' },
     { id: 'new', label: 'New Printer', preset: 'New Printer' },
@@ -43,6 +44,7 @@ const initialSnapshot: ProfileSnapshot = {
 
 const resolvedSnapshot: ProfileSnapshot = {
   ok: true,
+  modifiedPresets: { printer: [], filament: [] },
   printerPicker: { items: [
     { id: 'new', label: 'New Printer', preset: 'New Printer' },
     { id: 'other', label: 'Other Printer', preset: 'Other Printer' },
@@ -112,6 +114,7 @@ function resetStores() {
       nativeScopedConfig: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: { 'plate-1': { curr_bed_type: 'High Temp Plate' } } },
       metadata: {},
     printers: initialSnapshot.printers,
+    modifiedPresets: { printer: [], filament: [] },
     printerPicker: initialSnapshot.printerPicker,
     prints: initialSnapshot.prints,
     filamentCatalog: initialSnapshot.filamentCatalog,
@@ -299,6 +302,23 @@ describe('SettingsPanel preset transitions', () => {
     expect(runtime.setToolheadDiameter).toHaveBeenCalledWith(1, 0.6, 0);
     expect(useSettingsStore.getState().values.nozzle_diameter).toBe('0.4,0.6,0.4,0.4');
     expect(container.querySelector('[data-testid="toolhead-diameter-select"]')?.textContent).toContain('0.6');
+  });
+
+  it('highlights only the selected printer draft and clears it with a clean native snapshot', async () => {
+    resetStores();
+    useSettingsStore.getState().hydrateProfileSnapshot({ ...initialSnapshot,
+      modifiedPresets: { printer: ['Old Printer'], filament: [] },
+    });
+    const { platform } = makePlatform(async () => resolvedSnapshot);
+    const { container, root } = await render(platform); roots.push(root);
+    const highlighted = () => container.querySelector('[data-testid="preset-select"] .config-override-label');
+    expect(highlighted()).not.toBeNull();
+    await act(async () => useSettingsStore.getState().hydrateProfileSnapshot({ ...resolvedSnapshot,
+      modifiedPresets: { printer: ['Old Printer'], filament: [] },
+    }));
+    expect(highlighted()).toBeNull();
+    await act(async () => useSettingsStore.getState().hydrateProfileSnapshot(initialSnapshot));
+    expect(highlighted()).toBeNull();
   });
 
   it.each(['Standard', 'High Flow'])('shows the single-nozzle %s flow type as a read-only combo', async (flow) => {

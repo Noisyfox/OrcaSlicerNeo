@@ -76,6 +76,7 @@ function SlotCard({ slot, presetNames, presetLabels, presetVendors, mergeDestina
   onDelete: () => void;
   onMerge: (destination: number) => void;
 }) {
+  const modified = useSettingsStore(state => state.modifiedPresets.filament.includes(slot.preset.name));
   const [colourOpen, setColourOpen] = useState(false);
   const colourSignature = JSON.stringify(slot.colour);
   useEffect(() => {
@@ -103,7 +104,7 @@ function SlotCard({ slot, presetNames, presetLabels, presetVendors, mergeDestina
             title={filamentSwatchTitle(slot.colour.display)}
             style={{ ...filamentSwatchStyle(slot.colour.display), color: numberColour,
               border: 0, backgroundClip: 'border-box', borderRadius: '4px 0 0 4px' }}>{slot.slot}</Button>} />
-        <PresetCombobox items={presetNames.map(name => ({ id: name, name, label: presetLabels.get(name)! }))}
+        <PresetCombobox modified={modified} items={presetNames.map(name => ({ id: name, name, label: presetLabels.get(name)! }))}
           value={slot.preset.name} onValue={onPreset} disabled={pending}
           ariaLabel={`Filament preset for slot ${slot.slot}`} testId={`filament-preset-${slot.slot}`}
           searchPlaceholder="Search compatible presets…" emptyText="No compatible preset"

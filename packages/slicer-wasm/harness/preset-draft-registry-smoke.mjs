@@ -46,6 +46,8 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.history_entry_delta, 1, 'each accepted draft command must add one history entry');
   assert.equal(result.all_plate_results_invalidated, true);
+  assert.equal(result.profile_snapshot.modified_presets[kind].includes(canonicalName), result.modified,
+    'sidebar modified sources must use the same nonempty-overlay rule as the native editor');
   assert.deepEqual(result.filament_session, callJson('orc_get_filament_session_snapshot'),
     'the commit must publish the current native rack and flushing projection');
   return result;
@@ -207,6 +209,7 @@ assert.equal(undo.ok, true, JSON.stringify(undo));
 assert.equal(undo.impact.presetDrafts, true, JSON.stringify(undo.impact));
 const afterUndoDraft = callJson('orc_get_preset_draft', ['string', 'string'], ['filament', alternateSource]);
 assert.equal(afterUndoDraft.draft_exists, false, 'history restores the registry before selected slot effective values');
+assert.equal(callJson('orc_get_preset_snapshot').modified_presets.filament.includes(alternateSource), false);
 const afterUndo = callJson('orc_get_plate_session_snapshot');
 for (const [plateId, revision] of Object.entries(beforeUndo))
   assert.ok(afterUndo.input_revisions[plateId] > revision, `undo must invalidate ${plateId}`);
@@ -216,6 +219,7 @@ assert.equal(redo.impact.presetDrafts, true, JSON.stringify(redo.impact));
 assert.deepEqual(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', alternateSource]).overrides,
   { filament_max_volumetric_speed: '31' });
 const afterFilamentDrafts = callJson('orc_get_preset_snapshot');
+assert.equal(afterFilamentDrafts.modified_presets.filament.includes(alternateSource), true);
 assert.equal(afterFilamentDrafts.project_config.filament_max_volumetric_speed, '23,23,31',
   'the effective slice config must overlay the same canonical draft into both slots and preserve the other preset draft');
 

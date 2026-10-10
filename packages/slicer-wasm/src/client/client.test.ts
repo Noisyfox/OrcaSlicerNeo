@@ -1196,6 +1196,7 @@ describe('SlicerClient bridge contract', () => {
     const set = await c.mutatePresetDraft({ kind: 'filament', canonicalName: opened.canonicalName,
       action: 'set', expectedRevision: opened.revision, key: 'filament_flow_ratio', value: '0.92' });
     expect(set).toMatchObject({ ok: true, modified: true, effectiveValues: { filament_flow_ratio: '[0.92]' },
+      profileSnapshot: { modifiedPresets: { filament: ['Generic PLA @System'] } },
       historyEntryDelta: 1, allPlateResultsInvalidated: true });
     const shared = await c.getPresetDraft('filament', 'Generic PLA @System');
     expect(shared).toMatchObject({ ok: true, overrides: { filament_flow_ratio: '[0.92]' } });

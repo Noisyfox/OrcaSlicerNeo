@@ -399,6 +399,8 @@ export interface PrinterPicker {
 
 export interface ProfileSnapshot {
   ok: true;
+  /** Canonical sources with nonempty native Printer/Filament runtime overlays. */
+  modifiedPresets: { printer: string[]; filament: string[] };
   printerPicker: PrinterPicker;
   printers: PresetInfo[];
   prints: PresetInfo[];

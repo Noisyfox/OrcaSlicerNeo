@@ -641,7 +641,15 @@ json preset_snapshot_json()
     json choices = json::array();
     for (const auto& choice : capabilities.choices)
         choices.push_back({{"value", choice.value}, {"label", choice.label}});
+    json modified_presets = {{"printer", json::array()}, {"filament", json::array()}};
+    const PresetCollection* collections[] = {&state().presets.printers, &state().presets.filaments};
+    for (const auto* collection : collections)
+        for (const auto& preset : *collection)
+            if (const auto* overrides = state().preset_drafts.find(collection->type(), preset.name);
+                overrides && !overrides->empty())
+                modified_presets[collection->type() == Preset::TYPE_PRINTER ? "printer" : "filament"].push_back(preset.name);
     return json{{"ok", true},
+                {"modified_presets", std::move(modified_presets)},
                 {"printer_picker", printer_picker_json(effective)},
                 {"tooltip_defaults", std::move(tooltip_defaults)},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
