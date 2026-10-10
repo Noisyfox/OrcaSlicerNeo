@@ -201,7 +201,7 @@ function loadArchive(bytes, name) {
 const reloaded = loadArchive(projectBytes, 'process-only.3mf');
 const reopenedPrint = reloaded.preset_snapshot.prints.find(preset =>
   preset.name === reloaded.preset_snapshot.print.name);
-check('3MF reopen keeps modified status out of the Process display name',
+check('3MF reopen keeps dirty decoration out of the Process display name',
   reopenedPrint?.label && !reopenedPrint.label.startsWith(' (modified)'), JSON.stringify(reopenedPrint));
 const cleanWarning = reloaded.embedded_preset_warnings;
 check('Process-only save/reopen needs no compatibility confirmation',
@@ -230,10 +230,10 @@ const sourceSelected = loadArchive(withProjectConfig({ print_settings_id: parent
   inherits_group: ['', ...(projectConfig.inherits_group ?? []).slice(1)] }), 'source-process-diff.3mf');
 const sourceRow = sourceSelected.preset_snapshot.prints.find(preset =>
   preset.name === sourceSelected.preset_snapshot.print.name);
-check('3MF source Process diff retains its clean native alias',
+check('3MF source Process diff keeps its undecorated source label',
   sourceRow?.label === before.prints.find(preset => preset.name === parentName).label,
   JSON.stringify(sourceRow));
-check('clean Process label preserves the imported parameter change',
+check('Undecorated Process label preserves the imported parameter change',
   sourceSelected.preset_snapshot.project_config.layer_height === '0.24' &&
   nativeSnapshot().project.layer_height === '0.24');
 // Match the pinned Orca validator's different_settings_to_system indexing.

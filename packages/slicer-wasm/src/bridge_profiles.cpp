@@ -38,6 +38,11 @@ using namespace Slic3r;
 
 namespace Slic3r::Neo::Bridge::Profiles {
 
+std::string preset_display_label(const Preset& preset)
+{
+    return preset.alias.empty() ? preset.name : preset.alias;
+}
+
 namespace {
 
 struct ProfileTransitionState {
@@ -320,15 +325,6 @@ void reset_app_config()
     app_config.set_vendors({});
     app_config.clear_section("presets");
     app_config.clear_section("filaments");
-}
-
-std::string preset_display_label(const Preset& preset)
-{
-    // Process overrides have their own scoped projection. Native dirty state
-    // must not decorate the picker name after a 3MF edits a system source.
-    if (preset.type == Preset::TYPE_PRINT)
-        return preset.alias.empty() ? preset.name : preset.alias;
-    return preset.label(false);
 }
 
 json preset_entry_json(const Preset& preset, const PresetCollection& collection,

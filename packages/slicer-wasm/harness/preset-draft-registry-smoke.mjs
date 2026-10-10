@@ -39,6 +39,8 @@ function historyStatus() {
 }
 
 function mutateDraft(action, kind, canonicalName, fields = {}) {
+  const beforeSnapshot = callJson('orc_get_preset_snapshot');
+  const originalRows = kind === 'printer' ? beforeSnapshot.printers : beforeSnapshot.filament_catalog;
   const result = request('orc_mutate_preset_draft', {
     action, kind, canonical_name: canonicalName,
     expected_revision: historyStatus().revision, ...fields,
@@ -48,6 +50,14 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
   assert.equal(result.all_plate_results_invalidated, true);
   assert.equal(result.profile_snapshot.modified_presets[kind].includes(canonicalName), result.modified,
     'sidebar modified sources must use the same nonempty-overlay rule as the native editor');
+  const rows = kind === 'printer' ? result.profile_snapshot.printers : result.profile_snapshot.filament_catalog;
+  assert.equal(rows.find(row => row.name === canonicalName)?.label,
+    originalRows.find(row => row.name === canonicalName)?.label,
+    'dirty Printer/Filament labels retain their undecorated alias/name');
+  for (const slot of result.filament_session.slots ?? []) {
+    const source = result.profile_snapshot.filament_catalog.find(row => row.name === slot.preset.name);
+    if (source) assert.equal(slot.preset.label, source.label, 'slot and catalogue use the same clean label');
+  }
   assert.deepEqual(result.filament_session, callJson('orc_get_filament_session_snapshot'),
     'the commit must publish the current native rack and flushing projection');
   return result;
