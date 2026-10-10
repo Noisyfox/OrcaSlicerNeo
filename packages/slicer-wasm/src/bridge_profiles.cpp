@@ -322,11 +322,20 @@ void reset_app_config()
     app_config.clear_section("filaments");
 }
 
+std::string preset_display_label(const Preset& preset)
+{
+    // Process overrides have their own scoped projection. Native dirty state
+    // must not decorate the picker name after a 3MF edits a system source.
+    if (preset.type == Preset::TYPE_PRINT)
+        return preset.alias.empty() ? preset.name : preset.alias;
+    return preset.label(false);
+}
+
 json preset_entry_json(const Preset& preset, const PresetCollection& collection,
                        bool include_selection = true)
 {
     json entry{{"name", preset.name},
-               {"label", preset.label(false)},
+               {"label", preset_display_label(preset)},
                {"vendor", preset.type == Preset::TYPE_FILAMENT ? preset.config.opt_string("filament_vendor", 0) : ""},
                {"is_visible", preset.is_visible},
                {"is_default", preset.is_default}};
@@ -367,7 +376,7 @@ json preset_candidates_json(const PresetCollection& collection, bool require_com
         if (selected_print && selected_print != selected_source && selected_source == &*it) {
             json entry = preset_entry_json(*selected_print, collection, include_selection);
             entry["source_name"] = it->name;
-            entry["label"] = it->label(false);
+            entry["label"] = preset_display_label(*it);
             candidates.push_back(std::move(entry));
         } else {
             candidates.push_back(preset_entry_json(*it, collection, include_selection));

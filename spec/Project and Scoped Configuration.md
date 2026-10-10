@@ -21,6 +21,10 @@ remain authoritative for slicing, Undo/Redo, and 3MF save/reopen.
 
 The Process selector displays that selected child in its source profile's row,
 using the source's native label and full name for the trigger and item tooltips.
+Process display labels use the native alias/name without the native dirty
+`(modified)` decoration. This also applies when an ordinary 3MF restores its
+Process differences directly into an installed preset's edited copy. The
+imported parameter differences and native preset identity remain unchanged.
 It retains native source order and does not add a separate `(Project)` row.
 Commands still target the child identity. Editing a Filament parameter, such as
 `filament_soluble`, may refresh the complete profile snapshot but must preserve

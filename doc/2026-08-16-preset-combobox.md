@@ -47,3 +47,27 @@ time here.
   the input (`itemToStringLabel` = the string value).
 - Selection still round-trips through `selectPreset` → `setSelections` →
   `getAppConfig` → `appConfig.save` exactly as before.
+
+## Process label correction (2026-10-10)
+
+The bridge publishes Process aliases/names without native dirty decoration.
+Orca's ordinary 3MF loader can select an installed Process and restore its
+saved differences into the edited copy, which marks the native source dirty.
+Calling `Preset::label(false)` then prepends ` (modified)` to its alias. Neo's
+picker now uses the alias/name directly for Process entries, including a
+project child's projected source row. Preset identity, imported values, native
+dirty state, and scoped override projection are unchanged; Printer and Filament
+labels retain their existing behavior.
+
+The existing native project-preset history harness covers both embedded-child
+save/reopen and direct system-Process difference import. The latter reproduced
+the decorated label on the original artifact. It checks the restored clean
+alias and that the saved layer-height override remains effective and scoped.
+
+Verification passed: `pnpm test` (1,837 passed, 3 existing skips),
+`pnpm typecheck`, dual-variant `scripts\build-windows.bat quick -j 4`,
+`native-project-preset-history-smoke.mjs` on both variants, serial
+`bridge-smoke.mjs` with `fixtures/cube.stl`, and mock Electron
+`project-lifecycle.e2e.ts -g "Electron picker"`. Both variants were staged
+with `pnpm stage:assets`; `git diff --check` passed. Full real-host release
+qualification was not run for this focused label correction.
