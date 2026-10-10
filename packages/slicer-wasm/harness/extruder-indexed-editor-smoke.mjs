@@ -45,7 +45,8 @@ assert.equal(read().modified, true);
 assert.ok(diameterChanged.profile_snapshot.modified_presets.printer.includes(printer));
 const diameterRestored = diameter(0.6);
 assert.equal(read().modified, true, 'writing the source diameter retains its explicit override');
-assert.equal(Object.hasOwn(read().overrides, 'nozzle_diameter'), true);
+assert.deepEqual(read().overrides.nozzle_diameter, [null, null, {value: 0.6}, null]);
+assert.deepEqual(read().editor_vectors.nozzle_diameter.override_values, [null, null, {value: 0.6}, null]);
 assert.ok(diameterRestored.profile_snapshot.modified_presets.printer.includes(printer));
 must(call('orc_history_undo'));
 assert.equal(read().modified, true);
@@ -61,6 +62,24 @@ must(call('orc_history_undo'));
 assert.equal(read().modified, true, 'Undo restores the explicit equal-value override');
 must(call('orc_history_redo'));
 assert.equal(read().modified, false);
+
+// Reset clears only one index even while another explicit equal-value edit remains.
+set('min_layer_height', 'float', 0, initialSourceMin());
+set('min_layer_height', 'float', 2, 0.15);
+mutate({action: 'reset-field', key: 'min_layer_height', index: 2});
+assert.deepEqual(read().editor_vectors.min_layer_height.override_values, [{value: 0.08}, null, null, null]);
+mutate({action: 'reset-field', key: 'min_layer_height', index: 2});
+assert.deepEqual(read().editor_vectors.min_layer_height.override_values, [{value: 0.08}, null, null, null]);
+mutate({action: 'reset-field', key: 'min_layer_height', index: 0});
+assert.equal(Object.hasOwn(read().overrides, 'min_layer_height'), false);
+function initialSourceMin() { return read().editor_vectors.min_layer_height.source_values[0]; }
+
+// Whole vector writes own every valid index, including source-equal elements.
+mutate({action: 'set', key: 'nozzle_diameter', value: '0.6'});
+assert.deepEqual(values('nozzle_diameter'), [0.6,0.6,0.6,0.6]);
+assert.deepEqual(read().editor_vectors.nozzle_diameter.override_values, Array(4).fill({value: 0.6}));
+mutate({action: 'reset-field', key: 'nozzle_diameter'});
+assert.deepEqual(values('nozzle_diameter'), [0.4,0.4,0.6,0.6]);
 
 // Read every native vector type, and isolate edits at the third Extruder.
 const initial = read();
@@ -134,6 +153,8 @@ const fi = baseFilament.editor_vectors.filament_flow_ratio.index_count - 1;
 assert.ok(fi > 0, 'native Filament has multiple variants');
 filamentMutate({ action: 'set-element', key: 'filament_flow_ratio', scalar_type: 'float', index: 0, value: 1.01 });
 filamentMutate({ action: 'set-element', key: 'filament_flow_ratio', scalar_type: 'float', index: fi, value: 1.02 });
+filamentMutate({ action: 'set-element', key: 'filament_retraction_length', scalar_type: 'float', index: fi, value: null });
+assert.deepEqual(readFilament().editor_vectors.filament_retraction_length.override_values[fi], {value: null}, 'native nil is explicit ownership, distinct from sparse inheritance');
 filamentMutate({ action: 'set-element', key: 'filament_retraction_length', scalar_type: 'float', index: fi, value: 1.3 });
 const beforeInvalidReset = readFilament();
 assert.equal(filamentMutate({ action: 'reset-category', keys: ['filament_flow_ratio', 'filament_vendor'], index: fi }, false).ok, false);
@@ -164,6 +185,13 @@ const basePrint = readPrint();
 const pi = basePrint.editor_vectors.outer_wall_speed.index_count - 1;
 assert.ok(pi > 0, 'Print preserves all variant columns');
 // Whole serialized values remain a distinct operation; element writes expand a short vector using its fallback.
+printMutate({operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'float', index: pi,
+  value: basePrint.editor_vectors.outer_wall_speed.source_values[pi]});
+assert.deepEqual(readPrint().editor_vectors.outer_wall_speed.override_values[pi], {value: basePrint.editor_vectors.outer_wall_speed.source_values[pi]}, 'equal Print writes materialize explicit ownership');
+must(call('orc_history_undo'));
+assert.equal(readPrint().editor_vectors.outer_wall_speed.override_values[pi], null);
+must(call('orc_history_redo'));
+assert.deepEqual(readPrint().editor_vectors.outer_wall_speed.override_values[pi], {value: basePrint.editor_vectors.outer_wall_speed.source_values[pi]});
 printMutate({ operation: 'set', key: 'outer_wall_speed', value: '100' });
 assert.deepEqual(readPrint().source_values, basePrint.source_values, 'materialization keeps the selected Print source as the reset baseline');
 printMutate({ operation: 'set-element', key: 'outer_wall_speed', scalar_type: 'float', index: pi, value: 175 });
@@ -181,6 +209,8 @@ for (const body of [
 ]) assert.equal(printMutate(body, false).ok, false, JSON.stringify(body));
 assert.deepEqual(readPrint(), printBeforeRejections, 'Print rejections do not change owner, vectors or history');
 printMutate({ operation: 'reset-elements', keys: ['outer_wall_speed', 'enable_overhang_speed', 'small_perimeter_speed'], index: pi });
+assert.equal(readPrint().editor_vectors.outer_wall_speed.override_values[pi], null);
+assert.deepEqual(readPrint().editor_vectors.outer_wall_speed.override_values[0], {value: 100});
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[0], 100);
 assert.equal(readPrint().editor_vectors.outer_wall_speed.effective_values[pi], basePrint.editor_vectors.outer_wall_speed.source_values[pi]);
 must(call('orc_history_undo'));

@@ -72,9 +72,10 @@ void apply_draft(Preset& preset, const PresetDraftRegistry& drafts)
     const auto* overrides = drafts.find(preset.type, preset.name);
     if (overrides == nullptr) return;
 
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    for (const auto& [key, value] : *overrides)
-        preset.config.set_deserialize(key, value, substitutions);
+    // Identity/cardinality options must be applied before their sparse vectors.
+    for (const bool vectors : {false, true})
+        for (const auto& [key, value] : *overrides)
+            if (value.is_array() == vectors) ConfigElements::apply_override(preset.config, preset.type, key, value);
 }
 
 json config_values_json(const DynamicPrintConfig& config)
@@ -154,11 +155,11 @@ void PresetDraftRegistry::ensure_entry(const Preset::Type type,
 void PresetDraftRegistry::set(const Preset::Type type,
                               const std::string& canonical_name,
                               const std::string& key,
-                              const std::string& serialized_value)
+                              const json& value)
 {
     if (canonical_name.empty() || key.empty())
         throw std::invalid_argument("preset draft name and option key are required");
-    m_entries[{type, canonical_name}][key] = serialized_value;
+    m_entries[{type, canonical_name}][key] = value;
 }
 
 void PresetDraftRegistry::erase_field(const Preset::Type type,
@@ -208,17 +209,10 @@ PresetDraftRegistry PresetDraftRegistry::from_snapshot_json(const json& value,
         const Preset* source = find_preset_source(bundle, type, canonical_name);
         if (source == nullptr || source->name != canonical_name)
             throw std::runtime_error("history preset draft source is unavailable: " + canonical_name);
-        for (auto it = entry["overrides"].begin(); it != entry["overrides"].end(); ++it) {
-            if (!it.value().is_string() || source->config.option(it.key()) == nullptr)
-                throw std::runtime_error("invalid preset draft history override: " + it.key());
-            Preset candidate = *source;
-            ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-            candidate.config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions);
-            const ConfigOption* accepted = candidate.config.option(it.key());
-            if (accepted == nullptr)
-                throw std::runtime_error("preset draft history option is unavailable: " + it.key());
-            result.set(type, canonical_name, it.key(), accepted->serialize());
-        }
+        for (auto it = entry["overrides"].begin(); it != entry["overrides"].end(); ++it)
+            result.set(type, canonical_name, it.key(), it.value());
+        Preset candidate = *source;
+        apply_draft(candidate, result);
         // Preserve an empty overlay: field/category resets intentionally keep
         // the child until the explicit Reset preset command removes it.
         if (entry["overrides"].empty()) result.m_entries[{type, canonical_name}] = {};
@@ -289,9 +283,8 @@ DynamicPrintConfig effective_full_config(
                                                    std::move(filament_volume_maps));
     const auto* overrides = drafts.find(Preset::TYPE_PRINTER, printer.name);
     if (overrides != nullptr) {
-        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
         for (const auto& [key, value] : *overrides)
-            config.set_deserialize(key, value, substitutions);
+            ConfigElements::apply_override(config, Preset::TYPE_PRINTER, key, value);
     }
     return config;
 }
@@ -329,21 +322,6 @@ DynamicPrintConfig effective_full_config_secure(
                                         std::move(filament_maps));
 }
 
-namespace {
-
-json set_editor_element_value(const Preset& source, const std::string& key,
-                              const std::string& scalar_type, const uint64_t index,
-                              const json& value, std::string& serialized_value)
-{
-    auto config = effective_preset_config(state().presets, state().preset_drafts, source.type, source.name);
-    const auto error = ConfigElements::set_element(config, key, scalar_type, index, value,
-        ConfigElements::element_count(config, source.type, key));
-    if (error.is_null()) serialized_value = config.option(key)->serialize();
-    return error;
-}
-
-} // namespace
-
 json get_draft_json(const Preset::Type type, const std::string& canonical_name)
 {
     const Preset* source = find_preset_source(state().presets, type, canonical_name);
@@ -367,7 +345,7 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
                 if (const ConfigOption* option = parent->config.option(key))
                     source_metadata[key]["tooltip_default"] = option->serialize();
         }
-    editor_vectors = ConfigElements::vectors_json(source->config, effective.config, type);
+    editor_vectors = ConfigElements::vectors_json(source->config, effective.config, type, override_values);
     return json{{"ok", true}, {"kind", kind_name(type)},
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr},
@@ -428,7 +406,7 @@ json mutate_draft_json(const json& request)
         return command_error("preset_not_found", "preset not found: " + canonical_name);
 
     std::string key;
-    std::string serialized_value;
+    json override_value;
     std::vector<std::string> keys;
     if (action == "set") {
         if (!request.contains("key") || !request["key"].is_string() ||
@@ -445,7 +423,8 @@ json mutate_draft_json(const json& request)
             const ConfigOption* accepted = candidate.config.option(key);
             if (accepted == nullptr)
                 return command_error("unsupported_option", "option is not available on this preset: " + key);
-            serialized_value = accepted->serialize();
+            override_value = ConfigElements::explicit_values(candidate.config, type, key,
+                ConfigElements::element_count(source->config, type, key));
         } catch (const std::exception& error) {
             return command_error("native_validation_failure", error.what());
         }
@@ -458,10 +437,12 @@ json mutate_draft_json(const json& request)
             return command_error("invalid_request", "set-element requires key, scalar_type, index, and typed value");
         key = request["key"].get<std::string>();
         const std::uint64_t index = request["index"].get<std::uint64_t>();
-        const json error = set_editor_element_value(
-            *source, key, request["scalar_type"].get<std::string>(), index,
-            request["value"], serialized_value);
-        if (!error.is_null()) return error;
+        auto effective = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
+        const auto* overrides = state().preset_drafts.find(type, canonical_name);
+        const json current = overrides && overrides->count(key) ? overrides->at(key) : json(nullptr);
+        override_value = ConfigElements::set_override(effective, type, key, current,
+            request["scalar_type"].get<std::string>(), index, request["value"]);
+        if (override_value.is_object()) return override_value;
     } else if (action == "reset-field") {
         if (!request.contains("key") || !request["key"].is_string() ||
             request["key"].get<std::string>().empty())
@@ -485,19 +466,18 @@ json mutate_draft_json(const json& request)
         }
     }
 
-    std::map<std::string, std::optional<std::string>> indexed_resets;
+    std::map<std::string, json> indexed_resets;
     if ((action == "reset-field" || action == "reset-category") && request.contains("index")) {
         if (!request["index"].is_number_unsigned())
             return command_error("invalid_index", "indexed reset requires an unsigned element index");
         const auto index = request["index"].get<uint64_t>();
         auto effective = effective_preset_config(state().presets, state().preset_drafts, type, canonical_name);
         for (const auto& reset_key : keys) {
-            const auto error = ConfigElements::reset_element(effective, source->config, reset_key, index,
-                ConfigElements::element_count(effective, type, reset_key));
-            if (!error.is_null()) return error;
-            const auto* def = print_config_def.get(reset_key);
-            const bool equal = ConfigElements::equal_elements(*effective.option(reset_key), *source->config.option(reset_key), *def);
-            indexed_resets[reset_key] = equal ? std::nullopt : std::optional<std::string>(effective.option(reset_key)->serialize());
+            const auto* overrides = state().preset_drafts.find(type, canonical_name);
+            const json current = overrides && overrides->count(reset_key) ? overrides->at(reset_key) : json(nullptr);
+            const auto result = ConfigElements::reset_override(effective, source->config, type, reset_key, current, index);
+            if (result.is_object()) return result;
+            indexed_resets[reset_key] = result;
         }
     }
 
@@ -555,14 +535,14 @@ json mutate_draft_json(const json& request)
     try {
         mutated = true;
         if (action == "set" || action == "set-element")
-            state().preset_drafts.set(type, canonical_name, key, serialized_value);
+            state().preset_drafts.set(type, canonical_name, key, override_value);
         else if (action == "reset-field" || action == "reset-category")
             state().preset_drafts.ensure_entry(type, canonical_name);
         if (action == "reset-field" || action == "reset-category")
             for (const auto& reset_key : keys) {
                 const auto found = indexed_resets.find(reset_key);
-                if (found != indexed_resets.end() && found->second)
-                    state().preset_drafts.set(type, canonical_name, reset_key, *found->second);
+                if (found != indexed_resets.end() && !found->second.is_null())
+                    state().preset_drafts.set(type, canonical_name, reset_key, found->second);
                 else state().preset_drafts.erase_field(type, canonical_name, reset_key);
             }
         else if (action == "reset-preset")

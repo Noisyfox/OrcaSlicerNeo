@@ -1195,11 +1195,11 @@ describe('SlicerClient bridge contract', () => {
     if (!opened.ok) throw new Error('expected draft source');
     const set = await c.mutatePresetDraft({ kind: 'filament', canonicalName: opened.canonicalName,
       action: 'set', expectedRevision: opened.revision, key: 'filament_flow_ratio', value: '0.92' });
-    expect(set).toMatchObject({ ok: true, modified: true, effectiveValues: { filament_flow_ratio: '[0.92]' },
+    expect(set).toMatchObject({ ok: true, modified: true, effectiveValues: { filament_flow_ratio: '[0.92,0.92]' },
       profileSnapshot: { modifiedPresets: { filament: ['Generic PLA @System'] } },
       historyEntryDelta: 1, allPlateResultsInvalidated: true });
     const shared = await c.getPresetDraft('filament', 'Generic PLA @System');
-    expect(shared).toMatchObject({ ok: true, overrides: { filament_flow_ratio: '[0.92]' } });
+    expect(shared).toMatchObject({ ok: true, overrides: { filament_flow_ratio: [{value: 0.92}, {value: 0.92}] } });
 
     const afterSet = await c.getFilamentSessionSnapshot();
     if (!afterSet.ok) throw new Error('expected filament session');
@@ -1227,13 +1227,13 @@ describe('SlicerClient bridge contract', () => {
         payload.editor_vectors.filament_flow_ratio = {
           scalar_type: 'float', nullable: false,
           gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-          source_values: [1, 1], effective_values: [1, 1], index_count: 2,
+          source_values: [1, 1], effective_values: [1, 1], index_count: 2, override_values: [null, null],
         };
         payload.option_metadata.filament_type.type = 'strings';
         payload.editor_vectors.filament_type = {
           scalar_type: 'string', nullable: false,
           gui_type: 'f_enum_open', gui_flags: 'show_value', multiline: false, is_code: false, readonly: false,
-          source_values: ['PLA'], effective_values: ['PLA'], index_count: 1,
+          source_values: ['PLA'], effective_values: ['PLA'], index_count: 1, override_values: [null],
         };
         payload.source_values.filament_retract_lift_enforce = 'nil';
         payload.effective_values.filament_retract_lift_enforce = '1';
@@ -1241,7 +1241,7 @@ describe('SlicerClient bridge contract', () => {
         payload.editor_vectors.filament_retract_lift_enforce = {
           scalar_type: 'enum', nullable: true,
           gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-          source_values: [null], effective_values: [1], index_count: 1,
+          source_values: [null], effective_values: [1], index_count: 1, override_values: [null],
           enum_options: [
             { value: 0, name: 'All Surfaces', label: 'All Surfaces' },
             { value: 1, name: 'Top Only', label: 'Top Only' },
@@ -1330,7 +1330,7 @@ describe('SlicerClient bridge contract', () => {
       action: 'set-element', expectedRevision: draft.revision, key: 'filament_flow_ratio',
       scalarType: 'float', index: 0, value: 1.25 });
     expect(element).toMatchObject({ ok: true, sourceValues: { filament_flow_ratio: '[1,1]' },
-      effectiveValues: { filament_flow_ratio: '[1.25,1]' }, overrides: { filament_flow_ratio: '[1.25,1]' },
+      effectiveValues: { filament_flow_ratio: '[1.25,1]' }, overrides: { filament_flow_ratio: [{value: 1.25}, null] },
       editorBindings: { filament_flow_ratio: { elementCount: 2, sourceValue: 1, effectiveValue: 1.25 } } });
     if (!element.ok) throw new Error('expected committed typed element mutation');
 
@@ -1370,28 +1370,54 @@ describe('SlicerClient bridge contract', () => {
     expect(partial.modified).toBe(true);
     expect(partial.editorVectors.filament_flow_ratio.effectiveValues).toEqual([1.1, 1]);
     const restored = await write('filament_flow_ratio', 0, 1);
-    expect(restored).toMatchObject({ draftExists: true, modified: true, overrides: { filament_flow_ratio: '[1,1]' } });
+    expect(restored).toMatchObject({ draftExists: true, modified: true, overrides: { filament_flow_ratio: [{value: 1}, {value: 1}] } });
     expect(restored.profileSnapshot.modifiedPresets.filament).toContain(source.canonicalName);
     expect((await client.undoHistory()).ok).toBe(true);
     expect(await client.getPresetDraft('filament', source.canonicalName))
       .toMatchObject({ modified: true, editorVectors: { filament_flow_ratio: { effectiveValues: [1.1, 1] } } });
     expect((await client.redoHistory()).ok).toBe(true);
     const replayed = await client.getPresetDraft('filament', source.canonicalName);
-    expect(replayed).toMatchObject({ modified: true, overrides: { filament_flow_ratio: '[1,1]' } });
+    expect(replayed).toMatchObject({ modified: true, overrides: { filament_flow_ratio: [{value: 1}, {value: 1}] } });
     if (!replayed.ok) throw new Error('expected restored draft');
     const reset = await client.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
       action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: replayed.revision });
-    expect(reset).toMatchObject({ modified: false, draftExists: true, overrides: {} });
+    expect(reset).toMatchObject({ modified: true, draftExists: true,
+      overrides: {filament_flow_ratio: [null, {value: 1}]},
+      editorVectors: {filament_flow_ratio: {overrideValues: [null, {value: 1}]}} });
     if (!reset.ok) throw new Error('expected reset');
-    expect(reset.profileSnapshot.modifiedPresets.filament).not.toContain(source.canonicalName);
+    expect(reset.profileSnapshot.modifiedPresets.filament).toContain(source.canonicalName);
     await client.undoHistory();
     expect(await client.getPresetDraft('filament', source.canonicalName))
-      .toMatchObject({ modified: true, overrides: { filament_flow_ratio: '[1,1]' } });
+      .toMatchObject({ modified: true, overrides: { filament_flow_ratio: [{value: 1}, {value: 1}] } });
     await client.redoHistory();
-    expect(await client.getPresetDraft('filament', source.canonicalName)).toMatchObject({ modified: false, overrides: {} });
+    const replay = await client.getPresetDraft('filament', source.canonicalName);
+    if (!replay.ok) throw new Error('expected replay');
+    const finalReset = await client.mutatePresetDraft({kind: 'filament', canonicalName: source.canonicalName,
+      action: 'reset-field', key: 'filament_flow_ratio', index: 1, expectedRevision: replay.revision});
+    expect(finalReset).toMatchObject({modified: false, draftExists: true, overrides: {}});
   });
 
-  it.each(['malformed', 'missing', 'range'] as const)('rejects %s native editor vectors', async (mode) => {
+  it('distinguishes explicit native nil from inheritance through Reset and history', async () => {
+    const client = makeClient(); await client.init(MOCK_PROFILE_ACTIVATION);
+    const source = await client.getPresetDraft('filament', 'Generic PLA @System');
+    if (!source.ok) throw new Error(source.error);
+    const written = await client.mutatePresetDraft({kind: 'filament', canonicalName: source.canonicalName,
+      action: 'set-element', key: 'filament_retract_lift_enforce', scalarType: 'enum', index: 0,
+      value: null, expectedRevision: source.revision});
+    expect(written).toMatchObject({ok: true, modified: true,
+      overrides: {filament_retract_lift_enforce: [{value: null}]},
+      editorVectors: {filament_retract_lift_enforce: {effectiveValues: [null], overrideValues: [{value: null}]}}});
+    if (!written.ok) throw new Error(written.error);
+    const reset = await client.mutatePresetDraft({kind: 'filament', canonicalName: source.canonicalName,
+      action: 'reset-field', key: 'filament_retract_lift_enforce', index: 0, expectedRevision: written.revision});
+    expect(reset).toMatchObject({ok: true, modified: false, overrides: {},
+      editorVectors: {filament_retract_lift_enforce: {effectiveValues: [null], overrideValues: [null]}}});
+    await client.undoHistory();
+    expect(await client.getPresetDraft('filament', source.canonicalName))
+      .toMatchObject({modified: true, overrides: {filament_retract_lift_enforce: [{value: null}]}});
+  });
+
+  it.each(['malformed', 'missing', 'range', 'missing-ownership', 'ownership-shape', 'business-null'] as const)('rejects %s native editor vectors', async (mode) => {
     const module = createMockModule();
     const originalCall = module.ccall;
     module.ccall = (name, ret, argTypes, args) => {
@@ -1403,8 +1429,13 @@ describe('SlicerClient bridge contract', () => {
       payload.editor_vectors.filament_flow_ratio = {
         scalar_type: 'float', nullable: false,
         gui_type: 'undefined', gui_flags: '', multiline: false, is_code: false, readonly: false,
-        source_values: [null], effective_values: [1], index_count: 1,
+        source_values: [null], effective_values: [1], index_count: 1, override_values: [null],
       };
+      if (mode.startsWith('ownership') || mode === 'missing-ownership' || mode === 'business-null')
+        payload.editor_vectors.filament_flow_ratio.source_values = [1];
+      if (mode === 'missing-ownership') delete payload.editor_vectors.filament_flow_ratio.override_values;
+      if (mode === 'ownership-shape') payload.editor_vectors.filament_flow_ratio.override_values = [1];
+      if (mode === 'business-null') payload.editor_vectors.filament_flow_ratio.override_values = [{value: null}];
       if (mode === 'missing') delete payload.editor_vectors;
       if (mode === 'range') { payload.editor_vectors.filament_flow_ratio.source_values = [1]; delete payload.editor_vectors.filament_flow_ratio.index_count; }
       const bytes = new TextEncoder().encode(JSON.stringify(payload));

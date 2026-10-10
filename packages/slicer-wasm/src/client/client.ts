@@ -45,7 +45,7 @@ import type {
   PresetDraftKind, PresetDraftMutationRequest, PresetDraftMutationResult,
   PresetDraftSnapshotResult, PresetDraftEditorBinding, PresetDraftEditorEnumOption,
   PresetDraftEditorGuiType, PresetDraftEditorScalarType, PresetDraftEditorValue,
-  PresetDraftEditorVector, PresetDraftVectorValue, ConfigEditorSnapshotResult,
+  PresetDraftEditorVector, PresetDraftVectorValue, ConfigVectorOverride, ConfigEditorSnapshotResult,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -1212,8 +1212,12 @@ function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult
     if (!isRecord(raw.editor_vectors)) return { ok: false, error: 'invalid preset draft vectors', errorCode: 'invalid_response' };
     for (const [key, vector] of Object.entries(raw.editor_vectors)) {
       if (!isRecord(vector) || !Array.isArray(vector.source_values) || !Array.isArray(vector.effective_values) ||
+          !Array.isArray(vector.override_values) || vector.override_values.length !== vector.index_count ||
+          vector.override_values.some(entry => entry !== null && (!isRecord(entry) || Object.keys(entry).length !== 1 || !Object.hasOwn(entry, 'value'))) ||
           !Number.isSafeInteger(vector.index_count) || (vector.index_count as number) < 0)
         return { ok: false, error: 'invalid preset draft vector values', errorCode: 'invalid_response' };
+      const overrideValues = vector.override_values as ConfigVectorOverride[];
+      const overriddenValues = overrideValues.flatMap(entry => entry === null ? [] : [entry.value]);
       const type = vector.scalar_type;
       const point = (value: unknown): boolean => isRecord(value) && Object.keys(value).length === 2 &&
         typeof value.x === 'number' && Number.isFinite(value.x) && typeof value.y === 'number' && Number.isFinite(value.y);
@@ -1222,20 +1226,20 @@ function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult
         if (raw.kind !== 'printer' || key !== expectedKey || vector.nullable !== false ||
             !Object.hasOwn(sourceValues, key) || !Object.hasOwn(effectiveValues, key) ||
             optionMetadata[key]?.type !== (type === 'point' ? 'points' : 'unknown') ||
-            ![...vector.source_values, ...vector.effective_values].every(value => type === 'point' ? point(value) : Array.isArray(value) && value.every(point)) ||
+            ![...vector.source_values, ...vector.effective_values, ...overriddenValues].every(value => type === 'point' ? point(value) : Array.isArray(value) && value.every(point)) ||
             typeof vector.readonly !== 'boolean' || typeof vector.gui_type !== 'string' ||
             !PRESET_DRAFT_EDITOR_GUI_TYPES.includes(vector.gui_type as PresetDraftEditorGuiType) ||
             typeof vector.gui_flags !== 'string' || typeof vector.multiline !== 'boolean' || typeof vector.is_code !== 'boolean')
           return { ok: false, error: 'invalid preset draft coordinates', errorCode: 'invalid_response' };
         editorVectors[key] = { scalarType: type, sourceValues: vector.source_values as PresetDraftVectorValue[],
-          effectiveValues: vector.effective_values as PresetDraftVectorValue[], indexCount: vector.index_count as number, nullable: false,
+          effectiveValues: vector.effective_values as PresetDraftVectorValue[], overrideValues, indexCount: vector.index_count as number, nullable: false,
           readOnly: vector.readonly, guiType: vector.gui_type as PresetDraftEditorGuiType,
           guiFlags: vector.gui_flags, multiline: vector.multiline, isCode: vector.is_code };
       } else {
         // Reuse all existing scalar/enum metadata checks, including every
         // element. Native empty vectors stay empty rather than fabricating values.
         let normalized: PresetDraftEditorBinding | undefined;
-        const values = [...vector.source_values, ...vector.effective_values];
+        const values = [...vector.source_values, ...vector.effective_values, ...overriddenValues];
         const placeholder = type === 'string' ? '' : type === 'bool' ? false :
           type === 'float_or_percent' ? { value: 0, percent: false } :
           type === 'enum' && Array.isArray(vector.enum_options) ? vector.enum_options[0]?.value : 0;
@@ -1249,7 +1253,7 @@ function normalizeConfigEditorSnapshot(raw: unknown): ConfigEditorSnapshotResult
         if (!normalized) return { ok: false, error: 'invalid preset draft vector', errorCode: 'invalid_response' };
         const { index: _index, elementCount: _count, sourceValue: _source, effectiveValue: _effective, ...metadata } = normalized;
         editorVectors[key] = { ...metadata, indexCount: vector.index_count as number, sourceValues: vector.source_values as PresetDraftEditorValue[],
-          effectiveValues: vector.effective_values as PresetDraftEditorValue[] };
+          effectiveValues: vector.effective_values as PresetDraftEditorValue[], overrideValues };
         if ((vector.index_count as number) > 0 && vector.source_values.length && vector.effective_values.length) {
           editorBindings[key] = { ...normalized, elementCount: vector.index_count as number,
             sourceValue: vector.source_values[0] as PresetDraftEditorValue,
@@ -1268,8 +1272,21 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
   if (!isRecord(raw) || (raw.kind !== 'printer' && raw.kind !== 'filament') ||
       typeof raw.draft_exists !== 'boolean' || typeof raw.modified !== 'boolean')
     return { ok: false, error: 'invalid preset draft snapshot', errorCode: 'invalid_response' };
-  const overrides = stringRecord(raw.overrides);
-  if (!overrides) return { ok: false, error: 'invalid preset draft overrides', errorCode: 'invalid_response' };
+  if (!isRecord(raw.overrides)) return { ok: false, error: 'invalid preset draft overrides', errorCode: 'invalid_response' };
+  const overrides: Record<string, string | readonly ConfigVectorOverride[]> = {};
+  for (const [key, value] of Object.entries(raw.overrides)) {
+    const vector = result.editorVectors[key];
+    if (vector) {
+      if (!Array.isArray(value) || value.length > vector.indexCount || !value.some(entry => entry !== null) ||
+          JSON.stringify(value) !== JSON.stringify(vector.overrideValues.slice(0, value.length)))
+        return { ok: false, error: 'invalid preset draft vector override', errorCode: 'invalid_response' };
+      overrides[key] = value as ConfigVectorOverride[];
+    } else if (typeof value === 'string') overrides[key] = value;
+    else return { ok: false, error: 'invalid preset draft scalar override', errorCode: 'invalid_response' };
+  }
+  if (Object.entries(result.editorVectors).some(([key, vector]) =>
+      vector.overrideValues.some(entry => entry !== null) && !Object.hasOwn(overrides, key)))
+    return { ok: false, error: 'vector ownership is missing from preset overrides', errorCode: 'invalid_response' };
   return { ...result, kind: raw.kind, draftExists: raw.draft_exists, modified: raw.modified, overrides };
 }
 

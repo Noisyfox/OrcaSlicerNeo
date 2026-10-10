@@ -88,9 +88,21 @@ test('U1 Extruder pages edit their own native index and follow canonical diamete
     await minimum.fill('0.15'); await minimum.press('Enter');
     await expect(minimum).toHaveValue('0.15');
     await expect(page.getByTestId('preset-editor-page-tab-extruder-3')).toHaveAttribute('data-draft-override-highlight', 'true');
-    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'true');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await page.getByTestId('preset-editor-page-tab-extruder-1').click();
+    await minimum.fill('0.1'); await minimum.press('Enter');
+    await expect(minimum).toHaveValue('0.1');
+    await page.getByTestId('preset-editor-page-tab-extruder-3').click();
     await page.getByTestId('preset-editor-reset-category-extruder-3').click();
     await expect(minimum).toHaveValue('0.12');
+    await expect(page.getByTestId('preset-editor-reset-category-extruder-3')).toBeDisabled();
+    await expect(page.getByTestId('preset-editor-reset-field-min_layer_height')).toHaveCount(0);
+    await expect(page.getByTestId('preset-editor-page-tab-extruder-3')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'true');
+    await page.getByTestId('preset-editor-page-tab-extruder-1').click();
+    await expect(minimum).toHaveValue('0.1');
+    await page.getByTestId('preset-editor-reset-category-extruder-1').click();
+    await expect(minimum).toHaveValue('0.08');
     for (const index of [3, 4]) {
       await page.getByTestId(`preset-editor-page-tab-extruder-${index}`).click();
       const diameter = page.getByTestId('preset-editor-input-nozzle_diameter');

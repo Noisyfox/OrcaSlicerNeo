@@ -41,6 +41,7 @@ std::optional<std::string> editor_element_type(const std::string& key,
     static const std::set<std::string> structured_or_identity_fields = {
         "compatible_machine_expression_group", "compatible_process_expression_group",
         "different_settings_to_system", "filament_colour_type", "filament_extruder_compatibility",
+        "printer_extruder_variant", "filament_extruder_variant", "print_extruder_variant",
         "filament_ids", "filament_multi_colour", "filament_ramming_parameters",
         "filament_settings_id", "print_compatible_printers", "upward_compatible_machine",
         "volumetric_speed_coefficients",
@@ -350,7 +351,78 @@ bool equal_elements(const ConfigOption& left, const ConfigOption& right, const C
     return true;
 }
 
-json vectors_json(const DynamicPrintConfig& source, const DynamicPrintConfig& effective, const Preset::Type type)
+bool has_override(const json& values)
+{
+    return std::any_of(values.begin(), values.end(), [](const json& value) { return !value.is_null(); });
+}
+
+json explicit_values(const DynamicPrintConfig& config, const Preset::Type type, const std::string& key, const std::optional<size_t> requested_count)
+{
+    const auto* def = print_config_def.get(key);
+    if (!def || !editor_vector_type(key, *def))
+        return config.option(key)->serialize();
+    std::unique_ptr<ConfigOption> option(config.option(key)->clone());
+    auto* vector = dynamic_cast<ConfigOptionVectorBase*>(option.get());
+    const size_t count = requested_count.value_or(element_count(config, type, key));
+    if (vector->empty() && count) resize_editor_vector(*vector, *def, count);
+    json result = json::array();
+    for (size_t index = 0; index < count; ++index)
+        result.push_back({{"value", editor_element_value(*option, *def, index < vector->size() ? index : 0)}});
+    return result;
+}
+
+void apply_override(DynamicPrintConfig& config, const Preset::Type type, const std::string& key, const json& values)
+{
+    const auto* def = print_config_def.get(key);
+    if (!def || !config.option(key)) throw std::runtime_error("override option is unavailable: " + key);
+    const auto scalar_type = editor_vector_type(key, *def);
+    if (!scalar_type) {
+        if (!values.is_string()) throw std::runtime_error("scalar/list override requires native serialized text: " + key);
+        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+        config.set_deserialize(key, values.get<std::string>(), substitutions);
+        return;
+    }
+    const size_t count = element_count(config, type, key);
+    if (!values.is_array() || values.size() > count || !has_override(values))
+        throw std::runtime_error("invalid sparse vector override: " + key);
+    auto* vector = dynamic_cast<ConfigOptionVectorBase*>(config.option(key));
+    if (vector->size() < count) resize_editor_vector(*vector, *def, count);
+    for (size_t index = 0; index < values.size(); ++index) {
+        const auto& entry = values[index];
+        if (entry.is_null()) continue;
+        if (!entry.is_object() || entry.size() != 1 || !entry.contains("value"))
+            throw std::runtime_error("vector override entry requires {value}: " + key);
+        const auto error = set_element(config, key, *scalar_type, index, entry["value"], count);
+        if (!error.is_null()) throw std::runtime_error(error["error"].get<std::string>());
+    }
+}
+
+json set_override(DynamicPrintConfig& config, const Preset::Type type, const std::string& key,
+                  const json& current, const std::string& scalar_type, const uint64_t index, const json& value)
+{
+    const size_t count = element_count(config, type, key);
+    const auto error = set_element(config, key, scalar_type, index, value, count);
+    if (!error.is_null()) return error;
+    json result = current;
+    if (result.is_null()) result = json::array();
+    while (result.size() < count) result.push_back(nullptr);
+    result[index] = {{"value", value}};
+    return result;
+}
+
+json reset_override(DynamicPrintConfig& config, const DynamicPrintConfig& source, const Preset::Type type,
+                    const std::string& key, const json& current, const uint64_t index)
+{
+    const auto error = reset_element(config, source, key, index, element_count(config, type, key));
+    if (!error.is_null()) return error;
+    json result = current;
+    if (result.is_null()) return result;
+    if (index < result.size()) result[index] = nullptr;
+    return has_override(result) ? result : json(nullptr);
+}
+
+json vectors_json(const DynamicPrintConfig& source, const DynamicPrintConfig& effective, const Preset::Type type,
+                  const json& overrides)
 {
     json vectors = json::object();
     for (const auto& key : source.keys()) {
@@ -365,7 +437,10 @@ json vectors_json(const DynamicPrintConfig& source, const DynamicPrintConfig& ef
         json source_values = json::array(), effective_values = json::array();
         for (size_t i = 0; i < a->size(); ++i) source_values.push_back(editor_element_value(*original, *def, i));
         for (size_t i = 0; i < b->size(); ++i) effective_values.push_back(editor_element_value(*edited, *def, i));
+        json override_values = overrides.contains(key) ? overrides.at(key) : json::array();
+        while (override_values.size() < element_count(effective, type, key)) override_values.push_back(nullptr);
         json vector{{"scalar_type", *scalar_type}, {"source_values", std::move(source_values)},
+            {"override_values", std::move(override_values)},
             {"effective_values", std::move(effective_values)}, {"index_count", element_count(effective, type, key)},
             {"nullable", def->nullable}, {"gui_type", editor_gui_type_name(def->gui_type)},
             {"gui_flags", def->gui_flags}, {"multiline", def->multiline}, {"is_code", def->is_code}, {"readonly", def->readonly}};

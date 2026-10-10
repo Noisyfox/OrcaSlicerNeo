@@ -3,7 +3,7 @@ import { configVectorElementAt } from './configElements';
 import type { PresetDraftEditorVector } from './types';
 const vector: PresetDraftEditorVector = { scalarType: 'float', indexCount: 4, nullable: true,
   guiType: 'undefined', guiFlags: '', multiline: false, isCode: false, readOnly: false,
-  sourceValues: [null], effectiveValues: [1, 2] };
+  sourceValues: [null], effectiveValues: [1, 2], overrideValues: [null, null, null, null] };
 describe('native vector element reads', () => {
   it('preserves nullable and short-vector semantics within the native valid range', () => {
     expect(configVectorElementAt(vector, vector.sourceValues, 3)).toBeNull();

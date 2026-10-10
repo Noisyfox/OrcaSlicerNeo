@@ -17,14 +17,14 @@ namespace Slic3r::Neo::Bridge {
 class PresetDraftRegistry {
 public:
     using Key = std::pair<Preset::Type, std::string>;
-    using Overrides = std::map<std::string, std::string>;
+    using Overrides = std::map<std::string, nlohmann::json>;
 
     const Overrides* find(Preset::Type type, const std::string& canonical_name) const;
     Overrides* find(Preset::Type type, const std::string& canonical_name);
     bool contains(Preset::Type type, const std::string& canonical_name) const;
     void ensure_entry(Preset::Type type, const std::string& canonical_name);
     void set(Preset::Type type, const std::string& canonical_name,
-             const std::string& key, const std::string& serialized_value);
+             const std::string& key, const nlohmann::json& value);
     void erase_field(Preset::Type type, const std::string& canonical_name,
                      const std::string& key);
     void erase_preset(Preset::Type type, const std::string& canonical_name);

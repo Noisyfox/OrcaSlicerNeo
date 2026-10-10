@@ -520,6 +520,7 @@ export interface PresetDraftEditorBinding {
 
 export interface PresetDraftEditorPoint { readonly x: number; readonly y: number }
 export type PresetDraftVectorValue = PresetDraftEditorValue | PresetDraftEditorPoint | readonly PresetDraftEditorPoint[];
+export type ConfigVectorOverride = null | { readonly value: PresetDraftVectorValue };
 export interface PresetDraftEditorVector extends Omit<PresetDraftEditorBinding,
   'index' | 'elementCount' | 'sourceValue' | 'effectiveValue' | 'scalarType'> {
   readonly scalarType: PresetDraftEditorScalarType | 'point' | 'points';
@@ -527,6 +528,7 @@ export interface PresetDraftEditorVector extends Omit<PresetDraftEditorBinding,
   readonly indexCount: number;
   readonly sourceValues: readonly PresetDraftVectorValue[];
   readonly effectiveValues: readonly PresetDraftVectorValue[];
+  readonly overrideValues: readonly ConfigVectorOverride[];
 }
 
 /** Disposable typed vector projection shared by preset drafts and Print configuration. */
@@ -546,7 +548,7 @@ export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError
 export interface PresetDraftSnapshot extends PresetDraftTarget, ConfigEditorSnapshot {
   readonly draftExists: boolean;
   readonly modified: boolean;
-  readonly overrides: Readonly<Record<string, string>>;
+  readonly overrides: Readonly<Record<string, string | readonly ConfigVectorOverride[]>>;
 }
 
 export interface PresetDraftError {
