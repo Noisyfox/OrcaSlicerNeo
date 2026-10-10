@@ -771,7 +771,7 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
         config = effective_config(plate);
     }
     const auto colours = config.opt<ConfigOptionStrings>("filament_colour");
-    const std::size_t slot_count = state().presets.filament_presets.size();
+    const std::size_t slot_count = Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config);
     std::string model_error;
     std::optional<Model> model;
     if (timings != nullptr) {
@@ -966,7 +966,7 @@ bool normalize_coordinate_positions()
         std::string model_error;
         const auto model = make_current_plate_model(plate, model_error);
         if (!model) continue;
-        const auto slots = used_slots(*model, config, state().presets.filament_presets.size(),
+        const auto slots = used_slots(*model, config, Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config),
                                       static_cast<int>(plate.display_index));
         const bool smooth = config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth;
         const auto* wrapping = config.opt<ConfigOptionBool>("enable_wrapping_detection");
@@ -1012,7 +1012,7 @@ json slice_warnings_for_plate(const std::string& plate_id)
     std::string model_error;
     const auto model = make_current_plate_model(*plate, model_error);
     if (!model) return json::array();
-    const auto slots = used_slots(*model, config, state().presets.filament_presets.size(),
+    const auto slots = used_slots(*model, config, Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config),
                                   static_cast<int>(plate->display_index));
     const bool smooth = config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth;
     const auto* wrapping = config.opt<ConfigOptionBool>("enable_wrapping_detection");
@@ -1122,7 +1122,7 @@ json move_position_json(const char* request_cstr)
     const DynamicPrintConfig config = effective_config(*plate);
     std::string model_error;
     const auto model = make_current_plate_model(*plate, model_error);
-    const auto slots = model ? used_slots(*model, config, state().presets.filament_presets.size(),
+    const auto slots = model ? used_slots(*model, config, Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config),
                                           static_cast<int>(plate->display_index)) : std::vector<int>{};
     const bool smooth = config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth;
     const auto* wrapping = config.opt<ConfigOptionBool>("enable_wrapping_detection");

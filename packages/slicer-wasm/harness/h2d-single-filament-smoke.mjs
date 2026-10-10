@@ -31,6 +31,8 @@ function projection(value) {
 assert.equal(call('orc_init', ['string'], [fixtureProfileOptions(Module)]).ok, true);
 const selected = call('orc_select_preset', ['string', 'string'], ['printer', 'Bambu Lab H2D 0.4 nozzle']);
 assert.equal(selected.ok, true, JSON.stringify(selected));
+assert.equal(session().slots.length, 1, 'selecting H2D retains the existing material count');
+command('orc_add_filament_slot');
 assert.equal(session().slots.length, 2);
 const alternate = selected.filament_catalog.find(entry => entry.name !== session().slots[0].preset.name);
 assert.ok(alternate, 'H2D must expose a second compatible source preset');
@@ -102,9 +104,45 @@ Module._free(Number(exported.bytes_ptr));
 const config = JSON.parse(new TextDecoder().decode(readZipEntries(bytes).find(entry => entry.name === 'Metadata/project_settings.config').content));
 assert.equal(config.filament_colour.length, 1);
 assert.equal(config.nozzle_diameter.length, 2);
-assert.equal(config.filament_map.length, 1);
-assert.equal(config.flush_volumes_matrix.length, 2);
+assert.equal(config.filament_settings_id.length, 2, 'native preset padding is retained');
+assert.equal(config.filament_map.length, 2, 'native full_config expands maps to its preset count');
+assert.equal(config.flush_volumes_matrix.length, 8);
 const sliced = await callAsyncTask(call, 'orc_slice', ['string'], ['{}']);
 assert.equal(sliced.ok, true, JSON.stringify(sliced));
 assert.equal(session().slots.length, 1);
-console.log('H2D single-filament smoke OK: delete/merge both directions, colours, history, add, rejection, export, slice');
+// A process/profile lifecycle must not resurrect the padded preset as a slot.
+const reselected = call('orc_select_preset', ['string', 'string'], ['printer', 'Bambu Lab H2D 0.4 nozzle']);
+assert.equal(reselected.ok, true, JSON.stringify(reselected));
+assert.equal(session().slots.length, 1);
+const pointer = Number(Module._malloc(bytes.length));
+Module.HEAPU8.set(bytes, pointer);
+let loaded;
+try { loaded = call('orc_load_project', ['pointer', 'number', 'number', 'string'], [pointer, bytes.length, 0, 'h2d-one-material.3mf']); }
+finally { Module._free(pointer); }
+assert.equal(loaded.ok, true, JSON.stringify(loaded));
+assert.equal(session().slots.length, 1);
+assert.deepEqual(session().slots[0].colour, one.slots[0].colour);
+assert.equal(session().capabilities.nozzle_count, 2);
+// Padded native preset #2 must never pass material-index validation.
+const beforeInvalid = session();
+const beforeInvalidHistory = call('orc_history_status');
+for (const [name, body] of [
+  ['orc_set_filament_slot_colour', { slot: 2, colour: { kind: 'solid', color: '#123456' } }],
+  ['orc_select_filament_slot_preset', { slot: 2, preset: beforeInvalid.slots[0].preset.name }],
+  ['orc_assign_filament', { slot: 2, targets: [{ kind: 'object', id: beforeInvalid.assignments.objects[0].id }] }],
+  ['orc_set_filament_routing', { slot: 2, selector: 'support-interface', targets: [{ kind: 'project', id: 0 }] }],
+]) {
+  const invalid = call(name, ['string'], [JSON.stringify({ version: 1, revision: beforeInvalid.revisions.session, ...body })]);
+  assert.equal(invalid.ok, false, name);
+  assert.deepEqual(session(), beforeInvalid, name);
+  assert.deepEqual(call('orc_history_status'), beforeInvalidHistory, name);
+}
+const reexported = call('orc_export_project');
+assert.equal(reexported.ok, true, JSON.stringify(reexported));
+const savedBytes = Module.HEAPU8.slice(Number(reexported.bytes_ptr), Number(reexported.bytes_ptr) + reexported.bytes_length);
+Module._free(Number(reexported.bytes_ptr));
+const saved = JSON.parse(new TextDecoder().decode(readZipEntries(savedBytes).find(entry => entry.name === 'Metadata/project_settings.config').content));
+assert.equal(saved.filament_colour.length, 1);
+assert.equal(saved.filament_settings_id.length, 2);
+assert.equal((await callAsyncTask(call, 'orc_slice', ['string'], ['{}'])).ok, true);
+console.log('H2D single-filament smoke OK: delete/merge, history, add, padded presets, actual-slot validation, profile lifecycle, 3MF roundtrip, slice');

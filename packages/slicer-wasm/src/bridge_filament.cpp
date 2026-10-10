@@ -13,6 +13,12 @@
 
 namespace Slic3r::Neo::Bridge::Filament::State {
 
+std::size_t material_slot_count(const DynamicPrintConfig& project)
+{
+    const auto* colours = project.opt<ConfigOptionStrings>("filament_colour");
+    return colours == nullptr ? 0 : colours->values.size();
+}
+
 json config_metadata_json(const DynamicPrintConfig& config)
 {
     json out = json::object();
@@ -40,7 +46,7 @@ json history_state_json(const PresetBundle& bundle)
 {
     if (&bundle != &state().presets)
         throw std::runtime_error("filament history requires the live project rack");
-    auto ids = project_slot_identities(bundle.filament_presets.size());
+    auto ids = project_slot_identities(material_slot_count(bundle.project_config));
     json result{
         {"version", 1},
         {"filament_presets", bundle.filament_presets},
@@ -63,10 +69,6 @@ void resize_slots_preserving_colours(PresetBundle& bundle, unsigned int count,
         if (const auto* option = bundle.project_config.opt<ConfigOptionStrings>(keys[key]))
             before[key] = option->values;
     bundle.set_num_filaments(count, new_colour);
-    // Orca's preset helper pads names to the physical nozzle count. Bambu
-    // material racks may be shorter; those names are not extra project slots.
-    if (bundle.is_bbl_vendor() || bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material"))
-        bundle.filament_presets.resize(count);
     for (std::size_t key = 0; key < before.size(); ++key) {
         auto* option = bundle.project_config.option<ConfigOptionStrings>(keys[key], true);
         for (std::size_t slot = 0; slot < std::min<std::size_t>(count, before[key].size()); ++slot)
@@ -94,7 +96,8 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
     StagedMutableState staged {
         {}, {}, catalog.ams_multi_color_filment, catalog.filaments.get_edited_preset() };
     if (!encoded.contains("slot_ids") || !encoded["slot_ids"].is_array() ||
-        encoded["slot_ids"].size() != encoded["filament_presets"].size())
+        encoded["slot_ids"].empty() ||
+        encoded["slot_ids"].size() > encoded["filament_presets"].size())
         throw std::runtime_error("invalid history filament identities");
     std::set<std::string> identities;
     for (const auto& id : encoded["slot_ids"]) {
@@ -134,7 +137,7 @@ StagedMutableState stage_mutable(const PresetBundle& catalog, const json& encode
 void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
                    StagedMutableState&& staged)
 {
-    resize_slots_preserving_colours(bundle, static_cast<unsigned int>(staged.names.size()));
+    resize_slots_preserving_colours(bundle, static_cast<unsigned int>(staged.slot_ids.size()));
     bundle.filament_presets = std::move(staged.names);
     bridge.filament_slot_ids = std::move(staged.slot_ids);
     for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index)
@@ -596,7 +599,7 @@ void remap_model_filament_references(Model& model, const std::size_t removed,
 void normalize_references_after_rack_restore(PresetBundle& bundle, Model& model,
     std::vector<BridgeState::PlateSessionPlate>& plates, const std::size_t previous_count)
 {
-    const std::size_t count = bundle.filament_presets.size();
+    const std::size_t count = State::material_slot_count(bundle.project_config);
     if (count == 0) throw std::runtime_error("cannot normalize an empty filament rack");
     const auto normalize_config = [count](auto& config, const bool project) {
         for (const auto& key : config.keys()) {
@@ -747,10 +750,11 @@ void recalculate_filament_flush(PresetBundle& bundle)
 {
     auto* matrix = bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true);
     if (matrix == nullptr) throw FilamentCommandFailure("native_validation_failure", "native flush matrix is unavailable");
-    const std::size_t count = bundle.filament_presets.size();
+    const std::size_t count = State::material_slot_count(bundle.project_config);
+    const std::size_t matrix_dimension = bundle.filament_presets.size();
     const std::size_t nozzles = std::max(1, bundle.get_printer_extruder_count());
     const auto* colours = bundle.project_config.opt<ConfigOptionStrings>("filament_colour");
-    if (colours == nullptr || colours->values.size() != count)
+    if (colours == nullptr || count == 0 || matrix_dimension < count)
         throw FilamentCommandFailure("native_validation_failure", "native filament colours are unavailable");
     const auto* multi = bundle.project_config.opt<ConfigOptionStrings>("filament_multi_colour");
     const auto* support = bundle.project_config.opt<ConfigOptionBools>("filament_is_support");
@@ -767,14 +771,19 @@ void recalculate_filament_flush(PresetBundle& bundle)
         return sets;
     }();
 
-    matrix->values.assign(count * count * nozzles, 0.0);
+    // Keep Orca's native preset-sized planes. Only actual materials have
+    // colours; padded preset entries do not create additional material slots.
+    matrix->values.resize(matrix_dimension * matrix_dimension * nozzles, 0.0);
     for (std::size_t nozzle = 0; nozzle < nozzles; ++nozzle) {
         const int dataset = datasets != nullptr && !datasets->values.empty()
             ? datasets->get_at(nozzle) : 0;
-        const bool has_support = support != nullptr && support->values.size() == count;
+        const bool has_support = support != nullptr && support->values.size() >= count;
         for (std::size_t from = 0; from < count; ++from) {
             for (std::size_t to = 0; to < count; ++to) {
-                if (from == to) continue;
+                if (from == to) {
+                    matrix->values[nozzle * matrix_dimension * matrix_dimension + from * matrix_dimension + to] = 0.0;
+                    continue;
+                }
                 int flushing = 0;
                 const bool from_support = has_support && support->get_at(from);
                 const bool to_support = has_support && support->get_at(to);
@@ -790,7 +799,7 @@ void recalculate_filament_flush(PresetBundle& bundle)
                     if (from_support)
                         flushing = std::max(flushing, Slic3r::g_min_flush_volume_from_support);
                 }
-                matrix->values[nozzle * count * count + from * count + to] = flushing;
+                matrix->values[nozzle * matrix_dimension * matrix_dimension + from * matrix_dimension + to] = flushing;
             }
         }
     }
@@ -807,18 +816,19 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
                                             const bool strict_slot_arrays,
                                             const bool require_all_slot_arrays)
 {
-    if (filament_presets.empty() || filament_presets.size() > 64)
+    const std::size_t slot_count = State::material_slot_count(project);
+    if (slot_count == 0 || slot_count > 64 || filament_presets.size() < slot_count || filament_presets.size() > 64)
         throw std::runtime_error("native filament slot count is invalid");
     for (const char* key : {"filament_colour", "filament_multi_colour", "filament_colour_type",
                             "filament_map", "filament_volume_map", "filament_nozzle_map",
-                            "filament_map_2", "filament_self_index", "filament_extruder_variant"}) {
+                            "filament_map_2"}) {
         if (strict_slot_arrays || require_all_slot_arrays) if (const auto* option = project.option(key)) {
             const auto* vector_option = dynamic_cast<const ConfigOptionVectorBase*>(option);
             if (vector_option == nullptr) continue;
             const auto size = vector_option->size();
             const bool invalid_size = require_all_slot_arrays
-                ? size != filament_presets.size()
-                : (flexible_slots && size != 0 && size != filament_presets.size());
+                ? size != slot_count
+                : (flexible_slots && size != 0 && size != slot_count);
             if (invalid_size)
                 throw std::runtime_error(std::string("native filament array has invalid length: ") + key);
         }
@@ -843,7 +853,7 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
         for (const auto& key : config.keys()) {
             if (!is_filament_slot_reference_key(key)) continue;
             const auto* option = dynamic_cast<const ConfigOptionInt*>(config.option(key));
-            if (option != nullptr && (option->value < 0 || option->value > static_cast<int>(filament_presets.size())))
+            if (option != nullptr && (option->value < 0 || option->value > static_cast<int>(slot_count)))
                 throw FilamentCommandFailure("unsupported_reference", "model filament reference exceeds slots");
         }
     };
@@ -855,7 +865,7 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
             if (extruder == nullptr || extruder->getInt() == 0)
                 extruder = object->config.option("extruder");
             const int effective_extruder = extruder == nullptr ? 1 : extruder->getInt();
-            if (effective_extruder > static_cast<int>(filament_presets.size()))
+            if (effective_extruder > static_cast<int>(slot_count))
                 throw FilamentCommandFailure("unsupported_reference", "model effective filament reference exceeds slots");
         }
     }
@@ -869,7 +879,7 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
                 throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in native scoped configuration");
             try {
                 const int reference = std::stoi(value.get<std::string>());
-                if (reference < 0 || reference > static_cast<int>(filament_presets.size()))
+                if (reference < 0 || reference > static_cast<int>(slot_count))
                     throw FilamentCommandFailure("unsupported_reference", "native scoped configuration reference exceeds slots");
             } catch (const FilamentCommandFailure&) { throw; }
             catch (...) {
@@ -881,11 +891,11 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
     for (const char* scope : {"objects", "parts"})
         for (const auto& [id, values] : snapshot[scope].items()) validate_snapshot_values(values);
     for (const auto& plate : plates) {
-        validate_plate_filament_state(plate, filament_presets.size(), nozzle_count);
+        validate_plate_filament_state(plate, slot_count, nozzle_count);
         for (const auto& key : plate.settings.keys()) {
             if (!is_filament_slot_reference_key(key)) continue;
             const auto* option = dynamic_cast<const ConfigOptionInt*>(plate.settings.option(key));
-            if (option != nullptr && (option->value < 0 || option->value > static_cast<int>(filament_presets.size())))
+            if (option != nullptr && (option->value < 0 || option->value > static_cast<int>(slot_count)))
                 throw FilamentCommandFailure("unsupported_reference", "staged plate reference exceeds filament slots");
         }
     }
@@ -950,7 +960,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         if (!HistoryMetadata::begin_timestamped_operation(state(), label, before_context))
             return command_error("native_validation_failure", "could not capture filament history predecessor");
         bool history_started = true;
-        const auto old_count = state().presets.filament_presets.size();
+        const auto old_count = State::material_slot_count(state().presets.project_config);
         bool mutated = false;
         bool history_committed = false;
         const auto rollback_published = [&]() {
@@ -1127,7 +1137,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
 
         try {
             mutated = true;
-            const auto old_count = state().presets.filament_presets.size();
+            const auto old_count = State::material_slot_count(state().presets.project_config);
             json snapshot = Neo::Bridge::ScopedConfig::native_scoped_config_snapshot();
             json mutation = mutator(state().presets, state().model, state().plate_session_plates,
                                      snapshot, old_count);
@@ -1478,7 +1488,7 @@ json assign_filament_command(const json& request, const Runtime& runtime)
     return run_filament_assignment_mutation(request, "Assign Filament", [&request](PresetBundle& bundle, Model& model,
         auto&, auto&, std::set<std::size_t>& affected_objects) {
         const auto targets = parse_assignment_targets(request);
-        const int slot = requested_assignment_slot(request, bundle.filament_presets.size(), true);
+        const int slot = requested_assignment_slot(request, State::material_slot_count(bundle.project_config), true);
         std::vector<FilamentAssignmentTarget> normalized;
         std::set<std::pair<std::string, std::size_t>> seen;
         for (const auto& target : targets) {
@@ -1571,7 +1581,7 @@ json set_filament_routing_command(const json& request, const Runtime& runtime)
         if (key == nullptr) throw FilamentCommandFailure("invalid_command", "unsupported filament routing selector");
         const bool feature_selector = selector != "support-base" && selector != "support-interface";
         const int slot = request.contains("slot") && request["slot"].is_number_integer() ? request["slot"].get<int>() : -1;
-        if (slot < 0 || slot > static_cast<int>(bundle.filament_presets.size()))
+        if (slot < 0 || slot > static_cast<int>(State::material_slot_count(bundle.project_config)))
             throw FilamentCommandFailure("unsupported_reference", "routing slot is outside the ordered filament slots");
         const auto targets = request.contains("targets") ? request["targets"] : request.value("target", json::object());
         const json array = targets.is_array() ? targets : json::array({targets});
@@ -1752,7 +1762,6 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
             if (!source) throw FilamentCommandFailure("unsupported_reference", error);
             validate_paint_remap(model, *source, std::nullopt);
             bundle.update_num_filaments(*source);
-            bundle.filament_presets.resize(count - 1);
             state().filament_slot_ids.erase(state().filament_slot_ids.begin() + *source);
             remap_config_filament_references(bundle.project_config, *source, std::nullopt);
             remap_model_filament_references(model, *source, std::nullopt, count - 1);
@@ -1777,7 +1786,6 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
         }
         validate_paint_remap(model, *source, replacement);
         bundle.update_num_filaments(*source);
-        bundle.filament_presets.resize(count - 1);
         state().filament_slot_ids.erase(state().filament_slot_ids.begin() + *source);
         // Project-scoped support/feature routing lives in the native project
         // config rather than a separate renderer state.  Remap it before the
@@ -1904,17 +1912,15 @@ json filament_session_snapshot_json()
     PresetBundle& bundle = state().presets;
     const DynamicPrintConfig& project = bundle.project_config;
     const DynamicPrintConfig& printer = bundle.printers.get_edited_preset().config;
-    const DynamicPrintConfig& filament = bundle.filaments.get_edited_preset().config;
 
     std::vector<std::string> preset_names = bundle.filament_presets;
     const auto project_colours = config_strings(project, "filament_colour");
     const auto project_multi_colours = config_strings(project, "filament_multi_colour");
     const auto project_colour_types = config_strings(project, "filament_colour_type");
     std::vector<std::string> colours = config_strings(project, "filament_colour");
-    if (colours.empty()) colours = config_strings(filament, "filament_colour");
-    if (preset_names.empty())
+    if (preset_names.empty() || colours.empty())
         return filament_session_error_json("filament_slots_missing", "filament rack has no slots");
-    const size_t slot_count = std::max<size_t>(1, std::max(preset_names.size(), colours.size()));
+    const size_t slot_count = State::material_slot_count(project);
     if (preset_names.size() < slot_count)
         return filament_session_error_json("filament_slots_mismatched", "filament rack slots and colours differ");
 
@@ -1934,12 +1940,7 @@ json filament_session_snapshot_json()
             preset_colours[i] = native_default_colours[i];
         if (preset_colours[i].empty()) preset_colours[i] = native_filament_colour_fallback;
     }
-    if (colours.size() < slot_count) {
-        const auto defaults = state().profile_config.get_filament_colors();
-        for (size_t i = colours.size(); i < slot_count; ++i)
-            colours.push_back(!preset_colours[i].empty() ? preset_colours[i] :
-                              (i < defaults.size() ? defaults[i] : std::string("#000000")));
-    }
+
 
     auto slot_ids = State::project_slot_identities(slot_count);
     json slots = json::array();
@@ -1996,7 +1997,8 @@ json filament_session_snapshot_json()
         matrix_plane_count = static_cast<size_t>(printer_nozzles);
         matrix.assign(matrix_dimension * matrix_dimension * matrix_plane_count, 0.0);
     } else {
-        const size_t plane_size = matrix_dimension * matrix_dimension;
+        const size_t native_dimension = preset_names.size();
+        const size_t plane_size = native_dimension * native_dimension;
         if (plane_size == 0 || matrix.size() % plane_size != 0)
             return filament_session_error_json("flush_matrix_malformed", "flush_volumes_matrix is not a whole native plane");
         matrix_plane_count = matrix.size() / plane_size;
@@ -2004,6 +2006,15 @@ json filament_session_snapshot_json()
             return filament_session_error_json("flush_matrix_plane_count_mismatch", "flush_volumes_matrix plane count does not match nozzle count");
         if (std::any_of(matrix.begin(), matrix.end(), [](double value) { return !std::isfinite(value); }))
             return filament_session_error_json("flush_matrix_malformed", "flush_volumes_matrix contains invalid values");
+        if (native_dimension != slot_count) {
+            std::vector<double> visible(slot_count * slot_count * matrix_plane_count);
+            for (size_t nozzle = 0; nozzle < matrix_plane_count; ++nozzle)
+                for (size_t from = 0; from < slot_count; ++from)
+                    for (size_t to = 0; to < slot_count; ++to)
+                        visible[nozzle * slot_count * slot_count + from * slot_count + to] =
+                            matrix[nozzle * plane_size + from * native_dimension + to];
+            matrix = std::move(visible);
+        }
     }
     auto flush_vector = config_floats(project, "flush_volumes_vector");
     if (flush_vector.empty()) flush_vector = config_floats(printer, "flush_volumes_vector");
@@ -2204,7 +2215,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_flush_fixture(const char*
         state().presets.update_multi_material_filament_presets();
         auto& printer = state().presets.printers.get_edited_preset().config;
         auto& project = state().presets.project_config;
-        const auto filament_count = state().presets.filament_presets.size();
+        const auto filament_count = State::material_slot_count(state().presets.project_config);
         auto* fixture_colours = project.option<ConfigOptionStrings>("filament_colour", true);
         fixture_colours->values.resize(filament_count, "#26A69A");
         for (std::size_t index = 0; index < filament_count; ++index)
@@ -2311,7 +2322,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_flush_fixture(const char*
         }
         return duplicate_json(json{{"ok", true}, {"snapshot", filament_session_snapshot_json()},
             {"min_flush_volumes", Filament::Commands::min_flush_volumes_for_config(synthetic_full,
-                state().presets.filament_presets.size(),
+                State::material_slot_count(state().presets.project_config),
                 std::max(1, state().presets.get_printer_extruder_count()))}}.dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown test flush fixture failure"); }
