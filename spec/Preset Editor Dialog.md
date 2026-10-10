@@ -428,6 +428,14 @@ using the same modified-option color as the Print configuration overlay,
 including phase-one read-only fields. Removing that override clears the
 highlight; the input control itself remains unhighlighted.
 
+An explicit write remains an override when its value equals Source; only Reset
+resumes inheritance. Vector overrides belong to the whole native option, not
+individual elements. Every Extruder page displaying that overridden option
+therefore highlights it and offers Reset, including equal-valued elements.
+Field and category resets still target the selected index; a source-equivalent
+vector after an explicit reset removes that option's override. Sidebar modified
+markers and editor highlights use the same native override ownership.
+
 `Reset category` is one atomic native batch mutation: it either restores every
 override of every manifest field in that category, including Phase-one read-only
 fields, or makes no change. It produces one Undo/Redo history entry and

@@ -124,19 +124,18 @@ function coordinateText(value: PresetDraftVectorValue | undefined): string {
   return value && typeof value === 'object' && 'x' in value ? pointText(value as PresetDraftEditorPoint) : '';
 }
 
-function hasOverride(snapshot: PresetDraftSnapshot, key: string, index?: number): boolean {
-  if (!Object.prototype.hasOwnProperty.call(snapshot.overrides, key)) return false;
-  const vector = index === undefined ? undefined : snapshot.editorVectors?.[key];
-  return !vector || JSON.stringify(vectorAt(vector, vector.sourceValues, index!)) !==
-    JSON.stringify(vectorAt(vector, vector.effectiveValues, index!));
+function hasOverride(snapshot: PresetDraftSnapshot, key: string): boolean {
+  // Native drafts own whole options, including vectors. Equal Source/Effective
+  // elements still belong to that explicit override and must remain resettable.
+  return Object.prototype.hasOwnProperty.call(snapshot.overrides, key);
 }
 
-function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup, index?: number): boolean {
-  return group.fields.some((field) => hasOverride(snapshot, field.key, index));
+function groupHasOverrides(snapshot: PresetDraftSnapshot, group: PresetEditorManifestGroup): boolean {
+  return group.fields.some((field) => hasOverride(snapshot, field.key));
 }
 
 function pageHasOverrides(snapshot: PresetDraftSnapshot, page: PresetEditorManifestPage): boolean {
-  return page.groups.some((group) => groupHasOverrides(snapshot, group, page.extruderIndex));
+  return page.groups.some((group) => groupHasOverrides(snapshot, group));
 }
 
 function isColourField(field: PresetEditorManifestField, metadata: OptionMeta | undefined): boolean {
@@ -274,7 +273,7 @@ function FieldValue({
   const readOnlyReason = field.readOnlyReason ?? (unsupportedStructured
     ? 'This value needs a specialized editor.'
     : missingRequiredBinding ? 'This value needs native element metadata.' : undefined);
-  const overridden = hasOverride(snapshot, field.key, page?.extruderIndex);
+  const overridden = hasOverride(snapshot, field.key);
   const [displayValue, setDisplayValue] = useState(effectiveValue);
   const [nullValue, setNullValue] = useState(binding?.effectiveValue === null);
   const [percentMode, setPercentMode] = useState(
@@ -810,7 +809,7 @@ function FieldGroup({
   onMutate: PresetEditorDialogProps['onMutate'];
 }) {
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
-  const overridden = groupHasOverrides(snapshot, group, page.extruderIndex);
+  const overridden = groupHasOverrides(snapshot, group);
   return (
     <section
       data-testid={`preset-editor-group-${page.id}-${group.id}`}
@@ -909,7 +908,7 @@ export function PresetEditorDialog({
   const activePageResetKeys = snapshot === null ? [] : [...new Set(activePageKeys.filter((key) =>
     Object.prototype.hasOwnProperty.call(snapshot.sourceValues, key) ||
     Object.prototype.hasOwnProperty.call(snapshot.effectiveValues, key)))];
-  const categoryHasOverrides = snapshot !== null && activePageResetKeys.some((key) => hasOverride(snapshot, key, activePage?.extruderIndex));
+  const categoryHasOverrides = snapshot !== null && activePageResetKeys.some((key) => hasOverride(snapshot, key));
   const showSearchResults = query.length > 0;
 
   return (

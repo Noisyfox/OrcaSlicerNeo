@@ -1351,6 +1351,46 @@ describe('SlicerClient bridge contract', () => {
     } });
   });
 
+  it('retains explicit source-equivalent writes until Reset and restores their ownership through history', async () => {
+    const client = makeClient();
+    await client.init(MOCK_PROFILE_ACTIVATION);
+    const source = await client.getPresetDraft('filament', 'Generic PLA @System');
+    if (!source.ok) throw new Error('expected filament source');
+    const write = async (key: string, index: number, value: number) => {
+      const draft = await client.getPresetDraft('filament', source.canonicalName);
+      if (!draft.ok) throw new Error('expected draft');
+      const result = await client.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+        action: 'set-element', expectedRevision: draft.revision, key, scalarType: 'float', index, value });
+      if (!result.ok) throw new Error(result.error);
+      return result;
+    };
+    await write('filament_flow_ratio', 0, 1.1);
+    await write('filament_flow_ratio', 1, 1.2);
+    const partial = await write('filament_flow_ratio', 1, 1);
+    expect(partial.modified).toBe(true);
+    expect(partial.editorVectors.filament_flow_ratio.effectiveValues).toEqual([1.1, 1]);
+    const restored = await write('filament_flow_ratio', 0, 1);
+    expect(restored).toMatchObject({ draftExists: true, modified: true, overrides: { filament_flow_ratio: '[1,1]' } });
+    expect(restored.profileSnapshot.modifiedPresets.filament).toContain(source.canonicalName);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect(await client.getPresetDraft('filament', source.canonicalName))
+      .toMatchObject({ modified: true, editorVectors: { filament_flow_ratio: { effectiveValues: [1.1, 1] } } });
+    expect((await client.redoHistory()).ok).toBe(true);
+    const replayed = await client.getPresetDraft('filament', source.canonicalName);
+    expect(replayed).toMatchObject({ modified: true, overrides: { filament_flow_ratio: '[1,1]' } });
+    if (!replayed.ok) throw new Error('expected restored draft');
+    const reset = await client.mutatePresetDraft({ kind: 'filament', canonicalName: source.canonicalName,
+      action: 'reset-field', key: 'filament_flow_ratio', index: 0, expectedRevision: replayed.revision });
+    expect(reset).toMatchObject({ modified: false, draftExists: true, overrides: {} });
+    if (!reset.ok) throw new Error('expected reset');
+    expect(reset.profileSnapshot.modifiedPresets.filament).not.toContain(source.canonicalName);
+    await client.undoHistory();
+    expect(await client.getPresetDraft('filament', source.canonicalName))
+      .toMatchObject({ modified: true, overrides: { filament_flow_ratio: '[1,1]' } });
+    await client.redoHistory();
+    expect(await client.getPresetDraft('filament', source.canonicalName)).toMatchObject({ modified: false, overrides: {} });
+  });
+
   it.each(['malformed', 'missing', 'range'] as const)('rejects %s native editor vectors', async (mode) => {
     const module = createMockModule();
     const originalCall = module.ccall;

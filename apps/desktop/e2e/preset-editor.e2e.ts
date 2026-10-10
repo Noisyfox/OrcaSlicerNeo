@@ -88,7 +88,7 @@ test('U1 Extruder pages edit their own native index and follow canonical diamete
     await minimum.fill('0.15'); await minimum.press('Enter');
     await expect(minimum).toHaveValue('0.15');
     await expect(page.getByTestId('preset-editor-page-tab-extruder-3')).toHaveAttribute('data-draft-override-highlight', 'true');
-    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'false');
+    await expect(page.getByTestId('preset-editor-page-tab-extruder-1')).toHaveAttribute('data-draft-override-highlight', 'true');
     await page.getByTestId('preset-editor-reset-category-extruder-3').click();
     await expect(minimum).toHaveValue('0.12');
     for (const index of [3, 4]) {
@@ -107,6 +107,60 @@ test('U1 Extruder pages edit their own native index and follow canonical diamete
     await expect(minimum).toHaveValue('0.1');
     await page.getByTestId('preset-editor-close').click();
     await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4');
+  } finally { await app.close(); }
+});
+
+test('Multi diameter writes matching Source stay highlighted and resettable in the Printer editor', async () => {
+  test.skip(!REAL, 'Requires real U1 toolheads and native override ownership');
+  const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('preset-select').click();
+    const popup = page.locator('[data-slot="combobox-content"]');
+    await popup.getByPlaceholder('Search presets…').fill('Snapmaker U1');
+    await popup.getByRole('option', { name: 'Snapmaker U1', exact: true }).click();
+    await expect(page.getByTestId('preset-transition-region')).toHaveAttribute('aria-busy', 'false');
+    await page.getByTestId('nozzle-variant-select').click();
+    await page.getByRole('option', { name: '0.4+0.6', exact: true }).click();
+    await expect(page.getByTestId('nozzle-variant-select')).toContainText('0.4+0.6');
+    const marker = page.getByTestId('preset-select').locator('.config-override-label');
+    for (const action of ['field', 'category']) {
+      await page.getByTestId('printer-tab-multi').click();
+      await page.getByTestId('toolhead-3').click();
+      for (const value of ['0.4', '0.6']) {
+        const diameter = page.getByTestId('toolhead-diameter-select');
+        await diameter.click();
+        await page.getByRole('option', { name: value, exact: true }).click();
+        await expect(diameter).toContainText(value);
+        await expect(diameter).toBeEnabled();
+      }
+      await page.getByTestId('printer-tab-device').click();
+      await expect(marker).toHaveCount(1);
+      await page.getByTestId('preset-edit-printer').click();
+      await page.getByTestId('preset-editor-page-tab-extruder-3').click();
+      await expect(page.getByTestId('preset-editor-project-draft')).toHaveText('Project draft');
+      await expect(page.getByTestId('preset-editor-input-nozzle_diameter')).toHaveValue('0.6');
+      await expect(page.getByTestId('preset-editor-option-label-nozzle_diameter')).toHaveAttribute('data-draft-override-highlight', 'true');
+      await page.getByTestId(action === 'field' ? 'preset-editor-reset-field-nozzle_diameter' : 'preset-editor-reset-category-extruder-3').click();
+      await expect(page.getByTestId('preset-editor-project-draft')).toHaveCount(0);
+      await expect(page.getByTestId('preset-editor-option-label-nozzle_diameter')).toHaveAttribute('data-draft-override-highlight', 'false');
+      await expect(page.getByTestId('preset-editor-reset-category-extruder-3')).toBeDisabled();
+      await page.getByTestId('preset-editor-close').click();
+      await expect(marker).toHaveCount(0);
+      await page.getByTestId('history-undo').click();
+      await expect(marker).toHaveCount(1);
+      await page.getByTestId('preset-edit-printer').click();
+      await page.getByTestId('preset-editor-page-tab-extruder-3').click();
+      await expect(page.getByTestId('preset-editor-input-nozzle_diameter')).toHaveValue('0.6');
+      await expect(page.getByTestId('preset-editor-reset-field-nozzle_diameter')).toBeEnabled();
+      await page.getByTestId('preset-editor-close').click();
+      await page.getByTestId('history-redo').click();
+      await expect(marker).toHaveCount(0);
+    }
   } finally { await app.close(); }
 });
 

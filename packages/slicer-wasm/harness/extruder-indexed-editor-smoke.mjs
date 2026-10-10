@@ -34,6 +34,34 @@ assert.deepEqual(values('nozzle_diameter'), [0.4, 0.4, 0.6, 0.6]);
 assert.deepEqual(values('min_layer_height'), [0.08, 0.08, 0.12, 0.12]);
 assert.deepEqual(values('max_layer_height'), [0.32, 0.32, 0.48, 0.48]);
 
+// The sidebar Multi. command and editor must agree after restoring a diameter.
+function diameter(value) {
+  return must(call('orc_set_toolhead_diameter', ['string'], [JSON.stringify({
+    index: 2, diameter: value, expected_revision: read().revision,
+  })]));
+}
+const diameterChanged = diameter(0.4);
+assert.equal(read().modified, true);
+assert.ok(diameterChanged.profile_snapshot.modified_presets.printer.includes(printer));
+const diameterRestored = diameter(0.6);
+assert.equal(read().modified, true, 'writing the source diameter retains its explicit override');
+assert.equal(Object.hasOwn(read().overrides, 'nozzle_diameter'), true);
+assert.ok(diameterRestored.profile_snapshot.modified_presets.printer.includes(printer));
+must(call('orc_history_undo'));
+assert.equal(read().modified, true);
+assert.equal(values('nozzle_diameter')[2], 0.4);
+must(call('orc_history_redo'));
+assert.equal(read().modified, true);
+assert.equal(values('nozzle_diameter')[2], 0.6);
+const diameterReset = mutate({ action: 'reset-field', key: 'nozzle_diameter', index: 2 });
+assert.equal(read().modified, false, 'Reset removes the final source-equivalent override');
+assert.equal(read().draft_exists, true, 'Reset retains the empty draft identity');
+assert.equal(diameterReset.profile_snapshot.modified_presets.printer.includes(printer), false);
+must(call('orc_history_undo'));
+assert.equal(read().modified, true, 'Undo restores the explicit equal-value override');
+must(call('orc_history_redo'));
+assert.equal(read().modified, false);
+
 // Read every native vector type, and isolate edits at the third Extruder.
 const initial = read();
 for (const key of ['retraction_length', 'wipe', 'retract_before_wipe', 'z_hop_types', 'extruder_offset', 'extruder_printable_area'])

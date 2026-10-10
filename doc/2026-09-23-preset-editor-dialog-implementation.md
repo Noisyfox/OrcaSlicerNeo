@@ -204,6 +204,12 @@ repository persistence, and management UI are excluded from this branch.
   Update these existing documents rather than creating new task documents.
 - Filament/Print selectors, per-field Extruder/Variant mapping, motion-mode UI,
   and parameter synchronization are outside this mechanism increment.
+- Explicit writes matching Source retain their native override. The editor
+  highlights vector option ownership on every displaying Extruder page and
+  offers field/category Reset even when the element value equals Source. Reset
+  retains its indexed behavior and removes a fully source-equivalent vector
+  override; the empty draft identity remains. Multi. diameter write/restore,
+  explicit Reset and Undo/Redo must keep sidebar and editor markers consistent.
 
 Validation covers native U1 physical/variant/motion ranges, short vectors,
 nonzero Filament and Print edits/resets, nullable source restoration, failed
@@ -225,3 +231,12 @@ Verification completed for this increment:
   'Print edits followed by Filament edits'` passed its selected test.
 - `git diff --check`: passed. Full release E2E matrices were not run for this
   focused mechanism increment.
+
+The override-highlight follow-up passed `pnpm test` (1,828 passed, 3 skipped),
+`pnpm typecheck`, the 30-test `PresetEditorDialog` component suite, and all three
+real Electron `e2e/preset-editor.e2e.ts` tests after fresh staging/build.
+`extruder-indexed-editor-smoke.mjs` passed on serial and threaded, covering
+equal-value diameter ownership, explicit Reset and Undo/Redo. The serial quick
+build was rerun; native production code is unchanged and the threaded artifact
+retains the same source contract. `git diff --check` passed. The full release
+host matrix was not rerun for this shared presentation correction.

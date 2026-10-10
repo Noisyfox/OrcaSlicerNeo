@@ -343,12 +343,44 @@ describe('PresetEditorDialog', () => {
     expect(requests.at(-1)).toMatchObject({ action: 'set-element', key: 'min_layer_height', index: 2, value: 0.15 });
     expect(current.editorVectors?.min_layer_height.effectiveValues).toEqual([0.08, 0.08, 0.15, 0.12]);
     expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-3"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
-    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-1"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
     await click(document.querySelector('[data-testid="preset-editor-reset-field-min_layer_height"]'));
     expect(requests.at(-1)).toMatchObject({ action: 'reset-field', key: 'min_layer_height', index: 2 });
     expect(current.editorVectors?.min_layer_height.effectiveValues).toEqual([0.08, 0.08, 0.12, 0.12]);
     await enterSearch('nozzle_diameter');
     expect([...document.querySelectorAll('[data-testid="preset-editor-effective-nozzle_diameter"]')].map(node => node.textContent)).toEqual(['0.4', '0.4', '0.6', '0.6']);
+  });
+
+  it.each(['reset-field', 'reset-category'] as const)('highlights explicit equal-value vector overrides until %s', async action => {
+    const base = snapshotFor('printer');
+    const nozzles = [0.4, 0.6];
+    let current: PresetDraftSnapshot = { ...base, modified: true,
+      overrides: { nozzle_diameter: JSON.stringify(nozzles) },
+      sourceValues: { ...base.sourceValues, nozzle_diameter: JSON.stringify(nozzles) },
+      editorVectors: { ...base.editorVectors,
+        nozzle_diameter: { ...base.editorVectors.nozzle_diameter!, sourceValues: nozzles } },
+    };
+    const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
+      const result = mutationSuccess(current, request);
+      if (result.ok) current = result;
+      return result;
+    });
+    await mount(current, vi.fn(), undefined, onMutate);
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]'));
+    expect((document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement).value).toBe('0.6');
+    expect(document.querySelector('[data-testid="preset-editor-option-label-nozzle_diameter"]')?.getAttribute('data-draft-override-highlight')).toBe('true');
+    for (const index of [1, 2])
+      expect(document.querySelector(`[data-testid="preset-editor-page-tab-extruder-${index}"]`)?.getAttribute('data-draft-override-highlight')).toBe('true');
+    const reset = document.querySelector('[data-testid="preset-editor-reset-category-extruder-2"]') as HTMLButtonElement;
+    expect(reset.disabled).toBe(false);
+    await click(action === 'reset-field' ? document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]') : reset);
+    expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ action, index: 1,
+      ...(action === 'reset-field' ? { key: 'nozzle_diameter' } : { keys: expect.arrayContaining(['nozzle_diameter']) }) }));
+    expect(current).toMatchObject({ modified: false, draftExists: true, overrides: {} });
+    expect(document.querySelector('[data-testid="preset-editor-option-label-nozzle_diameter"]')?.getAttribute('data-draft-override-highlight')).toBe('false');
+    expect(document.querySelector('[data-testid="preset-editor-reset-field-nozzle_diameter"]')).toBeNull();
+    expect(reset.disabled).toBe(true);
+    expect((document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement).value).toBe('0.6');
   });
 
   it('keeps the selected Extruder page when a mutation resolves a new canonical Printer source', async () => {
