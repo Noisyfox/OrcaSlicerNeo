@@ -593,3 +593,13 @@ Validation for main CI plate-card clipping repair (2026-10-05):
   index rejection without vector resizing. CI runs this harness after its
   production serial build.
 - `git diff --check` passed. PR CI validation is in progress.
+- Local U1 verification on 2026-10-10 reproduced a stale threaded artifact:
+  individual edits returned obsolete nullable profile targets and the current
+  client rejected the receipt. Rebuilt both ordinary WASM variants and staged
+  them into the desktop renderer; no compatibility fallback was added. Both
+  rebuilt variants accepted U1 indexed diameter edits through the typed client.
+- The focused SettingsPanel suite passed (21 tests), including clicking Multi.,
+  selecting U1's second head, changing its diameter, and checking the published
+  vector and selected value. Client tests passed (233 tests), both affected
+  package typechecks passed, and printer-picker native smoke passed for serial
+  and threaded. Physical diameter choices retain the existing visibility filter.

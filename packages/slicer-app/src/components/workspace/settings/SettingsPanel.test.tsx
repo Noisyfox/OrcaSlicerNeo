@@ -151,6 +151,7 @@ function makePlatform(
         }),
         selectProfile: vi.fn(selectProfile),
         selectPrinterWithRememberedRack: vi.fn(selectPrinterWithRememberedRack),
+        setToolheadDiameter: vi.fn(async () => printerTransition()),
         revalidateNativeScopedConfig: vi.fn(async () => ({ ok: true, nativeScopedConfig: {
           version: 1 as const, revision: 0, kind: 'full' as const,
           snapshot: { project: { curr_bed_type: 'Textured PEI Plate' }, objects: {}, parts: {}, plates: {} }, removedTargets: [],
@@ -270,6 +271,34 @@ describe('SettingsPanel preset transitions', () => {
     expect(runtime.selectPrinterWithRememberedRack).toHaveBeenCalledWith('New Printer', null, null);
     expect(container.querySelector('[data-testid="preset-select"]')?.getAttribute('title')).toBe('New Printer');
     expect(container.querySelector('[data-testid="nozzle-variant-select"]')?.textContent).toContain('0.6');
+  });
+
+  it('applies a diameter selected in Multi to the selected U1 toolhead', async () => {
+    resetStores();
+    const snapshot: ProfileSnapshot = { ...initialSnapshot,
+      project_config: { nozzle_diameter: '0.4,0.4,0.4,0.4', nozzle_volume_type: 'Standard' },
+    };
+    useSettingsStore.getState().hydrateProfileSnapshot(snapshot);
+    const transition = printerTransition({ ...snapshot,
+      project_config: { nozzle_diameter: '0.4,0.6,0.4,0.4', nozzle_volume_type: 'Standard' },
+    }) as Extract<PrinterTransitionResult, { ok: true }>;
+    const receipt = { ...transition, mutation: { ...transition.mutation, kind: 'set-toolhead-diameter' as const } };
+    useHistoryNavigationStore.getState().setStatus({ ...receipt.historyStatus, revision: 0 });
+    const { platform, runtime } = makePlatform(async () => snapshot);
+    runtime.setToolheadDiameter.mockResolvedValue(receipt);
+    const { container, root } = await render(platform); roots.push(root);
+    await act(async () => (container.querySelector('[data-testid="printer-tab-multi"]') as HTMLElement).click());
+    await act(async () => (container.querySelector('[data-testid="toolhead-2"]') as HTMLElement).click());
+    await act(async () => (container.querySelector('[data-testid="toolhead-diameter-select"]') as HTMLElement).click());
+    const option = [...document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')].find(item => item.textContent === '0.6');
+    expect(option).toBeDefined();
+    await act(async () => {
+      option!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
+    expect(runtime.setToolheadDiameter).toHaveBeenCalledWith(1, 0.6, 0);
+    expect(useSettingsStore.getState().values.nozzle_diameter).toBe('0.4,0.6,0.4,0.4');
+    expect(container.querySelector('[data-testid="toolhead-diameter-select"]')?.textContent).toContain('0.6');
   });
 
   it.each(['Standard', 'High Flow'])('shows the single-nozzle %s flow type as a read-only combo', async (flow) => {
