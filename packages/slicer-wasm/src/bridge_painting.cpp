@@ -299,7 +299,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_session_open(const char* text) {
         const auto history_id = handle(value, "historySessionId", "hs-");
         require_history(history_id);
         auto candidate = state().painting.prepare_open(state().model, integer(value, "objectId"), integer(value, "instanceId"),
-            channel(value), state().presets.filament_presets.size(), history_id);
+            channel(value), Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config), history_id);
         auto out = response(metadata(*candidate)); // Allocation precedes noexcept publication.
         state().painting.publish(std::move(candidate));
         return out.release();
@@ -517,7 +517,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_painting_stroke_commit(const char* text) {
                         auto part = std::find_if(candidate->parts.begin(), candidate->parts.end(),
                             [&](const auto& part) { return part.volume_id == volume->id().id; });
                         for (auto used : Slic3r::TriangleSelector::extract_used_facet_states(part->selector->serialize()))
-                            if (candidate->channel == Channel::Mmu && std::size_t(used) > state().presets.filament_presets.size()) throw std::invalid_argument("painting state has no filament slot");
+                            if (candidate->channel == Channel::Mmu && std::size_t(used) > Slic3r::Neo::Bridge::Filament::State::material_slot_count(state().presets.project_config)) throw std::invalid_argument("painting state has no filament slot");
                         annotation(*volume, candidate->channel).set(*part->selector);
                         part->annotation_timestamp = annotation(*volume, candidate->channel).timestamp();
                     }

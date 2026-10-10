@@ -592,15 +592,13 @@ std::optional<std::string> read_archive_entry(const std::string& path, const std
     return result;
 }
 
-// Native preset compatibility can expand the active rack to the printer's
-// nozzle count. Older BBS projects may store plate maps for only the slots
-// named by project_settings.config. Extend those maps with the same defaults
-// used when a filament is added; leave any other size for validation to reject.
+// Extend imported plate maps only when the actual colour-backed rack grows.
+// Native preset padding alone must not create plate material entries.
 void extend_imported_plate_filament_maps(std::vector<BridgeState::PlateSessionPlate>& plates,
                                          const std::size_t source_slots,
                                          const PresetBundle& bundle)
 {
-    const std::size_t active_slots = bundle.filament_presets.size();
+    const std::size_t active_slots = Filament::State::material_slot_count(bundle.project_config);
     if (source_slots == 0 || active_slots <= source_slots) return;
     for (auto& plate : plates) {
         bool extended = false;

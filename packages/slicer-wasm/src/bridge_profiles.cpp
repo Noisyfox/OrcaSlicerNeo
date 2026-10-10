@@ -97,12 +97,14 @@ void validate_profile_transition()
     auto& bundle = state().presets;
     if (bundle.filament_presets.empty())
         throw std::runtime_error("printer transition produced an empty filament rack");
-    // Native compatibility may append a slot when a fixed multi-extruder
-    // printer is selected, but that helper updates only the preset-name list.
-    // Drive the canonical slot resizer at the final count so every project
-    // slot array is aligned before flushing and session validation.
+    // Native preset padding does not add project materials. Fixed multi-extruder
+    // printers still require a material for each nozzle.
+    const bool flexible = bundle.is_bbl_vendor() ||
+        bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material");
+    const auto slot_count = Filament::State::material_slot_count(bundle.project_config);
     Filament::State::resize_slots_preserving_colours(
-        bundle, static_cast<unsigned int>(bundle.filament_presets.size()));
+        bundle, static_cast<unsigned int>(flexible ? slot_count :
+            std::max(slot_count, static_cast<std::size_t>(bundle.get_printer_extruder_count()))));
     for (const auto& name : bundle.filament_presets)
         if (name.empty() || bundle.filaments.find_preset(name, false, true) == nullptr)
             throw std::runtime_error("printer transition produced an incompatible filament rack");
@@ -755,8 +757,8 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
         if (remembered_slots.has_value()) {
             slots = *remembered_slots;
         } else {
-            slots.reserve(bundle.filament_presets.size());
-            for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
+            slots.reserve(Filament::State::material_slot_count(before_profiles.project_config));
+            for (std::size_t index = 0; index < Filament::State::material_slot_count(before_profiles.project_config); ++index) {
                 const bool same_previous_source = index < before_profiles.filament_presets.size() &&
                     bundle.filament_presets[index] == before_profiles.filament_presets[index];
                 const std::string colour = same_previous_source && current_colours != nullptr && index < current_colours->values.size()
@@ -771,7 +773,9 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
 
         const auto* nozzles = bundle.printers.get_edited_preset().config.opt<ConfigOptionFloats>("nozzle_diameter");
         const std::size_t nozzle_count = nozzles == nullptr ? 1 : std::max<std::size_t>(1, nozzles->values.size());
-        const std::size_t final_count = std::max(slots.size(), nozzle_count);
+        const bool flexible = bundle.is_bbl_vendor() ||
+            bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material");
+        const std::size_t final_count = flexible ? slots.size() : std::max(slots.size(), nozzle_count);
         if (final_count > 64) throw std::runtime_error("Printer transition exceeds the filament slot limit");
 
         // Resize while the old rack still contains valid catalog
@@ -797,10 +801,10 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
         auto* colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour", true);
         auto* multi_colours = bundle.project_config.option<ConfigOptionStrings>("filament_multi_colour", true);
         auto* colour_types = bundle.project_config.option<ConfigOptionStrings>("filament_colour_type", true);
-        colours->values.resize(bundle.filament_presets.size(), "#26A69A");
-        multi_colours->values.resize(bundle.filament_presets.size(), "#26A69A");
-        colour_types->values.resize(bundle.filament_presets.size(), "1");
-        for (std::size_t index = 0; index < bundle.filament_presets.size(); ++index) {
+        colours->values.resize(final_count, "#26A69A");
+        multi_colours->values.resize(final_count, "#26A69A");
+        colour_types->values.resize(final_count, "1");
+        for (std::size_t index = 0; index < final_count; ++index) {
             const bool same_source = index < slots.size() &&
                 slots[index].preset == bundle.filament_presets[index];
             const std::string colour = same_source && slots[index].retain_colour
@@ -816,7 +820,7 @@ void apply_printer_transition_state(const ProfileTransitionState& before_profile
 
     Filament::Commands::normalize_references_after_rack_restore(
         bundle, bridge.model, bridge.plate_session_plates,
-        before_profiles.filament_presets.size());
+        Filament::State::material_slot_count(before_profiles.project_config));
     bridge.mutable_object_capture_cache.clear();
     normalize_bed_types(printer_changed);
     // Memory is validated by the final effective Printer's native
@@ -1282,7 +1286,7 @@ const char* apply_activation()
     candidate.project_config = bridge.presets.project_config;
     candidate.ams_multi_color_filment = bridge.presets.ams_multi_color_filment;
     candidate.update_multi_material_filament_presets();
-    Filament::State::resize_slots_preserving_colours(candidate, static_cast<unsigned int>(candidate.filament_presets.size()));
+    Filament::State::resize_slots_preserving_colours(candidate, static_cast<unsigned int>(Filament::State::material_slot_count(candidate.project_config)));
     Filament::Commands::recalculate_filament_flush(candidate);
     rebind_activation_bundle(candidate);
     auto staged_drafts = activation_drafts(candidate);
@@ -1294,7 +1298,7 @@ const char* apply_activation()
     if (!remembered_slots) {
         std::vector<RememberedSlot> slots;
         const auto* colours = before_profiles.project_config.opt<ConfigOptionStrings>("filament_colour");
-        for (std::size_t index = 0; index < before_profiles.filament_presets.size(); ++index) {
+        for (std::size_t index = 0; index < Filament::State::material_slot_count(before_profiles.project_config); ++index) {
             const auto& name = before_profiles.filament_presets[index];
             slots.push_back({name, colours && index < colours->values.size() ? colours->values[index] : "#26A69A", true});
             retain_matching_native_colour(slots.back(), before_profiles, index);

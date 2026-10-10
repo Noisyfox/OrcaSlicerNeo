@@ -1096,6 +1096,24 @@ Verification passed:
 - `git diff --check` passed. The full release and performance matrices were not
   run for this focused correction.
 
+### Open Project history projection correction (2026-10-10)
+
+Native 3MF replacement already clears history and returns a clean baseline.
+The shared Open action now publishes that returned status to Undo/Redo controls,
+instead of reading only its dirty flag. The successful native close callback
+also clears the prior history projection before parsing the replacement, so a
+subsequent load failure cannot leave old Undo/Redo entries visible. Cancellation
+before closing preserves the original history. No additional native history
+reset is issued.
+
+Regression tests cover successful replacement, failure after close, and
+cancellation before close. Electron mock E2E creates both Undo and Redo entries,
+opens a 3MF, checks both controls are disabled, then verifies the first edit in
+the loaded project can be undone. `pnpm test` passed with 1,840 tests and three
+existing skips; `pnpm typecheck`, the focused Electron project-lifecycle E2E,
+and `git diff --check` passed. Native WASM builds were not rerun because the
+correction changes only the shared application projection.
+
 ### New Project Process reset correction (2026-10-10)
 
 New Project restores Process overrides before establishing its clean history
@@ -1151,3 +1169,11 @@ serial `bridge-smoke.mjs` with `fixtures/cube.stl`, and the focused mock
 Electron `project-lifecycle.e2e.ts` New Project regression. Both variants were
 staged with `pnpm stage:assets`; `git diff --check` passed. The complete real
 Web/Electron release matrix was not run for this focused lifecycle correction.
+
+PR #72 was synchronized with `main` on 2026-10-10. Conflict resolution retains
+both the New Project reset regressions and the Open Project history projection
+regressions. Verification passed: focused `projectActions.test.ts` (36 tests),
+`pnpm test` (1,841 passed, three existing skips), `pnpm typecheck`, Electron
+`project-lifecycle.e2e.ts` filtered to `New Project resets|opening a 3MF clears`
+(two tests), and `git diff --check`. Native sources required no manual conflict
+resolution; WASM builds and the complete release matrix were not rerun.

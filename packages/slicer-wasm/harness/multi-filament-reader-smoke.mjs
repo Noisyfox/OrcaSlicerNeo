@@ -118,9 +118,8 @@ for (const [name, maps, expected] of [
   assert.deepEqual(keys.map((key) => saved[key].map(Number)), expected, `${name}: saved maps`);
 }
 
-// A multi-nozzle project can name two source filaments while native preset
-// compatibility grows the active rack. Preserve the two saved plate mappings
-// and fill only the new slots, as the Orca Plater does after preset loading.
+// Native compatibility may pad presets to four nozzles, while the saved
+// colour array still defines two actual materials. Preserve their plate maps.
 const expandedEntries = readZipEntries(bytes);
 const expandedProject = JSON.parse(new TextDecoder().decode(expandedEntries.find(
   (entry) => entry.name === 'Metadata/project_settings.config').content));
@@ -140,6 +139,6 @@ Module._free(expandedPointer);
 assert.equal(expanded.ok, true, JSON.stringify(expanded));
 const expandedSession = callJson('orc_get_filament_session_snapshot');
 const expandedPlates = callJson('orc_get_plate_session_snapshot');
-assert.equal(expandedSession.slots.length, 4, JSON.stringify(expandedSession));
-assert.equal(expandedPlates.plates[0].settings.filament_map, '1,1,1,1', JSON.stringify(expandedPlates));
+assert.equal(expandedSession.slots.length, 2, JSON.stringify(expandedSession));
+assert.equal(expandedPlates.plates[0].settings.filament_map, '1,1', JSON.stringify(expandedPlates));
 console.log(`multi-filament native reader smoke passed (objects=${loaded.objects}; slots=${session.slots.length}; object/part assignments=2)`);

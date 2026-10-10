@@ -30,6 +30,7 @@ using json = nlohmann::json;
 namespace State {
 
 json config_metadata_json(const DynamicPrintConfig& config);
+std::size_t material_slot_count(const DynamicPrintConfig& project);
 std::vector<std::string> project_slot_identities(std::size_t count);
 json history_state_json(const PresetBundle& bundle);
 void resize_slots_preserving_colours(PresetBundle& bundle, unsigned int count,
