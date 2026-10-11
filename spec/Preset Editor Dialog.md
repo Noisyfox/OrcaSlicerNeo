@@ -380,6 +380,11 @@ technology and source-identity fields and material-default lists such as
 capability-topology transaction; an ordinary draft-field mutation never
 silently reshapes material slots or rewrites related options.
 
+`extruders_count` is Orca's UI-only field, labelled `Extruders` with the tooltip
+`Number of extruders of the printer.` Its Source and Effective values are the
+respective native `nozzle_diameter` vector lengths, rather than a stored
+configuration key. It remains read-only and is excluded from native reset keys.
+
 Native option metadata remains authoritative only for facts about a listed
 option: its label, type, tooltip, constraints, and native validation. It does
 not infer a page, group, ordering, or whether an option may be edited.

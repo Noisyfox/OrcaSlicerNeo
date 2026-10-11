@@ -104,6 +104,8 @@ function pageInstances(manifest: PresetEditorManifest, snapshot: PresetDraftSnap
 }
 
 function labelFor(field: PresetEditorManifestField, metadata: OptionMeta | undefined): string {
+  // Orca defines this UI-only field in TabPrinter, outside PrintConfigDef.
+  if (field.key === 'extruders_count') return 'Extruders';
   return metadata?.label ?? metadata?.full_label ?? field.key;
 }
 
@@ -114,7 +116,7 @@ function valueText(values: Readonly<Record<string, string>>, key: string): strin
 }
 
 function searchText(field: PresetEditorManifestField, metadata: OptionMeta | undefined): string {
-  return [field.key, metadata?.label, metadata?.full_label, metadata?.tooltip]
+  return [field.key, labelFor(field, metadata), metadata?.full_label, metadata?.tooltip]
     .filter((part): part is string => typeof part === 'string')
     .join(' ')
     .toLocaleLowerCase();
@@ -266,15 +268,20 @@ function FieldValue({
   const binding = fieldBinding(snapshot, field.key, page?.extruderIndex);
   const vector = page?.extruderIndex === undefined ? undefined : snapshot.editorVectors?.[field.key];
   const coordinateVector = vector && (vector.scalarType === 'point' || vector.scalarType === 'points') ? vector : undefined;
-  const sourceValue = coordinateVector
+  const extruderCountVector = field.key === 'extruders_count' ? snapshot.editorVectors.nozzle_diameter : undefined;
+  const derivedSource = extruderCountVector ? String(extruderCountVector.sourceValues.length) : undefined;
+  const derivedEffective = extruderCountVector ? String(extruderCountVector.effectiveValues.length) : undefined;
+  const sourceValue = derivedSource ?? (coordinateVector
     ? coordinateText(vectorAt(coordinateVector, coordinateVector.sourceValues, page!.extruderIndex!)) || '(empty)'
     : binding
     ? projectedValueText(binding.sourceValue, binding.scalarType, binding.enumOptions)
-    : valueText(snapshot.sourceValues, field.key);
+    : valueText(snapshot.sourceValues, field.key));
   const tooltipKey = page?.extruderIndex !== undefined ? `${field.key}#${page.extruderIndex}` :
     binding && ['floats', 'ints', 'percents', 'floats_or_percents', 'bools', 'strings', 'enums'].includes(metadata?.type ?? '')
       ? `${field.key}#${binding.index}` : field.key;
-  const tooltip = optionTooltip(metadata, tooltipKey);
+  const tooltip = field.key === 'extruders_count'
+    ? 'Number of extruders of the printer.\nParameter name: extruders_count'
+    : optionTooltip(metadata, tooltipKey);
   const effectiveValue = coordinateVector
     ? coordinateText(vectorAt(coordinateVector, coordinateVector.effectiveValues, page!.extruderIndex!))
     : binding
@@ -796,7 +803,7 @@ function FieldValue({
           <dt className="text-muted-foreground">Source</dt>
           <dd data-testid={`preset-editor-source-${field.key}`} className="break-all">{sourceValue}</dd>
           <dt className="text-muted-foreground">Effective</dt>
-          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key)}</dd>
+          <dd data-testid={`preset-editor-effective-${field.key}`} className="break-all">{derivedEffective ?? (coordinateVector ? effectiveValue || '(empty)' : binding ? projectedValueText(binding.effectiveValue, binding.scalarType, binding.enumOptions) : valueText(snapshot.effectiveValues, field.key))}</dd>
         </dl>
       ) : (
         <div className="mt-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-xs">
