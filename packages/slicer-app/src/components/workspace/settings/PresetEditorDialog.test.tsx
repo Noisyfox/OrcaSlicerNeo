@@ -1034,6 +1034,37 @@ describe('PresetEditorDialogContent', () => {
     ]);
   });
 
+  it.each([1, 2, 4])('shows Orca Extruders label and native count %i without a stored option', async (count) => {
+    const base = snapshotFor('printer');
+    const sourceValues = { ...base.sourceValues };
+    const effectiveValues = { ...base.effectiveValues };
+    const optionMetadata = { ...base.optionMetadata };
+    delete sourceValues.extruders_count;
+    delete effectiveValues.extruders_count;
+    delete optionMetadata.extruders_count;
+    await mount({
+      ...base, sourceValues, effectiveValues, optionMetadata,
+      editorVectors: {
+        ...base.editorVectors,
+        nozzle_diameter: {
+          ...base.editorVectors.nozzle_diameter!,
+          sourceValues: [0.4], effectiveValues: Array.from({ length: count }, () => 0.4),
+          indexCount: count, overrideValues: Array.from({ length: count }, () => null),
+        },
+      },
+    }, vi.fn());
+    await click(document.querySelector('[data-testid="preset-editor-page-tab-multimaterial"]'));
+    const label = document.querySelector('[data-testid="preset-editor-option-label-extruders_count"]');
+    expect(label?.textContent).toBe('Extruders');
+    expect(label?.getAttribute('title')).toContain('Number of extruders of the printer.');
+    expect(document.querySelector('[data-testid="preset-editor-source-extruders_count"]')?.textContent).toBe('1');
+    expect(document.querySelector('[data-testid="preset-editor-effective-extruders_count"]')?.textContent).toBe(String(count));
+    expect(document.querySelector('[data-testid="preset-editor-input-extruders_count"]')).toBeNull();
+    const search = document.querySelector('[data-testid="preset-editor-search"]') as HTMLInputElement;
+    await changeInput(search, 'Extruders');
+    expect(document.querySelector('[data-testid="preset-editor-option-label-extruders_count"]')?.textContent).toBe('Extruders');
+  });
+
   it('excludes layout-only manifest fields from a category reset while retaining native read-only keys', async () => {
     const base = snapshotFor('printer');
     const sourceValues: Record<string, string> = { ...base.sourceValues };

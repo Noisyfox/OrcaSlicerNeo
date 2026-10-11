@@ -19,6 +19,10 @@ test('independent preset browsing preserves project choices and both Filament dr
     ` });
     const printerBefore = await page.getByTestId('preset-select').getAttribute('title');
     await page.getByTestId('preset-edit-printer').click();
+    await page.getByTestId('preset-editor-page-tab-multimaterial').click();
+    await expect(page.getByTestId('preset-editor-option-label-extruders_count')).toHaveText('Extruders');
+    await expect(page.getByTestId('preset-editor-source-extruders_count')).toHaveText(/^[1-9]\d*$/);
+    await expect(page.getByTestId('preset-editor-effective-extruders_count')).toHaveText(/^[1-9]\d*$/);
     const printerPickerWidth = (await page.getByTestId('preset-editor-preset').boundingBox())!.width;
     await page.getByTestId('preset-editor-preset').click();
     // Opening the popup mounts its options asynchronously; evaluateAll does not wait.
