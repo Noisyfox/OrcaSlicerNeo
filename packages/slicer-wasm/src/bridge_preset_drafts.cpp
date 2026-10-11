@@ -553,9 +553,9 @@ json mutate_draft_json(const json& request)
         const bool refresh_geometry = geometry_inputs_changed(
             before_drafts.find(type, canonical_name), state().preset_drafts.find(type, canonical_name));
         auto& bundle = state().presets;
-        if (refresh_geometry && type == Preset::TYPE_FILAMENT &&
+        if (refresh_geometry && (type == Preset::TYPE_FILAMENT || type == Preset::TYPE_PRINTER) &&
             bundle.printers.get_selected_preset().printer_technology() == ptFFF)
-            Filament::Commands::recalculate_filament_flush(bundle);
+            Filament::Commands::auto_recalculate_filament_flush(bundle, -1, false);
 
         if (before_bed_capabilities) {
             const auto current = Profiles::selected_printer_bed_type_capabilities();

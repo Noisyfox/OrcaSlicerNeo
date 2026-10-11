@@ -138,3 +138,10 @@ describe('host contracts', () => {
     expect(webview.mount({} as HTMLElement).state.status).toBe('idle');
   });
 });
+
+it('retains valid automatic flushing preferences and discards invalid saved values', () => {
+  for (const autoFlushPolicy of ['all', 'color change', 'disabled'] as const)
+    expect(normalizeUserPreferences({ version: 1, autoFlushPolicy }).autoFlushPolicy).toBe(autoFlushPolicy);
+  expect(normalizeUserPreferences({ version: 1, autoFlushPolicy: 'invalid' }).autoFlushPolicy).toBeUndefined();
+  expect(normalizeUserPreferences({ version: 1 }).autoFlushPolicy).toBeUndefined();
+});

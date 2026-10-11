@@ -1323,17 +1323,17 @@ export interface FilamentSessionSnapshotError {
 export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
 
 export interface FilamentMutationSummary {
-  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing';
+  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing' | 'flushing';
   readonly slot?: number;
   readonly source?: number;
   readonly destination?: number | null;
   readonly preset?: string;
   readonly colour?: FilamentSlotColourValue;
   readonly slotCount?: number;
-  readonly historyEntryDelta: 1;
+  readonly historyEntryDelta: 0 | 1;
   readonly revisionBefore: number;
   readonly revisionAfter: number;
-  readonly dirty: true;
+  readonly dirty: boolean;
   readonly allPlateResultsInvalidated: boolean;
   /** Authoritative per-plate result invalidation scope for this receipt. */
   readonly affectedPlateIds: readonly string[];
@@ -1346,6 +1346,24 @@ export interface FilamentMutationResult {
   readonly mutation: FilamentMutationSummary;
   /** Native history status captured after the same successful commit. */
   readonly historyStatus: import('./history').HistoryStatus;
+}
+
+export type AutoFlushPolicy = 'all' | 'color change' | 'disabled';
+export interface FlushingVolumesSnapshot {
+  readonly ok: true;
+  readonly revision: number;
+  readonly dimension: number;
+  readonly planes: number;
+  readonly matrix: readonly number[];
+  readonly defaults: readonly number[];
+  readonly multipliers: readonly number[];
+  readonly minimums: readonly number[];
+  readonly maximum: number;
+}
+export type FlushingVolumesSnapshotResult = FlushingVolumesSnapshot | { readonly ok: false; readonly error: string };
+export interface FlushingVolumesRequest extends FilamentCommandRequest {
+  readonly matrix: readonly number[];
+  readonly multipliers: readonly number[];
 }
 
 export interface FilamentCommandRequest {
@@ -1527,6 +1545,9 @@ export interface SlicerClient extends PaintingApi, SetupWizardMethods {
   init(activation: ProfileActivation | null): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */
   getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult>;
+  getFlushingVolumes(request: FilamentCommandRequest): Promise<FlushingVolumesSnapshotResult>;
+  setFlushingVolumes(request: FlushingVolumesRequest): Promise<FilamentMutationResultOrError>;
+  setAutoFlushPolicy(policy: AutoFlushPolicy): Promise<{ ok: boolean; error?: string }>;
   /** Open/read native source+effective values and metadata for one canonical preset identity. */
   getPresetDraft(kind: PresetDraftKind, canonicalName: string): Promise<PresetDraftSnapshotResult>;
   /** Apply one history-backed draft operation; reset-category receives its explicit field set. */

@@ -550,15 +550,16 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
   try { historyStatus = normalizeHistoryStatus(result.history_status); }
   catch { return { ok: false, version: 1, error: 'invalid filament history status', errorCode: 'invalid_response' }; }
   const mutation = result.mutation as Record<string, unknown>;
-  if (typeof mutation.kind !== 'string' || mutation.history_entry_delta !== 1 ||
+  const noChange = mutation.kind === 'flushing' && mutation.history_entry_delta === 0;
+  if (typeof mutation.kind !== 'string' || (!noChange && mutation.history_entry_delta !== 1) ||
       !Number.isSafeInteger(mutation.revision_before) || !Number.isSafeInteger(mutation.revision_after) ||
-      Number(mutation.revision_after) !== Number(mutation.revision_before) + 1 ||
+      Number(mutation.revision_after) !== Number(mutation.revision_before) + (noChange ? 0 : 1) ||
       Number(mutation.revision_after) !== snapshot.revisions.session ||
-      mutation.dirty !== true || typeof mutation.all_plate_results_invalidated !== 'boolean')
+      (noChange ? typeof mutation.dirty !== 'boolean' : mutation.dirty !== true) || typeof mutation.all_plate_results_invalidated !== 'boolean')
     return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
   if (historyStatus.revision !== mutation.revision_after || historyStatus.dirty !== mutation.dirty)
     return { ok: false, version: 1, error: 'filament mutation history status does not match receipt', errorCode: 'invalid_response' };
-  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing']);
+  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing', 'flushing']);
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
@@ -569,6 +570,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     add: [...baseKeys, 'slot'],
     delete: [...baseKeys, 'source', 'destination', 'slot_count'],
     merge: [...baseKeys, 'source', 'destination', 'slot_count'],
+    flushing: baseKeys,
     assign: [...baseKeys, 'slot', 'accepted_targets'],
     routing: [...baseKeys, 'selector', 'slot', 'accepted_targets'],
   };
@@ -577,7 +579,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     return { ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' };
   if (Object.keys(mutation).length !== allowedKeys.size || [...allowedKeys].some((key) => !has(key)))
     return { ok: false, version: 1, error: 'missing filament mutation field', errorCode: 'invalid_response' };
-  if (mutation.kind !== 'assign' && mutation.kind !== 'routing' && mutation.all_plate_results_invalidated !== true)
+  if (mutation.kind !== 'assign' && mutation.kind !== 'routing' && mutation.all_plate_results_invalidated !== !noChange)
     return { ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' };
   const requireSlot = mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add' ||
     mutation.kind === 'assign' || mutation.kind === 'routing';
@@ -620,7 +622,8 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
   }
   if (!Array.isArray(mutation.affected_plate_ids) ||
       !mutation.affected_plate_ids.every((id) => typeof id === 'string' && id.length > 0) ||
-      new Set(mutation.affected_plate_ids as string[]).size !== mutation.affected_plate_ids.length)
+      new Set(mutation.affected_plate_ids as string[]).size !== mutation.affected_plate_ids.length ||
+      (noChange && mutation.affected_plate_ids.length !== 0))
     return { ok: false, version: 1, error: 'invalid filament affected plate ids', errorCode: 'invalid_response' };
   if (mutation.kind === 'assign' || mutation.kind === 'routing') {
     if (!Array.isArray(mutation.accepted_targets) || mutation.accepted_targets.length === 0)
@@ -669,10 +672,10 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     ...(typeof mutation.preset === 'string' ? { preset: mutation.preset } : {}),
     ...(mutation.kind === 'set-colour' ? { colour: mutation.colour as FilamentSlotColourValue } : {}),
     ...(Number.isSafeInteger(mutation.slot_count) ? { slotCount: mutation.slot_count as number } : {}),
-    historyEntryDelta: 1 as const,
+    historyEntryDelta: mutation.history_entry_delta as 0 | 1,
     revisionBefore: mutation.revision_before as number,
     revisionAfter: mutation.revision_after as number,
-    dirty: true as const,
+    dirty: mutation.dirty as boolean,
     allPlateResultsInvalidated: mutation.all_plate_results_invalidated as boolean,
     affectedPlateIds: mutation.affected_plate_ids as string[],
     ...(Array.isArray(mutation.accepted_targets) ? { acceptedTargets: mutation.accepted_targets.map((target) => {
@@ -2109,6 +2112,29 @@ export function createClient(
       return normalizeFilamentMutationResult(callJson(m, 'orc_assign_filament', ['string'], [JSON.stringify(request)]));
     },
 
+    async getFlushingVolumes(request: import('./types').FilamentCommandRequest): Promise<import('./types').FlushingVolumesSnapshotResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_get_flushing_volumes', ['string'], [JSON.stringify(request)]) as Record<string, unknown>;
+      if (r.ok !== true) return { ok: false, error: typeof r.error === 'string' ? r.error : 'flushing snapshot unavailable' };
+      const finiteArray = (value: unknown, length: number) => Array.isArray(value) && value.length === length && value.every(x => typeof x === 'number' && Number.isFinite(x));
+      const size = Number(r.dimension), planes = Number(r.planes);
+      if (!Number.isSafeInteger(size) || size < 1 || size > 64 || !Number.isSafeInteger(planes) || planes < 1 ||
+          !Number.isSafeInteger(r.revision) || r.revision !== request.revision ||
+          !finiteArray(r.matrix, size * size * planes) || !finiteArray(r.defaults, size * size * planes) ||
+          !finiteArray(r.multipliers, planes) || !finiteArray(r.minimums, planes) ||
+          typeof r.maximum !== 'number' || !Number.isFinite(r.maximum) || r.maximum <= 0)
+        return { ok: false, error: 'invalid flushing snapshot' };
+      return r as unknown as import('./types').FlushingVolumesSnapshot;
+    },
+    async setFlushingVolumes(request: import('./types').FlushingVolumesRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_set_flushing_volumes', ['string'], [JSON.stringify(request)]));
+    },
+    async setAutoFlushPolicy(policy: import('./types').AutoFlushPolicy): Promise<{ ok: boolean; error?: string }> {
+      const m = await module();
+      const r = callJson(m, 'orc_set_auto_flush_policy', ['string'], [policy]) as Record<string, unknown>;
+      return { ok: r.ok === true, ...(typeof r.error === 'string' ? { error: r.error } : {}) };
+    },
     async setFilamentRouting(request: FilamentRoutingRequest): Promise<FilamentMutationResultOrError> {
       const m = await module();
       return normalizeFilamentMutationResult(callJson(m, 'orc_set_filament_routing', ['string'], [JSON.stringify(request)]));

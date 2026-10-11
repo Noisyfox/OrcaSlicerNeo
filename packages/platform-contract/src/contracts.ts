@@ -114,6 +114,7 @@ export interface UserPreferences {
   profileActivation?: ProfileActivation;
   colorPicker?: { favorites: import('./colorPicker').ColorValue[] };
   arrangement?: ArrangementPreferences;
+  autoFlushPolicy?: import('@slicer/client').AutoFlushPolicy;
   /** Global project-open policy; project bytes and locations never belong here. */
   projectLoadBehaviour?: ProjectLoadBehaviour;
   selectedProfiles: {
@@ -281,7 +282,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, rememberedBedTypes: {}, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { profileActivation?: unknown; colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
+  const v = value as { autoFlushPolicy?: unknown; profileActivation?: unknown; colorPicker?: { favorites?: unknown }; arrangement?: unknown; projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown; rememberedBedTypes?: unknown };
   const profileActivation = normalizeProfileActivation(v.profileActivation);
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
@@ -327,6 +328,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
     projectLoadBehaviour: PROJECT_LOAD_BEHAVIOURS.includes(v.projectLoadBehaviour as ProjectLoadBehaviour)
       ? v.projectLoadBehaviour as ProjectLoadBehaviour
       : DEFAULT_PROJECT_LOAD_BEHAVIOUR,
+    ...(v.autoFlushPolicy === 'all' || v.autoFlushPolicy === 'color change' || v.autoFlushPolicy === 'disabled' ? { autoFlushPolicy: v.autoFlushPolicy } : {}),
     selectedProfiles: {
       ...(typeof selectedProfiles.printer === 'string' ? { printer: selectedProfiles.printer } : {}),
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),

@@ -1334,6 +1334,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       status: { state: 'ready', error: null },
     };
   }
+  let autoFlushPolicy = 'all';
   let nextFilamentIdentity = 1000;
   let filamentSessionState: any = opts.filamentSession !== undefined ? clone(opts.filamentSession) : undefined;
   function filamentMutation(requestJson: string, kind: string): unknown {
@@ -1353,7 +1354,26 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const next: any = clone(snapshot);
     const fail = (error: string, code: string) => errorEnvelope(error, code);
     const slot = (value: unknown): number | null => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= next.slots.length ? (value as number) - 1 : null;
-    if (kind === 'select-preset' || kind === 'set-colour') {
+    if (kind === 'flushing') {
+      const n = next.slots.length, planes = next.flushing.plane_count;
+      if (n < 2 || !Array.isArray(request.matrix) || request.matrix.length !== n * n * planes ||
+          !Array.isArray(request.multipliers) || request.multipliers.length !== planes ||
+          request.multipliers.some((v: number) => !Number.isFinite(v) || v < 0 || v > 3) ||
+          request.matrix.some((v: number, i: number) => !Number.isFinite(v) || v < 0 ||
+            (Math.floor(i / n) % n === i % n && v !== 0))) return fail('invalid flushing values', 'invalid_command');
+      const matrix = request.matrix.map((v: number, i: number) => {
+        const ratio = request.multipliers[Math.floor(i / (n * n))];
+        return ratio > 0 ? Math.min(v, 20000 / ratio) : v;
+      });
+      if (JSON.stringify(matrix) === JSON.stringify(next.flushing.matrix) &&
+          JSON.stringify(request.multipliers) === JSON.stringify(next.flushing.multipliers ?? Array(planes).fill(1))) {
+        return { ok: true, version: 1, result: { snapshot: next, history_status: historyStatus(), mutation: {
+          kind, history_entry_delta: 0, revision_before: request.revision, revision_after: request.revision,
+          dirty: historyStatus().dirty, all_plate_results_invalidated: false, affected_plate_ids: [],
+        } } };
+      }
+      next.flushing.matrix = matrix; next.flushing.multipliers = [...request.multipliers];
+    } else if (kind === 'select-preset' || kind === 'set-colour') {
       const index = slot(request.slot);
       if (index === null) return fail('unsupported filament slot reference', 'unsupported_reference');
       if (kind === 'select-preset') {
@@ -1422,6 +1442,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         }
       }
     }
+    if ((kind === 'set-colour' && autoFlushPolicy !== 'disabled') || (kind === 'select-preset' && autoFlushPolicy === 'all')) {
+      const n = next.slots.length;
+      next.flushing.matrix = next.flushing.matrix.map((v: number, i: number) => {
+        const r = Math.floor(i / n) % n, c = i % n;
+        return kind === 'select-preset' || r === request.slot - 1 || c === request.slot - 1 ? (r === c ? 0 : 280) : v;
+      });
+    }
     next.capabilities.can_add = next.capabilities.flexible && next.slots.length < next.capabilities.max_slots;
     next.capabilities.can_delete = next.capabilities.flexible && next.slots.length > next.capabilities.min_slots;
     next.capabilities.can_merge = next.capabilities.can_delete;
@@ -1438,7 +1465,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       mutation.slot = request.slot;
       if (kind === 'select-preset') mutation.preset = request.preset;
       else mutation.colour = request.colour;
-    } else {
+    } else if (kind !== 'flushing') {
       mutation.source = request.source ?? request.slot;
       mutation.destination = kind === 'merge'
         ? (request.destination > request.source ? request.destination - 1 : request.destination)
@@ -2147,6 +2174,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_move_prime_tower(requestJson: string) {
       return movePrimeTower(requestJson);
     },
+    orc_set_auto_flush_policy(policy: string) {
+      if (!['all', 'color change', 'disabled'].includes(policy)) return { ok: false, error: 'invalid auto flush policy' };
+      autoFlushPolicy = policy; return { ok: true };
+    },
+    orc_get_flushing_volumes(requestJson: string) {
+      const request = JSON.parse(requestJson), snapshot: any = filamentSessionSnapshot();
+      if (request.version !== 1 || request.revision !== snapshot.revisions.session) return { ok: false, error: 'flushing editor revision is stale' };
+      const n = snapshot.slots.length, planes = snapshot.flushing.plane_count;
+      return { ok: true, revision: request.revision, dimension: n, planes, matrix: [...snapshot.flushing.matrix],
+        defaults: Array.from({ length: n * n * planes }, (_, i) => Math.floor(i / n) % n === i % n ? 0 : 280),
+        multipliers: snapshot.flushing.multipliers ?? Array(planes).fill(1), minimums: Array(planes).fill(0), maximum: 20000 };
+    },
+    orc_set_flushing_volumes(requestJson: string) { return filamentMutation(requestJson, 'flushing'); },
     orc_get_filament_session_snapshot() {
       return filamentSessionSnapshot();
     },
@@ -3493,6 +3533,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_apply_remembered_filament_rack: { ret: 'number', args: ['string'] },
     orc_assign_filament: { ret: 'number', args: ['string'] },
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
+    orc_get_flushing_volumes: { ret: 'number', args: ['string'] },
+    orc_set_flushing_volumes: { ret: 'number', args: ['string'] },
+    orc_set_auto_flush_policy: { ret: 'number', args: ['string'] },
     orc_reset_plate_session: { ret: 'number', args: [] },
     orc_select_plate: { ret: 'number', args: ['string'] },
     orc_add_plate: { ret: 'number', args: [] },

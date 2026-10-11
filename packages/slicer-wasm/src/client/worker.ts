@@ -50,7 +50,7 @@ export interface WorkerTransport {
 const historyMutationOperations = new Set([
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'assignFilament',
-  'setFilamentRouting', 'movePrimeTower', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
+  'setFilamentRouting', 'setFlushingVolumes', 'movePrimeTower', 'setNativeScopedConfig', 'mutateNativeScopedConfig',
   'mutatePresetDraft', 'selectPrinterWithRememberedRack', 'setToolheadDiameter',
 ]);
 
@@ -67,7 +67,7 @@ const restrictedWhileSerialSlicing = new Set([
   ...paintingOperations,
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
-  'assignFilament', 'setFilamentRouting', 'beginHistory', 'commitHistory',
+  'assignFilament', 'setFilamentRouting', 'setFlushingVolumes', 'getFlushingVolumes', 'setAutoFlushPolicy', 'beginHistory', 'commitHistory',
   'abortHistory', 'undoHistory', 'redoHistory', 'jumpHistory', 'markHistorySaved',
   'openHistorySession', 'closeHistorySession', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
   'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
