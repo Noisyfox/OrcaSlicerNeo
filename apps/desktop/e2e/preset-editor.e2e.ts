@@ -21,6 +21,8 @@ test('independent preset browsing preserves project choices and both Filament dr
     await page.getByTestId('preset-edit-printer').click();
     const printerPickerWidth = (await page.getByTestId('preset-editor-preset').boundingBox())!.width;
     await page.getByTestId('preset-editor-preset').click();
+    // Opening the popup mounts its options asynchronously; evaluateAll does not wait.
+    await expect(page.getByRole('option').nth(1)).toBeAttached();
     const printerTargets = await page.getByRole('option').evaluateAll(options => options.map(option => option.getAttribute('title')));
     const otherPrinter = [...printerTargets].reverse().find(name => name && name !== printerBefore);
     if (!otherPrinter) throw new Error('expected another installed Printer');
