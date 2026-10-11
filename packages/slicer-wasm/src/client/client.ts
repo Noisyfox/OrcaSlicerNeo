@@ -2015,7 +2015,7 @@ export function createClient(
       // The orc_init JSON is the options payload: the bridge reads "log_level"
       // from it to set the boost::log severity filter (default info when
       // unset). The value comes from the global JS variable in the module's
-      // worker scope — see doc/2026-08-21-wasm-boost-log.md. wasm64: every C
+      // worker scope — see doc/2026-08-12-wasm-build-notes.md. wasm64: every C
       // param must receive a value; the string always exists (possibly "{}").
       const opts = {
         profile_activation: activation,

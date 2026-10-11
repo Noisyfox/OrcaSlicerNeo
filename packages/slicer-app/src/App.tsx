@@ -626,7 +626,7 @@ function AppContent() {
   if (boot !== 'ready') {
     // The window is frameless on desktop, so the startup screen must carry
     // the title bar too — otherwise there is no drag region to move the
-    // window while the runtime loads (see doc/2026-08-15-frameless-window.md).
+    // window while the runtime loads (see spec/Application Shell.md).
     return (
       <>
         {appE2eProbe}

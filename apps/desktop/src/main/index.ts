@@ -58,7 +58,7 @@ if (
 // 127.0.0.1 on an ephemeral port, with the Host header validated so a
 // malicious page cannot drive the server via DNS rebinding. Dev keeps the
 // ELECTRON_RENDERER_URL branch (Vite dev server). See
-// doc/2026-08-14-http-origin-for-workers.md.
+// doc/2026-08-12-wasm-build-notes.md.
 const RENDERER_ROOT = join(__dirname, '../renderer');
 const APP_ICON_PATH = app.isPackaged
   ? join(RENDERER_ROOT, 'orca-icon.png')
@@ -136,7 +136,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     // Frameless everywhere — the renderer's TitleBar is the only chrome.
     // Windows/Linux get native min/max/close via the Window Controls
-    // Overlay (see doc/2026-08-15-frameless-window.md); macOS keeps its
+    // Overlay (see spec/Application Shell.md); macOS keeps its
     // traffic lights ('hidden' style), positioned to sit centered in the
     // 32px (2rem) custom bar (14px lights → y = (32-14)/2).
     titleBarStyle: 'hidden',
@@ -519,7 +519,7 @@ app.whenReady().then(() => {
 
 // Single-window tool: closing the window quits the app on every platform,
 // macOS included (no dock persistence, no activate-recreate cycle). See
-// doc/2026-08-16-quit-on-window-close.md.
+// spec/Application Shell.md.
 app.on('window-all-closed', () => {
   app.quit();
 });

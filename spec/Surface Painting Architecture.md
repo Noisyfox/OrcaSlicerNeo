@@ -12,7 +12,7 @@ multi-material painting as its first gizmo and reusable foundations for support,
 seam, and fuzzy-skin painting.
 
 This is a major architecture specification alongside [Grand Plan](Grand%20Plan.md).
-It is the single living record for this work, created directly in `spec/` at the
+It is the single architecture record for this work, created directly in `spec/` at the
 user's request. Accepted decisions below are binding; remaining measurement work
 in section 10 does not imply an unmeasured performance guarantee. Clarifications
 are folded into this document after a related group of questions has been resolved, rather
@@ -326,6 +326,14 @@ The painting toolbar button shows the same armed appearance as the transform
 gizmo buttons whenever its session is open, including processing and closing
 phases. Its accessible pressed state and visual active state agree; closing
 the session returns the button to its inactive appearance.
+
+Painting model materials must apply the shared near-black rendering adjustment
+before sRGB-to-linear conversion, matching Orca's
+`TriangleSelectorPatch::render()` / `adjust_color_for_rendering()`. If all three
+encoded RGB channels are below 0.2, raise each to 0.2. This is a presentation
+adjustment only: filament palette values, native annotations, and cursor
+highlight semantics remain unchanged. Retain regression coverage for black,
+near-black, threshold boundaries, and the colour-space conversion order.
 
 The painting mode owns selector-derived draft surfaces, cursor rendering,
 candidate-region highlighting, and any enabled contours, wireframe, or clipping
@@ -713,6 +721,11 @@ is complete, allow a new stroke; do not retain a failed-draft Retry workflow.
 An empty stroke creates no history entry. Closing the gizmo does not write the
 completed strokes again.
 
+Stage history begin/commit and allocate the success response before publishing
+history. Failure must preserve Redo, timestamps, save markers, and memory
+accounting. Immutable archives remain shared; back up only changed volumes for
+model rollback. No fallible work follows successful history publication.
+
 A fatal Worker OOM or WASM trap follows the existing shared runtime fatal-error
 flow, as required by the project persistence and multi-filament specifications.
 Painting does not introduce a separate Worker-recovery protocol or autosave,
@@ -751,6 +764,14 @@ buffers promptly, measure peak working memory on representative models, and
 report the actually validated range. Recoverable allocation/operation failures
 and fatal runtime failures follow the policies above; do not promise that every
 allocation failure can be detected or recovered before the runtime fails.
+
+Native geometry transfers use request-owned leases, not frees inferred from
+payload addresses. Stale or malformed geometry with an intact lease releases
+the actual allocation bases. Duplicate release and release after session close
+must be safe. A corrupted lease token cannot establish ownership: reject it
+without speculative frees and leave unidentified allocations native-owned until
+module teardown. These failure rules apply independently of renderer resource
+cleanup and session lifetime.
 
 ## 6. Nested history and compaction
 
@@ -926,6 +947,19 @@ the affected objects and plates, including other instances sharing the edited
 annotations. Ordinary Prepare resources become visible only when they match
 the committed state. Do not repeat invalidations or calculations already settled
 for the same input version.
+
+If the session has no committed painting, retain Prepare without a geometry
+read. Otherwise track every successfully painted object ID across target
+switches and refresh only those objects through the existing scene-delta
+projection and known source/paint keys. Project commands and history navigation
+continue to publish their own projections. Retain the touched-object set through
+Undo and native-close or renderer-publication failure; clear it only after
+successful Prepare publication.
+
+Keep native close, material/Prime Tower settlement, epoch publication, history
+compaction, and conditional Redo cleanup in the closure path. Retain
+synchronous lane ownership through resource publication; an incremental geometry
+refresh does not relax these ordering or deferred-update rules.
 
 Active-stroke Escape cancellation and ignored commands are defined in section
 3.2, including single-gizmo switching and the absence of a whole-session discard
@@ -1225,7 +1259,7 @@ history/model behavior, or resource-lifetime verification in section 9.
 The [reference archive](../packages/slicer-wasm/benchmarks/painting/reference-2026-09-29/summary.json)
 contains 36 repeated measurements across Electron/Web, generated size/part/
 subdivision cases and a fixed real project. The
-[implementation record](../doc/2026-09-29-surface-painting-implementation.md)
+[benchmark runbook](../doc/2026-09-29-surface-painting-implementation.md)
 defines exact commands, artifact flags, hardware, hashes and verification scope.
 On its 5900X/RTX 3080 machine, the 143,912-triangle editing object measured
 216/263 ms p95 from release to a logical revision frame and 444/480 ms p95
@@ -1249,8 +1283,8 @@ bounded revision frame; unmatched observations are excluded from latency
 aggregates and remain visible in the raw evidence.
 
 Generated measurement JSON and gzip archives remain ignored local test artifacts
-and are excluded from the feature branch and PR. The living implementation
-record identifies their local storage path and reproduction commands.
+and are excluded from the feature branch and PR. The benchmark
+runbook identifies their local storage path and reproduction commands.
 
 This baseline retains source/native identities and the original Web bundle;
 the historical Electron bundle SHA was not captured. A later eight-sample
@@ -1260,8 +1294,8 @@ positive native counters and cleanup. These supplement the baseline without
 rewriting its provenance. The installed Orca 2.4.2 format roundtrip is
 supplemental evidence, not a pinned native performance comparison. GPU execution
 timing and numerical thresholds remain unavailable or unapproved. The living
-record identifies failed attempts, unchanged-source retries and the unresolved
-supplemental invalid-layer-height test; none is relabeled as a passing check.
+runbook retains the unresolved supplemental invalid-layer-height test and its
+evidence boundary; it is not relabeled as a passing check.
 
 ### 9.2 Required adapter editing and interoperability acceptance
 
@@ -1319,24 +1353,14 @@ selectors and picking remain authoritative; the shared application renders
 through `viewport/gizmo/painting/PaintingGizmoBase` and the independent
 `MmuPaintingGizmo`, `SupportPaintingGizmo`, `SeamPaintingGizmo` and
 `FuzzyPaintingGizmo` adapters.
-The implementation record supplies reproducible fixture/benchmark commands.
+The benchmark runbook supplies reproducible fixture/benchmark commands.
 These engineering details do not authorize changing product semantics or claiming
 measurements that have not been made. If further
 important product choices arise, clarify them interactively with pinned Orca
 behavior and source evidence, then update this specification in coherent batches.
 
-Implementation was authorized on 2026-09-29 on the current development branch.
-The [living implementation plan](../doc/2026-09-29-surface-painting-implementation.md)
-defines bounded sequential steps, each implemented and self-verified by a fresh
-subagent and independently accepted by the parent before the next step starts.
-All MMU implementation stages 01–12 passed parent code review and independent verification.
-The final record includes root tests/typechecks, both production WASM variants,
-Electron/Web real journeys, packaged-app checks, 3MF/profile compatibility and
-the measured performance baseline. Scheme B Support, Seam and Fuzzy adapters
-were approved on 2026-10-02 and passed stages 13–19 on 2026-10-03. Each stage
-used a fresh gpt-6.1-sol / medium child, followed by independent parent review,
-verification and commit before the next began. Delivery includes separate
-Orca-style toolbar entries ordered Support, Seam, Fuzzy, MMU; native four-field
-3MF roundtrips, downstream slicing, history, host/variant qualification and
-resource cleanup. Functional delivery does not close the remaining quantitative
-performance decision or resolve the separately recorded supplemental failure.
+Functional MMU delivery was accepted on 2026-09-30 and the Support/Seam/Fuzzy
+adapters on 2026-10-03. The
+[verification and benchmark runbook](../doc/2026-09-29-surface-painting-implementation.md)
+retains reproduction commands and known limitations. Functional delivery does
+not approve performance thresholds or resolve the supplemental slice failure.

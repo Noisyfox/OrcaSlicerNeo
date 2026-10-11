@@ -1,12 +1,12 @@
 # G-code Preview v2
 
-**Status:** Major design approved for phased implementation.
+**Status:** Delivered inspection foundation and read-only analysis/text; further preview actions remain deferred.
 
 **Started:** 2026-09-01
 
 ## Purpose
 
-Replace the current minimal G-code display with a shared Web/Electron preview
+The delivered G-code display provides a shared Web/Electron preview
 experience that approaches current OrcaSlicer's inspection workflow while
 retaining the React application, WebGL 2 renderer, and the existing WASM bridge
 architecture.
@@ -16,15 +16,15 @@ Prepare and Preview Modes specification. That specification governs workspace
 navigation and lifetime. This specification governs the G-code data model,
 preview renderer, controls, and inspection information.
 
-## Scope and phasing
+## Delivered scope
 
-The work is delivered in two phases.
+The delivered scope comprises the inspection foundation and read-only analysis.
 
-### Phase B — reliable Orca-style inspection foundation
+### Inspection foundation
 
-Phase B is the first shipping target. It provides:
+The inspection foundation provides:
 
-- a right-side, dual-thumb vertical layer-range control;
+- a left-side, dual-thumb vertical layer-range control;
 - a bottom, single-thumb move-end control for the selected layer;
 - default Feature/Line Type colouring, a feature legend with visibility
   filtering, and a travel visibility control;
@@ -39,31 +39,29 @@ Phase B is the first shipping target. It provides:
 - the existing Preview shell behaviour: model shells remain at alpha 0.15 and
   paths are not depth-occluded by them.
 
-Phase B does not add external G-code import, result-mutating preview actions,
-advanced metric colour schemes, summary statistics, or a G-code text window.
+External G-code import and result-mutating actions remain deferred.
 
-### Phase C — read-only analysis and information
+### Read-only analysis and information
 
-Phase C remains read-only and adds:
+Read-only analysis provides:
 
 - core analysis colour schemes: Feature/Line Type, Filament/Tool, Speed,
   Volumetric Flow, Layer Time, Temperature, and Fan Speed;
 - summary statistics and per-feature time/filament breakdowns;
-- a native-style tool model/inspection information window, replacing the
-  Phase-B lightweight marker where appropriate; and
+- a native-style tool model and current-move inspection; and
 - a G-code text window linked to the active move and source G-code line.
 
-Phase C does not add pauses, filament changes, custom G-code insertion, or
+Preview does not add pauses, filament changes, custom G-code insertion, or
 other actions that alter a slice result. Those changes need a dedicated result
 lifecycle and export design in a future specification.
 
 Advanced metric schemes — actual speed, actual volumetric flow, line width,
 layer height, pressure advance, acceleration, and jerk — are deliberately
-outside the initial Phase-C scope, but the data contract must admit them.
+outside the delivered scope, but the data contract must admit them.
 
-### Phase-C information semantics
+### Information semantics
 
-Phase C displays only standard estimated time. Stealth/silent time is not
+Preview displays only standard estimated time. Stealth/silent time is not
 exported to the UI or made selectable.
 
 The summary shows total estimated time, total filament length and weight, and
@@ -72,13 +70,15 @@ two places, without an inferred currency symbol. The initial shared application
 has no global unit preference, so all preview units are metric. A future global
 unit system may replace that presentation; one is not created by this work.
 
-Per-feature statistics show standard time and filament consumption. Per-tool
-breakdowns and tool/filament-change counts remain outside the Phase-C target.
+Per-feature statistics show standard time and filament consumption. Native
+action statistics include tool-change count and delay. Per-tool consumption
+breakdowns remain deferred; [Application Shell](Application%20Shell.md) defines
+the current feature/action table and native metric semantics.
 
 Numerical colour schemes derive their legend min/max values from the active
 slice result, rather than using global physical ranges. Their ramps use current
 Orca colour schemes as the visual reference. User-customisable colour ramps are
-an explicit future extension, not a Phase-C preference feature.
+an explicit future extension, not a delivered preference feature.
 
 For multi-material output, the Filament/Tool scheme uses the configured actual
 filament colours and identifies the associated filament/tool in its legend. A
@@ -91,7 +91,7 @@ when one exists. Selecting an otherwise unmappable line positions the preview
 at the nearest preceding mappable move; if none precedes it, the current
 inspection position remains unchanged.
 
-Phase C displays no read-only layer-slider ticks for existing pauses, colour
+Preview displays no read-only layer-slider ticks for existing pauses, colour
 changes, tool changes, or custom G-code. They will be designed with a future
 result-editing feature instead of being partially exposed here.
 
@@ -115,7 +115,7 @@ future work.
 Initially the preview consumes only G-code produced by the application's
 current completed slice result. No external `.gcode` import is implemented.
 
-The shared preview pipeline will nevertheless consume a source-neutral
+The shared preview pipeline consumes a source-neutral
 `PreviewSource` abstraction. A future imported-G-code source must be able to
 provide the same preview command stream, metadata, and lazily read text
 without changing renderer or control semantics.
@@ -127,8 +127,17 @@ Emscripten module.
 
 ## Preview data v2 contract
 
-The bridge must replace the current endpoint-only toolpath buffer with explicit
-renderable segments. A segment records at least:
+Layer count comes from the complete processed toolpath: maximum zero-based
+layer ID plus one, or zero for an empty path. It must never use only the first
+object's layer count; taller objects and raft/support offsets remain reachable.
+Retain the two-height-object regression in both WASM variants.
+
+Before validation/slicing, each native Print receives the active preset bundle's
+Bambu-vendor identity, matching native Orca. A P1P cube must produce nonempty
+layers/toolpath. Failure while generating the preview result must surface the
+returned error instead of leaving a successful-looking slice and empty viewport.
+
+The bridge provides explicit renderable segments. A segment records at least:
 
 - start and end coordinates;
 - layer id, per-layer movement order, and source G-code id;
@@ -141,7 +150,7 @@ The contract is structure-of-arrays typed binary data transferred through the
 existing WASM heap and Worker boundary. It must not create a JSON object per
 move or a React element per segment.
 
-It reserves optional parallel numeric arrays for the Phase-C metrics: feedrate,
+It reserves optional parallel numeric arrays for supported and future metrics: feedrate,
 actual feedrate, volumetric flow, actual flow, fan speed, temperature, pressure
 advance, acceleration, jerk, time, and layer duration. Result-level metadata
 also reserves feature/extruder palettes, layer Z values and ranges, precomputed
@@ -149,25 +158,16 @@ per-feature statistics, and source-G-code line mapping. Optional data is
 omitted when a source cannot provide it.
 
 Full G-code text is not copied to the renderer during initial preview loading.
-Phase C will obtain it through an on-demand, chunked source-text API.
+The typed source API retrieves text on demand in bounded chunks or line pages.
 
 ## Interaction and information architecture
 
 ### Layout
 
-Preview controls use Orca-style canvas overlays and do not change the existing
-left workspace sidebar or resize the 3D viewport.
-
-- The dual-thumb layer-range slider is fixed to the canvas's right edge.
-- The single-thumb move-end slider is fixed to its bottom edge.
-- The colour-scheme selector, legend, and statistics occupy a collapsible,
-  right-top canvas overlay.
-- The right-top Feature/Line Type overlay reserves a horizontal gutter for the
-  right-edge layer slider. The two overlays must not intersect at any desktop
-  viewport size, including when a long legend makes the right-top overlay
-  scroll; the gutter must not intercept either layer thumb.
-- In Phase C, the G-code text window is a separately toggled, larger overlay
-  rather than content that compresses the legend or statistics.
+[Application Shell](Application%20Shell.md#detailed-workspace-presentation) owns
+the current layout: a persistent resizable right Slice Info sidebar, a left
+layer capsule, a bottom move capsule, and a workspace-level G-code text window.
+Controls retain reachable drag and keyboard targets in short/narrow windows.
 
 The layer slider controls the inclusive visible layer range. The upper active
 layer is visually prominent; earlier visible layers are dimmed by default. The
@@ -175,7 +175,7 @@ move slider controls the inclusive movement range from the active layer's
 implicit start through its current move end. Its single thumb is the current
 inspection position and drives the nozzle marker.
 
-Single-layer inspection keeps the right-edge control as a dual-thumb layer
+Single-layer inspection keeps the layer control as a dual-thumb layer
 range slider. Both thumbs move the active layer together, so the inclusive
 range remains `[active layer, active layer]`; leaving single-layer inspection
 restores the inclusive range from layer zero through the active layer.
@@ -192,19 +192,21 @@ Filtering and legend items are scoped to the active colour scheme. For example,
 Feature/Line Type filtering does not affect Filament/Tool filtering. Travel
 visibility is global across colour schemes.
 
-All preview controls are ephemeral for the initial delivery. Colour scheme,
-legend/filter state, travel visibility, dimming state, overlay expansion, and
-all range positions reset to their defaults when a new slice result is loaded;
-none are persisted across sessions. Persisted preview preferences are a future
-product decision.
+Display choices survive result invalidation and reslicing within the UI
+session: colour scheme, feature/action filters, travel, dimming and single-layer
+mode. New result bounds reset layer/move positions; retained single-layer mode
+starts on the final layer. Navigation preserves the sidebar and text-window
+state. These display choices are not cross-session preferences; sidebar size,
+collapse state and text-window geometry use the explicit preferences defined
+in Application Shell.
 
 ### Read-only navigation and G-code linking
 
-No Phase-B or Phase-C control modifies the slice result. In particular,
+No preview control modifies the slice result. In particular,
 custom-G-code actions, pause insertion, and filament changes remain out of
 scope.
 
-Phase C's G-code window has two-way inspection navigation:
+The G-code window has two-way inspection navigation:
 
 - Moving either slider or advancing the active move highlights the matching
   source line in the text window.
@@ -216,12 +218,10 @@ are the supported ways to select a move.
 
 ### Current-move information
 
-Phase B renders a native-style solid hotend marker at the current move. Phase
-C adds a native-style inspection card next to the marker or in the right-top
-overlay. It displays, when available: layer number and Z, X/Y/Z position, move
-type, feature, source G-code line, and the values relevant to the selected
-colour scheme. Missing source fields are omitted rather than represented by
-invented values.
+The native-style hotend marker follows the current move. Slice Info displays
+available layer/Z, XYZ endpoint, move type, feature, tool, source line and
+selected-scheme value. Missing fields are omitted; travel never inherits a
+stale extrusion feature.
 
 ### Keyboard and theme behaviour
 
@@ -232,11 +232,11 @@ owns keyboard focus, preview supports the Orca-style inspection shortcuts:
 - Left/Right adjust the active move end.
 - Shift or Ctrl accelerates range stepping.
 - `L` toggles single-layer inspection.
-- In Phase C, `C` toggles the G-code text window.
+- `C` toggles the G-code text window.
 
 These shortcuts must not break text editing or standard Tab focus navigation.
 
-All Phase-B and Phase-C overlays, controls, legend states, and colour ramps
+All preview overlays, controls, legend states, and colour ramps
 must adapt to the application's light and dark themes. Semantic feature colours
 remain stable between themes; surface, text, inactive, and gradient supporting
 colours adapt to maintain legibility.
@@ -279,13 +279,6 @@ The minimum performance baseline is a typical 2020-era integrated-GPU laptop:
 The adaptive-detail policy may apply above those conditions, but it cannot
 reduce detail in the currently active inspection range.
 
-## Delivery and release approach
-
-Phase B is an independently shippable replacement for the current preview. It
-must reach its functional and performance release gates before Phase C begins.
-Phase C is a later independent increment on the accepted Preview data v2
-contract; it must not require replacement of the Phase-B renderer or controls.
-
 ## Visual reference and approval
 
 The fixed native visual and interaction reference is the repository's existing
@@ -315,34 +308,33 @@ regressions pass and the approved reference comparison is reviewed.
   removes stale toolpath data.
 - The solution remains shared across static Web and Electron, desktop Chrome
   133+ / WebGL 2 capable, and keeps model/renderer code host-independent.
-- `libslic3r` stays unmodified. Any C++ work is confined to the WASM bridge or
-  its normal build scaffold under the repository rules.
+- Native adaptations follow repository ownership: edit and commit Orca source
+  in the native submodule, then update its pin deliberately; never add an Orca
+  source patch or a second renderer-side interpretation of native state.
 
 ## Verification direction
 
-The eventual implementation must add contract tests for segment continuity,
+Maintain contract tests for segment continuity,
 layer and move indexes, palettes, optional metrics, and metadata; renderer
 tests for range/filter/dimming semantics; and shared Web/Electron end-to-end
-coverage for the Phase-B controls. Large-slice benchmarks must exercise the
+coverage for the delivered controls. Large-slice benchmarks must exercise the
 chunking/adaptive-detail path and verify that camera navigation never triggers
 a full path rebuild. The benchmark fixtures must cover the two minimum
 performance baselines. Release verification continues to include the existing
 unit, typecheck, serial/threaded WASM build and smoke, Web threaded/serial E2E,
 and desktop E2E requirements.
 
-The fixture suite will include feature-rich single-material and multi-material
+The fixture suite must include feature-rich single-material and multi-material
 reference slices as well as the ordinary and large performance cases. Fixture
-selection is a prerequisite to implementation and must be documented before
-the Phase-B bridge contract is changed.
+identity must be documented before changing the bridge contract.
 
 ### Approved fixture plan
 
-The implementation creates and records the following repository-owned fixtures
-before changing the bridge contract:
+Maintain the following repository-owned fixtures:
 
 - **Command matrix:** a small synthetic `PreviewSource` command stream covering
-  every Phase-B feature, travel, layer/move boundaries, width/height variation,
-  and each Phase-C core metric. It is the deterministic unit and renderer
+  every delivered feature, travel, layer/move boundaries, width/height variation,
+  and each delivered core metric. It is the deterministic unit and renderer
   fixture; it is not a substitute for a real slice.
 - **Single-material reference:** the existing
   `packages/slicer-wasm/fixtures/cube.stl` sliced with the already-established
@@ -355,7 +347,7 @@ before changing the bridge contract:
   filtering, dimming, range, and screenshot approval.
 - **Multi-material reference:** a new small repository-owned multi-material
   fixture with two configured distinct filament colours. It validates the
-  Phase-C Filament/Tool palette and legend without requiring external G-code
+  Filament/Tool palette and legend without requiring external G-code
   import.
 - **Performance measurements:** representative 250,000- and 1,000,000-segment
   browser diagnostics, kept outside the normal unit-test and product bundles.
@@ -365,3 +357,116 @@ camera pose, selected ranges, theme, browser viewport, expected command/segment
 counts, and approved reference captures. Generated G-code and screenshots are
 checked in only where they are needed for deterministic visual or text mapping
 tests; otherwise a reproducible fixture-generation command is recorded.
+
+## Delivered read-only analysis and source text
+
+The completed slice result exposes a typed `PreviewAnalysis` alongside its
+toolpath metadata. The analysis contains standard estimated time, total
+filament length/weight/cost when the source provides the required filament
+properties, and per-feature standard time and filament consumption. Missing
+values are omitted; the bridge does not estimate or substitute them.
+
+The worker-side client derives min/max ranges for every optional numeric
+toolpath metric. A range is present only when the source supplied a matching,
+finite metric array. This makes Feature/Tool, Speed, Volumetric Flow, Layer
+Time, Temperature, and Fan schemes capability-driven without scanning data in
+React or the renderer.
+
+The preview exposes the seven initial read-only schemes: Feature / Line Type,
+Filament / Tool, Speed, Volumetric Flow, Layer Time, Temperature, and Fan
+Speed. Feature and Filament / Tool use active result palettes. Numeric schemes
+use the active result range and the native libvgcode 11-color linear ramp;
+schemes with unavailable data are not offered. Legend visibility is stored per
+scheme and rebuilt as page-local selection indices, so changing a scheme or
+filter does not rebuild the native static geometry/textures. Travel remains
+the independent native Travels color and global visibility option in every
+scheme. The bridge feature palette uses Orca's user-facing `ExtrusionRole`
+display names for every standard role (including bottom surface, gap fill,
+brim, support transition, prime tower, custom, and mixed); only an unknown
+numeric role uses the explicit `Role N` fallback. Travel still resolves by
+move type and is not affected by extrusion-role legend filters. The layer
+slider owns a higher overlay stacking level than the
+analysis card so its thumbs remain reachable when overlays are crowded.
+Categorical preview colours use Orca's rendering adjustment: a colour whose
+three RGB channels are all below 0.2 is displayed as neutral 0.2 gray. This
+keeps black and near-black assigned filaments visible under toolpath lighting;
+the legend uses the same displayed colour. Numeric range ramps and Travels
+retain their native palette values.
+
+The preview UI performs one canonical logical `moveOrders` derivation from the
+bridge's raw per-segment order/source-id arrays (including coalesced arc
+segments), then retains that array through the streaming planner and UI.
+Validated contiguous `layerRanges` are reused by reference. Layer bounds use
+those compact result-local ranges; the scrubber and marker therefore avoid
+redundant full-path scans while preserving the metadata-free fallback used by
+direct source fixtures.
+
+The current slice result publishes `sourceText.available` and byte length
+metadata without copying its full G-code into the initial preview payload.
+`readTextChunk` reads the retained native G-code only when requested. Every
+text read validates the complete plate/input/generation receipt under
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md), non-negative integer offsets, and a maximum request length of 64 KiB;
+requests past EOF are clamped to EOF. Returned bytes are aligned to UTF-8
+code-point boundaries; at most three continuation bytes may be added at each
+edge, so a 64 KiB request has an explicit 64 KiB + 6 byte response bound. The
+typed client validates that bound before decoding and crossing the Worker
+boundary. Invalid or stale requests fail without exposing a partial result.
+
+The text window uses the seekable `readTextLines` path. The native result owner retains its cumulative
+line-end byte offsets and returns at most 128 complete lines and 64 KiB per
+page; the line-end table never crosses into the renderer. The UI keeps at most
+six fixed line pages, requests the active page directly for late slider moves,
+and centers the active row after that page resolves. Manual scrolling is
+debounced by 160 ms after the last scroll event; only then are the visible
+uncached page(s) requested, so continuous scrolling does not issue intermediate
+page requests. Pending scroll loads are cancelled when the result changes or
+the window unmounts, and stale page responses cannot populate a newer result.
+
+The virtual text viewport maintains logical line coordinates independently of
+its bounded physical scroll track. This keeps slider-selected lines visible
+when a G-code file exceeds a browser engine's maximum layout/scroll coordinate;
+only the small visible row window is positioned in physical CSS pixels.
+
+The G-code text window is a separately persisted overlay. Its title bar can be dragged
+to reposition it, and a visible bottom-right handle can resize it. Both
+gestures use pointer capture and terminate safely on pointer up, cancel, lost
+capture, or unmount. Position and size are clamped to the workspace overlay host; the
+window keeps a usable header, text area, and footer through a 320x220 px
+minimum and a 768x720 px maximum (also constrained by the workspace). The
+Close button and text scrolling remain
+independent of dragging, and the resize handle supports keyboard arrow
+adjustment with an accessible label. The last geometry is restored once when
+the window opens, clamped to the current workspace bounds, and saved only after a
+pointer gesture or keyboard resize finishes. It uses the shared
+`UserPreferences.ui.gcodeTextWindow` namespace; malformed or missing values
+keep the default geometry.
+
+The text window is a separately toggled, larger overlay (`C` while the preview
+viewport owns focus, or its close button). It renders only a bounded visible
+row window of plain text and highlights the active mapped source line. Slider
+movement updates that highlight. The bottom move slider and the left layer
+slider also consume vertical wheel steps while hovered: wheel-up advances and
+wheel-down reverses the relevant move/end value, with values clamped to their
+bounds. Every wheel event over the layer slider, including its start thumb and
+the surrounding dark frame, adjusts the visible layer end; the start thumb
+remains independently draggable and keyboard-controlled. In single-layer mode
+wheel changes keep both layer bounds coupled. The wheel hit area includes the
+entire surrounding dark frame, including its padding and labels, while remaining
+isolated from the preview canvas. Wheel changes select the next existing
+renderable layer ID, so sparse or stale layer data cannot land on an empty
+layer. Selecting an exact mapped line moves the preview to
+its layer and move;
+an unmappable line uses the nearest preceding mapped move, while a line before
+the first mapping leaves the inspection state
+unchanged. A result-local source index is built once during slice-result
+construction; ordered processor IDs are binary-searched without a duplicate
+React-side map, so repeated opening and navigation are independent of full
+path scans. Missing mapping or text metadata leaves the
+window unavailable rather than fabricating source content. The view remains
+read-only: no editing, pauses, filament changes, or external import actions.
+
+Arc commands such as G2/G3 are one logical preview move even when the
+processor tessellates them into several consecutive render segments sharing
+one positive `gcode_id`. All segment geometry and per-segment metrics remain
+available for rendering. Unmapped zero ids and distinct/non-consecutive source
+ids remain separate moves, and layer boundaries always reset the move order.

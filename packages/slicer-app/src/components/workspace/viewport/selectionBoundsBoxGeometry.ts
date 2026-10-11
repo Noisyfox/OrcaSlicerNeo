@@ -1,7 +1,7 @@
 // Bracket geometry for the aggregate selection bounding box, matching the
 // native OrcaSlicer rendering (Selection::render_bounding_box): at every
 // corner, three short segments run inward along each axis, each 20% of the
-// box size along that axis. See doc/2026-08-22-viewport-selection-box.md.
+// box size along that axis. See spec/Viewport Interaction.md.
 import * as THREE from 'three';
 
 export const SELECTION_BOX_BRACKET_FRACTION = 0.2;

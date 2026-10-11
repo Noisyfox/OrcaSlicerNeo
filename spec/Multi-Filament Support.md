@@ -1,13 +1,14 @@
 # Multi-Filament Support
 
+**Outstanding validation observation:** Printer-transition verification on
+2026-10-06 recorded a failing structural member/out-of-bounds assertion in
+`history-smoke.mjs`. Later focused H2D/rack checks do not establish resolution
+of that history case. Preserve this boundary until a matching real-WASM run
+closes it.
+
 **Date:** 2026-09-08
 
-**Status:** Approved and accepted through Step 15 (2026-09-11). The baseline
-implementation was acceptance-verified at `07f276d` (2026-09-09); the
-Prepare-view prime-tower model extension in Section 10.2 was acceptance-
-verified by the Step 15 acceptance record with threaded real Electron evidence,
-deterministic warning/invalidation coverage, and the 50.300-second threaded
-checklist.
+**Status:** Delivered native rack, assignments, Prime Tower and history behavior.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -307,8 +308,7 @@ to preserve its logical material. The atomic native mutation covers at least:
 - `PresetBundle::filament_presets`, slot colours, filament maps, nozzle maps,
   volume maps, flush multipliers, vectors, and matrices;
 - object, `MODEL_PART`, and `PARAMETER_MODIFIER` configurations;
-- multi-material painting state, including imported painting that Neo cannot
-  yet edit;
+- multi-material painting state, including imported painting;
 - global and object-scoped support filament references;
 - per-plate filament maps and first/other-layer print sequences; and
 - custom per-plate tool-change events.
@@ -478,12 +478,16 @@ dark-colour adjustment and approximately 0.66 opacity. Brim geometry is not
 drawn, but its native effective width participates in placement and boundary
 calculations.
 
-All eligible plates display their tower in Prepare. Only the current plate's
-tower is pickable and movable. The tower is a scene-only special object: it is
+All eligible plates display their tower in Prepare. Any displayed eligible
+tower is pickable and movable, including one on a non-current plate. The tower
+is a scene-only special object: it is
 not a `ModelObject`, does not appear in Object List, and has no delete, copy,
 scale, rotate, or context-menu commands. Selection retains the coloured bands
-and adds the ordinary selection bounds plus an X/Y-only Move gizmo. Direct body
-dragging and the Move gizmo edit the same per-plate position. Switching plates,
+and shows ordinary selection bounds only. The X/Y-only Move gizmo appears only
+after the user explicitly activates Move. Direct body dragging and that gizmo
+edit the same per-plate position. A dragged tower remains assigned to its own
+plate: crossing another plate never changes the current plate, transfers the
+tower, or changes another plate's coordinates. Switching plates,
 disabling the tower, or otherwise removing the selected proxy clears its
 selection without producing history.
 
@@ -494,7 +498,7 @@ toolpath and never overlays the Prepare proxy.
 
 When a new plate or project has no explicit tower coordinates, the Worker uses
 OrcaSlicer's native default placement. Direct dragging constrains the rotated
-tower footprint plus effective brim margin to the current plate's printable
+tower footprint plus effective brim margin to its owning plate's printable
 area. Z movement is unavailable.
 
 One completed pointer drag produces exactly one project-history entry. Pointer
@@ -548,7 +552,7 @@ explicitly rather than inherited accidentally from an unmodified native error.
 
 Neo currently has no Arrange feature. This specification therefore defines no
 Arrange interaction and implementation must not add dormant Arrange-specific
-prime-tower code. If Arrange is introduced later, tower participation requires
+prime-tower code. Arrange tower participation follows the arrangement specification and requires
 a separate product decision.
 
 The proxy is part of the existing desktop-layout product scope. Mouse and
@@ -601,20 +605,15 @@ invalidation, and atomic slot Delete/Merge remapping. A deleted explicit value
 with no merge destination becomes `Default`; a Merge with operation replaces
 it with the selected surviving slot before later slot IDs are renumbered.
 
-### 10.5 Deferred multi-colour editors
+### 10.5 Painting and layer-event editing
 
-The first release creates and edits multi-colour model intent only through
-object, `MODEL_PART`, and `PARAMETER_MODIFIER` assignment plus the feature-path
-controls above. It does not provide:
-
-- facet-level multi-material painting; or
-- Preview layer-slider creation or editing of colour-change and tool-change
-  events.
-
-Imported facet painting and layer/tool-change events remain lossless project
-state: Neo must preserve, slice, preview, save, and atomically remap them during
-slot Delete or Merge with. Their absence from the UI must never clear or
-normalize them merely by opening and saving a project.
+Object/part assignment and facet-level multi-material painting are delivered.
+[Surface Painting Architecture](Surface%20Painting%20Architecture.md) defines
+the native painting adapter, tools, history and save/reopen guarantees.
+Interactive per-layer colour/tool-change editing remains deferred. Imported
+facet painting and layer/tool-change events remain project state: rack removal
+and remapping must update their native references without discarding them.
+The read-only preview does not introduce an event editor.
 
 ### 10.6 Slice lifecycle and native validation
 
@@ -772,57 +771,9 @@ and a later new project may fall back to the last successfully stored rack.
 No preference migration is attempted. Unrecognized legacy filament-selection
 fields are not read, projected, or written.
 
-## 12. Feasibility and Implementation Sequence
+## 12. Acceptance and Verification
 
-The feature is feasible without porting wxWidgets or changing the pinned C++
-submodule. The pinned core already provides native multi-material preset
-composition, slot-count updates, assignment configuration, flushing
-calculation, validation, painting/tool-change persistence, slicing, and G-code
-preview attribution. The principal work is exposing those facilities as an
-atomic typed Worker session and integrating that session with the shared React
-application, project persistence, and history.
-
-Implementation is divided into independently testable pieces. The dated living
-implementation document created when coding begins must refine file lists and
-commands, but must not reopen accepted product behaviour silently.
-
-1. **Filament session projection.** Add one authoritative bridge snapshot for
-   ordered slots, presets, effective colours, maps, flushing state,
-   capabilities, effective assignments, and relevant revisions. Extend the
-   client/runtime types and mock module before application code consumes it.
-2. **Atomic slot commands.** Expose preset selection by slot, colour change,
-   Add, Delete, and Merge with as explicit JSON commands. Stage and validate
-   the complete `PresetBundle`, model, plate, custom-G-code, painting, support,
-   and routing remap before commit.
-3. **Assignment and routing commands.** Add object/instance-as-object,
-   `MODEL_PART`, and `PARAMETER_MODIFIER` assignment plus support and six
-   feature-path selectors. Return effective and inherited values rather than
-   reconstructing inheritance in React.
-4. **Shared Prepare UI.** Build the responsive rack, Object List filament
-   column and context command, impact confirmation, selectors, and Prepare
-   colour projection in `packages/slicer-app`. Both hosts consume the same
-   components and platform-neutral commands.
-5. **Flushing and prime tower.** Wire unconditional native recalculation after
-   accepted flushing inputs, imported-matrix preservation before the first
-   such edit, basic prime-tower controls, and native error projection.
-6. **History and persistence.** Extend the native history context and two-phase
-   restore to include the complete filament session. Verify project dirty
-   checkpoints, per-printer remembered-rack publication, embedded presets, and
-   lossless unsupported-state round-trip.
-7. **Slice and Preview integration.** Bind invalidation to configuration scope,
-   keep result revisions plate-safe, and project the generated tool/extruder
-   palette into Preview without synthesizing it from Prepare state.
-8. **Acceptance closure.** Run focused checks after each piece and the complete
-   approved release matrix only after all pieces pass their local gates.
-
-No implementation step edits `packages/slicer-wasm/cpp/` ad hoc. If exploration
-later proves a core change unavoidable, it requires a documented patch under
-`packages/slicer-wasm/patches/` or an intentional pinned-submodule update and a
-separate review of that scope.
-
-## 13. Acceptance and Verification
-
-### 13.1 Fixture policy
+### 12.1 Fixture policy
 
 The first-release compatibility suite uses deterministic synthetic fixtures
 only. It does not download or pin external real-world OrcaSlicer projects and
@@ -835,7 +786,7 @@ same path under test. At least one independently assembled multi-filament 3MF
 fixture exercises the reader, and bridge-generated projects exercise the
 writer and round-trip path.
 
-### 13.2 Required behavioural fixtures
+### 12.2 Required behavioural fixtures
 
 The deterministic fixture set covers at least:
 
@@ -862,7 +813,8 @@ The deterministic fixture set covers at least:
   replacement after the first flushing-input edit;
 - Prepare-only estimated prime-tower proxies for every eligible plate,
   including native dimensions, band order and colours, read-only imported
-  rotation, one-gesture history, current-plate-only interaction, and
+   rotation, one-gesture history, non-current-plate selection and movement
+   without changing plate ownership, explicitly activated Move gizmos, and
   plate-local slice invalidation;
 - direct-drag boundary clamping with brim margin, silent non-history
   normalization after project load or Printer change, and the too-large-to-fit
@@ -886,7 +838,7 @@ The 64-slot state boundary is tested separately from representative slicing.
 Release acceptance does not require a plate that actively prints all 64
 materials.
 
-### 13.3 G-code and Preview assertions
+### 12.3 G-code and Preview assertions
 
 Tests do not compare complete G-code byte-for-byte. They parse generated output
 and assert stable multi-filament semantics, including applicable tool or
@@ -895,7 +847,7 @@ prime-tower structure, and the Preview result's tool IDs and filament palette.
 This avoids coupling acceptance to unrelated comments, timestamps, or pinned-
 core formatting changes while still proving that assignments affect output.
 
-### 13.4 Layered release gates
+### 12.4 Layered release gates
 
 During implementation, each piece runs the smallest deterministic bridge,
 client/runtime, store, component, or native fixture checks that cover its
@@ -916,46 +868,37 @@ The final acceptance record names the exact commands and results, including
 every unavailable, intentionally skipped, or failing gate. Roadmap documents
 may mark the milestone delivered only after this complete matrix passes.
 
-## 14. Implementation closure and acceptance boundary
+The prebuilt real-WASM multi-filament acceptance runner
+(`packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs`)
+must complete its full dual-variant run within 120 seconds. Developer runs may
+select `--threaded-only`; release acceptance runs both serial and threaded
+variants. This runner budget does not replace the other release gates above.
 
-The Step 15 implementation record is the accepted multi-filament boundary:
+## 13. Rack normalization and interaction
 
-- Prepare exposes the multi-filament rack/session and slot assignment surfaces;
-  the old single-filament selector, public API, preference field, project
-  selection tuple, native history state, sidecar member, mock field, wire
-  `selected` flag, compatibility special case, and migration test are absent.
-- The profile wire contains `filament_catalog`; `orc_select_preset` accepts
-  only `printer` and `print`. Rack/session/slot state is the only filament
-  authority.
-- History uses the minimal mutable filament frame. The no-bundle invariant is
-  guarded by `fullPresetBundleCopyCount`; the project-import candidate is the
-  sole full `PresetBundle` copy. Warmed slot Undo/Redo stays approximately
-  1–3 ms in the acceptance smoke.
-- Context-only history records do not advance the filament session fence.
-  Project mutations remain revision-fenced, and stale commands are rejected
-  without changing project, rack, history, or result state.
-- Prepare renders the native prime-tower projection only for eligible plates;
-  only the current plate accepts a move, each committed drag adds one history
-  entry, and disabling the tower clears eligibility without marking the plate
-  empty. Collision and outside-boundary warnings are advisory and do not block
-  a successful slice or Preview result.
-- The complete dual-variant real-WASM acceptance runner most recently finished
-  in 95.018 s with `failed: []`; its hard wall-clock limit is 120 s. Developer
-  iteration may use `--threaded-only`; release acceptance always runs both
-  `serial` and `threaded`.
+Bambu dual-nozzle printers can delete or merge down to one material while
+retaining two physical nozzles. `filament_colour.size()` defines actual rack
+slots, command bounds and remembered identities. Native preset-name padding
+and variant arrays are not extra material slots. Flushing planes retain their
+native dimensions and project only actual-material rows/columns to the UI.
 
-The recorded acceptance commands include:
+Switching to a shorter remembered rack normalizes removed-slot references in
+the same transaction: objects fall back to slot 1, stale model-part assignments
+inherit, Project feature/support routes use Default and scoped routes regain
+inheritance. Native normalization limits imported paint; removed-slot tool
+events are discarded. Undo/Redo restores all affected model-level layer events,
+assignments, routing, painting and plate settings with the rack.
 
-```text
-pnpm test
-pnpm typecheck
-node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs --run-real
-node packages/slicer-wasm/harness/multi-filament-command-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js
-node packages/slicer-wasm/harness/multi-filament-command-benchmark.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --assert-under-ms 20
-node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs --run-real --threaded-only
-```
+The Material panel uses compact two-column single-line slots with rectangular
+colour/number blocks and searchable preset selectors. Add/Delete/Merge retain
+the reference-impact confirmation and atomicity rules. Context menus provide
+Edit, Merge and Delete; the minus button removes the last slot through the same
+command. Model-part row pickers show numbered effective slots; parameter
+modifier rows expose Default/inherit. Their category materials and printability
+rules follow [Object List and Object Parts](ObjectList-and-Parts.md).
 
-The full host/build matrix and its exact results remain recorded in the living
-implementation plan. This specification is normative for the zero-legacy
-boundary and does not authorize compatibility shims or post-release
-migrations.
+Prime Tower move-then-slice consumes current native coordinates, never cached
+`wipe_tower_x`/`wipe_tower_y` settings. Placement clamping is rectangular;
+polygon-aware automatic placement is not delivered. Regressions compare actual
+extruding G-code XY endpoints, including brim margin, rather than only exported
+configuration. Prepare dimensions remain estimates; Preview renders toolpaths.

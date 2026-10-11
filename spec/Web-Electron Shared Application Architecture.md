@@ -2,8 +2,7 @@
 
 **Date:** 2026-09-09
 
-**Status:** Approved — implementation basis; multi-filament boundary closed at
-`07f276d`
+**Status:** Delivered shared architecture; current host/runtime boundaries.
 
 **Scope:** Refactor OrcaSlicerNeo so the same application functionality can ship
 as an Electron desktop application and a conventional static web application.
@@ -11,15 +10,14 @@ as an Electron desktop application and a conventional static web application.
 ## 1. Decision Summary
 
 The application will use a shared React feature layer plus thin platform hosts.
-Electron remains the desktop host; a new Vite-based `apps/web` becomes the web
-host. The web application runs slicing entirely in the browser through local
+Electron is the desktop host; Vite-based `apps/web` is the static Web host. The web application runs slicing entirely in the browser through local
 WASM. No models, slicing requests, or profile selections are sent to a backend
 in the first release.
 
 The first web release prioritizes the existing core flow and a largely
 feature-equivalent interface:
 
-1. Load STL/3MF.
+1. Import supported models or open a 3MF project.
 2. Select bundled system Printer and Process profiles; edit the native
    multi-filament rack in Prepare.
 3. Change the existing core settings surface.
@@ -28,13 +26,11 @@ feature-equivalent interface:
    viewport.
 6. Download G-code.
 
-User-created profiles, cloud accounts, cloud slicing, profile updates,
-PWA/offline support, and richer startup recovery are
-intentionally deferred. Project persistence and 3MF drag-and-drop are approved
-as a subsequent independent milestone under `spec/3MF Project Persistence.md`.
-
-Temporary slicer setting overrides remain usable during a running session, but
-are not persisted in either host during the first release.
+User-created preset repositories, cloud accounts/slicing, online profile
+updates, PWA/offline guarantees and richer startup recovery remain deferred.
+Project configuration and explicit 3MF persistence are delivered under
+[Project and Scoped Configuration](Project%20and%20Scoped%20Configuration.md)
+and [3MF Project Persistence](3MF%20Project%20Persistence.md).
 
 ## 2. Product and Compatibility Policy
 
@@ -93,8 +89,7 @@ packages/
   slicer-wasm/             existing C++ bridge, WASM build, typed base client
 ```
 
-The exact package names may change during implementation, but these boundaries
-are normative. `apps/desktop/src/renderer` must not remain the de facto shared
+These package ownership boundaries are normative. `apps/desktop/src/renderer` must not remain the de facto shared
 application directory.
 
 Both hosts use the same React, TypeScript, Vite, Tailwind/shadcn, Zustand, and
@@ -103,32 +98,11 @@ Themes, global CSS, shadcn wrappers, and application components belong to
 `slicer-app`; hosts may add only narrow platform CSS, such as Electron window
 drag regions.
 
-The common app includes a shared 32px titlebar with page tabs, icon-only Save
-Project and Undo/Redo actions, and the project name. Custom Electron and
-browser modes put all renderer menu categories inside one hamburger menu at
-the far left. Native macOS mode hides the renderer menu and retains the flat
-system menu, traffic-light safe inset, shared actions, and page navigation.
-Selected page tabs have a gray surface with rounded top corners and a square
-bottom edge. Undo/Redo history opens by right-clicking the corresponding icon.
-Electron supplies drag-region styling and native-window control clearance;
-Web renders the shared bar without window controls or drag regions.
-
-A single teal split button floats at the top-left of the viewport control frame.
-Its text-only main action slices when no completed result exists, then executes
-Export, Send, or Send & Print according to the right-side Select. The selector
-initially selects Export and opens downward. The two rounded halves have a 2px
-gap, with no outer panel. Prepare plate controls remain at the viewport
-bottom-right of that frame. The canvas meets the titlebar, window edge,
-status bar and sidebar; its control frame retains the former 4px top/right
-and 6px left spacing so floating controls keep their screen positions.
-The transparent sidebar resizer overlays the canvas without a highlight.
-No separate top toolbar row remains.
-
-The first-release Web layout is a desktop layout that adapts fluidly to the
-viewport size: it retains the complete layout at any window size, shrinking
-the settings panel and 3D viewport to fit (each scrolls internally when
-constrained) with no fixed minimum viewport. It must not claim partial
-responsive/mobile support.
+[Application Shell](Application%20Shell.md) owns titlebar, menus, split output
+action, resizable sidebar, persistent pages and diagnostic windows.
+[Workspace Prepare and Preview Modes](Workspace%20Prepare%20and%20Preview%20Modes.md)
+owns mode-specific navigation and scene lifetime. Both hosts share the desktop
+layout with internal scrolling; mobile product support remains deferred.
 
 Migration is an extraction and adaptation, not a rewrite of unrelated product
 behavior. Existing renderer components, stores, and slicer workflows should
@@ -175,59 +149,23 @@ interface PlatformCapabilities {
   retains an absolute source path in its host-private, in-memory session data
   for a future seamless model-reload feature; it is neither rendered by the
   common UI nor persisted in the first release. Web has no equivalent path.
-- Drag-and-drop will eventually be supported on both hosts through the same
-  import contract, but is not a first-release feature.
+- Both hosts route file drops through the shared model/project import
+  contracts; see [Model Import](Model%20Import.md).
 - `BrandBar` styling uses the injected `chrome` capability rather than a
   direct `window.orca` read. Its visual component remains common, while
   Electron-only drag behavior stays in the Electron host.
 
-### 4.1 Shared titlebar menu and native-menu boundary
+### 4.1 Shared menus
 
-The shared application owns one ordered, host-neutral File/Help menu model and
-one complete versioned state snapshot. The model contains Add Model, Clear
-Scene, Slice, Export G-code, and the Help → AGPL-3.0 source operation. The
-source operation is a fixed external-link boundary; neither shared code nor a
-host adapter accepts an arbitrary URL.
-This menu scope does not include View, gizmo, Add Cube/Add Primitive, or
-keyboard-shortcut entries.
-
-The state projection is authoritative for both rendered and native surfaces:
-File business actions are disabled until boot is ready, Clear Scene and Slice
-also require a model, Export G-code requires a completed slice result, and Add
-Model, Clear Scene, Slice, and Export G-code are all disabled while slicing.
-Help → File Manager remains enabled during startup and after startup failure as
-a diagnostic view of the currently mounted Emscripten filesystem; Refresh
-re-reads the current path after files are mounted or a transient listing error.
-Electron Help → Show Configuration Folder opens the host-owned `userData`
-directory through the fixed host-command IPC and stays available before init.
-Web omits this operation; shared code never receives an OS path.
-Help → source remains enabled once the menu surface exists. The command
-dispatcher re-checks the complete snapshot immediately before execution, so a
-stale pointer or native-menu selection cannot bypass these guards.
-
-Host placement is deliberately platform-specific while the model and state
-remain shared:
-
-- Web renders the browser titlebar menu and never exposes Quit/Exit.
-- Windows/Linux Electron renders File/Help as submenus of one hamburger menu
-  in the custom frameless titlebar,
-  includes Exit, and marks menu controls `no-drag` so pointer activation does
-  not interfere with window dragging or window controls.
-- macOS Electron renders no duplicate File/Help controls in the shared
-  titlebar. The main process installs exactly one native File/Help application
-  menu, including Quit, and updates its enabled/checked state from the same
-  full snapshot.
-
-The Electron preload exposes only typed model/state synchronization, native
-command events, the host Quit operation, and the fixed source operation. The
-main process validates version, menu shape, state fields, and command IDs;
-malformed updates fall back to startup-disabled state. Web's adapter keeps the
-same contract with browser `window.open` semantics for the fixed source URL.
+The platform contract carries a versioned menu model, complete state snapshot
+and guarded command dispatch. The shared app owns business availability;
+Electron owns native menu placement and validated preload/main IPC. Web owns
+browser download/link behavior. See [Application Shell](Application%20Shell.md).
 
 ## 5. Runtime and WASM Loading
 
 Electron's utility-host feasibility migration is authorized under
-[Native Python Plugin Architecture, section 12](Native%20Python%20Plugin%20Architecture.md#12-authorized-first-step-utility-host-feasibility-validation).
+[Native Python Plugin Architecture, section 12](Native%20Python%20Plugin%20Architecture.md#12-delivered-utility-host-and-temporary-file-boundary).
 Electron runs its existing WASM session in a Node Worker inside a window-owned
 utility process, connected directly to the renderer by MessagePort. Web keeps
 its browser Worker. This migration adds no Python/plugin capability.
@@ -410,9 +348,10 @@ state; they are not global selections.
   that default by normalization.
 - Future host-only UI data may use platform namespaces. Shared preferences must
   not acquire Electron-only concepts.
-- User-created profiles, profile-definition persistence, project data, models,
-  transforms, settings edits, slice results, and G-code are not persisted in
-  the first release. Settings edits remain active only for the current session.
+- Preferences do not store project data, models, transforms, settings edits,
+  generated slice results or G-code. Explicit 3MF saves persist the supported
+  project inputs through the project-persistence contract. User-created profile
+  repositories and generated-result persistence remain deferred.
 
 On boot, saved activation is loaded before runtime initialization, and the
 client links its printer vendors plus OrcaFilamentLibrary for native loading.
@@ -427,32 +366,23 @@ remembered rack is then applied through the typed multi-filament session
 command. An opened project owns its rack and takes priority over that seed.
 Only the resolved Printer/Process names are written to `selectedProfiles`.
 
-Selecting a system Printer or Process clears all temporary slicer-setting
-overrides for the current session. Rack edits use their own atomic session
-commands and never update `selectedProfiles`.
+Printer and Process selection follow native compatibility and project-owned
+configuration rules. Representable local overrides are retained; Printer/Filament
+drafts and native Print children keep their distinct owners. Rack edits use
+atomic session commands and never update `selectedProfiles`.
 
 ## 8. Interaction and Lifecycle
 
-- The Web UI aims to retain the desktop application's current core features,
-  not create a reduced mobile-style slicer page.
-- Web G-code export triggers a standard browser file download. Electron keeps
-  its native save dialog.
-- The approved `spec/3MF Project Persistence.md` milestone supersedes the
-  original geometry-only 3MF-import and ephemeral-work assumptions here. It
-  defines project configuration restoration, explicit BBS 3MF persistence,
-  dirty-session protections, and the host-specific Electron/Web save flows.
-- Web uses the browser's native `beforeunload` confirmation for close, reload,
-  and navigation away; browsers may not show custom detail. Electron may use a
-  native host confirmation. Neither host offers saving or restoration in this
-  first-release flow.
-- Any change to slice inputs invalidates the current result: profile selection,
-  temporary settings, model import/clear, and model transforms all require a
-  new slice. On invalidation the toolpath and layer state are immediately
-  cleared, export is disabled, and the common status indicates that re-slicing
-  is required. Stale preview data is never rendered.
-- A first-release AGPL source-code link is present in a visible footer or menu,
-  pointing to the source corresponding to the web release. A fuller About page
-  is deferred.
+Web exports through browser downloads; Electron uses native save dialogs.
+[3MF Project Persistence](3MF%20Project%20Persistence.md) owns explicit saves,
+project replacement, dirty protection and host close/navigation behavior.
+[Per-Plate Print Architecture](Per-Plate%20Print%20Architecture.md) owns input
+invalidation, retained native outputs, cancellation and preview receipts.
+Only affected plate presentations become unavailable after a committed edit.
+Stale receipts are never rendered or exported.
+
+A visible source-code link satisfies the release's source-offer entry point;
+a fuller About surface remains deferred.
 
 ## 9. Release, Cache, and Versioning
 
@@ -500,53 +430,22 @@ high-risk task gate.
 - PWA, Service Worker, installation, offline guarantees, and cache migration.
 - Mobile Chrome product support; every new feature must nevertheless assess it.
 - Profile package validation, signatures, hashes, compatibility gates,
-  independent online updates, rollback, and on-demand vendor loading.
+  independent online updates and rollback.
 - Cloud accounts, cloud profile delivery/synchronization, user-created profile
   persistence, and conflict resolution.
-- Project persistence and 3MF drag-and-drop are tracked as approved pending
-  work in `spec/3MF Project Persistence.md`; generated G-code/result
-  persistence remains outside that milestone's first-release scope.
+- Generated G-code/result persistence; explicit project input persistence
+  and drag-and-drop are already delivered.
 - Remote slicing implementation.
-- In-progress slicing cancellation. The existing bridge capability is not
-  exposed through the first-release UI; a future design must define reliable
-  behavior for both threaded and serial WASM artifacts.
+- Serial-runtime in-progress slicing cancellation; threaded cancellation
+  follows the delivered per-plate task contract.
 - A rich startup error page, startup retry behavior, and user-visible profile
   fallback notification. The diagnostic File Manager remains available during
   startup and after failure.
 - Complete About page and expanded legal information.
 
-## 12. Migration Sequence
+## 12. Related specifications
 
-Migration proceeds as small independently verifiable steps, keeping Electron
-usable throughout:
-
-1. Define the platform contracts and make the Electron renderer use an
-   Electron adapter instead of directly calling `window.orca`; do not move UI
-   in this step.
-2. Extract platform-neutral renderer UI and runtime code into the shared
-   packages without redesigning unrelated stores or slicer workflows.
-3. Move profile delivery from Emscripten preload files to the portable package
-   runtime, first preserving Electron behavior and smoke coverage.
-4. Add the Web host and browser adapter, then validate the shared core flow.
-5. Add dual-wasm capability selection and the required real-artifact E2E
-   coverage before declaring the refactor complete.
-
-Each step must have a focused verification target and a separate commit. The
-migration is complete: the shared preference/profile contracts are the only
-application boundary, and no legacy AppConfig bridge, single-filament
-selection path, compatibility shim, or data migration is retained.
-
-## 13. Relationship to Existing Specifications
-
-This specification extends the approved Electron GUI rewrite design in
-`doc/2026-08-12-electron-gui-rewrite-design.md`. It replaces the desktop-only
-assumption that the Electron renderer is the application boundary, while
-preserving the existing C++ bridge rule: `packages/slicer-wasm/src/client` is
-the only JavaScript layer that touches the WASM module.
-
-The multi-filament contract is defined by
-[`Multi-Filament Support.md`](Multi-Filament%20Support.md). Implementation work
-must update this specification, `spec/Grand Plan.md`, and the high-level
-development plan in step with delivered milestones. The complete dual-variant
-acceptance runner is bounded by 120 seconds; developer runs may select
-`--threaded-only`, while release acceptance runs both variants.
+The shared-host migration is complete. No legacy AppConfig bridge, parallel
+single-filament selection API or compatibility adapter is retained.
+[Grand Plan](Grand%20Plan.md) owns current delivery status;
+[documentation index](../doc/README.md) links the topic specifications.

@@ -191,3 +191,31 @@ documentation change:
 - split Electron E2E into a small default smoke group and an extended group;
 - run the complete Web shared behaviour suite on one WASM variant and a focused
   capability plus import/slice/export flow on the other.
+
+## UI and output regression rules
+
+- Target `canvas[data-engine^="three.js"]` for scene input; diagnostic/statistics
+  overlays can add other canvases. Wait for the current projected geometry.
+- Demand-rendered gizmos need a fresh pointer move after mounting to establish
+  hover/axis state. Capture a body press before crossing the drag threshold,
+  then continue the same held gesture before asserting translation. Cancelled
+  drags must release the held mouse button before the next action.
+- Use a fixed launch viewport for coordinate-based tests before the scene
+  mounts. Do not infer comparable projections from the hosted runner's screen.
+- Close history menus through their trigger and wait for dismissal before
+  testing gizmos. Escape can also invoke Prepare deselection.
+- Real model/startup timeouts must account for native initialization and the
+  fixture workload; mock timing does not qualify real runtime behavior.
+- Export completion means the save action completed (Export re-enabled and no
+  error), followed by byte/content assertions. File creation or modification
+  time alone can precede close/rename and is not proof of a completed save.
+- A tiny repeated slice failure can clear and reset its error between polling
+  intervals; observe the transition directly when that intermediate state is
+  the assertion. Mock coverage cannot validate native aggregated errors.
+- Verify a target plate in exported G-code using its native indexed values and
+  then its Preview bed. A transient Prepare-to-Preview raycast is not an
+  authoritative plate-selection receipt.
+- Hosted CI omits the dedicated performance/profile E2Es while retaining real
+  functional cases. Local fixture-specific timing budgets are not relaxed to
+  accommodate a loaded hosted runner. See the
+  [interaction runbook](2026-09-23-object-interaction-performance.md).

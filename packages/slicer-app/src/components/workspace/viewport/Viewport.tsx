@@ -424,7 +424,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
             gl={{ powerPreference: 'high-performance' }}
             // Render only when something invalidates the frame (camera change,
             // scene data update, resize) — never render continuously. See
-            // doc/2026-08-16-demand-render-viewport.md. OrbitControls in demand
+            // spec/Viewport Interaction.md. OrbitControls in demand
             // mode invalidates while interacting/damping; data-driven meshes
             // invalidate via React re-render.
             frameloop="demand"
@@ -513,7 +513,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, projectionStatus = 'n
                 head clicks tween the main camera to look along that axis.
                 Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
                 viewcube's Y-up face names). See
-                doc/2026-08-17-viewcube-gizmo.md. */}
+                spec/Viewport Interaction.md. */}
             <GizmoHelper alignment="bottom-left" margin={[86, 80]}>
               <GizmoViewport name={__ORCA_E2E__ ? 'viewport-navigator' : undefined} />
             </GizmoHelper>

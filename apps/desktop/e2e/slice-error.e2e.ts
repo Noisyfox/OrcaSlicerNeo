@@ -4,7 +4,7 @@ import { _electron } from './electron-fixture';
 // rejects must surface the REAL message in the status bar, not the bare
 // SlicingErrors category ("Errors") that the bridge used to return
 // (bridge.cpp error_json_from_exception + Toolbar errorText — see
-// doc/2026-08-15-slice-error-surfacing.md).
+// spec/Per-Plate Print Architecture.md).
 // Run with the real module build: ORCA_E2E_REAL=1 playwright test e2e/slice-error.e2e.ts
 // (test:e2e:real runs it in the e2e-real CI job; the default mock build
 // skips — the mock always slices successfully).

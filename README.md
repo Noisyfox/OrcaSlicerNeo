@@ -2,28 +2,23 @@
 
 A next-generation OrcaSlicer GUI — one shared **React + TypeScript + Vite +
 shadcn/ui** application with thin **Electron** (desktop) and **static Web**
-hosts, with the C++ slicing core (`libslic3r`) reused as-is and compiled to
+hosts, with the C++ slicing core (`libslic3r`) reused and compiled to
 **WebAssembly** via Emscripten.
 
 The existing wxWidgets GUI is not ported. Two wasm64 variants — `threaded`
 (oneTBB + pthreads) and `serial` (TBB shim fallback) — built from the same
-bridge serve all six desktop platforms and the Web target; the runtime picks
-`threaded` when the host is cross-origin isolated and falls back to `serial`.
+bridge serve all six desktop platforms and the Web target. Web selects
+`threaded` when cross-origin isolation is available and otherwise uses `serial`;
+Electron runs WASM in a utility-process Node Worker, with serial fallback.
 
-## Status
+## Status and documentation
 
-- **Design approved** — see [doc/2026-08-12-electron-gui-rewrite-design.md](doc/2026-08-12-electron-gui-rewrite-design.md)
-- Feasibility proven by the phase-0 compile spike (GO verdict 2026-07-24) —
-  see CLAUDE.md → Reference for details
-- **Milestones 1–8 delivered** (2026-08-13 → 2026-08-18): WASM core, Electron
-  vertical slice, packaging/hardening, preset management, move gizmo,
-  multi-volume selection, add/clear scene; **Milestone 9 delivered 2026-08-20**:
-  shared Web–Electron application architecture (one React app with thin
-  Electron and static-Web hosts) — see
-  [doc/high_level_dev_plan.md](doc/high_level_dev_plan.md),
-  [spec/Grand Plan.md](spec/Grand Plan.md), and the approved
-  [Web–Electron architecture spec](spec/Web-Electron%20Shared%20Application%20Architecture.md)
-  for the roadmap
+The shared Electron/Web application supports native model preparation, 3MF
+projects, history, multi-plate/multi-filament slicing, painting and preview.
+See [Grand Plan](spec/Grand%20Plan.md) for delivered scope and remaining work,
+and the [documentation index](doc/README.md) for current topic references.
+The [shared architecture](spec/Web-Electron%20Shared%20Application%20Architecture.md)
+defines package and host boundaries.
 
 ## Layout
 
@@ -36,14 +31,15 @@ packages/slicer-app/   shared React UI (components, stores, viewport, styles)
 packages/slicer-runtime/ shared runtime + worker glue (asset resolution, profiles)
 packages/platform-contract/ injected platform contracts (host adapters)
 packages/profile-resources/ profile package build (manifest + core/vendor ZIPs)
-doc/                   dated engineering docs (YYYY-MM-DD-topic.md)
+doc/                   maintained engineering references and topic index
 spec/                  approved specs
 tools/ scripts/        dev utilities, CI scripts
 ```
 
 See [project_structure_and_guidelines.md](project_structure_and_guidelines.md) and
-[AGENTS.md](AGENTS.md) for structure and engineering conventions. Test
-frequency and focused-versus-release routing are defined by the
+[AGENTS.md](AGENTS.md) for structure and engineering conventions. Documentation
+maintenance follows the [documentation policy](project_structure_and_guidelines.md#3-document-conventions).
+Test frequency and focused-versus-release routing are defined by the
 [testing guidelines](doc/testing_guidelines.md).
 
 ## Building
@@ -97,14 +93,16 @@ bash scripts/build.sh full -j 8
 ```
 
 `full` is the cold-start path: fetch header-only deps (Eigen / Boost 1.84 /
-cereal) → cross-compile Boost 1.84 wasm64 static archives → patch the
-submodule, apply the shim, configure with CMake + Emscripten, ninja-build
+cereal) → cross-compile dependencies → prepare variant shims and external
+dependency fixes → configure with CMake + Emscripten → ninja-build
 both wasm64 variants (threaded + serial, separate CMake/output trees), and
 stage each variant's `orca_slice.{js,wasm,data}` set to
 `packages/slicer-wasm/out/{threaded,serial}/`.
 
 For iterating on bridge/CMake changes after a first full build, use the
-incremental loop — seconds-to-minutes, no configure or patch re-apply:
+incremental loop — reuse the configured CMake tree, apply any configured
+build-time patches, then run Ninja. Reconfigure with `build` when changing
+feature gates; Orca source changes belong in the committed submodule:
 
 ```bat
 scripts\build-windows.bat quick -j 8
@@ -117,7 +115,7 @@ bash scripts/build.sh quick -j 8
 Other driver subcommands: `deps` (fetch deps only), `boost` (Boost wasm64
 only), `build` (full build, requires Boost archives), `shim` (regenerate
 TBB/shim headers), `smoke` (run the Node harnesses against both variants in
-`out/`), `test` (@orca/slicer-wasm vitest + typecheck; the whole workspace runs via
+`out/`), `test` (@orca/slicer-wasm and @orca/desktop tests/typechecks; the whole workspace runs via
 `pnpm -r test` / `pnpm -r typecheck`), `dev` (launch the Electron app),
 `e2e` (Playwright Electron), `env`, `help`.
 
@@ -175,5 +173,5 @@ SharedArrayBuffer; set `ORCA_WEB_NO_ISOLATION=1` to run without isolation
 ## Licensing
 
 AGPL-3.0. OrcaSlicerNeo is a fork of AGPL OrcaSlicer; the Electron app, the WASM
-module, and the `libslic3r` core all inherit the AGPL. See the design doc's
-Licensing section.
+module, and the `libslic3r` core all inherit the AGPL. See
+[SOURCE_OFFER](SOURCE_OFFER.md) for distribution obligations.

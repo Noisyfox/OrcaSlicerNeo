@@ -1,5 +1,13 @@
 # Per-Plate Print Architecture
 
+Actionable slice failures expose native `SlicingErrors` per-object messages
+(newline-separated), not only their generic `what()` category. Other exceptions
+use their message. Unwrap `Error.message` without adding a second `Error:`
+prefix, log diagnostics and associate failures with their plate/input identity.
+A new slice clears the old error; failed/cancelled work never publishes an
+exportable result. Retain the real floating-first-layer regression for message,
+export gating and clear-then-refail behavior; mocks do not cover native errors.
+
 **Date:** 2026-09-15
 
 **Status:** Delivered and qualified 2026-09-16.

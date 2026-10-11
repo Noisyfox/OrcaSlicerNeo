@@ -151,7 +151,7 @@ async function main() {
     process.exit(2);
   }
 
-  // Boost.Log spot-check (doc/2026-08-21-wasm-boost-log.md): slice_main reads
+  // Boost.Log spot-check (doc/2026-08-12-wasm-build-notes.md): slice_main reads
   // globalThis.ORCA_LOG_LEVEL at main() to set the severity filter; the file
   // sink writes every accepted record to /tmp/orca.log (MEMFS). Levels up to
   // info guarantee records (libslic3r logs config parsing at info); for
