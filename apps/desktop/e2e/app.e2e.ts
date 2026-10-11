@@ -2158,6 +2158,22 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
           )
           .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
 
+      // Transform fields reflect a local draft before its Worker history
+      // transaction is published. Finish each commit before starting the
+      // next gesture, which is rejected during project publication.
+      const historyRevision = () => page.evaluate(() => {
+        const status = (window as unknown as {
+          __orcaE2e?: { historyNativeStatus?: () => { revision: number } | null };
+        }).__orcaE2e?.historyNativeStatus?.();
+        if (!status) throw new Error('native history status unavailable');
+        return status.revision;
+      });
+      const commitTransform = async (action: () => Promise<unknown>) => {
+        const beforeRevision = await historyRevision();
+        await action();
+        await expect.poll(historyRevision).toBeGreaterThan(beforeRevision);
+      };
+
       // The Move toggle can only arm with a non-empty selection: it stays
       // disabled while nothing is selected.
       await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
@@ -2217,13 +2233,13 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         ))
         .toBe('body');
       await page.mouse.move(cubeCenter.x + 40, cubeCenter.y + 20, { steps: 4 });
-      await page.mouse.up();
+      await commitTransform(() => page.mouse.up());
       await expect
         .poll(async () => Promise.all(['x', 'y', 'z'].map((axis) =>
           page.getByTestId(`move-${axis}`).inputValue(),
         )))
         .not.toEqual(bodyPivotBefore);
-      await page.getByTestId('move-reset').click();
+      await commitTransform(() => page.getByTestId('move-reset').click());
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
 
       // A plain click on a selected member retains the group. Toggle the
@@ -2265,12 +2281,12 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         ))
         .toBe('gizmo');
       await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
-      await page.mouse.up();
+      await commitTransform(() => page.mouse.up());
       await expect(page.getByTestId('move-x')).toHaveValue('55.000', { timeout: 10_000 });
 
-      // Reset proves the gizmo only changed the local scene, then select the
-      // second instance additively. Its union bounds are [0,70], pivot X=35.
-      await page.getByTestId('move-reset').click();
+      // Reset restores the source transform, then select the second instance
+      // additively. Its union bounds are [0,70], pivot X=35.
+      await commitTransform(() => page.getByTestId('move-reset').click());
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
       const secondCenter = await project([60, 10, 10]);
       if (!secondCenter) throw new Error('second cube projection unavailable');
@@ -2279,7 +2295,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
 
       // Numeric edits translate the whole selection by the pivot delta.
       await page.getByTestId('move-x').fill('45');
-      await page.getByTestId('move-x').press('Enter');
+      await commitTransform(() => page.getByTestId('move-x').press('Enter'));
       await expect(page.getByTestId('move-x')).toHaveValue('45.000');
 
       // Garbage input is rejected and the aggregate pivot remains intact.
@@ -2289,12 +2305,12 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
 
       // Lift with Z, then Drop to bed returns the selection's minimum Z to 0.
       await page.getByTestId('move-z').fill('20');
-      await page.getByTestId('move-z').press('Enter');
+      await commitTransform(() => page.getByTestId('move-z').press('Enter'));
       await expect(page.getByTestId('move-z')).toHaveValue('20.000');
-      await page.getByTestId('move-drop-bed').click();
+      await commitTransform(() => page.getByTestId('move-drop-bed').click());
       await expect(page.getByTestId('move-z')).toHaveValue('10.000');
 
-      // The bridge is synchronized at Slice (not gesture release).
+      // Slice consumes the committed native transforms.
       await page.getByTestId('btn-slice').click();
       await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
       // Slicing enters passive Preview. Return to Prepare before asserting
