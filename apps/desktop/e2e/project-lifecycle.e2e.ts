@@ -47,12 +47,24 @@ async function openPickerProject(page: Page, app: ElectronApplication): Promise<
   await page.locator('[data-slot=\"menubar-sub-content\"]').hover({ position: { x: 8, y: 8 } });
   await page.getByTestId('file-open-project').click();
   }
+  // Loading hydrates the native profile and resets the configuration mode.
+  // Wait for the committed project identity before selecting Objects, so a
+  // slower host cannot overwrite this click with the load's Project reset.
+  await expect(page.getByTestId('titlebar-project-name')).toHaveText('picked-project');
+  await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
   await page.getByTestId('config-mode-scoped').click();
   await expect(page.getByTestId('object-list').getByRole('button', { name: 'picked-project.3mf' })).toBeVisible();
 }
 
 async function makeDirty(page: Page): Promise<void> {
+  await page.getByTestId('config-mode-scoped').click();
+  const models = page.getByTestId('object-list').getByTestId(/^object-\d+$/);
+  const previousCount = await models.count();
   await page.getByTestId('btn-add-model').click();
+  // Slice is already enabled for the opened project. Wait for the new model
+  // and the import operation to finish before issuing another command.
+  await expect(models).toHaveCount(previousCount + 1);
+  await expect(page.getByTestId('project-progress-dialog')).toBeHidden();
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
 }
 
@@ -288,8 +300,10 @@ test('Electron close requests honor Cancel then Save/Don\'t Save choices', async
       .catch((error) => { if (!page.isClosed()) throw error; });
     await Promise.all([closed, click]);
   } finally {
-    // The assertions above close the window. If a failure occurs earlier, the
-    // lifecycle bridge still lets a clean renderer answer this teardown.
+    // A failed assertion can leave a dirty window whose close confirmation
+    // would block teardown. Destroy only the test window in that case.
+    if (app.windows().some(window => !window.isClosed()))
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
     await app.close();
   }
 });
