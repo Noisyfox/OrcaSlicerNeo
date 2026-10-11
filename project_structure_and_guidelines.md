@@ -31,8 +31,8 @@ Emscripten. It enforces:
    interface; binary data (meshes, toolpaths) crosses as heap buffers. The JS
    client in `packages/slicer-wasm/src/client/` is the only JS that touches the
    WASM module.
-4. **Documentation-first:** dated docs in `doc/`, approved designs in `spec/`
-   (repo convention).
+4. **Maintained topic documentation:** accepted designs in `spec/`, reusable
+   engineering references in `doc/`; update existing owners as development changes them.
 
 ---
 
@@ -72,7 +72,7 @@ orca-slicer-neo/
 │       ├── fixtures/             # cube.stl generator, starter config.json
 │       ├── build.sh / build.bat  # emsdk env → shim gen → emcmake → artifacts
 │       └── build-boost-wasm64.sh # Emscripten Boost 1.84 build
-├── doc/                          # dated engineering docs (YYYY-MM-DD-topic.md)
+├── doc/                          # maintained engineering references and topic index
 ├── spec/                         # approved specs
 ├── tools/                        # dev utilities
 ├── scripts/                      # CI / packaging scripts (incl. build-wasm-dual.*,
@@ -85,14 +85,14 @@ orca-slicer-neo/
 
 ## 3. Document Conventions
 
-- `doc/` — engineering docs, dated `YYYY-MM-DD-topic.md` (repo convention).
-  Header block: title, date, status, scope. Approved designs move to `spec/`;
-  the current normative design is `spec/Web-Electron Shared Application
-  Architecture.md`.
-- `spec/` — approved designs (moved from `doc/` or written directly when approved).
+- `spec/` owns accepted product behavior, architecture, and design constraints.
+  The shared architecture remains the application-wide authority.
+- `doc/` owns reusable build, debugging, testing, and operational references,
+  plus the topic index. Existing dated filenames remain stable references;
+  their dates are not a requirement to create a successor for each change.
 - Root docs: `README.md`, `AGENTS.md` (imported by `CLAUDE.md`),
   `project_structure_and_guidelines.md` (this file).
-- Any feature/design change must be reflected in `doc/`; approved → `spec/`.
+- Write repository documentation in English.
 
 The [documentation index](doc/README.md) maps topics to their current owner.
 [Grand Plan](spec/Grand%20Plan.md) is the only roadmap. Git history retains
@@ -102,18 +102,61 @@ constraints, scope, rationale and acceptance requirements. Later silence or an
 implementation gap is not a decision reversal; replace only explicitly
 superseded portions and retain unresolved qualification boundaries.
 
-### Single-document feature record
+### Update the existing topic first
 
-Start each feature or task with one dated, living task document. Update that
-same document throughout discovery, decisions, implementation, and
-verification; do not create a separate document for each phase. It records
-only the current, accepted product behaviour and decisions, not superseded
-options, implementation diary entries, bridge details, or test-run logs.
+Before writing documentation, consult the index and search for the topic in
+`spec/` and `doc/`. If a suitable owner exists, edit its relevant section
+directly, including for feature extensions, fixes, reviews, and follow-up work.
+Update affected linked contracts together; do not add a dated supplement,
+implementation plan, review report, or phase log alongside the same topic.
 
-When the feature is approved, promote that same record to `spec/` (or create
-it there when approval is already known) and remove any temporary or
-superseded task notes in the same change. Create a separate document only when
-it is an independently useful, enduring operator or architecture reference.
+A code change needs a documentation update only when it changes a durable
+behavior, boundary, accepted decision, qualification limit, or reusable procedure.
+A refactor or fix that restores the documented contract does not automatically
+require a document edit. Record its implementation and verification in the PR.
+
+Create a document only for a distinct topic with lasting value that cannot fit
+coherently in an existing owner. Prefer a section before splitting a document;
+task size, elapsed time, and implementation phases are not reasons to split.
+Use a stable topic name, add it to the index, and link to adjacent owners instead
+of duplicating them. Update the roadmap only for delivery/milestone changes.
+Proposals and working plans normally stay in the issue or PR. If a substantial
+new topic needs a repository draft, label its status clearly and evolve that
+same record into the accepted specification; merge into an existing owner if
+one is identified, removing the duplicate draft.
+
+### Record durable decisions, not incidental implementation
+
+Keep only information that future work needs to understand or preserve: accepted
+behavior, positive and negative constraints, ownership and failure semantics,
+scope exclusions, essential rationale, and necessary verification boundaries.
+An implementation choice becomes normative only through an explicit design
+decision; its presence in code or a passing test does not establish a mandate.
+
+Keep symbol lists, directory inventories, wire examples, command catalogues,
+and configuration values with their existing authoritative source where possible.
+Link to code, schemas, scripts, or tests instead of copying their contents.
+Include exact algorithms, numeric limits, UI dimensions, or technical details
+only when they express an accepted contract or are necessary for a reusable
+procedure. Preserve existing accepted values until explicitly superseded.
+
+Leave task breakdowns, debugging transcripts, abandoned approaches, commit lists,
+test counts, one-off timings, and pass/fail logs in commits, PRs, or test artifacts.
+A measured result is not automatically a performance budget, and a workaround
+is not automatically an architectural rule. Keep only the lasting conclusion,
+necessary reproduction/reference information, and unresolved limitations in docs.
+Do not remove still-valid decisions or qualification limits as mere "detail."
+
+### Finish with one current account
+
+Rewrite the affected passage into the current accepted statement instead of
+appending chronological corrections. Replace only explicitly superseded rules,
+preserve unaffected constraints, and distinguish proposed, accepted, delivered,
+and unverified behavior. Remove stale duplicates and repair inbound references
+when moving content. Before handoff, check that each new statement needs to
+constrain future work or support a reusable procedure, then verify changed local
+links and commands and run `git diff --check`. Report execution results in the PR
+rather than adding a verification diary to the maintained document.
 
 ---
 

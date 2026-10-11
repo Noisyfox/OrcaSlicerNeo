@@ -31,9 +31,8 @@ troubleshooting procedures, or test matrices here.
 
 1. Before any coding, read
    [`spec/Web-Electron Shared Application Architecture.md`](spec/Web-Electron%20Shared%20Application%20Architecture.md).
-2. Read the relevant approved design in `spec/` and the current dated task
-   document in `doc/`. Use the
-   [documentation index](doc/README.md) to find the current topic owner.
+2. Use the [documentation index](doc/README.md) to find and read the existing
+   topic specification and relevant engineering reference before changing them.
 3. Use
    [`project_structure_and_guidelines.md`](project_structure_and_guidelines.md)
    for the repository tree, ownership boundaries, engineering constraints, and
@@ -52,10 +51,12 @@ troubleshooting procedures, or test matrices here.
 6. Update the single roadmap, [`spec/Grand Plan.md`](spec/Grand%20Plan.md),
    only when delivered work changes roadmap or milestone status.
 
-Start each feature or design change with one dated, living task document in
-`doc/` and update it in place. Record only accepted behavior and decisions;
-do not create phase-by-phase notes. When approved, promote that same document
-to `spec/` and remove superseded task notes.
+Update the existing topic document directly when development changes its
+durable contract. Do not create a document for each task, fix, phase, or review.
+Create one only for a distinct, lasting topic with no suitable existing owner.
+Keep implementation details and execution logs in code, tests, commits, or PRs;
+do not turn incidental choices into design constraints. Preserve all unrevoked
+accepted decisions. Follow the [documentation policy](project_structure_and_guidelines.md#3-document-conventions).
 
 Write all repository documentation in English.
 
@@ -82,7 +83,7 @@ Write all repository documentation in English.
 | `packages/slicer-wasm/src/bridge.cpp` | Preserve the narrow C++/JS ABI and run the applicable native WASM quick build. |
 | `packages/slicer-wasm/src/client/` | Keep all direct Emscripten-module access behind this typed client. |
 | `scripts/*.bat`, `packages/slicer-wasm/*.bat` | Use Windows cmd syntax and CRLF; never assume Git Bash. |
-| `doc/`, `spec/` | Keep living task decisions separate from approved specifications and avoid parallel phase notes. |
+| `doc/`, `spec/` | Update the existing topic owner; retain accepted constraints and avoid task/phase notes or duplicate authorities. |
 
 ## Bridge and runtime invariants
 

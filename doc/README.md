@@ -18,9 +18,12 @@ decisions; engineering references own build/debug/verification procedures.
    portion; retain unaffected conditions. Distinguish proposals, accepted
    requirements, delivered behavior and unverified claims. Preserve unresolved
    failures and qualification boundaries.
-4. Maintain one dated living task record during a feature/design change, then
-   promote accepted material into its specification and remove superseded
-   parallel notes. Git history retains chronology, obsolete APIs and past logs.
+4. Update the existing topic owner directly. Add a document only for a distinct,
+   lasting topic without a suitable owner, then add it to this index. Tasks,
+   fixes, reviews, and phases do not each need a document. The
+   [documentation policy](../project_structure_and_guidelines.md#3-document-conventions)
+   defines what belongs in maintained docs; working plans and execution logs
+   belong in issues, PRs, or test artifacts. Git retains earlier revisions.
 5. Keep docs in English. Use [README](../README.md) and build-driver help for
    commands, and [testing guidelines](testing_guidelines.md) for verification
    scope. Validate changed local links and commands plus `git diff --check`.

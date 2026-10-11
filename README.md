@@ -31,7 +31,7 @@ packages/slicer-app/   shared React UI (components, stores, viewport, styles)
 packages/slicer-runtime/ shared runtime + worker glue (asset resolution, profiles)
 packages/platform-contract/ injected platform contracts (host adapters)
 packages/profile-resources/ profile package build (manifest + core/vendor ZIPs)
-doc/                   dated engineering docs (YYYY-MM-DD-topic.md)
+doc/                   maintained engineering references and topic index
 spec/                  approved specs
 tools/ scripts/        dev utilities, CI scripts
 ```
