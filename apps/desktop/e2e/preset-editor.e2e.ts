@@ -5,6 +5,113 @@ import { resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 
+test('independent preset browsing preserves project choices and both Filament drafts', async () => {
+  const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 60_000 });
+    await page.locator('#app-tab-prepare').click();
+    // Force overflow even with the small mock catalogue, so reopening must reveal selection.
+    await page.addStyleTag({ content: `
+      [data-slot="select-content"][aria-label="Preset to edit"] { max-height: 100px !important; }
+    ` });
+    const printerBefore = await page.getByTestId('preset-select').getAttribute('title');
+    await page.getByTestId('preset-edit-printer').click();
+    const printerPickerWidth = (await page.getByTestId('preset-editor-preset').boundingBox())!.width;
+    await page.getByTestId('preset-editor-preset').click();
+    // Opening the popup mounts its options asynchronously; evaluateAll does not wait.
+    await expect(page.getByRole('option').nth(1)).toBeAttached();
+    const printerTargets = await page.getByRole('option').evaluateAll(options => options.map(option => option.getAttribute('title')));
+    const otherPrinter = [...printerTargets].reverse().find(name => name && name !== printerBefore);
+    if (!otherPrinter) throw new Error('expected another installed Printer');
+    await page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true })).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(otherPrinter);
+    expect((await page.getByTestId('preset-editor-preset').boundingBox())!.width).toBeCloseTo(printerPickerWidth, 1);
+    await expect(page.getByTestId('preset-select')).toHaveAttribute('title', printerBefore!);
+    await page.getByTestId('preset-editor-preset').click();
+    await expect(page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true })))
+      .toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('option').and(page.getByTitle(otherPrinter, { exact: true }))).toBeFocused();
+    await page.keyboard.press('Escape');
+    await page.getByTestId('preset-editor-close').click();
+    const slot = page.getByTestId('filament-preset-1');
+    const source = await slot.getAttribute('title');
+    if (!source) throw new Error('expected selected Filament source');
+    await page.getByTestId('filament-slot-1').click({ button: 'right' });
+    await page.getByTestId('filament-edit-1').click();
+    const picker = page.getByTestId('preset-editor-preset');
+    const filamentPickerWidth = (await picker.boundingBox())!.width;
+    const settingsSearch = page.getByTestId('preset-editor-search');
+    await settingsSearch.fill('filament_diameter');
+    const diameter = page.getByTestId('preset-editor-input-filament_diameter');
+    await diameter.fill('1.76'); await diameter.press('Enter');
+    await expect(picker).toBeEnabled();
+    expect((await picker.boundingBox())!.width).toBeCloseTo(filamentPickerWidth, 1);
+    await picker.click();
+    const editorPopup = page.locator('[data-slot="select-content"][aria-label="Preset to edit"]');
+    const groups = page.locator('[data-slot="select-group"]');
+    const incompatible = groups.filter({ has: page.locator('[data-slot="select-label"]', {
+      hasText: 'Not compatible with project printer',
+    }) });
+    const target = await incompatible.getByRole('option').first().getAttribute('title');
+    if (!target) throw new Error('expected an incompatible editor candidate');
+    await incompatible.getByRole('option').first().click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(target);
+    expect((await picker.boundingBox())!.width).toBeCloseTo(filamentPickerWidth, 1);
+    await expect(slot).toHaveAttribute('title', source);
+    await diameter.fill('1.77'); await diameter.press('Enter');
+    await expect(picker).toBeEnabled();
+    await picker.click();
+    await expect(page.getByRole('option').and(page.getByTitle(target, { exact: true })))
+      .toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('option').and(page.getByTitle(target, { exact: true }))).toBeFocused();
+    const presetSearch = editorPopup.getByPlaceholder('Search presets to edit…');
+    await expect(presetSearch).toBeInViewport({ ratio: 1 });
+    const searchTop = (await presetSearch.boundingBox())!.y;
+    const optionsList = editorPopup.getByRole('listbox');
+    expect(await optionsList.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    await optionsList.evaluate(element => { element.scrollTop = 0; });
+    expect((await presetSearch.boundingBox())!.y).toBeCloseTo(searchTop, 1);
+    await presetSearch.fill(target);
+    await expect(editorPopup.getByRole('option')).toHaveCount(1);
+    await presetSearch.press('ArrowDown');
+    await expect(editorPopup.getByRole('option')).toBeFocused();
+    await presetSearch.fill('');
+    if (!REAL) {
+      // The popup accommodates names and is at least as wide as the fixed trigger.
+      await expect.poll(async () => (await editorPopup.boundingBox())!.width)
+        .toBeGreaterThanOrEqual((await picker.boundingBox())!.width - 1);
+      expect(await editorPopup.locator('.truncate').evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
+    }
+    await expect(incompatible.getByRole('option').first()).toHaveAttribute('title', target);
+    await expect(incompatible.getByRole('option').first().locator('.config-override-label')).toBeVisible();
+    await page.getByRole('option').and(page.getByTitle(source, { exact: true })).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(source);
+    await expect(diameter).toHaveValue('1.76');
+    await picker.click();
+    await page.getByRole('option').and(page.getByTitle(target, { exact: true })).click();
+    await expect(diameter).toHaveValue('1.77');
+    await page.setViewportSize({ width: 800, height: 720 });
+    const narrowPickerWidth = (await picker.boundingBox())!.width;
+    const titleBounds = (await page.getByTestId('preset-editor-title').boundingBox())!;
+    const resetBounds = (await page.getByTestId('preset-editor-reset-preset').boundingBox())!;
+    const closeBounds = (await page.getByTestId('preset-editor-close').boundingBox())!;
+    expect(closeBounds.y).toBeCloseTo(titleBounds.y, 1);
+    expect(resetBounds.y).toBeLessThan(titleBounds.y + titleBounds.height);
+    expect(closeBounds.y + closeBounds.height).toBeLessThanOrEqual((await picker.boundingBox())!.y);
+    await picker.click();
+    await page.getByRole('option').and(page.getByTitle(source, { exact: true })).click();
+    await expect(page.getByTestId('preset-editor-title')).toHaveText(source);
+    expect((await picker.boundingBox())!.width).toBeCloseTo(narrowPickerWidth, 1);
+    await page.getByTestId('preset-editor-close').click();
+    await expect(slot).toHaveAttribute('title', source);
+    await expect(page.getByTestId('preset-select')).toHaveAttribute('title', printerBefore!);
+  } finally { await app.close(); }
+});
+
 async function selectFilamentPreset(page: Page, name: string, label: string): Promise<void> {
   const preset = page.getByTestId('filament-preset-1');
   await preset.click();
@@ -185,6 +292,9 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
     if (REAL) await selectFilamentPreset(page, 'Generic PLA @System', 'Generic PLA');
+    await page.addStyleTag({ content: `
+      [data-slot="dropdown-menu-content"][aria-label="Filament preset for slot 1"] { max-height: 70px !important; }
+    ` });
     for (const [id, placeholder] of [
       ['preset-select', 'Search presets…'],
       ['process-preset-select', 'Search presets…'],
@@ -202,6 +312,15 @@ test('preset editor modal edits Printer and shared Filament drafts without chang
       await expect(search).toBeFocused();
       await expect(picker).toHaveText(selected!);
       await expect(page.getByRole(id === 'filament-preset-1' ? 'menuitem' : 'option').first()).toBeVisible();
+      if (id === 'filament-preset-1') {
+        const list = page.getByRole('menu', { name: 'Filament preset for slot 1', exact: true })
+          .locator('[data-slot="preset-menu-list"]');
+        const searchTop = (await search.boundingBox())!.y;
+        expect(await list.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+        await list.evaluate(element => { element.scrollTop = element.scrollHeight; });
+        await expect(search).toBeInViewport({ ratio: 1 });
+        expect((await search.boundingBox())!.y).toBeCloseTo(searchTop, 1);
+      }
       await page.keyboard.press('Escape');
     }
 

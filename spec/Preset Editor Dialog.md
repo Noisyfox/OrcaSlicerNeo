@@ -302,8 +302,60 @@ different source preset addresses that preset's distinct draft.
 
 The current selected Printer preset control exposes Edit to open its Printer
 editor. Each Filament slot action menu exposes Edit to open the editor for that
-slot's selected source preset. Neither entry point selects an editor target from
-inside the modal dialog.
+slot's selected source preset. These entry points seed the editor target only;
+the dialog's searchable preset picker then browses other sources of the same
+kind independently of the project's Printer and material-slot selections.
+No slot identity is retained by the editor. Browsing calls the draft read API,
+does not create an overlay or history entry, and never invokes project preset
+selection, changes rack colours, or writes selection preferences.
+
+Workspace owns only the opening source, open/close state and the editing-session
+notification. The mounted dialog owns its current browsed target, draft snapshot,
+initial loading, read errors, read/mutation locks and Undo/Redo refresh. Closing
+unmounts that session, and its pending reads cannot publish into a later dialog.
+Mutations continue through the shared configuration commit helper so history,
+project projections and slice invalidation keep their existing transaction path.
+
+Each native draft snapshot includes a required `editor_candidates` projection
+of installed visible sources supported by the editor (FFF Printers and
+Filaments), including incompatible Filaments. Printer entries identify complete
+canonical profiles, including nozzle/variant differences. Both editor pickers
+display the full canonical preset name in the trigger, entries and tooltips,
+rather than the alias used by sidebar controls. Both triggers have a fixed
+width of `min(32rem, 60vw)` independent of the selected name and draft status;
+header actions remain at the top right, with the picker on its own row below
+the title and description. The Filament picker has
+content-sized popup width independent of its trigger, capped by the available
+viewport like the sidebar combobox. Changing targets must not clip preset names
+to a narrower trigger width. Both editor pickers reuse the option editor's
+Select component: the current selection is visible and focused with the same
+highlight as hover when the popup opens, using Select's built-in positioning
+and focus lifecycle rather than scrolling after the opening animation. The
+search field stays in a fixed header; only the options list scrolls.
+The Filament picker has
+two flat sections: compatible with the project's effective Printer first, then
+not compatible with that Printer. This classification uses native Printer
+compatibility, independent of the active Process and the editor target.
+Within each section, nonempty draft overrides are highlighted with the existing
+configuration-override colour and stably ordered before unmodified sources.
+The Printer picker likewise puts modified sources first. Empty retained draft
+entries are not highlighted. Mutations, resets, and history restoration refresh
+the candidate projection together with the editor values.
+
+Switching targets retains every accepted source-local draft, matching sidebar
+selection's draft retention. Returning to a source reads its existing overlay;
+no changes transfer between sources. Pending field submissions block switching,
+and invalid field input must be corrected before switching. A read failure
+retains the previous target and values; obsolete reads cannot publish into a
+closed or superseded editor. A successful switch clears field-local input and
+validation state while retaining a functional page when it exists on the new
+source. Undo/Redo refreshes the browsed target without following project preset
+selection. Dormant-draft persistence and existing mutation invalidation policy
+remain unchanged.
+
+The picker is shared by Electron and Web, with keyboard/pointer input; mobile
+support remains deferred. It adds a bounded candidate array to each draft
+snapshot and introduces no downloads or second configuration owner.
 
 A Filament editor title displays its source preset name, `Project draft` state
 when applicable, and the numbered slots currently referencing that source

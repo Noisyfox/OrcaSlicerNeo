@@ -50,6 +50,12 @@ function mutateDraft(action, kind, canonicalName, fields = {}) {
   assert.equal(result.all_plate_results_invalidated, true);
   assert.equal(result.profile_snapshot.modified_presets[kind].includes(canonicalName), result.modified,
     'sidebar modified sources must use the same nonempty-overlay rule as the native editor');
+  assert.equal(result.editor_candidates.find(candidate => candidate.canonical_name === canonicalName)?.modified, result.modified);
+  for (const compatible of [true, false]) {
+    const section = result.editor_candidates.filter(candidate => candidate.compatible === compatible);
+    assert.ok(section.every((candidate, index) => index === 0 || !candidate.modified || section[index - 1].modified),
+      'native editor puts modified candidates before unmodified candidates within each section');
+  }
   const rows = kind === 'printer' ? result.profile_snapshot.printers : result.profile_snapshot.filament_catalog;
   assert.equal(rows.find(row => row.name === canonicalName)?.label,
     originalRows.find(row => row.name === canonicalName)?.label,
@@ -89,6 +95,22 @@ const printer = initial.printers.find((entry) => /Bambu Lab P1P 0\.4 nozzle/.tes
 assert.ok(printer, 'profile packages must provide a flexible Bambu printer');
 const selection = callJson('orc_select_preset', ['string', 'string'], ['printer', printer.name]);
 assert.equal(selection.ok, true, JSON.stringify(selection));
+
+// Independent editor browsing must neither select sources nor add history.
+const browseProject = callJson('orc_get_preset_snapshot');
+const browseRack = callJson('orc_get_filament_session_snapshot');
+const browseHistory = historyStatus();
+const browse = callJson('orc_get_preset_draft', ['string', 'string'], ['filament', genericPlaSource]);
+assert.equal(browse.ok, true, JSON.stringify(browse));
+assert.ok(browse.editor_candidates.some(candidate => candidate.compatible));
+assert.ok(browse.editor_candidates.some(candidate => !candidate.compatible), 'editor includes incompatible installed filaments');
+assert.ok(browse.editor_candidates.every((candidate, index, entries) =>
+  index === 0 || !candidate.compatible || entries[index - 1].compatible), 'compatible section precedes incompatible section');
+const unselected = browse.editor_candidates.find(candidate => !candidate.compatible);
+assert.equal(callJson('orc_get_preset_draft', ['string', 'string'], ['filament', unselected.canonical_name]).ok, true);
+assert.deepEqual(callJson('orc_get_preset_snapshot'), browseProject);
+assert.deepEqual(callJson('orc_get_filament_session_snapshot'), browseRack);
+assert.deepEqual(historyStatus(), browseHistory);
 
 // Notes keep geometry intact; resetting a mixed draft must still restore the
 // build volume and validity, even when the last edited field was only notes.

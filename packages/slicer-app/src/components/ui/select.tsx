@@ -62,6 +62,7 @@ function SelectTrigger({
 function SelectContent({
   className,
   children,
+  header,
   side = "bottom",
   sideOffset = 4,
   align = "center",
@@ -80,7 +81,7 @@ function SelectContent({
   // 4px below the trigger and tracks it on container scroll.
   alignItemWithTrigger = false,
   ...props
-}: SelectPrimitive.Popup.Props &
+}: SelectPrimitive.Popup.Props & { header?: React.ReactNode } &
   Pick<
     SelectPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
@@ -122,6 +123,8 @@ function SelectContent({
           {...props}
         >
           <SelectPrimitive.List className="min-h-0 overflow-x-hidden overflow-y-auto">{children}</SelectPrimitive.List>
+          {/* Keep the selected option first in focus order while the header stays above the list. */}
+          {header && <div className="order-first shrink-0">{header}</div>}
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>
     </SelectPrimitive.Portal>

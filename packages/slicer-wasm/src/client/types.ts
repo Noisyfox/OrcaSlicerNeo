@@ -545,7 +545,18 @@ export interface ConfigEditorSnapshot {
 }
 export type ConfigEditorSnapshotResult = ConfigEditorSnapshot | PresetDraftError;
 
+export interface PresetEditorCandidate {
+  readonly canonicalName: string;
+  readonly label: string;
+  /** Compatibility with the project's effective Printer, independent of editor target. */
+  readonly compatible: boolean;
+  /** Nonempty native overrides; empty retained drafts are unmodified. */
+  readonly modified: boolean;
+}
+
 export interface PresetDraftSnapshot extends PresetDraftTarget, ConfigEditorSnapshot {
+  /** Native order: compatible section first, modified presets first within each section. */
+  readonly editorCandidates: readonly PresetEditorCandidate[];
   readonly draftExists: boolean;
   readonly modified: boolean;
   readonly overrides: Readonly<Record<string, string | readonly ConfigVectorOverride[]>>;

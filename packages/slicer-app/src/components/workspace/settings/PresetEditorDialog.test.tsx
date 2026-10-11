@@ -15,7 +15,10 @@ import type {
   PresetDraftVectorValue,
   PresetDraftEditorVector,
 } from '@slicer/client';
-import { PresetEditorDialog } from './PresetEditorDialog';
+import { PresetEditorDialog, PresetEditorDialogContent } from './PresetEditorDialog';
+import { commitPresetDraftMutation } from './configurationActions';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+vi.mock('./configurationActions', () => ({ commitPresetDraftMutation: vi.fn() }));
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
   PRINTER_PRESET_EDITOR_MANIFEST,
@@ -125,6 +128,7 @@ function snapshotFor(kind: PresetDraftKind, options: { modified?: boolean; draft
     ok: true,
     kind,
     canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical',
+    editorCandidates: [{ canonicalName: kind === 'printer' ? 'Printer Canonical' : 'Filament Canonical', label: 'Preset', compatible: true, modified: options.modified ?? false }],
     draftExists: options.draftExists ?? true,
     modified: options.modified ?? false,
     overrides: options.modified ? (kind === 'printer' ? { printable_height: '245' } : { filament_flow_ratio: [{value: 0.92}, null] }) : {},
@@ -247,10 +251,11 @@ async function mount(
       return result;
     };
       const target = current ? { kind: current.kind, canonicalName: current.canonicalName } : null;
-    return <PresetEditorDialog
+    return <PresetEditorDialogContent
       target={target}
       snapshot={current}
       referencedFilamentSlots={referencedFilamentSlots}
+      onSelectPreset={async () => {}}
       onClose={onClose}
       onMutate={mutate}
     />;
@@ -264,7 +269,12 @@ async function mount(
 
 async function click(element: Element | null) {
   if (!element) throw new Error('expected a clickable element');
-  await act(async () => { (element as HTMLElement).click(); });
+  await act(async () => {
+    if (element.getAttribute('data-slot') === 'select-item') {
+      element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    } else (element as HTMLElement).click();
+  });
 }
 
 async function changeInput(input: HTMLInputElement, value: string) {
@@ -324,7 +334,36 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('PresetEditorDialog', () => {
+describe('PresetEditorDialogContent', () => {
+  it('shows two selectable Filament sections with modified candidates highlighted', async () => {
+    const base = snapshotFor('filament');
+    const snapshot: PresetDraftSnapshot = { ...base, editorCandidates: [
+      { canonicalName: 'Modified supported', label: 'Modified supported', compatible: true, modified: true },
+      { canonicalName: base.canonicalName, label: base.canonicalName, compatible: true, modified: false },
+      { canonicalName: 'Modified unsupported', label: 'Short alias', compatible: false, modified: true },
+      { canonicalName: 'Unsupported', label: 'Unsupported', compatible: false, modified: false },
+    ] };
+    const onSelectPreset = vi.fn(async () => {});
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container); roots.push(root);
+    const platform = { preferences: { load: async () => structuredClone(DEFAULT_USER_PREFERENCES), save: async () => {} } } as unknown as PlatformCapabilities;
+    await act(async () => root.render(<PlatformProvider value={platform}><PresetEditorDialogContent target={snapshot} snapshot={snapshot}
+      onClose={vi.fn()} onMutate={vi.fn()} onSelectPreset={onSelectPreset} /></PlatformProvider>));
+    await click(document.querySelector('[data-testid="preset-editor-preset"]'));
+    const groups = [...document.querySelectorAll('[data-slot="select-group"]')];
+    expect(groups.map(group => group.querySelector('[data-slot="select-label"]')?.textContent)).toEqual([
+      'Compatible with project printer', 'Not compatible with project printer',
+    ]);
+    expect(groups.map(group => group.querySelector('[role="option"]')?.textContent)).toEqual([
+      'Modified supported', 'Modified unsupported',
+    ]);
+    expect(document.querySelector('[title="Modified unsupported"] .config-override-label')).not.toBeNull();
+    expect(document.querySelector('[role="option"][title="Modified unsupported"]')?.textContent).toBe('Modified unsupported');
+    expect(document.body.textContent).not.toContain('Short alias');
+    await click(document.querySelector('[role="option"][title="Unsupported"]'));
+    expect(onSelectPreset).toHaveBeenCalledWith('Unsupported');
+  });
+
   it('reads and edits each Extruder index, preserving other values and indexing search/tooltips', async () => {
     const base = snapshotFor('printer');
     const makeVector = (values: number[]): PresetDraftEditorVector => ({ ...base.editorBindings.nozzle_diameter!, indexCount: values.length, overrideValues: values.map(() => null), sourceValues: values, effectiveValues: values });
@@ -416,7 +455,10 @@ describe('PresetEditorDialog', () => {
     let current = snapshotFor('printer');
     const onMutate = vi.fn(async (request: PresetDraftMutationRequest) => {
       const result = mutationSuccess(current, request);
-      if (result.ok) current = { ...result, canonicalName: 'Printer Resolved' };
+      if (result.ok) current = { ...result, canonicalName: 'Printer Resolved', editorCandidates: [
+        ...result.editorCandidates.filter(candidate => candidate.canonicalName !== 'Printer Resolved'),
+        { canonicalName: 'Printer Resolved', label: 'Printer Resolved', compatible: true, modified: true },
+      ] };
       return result.ok ? current as typeof result : result;
     });
     await mount(current, vi.fn(), undefined, onMutate);
@@ -425,8 +467,9 @@ describe('PresetEditorDialog', () => {
     await changeInput(input, '0.4'); await press(input, 'Enter');
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer Resolved');
     expect(document.querySelector('[data-testid="preset-editor-page-tab-extruder-2"]')?.getAttribute('aria-selected')).toBe('true');
-    expect(input.value).toBe('0.4');
-    await changeInput(input, '0.5'); await press(input, 'Enter');
+    const resolvedInput = document.querySelector('[data-testid="preset-editor-input-nozzle_diameter"]') as HTMLInputElement;
+    expect(resolvedInput.value).toBe('0.4');
+    await changeInput(resolvedInput, '0.5'); await press(resolvedInput, 'Enter');
     expect(onMutate).toHaveBeenLastCalledWith(expect.objectContaining({ canonicalName: 'Printer Resolved', index: 1, value: 0.5 }));
   });
 
@@ -680,13 +723,13 @@ describe('PresetEditorDialog', () => {
     const root = createRoot(container);
     roots.push(root);
     const printerSnapshot = snapshotFor('printer');
-    await act(async () => { root.render(<PresetEditorDialog target={{ kind: 'printer', canonicalName: printerSnapshot.canonicalName }} snapshot={printerSnapshot} onClose={vi.fn()} onMutate={vi.fn()} />); });
+    await act(async () => { root.render(<PresetEditorDialogContent target={{ kind: 'printer', canonicalName: printerSnapshot.canonicalName }} snapshot={printerSnapshot} onSelectPreset={async () => {}} onClose={vi.fn()} onMutate={vi.fn()} />); });
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Printer Canonical');
 
     const filamentSnapshot = snapshotFor('filament');
     const platform = { preferences: { load: async () => structuredClone(DEFAULT_USER_PREFERENCES), save: async () => {} } } as unknown as PlatformCapabilities;
-    await act(async () => { root.render(<PlatformProvider value={platform}><PresetEditorDialog target={{ kind: 'filament', canonicalName: filamentSnapshot.canonicalName }} snapshot={filamentSnapshot} onClose={vi.fn()} onMutate={vi.fn()} /></PlatformProvider>); });
+    await act(async () => { root.render(<PlatformProvider value={platform}><PresetEditorDialogContent target={{ kind: 'filament', canonicalName: filamentSnapshot.canonicalName }} snapshot={filamentSnapshot} onSelectPreset={async () => {}} onClose={vi.fn()} onMutate={vi.fn()} /></PlatformProvider>); });
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Filament Canonical');
     expect(document.querySelectorAll('[data-testid="preset-editor-close"]')).toHaveLength(1);
@@ -1038,5 +1081,116 @@ describe('PresetEditorDialog', () => {
     expect(height.value).toBe('240');
     expect(document.querySelector('[data-testid="preset-editor-error-printable_height"]')?.textContent).toBe('stale native draft');
     expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('230');
+  });
+});
+
+
+describe('PresetEditorDialog session ownership', () => {
+  beforeEach(() => {
+    useHistoryRestoreStore.setState({ phase: 'idle', revision: 0, error: null });
+    vi.mocked(commitPresetDraftMutation).mockReset();
+  });
+
+  async function mountSession(getPresetDraft: ReturnType<typeof vi.fn>, onClose = vi.fn()) {
+    const base = snapshotFor('printer');
+    const platform = {
+      preferences: { load: async () => structuredClone(DEFAULT_USER_PREFERENCES), save: async () => {} },
+      runtime: { getPresetDraft },
+    } as unknown as PlatformCapabilities;
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container); roots.push(root);
+    const initialTarget = { kind: base.kind, canonicalName: base.canonicalName };
+    const render = () => act(async () => root.render(<PlatformProvider value={platform}>
+      <PresetEditorDialog initialTarget={initialTarget} onClose={onClose} />
+    </PlatformProvider>));
+    await render();
+    return { root, render, platform, onClose, base };
+  }
+
+  async function choose(name: string) {
+    await click(document.querySelector('[data-testid="preset-editor-preset"]'));
+    await click(document.querySelector(`[role="option"][title="${name}"]`));
+  }
+
+  it('refreshes the browsed source after history restore without following the opening source', async () => {
+    const base = snapshotFor('printer');
+    const candidates = [base.canonicalName, 'Other Printer'].map(canonicalName => ({
+      canonicalName, label: canonicalName, compatible: true, modified: false,
+    }));
+    let height = '230';
+    const getDraft = vi.fn(async (_kind, canonicalName) => ({ ...base, canonicalName,
+      editorCandidates: candidates, effectiveValues: { ...base.effectiveValues, printable_height: height } }));
+    await mountSession(getDraft);
+    await choose('Other Printer');
+    height = '245';
+    await act(async () => {
+      useHistoryRestoreStore.getState().setPhase('restoring');
+      useHistoryRestoreStore.getState().advanceRevision();
+    });
+    expect(getDraft).toHaveBeenCalledTimes(2);
+    await act(async () => useHistoryRestoreStore.getState().setPhase('idle'));
+    expect(getDraft).toHaveBeenLastCalledWith('printer', 'Other Printer');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Other Printer');
+    expect(document.querySelector('[data-testid="preset-editor-effective-printable_height"]')?.textContent).toBe('245');
+  });
+
+  it('retries history refresh after an in-flight target read and ignores a closed session result', async () => {
+    const base = snapshotFor('printer');
+    const candidates = [base.canonicalName, 'Other Printer'].map(canonicalName => ({
+      canonicalName, label: canonicalName, compatible: true, modified: false,
+    }));
+    let resolveRead!: (value: unknown) => void;
+    const getDraft = vi.fn().mockResolvedValue({ ...base, editorCandidates: candidates });
+    const { root, render } = await mountSession(getDraft);
+    getDraft.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve; }));
+    await choose('Other Printer');
+    await act(async () => { useHistoryRestoreStore.getState().advanceRevision(); });
+    expect(getDraft).toHaveBeenCalledTimes(2);
+    getDraft.mockResolvedValue({ ...base, canonicalName: 'Other Printer', editorCandidates: candidates, revision: 2 });
+    await act(async () => resolveRead({ ...base, canonicalName: 'Other Printer', editorCandidates: candidates }));
+    expect(getDraft).toHaveBeenCalledTimes(3);
+    expect(getDraft).toHaveBeenLastCalledWith('printer', 'Other Printer');
+
+    getDraft.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve; }));
+    await choose(base.canonicalName);
+    await act(async () => root.render(null));
+    getDraft.mockResolvedValue({ ...base, editorCandidates: candidates });
+    await render();
+    await act(async () => resolveRead({ ok: false, error: 'obsolete read failed' }));
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe(base.canonicalName);
+    expect(document.body.textContent).not.toContain('obsolete read failed');
+  });
+
+  it('owns mutation locks, canonical target resolution and deferred history refresh', async () => {
+    const base = snapshotFor('printer');
+    const getDraft = vi.fn().mockResolvedValue({ ...base });
+    const { onClose, platform } = await mountSession(getDraft);
+    let resolveMutation!: (value: PresetDraftMutationResult) => void;
+    let submitted!: PresetDraftMutationRequest;
+    vi.mocked(commitPresetDraftMutation).mockImplementation(async (_platform, request) => {
+      submitted = request;
+      return new Promise(resolve => { resolveMutation = resolve; });
+    });
+    await enterSearch('printable_height');
+    const height = document.querySelector('[data-testid="preset-editor-input-printable_height"]') as HTMLInputElement;
+    await changeInput(height, '245'); await press(height, 'Enter');
+    expect(commitPresetDraftMutation).toHaveBeenCalledWith(platform, expect.objectContaining({
+      kind: 'printer', canonicalName: base.canonicalName, key: 'printable_height', value: '245',
+    }));
+    expect((document.querySelector('[data-testid="preset-editor-preset"]') as HTMLButtonElement).disabled).toBe(true);
+    await click(document.querySelector('[data-testid="preset-editor-close"]'));
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { useHistoryRestoreStore.getState().advanceRevision(); });
+    expect(getDraft).toHaveBeenCalledTimes(1);
+    const result = mutationSuccess(base, submitted);
+    if (!result.ok) throw new Error('expected fixture mutation success');
+    const resolved = { ...result, canonicalName: 'Resolved Printer' };
+    getDraft.mockResolvedValue({ ...resolved, revision: 3 });
+    await act(async () => resolveMutation(resolved));
+    expect(getDraft).toHaveBeenLastCalledWith('printer', 'Resolved Printer');
+    expect(document.querySelector('[data-testid="preset-editor-title"]')?.textContent).toBe('Resolved Printer');
+    expect((document.querySelector('[data-testid="preset-editor-preset"]') as HTMLButtonElement).disabled).toBe(false);
+    await click(document.querySelector('[data-testid="preset-editor-close"]'));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

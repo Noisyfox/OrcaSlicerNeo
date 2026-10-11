@@ -1,5 +1,5 @@
 import { configVectorElementAt as vectorAt } from '@slicer/client';
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { XIcon } from 'lucide-react';
 import type {
   OptionMeta,
@@ -15,6 +15,11 @@ import type {
   PresetDraftEditorPoint,
 } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
+import { usePlatform } from '@orca/platform-contract';
+import { useFilamentSessionStore } from '@/stores/useFilamentSessionStore';
+import { useHistoryRestoreStore } from '@/stores/useHistoryRestoreStore';
+import { paintingCommandAllowed } from '../viewport/gizmo/painting/projectCommands';
+import { commitPresetDraftMutation } from './configurationActions';
 import { Button } from '@/components/ui/button';
 import { UserColorPickerPopover } from '@/components/color/UserColorPickerPopover';
 import { ColorSwatch } from '@/components/ui/color-picker';
@@ -25,6 +30,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from 'cn';
+import { PresetCombobox } from '../PresetCombobox';
 import { optionTooltip } from './optionTooltip';
 import {
   FILAMENT_PRESET_EDITOR_MANIFEST,
@@ -36,6 +42,12 @@ import {
 } from './presetEditorManifests';
 
 export interface PresetEditorDialogProps {
+  /** The opening source. Subsequent browsing is owned by this mounted dialog. */
+  readonly initialTarget: PresetDraftTarget;
+  readonly onClose: () => void;
+}
+
+export interface PresetEditorDialogContentProps {
   /** One native target at a time. Pass null when there is no active editor. */
   readonly target: PresetDraftTarget | null;
   readonly snapshot: PresetDraftSnapshot | null;
@@ -47,8 +59,11 @@ export interface PresetEditorDialogProps {
   /** Current one-based rack slots that select this Filament source. */
   readonly referencedFilamentSlots?: readonly number[];
   readonly onClose: () => void;
+  readonly onSelectPreset: (canonicalName: string) => Promise<void>;
   readonly onMutate: (request: PresetDraftMutationRequest) => Promise<PresetDraftMutationResult>;
 }
+
+const PresetEditorValidationContext = createContext<(id: string, invalid: boolean) => void>(() => undefined);
 
 interface RoutedField {
   readonly page: PresetEditorManifestPage;
@@ -245,7 +260,7 @@ function FieldValue({
   group?: PresetEditorManifestGroup;
   loading: boolean;
   mutationPending: boolean;
-  onMutate: PresetEditorDialogProps['onMutate'];
+  onMutate: PresetEditorDialogContentProps['onMutate'];
 }) {
   const label = labelFor(field, metadata);
   const binding = fieldBinding(snapshot, field.key, page?.extruderIndex);
@@ -288,6 +303,11 @@ function FieldValue({
   useEffect(() => setColourOpen(false), [effectiveValue]);
 
   const inputId = `preset-editor-input-${page?.id ?? 'field'}-${group?.id ?? 'group'}-${field.key}`;
+  const reportValidation = useContext(PresetEditorValidationContext);
+  useEffect(() => {
+    reportValidation(inputId, fieldError !== null);
+    return () => reportValidation(inputId, false);
+  }, [fieldError, inputId, reportValidation]);
 
   useEffect(() => {
     if (focused.current || fieldError !== null) return;
@@ -806,7 +826,7 @@ function FieldGroup({
   snapshot: PresetDraftSnapshot;
   loading: boolean;
   mutationPending: boolean;
-  onMutate: PresetEditorDialogProps['onMutate'];
+  onMutate: PresetEditorDialogContentProps['onMutate'];
 }) {
   const titleId = `preset-editor-group-title-${page.id}-${group.id}`;
   const overridden = groupHasOverrides(snapshot, group, page?.extruderIndex);
@@ -854,7 +874,141 @@ function referencedSlotsLabel(slots: readonly number[]): string {
   return `Used by ${slotsText}. Editing this source affects those slots.`;
 }
 
-export function PresetEditorDialog({
+export function PresetEditorDialog({ initialTarget, onClose }: PresetEditorDialogProps) {
+  const platform = usePlatform();
+  const [target, setTarget] = useState(initialTarget);
+  const [snapshot, setSnapshot] = useState<PresetDraftSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [mutationPending, setMutationPending] = useState(false);
+  const targetRef = useRef<PresetDraftTarget | null>(null);
+  const mutationPendingRef = useRef(false);
+  const refreshingRef = useRef(false);
+  const historyRevisionRef = useRef<number | null>(null);
+  const historyPhase = useHistoryRestoreStore(state => state.phase);
+  const historyRevision = useHistoryRestoreStore(state => state.revision);
+  const filamentSession = useFilamentSessionStore(state => state.snapshot);
+  const referencedSlots = target.kind === 'filament'
+    ? filamentSession?.slots.filter(slot => slot.preset.name === target.canonicalName).map(slot => slot.slot) ?? []
+    : [];
+
+  useEffect(() => {
+    const requestedTarget = { ...initialTarget };
+    targetRef.current = requestedTarget;
+    historyRevisionRef.current = useHistoryRestoreStore.getState().revision;
+    setTarget(requestedTarget);
+    setSnapshot(null);
+    setLoading(true);
+    setLoadError(null);
+    void platform.runtime.getPresetDraft(requestedTarget.kind, requestedTarget.canonicalName).then(result => {
+      if (targetRef.current !== requestedTarget) return;
+      if (result.ok) setSnapshot(result);
+      else setLoadError(result.error);
+    }).catch(error => {
+      if (targetRef.current === requestedTarget) setLoadError(errorText(error));
+    }).finally(() => {
+      if (targetRef.current === requestedTarget) setLoading(false);
+    });
+    return () => { targetRef.current = null; };
+  }, [initialTarget, platform.runtime]);
+
+  const selectTarget = useCallback(async (canonicalName: string) => {
+    const previous = targetRef.current;
+    if (!previous || canonicalName === previous.canonicalName || mutationPendingRef.current ||
+        refreshingRef.current || !paintingCommandAllowed()) return;
+    const requestedTarget = { kind: previous.kind, canonicalName };
+    targetRef.current = requestedTarget;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      // Browsing reads a source draft without changing the project selection.
+      const result = await platform.runtime.getPresetDraft(previous.kind, canonicalName);
+      if (targetRef.current !== requestedTarget) return;
+      if (!result.ok) throw new Error(result.error);
+      setTarget(requestedTarget);
+      setSnapshot(result);
+      setLoadError(null);
+    } catch (error) {
+      if (targetRef.current !== requestedTarget) return;
+      targetRef.current = previous;
+      throw error;
+    } finally {
+      if (targetRef.current === requestedTarget || targetRef.current === previous) {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
+    }
+  }, [platform.runtime]);
+
+  const mutate = useCallback(async (request: PresetDraftMutationRequest): Promise<PresetDraftMutationResult> => {
+    const currentTarget = targetRef.current;
+    if (!currentTarget || request.kind !== currentTarget.kind || request.canonicalName !== currentTarget.canonicalName) {
+      return { ok: false, errorCode: 'invalid_request', error: 'The preset editor target is no longer active.' };
+    }
+    if (mutationPendingRef.current || refreshingRef.current) {
+      return { ok: false, errorCode: 'history_transaction_active', error: 'A preset editor operation is already in progress.' };
+    }
+    mutationPendingRef.current = true;
+    setMutationPending(true);
+    try {
+      const result = await commitPresetDraftMutation(platform, request);
+      if (result.ok && targetRef.current === currentTarget) {
+        if (result.canonicalName !== currentTarget.canonicalName) {
+          const resolvedTarget = { kind: result.kind, canonicalName: result.canonicalName };
+          targetRef.current = resolvedTarget;
+          setTarget(resolvedTarget);
+        }
+        setSnapshot(result);
+        setLoadError(null);
+      }
+      return result;
+    } catch (error) {
+      return { ok: false, errorCode: 'runtime_failure', error: errorText(error) };
+    } finally {
+      mutationPendingRef.current = false;
+      if (targetRef.current) setMutationPending(false);
+    }
+  }, [platform]);
+
+  // Refresh the browsed source after Undo/Redo. If a read or mutation is still
+  // pending, retry once it finishes instead of losing that history revision.
+  useEffect(() => {
+    const currentTarget = targetRef.current;
+    if (!currentTarget || loading || mutationPendingRef.current || refreshingRef.current || historyPhase !== 'idle' ||
+        historyRevisionRef.current === historyRevision) return;
+    historyRevisionRef.current = historyRevision;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    setLoadError(null);
+    void platform.runtime.getPresetDraft(currentTarget.kind, currentTarget.canonicalName).then(result => {
+      if (targetRef.current !== currentTarget || historyRevisionRef.current !== historyRevision ||
+          useHistoryRestoreStore.getState().revision !== historyRevision) return;
+      if (result.ok) setSnapshot(result);
+      else setLoadError(result.error);
+    }).catch(error => {
+      if (targetRef.current === currentTarget && historyRevisionRef.current === historyRevision &&
+          useHistoryRestoreStore.getState().revision === historyRevision)
+        setLoadError(errorText(error));
+    }).finally(() => {
+      if (targetRef.current === currentTarget && historyRevisionRef.current === historyRevision) {
+        refreshingRef.current = false;
+        setRefreshing(false);
+      }
+    });
+  }, [historyPhase, historyRevision, loading, mutationPending, refreshing, platform.runtime]);
+
+  return <PresetEditorDialogContent target={target} snapshot={snapshot} loading={loading}
+    refreshing={refreshing} loadError={loadError} mutationPending={mutationPending}
+    referencedFilamentSlots={referencedSlots} onSelectPreset={selectTarget} onMutate={mutate}
+    onClose={() => {
+      if (mutationPendingRef.current) return;
+      targetRef.current = null;
+      onClose();
+    }} />;
+}
+
+export function PresetEditorDialogContent({
   target,
   snapshot,
   refreshing = false,
@@ -863,14 +1017,26 @@ export function PresetEditorDialog({
   mutationPending = false,
   referencedFilamentSlots = [],
   onClose,
+  onSelectPreset,
   onMutate,
-}: PresetEditorDialogProps) {
+}: PresetEditorDialogContentProps) {
   const interactionPending = loading || refreshing || mutationPending;
   const manifest = target ? manifestFor(target.kind) : null;
   const pages = useMemo(() => manifest ? pageInstances(manifest, snapshot) : [], [manifest, snapshot]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
+  const compatibleNames = useMemo(() => new Set(snapshot?.editorCandidates
+    .filter(candidate => candidate.compatible).map(candidate => candidate.canonicalName)), [snapshot]);
+  const [invalidFields, setInvalidFields] = useState<ReadonlySet<string>>(new Set());
+  const reportValidation = useCallback((id: string, invalid: boolean) => {
+    setInvalidFields(previous => {
+      if (previous.has(id) === invalid) return previous;
+      const next = new Set(previous);
+      if (invalid) next.add(id); else next.delete(id);
+      return next;
+    });
+  }, []);
   // A diameter transaction may resolve another canonical Printer source.
   // Keep the open Extruder page and its index through that source change.
   const navigationKey = target?.kind ?? '';
@@ -917,7 +1083,7 @@ export function PresetEditorDialog({
         data-testid="preset-editor-dialog"
         className="flex max-h-[88vh] w-[min(94vw,72rem)] max-w-none flex-col gap-4 overflow-hidden p-5"
       >
-        <div className="flex min-w-0 items-start justify-between gap-4">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
           <div className="min-w-0">
             <DialogTitle id="preset-editor-title" data-testid="preset-editor-title" className="truncate text-lg">
               {target.canonicalName}
@@ -925,12 +1091,8 @@ export function PresetEditorDialog({
             <DialogDescription className="mt-1">
               {target.kind === 'printer' ? 'Printer preset' : 'Filament preset'}
             </DialogDescription>
-            {target.kind === 'filament' && <p
-              data-testid="preset-editor-slot-reference"
-              className="mt-1 text-xs text-muted-foreground"
-            >{referencedSlotsLabel(referencedFilamentSlots)}</p>}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex items-center gap-2">
             {snapshot?.modified && <span
               data-testid="preset-editor-project-draft"
               className="rounded border px-2 py-1 text-xs"
@@ -955,9 +1117,30 @@ export function PresetEditorDialog({
               <XIcon aria-hidden="true" />
             </Button>
           </div>
+          {snapshot && <div className="col-span-2 mt-2 flex w-[min(32rem,60vw)] max-w-full">
+            <PresetCombobox
+              mode="select"
+              items={snapshot.editorCandidates.map(candidate => ({ id: candidate.canonicalName,
+                name: candidate.canonicalName, label: candidate.canonicalName, modified: candidate.modified }))}
+              value={target.canonicalName} modified={snapshot.modified} disabled={interactionPending || invalidFields.size > 0}
+              onValue={name => {
+                if (interactionPending || invalidFields.size > 0) return;
+                setActionError(null);
+                void onSelectPreset(name).catch(error => setActionError(errorText(error)));
+              }} ariaLabel="Preset to edit" testId="preset-editor-preset"
+              searchPlaceholder="Search presets to edit…" emptyText="No matching preset"
+              sectionBy={target.kind === 'filament' ? item => compatibleNames.has(item.id)
+                ? 'Compatible with project printer' : 'Not compatible with project printer' : undefined}
+            />
+          </div>}
+          {target.kind === 'filament' && <p
+            data-testid="preset-editor-slot-reference"
+            className="col-span-2 mt-1 text-xs text-muted-foreground"
+          >{referencedSlotsLabel(referencedFilamentSlots)}</p>}
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <PresetEditorValidationContext.Provider value={reportValidation}>
+        <div key={`${target.kind}:${target.canonicalName}`} className="flex min-h-0 flex-1 flex-col gap-3">
           <SearchInput
             type="search"
             aria-label={`Search ${target.kind} preset settings`}
@@ -1046,6 +1229,7 @@ export function PresetEditorDialog({
             ) : null}
           </div>
         </div>
+        </PresetEditorValidationContext.Provider>
       </DialogContent>}
     </Dialog>
   );

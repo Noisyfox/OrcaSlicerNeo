@@ -1176,6 +1176,58 @@ describe('SlicerClient bridge contract', () => {
     ] });
   });
 
+  it('browses all editor presets without selection and ranks nonempty overrides within printer compatibility sections', async () => {
+    const c = makeClient();
+    await c.init(MOCK_PROFILE_ACTIVATION);
+    const projectBefore = await c.getProfileSnapshot();
+    const rackBefore = await c.getFilamentSessionSnapshot();
+    const historyBefore = await c.getHistoryStatus();
+    const target = 'Bambu PLA Basic @BBL P1S';
+    const first = await c.getPresetDraft('filament', target);
+    if (!first.ok) throw new Error(first.error);
+    expect(first.editorCandidates.find(p => p.canonicalName === target)).toMatchObject({ compatible: false, modified: false });
+    // Printer compatibility alone: Silk is available regardless of Process.
+    expect(first.editorCandidates.find(p => p.canonicalName === 'Bambu PLA Silk @BBL X1C')).toMatchObject({ compatible: true });
+    expect(first.editorCandidates.some(p => p.canonicalName === 'Hidden filament')).toBe(false);
+    expect(await c.getProfileSnapshot()).toEqual(projectBefore);
+    expect(await c.getFilamentSessionSnapshot()).toEqual(rackBefore);
+    expect(await c.getHistoryStatus()).toEqual(historyBefore);
+    const edit = await c.mutatePresetDraft({ kind: 'filament', canonicalName: target,
+      expectedRevision: first.revision, action: 'set', key: 'filament_flow_ratio', value: '0.91' });
+    if (!edit.ok) throw new Error(edit.error);
+    const incompatible = edit.editorCandidates.filter(p => !p.compatible);
+    expect(incompatible[0]).toMatchObject({ canonicalName: target, modified: true });
+    expect(edit.editorCandidates.findIndex(p => !p.compatible)).toBeGreaterThan(0);
+    expect(edit.profileSnapshot.printer).toEqual(projectBefore.ok && projectBefore.printer);
+    expect(edit.filamentSession.slots.map(s => s.preset.name)).toEqual(rackBefore.ok && rackBefore.slots.map(s => s.preset.name));
+    const back = await c.getPresetDraft('filament', target);
+    expect(back).toMatchObject({ effectiveValues: { filament_flow_ratio: '[0.91,0.91]' } });
+    const reset = await c.mutatePresetDraft({ kind: 'filament', canonicalName: target,
+      expectedRevision: edit.revision, action: 'reset-preset' });
+    if (!reset.ok) throw new Error(reset.error);
+    expect(reset.editorCandidates.find(p => p.canonicalName === target)?.modified).toBe(false);
+  });
+
+  it.each([undefined, [{ canonical_name: 'x', label: 'x', compatible: true }], []])(
+    'rejects missing or malformed editor candidates: %j', async candidates => {
+      const module = createMockModule();
+      const original = module.ccall;
+      module.ccall = (name, ret, types, args) => {
+        const pointer = original(name, ret, types, args);
+        if (name !== 'orc_get_preset_draft') return pointer;
+        const payload = JSON.parse(module.UTF8ToString(Number(pointer)));
+        module._free(Number(pointer));
+        payload.editor_candidates = candidates;
+        const bytes = new TextEncoder().encode(JSON.stringify(payload) + '\0');
+        const result = module._malloc(bytes.length);
+        module.HEAPU8.set(bytes, Number(result));
+        return result;
+      };
+      const c = createClient(async () => module);
+      await c.init(MOCK_PROFILE_ACTIVATION);
+      expect(await c.getPresetDraft('filament', 'Generic PLA @System')).toMatchObject({ ok: false, errorCode: 'invalid_response' });
+    });
+
   it('reads source/effective preset values and shares drafts by canonical source across filament slots', async () => {
     const c = makeClient();
     await c.init(MOCK_PROFILE_ACTIVATION);

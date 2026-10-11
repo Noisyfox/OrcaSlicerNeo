@@ -1290,7 +1290,22 @@ function normalizePresetDraftSnapshot(raw: unknown): PresetDraftSnapshotResult {
   if (Object.entries(result.editorVectors).some(([key, vector]) =>
       vector.overrideValues.some(entry => entry !== null) && !Object.hasOwn(overrides, key)))
     return { ok: false, error: 'vector ownership is missing from preset overrides', errorCode: 'invalid_response' };
-  return { ...result, kind: raw.kind, draftExists: raw.draft_exists, modified: raw.modified, overrides };
+  if (!Array.isArray(raw.editor_candidates))
+    return { ok: false, error: 'missing preset editor candidates', errorCode: 'invalid_response' };
+  const names = new Set<string>();
+  const editorCandidates = [];
+  for (const candidate of raw.editor_candidates) {
+    if (!isRecord(candidate) || typeof candidate.canonical_name !== 'string' || !candidate.canonical_name ||
+        typeof candidate.label !== 'string' || !candidate.label || typeof candidate.compatible !== 'boolean' ||
+        typeof candidate.modified !== 'boolean' || names.has(candidate.canonical_name))
+      return { ok: false, error: 'invalid preset editor candidate', errorCode: 'invalid_response' };
+    names.add(candidate.canonical_name);
+    editorCandidates.push({ canonicalName: candidate.canonical_name, label: candidate.label,
+      compatible: candidate.compatible, modified: candidate.modified });
+  }
+  if (!names.has(result.canonicalName))
+    return { ok: false, error: 'preset editor target is missing from candidates', errorCode: 'invalid_response' };
+  return { ...result, kind: raw.kind, draftExists: raw.draft_exists, modified: raw.modified, overrides, editorCandidates };
 }
 
 function normalizePresetDraftMutation(raw: unknown): PresetDraftMutationResult {

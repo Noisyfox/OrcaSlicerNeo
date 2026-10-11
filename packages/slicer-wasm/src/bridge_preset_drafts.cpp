@@ -322,6 +322,33 @@ DynamicPrintConfig effective_full_config_secure(
                                         std::move(filament_maps));
 }
 
+// Editing candidates are independent of project selection. Compatibility is
+// against the project's effective Printer, never the Printer being browsed.
+json editor_candidates_json(const Preset::Type type, const std::string& canonical_name)
+{
+    const auto& bundle = state().presets;
+    const auto& collection = type == Preset::TYPE_PRINTER ? bundle.printers : bundle.filaments;
+    Preset printer = bundle.printers.get_selected_preset();
+    apply_draft(printer, state().preset_drafts);
+    const auto printer_profile = bundle.printers.get_preset_with_vendor_profile(printer);
+    json candidates = json::array();
+    for (const Preset& preset : collection.get_presets()) {
+        if ((!preset.is_visible || preset.is_default) && preset.name != canonical_name) continue;
+        if (type == Preset::TYPE_PRINTER && preset.printer_technology() != ptFFF) continue;
+        const auto* overrides = state().preset_drafts.find(type, preset.name);
+        const bool compatible = type == Preset::TYPE_PRINTER || is_compatible_with_printer(
+            collection.get_preset_with_vendor_profile(preset), printer_profile);
+        candidates.push_back(json{{"canonical_name", preset.name},
+            {"label", type == Preset::TYPE_PRINTER ? preset.name : Profiles::preset_display_label(preset)},
+            {"compatible", compatible}, {"modified", overrides != nullptr && !overrides->empty()}});
+    }
+    std::stable_sort(candidates.begin(), candidates.end(), [](const json& a, const json& b) {
+        if (a.at("compatible") != b.at("compatible")) return a.at("compatible").get<bool>();
+        return a.at("modified").get<bool>() && !b.at("modified").get<bool>();
+    });
+    return candidates;
+}
+
 json get_draft_json(const Preset::Type type, const std::string& canonical_name)
 {
     const Preset* source = find_preset_source(state().presets, type, canonical_name);
@@ -350,6 +377,7 @@ json get_draft_json(const Preset::Type type, const std::string& canonical_name)
                 {"canonical_name", source->name},
                 {"draft_exists", overrides != nullptr},
                 {"modified", overrides != nullptr && !overrides->empty()},
+                {"editor_candidates", editor_candidates_json(type, canonical_name)},
                 {"overrides", override_values},
                 {"source_values", config_values_json(source->config)},
                 {"effective_values", config_values_json(effective.config)},
